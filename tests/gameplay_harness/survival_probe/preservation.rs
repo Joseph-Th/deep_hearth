@@ -82,6 +82,15 @@ pub(super) fn preservation_candidate_for_policy(
     candidates: &[PreservationCandidate],
     policy: PreservationInvestmentPolicy,
 ) -> usize {
+    preservation_candidate_for_policy_with_constraints(candidates, policy, Mass::ZERO, None)
+}
+
+fn preservation_candidate_for_policy_with_constraints(
+    candidates: &[PreservationCandidate],
+    policy: PreservationInvestmentPolicy,
+    minimum_capacity: Mass,
+    available_raw_materials: Option<&[(CommodityKey, Mass)]>,
+) -> usize {
     let key = |candidate: &PreservationCandidate| match policy {
         PreservationInvestmentPolicy::AttentionEfficient => (
             candidate.construction_plan.attention_ticks,
@@ -94,14 +103,52 @@ pub(super) fn preservation_candidate_for_policy(
             candidate.construction_plan.raw_mass.milligrams(),
         ),
     };
-    let best_key = candidates
-        .iter()
-        .map(&key)
-        .min()
-        .unwrap_or_else(|| unreachable!("preservation candidates are nonempty"));
-    let finalists = candidates
+    let available_raw_materials = available_raw_materials.map(|available| {
+        let mut totals = BTreeMap::<CommodityKey, Mass>::new();
+        for (commodity, mass) in available {
+            let total = totals
+                .get(commodity)
+                .copied()
+                .unwrap_or(Mass::ZERO)
+                .checked_add(*mass)
+                .unwrap_or_else(|| panic!("preservation raw opportunity overflowed"));
+            totals.insert(*commodity, total);
+        }
+        totals
+    });
+    let eligible = candidates
         .iter()
         .enumerate()
+        .filter(|(_, candidate)| candidate.capacity >= minimum_capacity)
+        .filter(|(_, candidate)| {
+            available_raw_materials.as_ref().is_none_or(|available| {
+                let mut required = BTreeMap::<CommodityKey, Mass>::new();
+                for route in &candidate.construction_plan.routes {
+                    let total = required
+                        .get(&route.raw_commodity)
+                        .copied()
+                        .unwrap_or(Mass::ZERO)
+                        .checked_add(route.raw_mass)
+                        .unwrap_or_else(|| panic!("preservation raw requirement overflowed"));
+                    required.insert(route.raw_commodity, total);
+                }
+                required.into_iter().all(|(commodity, required_mass)| {
+                    available.get(&commodity).copied().unwrap_or(Mass::ZERO) >= required_mass
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !eligible.is_empty(),
+        "no authored preservation enclosure satisfies the reserve-capacity and raw-material opportunity"
+    );
+    let best_key = eligible
+        .iter()
+        .map(|(_, candidate)| key(candidate))
+        .min()
+        .unwrap_or_else(|| unreachable!("eligible preservation candidates are nonempty"));
+    let finalists = eligible
+        .into_iter()
         .filter(|(_, candidate)| key(candidate) == best_key)
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
@@ -117,6 +164,37 @@ pub(in super::super) fn preservation_storage_definition_for_policy(
     registries: &Registries,
     policy: PreservationInvestmentPolicy,
 ) -> StorageDefinitionId {
+    preservation_storage_definition_for_policy_and_capacity(registries, policy, Mass::ZERO)
+}
+
+pub(in super::super) fn preservation_storage_definition_for_policy_and_capacity(
+    registries: &Registries,
+    policy: PreservationInvestmentPolicy,
+    minimum_capacity: Mass,
+) -> StorageDefinitionId {
     let candidates = preservation_candidates(registries);
-    candidates[preservation_candidate_for_policy(&candidates, policy)].definition
+    candidates[preservation_candidate_for_policy_with_constraints(
+        &candidates,
+        policy,
+        minimum_capacity,
+        None,
+    )]
+    .definition
+}
+
+#[cfg(test)]
+pub(in super::super) fn preservation_storage_definition_for_policy_and_opportunity(
+    registries: &Registries,
+    policy: PreservationInvestmentPolicy,
+    minimum_capacity: Mass,
+    available_raw_materials: &[(CommodityKey, Mass)],
+) -> StorageDefinitionId {
+    let candidates = preservation_candidates(registries);
+    candidates[preservation_candidate_for_policy_with_constraints(
+        &candidates,
+        policy,
+        minimum_capacity,
+        Some(available_raw_materials),
+    )]
+    .definition
 }

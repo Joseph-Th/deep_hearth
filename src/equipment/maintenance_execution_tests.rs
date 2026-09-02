@@ -1631,18 +1631,15 @@ fn maintenance_spent_capacity_failure_is_atomic() {
 #[cfg(feature = "test-soak")]
 #[test]
 #[ignore = "long-horizon soak"]
-fn equipment_maintenance_soak_preserves_resource_conservation_and_replay() {
+fn equipment_maintenance_soak_preserves_timed_service_resources_and_replay() {
     let registries = registries();
     let mut first = AppState::new(WorldSeed::new(0x8120_0007));
-    let equipment = match add_equipment(
-        &registries,
-        &mut first,
-        TEST_DEFINITION,
-        Condition::PRISTINE,
-    ) {
-        Ok(equipment) => equipment,
-        Err(error) => panic!("maintenance soak equipment fixture failed: {error}"),
-    };
+    initialize_service_player(&registries, &mut first);
+    let equipment =
+        match add_equipment(&registries, &mut first, TEST_DEFINITION, condition(700_000)) {
+            Ok(equipment) => equipment,
+            Err(error) => panic!("maintenance soak equipment fixture failed: {error}"),
+        };
     let source = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(500)) {
         Ok(stockpile) => stockpile,
         Err(error) => panic!("maintenance soak source fixture failed: {error}"),
@@ -1668,30 +1665,36 @@ fn equipment_maintenance_soak_preserves_resource_conservation_and_replay() {
             if let Err(error) = apply_equipment_condition_plan(state, wear) {
                 panic!("maintenance soak wear commit failed at {cycle}: {error}");
             }
-            let lot = match state
-                .inventory()
-                .lots()
-                .find(|lot| lot.stockpile() == source && lot.mass() >= Mass::from_milligrams(1))
-            {
-                Some(lot) => lot.id(),
-                None => panic!("maintenance soak source material missing at cycle {cycle}"),
-            };
-            let resolution = bind(
-                state,
-                equipment,
-                source,
-                lot,
-                Mass::from_milligrams(1),
-                spent,
-                Condition::PRISTINE,
+            assert_eq!(
+                state
+                    .equipment()
+                    .get_equipment(equipment)
+                    .map(|record| record.condition()),
+                Some(condition(699_000))
             );
+            let resolution = resolve_equipment_maintenance(
+                &registries,
+                state,
+                EquipmentMaintenanceRequest::new(equipment, source, spent),
+            )
+            .unwrap_or_else(|error| {
+                panic!("maintenance soak resolution failed at {cycle}: {error}")
+            });
+            assert_eq!(resolution.material_mass(), Mass::from_milligrams(1));
+            assert_eq!(resolution.condition_before(), condition(699_000));
+            assert_eq!(resolution.condition_after(), condition(700_000));
+            assert_eq!(resolution.duration(), TickSpan::new(1));
             let maintenance = match validate_equipment_maintenance(&registries, state, resolution) {
                 Ok(token) => token,
                 Err(error) => panic!("maintenance soak validation failed at {cycle}: {error}"),
             };
-            if let Err(error) = maintenance.commit(state) {
-                panic!("maintenance soak commit failed at {cycle}: {error}");
-            }
+            let outcome = maintenance.commit(state).unwrap_or_else(|error| {
+                panic!("maintenance soak commit failed at {cycle}: {error}")
+            });
+            assert_eq!(outcome.target_condition(), condition(700_000));
+            let completion = finish_service(&registries, state, outcome.completes_at());
+            assert_eq!(completion.condition_before(), condition(699_000));
+            assert_eq!(completion.condition_after(), condition(700_000));
         }
         if cycle % 53 == 0 {
             assert_eq!(validate_loaded_state(&registries, &first), Ok(()));
@@ -1715,7 +1718,7 @@ fn equipment_maintenance_soak_preserves_resource_conservation_and_replay() {
             .equipment()
             .get_equipment(equipment)
             .map(|record| record.condition()),
-        Some(Condition::PRISTINE)
+        Some(condition(700_000))
     );
     assert_eq!(
         first

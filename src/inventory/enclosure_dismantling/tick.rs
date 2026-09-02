@@ -105,7 +105,19 @@ pub(crate) fn decide_storage_enclosure_dismantling_tick(
         MaterialIngressError::RevisionExhausted => {
             StorageEnclosureDismantlingTickError::InventoryRevision
         }
-        other => panic!(
+        other @ (MaterialIngressError::Empty
+        | MaterialIngressError::UnknownStockpile { .. }
+        | MaterialIngressError::UnknownMaterial { .. }
+        | MaterialIngressError::UnknownForm { .. }
+        | MaterialIngressError::UnknownCompositionMaterial { .. }
+        | MaterialIngressError::ZeroMass
+        | MaterialIngressError::InvalidComposition { .. }
+        | MaterialIngressError::CompositionMissingHost { .. }
+        | MaterialIngressError::Storage(_)
+        | MaterialIngressError::InvalidProvenance
+        | MaterialIngressError::ProvenanceInFuture { .. }
+        | MaterialIngressError::MassOverflow { .. }
+        | MaterialIngressError::CapacityExceeded { .. }) => panic!(
             "runtime invariant broken: admitted dismantling recovery became invalid: {other:?}"
         ),
     })?;

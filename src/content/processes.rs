@@ -35,6 +35,14 @@ pub const PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST: ProcessId = ProcessId::new(
 pub const PROCESS_SALVAGE_TIMBER_CHEST_BODY: ProcessId = ProcessId::new(20);
 pub const PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY: ProcessId = ProcessId::new(21);
 pub const PROCESS_REKNAP_STONE_SCRAP_TOOL: ProcessId = ProcessId::new(22);
+pub const PROCESS_ASSEMBLE_BULK_TIMBER_CRATE: ProcessId = ProcessId::new(23);
+pub const PROCESS_SALVAGE_BULK_TIMBER_CRATE_BODY: ProcessId = ProcessId::new(24);
+pub const PROCESS_ASSEMBLE_INSULATED_TIMBER_PANTRY: ProcessId = ProcessId::new(25);
+pub const PROCESS_SALVAGE_INSULATED_TIMBER_PANTRY_BODY: ProcessId = ProcessId::new(26);
+pub const PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX: ProcessId = ProcessId::new(27);
+pub const PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY: ProcessId = ProcessId::new(28);
+pub const PROCESS_SHAPE_STONE_PROVISIONS_CROCK: ProcessId = ProcessId::new(29);
+pub const PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY: ProcessId = ProcessId::new(30);
 
 fn mass_flow_resolver_requirements(
     flow_capability: CapabilityId,
@@ -138,6 +146,21 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             Vec::new(),
         ),
         ProcessDefinition::new_selected_batch(
+            PROCESS_ASSEMBLE_BULK_TIMBER_CRATE,
+            "assemble bulk timber crate body",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_ASSEMBLE_INSULATED_TIMBER_PANTRY,
+            "assemble insulated timber pantry body",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+            "assemble rough timber field box body",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
             PROCESS_SALVAGE_TIMBER_CHEST_BODY,
             "salvage timber chest body",
             Vec::new(),
@@ -145,6 +168,31 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new_selected_batch(
             PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
             "salvage double-wall timber chest body",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SALVAGE_BULK_TIMBER_CRATE_BODY,
+            "salvage bulk timber crate body",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SALVAGE_INSULATED_TIMBER_PANTRY_BODY,
+            "salvage insulated timber pantry body",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY,
+            "salvage rough timber field box body",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
+            "shape carved stone provisions crock body",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
+            "salvage carved stone provisions crock body",
             Vec::new(),
         ),
         ProcessDefinition::new_selected_batch(PROCESS_HAND_BREAK_ORE, "hand break ore", Vec::new()),

@@ -3,10 +3,10 @@
 use super::*;
 use crate::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    FORM_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_ORE, FORM_REINFORCEMENT,
-    FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, STORAGE_TIMBER_PROVISIONS_CHEST,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    EQUIPMENT_STONE_QUARRY_PICK, FORM_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP,
+    FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE,
+    STORAGE_TIMBER_PROVISIONS_CHEST, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -63,6 +63,83 @@ fn deposit_spec() -> GeneratedDepositSpec {
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("mining test deposit failed: {error}"))
+}
+
+fn assemble_quarry_pick_for_test(registries: &Registries, state: &mut AppState) -> EquipmentId {
+    let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(2_000_000))
+        .unwrap_or_else(|error| panic!("quarry-pick assembly source failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(400_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("quarry-pick assembly material failed: {error}"));
+    }
+    validate_assemble_equipment(registries, state, EQUIPMENT_STONE_QUARRY_PICK, source)
+        .unwrap_or_else(|error| panic!("quarry-pick assembly validation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("quarry-pick assembly commit failed: {error}"))
+}
+
+#[test]
+fn heavy_quarry_pick_reduces_bulk_soft_rock_attention_through_canonical_mining() {
+    let registries = build_registries();
+    let mass = Mass::from_milligrams(200_000);
+
+    let duration_for = |seed: u64, quarry: bool| {
+        let mut state = AppState::new(WorldSeed::new(seed));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("bulk-mining survival setup failed: {error}"));
+        let equipment = if quarry {
+            assemble_quarry_pick_for_test(&registries, &mut state)
+        } else {
+            assemble_pick_for_test(&registries, &mut state)
+        };
+        let destination = add_solid_stockpile_for_test(&mut state, mass)
+            .unwrap_or_else(|error| panic!("bulk-mining destination failed: {error}"));
+        let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("bulk-mining deposit failed: {error}"));
+        let start_tick = state.tick();
+        let token = validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            equipment,
+            mass,
+        )
+        .unwrap_or_else(|error| panic!("bulk-mining validation failed: {error}"));
+        let budget = token.work.resource_budget();
+        let job = token
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("bulk-mining commit failed: {error}"));
+        let record = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("bulk-mining job disappeared"));
+        (record.completes_at().value() - start_tick.value(), budget)
+    };
+
+    let (stone_ticks, stone_budget) = duration_for(0xA11E_0100, false);
+    let (quarry_ticks, quarry_budget) = duration_for(0xA11E_0101, true);
+    assert_eq!(stone_ticks, 3);
+    assert_eq!(quarry_ticks, 2);
+    assert!(quarry_budget.metabolic_energy() < stone_budget.metabolic_energy());
+    assert!(quarry_budget.hydration() < stone_budget.hydration());
 }
 
 fn insert_known_deposit(

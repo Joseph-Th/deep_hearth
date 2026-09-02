@@ -10,9 +10,10 @@ use crate::labor::{
 };
 use crate::survival::SurvivalExertion;
 
-use super::capabilities::CAPABILITY_MANUAL_POWER_OUTPUT;
+use super::capabilities::{CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_POWER_OUTPUT};
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
+pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const PROSPECTING_FIELD_INSPECTION: ProspectingMethodId = ProspectingMethodId::new(1);
 pub const PROSPECTING_DETAILED_FIELD_SURVEY: ProspectingMethodId = ProspectingMethodId::new(2);
 pub const PROSPECTING_REGIONAL_RECONNAISSANCE: ProspectingMethodId = ProspectingMethodId::new(3);
@@ -20,17 +21,30 @@ pub const PROSPECTING_LOCAL_TRANSECT: ProspectingMethodId = ProspectingMethodId:
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
-        [ManualPowerDefinition::new(
-            MANUAL_POWER_HAND_CRANK,
-            CAPABILITY_MANUAL_POWER_OUTPUT,
-            EnergyCarrier::Mechanical,
-            200_000,
-            25,
-            SurvivalExertion::new(
-                Energy::from_nanojoules(3_000_000_000_000),
-                Volume::from_microliters(350),
+        [
+            ManualPowerDefinition::new(
+                MANUAL_POWER_HAND_CRANK,
+                CAPABILITY_MANUAL_POWER_OUTPUT,
+                EnergyCarrier::Mechanical,
+                200_000,
+                25,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(3_000_000_000_000),
+                    Volume::from_microliters(350),
+                ),
             ),
-        )],
+            ManualPowerDefinition::new(
+                MANUAL_POWER_FOOT_TREADLE,
+                CAPABILITY_TREADLE_POWER_OUTPUT,
+                EnergyCarrier::Mechanical,
+                230_000,
+                15,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(3_000_000_000_000),
+                    Volume::from_microliters(400),
+                ),
+            ),
+        ],
         [
             ProspectingDefinition::new(
                 PROSPECTING_FIELD_INSPECTION,

@@ -4,20 +4,17 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::{
-    StorageEnclosureDismantlingError, validate_storage_dismantling_target_for_completion,
+    StockpileRecord, StorageDefinition, StorageEnclosureDismantlingError,
+    validate_storage_dismantling_target_for_completion,
 };
 use crate::labor::StorageEnclosureDismantlingWork;
 use crate::registry::Registries;
 
 use super::{ActivePlayerJobs, PlayerWorkValidationError, validate_remaining_resources};
 
-pub(super) fn validate_storage_enclosure_dismantling_work(
-    registries: &Registries,
-    state: &AppState,
+fn validate_work_identity(
     active_jobs: &ActivePlayerJobs,
-    work: StorageEnclosureDismantlingWork,
-    available_energy: Energy,
-    available_hydration: Volume,
+    work: &StorageEnclosureDismantlingWork,
 ) -> Result<(), PlayerWorkValidationError> {
     if active_jobs.has_any() {
         return Err(PlayerWorkValidationError::StorageDismantlingResourceDoubleBooked);
@@ -25,7 +22,13 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
     if work.target() == work.recovery_destination() {
         return Err(PlayerWorkValidationError::StorageDismantlingRecoveryIsTarget);
     }
+    Ok(())
+}
 
+fn validate_target<'a>(
+    state: &'a AppState,
+    work: &StorageEnclosureDismantlingWork,
+) -> Result<&'a StockpileRecord, PlayerWorkValidationError> {
     let target = state
         .inventory()
         .get_stockpile(work.target())
@@ -48,7 +51,13 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
     if !target.reserved_inbound().is_zero() {
         return Err(PlayerWorkValidationError::StorageDismantlingTargetReservedInbound);
     }
+    Ok(target)
+}
 
+fn validate_recovery_destination(
+    state: &AppState,
+    work: &StorageEnclosureDismantlingWork,
+) -> Result<(), PlayerWorkValidationError> {
     let recovery = state
         .inventory()
         .get_stockpile(work.recovery_destination())
@@ -56,7 +65,15 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
     if recovery.supported_by().is_some() {
         return Err(PlayerWorkValidationError::StorageDismantlingRecoveryMounted);
     }
+    Ok(())
+}
 
+fn validate_definition_and_schedule<'a>(
+    registries: &'a Registries,
+    state: &AppState,
+    target: &StockpileRecord,
+    work: &StorageEnclosureDismantlingWork,
+) -> Result<&'a StorageDefinition, PlayerWorkValidationError> {
     let definition = registries
         .storage()
         .get(work.definition())
@@ -74,6 +91,14 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
     if actual_duration != definition.dismantle_duration() {
         return Err(PlayerWorkValidationError::StorageDismantlingDurationMismatch);
     }
+    Ok(definition)
+}
+
+fn validate_completion_replay(
+    registries: &Registries,
+    state: &AppState,
+    work: &StorageEnclosureDismantlingWork,
+) -> Result<(), PlayerWorkValidationError> {
     validate_storage_dismantling_target_for_completion(
         registries,
         state.inventory(),
@@ -87,10 +112,39 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
         StorageEnclosureDismantlingError::StorageHistoryOverflow { lot } => {
             PlayerWorkValidationError::StorageDismantlingStorageHistoryOverflow { lot }
         }
-        _ => unreachable!(
+        StorageEnclosureDismantlingError::UnknownTarget { .. }
+        | StorageEnclosureDismantlingError::NotEnclosed { .. }
+        | StorageEnclosureDismantlingError::UnknownDefinition { .. }
+        | StorageEnclosureDismantlingError::TargetMounted { .. }
+        | StorageEnclosureDismantlingError::TargetHasReservedInbound { .. }
+        | StorageEnclosureDismantlingError::UnknownRecoveryDestination { .. }
+        | StorageEnclosureDismantlingError::RecoveryDestinationIsTarget { .. }
+        | StorageEnclosureDismantlingError::RecoveryDestinationMounted { .. }
+        | StorageEnclosureDismantlingError::RecoveryDestinationStorage(_)
+        | StorageEnclosureDismantlingError::RecoveryCapacityExceeded { .. }
+        | StorageEnclosureDismantlingError::RecoveryMassOverflow { .. }
+        | StorageEnclosureDismantlingError::RecoveryLotIdExhausted
+        | StorageEnclosureDismantlingError::InventoryRevisionExhausted
+        | StorageEnclosureDismantlingError::CompletionTickOverflow { .. }
+        | StorageEnclosureDismantlingError::PlayerWork(_) => unreachable!(
             "storage dismantling trusted-load target was fully checked before completion replay"
         ),
-    })?;
+    })
+}
+
+pub(super) fn validate_storage_enclosure_dismantling_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    work: StorageEnclosureDismantlingWork,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    validate_work_identity(active_jobs, &work)?;
+    let target = validate_target(state, &work)?;
+    validate_recovery_destination(state, &work)?;
+    let definition = validate_definition_and_schedule(registries, state, target, &work)?;
+    validate_completion_replay(registries, state, &work)?;
     validate_remaining_resources(
         registries,
         available_energy,

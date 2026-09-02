@@ -214,21 +214,25 @@ facts only. The same reinforcement must also increase the material-backed stone 
 through the energy owner without regressing carrier, transfer limits, passive loss, or disassembly recovery; the
 expanded stored-work envelope must fund a real larger primitive-processing batch.
 
-Preservation coverage requires both timber enclosure definitions to remain ordinarily producible and verifies
-that the higher-preservation double-wall option keeps the same usable capacity while requiring more embodied
-timber and more construction attention. Inherited reserve history is generated only from the world seed; actor
-policy must never rewrite which enclosure existed before admission or how old retained food already is. Current
-investment alternatives start from the same raw-material opportunity and execute both construction branches to
-one matched wall-clock endpoint. The signed effective-age result is intentional: extra construction delay can
-make a higher preservation multiplier temporarily worse at that endpoint. The report also compares the exact
-remaining edible lifetime from the survival owner, so a slower-to-build enclosure can still demonstrate its
+Preservation coverage requires every authored enclosure to remain ordinarily producible and recoverable while
+retaining a distinct practical tradeoff in capacity, preservation, raw material, or construction attention.
+Candidate ranking first respects physical feasibility: an enclosure that cannot hold the protected reserve or
+cannot be produced from the disclosed raw-material opportunity is not an actor option. Inherited reserve history
+is generated only from the world seed; actor policy must never rewrite which enclosure existed before admission
+or how old retained food already is. The matched freshness-return experiment intentionally compares the fastest
+and strongest feasible construction branches at one wall-clock endpoint. Its signed effective-age result is
+intentional: extra construction delay can make stronger preservation temporarily worse. The report also compares
+the exact remaining edible lifetime from the survival owner, so slower construction can still demonstrate a
 longer-horizon advantage without an invented break-even approximation. Each branch must first project its selected
 food lot through the planned authored storage transition using the survival-owned freshness projection, then prove
 that forecast exactly against the later canonical construction and tick outcome. The projection is planning
-evidence only and never substitutes for construction validation.
-Each current timber preservation body must expose at least one
-manual salvage route that exactly partitions detached body mass into reusable boards and explicit chip residue;
-additional legitimate salvage routes may coexist, and reverse routes must not create a cheaper construction cycle.
+evidence only and never substitutes for construction validation. Separate bounded contracts require medium and
+bulk reserves to eliminate undersized candidates before ranking and require material-constrained opportunities to
+exclude enclosure routes whose raw inputs are unavailable.
+Each current preservation body must expose at least one exact same-material manual salvage route into a different
+reusable form; timber bodies recover as boards plus explicit chip residue, while the carved stone crock returns
+reworkable stone scrap. Additional legitimate salvage routes may coexist, and reverse routes must not create a
+cheaper construction cycle.
 The runtime experience must first dismantle the installed enclosure through the production player-work path: the
 enclosure remains authoritative until its authored completion tick, survival reserves pay the authored exertion,
 ambient storage is restored only on completion, and the complete embodied body mass returns to inventory before

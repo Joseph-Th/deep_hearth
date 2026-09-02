@@ -7,18 +7,57 @@ use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
 use crate::content::materials::{
-    FORM_CHIP, FORM_FLYWHEEL, FORM_LUMP, FORM_SCRAP, FORM_TOOL, MATERIAL_STONE,
+    FORM_CHIP, FORM_FLYWHEEL, FORM_LUMP, FORM_SCRAP, FORM_STONE_CROCK_BODY, FORM_TOOL,
+    MATERIAL_STONE,
 };
 use crate::content::processes::{
-    PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL,
+    PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 3] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 5] {
     [
         knap_stone_tool(),
         reknap_stone_scrap_tool(),
         shape_stone_flywheel(),
+        shape_stone_provisions_crock(),
+        salvage_stone_provisions_crock_body(),
     ]
+}
+
+fn shape_stone_provisions_crock() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(3_000_000),
+        TickSpan::new(180),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
+                Mass::from_milligrams(2_400_000),
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(600_000),
+            ),
+        ],
+    )
+}
+
+fn salvage_stone_provisions_crock_body() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
+        CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
+        Mass::from_milligrams(2_400_000),
+        TickSpan::new(70),
+        stone_exertion(),
+        vec![ManualCraftOutput::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+            Mass::from_milligrams(2_400_000),
+        )],
+    )
 }
 
 fn stone_exertion() -> SurvivalExertion {

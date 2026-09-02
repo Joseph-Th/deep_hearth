@@ -3,8 +3,11 @@
 use super::*;
 
 use crate::content::{
-    FORM_CHEST_BODY, FORM_FOOD, FORM_LOG, MATERIAL_BERRIES, MATERIAL_WOOD,
-    PROCESS_SHAPE_WOOD_BOARDS, STORAGE_TIMBER_PROVISIONS_CHEST,
+    FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_FOOD, FORM_INSULATED_PANTRY_BODY, FORM_LOG,
+    FORM_LUMP, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
+    STORAGE_BULK_TIMBER_PROVISIONS_CRATE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
+    STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_TIMBER_PROVISIONS_CHEST,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{AggregateMass, Area, Length, Mass, Temperature};
@@ -66,6 +69,265 @@ fn construction_fixture(
     )
     .unwrap_or_else(|error| panic!("preservation chest-body fixture failed: {error}"));
     (registries, state, target, source, food)
+}
+
+#[test]
+fn bulk_crate_encloses_large_reserve_that_standard_chest_cannot() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5702_1011));
+    let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(40_000_000))
+        .unwrap_or_else(|error| panic!("bulk crate target fixture failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(30_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("bulk crate grain reserve failed: {error}"));
+    let body_mass = Mass::from_milligrams(3_200_000);
+    let source = add_solid_stockpile_for_test(&mut state, body_mass)
+        .unwrap_or_else(|error| panic!("bulk crate construction source failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+        body_mass,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("bulk crate body fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("bulk crate matter-before audit failed: {error}"))
+        .total();
+
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            target,
+            source,
+        )
+        .err(),
+        Some(StorageEnclosureConstructionError::TargetCapacityTooLarge {
+            stockpile: target,
+            capacity: Mass::from_milligrams(40_000_000),
+            maximum: Mass::from_milligrams(20_000_000),
+        })
+    );
+
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
+        target,
+        source,
+    )
+    .unwrap_or_else(|error| panic!("bulk crate construction validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("bulk crate construction commit failed: {error}"));
+    let target_record = state
+        .inventory()
+        .get_stockpile(target)
+        .unwrap_or_else(|| panic!("bulk crate target disappeared"));
+    assert_eq!(target_record.capacity(), Mass::from_milligrams(40_000_000));
+    assert_eq!(
+        target_record.stored_mass(),
+        Mass::from_milligrams(30_000_000)
+    );
+    assert_eq!(
+        target_record
+            .storage_profile()
+            .preservation_multiplier_ppm(),
+        1_500_000
+    );
+    assert_eq!(target_record.embodied_mass(), body_mass);
+    assert_eq!(
+        target_record
+            .enclosure()
+            .map(|enclosure| enclosure.definition()),
+        Some(STORAGE_BULK_TIMBER_PROVISIONS_CRATE)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("bulk crate matter-after audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn raw_stone_can_be_shaped_into_a_timber_free_preservation_crock() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5702_1013));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stone crock survival setup failed: {error}"));
+    let raw_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_000_000))
+        .unwrap_or_else(|error| panic!("stone crock raw source failed: {error}"));
+    let raw_stone = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        raw_source,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(3_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("stone crock raw material failed: {error}"));
+    let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_000_000))
+        .unwrap_or_else(|error| panic!("stone crock shaped destination failed: {error}"));
+    let craft = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
+            raw_source,
+            MaterialLotSelection::new(raw_stone, Mass::from_milligrams(3_000_000)),
+            shaped,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("stone crock shaping validation failed: {error}"));
+    let craft_ticks = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_STONE_PROVISIONS_CROCK)
+        .map(|definition| definition.duration().value())
+        .unwrap_or_else(|| panic!("stone crock shaping definition disappeared"));
+    assert_eq!(craft_ticks, 180);
+    craft
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stone crock shaping commit failed: {error}"));
+    advance_exact(&registries, &mut state, craft_ticks);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(shaped)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::from_milligrams(3_000_000))
+    );
+
+    let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
+        .unwrap_or_else(|error| panic!("stone crock food target failed: {error}"));
+    let food = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("stone crock food fixture failed: {error}"));
+    advance_exact(&registries, &mut state, 100);
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, food),
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(100)
+    ));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("stone crock matter-before audit failed: {error}"))
+        .total();
+
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_CARVED_STONE_PROVISIONS_CROCK,
+        target,
+        shaped,
+    )
+    .unwrap_or_else(|error| panic!("stone crock construction validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("stone crock construction commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(shaped)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::from_milligrams(600_000)),
+        "stone shaping chips must remain represented after the crock body is installed"
+    );
+    assert_eq!(
+        state.inventory().get_stockpile(target).map(|record| (
+            record.storage_profile().preservation_multiplier_ppm(),
+            record.embodied_mass(),
+        )),
+        Some((2_500_000, Mass::from_milligrams(2_400_000)))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("stone crock matter-after audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+
+    advance_exact(&registries, &mut state, 100);
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, food),
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(140)
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn insulated_pantry_slows_only_future_food_age_four_to_one() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5702_1012));
+    let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
+        .unwrap_or_else(|error| panic!("insulated pantry target fixture failed: {error}"));
+    let food = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("insulated pantry food fixture failed: {error}"));
+    let body_mass = Mass::from_milligrams(4_800_000);
+    let source = add_solid_stockpile_for_test(&mut state, body_mass)
+        .unwrap_or_else(|error| panic!("insulated pantry source fixture failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_INSULATED_PANTRY_BODY),
+        body_mass,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("insulated pantry body fixture failed: {error}"));
+
+    advance_exact(&registries, &mut state, 80);
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, food),
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(80)
+    ));
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_INSULATED_TIMBER_PANTRY,
+        target,
+        source,
+    )
+    .unwrap_or_else(|error| panic!("insulated pantry construction validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("insulated pantry construction commit failed: {error}"));
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, food),
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(80)
+    ));
+
+    advance_exact(&registries, &mut state, 80);
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, food),
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(100)
+    ));
+    assert_eq!(
+        state.inventory().get_stockpile(target).map(|record| (
+            record.storage_profile().preservation_multiplier_ppm(),
+            record.embodied_mass(),
+        )),
+        Some((4_000_000, body_mass))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {

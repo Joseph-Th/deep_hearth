@@ -18,6 +18,8 @@ pub const ENERGY_THERMAL_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId
 pub const ENERGY_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(5);
 pub const ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(6);
+pub const ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId =
+    EnergyStoreDefinitionId::new(7);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -31,6 +33,7 @@ const WORKSHOP_THERMAL_SINK_PASSIVE_DISSIPATION_POWER: Power =
 /// therefore cannot function as permanent stored work, while freshly charged workshop-scale
 /// operations still have a useful multi-minute physical window.
 const STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(50_000);
+const PAIRED_STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(100_000);
 
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([
@@ -116,5 +119,24 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 Mass::from_milligrams(20_000),
             )]),
         )),
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
+            "paired stone flywheel accumulator",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(1_000_000_000_000),
+            Power::from_microwatts(100_000_000),
+            Power::from_microwatts(500_000_000),
+        )
+        .with_passive_dissipation_power(PAIRED_STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER)
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                Mass::from_milligrams(1_800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+        ])),
     ])
 }

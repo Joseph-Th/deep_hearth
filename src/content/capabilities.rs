@@ -20,6 +20,7 @@ pub(crate) const CAPABILITY_MINING_MAX_HARDNESS: CapabilityId = CapabilityId::ne
 pub(crate) const CAPABILITY_MANUAL_POWER_OUTPUT: CapabilityId = CapabilityId::new(14);
 pub(crate) const CAPABILITY_SEPARATOR_FLOW: CapabilityId = CapabilityId::new(15);
 pub(crate) const CAPABILITY_SEPARATOR_BATCH: CapabilityId = CapabilityId::new(16);
+pub(crate) const CAPABILITY_TREADLE_POWER_OUTPUT: CapabilityId = CapabilityId::new(17);
 
 pub(crate) fn build_capability_registry() -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
@@ -103,6 +104,11 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_SEPARATOR_BATCH,
             "separator maximum batch mass",
             CapabilityValueKind::Mass,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_TREADLE_POWER_OUTPUT,
+            "foot treadle mechanical power output",
+            CapabilityValueKind::Power,
         ),
     ] {
         registry.register_capability(definition);

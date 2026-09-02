@@ -41,6 +41,10 @@ pub const FORM_TAILINGS: FormId = FormId::new(16);
 pub const FORM_BOARD: FormId = FormId::new(17);
 pub const FORM_CHEST_BODY: FormId = FormId::new(18);
 pub const FORM_DOUBLE_WALL_CHEST_BODY: FormId = FormId::new(19);
+pub const FORM_BULK_CRATE_BODY: FormId = FormId::new(20);
+pub const FORM_INSULATED_PANTRY_BODY: FormId = FormId::new(21);
+pub const FORM_ROUGH_BOX_BODY: FormId = FormId::new(22);
+pub const FORM_STONE_CROCK_BODY: FormId = FormId::new(23);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -95,6 +99,10 @@ fn register_forms(registry: &mut MaterialRegistry) {
         consolidated_form(FORM_BOARD, "board"),
         consolidated_form(FORM_CHEST_BODY, "timber chest body"),
         consolidated_form(FORM_DOUBLE_WALL_CHEST_BODY, "double-wall timber chest body"),
+        consolidated_form(FORM_BULK_CRATE_BODY, "bulk timber crate body"),
+        consolidated_form(FORM_INSULATED_PANTRY_BODY, "insulated timber pantry body"),
+        consolidated_form(FORM_ROUGH_BOX_BODY, "rough timber field box body"),
+        consolidated_form(FORM_STONE_CROCK_BODY, "carved stone provisions crock body"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
         loose_form(
@@ -235,6 +243,9 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
         CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
         CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
+        CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+        CommodityKey::new(MATERIAL_WOOD, FORM_INSULATED_PANTRY_BODY),
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
         CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
         CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
@@ -254,6 +265,7 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
         CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD),
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
         CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),

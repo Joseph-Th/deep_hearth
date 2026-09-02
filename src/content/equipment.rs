@@ -23,6 +23,10 @@ pub const EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER: EquipmentDefinitionId =
     EquipmentDefinitionId::new(13);
 pub const EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR: EquipmentDefinitionId =
     EquipmentDefinitionId::new(14);
+pub const EQUIPMENT_STONE_QUARRY_PICK: EquipmentDefinitionId = EquipmentDefinitionId::new(15);
+pub const EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(16);
+pub const EQUIPMENT_TIMBER_TREADLE_DRIVE: EquipmentDefinitionId = EquipmentDefinitionId::new(17);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

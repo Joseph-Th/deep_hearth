@@ -64,6 +64,228 @@ fn built_in_water_has_an_authoritative_liquid_phase_boundary() {
 }
 
 #[test]
+fn preservation_storage_spans_bulk_capacity_and_compact_protection_specialists() {
+    let registries = build_registries();
+    let rough = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("rough timber field box disappeared"));
+    let bulk = registries
+        .storage()
+        .get(STORAGE_BULK_TIMBER_PROVISIONS_CRATE)
+        .unwrap_or_else(|| panic!("bulk timber provisions crate disappeared"));
+    let standard = registries
+        .storage()
+        .get(STORAGE_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| panic!("standard timber provisions chest disappeared"));
+    let protected = registries
+        .storage()
+        .get(STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| panic!("double-wall timber provisions chest disappeared"));
+    let pantry = registries
+        .storage()
+        .get(STORAGE_INSULATED_TIMBER_PANTRY)
+        .unwrap_or_else(|| panic!("insulated timber pantry disappeared"));
+    let crock = registries
+        .storage()
+        .get(STORAGE_CARVED_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("carved stone provisions crock disappeared"));
+
+    assert_eq!(
+        rough.maximum_stockpile_capacity(),
+        Mass::from_milligrams(10_000_000)
+    );
+    assert_eq!(
+        bulk.maximum_stockpile_capacity(),
+        Mass::from_milligrams(50_000_000)
+    );
+    assert_eq!(
+        standard.maximum_stockpile_capacity(),
+        Mass::from_milligrams(20_000_000)
+    );
+    assert_eq!(
+        protected.maximum_stockpile_capacity(),
+        Mass::from_milligrams(20_000_000)
+    );
+    assert_eq!(
+        pantry.maximum_stockpile_capacity(),
+        Mass::from_milligrams(8_000_000)
+    );
+    assert_eq!(
+        crock.maximum_stockpile_capacity(),
+        Mass::from_milligrams(6_000_000)
+    );
+    assert_eq!(
+        rough.storage_profile().preservation_multiplier_ppm(),
+        1_250_000
+    );
+    assert_eq!(
+        bulk.storage_profile().preservation_multiplier_ppm(),
+        1_500_000
+    );
+    assert_eq!(
+        standard.storage_profile().preservation_multiplier_ppm(),
+        2_000_000
+    );
+    assert_eq!(
+        protected.storage_profile().preservation_multiplier_ppm(),
+        3_000_000
+    );
+    assert_eq!(
+        pantry.storage_profile().preservation_multiplier_ppm(),
+        4_000_000
+    );
+    assert_eq!(
+        crock.storage_profile().preservation_multiplier_ppm(),
+        2_500_000
+    );
+
+    let rough_joinery = registries
+        .crafting()
+        .get_manual(PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("rough timber field box joinery disappeared"));
+    let bulk_joinery = registries
+        .crafting()
+        .get_manual(PROCESS_ASSEMBLE_BULK_TIMBER_CRATE)
+        .unwrap_or_else(|| panic!("bulk timber crate joinery disappeared"));
+    let pantry_joinery = registries
+        .crafting()
+        .get_manual(PROCESS_ASSEMBLE_INSULATED_TIMBER_PANTRY)
+        .unwrap_or_else(|| panic!("insulated timber pantry joinery disappeared"));
+    let crock_shaping = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("stone provisions crock shaping disappeared"));
+    let boards = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("timber board shaping disappeared"));
+    let board_output = boards
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("board shaping lost board output"));
+    let rough_batches = rough_joinery
+        .input_mass()
+        .milligrams()
+        .div_ceil(board_output.milligrams());
+    let bulk_batches = bulk_joinery
+        .input_mass()
+        .milligrams()
+        .div_ceil(board_output.milligrams());
+    let pantry_batches = pantry_joinery
+        .input_mass()
+        .milligrams()
+        .div_ceil(board_output.milligrams());
+    assert_eq!(rough_batches, 2);
+    assert_eq!(bulk_batches, 4);
+    assert_eq!(pantry_batches, 6);
+    assert_eq!(
+        boards.duration().value() * rough_batches + rough_joinery.duration().value(),
+        150
+    );
+    assert_eq!(
+        boards.duration().value() * bulk_batches + bulk_joinery.duration().value(),
+        290
+    );
+    assert_eq!(
+        boards.duration().value() * pantry_batches + pantry_joinery.duration().value(),
+        440
+    );
+    assert_eq!(boards.input_mass().milligrams() * rough_batches, 2_000_000);
+    assert_eq!(boards.input_mass().milligrams() * bulk_batches, 4_000_000);
+    assert_eq!(boards.input_mass().milligrams() * pantry_batches, 6_000_000);
+    assert_eq!(
+        crock_shaping.input(),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+    );
+    assert_eq!(crock_shaping.input_mass(), Mass::from_milligrams(3_000_000));
+    assert_eq!(crock_shaping.duration(), TickSpan::new(180));
+    assert_eq!(
+        crock_shaping
+            .outputs()
+            .iter()
+            .find(|output| {
+                output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY)
+            })
+            .map(|output| output.mass()),
+        Some(Mass::from_milligrams(2_400_000))
+    );
+    assert_eq!(
+        crock_shaping
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP))
+            .map(|output| output.mass()),
+        Some(Mass::from_milligrams(600_000))
+    );
+    assert!(
+        crock
+            .assembly_profile()
+            .inputs()
+            .iter()
+            .all(|input| input.commodity().material() == MATERIAL_STONE)
+    );
+    assert!(crock.maximum_stockpile_capacity() < standard.maximum_stockpile_capacity());
+    assert!(
+        crock.storage_profile().preservation_multiplier_ppm()
+            > standard.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(
+        crock.storage_profile().preservation_multiplier_ppm()
+            < protected.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(rough.maximum_stockpile_capacity() < standard.maximum_stockpile_capacity());
+    assert!(
+        rough.storage_profile().preservation_multiplier_ppm()
+            < standard.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(rough_joinery.input_mass() < standard.assembly_profile().input_mass());
+    assert!(bulk.maximum_stockpile_capacity() > standard.maximum_stockpile_capacity());
+    assert!(
+        bulk.storage_profile().preservation_multiplier_ppm()
+            < standard.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(pantry.maximum_stockpile_capacity() < standard.maximum_stockpile_capacity());
+    assert!(
+        pantry.storage_profile().preservation_multiplier_ppm()
+            > protected.storage_profile().preservation_multiplier_ppm()
+    );
+}
+
+#[test]
+fn stone_crock_salvage_returns_exact_reworkable_stone_scrap() {
+    let registries = build_registries();
+    let salvage = registries
+        .crafting()
+        .get_manual(PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY)
+        .unwrap_or_else(|| panic!("stone crock salvage process disappeared"));
+    assert_eq!(
+        salvage.input(),
+        CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY)
+    );
+    assert_eq!(salvage.input_mass(), Mass::from_milligrams(2_400_000));
+    assert_eq!(salvage.duration(), TickSpan::new(70));
+    assert_eq!(salvage.outputs().len(), 1);
+    assert_eq!(
+        salvage.outputs()[0].commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)
+    );
+    assert_eq!(
+        salvage.outputs()[0].mass(),
+        Mass::from_milligrams(2_400_000)
+    );
+    assert!(
+        registries
+            .crafting()
+            .manual_consumers(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP))
+            .any(|process| process.process() == PROCESS_REKNAP_STONE_SCRAP_TOOL),
+        "crock salvage must return stone to the existing rework economy"
+    );
+}
+
+#[test]
 fn infrastructure_assembly_cannot_hide_perishable_food_from_storage_age() {
     let food = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
     let infrastructure = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -430,11 +652,32 @@ fn timber_enclosure_salvage_returns_boards_with_explicit_chip_loss() {
             70,
         ),
         (
+            PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY,
+            FORM_ROUGH_BOX_BODY,
+            1_600_000,
+            800_000,
+            50,
+        ),
+        (
             PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
             FORM_DOUBLE_WALL_CHEST_BODY,
             4_000_000,
             3_200_000,
             100,
+        ),
+        (
+            PROCESS_SALVAGE_BULK_TIMBER_CRATE_BODY,
+            FORM_BULK_CRATE_BODY,
+            3_200_000,
+            2_400_000,
+            80,
+        ),
+        (
+            PROCESS_SALVAGE_INSULATED_TIMBER_PANTRY_BODY,
+            FORM_INSULATED_PANTRY_BODY,
+            4_800_000,
+            4_000_000,
+            120,
         ),
     ] {
         let salvage = registries
@@ -680,6 +923,9 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_STONE_SEPARATOR,
         EQUIPMENT_COPPER_REINFORCED_PICK,
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        EQUIPMENT_STONE_QUARRY_PICK,
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
         EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     ] {
@@ -692,14 +938,23 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         ENERGY_THERMAL_SINK,
         ENERGY_STONE_FLYWHEEL_DRIVE,
         ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
     ] {
         assert!(registries.energy().get_store(energy).is_some());
     }
     for process in [
         PROCESS_CRUSH_ORE,
+        PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+        PROCESS_ASSEMBLE_BULK_TIMBER_CRATE,
         PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
+        PROCESS_ASSEMBLE_INSULATED_TIMBER_PANTRY,
+        PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
         PROCESS_SALVAGE_TIMBER_CHEST_BODY,
+        PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY,
+        PROCESS_SALVAGE_BULK_TIMBER_CRATE_BODY,
         PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
+        PROCESS_SALVAGE_INSULATED_TIMBER_PANTRY_BODY,
+        PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
         PROCESS_REKNAP_STONE_SCRAP_TOOL,
         PROCESS_MELT_PURE_COPPER,
         PROCESS_CAST_PURE_COPPER,
@@ -802,6 +1057,57 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         .get_casting(PROCESS_CAST_PURE_COPPER)
         .unwrap_or_else(|| panic!("built-in copper casting definition disappeared"));
     assert_eq!(casting.material(), MATERIAL_COPPER);
+}
+
+#[test]
+fn primitive_power_content_exposes_distinct_copper_and_bulk_material_routes() {
+    let registries = build_registries();
+    let hand = registries
+        .labor()
+        .get_manual_power(MANUAL_POWER_HAND_CRANK)
+        .copied()
+        .unwrap_or_else(|| panic!("hand-crank labor method disappeared"));
+    let treadle = registries
+        .labor()
+        .get_manual_power(MANUAL_POWER_FOOT_TREADLE)
+        .copied()
+        .unwrap_or_else(|| panic!("foot-treadle labor method disappeared"));
+    assert_eq!(
+        hand.power_capability(),
+        capabilities::CAPABILITY_MANUAL_POWER_OUTPUT
+    );
+    assert_eq!(
+        treadle.power_capability(),
+        capabilities::CAPABILITY_TREADLE_POWER_OUTPUT
+    );
+    assert!(treadle.metabolic_efficiency_ppm() > hand.metabolic_efficiency_ppm());
+    assert!(
+        treadle.condition_wear_ppm_per_active_tick() < hand.condition_wear_ppm_per_active_tick()
+    );
+
+    let compact = registries
+        .energy()
+        .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("copper-banded flywheel disappeared"));
+    let bulk = registries
+        .energy()
+        .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("paired stone flywheel disappeared"));
+    assert!(bulk.capacity() > compact.capacity());
+    assert!(bulk.max_input_power() < compact.max_input_power());
+    assert!(bulk.passive_dissipation_power() > compact.passive_dissipation_power());
+    assert!(bulk.has_authored_assembly_edge());
+    assert!(compact.assembly_profile().is_some_and(|assembly| {
+        assembly.inputs().iter().any(|input| {
+            input.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
+        })
+    }));
+    assert!(bulk.assembly_profile().is_some_and(|assembly| {
+        assembly
+            .inputs()
+            .iter()
+            .all(|input| input.commodity().material() != MATERIAL_COPPER)
+    }));
 }
 
 #[test]
@@ -1102,6 +1408,26 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY,
         ),
         (
+            CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+            None,
+            OBJECT_ROUGH_TIMBER_FIELD_BOX_BODY,
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+            None,
+            OBJECT_BULK_TIMBER_CRATE_BODY,
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_INSULATED_PANTRY_BODY),
+            None,
+            OBJECT_INSULATED_TIMBER_PANTRY_BODY,
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
+            None,
+            OBJECT_STONE_PROVISIONS_CROCK_BODY,
+        ),
+        (
             CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
             None,
             OBJECT_WOOD_CHIP,
@@ -1142,6 +1468,8 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (EQUIPMENT_GRAVITY_SEPARATOR, OBJECT_GRAVITY_SEPARATOR),
         (EQUIPMENT_STONE_PICK, OBJECT_STONE_PICK),
         (EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
+        (EQUIPMENT_STONE_QUARRY_PICK, OBJECT_STONE_QUARRY_PICK),
+        (EQUIPMENT_TIMBER_TREADLE_DRIVE, OBJECT_TIMBER_TREADLE_DRIVE),
         (EQUIPMENT_STONE_CRUSHER, OBJECT_STONE_CRUSHER),
         (EQUIPMENT_STONE_SEPARATOR, OBJECT_STONE_SEPARATOR),
         (
@@ -1151,6 +1479,10 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (
             EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
             OBJECT_COPPER_REINFORCED_HAND_CRANK,
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+            OBJECT_COPPER_REINFORCED_STONE_QUARRY_PICK,
         ),
         (
             EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,

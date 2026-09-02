@@ -421,15 +421,24 @@ material-phase, and particle-state containment rules. Existing lots checkpoint a
 new preservation multiplier takes effect, so improved storage affects future spoilage only. Trusted load
 validates enclosure definition, construction time, storage profile, and embodied traces.
 
-Built-in ordinary storage deliberately exposes a preparation tradeoff at equal 20 kg usable capacity. The
-lidded timber chest embodies 2.4 kg of joined boards and provides a 2x preservation multiplier; its full raw
-route consumes three 1 kg logs, emits 0.6 kg of chips, and occupies 230 player-attention ticks. The double-wall
-chest embodies 4.0 kg, provides a 3x preservation multiplier, consumes five logs, emits 1.0 kg of chips, and
-occupies 370 ticks. Both retain the same 333.15 K containment ceiling, so heavier joinery improves future food
-preservation without acting as extra capacity or high-temperature containment. Because construction delay occurs
-before the improved storage rate begins, the stronger enclosure can be worse at a short matched endpoint; the
-prospective freshness projection lets legitimate callers inspect that break-even effect without cloning a future
-world or duplicating storage-aging formulas.
+Built-in ordinary provisions storage deliberately separates construction cost, usable capacity, preservation,
+and raw-material family instead of forming a linear upgrade ladder. All six definitions retain the same 333.15 K
+solid-containment ceiling, so none acts as high-temperature containment. Their current ordinary acquisition
+contracts are:
+
+| Enclosure | Capacity | Preservation | Embodied body | Raw route | Attention |
+| --- | ---: | ---: | ---: | --- | ---: |
+| rough timber field box | 10 kg | 1.25x | 1.6 kg wood | 2 kg logs -> 1.6 kg boards + 0.4 kg chips | 150 ticks |
+| lidded timber chest | 20 kg | 2x | 2.4 kg wood | 3 kg logs -> 2.4 kg boards + 0.6 kg chips | 230 ticks |
+| slatted timber bulk crate | 50 kg | 1.5x | 3.2 kg wood | 4 kg logs -> 3.2 kg boards + 0.8 kg chips | 290 ticks |
+| double-wall timber chest | 20 kg | 3x | 4.0 kg wood | 5 kg logs -> 4.0 kg boards + 1.0 kg chips | 370 ticks |
+| compact insulated timber pantry | 8 kg | 4x | 4.8 kg wood | 6 kg logs -> 4.8 kg boards + 1.2 kg chips | 440 ticks |
+| carved stone provisions crock | 6 kg | 2.5x | 2.4 kg stone | 3 kg stone -> 2.4 kg crock + 0.6 kg chips | 180 ticks |
+
+Capacity and disclosed raw-material availability are physical feasibility constraints before any actor-side
+preference ranking. Because construction delay occurs before the improved storage rate begins, stronger
+preservation can still be worse at a short matched endpoint; the prospective freshness projection lets legitimate
+callers inspect that break-even effect without cloning a future world or duplicating storage-aging formulas.
 
 Enclosure dismantling is the inverse custody transition for that exact embodied matter, not generic demolition.
 The target and recovery stockpiles must be unmounted; the target must have no reserved inbound work and remain
@@ -441,12 +450,14 @@ composition, particle state, and provenance. Recovery capacity, lot-ID space, in
 delayed-output ownership are validated before admission/completion mutation. General world-space demolition,
 access, and dismantling tools remain outside this transition.
 
-Detached timber bodies may then be reused intact or entered into explicit manual salvage. Standard-body salvage
-occupies 70 player-attention ticks and reforms 2.4 kg of body into 1.6 kg boards plus 0.8 kg chips; double-wall
-salvage occupies 100 ticks and reforms 4.0 kg into 3.2 kg boards plus the same 0.8 kg chip residue. The one-board-
-equivalent loss makes reconfiguration costly without deleting matter. Recovered boards can immediately feed the
-ordinary enclosure joinery chain, so a dismantled double-wall chest can become a standard chest while leaving
-0.8 kg reusable boards and 0.8 kg represented chips.
+Detached enclosure bodies may then be reused intact or entered into explicit manual salvage. Timber salvage
+always conserves the full body mass as boards plus represented chips: rough field box 1.6 kg -> 0.8/0.8 kg in
+50 ticks, standard chest 2.4 kg -> 1.6/0.8 kg in 70 ticks, bulk crate 3.2 kg -> 2.4/0.8 kg in 80 ticks,
+double-wall chest 4.0 kg -> 3.2/0.8 kg in 100 ticks, and insulated pantry 4.8 kg -> 4.0/0.8 kg in 120 ticks.
+Recovered boards immediately feed ordinary timber joinery, while chip residue remains represented matter rather
+than disappearing as an abstract efficiency loss. The carved stone crock has a separate 70-tick salvage route
+that converts its exact 2.4 kg body into 2.4 kg of stone scrap; that scrap enters the existing slower reknapping
+route. Recovery therefore preserves material ownership without pretending destructive reconfiguration is free.
 
 Supported stockpiles contribute `StructuralLoadKind::StoredMatter` for stored contents plus enclosure matter.
 Stored-mass mutations and their structural-load consequences commit atomically.

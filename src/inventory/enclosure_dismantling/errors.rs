@@ -169,7 +169,20 @@ impl Error for StorageEnclosureDismantlingError {
             Self::RecoveryDestinationStorage(error)
             | Self::TargetContentsIncompatible { error, .. } => Some(error),
             Self::PlayerWork(error) => Some(error),
-            _ => None,
+            Self::UnknownTarget { .. }
+            | Self::NotEnclosed { .. }
+            | Self::UnknownDefinition { .. }
+            | Self::TargetMounted { .. }
+            | Self::TargetHasReservedInbound { .. }
+            | Self::UnknownRecoveryDestination { .. }
+            | Self::RecoveryDestinationIsTarget { .. }
+            | Self::RecoveryDestinationMounted { .. }
+            | Self::StorageHistoryOverflow { .. }
+            | Self::RecoveryCapacityExceeded { .. }
+            | Self::RecoveryMassOverflow { .. }
+            | Self::RecoveryLotIdExhausted
+            | Self::InventoryRevisionExhausted
+            | Self::CompletionTickOverflow { .. } => None,
         }
     }
 }
@@ -217,7 +230,10 @@ impl Error for StorageEnclosureDismantlingCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::PlayerWork(error) => Some(error),
-            _ => None,
+            Self::StaleInventoryRevision { .. }
+            | Self::UnknownTarget { .. }
+            | Self::TargetProfileChanged { .. }
+            | Self::TargetEnclosureChanged { .. } => None,
         }
     }
 }

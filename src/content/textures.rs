@@ -1,29 +1,13 @@
 //! Owns built-in renderer-neutral texture content and appearance bindings.
 
-use crate::material::CommodityKey;
 use crate::texture::{
-    BlockAppearanceDefinition, BlockAppearanceId, ColorRgba8, CommodityAppearanceBinding,
-    EquipmentAppearanceBinding, ObjectAppearanceDefinition, ObjectAppearanceId, PackedTexel,
+    BlockAppearanceDefinition, BlockAppearanceId, ColorRgba8, ObjectAppearanceId, PackedTexel,
     PaletteRampDefinition, PaletteRampId, TEXTURE_TEXEL_COUNT, TextureAlphaMode, TextureDefinition,
     TextureId, TexturePalette, TextureRegistry,
 };
 
-use super::equipment::{
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_GRAVITY_SEPARATOR, EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
-    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    EQUIPMENT_STONE_SEPARATOR,
-};
-use super::materials::{
-    FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED,
-    FORM_DOUBLE_WALL_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG, FORM_LUMP,
-    FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TAILINGS,
-    FORM_TOOL, MATERIAL_CHARCOAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE,
-    MATERIAL_WOOD,
-};
-
+mod appearances;
+mod bindings;
 mod patterns;
 
 use patterns::{
@@ -103,15 +87,23 @@ pub const OBJECT_COPPER_REINFORCED_STONE_CRUSHER: ObjectAppearanceId = ObjectApp
 pub const OBJECT_COPPER_REINFORCED_STONE_SEPARATOR: ObjectAppearanceId =
     ObjectAppearanceId::new(33);
 pub const OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY: ObjectAppearanceId = ObjectAppearanceId::new(34);
+pub const OBJECT_STONE_QUARRY_PICK: ObjectAppearanceId = ObjectAppearanceId::new(35);
+pub const OBJECT_COPPER_REINFORCED_STONE_QUARRY_PICK: ObjectAppearanceId =
+    ObjectAppearanceId::new(36);
+pub const OBJECT_TIMBER_TREADLE_DRIVE: ObjectAppearanceId = ObjectAppearanceId::new(37);
+pub const OBJECT_BULK_TIMBER_CRATE_BODY: ObjectAppearanceId = ObjectAppearanceId::new(38);
+pub const OBJECT_INSULATED_TIMBER_PANTRY_BODY: ObjectAppearanceId = ObjectAppearanceId::new(39);
+pub const OBJECT_ROUGH_TIMBER_FIELD_BOX_BODY: ObjectAppearanceId = ObjectAppearanceId::new(40);
+pub const OBJECT_STONE_PROVISIONS_CROCK_BODY: ObjectAppearanceId = ObjectAppearanceId::new(41);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
         build_palette_ramps(),
         build_textures(),
         build_block_appearances(),
-        build_object_appearances(),
-        build_commodity_bindings(),
-        build_equipment_bindings(),
+        appearances::build_object_appearances(),
+        bindings::build_commodity_bindings(),
+        bindings::build_equipment_bindings(),
     )
 }
 
@@ -341,342 +333,6 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             TEXTURE_COPPER_HAMMERED,
         ),
         BlockAppearanceDefinition::uniform(BLOCK_SLAG, "slag block", TEXTURE_SLAG),
-    ]
-}
-
-fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
-    vec![
-        object(OBJECT_LOG, "log", &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END]),
-        object(OBJECT_CHARCOAL, "charcoal lump", &[TEXTURE_CHARCOAL]),
-        object(OBJECT_COPPER_ORE, "copper ore", &[TEXTURE_COPPER_ORE]),
-        object(
-            OBJECT_CRUSHED_ORE,
-            "crushed copper ore",
-            &[TEXTURE_CRUSHED_ORE],
-        ),
-        object(
-            OBJECT_COPPER_INGOT,
-            "copper ingot",
-            &[TEXTURE_COPPER_HAMMERED],
-        ),
-        object(
-            OBJECT_MOLTEN_COPPER,
-            "molten copper",
-            &[TEXTURE_MOLTEN_COPPER],
-        ),
-        object(OBJECT_SLAG, "slag lump", &[TEXTURE_SLAG]),
-        object(OBJECT_STONE_LUMP, "stone lump", &[TEXTURE_STONE]),
-        object(
-            OBJECT_WOOD_HANDLE,
-            "wood handle",
-            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
-        ),
-        object(
-            OBJECT_JAW_CRUSHER,
-            "jaw crusher",
-            &[TEXTURE_MACHINE_PANEL, TEXTURE_WORKING_METAL],
-        ),
-        object(
-            OBJECT_ELECTRIC_FURNACE,
-            "electric furnace",
-            &[
-                TEXTURE_MACHINE_PANEL,
-                TEXTURE_REFRACTORY,
-                TEXTURE_MOLTEN_COPPER,
-            ],
-        ),
-        object(
-            OBJECT_CASTING_MOLD,
-            "casting mold",
-            &[TEXTURE_WORKING_METAL, TEXTURE_COPPER_HAMMERED],
-        ),
-        object(
-            OBJECT_DRY_SCREEN,
-            "dry screen",
-            &[TEXTURE_MACHINE_PANEL, TEXTURE_SCREEN_MESH],
-        ),
-        object(
-            OBJECT_GRINDING_MILL,
-            "grinding mill",
-            &[TEXTURE_MACHINE_PANEL, TEXTURE_WORKING_METAL],
-        ),
-        object(OBJECT_STONE_TOOL, "worked stone tool", &[TEXTURE_STONE]),
-        object(OBJECT_STONE_CHIP, "stone chips", &[TEXTURE_STONE]),
-        object(OBJECT_WOOD_CHIP, "wood chips", &[TEXTURE_WOOD_SIDE]),
-        object(
-            OBJECT_WOOD_BOARD,
-            "timber boards",
-            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
-        ),
-        object(
-            OBJECT_TIMBER_CHEST_BODY,
-            "assembled timber chest body",
-            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
-        ),
-        object(
-            OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY,
-            "assembled double-wall timber chest body",
-            &[TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
-        ),
-        object(OBJECT_STONE_FLYWHEEL, "stone flywheel", &[TEXTURE_STONE]),
-        object(
-            OBJECT_STONE_PICK,
-            "knapped stone pick",
-            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE],
-        ),
-        object(
-            OBJECT_STONE_HAND_CRANK,
-            "stone hand crank",
-            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE],
-        ),
-        object(
-            OBJECT_COPPER_REINFORCED_PICK,
-            "copper-reinforced stone pick",
-            &[TEXTURE_STONE, TEXTURE_COPPER_HAMMERED, TEXTURE_WOOD_SIDE],
-        ),
-        object(
-            OBJECT_COPPER_REINFORCED_HAND_CRANK,
-            "copper-reinforced stone hand crank",
-            &[TEXTURE_STONE, TEXTURE_COPPER_HAMMERED, TEXTURE_WOOD_SIDE],
-        ),
-        object(
-            OBJECT_STONE_CRUSHER,
-            "stone toggle crusher",
-            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE],
-        ),
-        object(
-            OBJECT_STONE_SEPARATOR,
-            "stone rocking separator",
-            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE, TEXTURE_SCREEN_MESH],
-        ),
-        object(
-            OBJECT_COPPER_REINFORCED_STONE_CRUSHER,
-            "copper-reinforced stone toggle crusher",
-            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE, TEXTURE_COPPER_HAMMERED],
-        ),
-        object(
-            OBJECT_COPPER_REINFORCED_STONE_SEPARATOR,
-            "copper-reinforced stone rocking separator",
-            &[
-                TEXTURE_STONE,
-                TEXTURE_WOOD_SIDE,
-                TEXTURE_SCREEN_MESH,
-                TEXTURE_COPPER_HAMMERED,
-            ],
-        ),
-        object(
-            OBJECT_GRAVITY_SEPARATOR,
-            "workshop gravity separator",
-            &[
-                TEXTURE_MACHINE_PANEL,
-                TEXTURE_WORKING_METAL,
-                TEXTURE_SCREEN_MESH,
-            ],
-        ),
-        object(
-            OBJECT_COPPER_REINFORCEMENT,
-            "cold-worked copper reinforcement",
-            &[TEXTURE_COPPER_HAMMERED],
-        ),
-        object(
-            OBJECT_NATIVE_COPPER,
-            "native copper",
-            &[TEXTURE_COPPER_HAMMERED, TEXTURE_COPPER_ORE],
-        ),
-        object(
-            OBJECT_COPPER_SCRAP,
-            "copper scrap",
-            &[TEXTURE_WORKING_METAL, TEXTURE_COPPER_HAMMERED],
-        ),
-        object(
-            OBJECT_TAILINGS,
-            "mineral tailings",
-            &[TEXTURE_STONE, TEXTURE_SLAG],
-        ),
-    ]
-}
-
-fn object(
-    id: ObjectAppearanceId,
-    name: &'static str,
-    textures: &[TextureId],
-) -> ObjectAppearanceDefinition {
-    ObjectAppearanceDefinition::new(id, name, textures.to_vec())
-}
-
-fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
-    vec![
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Some(BLOCK_TIMBER),
-            Some(OBJECT_LOG),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            None,
-            Some(OBJECT_WOOD_BOARD),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
-            None,
-            Some(OBJECT_TIMBER_CHEST_BODY),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
-            None,
-            Some(OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
-            Some(BLOCK_CHARCOAL),
-            Some(OBJECT_CHARCOAL),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-            Some(BLOCK_COPPER_ORE),
-            Some(OBJECT_COPPER_ORE),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
-            None,
-            Some(OBJECT_CRUSHED_ORE),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
-            None,
-            Some(OBJECT_CRUSHED_ORE),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
-            Some(BLOCK_COPPER),
-            Some(OBJECT_COPPER_INGOT),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-            None,
-            Some(OBJECT_COPPER_REINFORCEMENT),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-            None,
-            Some(OBJECT_NATIVE_COPPER),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-            None,
-            Some(OBJECT_COPPER_SCRAP),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
-            None,
-            Some(OBJECT_MOLTEN_COPPER),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_SLAG, FORM_LUMP),
-            Some(BLOCK_SLAG),
-            Some(OBJECT_SLAG),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
-            None,
-            Some(OBJECT_SLAG),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
-            None,
-            Some(OBJECT_TAILINGS),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_CLAY, FORM_CRUSHED),
-            None,
-            Some(OBJECT_TAILINGS),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
-            None,
-            Some(OBJECT_TAILINGS),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
-            None,
-            Some(OBJECT_TAILINGS),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
-            None,
-            Some(OBJECT_TAILINGS),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            None,
-            Some(OBJECT_STONE_LUMP),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            None,
-            Some(OBJECT_STONE_TOOL),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
-            None,
-            Some(OBJECT_STONE_CHIP),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
-            None,
-            Some(OBJECT_STONE_CHIP),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            None,
-            Some(OBJECT_STONE_FLYWHEEL),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            None,
-            Some(OBJECT_WOOD_HANDLE),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
-            None,
-            Some(OBJECT_WOOD_CHIP),
-        ),
-        CommodityAppearanceBinding::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
-            None,
-            Some(OBJECT_WOOD_CHIP),
-        ),
-    ]
-}
-
-fn build_equipment_bindings() -> Vec<EquipmentAppearanceBinding> {
-    vec![
-        EquipmentAppearanceBinding::new(EQUIPMENT_JAW_CRUSHER, OBJECT_JAW_CRUSHER),
-        EquipmentAppearanceBinding::new(EQUIPMENT_ELECTRIC_FURNACE, OBJECT_ELECTRIC_FURNACE),
-        EquipmentAppearanceBinding::new(EQUIPMENT_CASTING_MOLD, OBJECT_CASTING_MOLD),
-        EquipmentAppearanceBinding::new(EQUIPMENT_DRY_SCREEN, OBJECT_DRY_SCREEN),
-        EquipmentAppearanceBinding::new(EQUIPMENT_GRINDING_MILL, OBJECT_GRINDING_MILL),
-        EquipmentAppearanceBinding::new(EQUIPMENT_STONE_PICK, OBJECT_STONE_PICK),
-        EquipmentAppearanceBinding::new(EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
-        EquipmentAppearanceBinding::new(EQUIPMENT_STONE_CRUSHER, OBJECT_STONE_CRUSHER),
-        EquipmentAppearanceBinding::new(EQUIPMENT_STONE_SEPARATOR, OBJECT_STONE_SEPARATOR),
-        EquipmentAppearanceBinding::new(EQUIPMENT_GRAVITY_SEPARATOR, OBJECT_GRAVITY_SEPARATOR),
-        EquipmentAppearanceBinding::new(
-            EQUIPMENT_COPPER_REINFORCED_PICK,
-            OBJECT_COPPER_REINFORCED_PICK,
-        ),
-        EquipmentAppearanceBinding::new(
-            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-            OBJECT_COPPER_REINFORCED_HAND_CRANK,
-        ),
-        EquipmentAppearanceBinding::new(
-            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-            OBJECT_COPPER_REINFORCED_STONE_CRUSHER,
-        ),
-        EquipmentAppearanceBinding::new(
-            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-            OBJECT_COPPER_REINFORCED_STONE_SEPARATOR,
-        ),
     ]
 }
 

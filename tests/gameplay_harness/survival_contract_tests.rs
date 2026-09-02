@@ -3,9 +3,12 @@
 use std::collections::BTreeSet;
 
 use deep_hearth::content::{
-    FORM_BOARD, FORM_CHIP, MATERIAL_WOOD, STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
+    FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
+    STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
+    STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::material::CommodityKey;
 
@@ -17,6 +20,8 @@ use super::survival_probe::{
     DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
     diet_provisioning_policy_for_behavior_seed, preservation_freshness_return_threshold_ppm,
     preservation_policy_for_projected_return, preservation_storage_definition_for_policy,
+    preservation_storage_definition_for_policy_and_capacity,
+    preservation_storage_definition_for_policy_and_opportunity,
     prospecting_method_for_work_pressure, provisioning_world,
 };
 
@@ -34,7 +39,7 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
         "survival has no authored preservation enclosure"
     );
 
-    for storage in preservation {
+    for storage in &preservation {
         assert!(!storage.maximum_stockpile_capacity().is_zero());
         assert!(!storage.assembly_profile().input_mass().is_zero());
         let plan = preservation_construction_plan(&registries, storage.assembly_profile());
@@ -42,6 +47,10 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
         assert!(plan.routes.iter().any(|route| !route.steps.is_empty()));
     }
 
+    let rough = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap_or_else(|| panic!("rough provisions field box disappeared"));
     let standard = registries
         .storage()
         .get(STORAGE_TIMBER_PROVISIONS_CHEST)
@@ -50,6 +59,29 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
         .storage()
         .get(STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST)
         .unwrap_or_else(|| panic!("double-wall provisions chest disappeared"));
+    let bulk = registries
+        .storage()
+        .get(STORAGE_BULK_TIMBER_PROVISIONS_CRATE)
+        .unwrap_or_else(|| panic!("bulk provisions crate disappeared"));
+    let pantry = registries
+        .storage()
+        .get(STORAGE_INSULATED_TIMBER_PANTRY)
+        .unwrap_or_else(|| panic!("insulated provisions pantry disappeared"));
+    let crock = registries
+        .storage()
+        .get(STORAGE_CARVED_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("carved stone provisions crock disappeared"));
+    assert!(rough.maximum_stockpile_capacity() < standard.maximum_stockpile_capacity());
+    assert!(
+        rough.storage_profile().preservation_multiplier_ppm()
+            < standard.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(rough.assembly_profile().input_mass() < standard.assembly_profile().input_mass());
+    assert!(
+        preservation_construction_plan(&registries, rough.assembly_profile()).attention_ticks
+            < preservation_construction_plan(&registries, standard.assembly_profile())
+                .attention_ticks
+    );
     assert_eq!(
         standard.maximum_stockpile_capacity(),
         protected.maximum_stockpile_capacity()
@@ -64,8 +96,39 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
             > preservation_construction_plan(&registries, standard.assembly_profile())
                 .attention_ticks
     );
+    assert!(bulk.maximum_stockpile_capacity() > standard.maximum_stockpile_capacity());
+    assert!(
+        bulk.storage_profile().preservation_multiplier_ppm()
+            < standard.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(pantry.maximum_stockpile_capacity() < standard.maximum_stockpile_capacity());
+    assert!(
+        pantry.storage_profile().preservation_multiplier_ppm()
+            > protected.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(
+        preservation_construction_plan(&registries, pantry.assembly_profile()).attention_ticks
+            > preservation_construction_plan(&registries, protected.assembly_profile())
+                .attention_ticks
+    );
+    assert!(crock.maximum_stockpile_capacity() < standard.maximum_stockpile_capacity());
+    assert!(
+        crock.storage_profile().preservation_multiplier_ppm()
+            > standard.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(
+        crock.storage_profile().preservation_multiplier_ppm()
+            < protected.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(
+        crock
+            .assembly_profile()
+            .inputs()
+            .iter()
+            .all(|input| input.commodity().material() == MATERIAL_STONE)
+    );
 
-    for storage in [standard, protected] {
+    for storage in preservation {
         for input in storage.assembly_profile().inputs() {
             assert!(
                 registries
@@ -76,28 +139,25 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
                 "preservation body {} has no ordinary manual production route",
                 input.commodity().value()
             );
-            let salvage = registries
-                .crafting()
-                .manual_consumers(input.commodity())
-                .find(|route| {
-                    if route.input_mass() != input.mass() {
-                        return false;
-                    }
-                    let board = route
-                        .outputs()
-                        .iter()
-                        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
-                        .map(|output| output.mass());
-                    let chips = route
-                        .outputs()
-                        .iter()
-                        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))
-                        .map(|output| output.mass());
-                    matches!((board, chips), (Some(board), Some(chips)) if !board.is_zero() && !chips.is_zero() && board.checked_add(chips) == Some(input.mass()))
-                });
+            let salvage =
+                registries
+                    .crafting()
+                    .manual_consumers(input.commodity())
+                    .find(|route| {
+                        route.input_mass() == input.mass()
+                            && !route.outputs().is_empty()
+                            && route.outputs().iter().all(|output| {
+                                output.commodity().material() == input.commodity().material()
+                                    && output.commodity() != input.commodity()
+                            })
+                            && route.outputs().iter().try_fold(
+                                deep_hearth::core::quantity::Mass::ZERO,
+                                |total, output| total.checked_add(output.mass()),
+                            ) == Some(input.mass())
+                    });
             assert!(
                 salvage.is_some(),
-                "preservation body {} has no exact board-plus-chip salvage route",
+                "preservation body {} has no exact same-material salvage route",
                 input.commodity().value()
             );
         }
@@ -191,10 +251,10 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
             )
         })
         .collect::<BTreeSet<_>>();
-    assert!(sampled_preservation.is_subset(&authored_preservation));
-    if authored_preservation.len() > 1 {
-        assert!(sampled_preservation.len() > 1);
-    }
+    assert_eq!(
+        sampled_preservation, authored_preservation,
+        "bounded survival generation must exercise every authored preservation enclosure"
+    );
 
     let sampled_prospecting = (1_u64
         ..=u64::try_from(sample_count)
@@ -239,6 +299,75 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
     assert_eq!(
         preservation_policy_for_projected_return(high_threshold_seed, 140, 140),
         PreservationInvestmentPolicy::AttentionEfficient
+    );
+    assert_eq!(
+        preservation_storage_definition_for_policy_and_capacity(
+            &registries,
+            PreservationInvestmentPolicy::AttentionEfficient,
+            Mass::from_milligrams(15_000_000),
+        ),
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        "a medium reserve should reject the cheap field box before ranking construction attention"
+    );
+    assert_eq!(
+        preservation_storage_definition_for_policy_and_capacity(
+            &registries,
+            PreservationInvestmentPolicy::AttentionEfficient,
+            Mass::from_milligrams(30_000_000),
+        ),
+        STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
+        "bulk reserve feasibility must make the bulk crate the ordinary attention-efficient choice"
+    );
+    assert_eq!(
+        preservation_storage_definition_for_policy_and_capacity(
+            &registries,
+            PreservationInvestmentPolicy::MaximumProtection,
+            Mass::from_milligrams(9_000_000),
+        ),
+        STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
+        "maximum-protection ranking must reject the pantry and crock when the reserve exceeds their capacity"
+    );
+    let stone_only = [(
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(3_000_000),
+    )];
+    assert_eq!(
+        preservation_storage_definition_for_policy_and_opportunity(
+            &registries,
+            PreservationInvestmentPolicy::MaximumProtection,
+            Mass::from_milligrams(5_000_000),
+            &stone_only,
+        ),
+        STORAGE_CARVED_STONE_PROVISIONS_CROCK,
+        "a stone-only opportunity must not rank timber enclosures the actor cannot construct"
+    );
+    let scarce_timber = [(
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(5_000_000),
+    )];
+    assert_eq!(
+        preservation_storage_definition_for_policy_and_opportunity(
+            &registries,
+            PreservationInvestmentPolicy::MaximumProtection,
+            Mass::from_milligrams(5_000_000),
+            &scarce_timber,
+        ),
+        STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
+        "five kilograms of timber must not admit the six-kilogram pantry route"
+    );
+    let timber_only = [(
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(6_000_000),
+    )];
+    assert_eq!(
+        preservation_storage_definition_for_policy_and_opportunity(
+            &registries,
+            PreservationInvestmentPolicy::MaximumProtection,
+            Mass::from_milligrams(5_000_000),
+            &timber_only,
+        ),
+        STORAGE_INSULATED_TIMBER_PANTRY,
+        "a timber opportunity should retain the authored maximum-protection endpoint"
     );
 
     let exploratory = focused_probe_cases_from(FocusedProbeSeedPlan {

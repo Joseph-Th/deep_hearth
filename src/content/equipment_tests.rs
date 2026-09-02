@@ -12,10 +12,11 @@ use crate::content::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
     CAPABILITY_HEATING_POWER, CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_MINING_FLOW,
     CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS, CAPABILITY_SEPARATOR_BATCH,
-    CAPABILITY_SEPARATOR_FLOW,
+    CAPABILITY_SEPARATOR_FLOW, CAPABILITY_TREADLE_POWER_OUTPUT,
 };
 use crate::content::materials::{
-    FORM_HANDLE, FORM_INGOT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_HANDLE, FORM_INGOT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::Condition;
@@ -91,6 +92,21 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
             EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
             CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
             Mass::from_milligrams(200_000),
+        ),
+        (
+            EQUIPMENT_STONE_QUARRY_PICK,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            EQUIPMENT_TIMBER_TREADLE_DRIVE,
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(400_000),
         ),
         (
             EQUIPMENT_STONE_CRUSHER,
@@ -218,6 +234,16 @@ fn primitive_copper_upgrades_improve_their_intended_nominal_capability() {
             EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
             CAPABILITY_SEPARATOR_BATCH,
         ),
+        (
+            EQUIPMENT_STONE_QUARRY_PICK,
+            EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+            CAPABILITY_MINING_FLOW,
+        ),
+        (
+            EQUIPMENT_STONE_QUARRY_PICK,
+            EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+            CAPABILITY_MINING_MAX_BATCH,
+        ),
     ] {
         let base_definition = registry
             .get_equipment(base)
@@ -258,6 +284,113 @@ fn primitive_copper_upgrades_improve_their_intended_nominal_capability() {
             capability.value()
         );
     }
+}
+
+#[test]
+fn primitive_mining_tools_offer_distinct_bulk_and_hard_rock_investments() {
+    let registry = build_equipment_registry();
+    let value = |equipment, capability| {
+        registry
+            .get_equipment(equipment)
+            .and_then(|definition| definition.capabilities().get_capability(capability))
+            .unwrap_or_else(|| {
+                panic!(
+                    "primitive mining equipment {} lost capability {}",
+                    equipment.value(),
+                    capability.value()
+                )
+            })
+    };
+
+    let stone_flow = value(EQUIPMENT_STONE_PICK, CAPABILITY_MINING_FLOW);
+    let hard_pick_flow = value(EQUIPMENT_COPPER_REINFORCED_PICK, CAPABILITY_MINING_FLOW);
+    let quarry_flow = value(EQUIPMENT_STONE_QUARRY_PICK, CAPABILITY_MINING_FLOW);
+    let reinforced_quarry_flow = value(
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        CAPABILITY_MINING_FLOW,
+    );
+    assert_eq!(stone_flow.compare(hard_pick_flow), Some(Ordering::Less));
+    assert_eq!(hard_pick_flow.compare(quarry_flow), Some(Ordering::Less));
+    assert_eq!(
+        quarry_flow.compare(reinforced_quarry_flow),
+        Some(Ordering::Less)
+    );
+
+    let hard_pick_batch = value(
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        CAPABILITY_MINING_MAX_BATCH,
+    );
+    let quarry_batch = value(EQUIPMENT_STONE_QUARRY_PICK, CAPABILITY_MINING_MAX_BATCH);
+    let reinforced_quarry_batch = value(
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        CAPABILITY_MINING_MAX_BATCH,
+    );
+    assert_eq!(hard_pick_batch.compare(quarry_batch), Some(Ordering::Less));
+    assert_eq!(
+        quarry_batch.compare(reinforced_quarry_batch),
+        Some(Ordering::Less)
+    );
+
+    let stone_hardness = value(EQUIPMENT_STONE_PICK, CAPABILITY_MINING_MAX_HARDNESS);
+    let hard_pick_hardness = value(
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        CAPABILITY_MINING_MAX_HARDNESS,
+    );
+    let quarry_hardness = value(EQUIPMENT_STONE_QUARRY_PICK, CAPABILITY_MINING_MAX_HARDNESS);
+    let reinforced_quarry_hardness = value(
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        CAPABILITY_MINING_MAX_HARDNESS,
+    );
+    assert_eq!(stone_hardness, quarry_hardness);
+    assert_eq!(
+        quarry_hardness.compare(reinforced_quarry_hardness),
+        Some(Ordering::Less)
+    );
+    assert_eq!(
+        reinforced_quarry_hardness.compare(hard_pick_hardness),
+        Some(Ordering::Less)
+    );
+}
+
+#[test]
+fn timber_treadle_is_a_bulk_material_alternative_between_stone_and_copper_cranks() {
+    let registry = build_equipment_registry();
+    let power = |equipment, capability| {
+        registry
+            .get_equipment(equipment)
+            .and_then(|definition| definition.capabilities().get_capability(capability))
+            .unwrap_or_else(|| {
+                panic!(
+                    "primitive power equipment {} disappeared",
+                    equipment.value()
+                )
+            })
+    };
+    let hand = power(EQUIPMENT_STONE_HAND_CRANK, CAPABILITY_MANUAL_POWER_OUTPUT);
+    let treadle = power(
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        CAPABILITY_TREADLE_POWER_OUTPUT,
+    );
+    let copper = power(
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        CAPABILITY_MANUAL_POWER_OUTPUT,
+    );
+    assert_eq!(hand.compare(treadle), Some(Ordering::Less));
+    assert_eq!(treadle.compare(copper), Some(Ordering::Less));
+
+    let assembly = registry
+        .get_equipment(EQUIPMENT_TIMBER_TREADLE_DRIVE)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("timber treadle lost its assembly profile"));
+    assert_eq!(assembly.input_mass(), Mass::from_milligrams(2_900_000));
+    assert_eq!(
+        assembly
+            .inputs()
+            .iter()
+            .find(|input| input.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+            .map(|input| input.mass()),
+        Some(Mass::from_milligrams(1_600_000))
+    );
 }
 
 #[test]
@@ -327,6 +460,9 @@ fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
         EQUIPMENT_STONE_HAND_CRANK,
         EQUIPMENT_COPPER_REINFORCED_PICK,
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        EQUIPMENT_STONE_QUARRY_PICK,
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,

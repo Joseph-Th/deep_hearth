@@ -1,5 +1,7 @@
 //! Public failure surface for the canonical synchronous simulation tick.
 
+mod conversions;
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 

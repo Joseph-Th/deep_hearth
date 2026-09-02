@@ -139,9 +139,33 @@ fn exhausted_energy_revision_reloaded_from_save_rejects_passive_tick_atomically(
 
 #[test]
 fn shared_owner_revision_capacity_accounts_for_all_same_tick_mutations() {
-    assert!(has_revision_capacity(u64::MAX - 2, 2));
-    assert!(!has_revision_capacity(u64::MAX - 2, 3));
-    assert!(!has_revision_capacity(u64::MAX - 1, 2));
+    assert_eq!(
+        require_revision_capacity(
+            u64::MAX - 2,
+            [1, 1],
+            "test revision budget overflowed",
+            TickError::EquipmentRevisionExhausted,
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        require_revision_capacity(
+            u64::MAX - 2,
+            [1, 1, 1],
+            "test revision budget overflowed",
+            TickError::EquipmentRevisionExhausted,
+        ),
+        Err(TickError::EquipmentRevisionExhausted)
+    );
+    assert_eq!(
+        require_revision_capacity(
+            u64::MAX - 1,
+            [1, 1],
+            "test revision budget overflowed",
+            TickError::EquipmentRevisionExhausted,
+        ),
+        Err(TickError::EquipmentRevisionExhausted)
+    );
 }
 
 #[test]
