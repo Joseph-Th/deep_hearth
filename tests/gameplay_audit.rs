@@ -36,6 +36,8 @@ mod industrial_support;
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
+#[path = "gameplay_harness/manual_craft_execution.rs"]
+mod manual_craft_execution;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]
@@ -50,6 +52,8 @@ mod ore_setup;
 mod physical_time;
 #[path = "gameplay_harness/preservation_route.rs"]
 mod preservation_route;
+#[path = "gameplay_harness/primitive_liberation.rs"]
+mod primitive_liberation;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
 #[path = "gameplay_harness/production_timing.rs"]
@@ -87,6 +91,8 @@ mod process_catalog_contract_tests;
 mod progression_contract_tests;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
+#[path = "gameplay_harness/progression_scope.rs"]
+mod progression_scope;
 #[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
 mod prospecting_instrument_contract_tests;
 #[path = "gameplay_harness/saw_bench_contract_tests.rs"]
@@ -107,6 +113,11 @@ mod workshop;
 mod workshop_contract_tests;
 
 #[test]
+fn gameplay_harness_gate() {
+    workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Gate);
+}
+
+#[test]
 fn gameplay_survival_provisioning_probe() {
     focused_runner::run_focused_probe(
         "survival-provisioning",
@@ -118,7 +129,7 @@ fn gameplay_survival_provisioning_probe() {
 fn gameplay_primitive_progression_probe() {
     focused_runner::run_focused_probe(
         "primitive-progression",
-        progression_probe::run_primitive_progression_probe,
+        progression_scope::run_primitive_progression_scope,
     );
 }
 

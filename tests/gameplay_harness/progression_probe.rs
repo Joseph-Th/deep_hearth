@@ -74,28 +74,19 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
 const POST_PAYBACK_OBSERVATION_CYCLES: u64 = 2;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
-
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum OreOpportunityDepth {
-    Shallow,
-    Marginal,
-    Deep,
-}
+pub(super) const SHALLOW_OPPORTUNITY_MIN_BATCHES: u64 = 6;
+pub(super) const SHALLOW_OPPORTUNITY_MAX_BATCHES: u64 = 40;
+pub(super) const MARGINAL_OPPORTUNITY_MIN_BATCHES: u64 = 48;
+pub(super) const MARGINAL_OPPORTUNITY_MAX_BATCHES: u64 = 192;
+pub(super) const DEEP_OPPORTUNITY_MIN_BATCHES: u64 = 384;
+pub(super) const DEEP_OPPORTUNITY_MAX_BATCHES: u64 = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct OreOpportunity {
-    #[cfg(test)]
-    depth: OreOpportunityDepth,
     batch_budget: u64,
 }
 
 impl OreOpportunity {
-    #[cfg(test)]
-    pub(super) const fn depth(self) -> OreOpportunityDepth {
-        self.depth
-    }
-
     pub(super) const fn batch_budget(self) -> u64 {
         self.batch_budget
     }
@@ -104,28 +95,26 @@ impl OreOpportunity {
 pub(super) fn ore_opportunity(seed: u64, maintained_payback_required: bool) -> OreOpportunity {
     if maintained_payback_required {
         return OreOpportunity {
-            #[cfg(test)]
-            depth: OreOpportunityDepth::Deep,
-            batch_budget: 512,
+            batch_budget: DEEP_OPPORTUNITY_MAX_BATCHES,
         };
     }
     let opportunity_roll = mix64(seed ^ 0x4F50_504F_5254_554E);
     let magnitude_roll = opportunity_roll / 3;
     match opportunity_roll % 3 {
         0 => OreOpportunity {
-            #[cfg(test)]
-            depth: OreOpportunityDepth::Shallow,
-            batch_budget: 6 + magnitude_roll % 35,
+            batch_budget: SHALLOW_OPPORTUNITY_MIN_BATCHES
+                + magnitude_roll
+                    % (SHALLOW_OPPORTUNITY_MAX_BATCHES - SHALLOW_OPPORTUNITY_MIN_BATCHES + 1),
         },
         1 => OreOpportunity {
-            #[cfg(test)]
-            depth: OreOpportunityDepth::Marginal,
-            batch_budget: 48 + magnitude_roll % 145,
+            batch_budget: MARGINAL_OPPORTUNITY_MIN_BATCHES
+                + magnitude_roll
+                    % (MARGINAL_OPPORTUNITY_MAX_BATCHES - MARGINAL_OPPORTUNITY_MIN_BATCHES + 1),
         },
         2 => OreOpportunity {
-            #[cfg(test)]
-            depth: OreOpportunityDepth::Deep,
-            batch_budget: 384 + magnitude_roll % 129,
+            batch_budget: DEEP_OPPORTUNITY_MIN_BATCHES
+                + magnitude_roll
+                    % (DEEP_OPPORTUNITY_MAX_BATCHES - DEEP_OPPORTUNITY_MIN_BATCHES + 1),
         },
         _ => unreachable!("modulo-three opportunity class is bounded"),
     }
@@ -1042,7 +1031,7 @@ fn preview_stone_pick_mining(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PrimitivePriority {
+pub(super) enum PrimitivePriority {
     PickFirst,
     CrankFirstCounterfactual,
 }
@@ -1169,13 +1158,13 @@ struct PrimitiveProgressionExperience {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PrimitiveReinvestmentOutcome {
+pub(super) enum PrimitiveReinvestmentOutcome {
     Completed(PrimitiveReinvestmentExperience),
     TargetSupplyLimited,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PrimitiveReinvestmentExperience {
+pub(super) struct PrimitiveReinvestmentExperience {
     invested_copper_mass: Mass,
     base_crush_ticks: u64,
     reinforced_crush_ticks: u64,
@@ -2543,6 +2532,6 @@ use manual_processing::{
 };
 
 #[path = "progression_probe/review.rs"]
-mod review;
+pub(super) mod review;
 
 pub(super) use review::run_primitive_progression_probe;

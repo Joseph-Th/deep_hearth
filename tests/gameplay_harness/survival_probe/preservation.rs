@@ -11,37 +11,8 @@ pub(in super::super) enum PreservationInvestmentPolicy {
     MaximumProtection,
 }
 
-impl PreservationInvestmentPolicy {
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::AttentionEfficient => "attention-efficient",
-            Self::MaximumProtection => "maximum-protection",
-        }
-    }
-}
-
 pub(in super::super) fn preservation_freshness_return_threshold_ppm(behavior_seed: u64) -> u32 {
     1_000_000 + (mix64(behavior_seed ^ 0x5052_4553_5641_4C55) % 3_000_001) as u32
-}
-
-pub(in super::super) fn preservation_policy_for_projected_return(
-    behavior_seed: u64,
-    additional_fresh_ticks: u64,
-    additional_attention_ticks: u64,
-) -> PreservationInvestmentPolicy {
-    if additional_fresh_ticks == 0 || additional_attention_ticks == 0 {
-        return PreservationInvestmentPolicy::AttentionEfficient;
-    }
-    let return_ppm = u128::from(additional_fresh_ticks)
-        .checked_mul(1_000_000)
-        .map(|scaled| scaled / u128::from(additional_attention_ticks))
-        .and_then(|value| u32::try_from(value).ok())
-        .unwrap_or(u32::MAX);
-    if return_ppm >= preservation_freshness_return_threshold_ppm(behavior_seed) {
-        PreservationInvestmentPolicy::MaximumProtection
-    } else {
-        PreservationInvestmentPolicy::AttentionEfficient
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -172,29 +143,26 @@ pub(in super::super) fn preservation_storage_definition_for_policy_and_capacity(
     policy: PreservationInvestmentPolicy,
     minimum_capacity: Mass,
 ) -> StorageDefinitionId {
-    let candidates = preservation_candidates(registries);
-    candidates[preservation_candidate_for_policy_with_constraints(
-        &candidates,
+    preservation_storage_definition_for_policy_with_constraints(
+        registries,
         policy,
         minimum_capacity,
         None,
-    )]
-    .definition
+    )
 }
 
-#[cfg(test)]
-pub(in super::super) fn preservation_storage_definition_for_policy_and_opportunity(
+pub(in super::super) fn preservation_storage_definition_for_policy_with_constraints(
     registries: &Registries,
     policy: PreservationInvestmentPolicy,
     minimum_capacity: Mass,
-    available_raw_materials: &[(CommodityKey, Mass)],
+    available_raw_materials: Option<&[(CommodityKey, Mass)]>,
 ) -> StorageDefinitionId {
     let candidates = preservation_candidates(registries);
     candidates[preservation_candidate_for_policy_with_constraints(
         &candidates,
         policy,
         minimum_capacity,
-        Some(available_raw_materials),
+        available_raw_materials,
     )]
     .definition
 }

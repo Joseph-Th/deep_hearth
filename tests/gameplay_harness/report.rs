@@ -457,9 +457,10 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .map(|definition| {
             let exertion = definition.exertion();
             format!(
-                "{}:{:?}:duration={}t:max-region={}vox:uncertainty={}ppm:exertion={}nJ+{}uL/t",
+                "{}:{:?}:spatial={:?}:duration={}t:max-region={}vox:uncertainty={}ppm:exertion={}nJ+{}uL/t",
                 definition.id().value(),
                 definition.evidence(),
+                definition.spatial_resolution(),
                 definition.duration().value(),
                 definition.maximum_region_voxels(),
                 definition.abundance_uncertainty_ppm(),

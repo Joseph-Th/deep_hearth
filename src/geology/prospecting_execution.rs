@@ -222,15 +222,58 @@ pub(crate) fn validate_record_prospecting(
     state: &AppState,
     resolution: ProspectingResolution,
 ) -> Result<ValidatedGeologicalObservation, RecordProspectingError> {
-    validate_record_prospecting_at(registries, state, resolution, state.tick())
+    let mut validated =
+        validate_record_prospecting_batch_at(registries, state, vec![resolution], state.tick())?;
+    Ok(validated
+        .pop()
+        .unwrap_or_else(|| unreachable!("one prospecting resolution validates to one observation")))
 }
 
-pub(super) fn validate_record_prospecting_at(
+pub(super) fn validate_record_prospecting_batch_at(
     registries: &Registries,
     state: &AppState,
-    resolution: ProspectingResolution,
+    resolutions: Vec<ProspectingResolution>,
     observed_at: SimulationTick,
-) -> Result<ValidatedGeologicalObservation, RecordProspectingError> {
+) -> Result<Vec<ValidatedGeologicalObservation>, RecordProspectingError> {
+    let knowledge = state.geological_knowledge();
+    let mut expected_revision = knowledge.revision();
+    let mut id_cursor = knowledge.next_observation_id();
+    let mut validated = Vec::with_capacity(resolutions.len());
+
+    for resolution in resolutions {
+        validate_resolution_findings(registries, &resolution)?;
+        let id = GeologicalObservationId::new(id_cursor);
+        let Some(next_observation_id) = id_cursor.checked_add(1) else {
+            return Err(RecordProspectingError::ObservationIdExhausted);
+        };
+        let Some(next_revision) = expected_revision.checked_add(1) else {
+            return Err(RecordProspectingError::RevisionExhausted);
+        };
+        let ProspectingResolution {
+            region,
+            evidence,
+            findings,
+        } = resolution;
+        validated.push(ValidatedGeologicalObservation {
+            expected_revision,
+            next_revision,
+            id,
+            next_observation_id,
+            region,
+            evidence,
+            findings,
+            observed_at,
+        });
+        expected_revision = next_revision;
+        id_cursor = next_observation_id;
+    }
+    Ok(validated)
+}
+
+fn validate_resolution_findings(
+    registries: &Registries,
+    resolution: &ProspectingResolution,
+) -> Result<(), RecordProspectingError> {
     if resolution.findings.is_empty() {
         return Err(RecordProspectingError::NoFindings);
     }
@@ -259,31 +302,7 @@ pub(super) fn validate_record_prospecting_at(
             });
         }
     }
-
-    let knowledge = state.geological_knowledge();
-    let id = GeologicalObservationId::new(knowledge.next_observation_id());
-    let Some(next_observation_id) = knowledge.next_observation_id().checked_add(1) else {
-        return Err(RecordProspectingError::ObservationIdExhausted);
-    };
-    let Some(next_revision) = knowledge.revision().checked_add(1) else {
-        return Err(RecordProspectingError::RevisionExhausted);
-    };
-    let ProspectingResolution {
-        region,
-        evidence,
-        findings,
-    } = resolution;
-
-    Ok(ValidatedGeologicalObservation {
-        expected_revision: knowledge.revision(),
-        next_revision,
-        id,
-        next_observation_id,
-        region,
-        evidence,
-        findings,
-        observed_at,
-    })
+    Ok(())
 }
 
 #[cfg(test)]

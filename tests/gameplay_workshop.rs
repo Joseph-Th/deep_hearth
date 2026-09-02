@@ -1,7 +1,5 @@
 //! Focused industrial-workshop gameplay target for the fast edit/test loop.
 
-#[path = "gameplay_harness/agency.rs"]
-mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
 #[path = "gameplay_harness/catalog.rs"]
@@ -33,8 +31,6 @@ mod output;
 mod report;
 #[path = "gameplay_harness/scenario.rs"]
 mod scenario;
-#[path = "gameplay_harness/scenario_tests.rs"]
-mod scenario_tests;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
@@ -47,5 +43,7 @@ mod temporal;
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
 
-#[path = "gameplay_harness/workshop_contract_tests.rs"]
-mod workshop_contract_tests;
+#[test]
+fn gameplay_harness_gate() {
+    workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Gate);
+}

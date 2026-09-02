@@ -30,9 +30,11 @@ impl StockpileStoredMassChange {
     }
 }
 
+mod availability;
 mod errors;
 mod projection;
 
+use availability::{support_commit_error, support_validation_error};
 pub use errors::{
     StockpileStructuralLoadError, StockpileSupportCommitError, StockpileSupportError,
 };
@@ -210,26 +212,8 @@ impl ValidatedStockpileSupportChange {
                 actual: record.supported_by(),
             });
         }
-        if let Some(job) = state
-            .production()
-            .get_running_output_stockpile_occupant(self.stockpile)
-        {
-            return Err(StockpileSupportCommitError::StockpileBusy {
-                stockpile: self.stockpile,
-                job: job.id(),
-                release: job.occupancy_release(),
-            });
-        }
-        if state
-            .player_work()
-            .get_storage_dismantling_stockpile_occupant(self.stockpile)
-            .is_some()
-        {
-            return Err(
-                StockpileSupportCommitError::StockpileBusyStorageDismantling {
-                    stockpile: self.stockpile,
-                },
-            );
+        if let Some(error) = support_commit_error(state, self.stockpile) {
+            return Err(error);
         }
         state.inventory().assert_support_change_available(
             self.stockpile,
@@ -264,24 +248,7 @@ fn validate_not_busy(
     state: &AppState,
     stockpile: StockpileId,
 ) -> Result<(), StockpileSupportError> {
-    if let Some(job) = state
-        .production()
-        .get_running_output_stockpile_occupant(stockpile)
-    {
-        return Err(StockpileSupportError::StockpileBusy {
-            stockpile,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if state
-        .player_work()
-        .get_storage_dismantling_stockpile_occupant(stockpile)
-        .is_some()
-    {
-        return Err(StockpileSupportError::StockpileBusyStorageDismantling { stockpile });
-    }
-    Ok(())
+    support_validation_error(state, stockpile).map_or(Ok(()), Err)
 }
 
 /// Validates placing an existing stockpile on one active structural member.

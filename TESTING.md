@@ -37,6 +37,10 @@ Reuse warm artifacts; never prebuild all targets. Broad gameplay builds one `gam
 keep maintained regression/coverage cases plus one fresh replayable organic case; `report` expands that bounded
 sample for exploration.
 
+Without `--target`, `run_test.py` resolves tests from source without Cargo and chooses the smallest complete
+explicit target. Pin `--target` only to reuse a warm failed binary or force an integration boundary. `--check`
+always requires an explicit integration target.
+
 ## Evidence ladder
 
 Stop at the smallest evidence level that distinguishes the changed contract:
@@ -65,28 +69,29 @@ decision inputs, and canonical blocker/outcome; conservation/persistence failure
 
 ### Failure triage map
 
-Start from the semantic failure class, not from the broadest available command. The first row that explains the
-observed failure defines the initial read/test cone; widen only when that evidence crosses another boundary.
+Start from the semantic failure class, not from the broadest command. Widen only when the evidence crosses
+another owner or runtime boundary.
 
-| Symptom / claim | Inspect first | Minimum distinguishing evidence | Widen when |
-| --- | --- | --- | --- |
-| Command rejected unexpectedly | operation resolver/validator and its dedicated typed error | exact error variant/fields plus the relevant immutable definitions and authoritative precondition record | the error wraps or names another owner boundary |
-| Rejected command changed state | validated commit path and transaction-owned IDs/indexes/reservations | exact pre/post equality for the promised atomic surface | rollback spans another owner or scheduled work |
-| Previously validated command became stale | `Validated*` token fields and every mutable dependency it binds | one focused intervening mutation per dependency class plus typed stale rejection | a dependency can change without the token's revision/identity noticing it |
-| Wrong matter/fluid/energy total | owning custody edge plus `calculate_matter_accounting`, `calculate_fluid_volume_accounting`, or `calculate_explicit_energy_accounting` | exact owner-by-owner discrepancy before/after the one transition | the discrepancy first appears only after a later tick or load |
-| Save fails trusted load | `LoadedSaveEnvelope::into_state`, then the named local/cross-owner validator | exact schema or typed `StateValidationError` / owner validation error; reproduce from the smallest corrupted/current-schema state | reconstruction changes data before the failing invariant or several owners disagree |
-| Save loads but continuation diverges | persisted job/schedule/RNG/provider traces plus operation-specific replay validator | equal pre-save state semantics, exact replay input, and first differing authoritative outcome/tick | divergence starts in a different phase than the persisted work owner |
-| Unexpected tick result | `TickOutcome` field for the effect, then `advance_tick` phase decision/apply pair | first tick where expected/actual outcome differs and the pre-tick owner revisions/state that drive that phase | another phase mutates a shared dependency before apply |
-| Production completed/suspended/resumed incorrectly | `ProductionJobRecord`, `ProcessResolution`, availability changes, provider/support state | job identity, remaining active time, suspension reason, scheduled completion, and matching `TickOutcome` change | support, energy, labor, or destination reservation is the actual blocker |
-| Mining extraction/claim mismatch | `MiningJobRecord`, geological remaining mass, destination reservation, claim validator | job lifecycle, before/post-extraction mass bound, ready custody, reserved inbound, claimed lot mass | another mining job or inventory mutation legitimately changed shared state |
-| Actor did nothing or chose poorly | decision window: legitimate observation, generated candidates, production blockers, actor policy | classify as unobserved, generator gap, policy gate, validation gate, information gap, execution failure, inconsequential, dormant, or insufficient data | the classification itself requires hidden diagnostic truth |
-| Capability appears implemented but cannot be reached | [`STATUS.md`](STATUS.md) current integration frontier plus acquisition graph/catalog contract | prove owner/canonical execution separately from ordinary acquisition | the missing edge is claimed reachable by current status/content |
-| Gameplay result changed | focused scope matching the affected player-visible loop | exact replay seeds, observable decision inputs, selected action, typed result, relevant conserved totals | the behavior depends on another gameplay scope or an intentionally broad cross-system checkpoint |
-| Caller probes nearby requests for one feasible bound | owning resolver and its capability/resource/lifetime limits | prove monotonicity and envelope agreement without copied formulas | alternatives are physically distinct or search order is itself under evaluation |
-| Complexity or maintainability regression | BCA changed-source review and owner/control-flow shape | identify the specific branch/ownership cost, not only a numeric score | refactoring would cross ownership or public API boundaries |
+| Symptom / claim | Inspect first | Minimum distinguishing evidence |
+| --- | --- | --- |
+| Command rejected unexpectedly | resolver/validator and typed error | exact error fields plus authoritative preconditions |
+| Rejected command changed state | validated commit and owned reservations/indexes | promised pre/post atomic surface equality |
+| Validated command became stale | token dependencies and revisions | one intervening mutation per dependency plus typed stale rejection |
+| Wrong matter/fluid/energy total | owning custody edge and accounting helper | first owner-by-owner discrepancy |
+| Save fails trusted load | `LoadedSaveEnvelope::into_state`, then named validator | exact schema or typed validation error on the smallest state |
+| Save continuation diverges | persisted schedule/RNG/provider traces | first differing authoritative outcome/tick |
+| Unexpected tick result | relevant `TickOutcome` and phase decision/apply | first differing tick plus driving pre-tick owner state |
+| Production lifecycle wrong | job, resolution, availability, provider/support | remaining time, suspension reason, due tick, matching outcome |
+| Mining extraction/claim mismatch | job, deposit, reservation, claim validator | lifecycle, mass bound, ready custody, reservation, claimed mass |
+| Actor did nothing/chose poorly | observation, candidates, blockers, policy | explicit no-action/failure classification and replay seeds |
+| Capability unreachable | [`STATUS.md`](STATUS.md) and acquisition topology | owner execution proof separated from ordinary acquisition |
+| Gameplay result changed | affected focused scope | replay seeds, observations, choice, typed result, conserved totals |
+| Caller searches nearby feasible requests | owning resolver/envelope | monotonic bound agreement without copied formulas |
+| Complexity regressed | BCA changed-source review and owner shape | specific branch/ownership cost, not only a score |
 
 Repair direct tooling failures before behavioral probes. Use `python ci.py gate --gameplay <scope>` rather than
-reconstructing gameplay Cargo flags or treating a zero-match default catalog as absence.
+reconstructing gameplay Cargo flags. For an individual failure, prefer target-free `run_test.py`; a broad CI
+failure hint may deliberately retain `--target` so the already-built failing binary stays warm.
 
 ## Complexity review
 
@@ -123,6 +128,11 @@ persistence, conservation, or numerical accumulation adds evidence that focused 
 
 Automated-player boundaries/evidence semantics live in [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md); read
 it only for gameplay-harness behavior or interpretation.
+
+Focused gameplay targets are compile surfaces, not contract collections. Each focused target exposes exactly one
+gate/probe and imports only support needed by that episode. Cheap cross-cutting contracts belong in
+`gameplay_contracts`; broad gameplay contracts belong in the consolidated `gameplay_audit` target. This prevents
+Cargo from code-generating unrelated tests when one gameplay loop is under repair.
 
 ## Completion
 

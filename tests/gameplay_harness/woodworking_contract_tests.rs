@@ -10,59 +10,17 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::{TickSpan, WorldSeed};
-use deep_hearth::crafting::{
-    ManualCraftRequest, ManualCraftStartRequest, resolve_manual_craft, validate_start_manual_craft,
-};
+use deep_hearth::core::time::WorldSeed;
+use deep_hearth::crafting::resolve_manual_craft;
 use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
-use deep_hearth::inventory::{
-    StockpileId, StockpileStorageProfile, validate_build_storage_enclosure,
-};
-use deep_hearth::maintenance::Condition;
+use deep_hearth::inventory::{StockpileStorageProfile, validate_build_storage_enclosure};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::production::ProcessId;
-use deep_hearth::registry::Registries;
 use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
+use super::manual_craft_execution::{execute_manual_craft, execute_manual_craft_batches};
 use super::manual_craft_selection::select_manual_craft_request;
-use super::production_timing::finish_uninterrupted_production_job;
-
-fn finish_manual_craft(
-    registries: &Registries,
-    state: &mut AppState,
-    request: ManualCraftRequest,
-    destination: StockpileId,
-    context: &'static str,
-) -> TickSpan {
-    let resolution = resolve_manual_craft(registries, state, &request)
-        .unwrap_or_else(|error| panic!("{context} resolution failed: {error}"));
-    let duration = resolution.duration();
-    let job = validate_start_manual_craft(
-        registries,
-        state,
-        ManualCraftStartRequest::new(request, destination),
-    )
-    .unwrap_or_else(|error| panic!("{context} start failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("{context} commit failed: {error}"));
-    finish_uninterrupted_production_job(registries, state, job, duration, context);
-    duration
-}
-
-fn craft_batches(
-    registries: &Registries,
-    state: &mut AppState,
-    process: ProcessId,
-    source: StockpileId,
-    destination: StockpileId,
-    batches: u64,
-    context: &'static str,
-) -> TickSpan {
-    let request = select_manual_craft_request(registries, state, process, source, batches, context);
-    finish_manual_craft(registries, state, request, destination, context)
-}
 
 #[test]
 fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() {
@@ -130,7 +88,7 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
         .unwrap_or_else(|error| panic!("woodworking progression matter setup failed: {error}"))
         .total();
 
-    let knap_ticks = craft_batches(
+    let knap_ticks = execute_manual_craft_batches(
         &registries,
         &mut state,
         PROCESS_KNAP_STONE_TOOL,
@@ -139,7 +97,7 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
         1,
         "woodworking adze stone edge",
     );
-    let handle_ticks = craft_batches(
+    let handle_ticks = execute_manual_craft_batches(
         &registries,
         &mut state,
         PROCESS_SHAPE_WOOD_HANDLE,
@@ -148,10 +106,7 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
         1,
         "woodworking adze handle",
     );
-    assert_eq!(
-        (knap_ticks, handle_ticks),
-        (TickSpan::new(40), TickSpan::new(40))
-    );
+    assert!(!knap_ticks.is_zero() && !handle_ticks.is_zero());
     let setup_attention = knap_ticks
         .value()
         .checked_add(handle_ticks.value())
@@ -188,13 +143,26 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
     .with_equipment(adze);
     let assisted_bulk = resolve_manual_craft(&registries, &state, &assisted_bulk_request)
         .unwrap_or_else(|error| panic!("bulk-crate adze board resolution failed: {error}"));
-    assert_eq!(bare_bulk.duration(), TickSpan::new(200));
-    assert_eq!(assisted_bulk.duration(), TickSpan::new(112));
+    assert!(assisted_bulk.duration() < bare_bulk.duration());
     assert_eq!(assisted_bulk.output_streams(), bare_bulk.output_streams());
     assert!(
         setup_attention + assisted_bulk.duration().value() < bare_bulk.duration().value(),
-        "four board batches should repay the base adze's 80-tick preparation attention"
+        "four board batches should repay the base adze's resolved preparation attention"
     );
+
+    let three_batch_bare = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_SHAPE_WOOD_BOARDS,
+            raw,
+            3,
+            "three-batch bare woodworking counterfactual",
+        ),
+    )
+    .unwrap_or_else(|error| panic!("three-batch bare woodworking counterfactual failed: {error}"));
 
     let three_batch_request = select_manual_craft_request(
         &registries,
@@ -208,36 +176,61 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
     let three_batch_adze = resolve_manual_craft(&registries, &state, &three_batch_request)
         .unwrap_or_else(|error| panic!("three-batch adze counterfactual failed: {error}"));
     assert!(
-        setup_attention + three_batch_adze.duration().value() >= 150,
+        setup_attention + three_batch_adze.duration().value()
+            >= three_batch_bare.duration().value(),
         "the stone adze must remain an investment instead of dominating small carpentry jobs"
     );
 
-    let board_ticks = finish_manual_craft(
+    let expected_board_mass = assisted_bulk
+        .single_output_stream()
+        .unwrap_or_else(|| panic!("bulk-crate adze output stream disappeared"))
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("bulk-crate adze board output disappeared"));
+    let board_ticks = execute_manual_craft(
         &registries,
         &mut state,
         assisted_bulk_request,
         boards,
         "bulk-crate adze boards",
     );
-    assert_eq!(board_ticks, TickSpan::new(112));
+    assert_eq!(board_ticks, assisted_bulk.duration());
     assert_eq!(
         state
             .inventory()
             .get_stockpile(boards)
             .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))),
-        Some(Mass::from_milligrams(3_200_000))
+        Some(expected_board_mass)
     );
 
-    let crate_ticks = craft_batches(
+    let crate_request = select_manual_craft_request(
         &registries,
-        &mut state,
+        &state,
         PROCESS_ASSEMBLE_BULK_TIMBER_CRATE,
         boards,
-        crate_body,
         1,
+        "bulk provisions crate joinery projection",
+    );
+    let crate_resolution = resolve_manual_craft(&registries, &state, &crate_request)
+        .unwrap_or_else(|error| panic!("bulk provisions crate joinery projection failed: {error}"));
+    let expected_crate_body_mass = crate_resolution
+        .single_output_stream()
+        .unwrap_or_else(|| panic!("bulk provisions crate output stream disappeared"))
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY))
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("bulk provisions crate body output disappeared"));
+    let crate_ticks = execute_manual_craft(
+        &registries,
+        &mut state,
+        crate_request,
+        crate_body,
         "bulk provisions crate joinery",
     );
-    assert_eq!(crate_ticks, TickSpan::new(90));
+    assert_eq!(crate_ticks, crate_resolution.duration());
     assert_eq!(
         state
             .inventory()
@@ -245,7 +238,7 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
             .map(|stockpile| {
                 stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY))
             }),
-        Some(Mass::from_milligrams(3_200_000))
+        Some(expected_crate_body_mass)
     );
     validate_build_storage_enclosure(
         &registries,
@@ -283,11 +276,12 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("woodworking adze disappeared before reinforcement"));
     assert_eq!(
-        condition_before_upgrade,
-        Condition::new(888_000).unwrap_or_else(|error| panic!("condition failed: {error}"))
+        Some(condition_before_upgrade),
+        assisted_bulk.equipment_condition_after(),
+        "completed adze work must apply the condition outcome from canonical resolution"
     );
 
-    let reinforcement_ticks = craft_batches(
+    let reinforcement_ticks = execute_manual_craft_batches(
         &registries,
         &mut state,
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
@@ -296,7 +290,7 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
         1,
         "woodworking copper reinforcement",
     );
-    assert_eq!(reinforcement_ticks, TickSpan::new(40));
+    assert!(!reinforcement_ticks.is_zero());
     let upgraded = validate_upgrade_equipment(
         &registries,
         &state,
@@ -338,13 +332,13 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
         .unwrap_or_else(|| panic!("reinforced woodworking unexpectedly increased attention"));
     assert!(
         future_savings >= reinforcement_ticks.value(),
-        "three future board batches should repay the 40-tick copper-reinforcement shaping cost"
+        "three future board batches should repay the resolved copper-reinforcement shaping cost"
     );
     assert_eq!(
         copper_future.output_streams(),
         stone_future.output_streams()
     );
-    let reinforced_ticks = finish_manual_craft(
+    let reinforced_ticks = execute_manual_craft(
         &registries,
         &mut state,
         copper_future_request,

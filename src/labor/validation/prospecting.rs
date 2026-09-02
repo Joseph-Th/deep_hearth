@@ -3,95 +3,94 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::maintenance::calculate_usable_condition_after_active_ticks;
+use crate::equipment::EquipmentOperationTrace;
+use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::registry::Registries;
 
 use super::{ActivePlayerJobs, PlayerWorkValidationError, validate_remaining_resources};
-use crate::labor::ProspectingWork;
+use crate::labor::{ProspectingDefinition, ProspectingEquipmentProfile, ProspectingWork};
 
-pub(super) fn validate_prospecting_work(
-    registries: &Registries,
+fn validate_equipment_trace(
     state: &AppState,
-    active_jobs: &ActivePlayerJobs,
-    work: ProspectingWork,
-    available_energy: Energy,
-    available_hydration: Volume,
+    profile: ProspectingEquipmentProfile,
+    trace: EquipmentOperationTrace,
+    condition_after: Condition,
+    duration: TickSpan,
 ) -> Result<(), PlayerWorkValidationError> {
-    if active_jobs.has_any() {
-        return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+    let equipment = trace.equipment();
+    let record = state
+        .equipment()
+        .get_equipment(equipment)
+        .ok_or(PlayerWorkValidationError::ProspectingEquipmentMissing)?;
+    if record.definition() != trace.definition() {
+        return Err(PlayerWorkValidationError::ProspectingEquipmentDefinitionMismatch);
     }
-    let method = registries
-        .labor()
-        .get_prospecting(work.method())
-        .copied()
-        .ok_or(PlayerWorkValidationError::ProspectingMethodMissing)?;
+    if !profile.accepts(record.definition()) {
+        return Err(
+            PlayerWorkValidationError::ProspectingEquipmentDefinitionNotAccepted { equipment },
+        );
+    }
+    if record.condition() != trace.condition() {
+        return Err(PlayerWorkValidationError::ProspectingEquipmentConditionMismatch);
+    }
+    if record.supported_by().is_some() {
+        return Err(PlayerWorkValidationError::ProspectingEquipmentMounted { equipment });
+    }
+    if state
+        .production()
+        .get_equipment_occupant(equipment)
+        .is_some()
+        || state.mining().get_equipment_occupant(equipment).is_some()
+    {
+        return Err(
+            PlayerWorkValidationError::ProspectingEquipmentResourceDoubleBooked { equipment },
+        );
+    }
+    let required = calculate_usable_condition_after_active_ticks(
+        profile.condition_wear_ppm_per_active_tick(),
+        trace.condition(),
+        duration,
+    )
+    .map_err(PlayerWorkValidationError::ProspectingEquipmentConditionDuration)?;
+    if condition_after != required {
+        return Err(
+            PlayerWorkValidationError::ProspectingEquipmentConditionOutcomeMismatch {
+                stored: condition_after,
+                required,
+            },
+        );
+    }
+    Ok(())
+}
+
+fn validate_equipment_replay(
+    state: &AppState,
+    method: ProspectingDefinition,
+    work: ProspectingWork,
+) -> Result<(), PlayerWorkValidationError> {
     match (
         method.equipment(),
         work.equipment_trace(),
         work.condition_after(),
     ) {
-        (None, None, None) => {}
-        (None, Some(trace), _) => {
-            return Err(PlayerWorkValidationError::ProspectingUnexpectedEquipment {
-                equipment: trace.equipment(),
-            });
-        }
-        (None, None, Some(_)) => {
-            return Err(PlayerWorkValidationError::ProspectingEquipmentMissing);
-        }
-        (Some(_), None, _) | (Some(_), Some(_), None) => {
-            return Err(PlayerWorkValidationError::ProspectingEquipmentMissing);
+        (None, None, None) => Ok(()),
+        (None, Some(trace), _) => Err(PlayerWorkValidationError::ProspectingUnexpectedEquipment {
+            equipment: trace.equipment(),
+        }),
+        (None, None, Some(_)) | (Some(_), None, _) | (Some(_), Some(_), None) => {
+            Err(PlayerWorkValidationError::ProspectingEquipmentMissing)
         }
         (Some(profile), Some(trace), Some(condition_after)) => {
-            let equipment = trace.equipment();
-            let record = state
-                .equipment()
-                .get_equipment(equipment)
-                .ok_or(PlayerWorkValidationError::ProspectingEquipmentMissing)?;
-            if record.definition() != trace.definition() {
-                return Err(PlayerWorkValidationError::ProspectingEquipmentDefinitionMismatch);
-            }
-            if !profile.accepts(record.definition()) {
-                return Err(
-                    PlayerWorkValidationError::ProspectingEquipmentDefinitionNotAccepted {
-                        equipment,
-                    },
-                );
-            }
-            if record.condition() != trace.condition() {
-                return Err(PlayerWorkValidationError::ProspectingEquipmentConditionMismatch);
-            }
-            if record.supported_by().is_some() {
-                return Err(PlayerWorkValidationError::ProspectingEquipmentMounted { equipment });
-            }
-            if state
-                .production()
-                .get_equipment_occupant(equipment)
-                .is_some()
-                || state.mining().get_equipment_occupant(equipment).is_some()
-            {
-                return Err(
-                    PlayerWorkValidationError::ProspectingEquipmentResourceDoubleBooked {
-                        equipment,
-                    },
-                );
-            }
-            let required = calculate_usable_condition_after_active_ticks(
-                profile.condition_wear_ppm_per_active_tick(),
-                trace.condition(),
-                method.duration(),
-            )
-            .map_err(PlayerWorkValidationError::ProspectingEquipmentConditionDuration)?;
-            if condition_after != required {
-                return Err(
-                    PlayerWorkValidationError::ProspectingEquipmentConditionOutcomeMismatch {
-                        stored: condition_after,
-                        required,
-                    },
-                );
-            }
+            validate_equipment_trace(state, profile, trace, condition_after, method.duration())
         }
     }
+}
+
+fn validate_target_replay(
+    registries: &Registries,
+    method: ProspectingDefinition,
+    work: ProspectingWork,
+) -> Result<(), PlayerWorkValidationError> {
     if registries
         .materials()
         .get_material(work.material())
@@ -111,6 +110,14 @@ pub(super) fn validate_prospecting_work(
             maximum: method.maximum_region_voxels(),
         });
     }
+    Ok(())
+}
+
+fn validate_schedule_replay(
+    state: &AppState,
+    method: ProspectingDefinition,
+    work: ProspectingWork,
+) -> Result<TickSpan, PlayerWorkValidationError> {
     if work.started_at() > state.tick()
         || work.completes_at() <= state.tick()
         || work.completes_at() <= work.started_at()
@@ -121,12 +128,35 @@ pub(super) fn validate_prospecting_work(
     if stored_duration != method.duration() {
         return Err(PlayerWorkValidationError::ProspectingDurationMismatch);
     }
-    let remaining_ticks = work.completes_at().value() - state.tick().value();
+    Ok(TickSpan::new(
+        work.completes_at().value() - state.tick().value(),
+    ))
+}
+
+pub(super) fn validate_prospecting_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    work: ProspectingWork,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    if active_jobs.has_any() {
+        return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+    }
+    let method = registries
+        .labor()
+        .get_prospecting(work.method())
+        .copied()
+        .ok_or(PlayerWorkValidationError::ProspectingMethodMissing)?;
+    validate_equipment_replay(state, method, work)?;
+    validate_target_replay(registries, method, work)?;
+    let remaining_duration = validate_schedule_replay(state, method, work)?;
     validate_remaining_resources(
         registries,
         available_energy,
         available_hydration,
         method.exertion(),
-        TickSpan::new(remaining_ticks),
+        remaining_duration,
     )
 }

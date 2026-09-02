@@ -48,7 +48,7 @@ pub(crate) use separation_execution::validate_loaded_constituent_separation_job;
 
 pub use screening_execution::{
     ResolvedScreening, ScreeningBatchError, ScreeningJobValidationError, ScreeningRequest,
-    ScreeningResolutionError, resolve_screening_process,
+    ScreeningResolutionError, resolve_representable_screening_mass, resolve_screening_process,
 };
 
 pub(crate) use screening_execution::validate_loaded_screening_job;

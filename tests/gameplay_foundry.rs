@@ -10,8 +10,6 @@ mod equipment_support;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
-#[path = "gameplay_harness/foundry_contract_tests.rs"]
-mod foundry_contract_tests;
 #[path = "gameplay_harness/foundry_probe.rs"]
 mod foundry_probe;
 #[path = "gameplay_harness/foundry_setup.rs"]

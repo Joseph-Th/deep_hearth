@@ -30,6 +30,8 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
         // routine gameplay client from proving only the same authored story every run.
         "survival-provisioning" => (0xD33F_C01D_5A70, &[1, 2, 5], 0x5355_5256_5052_4F42),
         "primitive-progression" => (0xD33F_C01D_5052, &[3, 4], 0x5052_4F47_5052_4F42),
+        "woodworking" => (1, &[3, 4], 0x574F_4F44_5052_4F42),
+        "fieldwork" => (1, &[2, 4], 0x4649_454C_4450_5242),
         "ore-preparation" => (0xD33F_C01D_0A11, &[2], 0x0AE5_1A5E_5052_4F42),
         "foundry" => (0xD33F_C01D_F001, &[2], 0xF0A1_DA7A_5052_4F42),
         unknown => panic!("unknown focused gameplay probe {unknown:?}"),

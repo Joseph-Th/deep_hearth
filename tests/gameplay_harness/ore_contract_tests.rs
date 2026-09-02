@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use deep_hearth::content::build_registries;
 
-use super::ore_probe::probe_parameters;
+use super::ore_probe::generation::probe_parameters;
 
 #[test]
 fn ore_probe_generation_varies_feed_and_operating_state() {

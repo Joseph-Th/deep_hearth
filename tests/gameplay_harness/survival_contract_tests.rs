@@ -16,12 +16,16 @@ use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeRole, FocusedProbeSeedPlan, focused_probe_cases_from,
 };
 use super::preservation_route::preservation_construction_plan;
+use super::survival_probe::preservation::{
+    preservation_storage_definition_for_policy_and_capacity,
+    preservation_storage_definition_for_policy_with_constraints,
+};
+use super::survival_probe::preservation_evaluation::{
+    project_preservation_candidates, select_preservation_projection,
+};
 use super::survival_probe::{
     DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
     diet_provisioning_policy_for_behavior_seed, preservation_freshness_return_threshold_ppm,
-    preservation_policy_for_projected_return, preservation_storage_definition_for_policy,
-    preservation_storage_definition_for_policy_and_capacity,
-    preservation_storage_definition_for_policy_and_opportunity,
     prospecting_method_for_work_pressure, provisioning_world,
 };
 
@@ -210,7 +214,11 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
             .iter()
             .map(|world| world.start_profile)
             .collect::<BTreeSet<_>>(),
-        SurvivalStartProfile::ALL.into_iter().collect(),
+        BTreeSet::from([
+            SurvivalStartProfile::FullReserve,
+            SurvivalStartProfile::HungerWarningBoundary,
+            SurvivalStartProfile::HydrationWarningBoundary,
+        ]),
         "bounded survival generation must cover every start-pressure archetype"
     );
     let sampled_foods = worlds
@@ -271,7 +279,10 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         diet_policies,
-        DietProvisioningPolicy::ALL.into_iter().collect()
+        BTreeSet::from([
+            DietProvisioningPolicy::CompactCalories,
+            DietProvisioningPolicy::BalancedRecovery,
+        ])
     );
     let preservation_thresholds = (1_u64..=32)
         .map(preservation_freshness_return_threshold_ppm)
@@ -282,23 +293,22 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
             .iter()
             .all(|threshold| (1_000_000..=4_000_000).contains(threshold))
     );
-    assert_eq!(
-        preservation_policy_for_projected_return(1, 0, 140),
-        PreservationInvestmentPolicy::AttentionEfficient
-    );
     let low_threshold_seed = (1_u64..=1_024)
         .min_by_key(|seed| preservation_freshness_return_threshold_ppm(*seed))
         .unwrap_or_else(|| unreachable!("nonempty bounded behavior seed search"));
     let high_threshold_seed = (1_u64..=1_024)
         .max_by_key(|seed| preservation_freshness_return_threshold_ppm(*seed))
         .unwrap_or_else(|| unreachable!("nonempty bounded behavior seed search"));
-    assert_eq!(
-        preservation_policy_for_projected_return(low_threshold_seed, 560, 140),
-        PreservationInvestmentPolicy::MaximumProtection
+    let projected = project_preservation_candidates(&registries, 0x51A2_0001);
+    let low_threshold_choice = select_preservation_projection(low_threshold_seed, &projected);
+    let high_threshold_choice = select_preservation_projection(high_threshold_seed, &projected);
+    assert!(
+        low_threshold_choice.remaining_fresh_ticks >= high_threshold_choice.remaining_fresh_ticks,
+        "lower attention valuation must not select less preservation from the same physical frontier"
     );
-    assert_eq!(
-        preservation_policy_for_projected_return(high_threshold_seed, 140, 140),
-        PreservationInvestmentPolicy::AttentionEfficient
+    assert!(
+        low_threshold_choice.production_ticks >= high_threshold_choice.production_ticks,
+        "higher attention valuation must not select a slower construction from the same physical frontier"
     );
     assert_eq!(
         preservation_storage_definition_for_policy_and_capacity(
@@ -332,11 +342,11 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         Mass::from_milligrams(3_000_000),
     )];
     assert_eq!(
-        preservation_storage_definition_for_policy_and_opportunity(
+        preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::MaximumProtection,
             Mass::from_milligrams(5_000_000),
-            &stone_only,
+            Some(&stone_only),
         ),
         STORAGE_CARVED_STONE_PROVISIONS_CROCK,
         "a stone-only opportunity must not rank timber enclosures the actor cannot construct"
@@ -346,11 +356,11 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         Mass::from_milligrams(5_000_000),
     )];
     assert_eq!(
-        preservation_storage_definition_for_policy_and_opportunity(
+        preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::MaximumProtection,
             Mass::from_milligrams(5_000_000),
-            &scarce_timber,
+            Some(&scarce_timber),
         ),
         STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
         "five kilograms of timber must not admit the six-kilogram pantry route"
@@ -360,11 +370,11 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         Mass::from_milligrams(6_000_000),
     )];
     assert_eq!(
-        preservation_storage_definition_for_policy_and_opportunity(
+        preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::MaximumProtection,
             Mass::from_milligrams(5_000_000),
-            &timber_only,
+            Some(&timber_only),
         ),
         STORAGE_INSULATED_TIMBER_PANTRY,
         "a timber opportunity should retain the authored maximum-protection endpoint"
@@ -393,13 +403,16 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
                 )
             })
             .collect::<BTreeSet<_>>(),
-        DietProvisioningPolicy::ALL.into_iter().collect()
+        BTreeSet::from([
+            DietProvisioningPolicy::CompactCalories,
+            DietProvisioningPolicy::BalancedRecovery,
+        ])
     );
 
     let original = provisioning_world(&registries, 0x51A2_0001);
+    let projected = project_preservation_candidates(&registries, 0x51A2_0001);
     for behavior_seed in 1_u64..=4 {
-        let policy = preservation_policy_for_projected_return(behavior_seed, 100, 140);
-        let _selected = preservation_storage_definition_for_policy(&registries, policy);
+        let _selected = select_preservation_projection(behavior_seed, &projected);
         let replay = provisioning_world(&registries, 0x51A2_0001);
         assert_eq!(
             (

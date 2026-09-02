@@ -28,7 +28,7 @@ GAMEPLAY_TARGETS = {
 }
 GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_AUDIT_TARGET,)
 GAMEPLAY_TESTS = {
-    "workshop": "workshop_contract_tests::gameplay_harness_gate",
+    "workshop": "gameplay_harness_gate",
     "survival": "gameplay_survival_provisioning_probe",
     "progression": "gameplay_primitive_progression_probe",
     "ore": "gameplay_ore_preparation_probe",
@@ -74,6 +74,9 @@ ORDINARY_PROBE_REVIEW_PREFIXES = (
     ("survival-provisioning", "SURVIVAL EXPERIENCE "),
     ("primitive-progression", "PROGRESSION FALLBACK "),
     ("primitive-progression", "PROGRESSION EXPERIENCE "),
+    ("primitive-progression", "LIBERATION EXPERIENCE "),
+    ("woodworking", "WOODWORKING EXPERIENCE "),
+    ("fieldwork", "FIELDWORK EXPERIENCE "),
 )
 FOCUSED_REPLAY_CASE = re.compile(
     r"\b(?P<role>anchor|coverage|organic|replay):(?P<seed>0x[0-9A-Fa-f]+)"
@@ -177,12 +180,12 @@ def representative_probe_seeds(probe_lines: list[str]) -> set[str]:
 def contrasting_probe_seeds(
     probe_lines: list[str], experience_lines: list[str], dimensions: tuple[tuple[str, ...], ...]
 ) -> set[str]:
-    """Choose the anchor and the organic episode that differs from it most visibly."""
+    """Choose the anchor and the most informative contrasting bounded episode."""
 
     fallback = representative_probe_seeds(probe_lines)
     anchor = next((line for line in experience_lines if " sample=anchor " in line), None)
-    organic = [line for line in experience_lines if " sample=organic " in line]
-    if anchor is None or not organic:
+    alternatives = [line for line in experience_lines if line is not anchor]
+    if anchor is None or not alternatives:
         return fallback
 
     def signature(line: str) -> tuple[int, ...]:
@@ -193,11 +196,14 @@ def contrasting_probe_seeds(
 
     anchor_signature = signature(anchor)
     contrast = max(
-        organic,
-        key=lambda line: sum(
-            candidate != baseline
-            for candidate, baseline in zip(signature(line), anchor_signature, strict=True)
-            if candidate >= 0 and baseline >= 0
+        alternatives,
+        key=lambda line: (
+            sum(
+                candidate != baseline
+                for candidate, baseline in zip(signature(line), anchor_signature, strict=True)
+                if candidate >= 0 and baseline >= 0
+            ),
+            " sample=organic " in line,
         ),
     )
     return {
@@ -211,6 +217,9 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
 
     survival = [line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")]
     progression = [line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")]
+    liberation = [line for line in lines if line.startswith("LIBERATION EXPERIENCE ")]
+    woodworking = [line for line in lines if line.startswith("WOODWORKING EXPERIENCE ")]
+    fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
     summaries: list[str] = []
     if survival:
         count = lambda marker: sum(marker in line for line in survival)
@@ -220,23 +229,119 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             f"pressure=[hydration:{count('pressure=hydration')} energy:{count('pressure=energy')}] "
             f"choice-state=[supply-constrained:{count('state:supply-constrained')} policy-sensitive:{count('state:policy-sensitive')}] "
             f"diet=[balanced-recovery:{count('diet:balanced-recovery')} compact-calories:{count('diet:compact-calories')}] "
-            f"preservation=[attention-efficient:{count('storage-policy:attention-efficient')} maximum-protection:{count('storage-policy:maximum-protection')}]"
+            f"preservation=[attention-efficient:{count('storage-policy:attention-efficient')} balanced-frontier:{count('storage-policy:balanced-frontier')} maximum-protection:{count('storage-policy:maximum-protection')}]"
         )
     if progression:
         count = lambda marker: sum(marker in line for line in progression)
         summaries.append(
             "PROGRESSION DIVERSITY "
             f"samples={len(progression)} "
-            f"first-copper=[pick:{count('first-copper=pick')} crank-first-counterfactual:{count('counterfactual=[crank-first-dominated')}] "
+            f"local-copper=[pick-first:{count('local-copper-sequence=pick-first')} crank-counterfactual:{count('counterfactual=[crank-first-dominated')}] "
             f"information=[surface-resolved:{count('information=surface-resolved')} deferred-refinement:{count('information=deferred-refinement')}] "
             f"automation=[setup-repaid:{count('economics:setup-repaid')} opportunity-ended-before-payback:{count('economics:opportunity-ended-before-payback')}] "
             f"reinvestment=[available:{count('next-reinvestment=[available')} known-target-supply:{count('next-reinvestment=[blocked:known-target-supply]')}]"
+        )
+    if liberation:
+        inputs = {
+            line.split(" input=[", 1)[1].split("]", 1)[0]
+            for line in liberation
+            if " input=[" in line
+        }
+        summaries.append(
+            "LIBERATION DIVERSITY "
+            f"samples={len(liberation)} varied-inputs={len(inputs)} "
+            f"completed={sum('matter=conserved' in line for line in liberation)}"
+        )
+    if woodworking:
+        count = lambda marker: sum(marker in line for line in woodworking)
+        summaries.append(
+            "WOODWORKING DIVERSITY "
+            f"samples={len(woodworking)} "
+            f"choice=[adze:{count('choice=stone-adze')} saw:{count('choice=frame-saw')}] "
+            f"reason=[small-project:{count('reason=project-too-small-for-saw-policy')} copper-limited:{count('reason=copper-supply-limited')} saw-investment:{count('reason=large-project+copper-available')}]"
+        )
+    if fieldwork:
+        count = lambda marker: sum(marker in line for line in fieldwork)
+        inspection_counts = [
+            int(match.group(1))
+            for line in fieldwork
+            if (match := re.search(r"\bfield-inspections=(\d+)", line)) is not None
+        ]
+        inspection_span = (
+            f"{min(inspection_counts)}..{max(inspection_counts)}"
+            if inspection_counts
+            else "n/a"
+        )
+        retained_copper = [
+            int(match.group(1))
+            for line in fieldwork
+            if (match := re.search(r"\bretained-native-copper=(\d+)mg", line)) is not None
+        ]
+        retained_span = (
+            f"{min(retained_copper)}..{max(retained_copper)}mg"
+            if retained_copper
+            else "n/a"
+        )
+        summaries.append(
+            "FIELDWORK DIVERSITY "
+            f"samples={len(fieldwork)} field-inspections={inspection_span} "
+            f"targeted-detail:{count('detailed-surveys=1')} "
+            f"quarry=[stone:{count('quarry=stone-quarry')} reinforced:{count('quarry=copper-reinforced-quarry')}] "
+            f"adaptation=[none:{count('adaptation=none')} hardness:{count('adaptation=hardness-blocker')}] "
+            f"retained-copper={retained_span}"
+        )
+    return summaries
+
+
+def controlled_gameplay_summary(lines: list[str]) -> list[str]:
+    """Keep high-value capability evidence visible without dumping capability transcripts."""
+
+    summaries: list[str] = []
+    for prefix in ("WORKSHOP CAPABILITY ", "WORKSHOP EXPERIENCE REVIEW ", "AGENCY SUMMARY "):
+        if line := next((line for line in lines if line.startswith(prefix)), None):
+            summaries.append(line)
+
+    ore_lines = [
+        line
+        for line in lines
+        if line.startswith("CAPABILITY ORE_PREP ") or line.startswith("ORE REVIEW ")
+    ]
+    ore_completed = [line for line in ore_lines if " outcome=completed " in line]
+    ore_stopped = [line for line in ore_lines if " outcome=stopped " in line]
+    if ore_completed or ore_stopped:
+        feed_signatures = {
+            line.split(" feed=[", 1)[1].split("]", 1)[0]
+            for line in ore_completed
+            if " feed=[" in line
+        }
+        summaries.append(
+            "ORE CAPABILITY SUMMARY "
+            f"samples={len(ore_completed) + len(ore_stopped)} "
+            f"completed={len(ore_completed)} stopped={len(ore_stopped)} "
+            f"finite-energy-stops={sum('blocker=finite-energy' in line for line in ore_stopped)} "
+            f"variable-feed={len(feed_signatures)}"
+        )
+
+    foundry = [
+        line
+        for line in lines
+        if line.startswith("CAPABILITY FOUNDRY ") or line.startswith("FOUNDRY REVIEW ")
+    ]
+    if foundry:
+        summaries.append(
+            "FOUNDRY CAPABILITY SUMMARY "
+            f"samples={len(foundry)} "
+            f"full={sum(' outcome=full-order-' in line for line in foundry)} "
+            f"partial={sum(' outcome=partial-order-' in line for line in foundry)} "
+            f"melt-limited={sum('melt-limit=finite-energy' in line for line in foundry)} "
+            f"cast-capacity-limited={sum('cast-limit=thermal-sink-capacity' in line for line in foundry)} "
+            f"cooldown-recovery={sum('outcome=full-order-recovered-after-cooldown' in line for line in foundry)}"
         )
     return summaries
 
 
 def concise_gameplay_report(stdout: str, environ=None) -> str:
-    """Keep the current ordinary-player experience; verbose mode retains capability diagnostics."""
+    """Keep player experience and compact capability evidence; verbose retains full diagnostics."""
 
     environment = os.environ if environ is None else environ
     if environment.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is not None or environment.get(
@@ -257,6 +362,12 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ]
     progression_experiences = [
         line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")
+    ]
+    woodworking_experiences = [
+        line for line in lines if line.startswith("WOODWORKING EXPERIENCE ")
+    ]
+    fieldwork_experiences = [
+        line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")
     ]
     visible_seeds = {
         "survival-provisioning": contrasting_probe_seeds(
@@ -281,6 +392,26 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
                 ),
             ),
         ),
+        "woodworking": contrasting_probe_seeds(
+            ordinary_probe_inputs.get("woodworking", []),
+            woodworking_experiences,
+            (
+                ("choice=stone-adze", "choice=frame-saw"),
+                (
+                    "reason=project-too-small-for-saw-policy",
+                    "reason=copper-supply-limited",
+                    "reason=large-project+copper-available",
+                ),
+            ),
+        ),
+        "fieldwork": contrasting_probe_seeds(
+            ordinary_probe_inputs.get("fieldwork", []),
+            fieldwork_experiences,
+            (
+                ("adaptation=none", "adaptation=hardness-blocker"),
+                ("quarry=stone-quarry", "quarry=copper-reinforced-quarry"),
+            ),
+        ),
     }
     ordinary_input_lines = {
         line for probe_lines in ordinary_probe_inputs.values() for line in probe_lines
@@ -290,6 +421,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         for line in lines
         if line.startswith(ORDINARY_GAMEPLAY_REPORT_PREFIXES)
         or line.startswith("EVALUATION SCOPE kind=ordinary-play ")
+        or line.startswith("EVALUATION SCOPE kind=controlled-capability ")
         or line in ordinary_input_lines
         or (
             any(
@@ -303,6 +435,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         )
     ]
     selected.extend(ordinary_gameplay_diversity(lines))
+    selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)
 
 

@@ -84,7 +84,7 @@ use deep_hearth::thermal::{
 };
 
 #[path = "workshop/crush_planning.rs"]
-mod crush_planning;
+pub(super) mod crush_planning;
 use crush_planning::*;
 
 struct ManualRecoveryProbe {
@@ -1531,15 +1531,7 @@ fn apply_delivery_and_adapt(
 #[path = "workshop/finalize.rs"]
 mod finalize;
 #[path = "workshop/runner.rs"]
-mod runner;
-
-pub(super) fn run_scenario(
-    registries: &Registries,
-    variation: ScenarioVariation,
-    observation_horizon: Option<u64>,
-) -> ScenarioReport {
-    runner::run_scenario(registries, variation, observation_horizon)
-}
+pub(super) mod runner;
 
 pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     runner::run_gameplay_harness(mode);

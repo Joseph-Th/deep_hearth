@@ -1,10 +1,47 @@
 //! Canonical preservation-infrastructure gameplay subepisode.
 
+use std::cmp::Reverse;
+
+use super::preservation::PreservationCandidate;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PreservationSelectionKind {
+    AttentionEfficient,
+    BalancedFrontier,
+    MaximumProtection,
+}
+
+impl PreservationSelectionKind {
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::AttentionEfficient => "attention-efficient",
+            Self::BalancedFrontier => "balanced-frontier",
+            Self::MaximumProtection => "maximum-protection",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in super::super) struct PreservationCandidateProjection {
+    pub(in super::super) definition: StorageDefinitionId,
+    pub(in super::super) production_ticks: u64,
+    pub(in super::super) raw_material_mass_mg: u64,
+    pub(in super::super) remaining_fresh_ticks: u64,
+}
+
+#[derive(Clone, Copy)]
+struct PreservationScenarioSpec {
+    food: FoodDefinition,
+    maximum_construction_ticks: u64,
+    matched_observation_ticks: u64,
+    bootstrap_age_ticks: u64,
+    food_mass: Mass,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PreservationInfrastructureReview {
-    pub(super) policy: PreservationInvestmentPolicy,
+    pub(super) selection_kind: PreservationSelectionKind,
     pub(super) candidate_count: usize,
     pub(super) storage_definition: StorageDefinitionId,
     pub(super) fastest_definition: StorageDefinitionId,
@@ -37,45 +74,16 @@ pub(super) struct PreservationInfrastructureReview {
     pub(super) recovered_enclosure_mass_mg: u64,
 }
 
-pub(super) fn evaluate_preservation_infrastructure_probe(
+fn preservation_scenario_spec(
     registries: &Registries,
     seed: u64,
-    policy: PreservationInvestmentPolicy,
-) -> PreservationInfrastructureReview {
-    let candidates = preservation_candidates(registries);
-    let storage_definition = preservation_storage_definition_for_policy(registries, policy);
-    let selected_index = candidates
-        .iter()
-        .position(|candidate| candidate.definition == storage_definition)
-        .unwrap_or_else(|| unreachable!("selected preservation definition came from candidates"));
-    let fastest_index = preservation_candidate_for_policy(
-        &candidates,
-        PreservationInvestmentPolicy::AttentionEfficient,
-    );
-    let strongest_index = preservation_candidate_for_policy(
-        &candidates,
-        PreservationInvestmentPolicy::MaximumProtection,
-    );
-    let selected = candidates[selected_index].clone();
-    let fastest = &candidates[fastest_index];
-    let strongest = &candidates[strongest_index];
-    assert_eq!(storage_definition, selected.definition);
-    let definition = registries
-        .storage()
-        .get(storage_definition)
-        .unwrap_or_else(|| unreachable!("selected storage definition came from this registry"));
-    let construction_plan = &selected.construction_plan;
-    let construction_ticks = construction_plan.attention_ticks;
+    candidates: &[PreservationCandidate],
+) -> PreservationScenarioSpec {
     let maximum_construction_ticks = candidates
         .iter()
         .map(|candidate| candidate.construction_plan.attention_ticks)
         .max()
         .unwrap_or_else(|| unreachable!("preservation candidates are nonempty"));
-    let construction_stages = construction_plan
-        .routes
-        .iter()
-        .map(|route| route.steps.len())
-        .sum::<usize>();
     let foods = registries
         .survival()
         .foods()
@@ -102,15 +110,6 @@ pub(super) fn evaluate_preservation_infrastructure_probe(
         .checked_sub(maximum_construction_ticks)
         .and_then(|ticks| ticks.checked_sub(matched_observation_ticks))
         .unwrap_or_else(|| unreachable!("bounded preservation horizon was derived above"));
-    let observation_ticks = matched_observation_ticks
-        .checked_add(
-            maximum_construction_ticks
-                .checked_sub(construction_ticks)
-                .unwrap_or_else(|| {
-                    unreachable!("selected construction is within candidate maximum")
-                }),
-        )
-        .unwrap_or_else(|| panic!("preservation matched observation duration overflowed"));
     let shared_capacity = candidates
         .iter()
         .map(|candidate| candidate.capacity.milligrams())
@@ -123,6 +122,186 @@ pub(super) fn evaluate_preservation_infrastructure_probe(
             + mix64(seed ^ 0x5052_4553_4D41_5353)
                 % (maximum_witness_mass - minimum_witness_mass + 1),
     );
+    PreservationScenarioSpec {
+        food,
+        maximum_construction_ticks,
+        matched_observation_ticks,
+        bootstrap_age_ticks,
+        food_mass,
+    }
+}
+
+pub(in super::super) fn project_preservation_candidates(
+    registries: &Registries,
+    seed: u64,
+) -> Vec<PreservationCandidateProjection> {
+    let candidates = preservation_candidates(registries);
+    let scenario = preservation_scenario_spec(registries, seed, &candidates);
+    let mut state = AppState::new(WorldSeed::new(seed ^ 0x5052_4553_4552_5643));
+    let stockpile = seed_stockpile(
+        &mut state,
+        scenario.food_mass,
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let lot = seed_lot(
+        registries,
+        &mut state,
+        stockpile,
+        scenario.food.commodity(),
+        scenario.food_mass,
+        ROOM_TEMPERATURE,
+    );
+    seed_preexisting_world_age(
+        &mut state,
+        SimulationTick::new(scenario.bootstrap_age_ticks),
+    );
+    let projection_started_at = state.tick();
+    let assessment_at = SimulationTick::new(
+        projection_started_at
+            .value()
+            .checked_add(scenario.maximum_construction_ticks)
+            .and_then(|tick| tick.checked_add(scenario.matched_observation_ticks))
+            .unwrap_or_else(|| panic!("preservation frontier assessment tick overflowed")),
+    );
+    candidates
+        .into_iter()
+        .map(|candidate| {
+            let transition_at = SimulationTick::new(
+                projection_started_at
+                    .value()
+                    .checked_add(candidate.construction_plan.attention_ticks)
+                    .unwrap_or_else(|| panic!("preservation frontier transition tick overflowed")),
+            );
+            let projected = project_food_freshness_after_storage_transition(
+                registries,
+                &state,
+                lot,
+                transition_at,
+                candidate.definition,
+                assessment_at,
+            )
+            .unwrap_or_else(|error| {
+                panic!("preservation frontier freshness projection failed: {error:?}")
+            });
+            let remaining_fresh_ticks = match projected {
+                FoodFreshness::Fresh { age: _, remaining } => remaining.value(),
+                FoodFreshness::Spoiled { .. } => 0,
+            };
+            PreservationCandidateProjection {
+                definition: candidate.definition,
+                production_ticks: candidate.construction_plan.attention_ticks,
+                raw_material_mass_mg: candidate.construction_plan.raw_mass.milligrams(),
+                remaining_fresh_ticks,
+            }
+        })
+        .collect()
+}
+
+pub(in super::super) fn select_preservation_projection(
+    behavior_seed: u64,
+    projections: &[PreservationCandidateProjection],
+) -> PreservationCandidateProjection {
+    let attention_value_ppm = preservation_freshness_return_threshold_ppm(behavior_seed);
+    let value_key = |projection: &PreservationCandidateProjection| {
+        let freshness_value = i128::from(projection.remaining_fresh_ticks)
+            .checked_mul(1_000_000)
+            .unwrap_or_else(|| panic!("preservation projected freshness value overflowed"));
+        let attention_cost = i128::from(projection.production_ticks)
+            .checked_mul(i128::from(attention_value_ppm))
+            .unwrap_or_else(|| panic!("preservation projected attention value overflowed"));
+        (
+            freshness_value - attention_cost,
+            projection.remaining_fresh_ticks,
+            Reverse(projection.raw_material_mass_mg),
+            Reverse(projection.production_ticks),
+        )
+    };
+    let best_value = projections
+        .iter()
+        .map(value_key)
+        .max()
+        .unwrap_or_else(|| panic!("preservation projection has no authored candidates"));
+    let selected = projections
+        .iter()
+        .copied()
+        .filter(|projection| value_key(projection) == best_value)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        selected.len(),
+        1,
+        "preservation value frontier has physically equivalent winners; author another observable tradeoff instead of using identity as a tie-break"
+    );
+    selected[0]
+}
+
+pub(super) fn evaluate_preservation_infrastructure_probe(
+    registries: &Registries,
+    seed: u64,
+    policy: PreservationInvestmentPolicy,
+) -> PreservationInfrastructureReview {
+    evaluate_preservation_infrastructure_definition(
+        registries,
+        seed,
+        preservation_storage_definition_for_policy(registries, policy),
+    )
+}
+
+pub(super) fn evaluate_preservation_infrastructure_definition(
+    registries: &Registries,
+    seed: u64,
+    storage_definition: StorageDefinitionId,
+) -> PreservationInfrastructureReview {
+    let candidates = preservation_candidates(registries);
+    let selected_index = candidates
+        .iter()
+        .position(|candidate| candidate.definition == storage_definition)
+        .unwrap_or_else(|| unreachable!("selected preservation definition came from candidates"));
+    let fastest_index = preservation_candidate_for_policy(
+        &candidates,
+        PreservationInvestmentPolicy::AttentionEfficient,
+    );
+    let strongest_index = preservation_candidate_for_policy(
+        &candidates,
+        PreservationInvestmentPolicy::MaximumProtection,
+    );
+    let selected = candidates[selected_index].clone();
+    let fastest = &candidates[fastest_index];
+    let strongest = &candidates[strongest_index];
+    let selection_kind = if selected_index == fastest_index {
+        PreservationSelectionKind::AttentionEfficient
+    } else if selected_index == strongest_index {
+        PreservationSelectionKind::MaximumProtection
+    } else {
+        PreservationSelectionKind::BalancedFrontier
+    };
+    assert_eq!(storage_definition, selected.definition);
+    let definition = registries
+        .storage()
+        .get(storage_definition)
+        .unwrap_or_else(|| unreachable!("selected storage definition came from this registry"));
+    let construction_plan = &selected.construction_plan;
+    let construction_ticks = construction_plan.attention_ticks;
+    let construction_stages = construction_plan
+        .routes
+        .iter()
+        .map(|route| route.steps.len())
+        .sum::<usize>();
+    let scenario = preservation_scenario_spec(registries, seed, &candidates);
+    let food = scenario.food;
+    let shelf_life_ticks = food.shelf_life().value();
+    let bootstrap_age_ticks = scenario.bootstrap_age_ticks;
+    let observation_ticks = scenario
+        .matched_observation_ticks
+        .checked_add(
+            scenario
+                .maximum_construction_ticks
+                .checked_sub(construction_ticks)
+                .unwrap_or_else(|| {
+                    unreachable!("selected construction is within candidate maximum")
+                }),
+        )
+        .unwrap_or_else(|| panic!("preservation matched observation duration overflowed"));
+    let food_mass = scenario.food_mass;
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x5052_4553_4552_5643));
     let enclosed_food = seed_stockpile(
         &mut state,
@@ -243,8 +422,8 @@ pub(super) fn evaluate_preservation_infrastructure_probe(
     let assessment_at = SimulationTick::new(
         projection_started_at
             .value()
-            .checked_add(maximum_construction_ticks)
-            .and_then(|tick| tick.checked_add(matched_observation_ticks))
+            .checked_add(scenario.maximum_construction_ticks)
+            .and_then(|tick| tick.checked_add(scenario.matched_observation_ticks))
             .unwrap_or_else(|| panic!("preservation assessment forecast tick overflowed")),
     );
     let projected_freshness = project_food_freshness_after_storage_transition(
@@ -531,7 +710,7 @@ pub(super) fn evaluate_preservation_infrastructure_probe(
         .unwrap_or_else(|error| panic!("preservation infrastructure state audit failed: {error}"));
 
     PreservationInfrastructureReview {
-        policy,
+        selection_kind,
         candidate_count: candidates.len(),
         storage_definition: definition.id(),
         fastest_definition: fastest.definition,

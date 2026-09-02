@@ -6,7 +6,7 @@ use crate::energy::EnergyCarrier;
 use crate::geology::GeologicalEvidenceKind;
 use crate::labor::{
     LaborRegistry, ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition,
-    ProspectingEquipmentProfile, ProspectingMethodId,
+    ProspectingEquipmentProfile, ProspectingMethodId, ProspectingSpatialResolution,
 };
 use crate::survival::SurvivalExertion;
 
@@ -114,7 +114,8 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                     None,
                     150,
                 ),
-            ),
+            )
+            .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel),
         ],
     )
 }

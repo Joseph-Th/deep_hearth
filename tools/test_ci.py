@@ -771,6 +771,14 @@ class LocalCiPlanTests(unittest.TestCase):
                     f"focused gameplay target {scope} must not pull unrelated harness family {module}",
                 )
 
+    def test_each_focused_gameplay_target_compiles_only_its_gate(self) -> None:
+        for scope, target in ci.GAMEPLAY_TARGETS.items():
+            self.assertEqual(
+                run_test.source_test_catalog(target, None),
+                [ci.GAMEPLAY_TESTS[scope]],
+                f"focused gameplay target {scope} must not code-generate unrelated tests",
+            )
+
     def test_gameplay_replay_summary_is_compact_for_focused_and_workshop_runs(self) -> None:
         self.assertEqual(
             ci.gameplay_replay_summary(
@@ -949,12 +957,12 @@ class LocalCiPlanTests(unittest.TestCase):
         output = (
             "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
             "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
-            "failures:\n    workshop_contract_tests::gameplay_harness_gate\n"
+            "failures:\n    gameplay_harness_gate\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA --behavior-seed 0xBBBB workshop_contract_tests::gameplay_harness_gate",
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA --behavior-seed 0xBBBB gameplay_harness_gate",
         )
 
     def test_process_catalog_failure_reuses_the_warm_audit_target(self) -> None:
@@ -990,7 +998,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 "0xAAAA",
                 "--behavior-seed",
                 "0xBBBB",
-                "workshop_contract_tests::gameplay_harness_gate",
+                "gameplay_harness_gate",
             ]
         )
         self.assertEqual(
@@ -1143,47 +1151,71 @@ class LocalCiPlanTests(unittest.TestCase):
                 "CONTENT registry_schema=64 equipment=[authored:12]",
                 "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4] energy=[authored-edge:2 no-authored-edge:4] reachability=direct-edge-not-end-to-end-proof",
                 "CONTENT CATALOG equipment=[very-long-detail]",
-                "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
+                "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression,woodworking,fieldwork]",
+                "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior",
                 "AGENCY INPUT mode=explore organic=3 variation_root=0x1234",
-                "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
+                "WORKSHOP CAPABILITY mode=exploratory scenarios=9 adaptive=[total:4]",
+                "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt dynamic-scenarios:8/9",
+                "AGENCY SUMMARY worlds=3 distinct-physical-paths=3 demonstrated-choice-effects=[power:true survival:true maintenance:true structure:true]",
                 "PROBE INPUT name=ore-preparation mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000BB",
-                "ORE REVIEW seed=0x0000000000000001 anchor-detail",
-                "ORE REVIEW seed=0x00000000000000AA organic-representative",
+                "CAPABILITY ORE_PREP seed=0x0000000000000001 outcome=completed feed=[copper:400000ppm]",
+                "CAPABILITY ORE_PREP seed=0x00000000000000AA outcome=completed feed=[copper:500000ppm]",
+                "ORE REVIEW seed=0x00000000000000BB outcome=stopped blocker=finite-energy",
                 "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
                 "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
                 "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
-                "PROGRESSION EXPERIENCE seed=0x0000000000000001 information=deferred-refinement first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[available] economics:setup-repaid",
-                "PROGRESSION EXPERIENCE seed=0x00000000000000AA information=surface-resolved first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
-                "PROGRESSION EXPERIENCE seed=0x00000000000000BB information=surface-resolved first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
+                "PROGRESSION EXPERIENCE seed=0x0000000000000001 sample=anchor information=deferred-refinement local-copper-sequence=pick-first counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[available] economics:setup-repaid",
+                "LIBERATION EXPERIENCE seed=0x0000000000000001 sample=anchor input=[100000mg 400000ppm-Cu] matter=conserved",
+                "PROGRESSION EXPERIENCE seed=0x00000000000000AA sample=organic information=surface-resolved local-copper-sequence=pick-first counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
+                "LIBERATION EXPERIENCE seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] matter=conserved",
                 "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
-                "SURVIVAL EXPERIENCE seed=0x0000000000000001 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[storage-policy:maximum-protection]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000AA pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[storage-policy:attention-efficient]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000CC pressure=hydration choice=[state:policy-sensitive diet:compact-calories] current-investment=[storage-policy:maximum-protection]",
+                "SURVIVAL EXPERIENCE seed=0x0000000000000001 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[storage-policy:maximum-protection]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000AA sample=organic pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[storage-policy:attention-efficient]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000CC sample=organic pressure=hydration choice=[state:policy-sensitive diet:compact-calories] current-investment=[storage-policy:maximum-protection]",
                 "SURVIVAL REVIEW seed=0x00000000000000AA accounting-detail",
+                "PROBE INPUT name=woodworking mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,coverage:0x0000000000000003,organic:0x00000000000000AA",
+                "WOODWORKING EXPERIENCE seed=0x0000000000000001 sample=anchor choice=stone-adze reason=project-too-small-for-saw-policy",
+                "WOODWORKING EXPERIENCE seed=0x0000000000000003 sample=coverage choice=frame-saw reason=large-project+copper-available",
+                "WOODWORKING EXPERIENCE seed=0x00000000000000AA sample=organic choice=stone-adze reason=copper-supply-limited",
+                "PROBE INPUT name=fieldwork mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,coverage:0x0000000000000004,organic:0x00000000000000AA",
+                "FIELDWORK EXPERIENCE seed=0x0000000000000001 sample=anchor transects=2 selected-channel=observed-strongest field-inspections=3 detailed-surveys=1 quarry=stone-quarry adaptation=none retained-native-copper=40000mg",
+                "FIELDWORK EXPERIENCE seed=0x0000000000000004 sample=coverage transects=2 selected-channel=observed-strongest field-inspections=1 detailed-surveys=1 quarry=copper-reinforced-quarry adaptation=hardness-blocker retained-native-copper=20000mg",
+                "FIELDWORK EXPERIENCE seed=0x00000000000000AA sample=organic transects=2 selected-channel=observed-strongest field-inspections=2 detailed-surveys=1 quarry=stone-quarry adaptation=none retained-native-copper=40000mg",
+                "CAPABILITY FOUNDRY seed=0x1 outcome=full-order-complete melt-limit=offered-batch cast-limit=offered-batch",
+                "CAPABILITY FOUNDRY seed=0x2 outcome=partial-order-melt-limited melt-limit=finite-energy cast-limit=thermal-sink-capacity",
+                "AGENCY PATHS focus=noisy-detail",
                 "test result: ok. 1 passed",
             ]
         )
-        self.assertEqual(
-            ci.concise_gameplay_report(output, {}),
-            "\n".join(
-                [
-                    "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified",
-                    "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
-                    "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000CC",
-                    "CONTENT registry_schema=64 equipment=[authored:12]",
-                    "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4] energy=[authored-edge:2 no-authored-edge:4] reachability=direct-edge-not-end-to-end-proof",
-                    "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
-                    "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
-                    "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
-                    "PROGRESSION EXPERIENCE seed=0x0000000000000001 information=deferred-refinement first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[available] economics:setup-repaid",
-                    "PROGRESSION EXPERIENCE seed=0x00000000000000AA information=surface-resolved first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
-                    "SURVIVAL EXPERIENCE seed=0x0000000000000001 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[storage-policy:maximum-protection]",
-                    "SURVIVAL EXPERIENCE seed=0x00000000000000AA pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[storage-policy:attention-efficient]",
-                    "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[attention-efficient:1 maximum-protection:2]",
-                    "PROGRESSION DIVERSITY samples=3 first-copper=[pick:3 crank-first-counterfactual:3] information=[surface-resolved:2 deferred-refinement:1] automation=[setup-repaid:1 opportunity-ended-before-payback:2] reinvestment=[available:1 known-target-supply:2]",
-                ]
-            ),
-        )
+        concise = ci.concise_gameplay_report(output, {})
+        for expected in (
+            "PLAYER FANTASY ",
+            "EVALUATION SCOPE kind=ordinary-play ",
+            "EVALUATION SCOPE kind=controlled-capability ",
+            "WOODWORKING EXPERIENCE seed=0x0000000000000003",
+            "FIELDWORK EXPERIENCE seed=0x0000000000000004",
+            "SURVIVAL DIVERSITY samples=3",
+            "PROGRESSION DIVERSITY samples=2 local-copper=[pick-first:2 crank-counterfactual:2]",
+            "LIBERATION DIVERSITY samples=2 varied-inputs=2 completed=2",
+            "WOODWORKING DIVERSITY samples=3 choice=[adze:2 saw:1]",
+            "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 quarry=[stone:2 reinforced:1] adaptation=[none:2 hardness:1] retained-copper=20000..40000mg",
+            "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
+            "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt",
+            "AGENCY SUMMARY worlds=3",
+            "ORE CAPABILITY SUMMARY samples=3 completed=2 stopped=1 finite-energy-stops=1 variable-feed=2",
+            "FOUNDRY CAPABILITY SUMMARY samples=2 full=1 partial=1 melt-limited=1 cast-capacity-limited=1 cooldown-recovery=0",
+        ):
+            self.assertIn(expected, concise)
+        for noisy in (
+            "CONTENT CATALOG ",
+            "ORE REVIEW ",
+            "CAPABILITY ORE_PREP ",
+            "CAPABILITY FOUNDRY ",
+            "AGENCY PATHS ",
+            "PROGRESSION REVIEW ",
+            "SURVIVAL REVIEW ",
+        ):
+            self.assertNotIn(noisy, concise)
         self.assertEqual(
             ci.concise_gameplay_report(output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}),
             output,
@@ -1460,6 +1492,56 @@ class LocalCiPlanTests(unittest.TestCase):
 
 
 class ExactTestCommandTests(unittest.TestCase):
+    def test_omitted_target_is_resolved_build_free_at_execution_time(self) -> None:
+        args = run_test.parse_args([ci.GAMEPLAY_TESTS["ore"]])
+        self.assertIsNone(args.target)
+        target, name = run_test.resolve_automatic_exact_selection(args.name, args.features)
+        self.assertEqual(target, ci.GAMEPLAY_TARGETS["ore"])
+        self.assertEqual(name, ci.GAMEPLAY_TESTS["ore"])
+
+    def test_automatic_selection_prefers_the_smallest_duplicate_test_target(self) -> None:
+        target, name = run_test.resolve_automatic_exact_selection(
+            "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
+            None,
+        )
+        self.assertEqual(target, ci.GAMEPLAY_CONTRACTS_TARGET)
+        self.assertEqual(
+            name,
+            "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
+        )
+        self.assertLess(
+            run_test.target_source_weight(target, None),
+            run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None),
+        )
+
+    def test_automatic_selection_keeps_unit_tests_on_the_library_target(self) -> None:
+        target, name = run_test.resolve_automatic_exact_selection(
+            "absolute_tick_and_relative_span_add_without_wraparound",
+            None,
+        )
+        self.assertEqual(target, "lib")
+        self.assertEqual(
+            name,
+            "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
+        )
+
+    def test_global_source_catalog_contains_focused_gameplay_without_target_hint(self) -> None:
+        self.assertIn(ci.GAMEPLAY_TESTS["ore"], run_test.all_source_test_names(None))
+
+    def test_automatic_suite_resolution_stays_on_one_complete_target(self) -> None:
+        self.assertEqual(
+            run_test.resolve_automatic_suite_target(
+                "ore_processing::separation_execution::tests::",
+                None,
+            ),
+            "lib",
+        )
+
+    def test_check_mode_requires_an_explicit_target(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                run_test.parse_args(["--check"])
+
     def test_source_cfg_evaluation_treats_test_as_enabled_and_expands_local_features(self) -> None:
         declared = {
             "default": ["base"],
@@ -1590,8 +1672,11 @@ class ExactTestCommandTests(unittest.TestCase):
                 f"focused gameplay scope {scope} must resolve in its dedicated target",
             )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
-        self.assertIn("agency::gameplay_agency_counterfactuals", workshop)
-        self.assertIn("scenario_tests::world_seed_never_changes_player_policy", workshop)
+        self.assertNotIn("agency::gameplay_agency_counterfactuals", workshop)
+        self.assertNotIn("scenario_tests::world_seed_never_changes_player_policy", workshop)
+        audit = run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None)
+        self.assertIn("agency::gameplay_agency_counterfactuals", audit)
+        self.assertIn("scenario_tests::world_seed_never_changes_player_policy", audit)
         self.assertTrue(
             all("gameplay_report" not in run_test.source_test_catalog(target, None) for target in ci.GAMEPLAY_AUDIT_TARGETS)
         )

@@ -18,12 +18,10 @@ use deep_hearth::equipment::{
 use deep_hearth::geology::{
     FieldProspectingRequest, FieldProspectingStartError, validate_start_field_prospecting,
 };
-use deep_hearth::maintenance::Condition;
+use deep_hearth::labor::ProspectingSpatialResolution;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::mining::{
-    MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target,
-};
+use deep_hearth::mining::{MiningTargetRequest, resolve_mining_target};
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
@@ -39,20 +37,6 @@ fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
         VoxelCoord::new(start_x + width, 0, 1),
     )
     .unwrap_or_else(|error| panic!("prospecting-instrument region failed: {error}"))
-}
-
-fn expected_condition_after(before: Condition, wear_ppm_per_tick: u32, duration: u64) -> Condition {
-    let total_wear = u64::from(wear_ppm_per_tick)
-        .checked_mul(duration)
-        .unwrap_or_else(|| panic!("prospecting-instrument wear calculation overflowed"));
-    let remaining = u64::from(before.parts_per_million())
-        .checked_sub(total_wear)
-        .unwrap_or_else(|| panic!("prospecting-instrument fixture exceeds tool lifetime"));
-    Condition::new(
-        u32::try_from(remaining)
-            .unwrap_or_else(|_| unreachable!("bounded condition remains within u32")),
-    )
-    .unwrap_or_else(|error| panic!("prospecting-instrument condition failed: {error}"))
 }
 
 fn complete_prospecting(
@@ -88,6 +72,14 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .unwrap_or_else(|| panic!("indexed channel survey definition disappeared"));
     assert_eq!(detailed.maximum_region_voxels(), 1);
     assert_eq!(channel.maximum_region_voxels(), 4);
+    assert_eq!(
+        detailed.spatial_resolution(),
+        ProspectingSpatialResolution::AggregateRegion
+    );
+    assert_eq!(
+        channel.spatial_resolution(),
+        ProspectingSpatialResolution::PerVoxel
+    );
     assert_eq!(
         channel.abundance_uncertainty_ppm(),
         detailed.abundance_uncertainty_ppm()
@@ -210,11 +202,6 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         }) if equipment == hammer
     ));
 
-    let condition_before_detailed = state
-        .equipment()
-        .get_equipment(hammer)
-        .map(|record| record.condition())
-        .unwrap_or_else(|| panic!("sampling hammer disappeared before detailed survey"));
     let detailed_start = validate_start_field_prospecting(
         &registries,
         &state,
@@ -226,6 +213,10 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         ),
     )
     .unwrap_or_else(|error| panic!("detailed hammer survey failed: {error}"));
+    let expected_condition_after_detailed =
+        detailed_start.work().condition_after().unwrap_or_else(|| {
+            panic!("detailed survey lost its validated equipment condition outcome")
+        });
     detailed_start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("detailed hammer survey commit failed: {error}"));
@@ -237,14 +228,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .get_equipment(hammer)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("sampling hammer disappeared after detailed survey"));
-    assert_eq!(
-        condition_after_detailed,
-        expected_condition_after(
-            condition_before_detailed,
-            detailed_tool.condition_wear_ppm_per_active_tick(),
-            detailed.duration().value(),
-        )
-    );
+    assert_eq!(condition_after_detailed, expected_condition_after_detailed);
 
     let upgraded = validate_upgrade_equipment(
         &registries,
@@ -277,6 +261,10 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         ),
     )
     .unwrap_or_else(|error| panic!("indexed channel survey failed: {error}"));
+    let expected_condition_after_channel = channel_start
+        .work()
+        .condition_after()
+        .unwrap_or_else(|| panic!("channel survey lost its validated equipment condition outcome"));
     channel_start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("indexed channel survey commit failed: {error}"));
@@ -303,7 +291,6 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .unwrap_or_else(|error| panic!("channel survey load failed: {error}"));
     assert_eq!(loaded, state);
 
-    let condition_before_channel = condition_after_detailed;
     let mut channel_outcome = None;
     for _ in elapsed_before_save..channel.duration().value() {
         let expected = advance_tick(&registries, &mut state)
@@ -317,32 +304,42 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     let channel_outcome =
         channel_outcome.unwrap_or_else(|| panic!("indexed channel survey produced no observation"));
     assert_eq!(channel_outcome.region(), channel_region);
+    assert_eq!(channel_outcome.observation_count(), 4);
+    let channel_observations = channel_outcome
+        .observations()
+        .map(|observation| {
+            state
+                .geological_knowledge()
+                .get_observation(observation)
+                .unwrap_or_else(|| panic!("indexed channel observation disappeared"))
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        channel_observations
+            .iter()
+            .all(|observation| observation.region().voxel_count() == Some(1)),
+        "indexed channel survey must persist one acquired evidence record per covered voxel"
+    );
+    assert!(
+        channel_observations
+            .iter()
+            .any(|observation| observation.region() == hidden_target),
+        "indexed channel survey must include the explicitly covered target voxel"
+    );
     let condition_after_channel = state
         .equipment()
         .get_equipment(hammer)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("reinforced hammer disappeared after channel survey"));
-    assert_eq!(
-        condition_after_channel,
-        expected_condition_after(
-            condition_before_channel,
-            channel_tool.condition_wear_ppm_per_active_tick(),
-            channel.duration().value(),
-        )
-    );
-    assert_eq!(
-        resolve_mining_target(
-            &state,
-            MiningTargetRequest::new(hidden_target, MATERIAL_COPPER),
-        ),
-        Err(
-            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
-                material: MATERIAL_COPPER,
-                region: hidden_target,
-            }
-        ),
-        "channel evidence must narrow a bounded area without revealing the exact hidden ore voxel"
-    );
+    assert_eq!(condition_after_channel, expected_condition_after_channel);
+    let resolved_target = resolve_mining_target(
+        &state,
+        MiningTargetRequest::new(hidden_target, MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| {
+        panic!("indexed channel evidence did not resolve covered target: {error}")
+    });
+    assert_eq!(resolved_target.region(), hidden_target);
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("prospecting-instrument matter audit failed: {error}"))

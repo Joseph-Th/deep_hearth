@@ -7,8 +7,9 @@ use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::labor::{
-    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ProspectingMethodId, ProspectingWork,
-    ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ProspectingMethodId,
+    ProspectingSpatialResolution, ProspectingWork, ValidatedPlayerWorkStart,
+    validate_player_work_start,
 };
 use crate::maintenance::{
     ActiveConditionDurationError, calculate_usable_condition_after_active_ticks,
@@ -17,9 +18,9 @@ use crate::material::MaterialId;
 use crate::mining::MiningJobId;
 use crate::production::ProductionJobId;
 use crate::registry::Registries;
-use crate::spatial::VoxelBounds;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
-use super::prospecting_execution::validate_record_prospecting_at;
+use super::prospecting_execution::validate_record_prospecting_batch_at;
 use super::{
     GeologicalEvidenceKind, GeologicalObservationId, MaterialAbundanceEstimate,
     ProspectingResolution, RecordProspectingError, ValidatedGeologicalObservation,
@@ -460,7 +461,8 @@ pub fn validate_start_field_prospecting(
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FieldProspectingOutcome {
-    observation: GeologicalObservationId,
+    first_observation: GeologicalObservationId,
+    observation_count: u32,
     method: ProspectingMethodId,
     region: VoxelBounds,
     material: MaterialId,
@@ -470,7 +472,25 @@ pub struct FieldProspectingOutcome {
 impl FieldProspectingOutcome {
     #[must_use]
     pub const fn observation(self) -> GeologicalObservationId {
-        self.observation
+        self.first_observation
+    }
+
+    /// Number of persistent observations created by this one prospecting action.
+    #[must_use]
+    pub const fn observation_count(self) -> u32 {
+        self.observation_count
+    }
+
+    /// Persistent observation identities created by this action in stable spatial order.
+    pub fn observations(self) -> impl Iterator<Item = GeologicalObservationId> {
+        let first = self.first_observation.value();
+        (0..self.observation_count).map(move |offset| {
+            GeologicalObservationId::new(
+                first
+                    .checked_add(offset)
+                    .unwrap_or_else(|| unreachable!("validated observation range cannot overflow")),
+            )
+        })
     }
 
     #[must_use]
@@ -504,7 +524,37 @@ pub(crate) enum FieldProspectingTickError {
 pub(crate) struct FieldProspectingTickPlan {
     work: ProspectingWork,
     evidence: GeologicalEvidenceKind,
-    observation: ValidatedGeologicalObservation,
+    observations: Vec<ValidatedGeologicalObservation>,
+}
+
+fn prospecting_observation_regions(
+    resolution: ProspectingSpatialResolution,
+    region: VoxelBounds,
+) -> Vec<VoxelBounds> {
+    match resolution {
+        ProspectingSpatialResolution::AggregateRegion => vec![region],
+        ProspectingSpatialResolution::PerVoxel => {
+            let min = region.min();
+            let max = region.max_exclusive();
+            let mut regions = Vec::new();
+            for x in min.x()..max.x() {
+                for y in min.y()..max.y() {
+                    for z in min.z()..max.z() {
+                        regions.push(
+                            VoxelBounds::new(
+                                VoxelCoord::new(x, y, z),
+                                VoxelCoord::new(x + 1, y + 1, z + 1),
+                            )
+                            .unwrap_or_else(|error| {
+                                unreachable!("subdividing validated voxel bounds failed: {error}")
+                            }),
+                        );
+                    }
+                }
+            }
+            regions
+        }
+    }
 }
 
 impl FieldProspectingTickPlan {
@@ -542,39 +592,44 @@ pub(crate) fn decide_field_prospecting_tick(
         .unwrap_or_else(|| {
             panic!("runtime invariant broken: due prospecting work has no authored method")
         });
-    let (lower_ppm, upper_ppm) = resolve_region_abundance_bounds(
+    let resolutions = prospecting_observation_regions(method.spatial_resolution(), work.region())
+        .into_iter()
+        .map(|region| {
+            let (lower_ppm, upper_ppm) = resolve_region_abundance_bounds(
+                state,
+                region,
+                work.material(),
+                method.abundance_uncertainty_ppm(),
+            );
+            let finding = MaterialAbundanceEstimate::new(work.material(), lower_ppm, upper_ppm)
+                .unwrap_or_else(|error| {
+                    panic!("runtime invariant broken: field prospecting derived invalid abundance: {error}")
+                });
+            ProspectingResolution::new_runtime(region, method.evidence(), vec![finding])
+        })
+        .collect();
+    let observations = validate_record_prospecting_batch_at(
+        registries,
         state,
-        work.region(),
-        work.material(),
-        method.abundance_uncertainty_ppm(),
-    );
-    let finding = MaterialAbundanceEstimate::new(work.material(), lower_ppm, upper_ppm)
-        .unwrap_or_else(|error| {
-            panic!("runtime invariant broken: field prospecting derived invalid abundance: {error}")
-        });
-    let resolution =
-        ProspectingResolution::new_runtime(work.region(), method.evidence(), vec![finding]);
-    let observation = validate_record_prospecting_at(registries, state, resolution, next_tick)
-        .map_err(|error| match error {
-            RecordProspectingError::ObservationIdExhausted => {
-                FieldProspectingTickError::ObservationId
-            }
-            RecordProspectingError::RevisionExhausted => {
-                FieldProspectingTickError::KnowledgeRevision
-            }
-            RecordProspectingError::NoFindings
-            | RecordProspectingError::FindingsNotCanonical { .. }
-            | RecordProspectingError::ImpossibleLowerBoundTotal { .. }
-            | RecordProspectingError::UnknownMaterial { .. } => {
-                unreachable!(
-                    "runtime field prospecting constructs one canonical known-material finding"
-                )
-            }
-        })?;
+        resolutions,
+        next_tick,
+    )
+    .map_err(|error| match error {
+        RecordProspectingError::ObservationIdExhausted => FieldProspectingTickError::ObservationId,
+        RecordProspectingError::RevisionExhausted => FieldProspectingTickError::KnowledgeRevision,
+        RecordProspectingError::NoFindings
+        | RecordProspectingError::FindingsNotCanonical { .. }
+        | RecordProspectingError::ImpossibleLowerBoundTotal { .. }
+        | RecordProspectingError::UnknownMaterial { .. } => {
+            unreachable!(
+                "runtime field prospecting constructs one canonical known-material finding"
+            )
+        }
+    })?;
     Ok(Some(FieldProspectingTickPlan {
         work,
         evidence: method.evidence(),
-        observation,
+        observations,
     }))
 }
 
@@ -606,9 +661,19 @@ pub(crate) fn apply_field_prospecting_tick(
             next_equipment_revision,
         );
     }
-    let observation = plan.observation.apply_prechecked(state);
+    let observation_count = u32::try_from(plan.observations.len())
+        .unwrap_or_else(|_| unreachable!("validated prospecting observation count must fit u32"));
+    let mut observations = plan.observations.into_iter();
+    let first_observation = observations
+        .next()
+        .unwrap_or_else(|| unreachable!("prospecting completion must contain an observation"))
+        .apply_prechecked(state);
+    for observation in observations {
+        observation.apply_prechecked(state);
+    }
     Some(FieldProspectingOutcome {
-        observation,
+        first_observation,
+        observation_count,
         method: plan.work.method(),
         region: plan.work.region(),
         material: plan.work.material(),

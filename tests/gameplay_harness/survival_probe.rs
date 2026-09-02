@@ -38,7 +38,7 @@ use deep_hearth::survival::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_runner::focused_probe_role_label;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_seeds::FocusedProbeCase;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::physical_time::format_physical_duration;
@@ -47,21 +47,19 @@ use super::seed::mix64;
 use super::temporal::advance_idle_ticks;
 
 #[path = "survival_probe/preservation.rs"]
-mod preservation;
+pub(super) mod preservation;
 pub(super) use preservation::{
     PreservationInvestmentPolicy, preservation_freshness_return_threshold_ppm,
-    preservation_policy_for_projected_return, preservation_storage_definition_for_policy,
+    preservation_storage_definition_for_policy,
 };
 use preservation::{preservation_candidate_for_policy, preservation_candidates};
-#[cfg(test)]
-pub(super) use preservation::{
-    preservation_storage_definition_for_policy_and_capacity,
-    preservation_storage_definition_for_policy_and_opportunity,
-};
 
 #[path = "survival_probe/preservation_evaluation.rs"]
-mod preservation_evaluation;
-use preservation_evaluation::evaluate_preservation_infrastructure_probe;
+pub(super) mod preservation_evaluation;
+use preservation_evaluation::{
+    evaluate_preservation_infrastructure_definition, evaluate_preservation_infrastructure_probe,
+    project_preservation_candidates, select_preservation_projection,
+};
 
 const DIET_RECOVERY_TARGET_VITALITY_PPM: u32 = 950_000;
 const DIET_RECOVERY_OBSERVATION_TICKS: u64 = 1_000;
@@ -243,13 +241,6 @@ pub(super) enum SurvivalStartProfile {
 }
 
 impl SurvivalStartProfile {
-    #[cfg(test)]
-    pub(super) const ALL: [Self; 3] = [
-        Self::FullReserve,
-        Self::HungerWarningBoundary,
-        Self::HydrationWarningBoundary,
-    ];
-
     const fn label(self) -> &'static str {
         match self {
             Self::FullReserve => "full-reserve",
@@ -297,9 +288,6 @@ pub(super) enum DietProvisioningPolicy {
 }
 
 impl DietProvisioningPolicy {
-    #[cfg(test)]
-    pub(super) const ALL: [Self; 2] = [Self::CompactCalories, Self::BalancedRecovery];
-
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::CompactCalories => "compact-calories",
@@ -2144,18 +2132,6 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     let protection_remaining_fresh_gain_ticks =
         u64::try_from(protection_remaining_fresh_delta_ticks.max(0))
             .unwrap_or_else(|_| panic!("bounded preservation benefit exceeds u64"));
-    let preservation_policy = preservation_policy_for_projected_return(
-        behavior_seed,
-        protection_remaining_fresh_gain_ticks,
-        protection_attention_delta_ticks,
-    );
-    if case.role() == FocusedProbeRole::MaintainedCoverage && seed == 5 {
-        assert_eq!(
-            preservation_policy,
-            PreservationInvestmentPolicy::AttentionEfficient,
-            "survival coverage seed 5 must preserve the visible case where stronger storage is not worth its extra attention"
-        );
-    }
     let preservation_return_ppm = if protection_attention_delta_ticks == 0 {
         0
     } else {
@@ -2167,10 +2143,25 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     };
     let preservation_return_threshold_ppm =
         preservation_freshness_return_threshold_ppm(behavior_seed);
-    let preservation_infrastructure = match preservation_policy {
-        PreservationInvestmentPolicy::AttentionEfficient => attention_investment,
-        PreservationInvestmentPolicy::MaximumProtection => protection_investment,
-    };
+    let projected_candidates = project_preservation_candidates(registries, seed);
+    let selected_projection = select_preservation_projection(behavior_seed, &projected_candidates);
+    let preservation_infrastructure =
+        if selected_projection.definition == attention_investment.storage_definition {
+            attention_investment
+        } else if selected_projection.definition == protection_investment.storage_definition {
+            protection_investment
+        } else {
+            evaluate_preservation_infrastructure_definition(
+                registries,
+                seed,
+                selected_projection.definition,
+            )
+        };
+    assert_eq!(
+        preservation_infrastructure.enclosed_remaining_fresh_ticks,
+        selected_projection.remaining_fresh_ticks,
+        "executed preservation choice must match the canonical projected frontier consequence"
+    );
     let protection_metabolic_delta_nj = protection_investment
         .metabolic_cost_nj
         .checked_sub(attention_investment.metabolic_cost_nj)
@@ -2354,7 +2345,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     };
     let food_options = food_option_summary(registries, foods);
     std::println!(
-        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] current-investment=[storage-policy:{} value=[freshness-return:{}ppm threshold:{}ppm] selected:{} preservation:{}ppm candidates:{} fastest:{}:{}t/{}:{}ppm strongest:{}:{}t/{}:{}ppm build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg dismantle=[{}t body:{}nJ/{}uL returned:{}mg] stronger-tradeoff=[attention:+{}t/+{} raw:+{}mg body:+{}nJ/+{}uL matched-age:{:+}t/{} remaining-edible:{:+}t/{}]] consequence=[reserve-improved:{} diet-delta:{:+}ppm recovery-delta:{:+}ppm/t horizon:{}t] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}t prospect:{}t reprovision:{}:{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
+        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] current-investment=[storage-policy:{} value=[strongest-return:{}ppm attention-value:{}ppm] selected:{} preservation:{}ppm candidates:{} fastest:{}:{}t/{}:{}ppm strongest:{}:{}t/{}:{}ppm build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg dismantle=[{}t body:{}nJ/{}uL returned:{}mg] stronger-tradeoff=[attention:+{}t/+{} raw:+{}mg body:+{}nJ/+{}uL matched-age:{:+}t/{} remaining-edible:{:+}t/{}]] consequence=[reserve-improved:{} diet-delta:{:+}ppm recovery-delta:{:+}ppm/t horizon:{}t] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}t prospect:{}t reprovision:{}:{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
         world.start_profile.label(),
         foods.len(),
         available_category_count,
@@ -2366,7 +2357,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         world.inherited_preservation_multiplier_ppm,
         compact.retained_preserved_mass_mg,
         compact.preservation_age_saved_ticks,
-        preservation_infrastructure.policy.label(),
+        preservation_infrastructure.selection_kind.label(),
         preservation_return_ppm,
         preservation_return_threshold_ppm,
         preservation_infrastructure.storage_definition.value(),
@@ -2421,11 +2412,11 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         integrated_work.hydration_warning_safe,
     );
     std::println!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available:[foods:{} categories:{} options:{food_options}]] preservation-choice=[policy:{} value=[freshness-return:{}ppm threshold:{}ppm] candidates:{} fastest=[storage:{} attention:{}t multiplier:{}ppm remaining:{}t] strongest=[storage:{} attention:{}t multiplier:{}ppm remaining:{}t] selected:{} stronger-tradeoff=[attention:+{}t raw:+{}mg metabolic:+{}nJ hydration:+{}uL matched-age:{:+}t remaining-edible:{:+}t]] preservation-infrastructure=[food:{} stages:{} route=shared-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning provision:{}t prospect:{}t reprovision:{}:{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] matched-counterfactual=[horizon:{}t compact-calories:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:{:+}mg water-saved-delta:{:+}uL diet-quality-delta:{:+}ppm recovery-delta:{:+}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{} age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available:[foods:{} categories:{} options:{food_options}]] preservation-choice=[policy:{} value=[strongest-return:{}ppm attention-value:{}ppm] candidates:{} fastest=[storage:{} attention:{}t multiplier:{}ppm remaining:{}t] strongest=[storage:{} attention:{}t multiplier:{}ppm remaining:{}t] selected:{} stronger-tradeoff=[attention:+{}t raw:+{}mg metabolic:+{}nJ hydration:+{}uL matched-age:{:+}t remaining-edible:{:+}t]] preservation-infrastructure=[food:{} stages:{} route=shared-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning provision:{}t prospect:{}t reprovision:{}:{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] matched-counterfactual=[horizon:{}t compact-calories:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:{:+}mg water-saved-delta:{:+}uL diet-quality-delta:{:+}ppm recovery-delta:{:+}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{} age-saved:{}t retained:{}mg] reserve-recovered:{}",
         world.start_profile.label(),
         foods.len(),
         available_category_count,
-        preservation_infrastructure.policy.label(),
+        preservation_infrastructure.selection_kind.label(),
         preservation_return_ppm,
         preservation_return_threshold_ppm,
         preservation_infrastructure.candidate_count,

@@ -13,8 +13,10 @@ use crate::structural::{
 
 use super::EquipmentId;
 
+mod availability;
 mod errors;
 
+use availability::{support_commit_error, support_validation_error};
 pub use errors::{EquipmentSupportCommitError, EquipmentSupportError};
 
 /// Successful support change including any structural damage caused by the equipment load change.
@@ -110,39 +112,6 @@ impl ValidatedEquipmentSupportChange {
                 actual: actual_revision,
             });
         }
-        if let Some(job) = state.mining().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentSupportCommitError::EquipmentBusyMining {
-                equipment: self.equipment,
-                job,
-            });
-        }
-        if state
-            .player_work()
-            .get_manual_power_equipment_occupant(self.equipment)
-            .is_some()
-        {
-            return Err(EquipmentSupportCommitError::EquipmentBusyManualPower {
-                equipment: self.equipment,
-            });
-        }
-        if let Some(work) = state
-            .player_work()
-            .get_prospecting_equipment_occupant(self.equipment)
-        {
-            return Err(EquipmentSupportCommitError::EquipmentBusyProspecting {
-                equipment: self.equipment,
-                completes_at: work.completes_at(),
-            });
-        }
-        if let Some(work) = state
-            .player_work()
-            .get_equipment_maintenance_occupant(self.equipment)
-        {
-            return Err(EquipmentSupportCommitError::EquipmentUnderMaintenance {
-                equipment: self.equipment,
-                completes_at: work.completes_at(),
-            });
-        }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
             return Err(EquipmentSupportCommitError::UnknownEquipment {
                 equipment: self.equipment,
@@ -155,16 +124,8 @@ impl ValidatedEquipmentSupportChange {
                 actual: record.supported_by(),
             });
         }
-        if let Some(job) = state
-            .production()
-            .get_equipment_occupant(self.equipment)
-            .filter(|job| !job.is_suspended())
-        {
-            return Err(EquipmentSupportCommitError::EquipmentBusy {
-                equipment: self.equipment,
-                job: job.id(),
-                completes_at: job.completes_at(),
-            });
+        if let Some(error) = support_commit_error(state, self.equipment) {
+            return Err(error);
         }
         state.equipment().assert_support_change_available(
             self.equipment,
@@ -249,46 +210,7 @@ fn validate_not_busy(
     state: &AppState,
     equipment: EquipmentId,
 ) -> Result<(), EquipmentSupportError> {
-    if let Some(job) = state
-        .production()
-        .get_equipment_occupant(equipment)
-        .filter(|job| !job.is_suspended())
-    {
-        return Err(EquipmentSupportError::EquipmentBusy {
-            equipment,
-            job: job.id(),
-            completes_at: job.completes_at(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(EquipmentSupportError::EquipmentBusyMining { equipment, job });
-    }
-    if state
-        .player_work()
-        .get_manual_power_equipment_occupant(equipment)
-        .is_some()
-    {
-        return Err(EquipmentSupportError::EquipmentBusyManualPower { equipment });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_prospecting_equipment_occupant(equipment)
-    {
-        return Err(EquipmentSupportError::EquipmentBusyProspecting {
-            equipment,
-            completes_at: work.completes_at(),
-        });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_equipment_maintenance_occupant(equipment)
-    {
-        return Err(EquipmentSupportError::EquipmentUnderMaintenance {
-            equipment,
-            completes_at: work.completes_at(),
-        });
-    }
-    Ok(())
+    support_validation_error(state, equipment).map_or(Ok(()), Err)
 }
 
 fn next_equipment_revision(state: &AppState) -> Result<(u64, u64), EquipmentSupportError> {

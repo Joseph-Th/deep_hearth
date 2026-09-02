@@ -62,11 +62,22 @@ pub struct ManualPowerDefinition {
 pub struct ProspectingDefinition {
     id: ProspectingMethodId,
     evidence: GeologicalEvidenceKind,
+    spatial_resolution: ProspectingSpatialResolution,
     duration: TickSpan,
     maximum_region_voxels: u128,
     abundance_uncertainty_ppm: u32,
     exertion: SurvivalExertion,
     equipment: Option<ProspectingEquipmentProfile>,
+}
+
+/// Spatial evidence granularity produced when one prospecting action completes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProspectingSpatialResolution {
+    /// One observation summarizes the complete actor-selected region.
+    #[default]
+    AggregateRegion,
+    /// One observation is recorded for each explicitly covered voxel.
+    PerVoxel,
 }
 
 /// Physical instrument requirement and wear for one prospecting method.
@@ -150,6 +161,7 @@ impl ProspectingDefinition {
         Self {
             id,
             evidence,
+            spatial_resolution: ProspectingSpatialResolution::AggregateRegion,
             duration,
             maximum_region_voxels,
             abundance_uncertainty_ppm,
@@ -180,6 +192,22 @@ impl ProspectingDefinition {
         definition
     }
 
+    /// Changes only the spatial granularity of acquired evidence for this authored method.
+    #[must_use]
+    pub fn with_spatial_resolution(
+        mut self,
+        spatial_resolution: ProspectingSpatialResolution,
+    ) -> Self {
+        if spatial_resolution == ProspectingSpatialResolution::PerVoxel {
+            assert!(
+                self.maximum_region_voxels <= u128::from(u32::MAX),
+                "per-voxel prospecting observation count must fit the geological observation identity space"
+            );
+        }
+        self.spatial_resolution = spatial_resolution;
+        self
+    }
+
     #[must_use]
     pub const fn id(self) -> ProspectingMethodId {
         self.id
@@ -188,6 +216,11 @@ impl ProspectingDefinition {
     #[must_use]
     pub const fn evidence(self) -> GeologicalEvidenceKind {
         self.evidence
+    }
+
+    #[must_use]
+    pub const fn spatial_resolution(self) -> ProspectingSpatialResolution {
+        self.spatial_resolution
     }
 
     #[must_use]

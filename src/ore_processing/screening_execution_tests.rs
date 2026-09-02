@@ -304,6 +304,31 @@ fn screening_refuses_to_guess_yield_when_aperture_intersects_an_unresolved_class
 }
 
 #[test]
+fn screening_planning_floors_to_the_nearest_exact_particle_partition() {
+    let fixture = fixture(Length::from_micrometers(2_000));
+    let definition = fixture
+        .registries
+        .ore_processing()
+        .get_screening(PROCESS)
+        .unwrap_or_else(|| panic!("screening planning definition disappeared"));
+    let distribution = fixture
+        .state
+        .inventory()
+        .get_lot(fixture.lot)
+        .and_then(|lot| lot.particle_size_distribution())
+        .unwrap_or_else(|| panic!("screening planning particle distribution disappeared"));
+
+    assert_eq!(
+        resolve_representable_screening_mass(definition, distribution, Mass::from_milligrams(9),),
+        Ok(Mass::from_milligrams(5)),
+    );
+    assert_eq!(
+        resolve_representable_screening_mass(definition, distribution, Mass::from_milligrams(4),),
+        Ok(Mass::ZERO),
+    );
+}
+
+#[test]
 fn screening_refuses_fractional_class_mass_at_current_mass_resolution() {
     let fixture = fixture(Length::from_micrometers(2_000));
     let source = fixture

@@ -14,6 +14,8 @@ mod contracts;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
+#[path = "gameplay_harness/fieldwork_probe.rs"]
+mod fieldwork_probe;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
@@ -30,6 +32,8 @@ mod industrial_support;
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
+#[path = "gameplay_harness/manual_craft_execution.rs"]
+mod manual_craft_execution;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]
@@ -49,12 +53,16 @@ mod output;
 mod physical_time;
 #[path = "gameplay_harness/preservation_route.rs"]
 mod preservation_route;
+#[path = "gameplay_harness/primitive_liberation.rs"]
+mod primitive_liberation;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
+#[path = "gameplay_harness/progression_scope.rs"]
+mod progression_scope;
 #[path = "gameplay_harness/report.rs"]
 mod report;
 #[path = "gameplay_harness/scenario.rs"]
@@ -69,6 +77,8 @@ mod structural_fixture;
 mod survival_probe;
 #[path = "gameplay_harness/temporal.rs"]
 mod temporal;
+#[path = "gameplay_harness/woodworking_probe.rs"]
+mod woodworking_probe;
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
 
@@ -87,7 +97,7 @@ fn main() {
         "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] constraints=[matter,energy,condition,survival]"
     );
     std::println!(
-        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap probes=[survival-provisioning,primitive-progression] reachability-authority=STATUS.md"
+        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap probes=[survival-provisioning,primitive-progression,woodworking,fieldwork] reachability-authority=STATUS.md"
     );
     run_focused_probe_with_registries(
         &registries,
@@ -99,8 +109,24 @@ fn main() {
     );
     run_focused_probe_with_registries(
         &registries,
+        "woodworking",
+        woodworking_probe::run_woodworking_probe,
+        true,
+        fallback_variation_root,
+        fallback_behavior_root,
+    );
+    run_focused_probe_with_registries(
+        &registries,
+        "fieldwork",
+        fieldwork_probe::run_fieldwork_probe,
+        true,
+        fallback_variation_root,
+        fallback_behavior_root,
+    );
+    run_focused_probe_with_registries(
+        &registries,
         "primitive-progression",
-        progression_probe::run_primitive_progression_probe,
+        progression_scope::run_primitive_progression_scope,
         true,
         fallback_variation_root,
         fallback_behavior_root,

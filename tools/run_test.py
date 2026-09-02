@@ -132,6 +132,98 @@ def source_test_catalog(target: str, raw_features: str | None) -> list[str]:
     return list(_source_test_catalog(target, raw_features))
 
 
+def test_targets() -> tuple[str, ...]:
+    """Return every explicit executable Rust test target, including the library test crate."""
+
+    return (
+        "lib",
+        *(definition["name"] for definition in cargo_manifest().get("test", [])),
+    )
+
+
+@lru_cache(maxsize=None)
+def target_source_weight(target: str, raw_features: str | None) -> int:
+    """Approximate one target's compile surface from its reachable Rust source bytes."""
+
+    features = cargo_feature_set(target, raw_features)
+    root = ROOT / "src" / "lib.rs" if target == "lib" else cargo_test_target_path(target)
+    return sum(
+        path.stat().st_size
+        for path, _prefix in test_catalog.reachable_modules(ROOT, root, features)
+    )
+
+
+@lru_cache(maxsize=None)
+def _all_source_test_locations(raw_features: str | None) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (target, name)
+        for target in test_targets()
+        for name in source_test_catalog(target, raw_features)
+    )
+
+
+def all_source_test_locations(raw_features: str | None) -> list[tuple[str, str]]:
+    """Return the build-free logical test catalog across every explicit Cargo test target."""
+
+    return list(_all_source_test_locations(raw_features))
+
+
+def all_source_test_names(raw_features: str | None) -> list[str]:
+    return sorted({name for _target, name in all_source_test_locations(raw_features)})
+
+
+def preferred_target(targets: set[str], raw_features: str | None) -> str:
+    """Choose the smallest source closure, with target name as a deterministic tie break."""
+
+    return min(targets, key=lambda target: (target_source_weight(target, raw_features), target))
+
+
+def resolve_automatic_exact_selection(
+    selector: str, raw_features: str | None
+) -> tuple[str, str]:
+    """Resolve one logical test globally, then choose its cheapest existing Cargo target."""
+
+    locations = all_source_test_locations(raw_features)
+    exact = [(target, name) for target, name in locations if name == selector]
+    matches = exact or [(target, name) for target, name in locations if selector in name]
+    names = sorted({name for _target, name in matches})
+    if len(names) > 1:
+        raise ValueError(f"test selector is ambiguous: {selector} ({len(names)} matches)")
+    if not names:
+        raise ValueError(f"test selector not found: {selector}")
+    name = names[0]
+    targets = {target for target, candidate in matches if candidate == name}
+    return preferred_target(targets, raw_features), name
+
+
+def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> str:
+    """Choose one smallest target that contains the complete globally matched logical suite."""
+
+    matches_by_target = {
+        target: source_test_matches(selector, source_test_catalog(target, raw_features))
+        for target in test_targets()
+    }
+    logical_matches = {
+        name for matches in matches_by_target.values() for name in matches
+    }
+    if not logical_matches:
+        raise ValueError(f"test suite selector not found: {selector}")
+    complete_targets = {
+        target
+        for target, matches in matches_by_target.items()
+        if set(matches) == logical_matches
+    }
+    if not complete_targets:
+        targets = ", ".join(
+            target for target, matches in matches_by_target.items() if matches
+        )
+        raise ValueError(
+            f"test suite selector spans different target catalogs: {selector} ({targets}); "
+            "specify --target"
+        )
+    return preferred_target(complete_targets, raw_features)
+
+
 def source_test_matches(selector: str, catalog: list[str]) -> list[str]:
     """Return source-catalog tests selected by an exact name or substring."""
 
@@ -154,6 +246,8 @@ def resolve_test_name(selector: str, catalog: list[str]) -> str:
 def cargo_command(args: argparse.Namespace) -> list[str]:
     if args.list:
         raise ValueError("source catalog listing does not invoke Cargo")
+    if args.target is None:
+        raise ValueError("test target must be resolved before Cargo execution")
     command = ["cargo", "test", "--quiet", "--locked"]
     if args.target == "lib":
         command.append("--lib")
@@ -191,6 +285,8 @@ def cargo_check_command(args: argparse.Namespace) -> list[str]:
 
     if args.list:
         raise ValueError("source catalog listing does not invoke Cargo")
+    if args.target is None:
+        raise ValueError("--check requires an explicit integration test target")
     if args.target == "lib":
         raise ValueError(
             "lib --check is intentionally unsupported because Cargo's test check selects every "
@@ -231,7 +327,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="run every source-catalog test matching NAME in one Cargo invocation",
     )
-    parser.add_argument("--target", default="lib", help="Cargo test target name; defaults to lib")
+    parser.add_argument(
+        "--target",
+        help=(
+            "explicit Cargo test target; exact/list/suite modes otherwise resolve the smallest "
+            "matching source target automatically"
+        ),
+    )
     parser.add_argument(
         "--features",
         help="extra Cargo features; target required-features are inferred from Cargo.toml",
@@ -253,6 +355,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--list and --check are mutually exclusive")
     if args.suite and (args.list or args.check):
         parser.error("--suite is an execution mode and cannot be combined with --list or --check")
+    if args.check and args.target is None:
+        parser.error("--check requires an explicit integration test --target")
     if args.check and args.target == "lib":
         parser.error(
             "--check cannot target lib without checking every integration target; run the exact "
@@ -270,6 +374,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def load_source_catalog(args: argparse.Namespace) -> list[str] | None:
+    if args.target is None:
+        raise ValueError("source catalog target must be resolved before loading")
     try:
         return source_test_catalog(args.target, args.features)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
@@ -310,6 +416,22 @@ def resolve_requested_selection(args: argparse.Namespace, catalog: list[str]) ->
         report_selection_error(selector, catalog, error)
         return None
     return selector
+
+
+def resolve_automatic_selection(args: argparse.Namespace) -> tuple[str, list[str]] | None:
+    """Resolve an omitted target without invoking Cargo, preserving one executable target."""
+
+    selector = args.name
+    assert selector is not None
+    try:
+        if args.suite:
+            args.target = resolve_automatic_suite_target(selector, args.features)
+        else:
+            args.target, args.name = resolve_automatic_exact_selection(selector, args.features)
+        return selector, source_test_catalog(args.target, args.features)
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
+        report_selection_error(selector, all_source_test_names(args.features), error)
+        return None
 
 
 def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
@@ -413,16 +535,32 @@ def main() -> int:
         report_cargo_success(args, None, result, elapsed)
         return 0
 
-    catalog = load_source_catalog(args)
-    if catalog is None:
-        return 2
     if args.list:
+        if args.target is None:
+            try:
+                catalog = all_source_test_names(args.features)
+            except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
+                print(f"FAIL source test catalog: {error}", file=sys.stderr)
+                return 2
+        else:
+            catalog = load_source_catalog(args)
+            if catalog is None:
+                return 2
         print_source_catalog(args, catalog)
         return 0
 
-    selector = resolve_requested_selection(args, catalog)
-    if selector is None:
-        return 2
+    if args.target is None:
+        resolved = resolve_automatic_selection(args)
+        if resolved is None:
+            return 2
+        selector, _catalog = resolved
+    else:
+        catalog = load_source_catalog(args)
+        if catalog is None:
+            return 2
+        selector = resolve_requested_selection(args, catalog)
+        if selector is None:
+            return 2
 
     command = cargo_command(args)
     result, elapsed = execute_cargo_command(command, gameplay_replay_environment(args))

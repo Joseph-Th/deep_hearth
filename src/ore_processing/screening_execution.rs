@@ -13,6 +13,7 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
+use super::definitions::ScreeningProcessDefinition;
 use super::powered_physics::{
     PoweredOreBottleneck, PoweredOreEquipmentError, PoweredOreTimingError,
     classify_powered_ore_bottleneck, resolve_powered_ore_equipment, resolve_powered_ore_job_replay,
@@ -23,7 +24,7 @@ mod errors;
 mod outputs;
 
 pub use errors::{ScreeningBatchError, ScreeningJobValidationError, ScreeningResolutionError};
-use outputs::resolve_screening_outputs;
+use outputs::{representable_screening_mass_floor, resolve_screening_outputs};
 
 #[cfg(test)]
 use crate::core::quantity::Temperature;
@@ -164,6 +165,22 @@ impl ResolvedScreening {
 /// fragmentation. If the weighted partition is not exactly representable at whole-milligram mass
 /// resolution, resolution is refused rather than silently reclassifying a fractional amount into the
 /// wrong particle-size stream.
+/// Returns the greatest whole-milligram batch at or below `requested` whose authored particle
+/// partition can be represented exactly.
+///
+/// This is an actor-safe planning projection over observable particle-size state. It prevents
+/// callers from duplicating screen-weight divisibility rules or probing neighboring masses until
+/// one happens to resolve. Equipment, energy, and condition limits are still validated by
+/// [`resolve_screening_process`].
+#[must_use = "screening planning results must be used"]
+pub fn resolve_representable_screening_mass(
+    definition: ScreeningProcessDefinition,
+    distribution: &crate::material::ParticleSizeDistribution,
+    requested: Mass,
+) -> Result<Mass, ScreeningBatchError> {
+    representable_screening_mass_floor(definition, distribution, requested)
+}
+
 pub fn resolve_screening_process(
     registries: &Registries,
     state: &AppState,

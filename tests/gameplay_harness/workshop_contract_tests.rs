@@ -1,4 +1,4 @@
-//! Contract tests shared by the focused workshop target and consolidated gameplay audit.
+//! Broad workshop contracts for the consolidated gameplay audit.
 
 use deep_hearth::content::build_registries;
 use deep_hearth::core::quantity::Mass;
@@ -16,11 +16,6 @@ fn condition(parts_per_million: u32) -> Condition {
 }
 
 #[test]
-fn gameplay_harness_gate() {
-    workshop::run_gameplay_harness(ScenarioPlanMode::Gate);
-}
-
-#[test]
 fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hidden_event() {
     let registries = build_registries();
     let mut variation = scenario::ScenarioVariation::from_seeds(&registries, 4, 1, None);
@@ -28,7 +23,7 @@ fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hid
     variation.crusher.maintenance_replacement_units = 0;
     variation.delivery.delivery_at_tick = 64;
 
-    let report = workshop::run_scenario(&registries, variation, None);
+    let report = workshop::runner::run_scenario(&registries, variation, None);
 
     assert!(report.limits.maintenance_stop);
     assert!(!report.progress.delivery_applied);
@@ -49,7 +44,7 @@ fn initial_service_rebases_hidden_event_timing_after_elapsed_work() {
         Some(super::configuration::MaintainedAnchor::CriticalMaintenance),
     );
 
-    let report = workshop::run_scenario(&registries, variation, None);
+    let report = workshop::runner::run_scenario(&registries, variation, None);
 
     assert!(report.maintenance.service_ticks > 0);
     assert!(
@@ -82,7 +77,7 @@ fn hidden_delivery_payload_does_not_change_pre_event_actor_choices() {
         case.behavior_seed,
         case.anchor,
     );
-    let baseline_report = workshop::run_scenario(&registries, baseline, None);
+    let baseline_report = workshop::runner::run_scenario(&registries, baseline, None);
     assert!(
         baseline_report.progress.delivery_applied,
         "maintained world-disruption fixture must reach the controlled delivery"
@@ -98,7 +93,7 @@ fn hidden_delivery_payload_does_not_change_pre_event_actor_choices() {
             .unwrap_or_else(|| panic!("hidden-delivery counterfactual mass overflowed")),
     );
 
-    let alternate_report = workshop::run_scenario(&registries, alternate, None);
+    let alternate_report = workshop::runner::run_scenario(&registries, alternate, None);
 
     assert_ne!(
         baseline_report.inputs.delivery_mass,

@@ -104,16 +104,8 @@ impl CrushEnvelopes {
     }
 }
 
-#[cfg(test)]
-#[path = "crush_planning_tests.rs"]
-mod tests;
-
 struct ResolvableCrushBatch {
-    #[cfg(test)]
-    mass: Mass,
     options: CrushOptions,
-    #[cfg(test)]
-    desired_constraints: CrushConstraintFlags,
 }
 
 #[derive(Clone, Copy)]
@@ -218,13 +210,7 @@ fn largest_resolvable_crush_batch(
         options.has_viable_option(),
         "powered crush envelope admitted a mass rejected by both canonical supply choices"
     );
-    Some(ResolvableCrushBatch {
-        #[cfg(test)]
-        mass,
-        options,
-        #[cfg(test)]
-        desired_constraints: CrushConstraintFlags::from_envelopes(envelopes, desired),
-    })
+    Some(ResolvableCrushBatch { options })
 }
 
 fn maintenance_safe_crush_options(

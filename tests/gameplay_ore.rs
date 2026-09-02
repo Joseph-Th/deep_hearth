@@ -18,8 +18,6 @@ mod industrial_support;
 mod inventory_support;
 #[path = "gameplay_harness/material_selection.rs"]
 mod material_selection;
-#[path = "gameplay_harness/ore_contract_tests.rs"]
-mod ore_contract_tests;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
 #[path = "gameplay_harness/ore_probe.rs"]

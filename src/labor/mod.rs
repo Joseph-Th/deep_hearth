@@ -11,7 +11,7 @@ mod work_resources;
 
 pub use definitions::{
     LaborRegistry, ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition,
-    ProspectingEquipmentProfile, ProspectingMethodId,
+    ProspectingEquipmentProfile, ProspectingMethodId, ProspectingSpatialResolution,
 };
 pub use lifecycle::{PlayerWorkCommitError, PlayerWorkStartError};
 pub use power_execution::{

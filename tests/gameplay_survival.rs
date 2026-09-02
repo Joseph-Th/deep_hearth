@@ -22,8 +22,6 @@ mod production_timing;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
-#[path = "gameplay_harness/survival_contract_tests.rs"]
-mod survival_contract_tests;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
 #[path = "gameplay_harness/temporal.rs"]

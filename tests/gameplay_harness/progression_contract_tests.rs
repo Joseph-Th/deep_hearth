@@ -16,9 +16,13 @@ use deep_hearth::content::{
 use deep_hearth::material::CommodityKey;
 
 use super::catalog::{ProcessResolverKind, process_catalog_entries};
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::progression_probe::{
-    OreOpportunityDepth, manual_processing::manual_processing_setup, ore_opportunity,
-    varied_four_way_order,
+    DEEP_OPPORTUNITY_MIN_BATCHES, MARGINAL_OPPORTUNITY_MAX_BATCHES,
+    MARGINAL_OPPORTUNITY_MIN_BATCHES, PrimitivePriority, PrimitiveReinvestmentOutcome,
+    PrimitiveSteadyStop, SHALLOW_OPPORTUNITY_MAX_BATCHES,
+    manual_processing::manual_processing_setup, ore_opportunity,
+    review::evaluate_primitive_progression_probe, varied_four_way_order,
 };
 
 #[test]
@@ -175,6 +179,49 @@ fn primitive_recovery_and_reinforcement_routes_remain_connected() {
 }
 
 #[test]
+fn shallow_opportunity_stops_cleanly() {
+    let registries = build_registries();
+    let case = FocusedProbeCase::new(
+        11,
+        Some(0xE242_49A0_7762_6A70),
+        FocusedProbeRole::ExplicitReplay,
+    );
+    assert!(
+        ore_opportunity(case.seed(), false).batch_budget() <= SHALLOW_OPPORTUNITY_MAX_BATCHES,
+        "shallow-opportunity regression seed no longer exercises the intended narrow geological reserve"
+    );
+    let review = evaluate_primitive_progression_probe(&registries, case);
+    assert_eq!(review.productive_payback_cycles, None);
+    assert!(
+        review.steady_state_cycles > 0,
+        "shallow opportunity should permit some useful machinery before local supply ends"
+    );
+    assert_eq!(review.steady_state_stop, PrimitiveSteadyStop::TargetSupply);
+    assert_eq!(
+        review.reinvestment,
+        PrimitiveReinvestmentOutcome::TargetSupplyLimited
+    );
+}
+
+#[test]
+fn local_pick_first_sequence_is_measured_against_the_crank_counterfactual() {
+    let registries = build_registries();
+    let review = evaluate_primitive_progression_probe(
+        &registries,
+        FocusedProbeCase::new(404, Some(1_648), FocusedProbeRole::ExplicitReplay),
+    );
+    assert_eq!(review.natural_priority, PrimitivePriority::PickFirst);
+    assert!(review.extraction_hard_access_lead_ticks > 0);
+    assert!(review.extraction_hard_material_window_ticks > 0);
+    assert!(review.mechanization_processed_output_window_ticks > 0);
+    assert!(
+        review.extraction_hard_access_lead_ticks
+            > review.mechanization_processed_output_window_ticks,
+        "the local pick-vs-crank state must not be advertised as reciprocal while pick-first buys substantially more immediate player-visible leverage"
+    );
+}
+
+#[test]
 fn progression_generators_cover_distinct_search_and_economic_pressures() {
     let clue_orders = (1_u64..=12)
         .map(varied_four_way_order)
@@ -192,47 +239,27 @@ fn progression_generators_cover_distinct_search_and_economic_pressures() {
     let opportunities = (1_u64..=32)
         .map(|seed| ore_opportunity(seed, false))
         .collect::<Vec<_>>();
-    assert_eq!(
+    assert!(
         opportunities
             .iter()
-            .map(|opportunity| opportunity.depth())
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from([
-            OreOpportunityDepth::Shallow,
-            OreOpportunityDepth::Marginal,
-            OreOpportunityDepth::Deep,
-        ]),
-        "organic progression must exercise shallow, marginal, and deep finite-opportunity classes"
+            .any(|opportunity| opportunity.batch_budget() <= SHALLOW_OPPORTUNITY_MAX_BATCHES),
+        "organic progression generated no shallow finite opportunity"
     );
-    let shallow_max = opportunities
-        .iter()
-        .filter(|opportunity| opportunity.depth() == OreOpportunityDepth::Shallow)
-        .map(|opportunity| opportunity.batch_budget())
-        .max()
-        .unwrap_or_else(|| panic!("organic progression generated no shallow opportunity"));
-    let marginal_min = opportunities
-        .iter()
-        .filter(|opportunity| opportunity.depth() == OreOpportunityDepth::Marginal)
-        .map(|opportunity| opportunity.batch_budget())
-        .min()
-        .unwrap_or_else(|| panic!("organic progression generated no marginal opportunity"));
-    let marginal_max = opportunities
-        .iter()
-        .filter(|opportunity| opportunity.depth() == OreOpportunityDepth::Marginal)
-        .map(|opportunity| opportunity.batch_budget())
-        .max()
-        .unwrap_or_else(|| panic!("organic progression generated no marginal opportunity"));
-    let deep_min = opportunities
-        .iter()
-        .filter(|opportunity| opportunity.depth() == OreOpportunityDepth::Deep)
-        .map(|opportunity| opportunity.batch_budget())
-        .min()
-        .unwrap_or_else(|| panic!("organic progression generated no deep opportunity"));
-    assert!(marginal_min > shallow_max);
-    assert!(deep_min > marginal_max);
-    assert_eq!(
-        ore_opportunity(1, true).depth(),
-        OreOpportunityDepth::Deep,
+    assert!(
+        opportunities.iter().any(|opportunity| {
+            (MARGINAL_OPPORTUNITY_MIN_BATCHES..=MARGINAL_OPPORTUNITY_MAX_BATCHES)
+                .contains(&opportunity.batch_budget())
+        }),
+        "organic progression generated no marginal finite opportunity"
+    );
+    assert!(
+        opportunities
+            .iter()
+            .any(|opportunity| opportunity.batch_budget() >= DEEP_OPPORTUNITY_MIN_BATCHES),
+        "organic progression generated no deep finite opportunity"
+    );
+    assert!(
+        ore_opportunity(1, true).batch_budget() >= DEEP_OPPORTUNITY_MIN_BATCHES,
         "maintained progression must keep a deep automation-payback opportunity"
     );
 

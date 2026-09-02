@@ -213,6 +213,37 @@ fn split_group_mass(
     Ok((undersize, oversize))
 }
 
+fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    left
+}
+
+pub(super) fn representable_screening_mass_floor(
+    definition: ScreeningProcessDefinition,
+    distribution: &ParticleSizeDistribution,
+    requested: Mass,
+) -> Result<Mass, ScreeningBatchError> {
+    if requested.is_zero() {
+        return Ok(Mass::ZERO);
+    }
+    let classified = classify_particle_sizes(definition, distribution)?;
+    let total_weight = distribution.total_weight();
+    if definition.input_form() == definition.output_form()
+        && (classified.undersize_weight == 0 || classified.undersize_weight == total_weight)
+    {
+        return Err(ScreeningBatchError::NoParticleSizePartition {
+            aperture: definition.aperture(),
+        });
+    }
+    let quantum = total_weight / greatest_common_divisor(classified.undersize_weight, total_weight);
+    let representable = requested.milligrams() - requested.milligrams() % quantum;
+    Ok(Mass::from_milligrams(representable))
+}
+
 fn build_output_lot(
     profile: ScreeningOutputProfile,
     mass: Mass,

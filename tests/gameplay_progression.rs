@@ -1,7 +1,5 @@
 //! Focused primitive-progression gameplay target for the fast edit/test loop.
 
-#[path = "gameplay_harness/catalog.rs"]
-mod catalog;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
@@ -26,29 +24,23 @@ mod material_selection;
 mod ore_fixture;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
-#[path = "gameplay_harness/primitive_liberation_contract_tests.rs"]
-mod primitive_liberation_contract_tests;
+#[path = "gameplay_harness/primitive_liberation.rs"]
+mod primitive_liberation;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
-#[path = "gameplay_harness/progression_contract_tests.rs"]
-mod progression_contract_tests;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
-#[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
-mod prospecting_instrument_contract_tests;
-#[path = "gameplay_harness/saw_bench_contract_tests.rs"]
-mod saw_bench_contract_tests;
+#[path = "gameplay_harness/progression_scope.rs"]
+mod progression_scope;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
-#[path = "gameplay_harness/woodworking_contract_tests.rs"]
-mod woodworking_contract_tests;
 
 #[test]
 fn gameplay_primitive_progression_probe() {
     focused_runner::run_focused_probe(
         "primitive-progression",
-        progression_probe::run_primitive_progression_probe,
+        progression_scope::run_primitive_progression_scope,
     );
 }

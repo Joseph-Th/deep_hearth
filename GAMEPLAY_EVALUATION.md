@@ -140,7 +140,7 @@ rules.
 
 | Mode | Surface | Supported conclusion |
 | --- | --- | --- |
-| Ordinary/runtime | `survival`, `progression` | Automated-player outcomes through ordinary acquisition under the declared observable policy. |
+| Ordinary/runtime | focused `survival`, `progression`; report-only `woodworking`, `fieldwork` episodes | Automated-player outcomes through ordinary acquisition under the declared observable policy. |
 | Controlled capability | `workshop`, `ore`, `foundry` | Canonical mechanics under disclosed prearranged infrastructure, not ordinary reachability. |
 | Counterfactual | matched branches | Action-attributable differences from one actor-visible starting state over one fixed comparison horizon. |
 | Exploratory | `python ci.py report`, explicit replays/sweeps | Bounded discovery and diagnostics; exploration does not create a routine pass/fail requirement. |
@@ -189,10 +189,17 @@ All focused targets use the `test-gameplay` feature contract. Broad gameplay ver
 remain the repair-loop surfaces. `python ci.py report` is a separate explicit Cargo example so exploratory output
 does not participate in routine test builds.
 
+Each focused target contains exactly one executable gate/probe. Generator, topology, counterfactual, and other
+cross-cutting contracts stay in the broad contract/audit targets even when they exercise the same helper code.
+This is a build-performance boundary: filtering a test at runtime is not sufficient because Rust would still
+code-generate every `#[test]` reachable from that focused crate.
+
 | Scope | Contract |
 | --- | --- |
 | `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, world-seeded inherited reserve history independent of actor behavior, value-sensitive storage investment from one shared raw-material opportunity using projected edible-horizon return versus actor attention tolerance, survival-owned prospective freshness across a future authored enclosure transition, ordinary raw-timber -> manual-board -> manual-enclosure-body -> preservation construction, timed player-work enclosure dismantling with exact matter recovery and ambient-storage restoration, matched storage counterfactuals at one wall-clock endpoint, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, varied prospecting-work cost, reserve recovery, an integrated hydration-warning -> provision -> prospect -> stored-work sequence, and actual diet-supported vitality recovery. |
-| `progression` | Coarse-to-fine evidence and information-value decisions; material-backed sampling; primitive crafting/mining/power/processing; first-copper pick-vs-crank counterfactual; direct-labor fallback versus mechanization; delegated work; finite recovery, stored-work loss/recharge, maintenance, and later reinvestment; ordinary quern/sizing-screen liberation through concentration; and finite organic opportunity. Separate contracts verify the reinforced sampling hammer, the adze's ordinary acquisition/payback and unchanged 80/20 timber yield, and a settlement-scale frame saw built from ordinary boards plus a 60 g native-copper blade opportunity. The saw contract proves explicit no-tool/adze rejection, 90/10 board/chip recovery, attention payback on a 12-log run, blade wear, exact matter, and mid-job save/load replay. |
+| `progression` | Coarse-to-fine evidence and information-value decisions; material-backed sampling; primitive crafting/mining/power/processing; a local scarce-copper pick-vs-crank sequencing counterfactual; direct-labor fallback versus mechanization; delegated work; finite recovery, stored-work loss/recharge, maintenance, and later reinvestment; ordinary quern/sizing-screen liberation through concentration; and finite organic opportunity. Separate contracts verify the reinforced sampling hammer and ordinary woodworking investments. The adze must improve attention without changing its canonical recovery stream. The dedicated frame saw must remain a copper-bearing investment with better timber recovery, real wear, typed capability gating, conservation, and deterministic mid-job save/load continuation; exact timing and yield values remain owned by production/content tests rather than duplicated here. |
+| report `woodworking` | Replayable project size and owned-copper pressure across the ordinary adze/frame-saw decision. The episode executes the selected route and reports its attention and recovered-board consequence against a canonical adze counterfactual, so a material-efficiency trade does not masquerade as a simple upgrade. |
+| report `fieldwork` | Replayable hidden channel, within-channel location, grade, gangue, hardness, and extraction mass. The actor compares only acquired transect evidence, uses cheap inspections before one detailed sample, preserves copper until a canonical hardness blocker justifies quarry reinforcement, and never uses hidden geology in policy. The reinforced indexed survey separately proves a real four-cell per-voxel information payoff rather than a more expensive aggregate reading. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, independently varied finite stored work, canonical per-stage stopping behavior, and terminal current-tier tailings. Capability-only industrial benchmark. |
 | `foundry` | Installed room-temperature pure-copper heating/melting/casting with a same-furnace/same-electrical-source sensible-preheat energy-partition counterfactual, currently dominated rather than claimed as an active strategy, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
@@ -215,10 +222,11 @@ through the energy owner without regressing carrier, transfer limits, passive lo
 expanded stored-work envelope must fund a real larger primitive-processing batch.
 
 Woodworking continuity keeps the hewing and sawing routes physically distinct. The adze may accelerate the
-ordinary 80/20 board/chip process but cannot satisfy the dedicated sawing capability. The frame-saw process has
-no equipment-free fallback, produces 90/10 boards/chips, and must remain reachable only after the authored 54 g
-copper blade and timber frame are assembled. Its better yield therefore spends scarce copper and a replaceable
-wear component rather than becoming a hidden free efficiency multiplier.
+ordinary hewing process without changing that process's canonical recovery stream, but it cannot satisfy the
+dedicated sawing capability. The frame-saw process has no equipment-free fallback and must remain reachable only
+after its authored copper blade and timber frame are assembled. Its better board recovery therefore spends scarce
+copper and a replaceable wear component rather than becoming a hidden free efficiency multiplier. Exact current
+input masses, yields, and timings remain content/production facts rather than gameplay-evaluation policy.
 
 Preservation coverage requires every authored enclosure to remain ordinarily producible and recoverable while
 retaining a distinct practical tradeoff in capacity, preservation, raw material, or construction attention.
@@ -247,11 +255,20 @@ any later manual salvage interpretation.
 Primitive stone maintenance recovery must remain a zero-machine manual path from pure stone scrap to nonzero
 reusable tool matter plus explicit chip residue with exact mass conservation and more attention than fresh lump
 knapping. Unit evidence also requires contaminated or mixed-temperature scrap to reject atomically and an executed
-maintenance loop to use recovered stone for a later service. Bounded survival behavior must vary preservation willingness without choosing infrastructure independently of its observed payoff: the actor compares the stronger enclosure's additional edible horizon against its additional attention and applies a replayable behavior-root tolerance. Coverage must include both accepting a strong return and rejecting a marginal return when multiple physically distinct definitions exist. The progression episode's matched first-investment counterfactual
-remains as balance evidence, not actor-policy variation: current authored timing must show why pick-first is the
-rational ordinary action while crank-first still retains a measurable early-autonomy benefit. If future content
-or tuning makes those benefits genuinely reciprocal, the harness may promote the counterfactual back into actor
-policy only after the executed comparison demonstrates that change.
+maintenance loop to use recovered stone for a later service. Bounded survival behavior must vary preservation
+willingness without choosing infrastructure independently of observed payoff. The actor projects every feasible
+authored enclosure to one common future endpoint through the survival-owned freshness projection, values remaining
+edible lifetime against a replayable behavior-root attention price, and may therefore select an intermediate
+capacity/preservation/attention compromise rather than only the fastest or strongest endpoint. The fastest and
+strongest branches remain matched reference cases for interpreting the selected frontier result. The progression
+episode's matched local copper counterfactual remains balance evidence, not actor-policy variation
+or a claim about the player's global copper portfolio. It compares only the pick and hand-crank opportunities
+present in that decision state: current authored timing must show why pick-first is rational there while
+crank-first retains a measurable early-autonomy benefit. Woodworking, sampling, quarrying, sizing, and later
+machine upgrades are separate ordinary copper sinks and must not be erased by wording that calls this local
+comparison "the first copper choice." If future content or tuning makes the matched pick/crank benefits genuinely
+reciprocal, the harness may promote that local counterfactual back into actor policy only after the executed
+comparison demonstrates the change.
 
 Primitive automation coverage distinguishes capability from economics. Maintained progression worlds carry a
 deep deterministic geological opportunity and must demonstrate setup-attention payback plus continued useful
@@ -284,10 +301,11 @@ aggregate observable contract rather than incidental internal identity.
 fresh organic case by default; supplying the roots replays that organic case exactly while maintained anchors stay
 fixed. Failure output must retain replay input.
 
-`python ci.py report` is the bounded exploration surface. Its default concise view is the current ordinary-player
-experience: survival, primitive progression, live content counts, and the ordinary acquisition frontier. The
-report still executes controlled-capability probes as engineering evidence, but their workshop/ore/foundry
-detail is hidden from the default player-experience view because those systems are not currently ordinarily
-reachable. `DEEP_HEARTH_GAMEPLAY_VERBOSE` restores the full capability diagnostics, blockers, tradeoffs, and
-counterfactual detail; `DEEP_HEARTH_GAMEPLAY_TRACE` adds operation-level workshop narration. Increase breadth
-through explicit report/replay inputs rather than turning the edit loop into a multi-seed soak.
+`python ci.py report` is the bounded exploration surface. Its default concise view includes ordinary survival,
+primitive progression, woodworking, fieldwork, live content counts, the ordinary acquisition frontier, and
+compact summaries of the controlled workshop/ore/foundry evidence. Controlled summaries stay explicitly labeled
+and do not imply ordinary reachability; hiding them entirely would make a cold reader miss important interaction,
+recovery, and finite-capacity behavior that already exists in the simulation. `DEEP_HEARTH_GAMEPLAY_VERBOSE`
+restores full capability diagnostics, blockers, tradeoffs, and counterfactual detail;
+`DEEP_HEARTH_GAMEPLAY_TRACE` adds operation-level workshop narration. Increase breadth through explicit
+report/replay inputs rather than turning the edit loop into a multi-seed soak.

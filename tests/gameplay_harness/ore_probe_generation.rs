@@ -11,7 +11,7 @@ fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
     left
 }
 
-pub(super) fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
+pub(crate) fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
     let crusher = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)

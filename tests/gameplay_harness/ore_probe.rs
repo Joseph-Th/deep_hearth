@@ -36,13 +36,8 @@ use deep_hearth::production::{
 use deep_hearth::registry::Registries;
 
 #[path = "ore_probe_generation.rs"]
-mod generation;
+pub(super) mod generation;
 use generation::{OreProbeEpisode, prepare_ore_probe};
-
-#[cfg(test)]
-pub(super) fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
-    generation::probe_parameters(registries, seed)
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum OreStopReason {
