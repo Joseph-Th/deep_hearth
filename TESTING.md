@@ -14,7 +14,7 @@ Use the smallest lane that completely proves the changed contract.
 | Production compile | `cargo check-fast` |
 | Production build gate | `python ci.py gate` |
 | List tests without building | `python tools/run_test.py --list [substring]` |
-| Type-check a test target without linking | `python tools/run_test.py --check <qualified-name-or-unique-substring>` |
+| Type-check an integration target without linking | `python tools/run_test.py --check --target <integration-target>` |
 | Run one exact unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | Run one owner/subsystem test group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Focused gameplay | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
@@ -32,9 +32,10 @@ Use the smallest lane that completely proves the changed contract.
 `quick` is build-free. `gate` runs one build lane and does not repeat `quick`; specialized flags replace its
 default compile. `audit` checkpoints add `quick` to the selected runtime surface.
 
-While code is unstable, use `cargo check-fast` or `run_test.py --check`, then one exact/suite or focused gameplay
-proof. Reuse warm artifacts; do not prebuild or compile all targets in the repair loop. Gameplay audit reuses
-`gameplay_contracts` plus the 5 focused targets. `report` is a separate example outside routine test builds.
+While code is unstable, use `cargo check-fast` or `run_test.py --check`, then one exact/suite or focused proof.
+Reuse warm artifacts; never prebuild all targets. Broad gameplay builds one `gameplay_audit` crate. Routine gates
+keep maintained regression/coverage cases plus one fresh replayable organic case; `report` expands that bounded
+sample for exploration.
 
 ## Evidence ladder
 
@@ -111,9 +112,9 @@ Assertions prove durable contracts:
 - persistence: serialized continuation and trusted-load admission for state that survives load;
 - authored values: read from registries instead of duplicating balance constants.
 
-Avoid error-prose, wall-clock, incidental-order/count, or unowned balance assertions. Prefer authored-registry or
-owner-state relationships over copied balance values. Generator tests prove bounded reachability/variation, not
-one exact permutation or count unless that value is itself owned. Interaction bugs reproduce interacting states.
+Avoid error prose, wall-clock, incidental order/count, and copied balance assertions. Prefer owner relationships.
+Generators prove bounded variation unless an exact value is owned. Harnesses match meaningful typed errors and
+fall back for unexpected variants. Interaction bugs reproduce interacting states.
 
 Soak tests are ignored tests whose qualified name includes `soak`. Use them only when repeated ownership,
 persistence, conservation, or numerical accumulation adds evidence that focused tests cannot provide.

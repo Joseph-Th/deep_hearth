@@ -92,8 +92,11 @@ fn run_reinvestment_separation(
         feed_mass,
         target_mass: resolved.target_mass(),
         residue_mass: resolved.residue_mass(),
+        processing_rate: resolved.processing_rate(),
         required_energy,
         charge_ticks,
+        throughput_ticks: resolved.throughput_duration().value(),
+        energy_ticks: resolved.energy_duration().value(),
         ticks,
     }
 }
@@ -311,7 +314,7 @@ pub(super) fn evaluate_mature_reinvestment(
     )
     .unwrap_or_else(|_| unreachable!("primitive crusher time reduction fits u32"));
 
-    let base_separator_work = run_reinvestment_separation(
+    let separator_upgrade_recovery = run_reinvestment_separation(
         registries,
         &mut state,
         PrimitiveSeparationPlan {
@@ -322,11 +325,11 @@ pub(super) fn evaluate_mature_reinvestment(
             feed_mass: separation_feed_mass,
             expected_target: reinforcement_mass,
         },
-        "base separator reinvestment comparison",
+        "separator-upgrade copper recovery",
     );
     assert!(
-        !base_separator_work.target_mass.is_zero(),
-        "base separator comparison must recover real copper from the represented feed"
+        !separator_upgrade_recovery.target_mass.is_zero(),
+        "separator upgrade must be funded by real copper recovered from represented feed"
     );
     craft_for_profile(
         registries,
@@ -341,6 +344,7 @@ pub(super) fn evaluate_mature_reinvestment(
         .get_equipment(machine.separator)
         .unwrap_or_else(|| panic!("primitive reinvestment separator disappeared"))
         .condition();
+    let mut base_separator_comparison_state = state.clone();
     validate_upgrade_equipment(
         registries,
         &state,
@@ -362,32 +366,60 @@ pub(super) fn evaluate_mature_reinvestment(
         separator_condition,
         "productive reinvestment must preserve accumulated separator wear"
     );
+    let separator_comparison_plan = PrimitiveSeparationPlan {
+        crushed_storage,
+        native_storage,
+        residue_storage,
+        machine,
+        feed_mass: separation_feed_mass,
+        expected_target: reinforcement_mass,
+    };
+    let base_separator_work = run_reinvestment_separation(
+        registries,
+        &mut base_separator_comparison_state,
+        separator_comparison_plan,
+        "matched base separator comparison",
+    );
     let reinforced_separator_work = run_reinvestment_separation(
         registries,
         &mut state,
-        PrimitiveSeparationPlan {
-            crushed_storage,
-            native_storage,
-            residue_storage,
-            machine,
-            feed_mass: separation_feed_mass,
-            expected_target: reinforcement_mass,
-        },
-        "reinforced separator comparison",
+        separator_comparison_plan,
+        "matched reinforced separator comparison",
     );
     assert!(
-        !reinforced_separator_work.target_mass.is_zero(),
-        "reinforced separator comparison must recover real copper from the represented feed"
+        !base_separator_work.target_mass.is_zero()
+            && !reinforced_separator_work.target_mass.is_zero(),
+        "matched separator comparison must process real represented copper-bearing feed"
+    );
+    assert_eq!(
+        base_separator_work.target_mass, reinforced_separator_work.target_mass,
+        "separator reinforcement must improve equipment capability without changing separation recovery physics"
     );
     assert!(
-        reinforced_separator_work.ticks < base_separator_work.ticks,
-        "separator reinforcement must reduce actual machine time on the same represented feed"
+        reinforced_separator_work.processing_rate > base_separator_work.processing_rate,
+        "separator reinforcement must improve condition-matched production-resolved throughput"
     );
-    let separator_time_reduction_ppm = u32::try_from(
-        u128::from(base_separator_work.ticks - reinforced_separator_work.ticks) * 1_000_000
-            / u128::from(base_separator_work.ticks),
+    assert!(
+        reinforced_separator_work.throughput_ticks <= base_separator_work.throughput_ticks,
+        "higher separator throughput cannot require more throughput-limited ticks on the same feed"
+    );
+    assert_eq!(
+        reinforced_separator_work.energy_ticks, base_separator_work.energy_ticks,
+        "separator reinforcement must not rewrite the process energy requirement or supply power"
+    );
+    assert!(
+        reinforced_separator_work.ticks <= base_separator_work.ticks,
+        "separator reinforcement cannot make the condition-matched resolved operation slower"
+    );
+    let base_separator_rate = base_separator_work.processing_rate.milligrams_per_second();
+    let reinforced_separator_rate = reinforced_separator_work
+        .processing_rate
+        .milligrams_per_second();
+    let separator_processing_rate_gain_ppm = u32::try_from(
+        u128::from(reinforced_separator_rate - base_separator_rate) * 1_000_000
+            / u128::from(base_separator_rate),
     )
-    .unwrap_or_else(|_| unreachable!("primitive separator time reduction fits u32"));
+    .unwrap_or_else(|_| unreachable!("primitive separator throughput gain fits u32"));
 
     let residual_energy = state
         .energy()
@@ -558,7 +590,9 @@ pub(super) fn evaluate_mature_reinvestment(
         crusher_time_reduction_ppm,
         base_separator_ticks: base_separator_work.ticks,
         reinforced_separator_ticks: reinforced_separator_work.ticks,
-        separator_time_reduction_ppm,
+        base_separator_processing_rate: base_separator_work.processing_rate,
+        reinforced_separator_processing_rate: reinforced_separator_work.processing_rate,
+        separator_processing_rate_gain_ppm,
         base_separator_target_mass: base_separator_work.target_mass,
         reinforced_separator_target_mass: reinforced_separator_work.target_mass,
         base_separator_batch_capacity,

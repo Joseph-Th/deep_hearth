@@ -15,8 +15,9 @@ use crate::core::time::{TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileStorageProfile, add_solid_stockpile_for_test,
-    deposit_lot_for_test, validate_build_storage_enclosure, validate_mount_stockpile,
+    MaterialLotId, MaterialLotSelection, StockpileStorageProfile, StockpileSupportError,
+    add_solid_stockpile_for_test, deposit_lot_for_test, validate_build_storage_enclosure,
+    validate_mount_stockpile, validate_unmount_stockpile,
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -44,6 +45,8 @@ fn fixture() -> (
 ) {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5702_2001));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("dismantle survival fixture failed: {error}"));
     let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
         .unwrap_or_else(|error| panic!("dismantle target fixture failed: {error}"));
     let food = deposit_lot_for_test(
@@ -69,6 +72,30 @@ fn fixture() -> (
     let recovery = add_solid_stockpile_for_test(&mut state, CHEST_MASS)
         .unwrap_or_else(|error| panic!("dismantle recovery fixture failed: {error}"));
     (registries, state, target, construction, recovery, food)
+}
+
+fn complete_storage_dismantling(
+    registries: &Registries,
+    state: &mut AppState,
+    target: StockpileId,
+    recovery: StockpileId,
+) -> StorageEnclosureDismantlingOutcome {
+    let start = validate_start_storage_enclosure_dismantling(registries, state, target, recovery)
+        .unwrap_or_else(|error| panic!("dismantling start validation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("dismantling start commit failed: {error}"));
+    let completes_at = start.completes_at();
+    let mut completion = None;
+    while state.tick() < completes_at {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("dismantling completion tick failed: {error}"));
+        if let Some(dismantling) = outcome.storage_enclosure_dismantling() {
+            assert!(completion.is_none(), "dismantling completed more than once");
+            completion = Some(dismantling.clone());
+        }
+    }
+    completion
+        .unwrap_or_else(|| panic!("dismantling reached due tick without a completion outcome"))
 }
 
 fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
@@ -127,10 +154,52 @@ fn dismantling_checkpoints_preservation_and_recovers_reusable_enclosure_matter()
         .unwrap_or_else(|error| panic!("dismantle energy-before audit failed: {error}"))
         .total();
 
-    let outcome = validate_dismantle_storage_enclosure(&registries, &state, target, recovery)
-        .unwrap_or_else(|error| panic!("dismantle validation failed: {error}"))
+    let start = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+        .unwrap_or_else(|error| panic!("dismantle start validation failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("dismantle commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("dismantle start commit failed: {error}"));
+    assert_eq!(start.definition(), STORAGE_TIMBER_PROVISIONS_CHEST);
+    assert_eq!(start.recovered_mass(), CHEST_MASS);
+    assert_eq!(start.completes_at().value() - state.tick().value(), 24);
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .and_then(|stockpile| stockpile.enclosure())
+            .is_some()
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovery)
+            .map(|stockpile| (stockpile.stored_mass(), stockpile.reserved_inbound())),
+        Some((Mass::ZERO, CHEST_MASS))
+    );
+
+    advance_exact(&registries, &mut state, 7);
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("active dismantle serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("active dismantle decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("active dismantle trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    let mut completion = None;
+    while state.tick() < start.completes_at() {
+        let expected = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("active dismantle source continuation failed: {error}"));
+        let actual = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("active dismantle loaded continuation failed: {error}"));
+        assert_eq!(actual, expected);
+        if let Some(dismantling) = expected.storage_enclosure_dismantling() {
+            completion = Some(dismantling.clone());
+        }
+    }
+    assert_eq!(loaded, state);
+    let outcome = completion
+        .unwrap_or_else(|| panic!("active dismantle continuation did not emit completion"));
     assert_eq!(outcome.definition(), STORAGE_TIMBER_PROVISIONS_CHEST);
     assert_eq!(outcome.recovered_lots().len(), 1);
     let target_record = state
@@ -151,7 +220,7 @@ fn dismantling_checkpoints_preservation_and_recovers_reusable_enclosure_matter()
     );
     assert!(matches!(
         assess_food_freshness(&registries, &state, food),
-        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(150)
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(162)
     ));
     let matter_after = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("dismantle matter-after audit failed: {error}"));
@@ -164,19 +233,10 @@ fn dismantling_checkpoints_preservation_and_recovers_reusable_enclosure_matter()
         energy_before
     );
 
-    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("dismantle serialization failed: {error}"));
-    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
-        .unwrap_or_else(|error| panic!("dismantle decode failed: {error}"));
-    let mut loaded = decoded
-        .into_state(&registries)
-        .unwrap_or_else(|error| panic!("dismantle trusted load failed: {error}"));
-    assert_eq!(loaded, state);
-
     advance_exact(&registries, &mut loaded, 100);
     assert!(matches!(
         assess_food_freshness(&registries, &loaded, food),
-        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(250)
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(262)
     ));
     validate_build_storage_enclosure(
         &registries,
@@ -197,12 +257,12 @@ fn dismantling_checkpoints_preservation_and_recovers_reusable_enclosure_matter()
     );
     assert!(matches!(
         assess_food_freshness(&registries, &loaded, food),
-        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(250)
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(262)
     ));
     advance_exact(&registries, &mut loaded, 100);
     assert!(matches!(
         assess_food_freshness(&registries, &loaded, food),
-        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(300)
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(312)
     ));
     assert_eq!(
         calculate_matter_accounting(&loaded)
@@ -217,6 +277,8 @@ fn dismantling_checkpoints_preservation_and_recovers_reusable_enclosure_matter()
 fn double_wall_enclosure_checkpoints_three_to_one_preservation_and_reuses_exact_body() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5702_2007));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("double-wall dismantle survival setup failed: {error}"));
     let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
         .unwrap_or_else(|error| panic!("double-wall dismantle target failed: {error}"));
     let food = deposit_lot_for_test(
@@ -276,15 +338,12 @@ fn double_wall_enclosure_checkpoints_three_to_one_preservation_and_reuses_exact_
         TickSpan::new(120),
         "90 enclosed ticks at 3x preservation must add exactly 30 effective age ticks"
     );
-    let outcome = validate_dismantle_storage_enclosure(&registries, &state, target, recovery)
-        .unwrap_or_else(|error| panic!("double-wall enclosure dismantle failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("double-wall enclosure dismantle commit failed: {error}"));
+    let outcome = complete_storage_dismantling(&registries, &mut state, target, recovery);
     assert_eq!(
         outcome.definition(),
         STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST
     );
-    assert_eq!(food_age(&state), TickSpan::new(120));
+    assert_eq!(food_age(&state), TickSpan::new(134));
     assert_eq!(
         state.inventory().get_stockpile(recovery).map(|stockpile| {
             stockpile.get_mass(CommodityKey::new(
@@ -302,7 +361,7 @@ fn double_wall_enclosure_checkpoints_three_to_one_preservation_and_reuses_exact_
     );
 
     advance_exact(&registries, &mut state, 90);
-    assert_eq!(food_age(&state), TickSpan::new(210));
+    assert_eq!(food_age(&state), TickSpan::new(224));
     validate_build_storage_enclosure(
         &registries,
         &state,
@@ -313,9 +372,9 @@ fn double_wall_enclosure_checkpoints_three_to_one_preservation_and_reuses_exact_
     .unwrap_or_else(|error| panic!("double-wall recovered rebuild failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("double-wall recovered rebuild commit failed: {error}"));
-    assert_eq!(food_age(&state), TickSpan::new(210));
+    assert_eq!(food_age(&state), TickSpan::new(224));
     advance_exact(&registries, &mut state, 90);
-    assert_eq!(food_age(&state), TickSpan::new(240));
+    assert_eq!(food_age(&state), TickSpan::new(254));
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("double-wall rebuilt matter failed: {error}"))
@@ -365,10 +424,7 @@ fn dismantled_double_wall_body_salvages_into_a_standard_enclosure_with_exact_res
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("storage salvage matter-before failed: {error}"))
         .total();
-    let dismantled = validate_dismantle_storage_enclosure(&registries, &state, target, recovery)
-        .unwrap_or_else(|error| panic!("storage salvage dismantle failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("storage salvage dismantle commit failed: {error}"));
+    let dismantled = complete_storage_dismantling(&registries, &mut state, target, recovery);
     assert_eq!(
         dismantled.definition(),
         STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST
@@ -524,8 +580,8 @@ fn dismantling_rejects_capacity_same_target_and_mounted_target_without_mutation(
     .unwrap_or_else(|error| panic!("dismantle rejection build commit failed: {error}"));
     let before_same = state.clone();
     assert_eq!(
-        validate_dismantle_storage_enclosure(&registries, &state, target, target).err(),
-        Some(StorageEnclosureDismantleError::RecoveryDestinationIsTarget { stockpile: target })
+        validate_start_storage_enclosure_dismantling(&registries, &state, target, target).err(),
+        Some(StorageEnclosureDismantlingError::RecoveryDestinationIsTarget { stockpile: target })
     );
     assert_eq!(state, before_same);
 
@@ -533,8 +589,8 @@ fn dismantling_rejects_capacity_same_target_and_mounted_target_without_mutation(
         .unwrap_or_else(|error| panic!("small dismantle recovery fixture failed: {error}"));
     let before_capacity = state.clone();
     assert!(matches!(
-        validate_dismantle_storage_enclosure(&registries, &state, target, too_small),
-        Err(StorageEnclosureDismantleError::RecoveryCapacityExceeded { stockpile, .. })
+        validate_start_storage_enclosure_dismantling(&registries, &state, target, too_small),
+        Err(StorageEnclosureDismantlingError::RecoveryCapacityExceeded { stockpile, .. })
             if stockpile == too_small
     ));
     assert_eq!(state, before_capacity);
@@ -546,8 +602,8 @@ fn dismantling_rejects_capacity_same_target_and_mounted_target_without_mutation(
         .unwrap_or_else(|error| panic!("dismantle mounted target commit failed: {error}"));
     let before_mounted = state.clone();
     assert_eq!(
-        validate_dismantle_storage_enclosure(&registries, &state, target, recovery).err(),
-        Some(StorageEnclosureDismantleError::TargetMounted {
+        validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery).err(),
+        Some(StorageEnclosureDismantlingError::TargetMounted {
             stockpile: target,
             element: support,
         })
@@ -568,8 +624,6 @@ fn dismantling_rejects_reserved_inbound_output_without_mutation() {
     .unwrap_or_else(|error| panic!("reserved dismantle build failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("reserved dismantle build commit failed: {error}"));
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("reserved dismantle survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("reserved dismantle craft source failed: {error}"));
     let craft_lot = deposit_lot_for_test(
@@ -603,8 +657,8 @@ fn dismantling_rejects_reserved_inbound_output_without_mutation() {
     let before = state.clone();
 
     assert_eq!(
-        validate_dismantle_storage_enclosure(&registries, &state, target, recovery).err(),
-        Some(StorageEnclosureDismantleError::TargetHasReservedInbound {
+        validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery).err(),
+        Some(StorageEnclosureDismantlingError::TargetHasReservedInbound {
             stockpile: target,
             reserved,
         })
@@ -613,7 +667,7 @@ fn dismantling_rejects_reserved_inbound_output_without_mutation() {
 }
 
 #[test]
-fn dismantling_updates_mounted_recovery_destination_load_exactly() {
+fn dismantling_requires_unmounted_resources_and_holds_them_until_completion() {
     let (registries, mut state, target, construction, recovery, _) = fixture();
     validate_build_storage_enclosure(
         &registries,
@@ -631,28 +685,52 @@ fn dismantling_updates_mounted_recovery_destination_load_exactly() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("loaded-recovery mount commit failed: {error}"));
     assert_eq!(
-        state
-            .structures()
-            .get_element(support)
-            .map(|record| record.load(StructuralLoadKind::StoredMatter)),
-        Some(crate::core::quantity::Force::ZERO)
+        validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery).err(),
+        Some(
+            StorageEnclosureDismantlingError::RecoveryDestinationMounted {
+                stockpile: recovery,
+                element: support,
+            }
+        )
     );
-
-    let _ = validate_dismantle_storage_enclosure(&registries, &state, target, recovery)
-        .unwrap_or_else(|error| panic!("loaded-recovery dismantle validation failed: {error}"))
+    let _ = validate_unmount_stockpile(&registries, &state, recovery)
+        .unwrap_or_else(|error| panic!("loaded-recovery unmount failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("loaded-recovery dismantle commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("loaded-recovery unmount commit failed: {error}"));
+
+    let start = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+        .unwrap_or_else(|error| panic!("resource-lock dismantle validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("resource-lock dismantle commit failed: {error}"));
+    assert_eq!(
+        validate_mount_stockpile(&registries, &state, target, support).err(),
+        Some(StockpileSupportError::StockpileBusyStorageDismantling { stockpile: target })
+    );
+    assert_eq!(
+        validate_mount_stockpile(&registries, &state, recovery, support).err(),
+        Some(StockpileSupportError::StockpileBusyStorageDismantling {
+            stockpile: recovery
+        })
+    );
+    while state.tick() < start.completes_at() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("resource-lock dismantle tick failed: {error}"));
+    }
 
     let expected = calculate_aggregate_weight_force_ceiling(
         AggregateMass::from_mass(CHEST_MASS),
         registries.core().gravity(),
     )
     .unwrap_or_else(|| panic!("loaded-recovery expected weight overflowed"));
+    let _ = validate_mount_stockpile(&registries, &state, recovery, support)
+        .unwrap_or_else(|error| panic!("completed recovery remount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("completed recovery remount commit failed: {error}"));
     assert_eq!(
         state
             .structures()
             .get_element(support)
-            .map(|record| record.load(StructuralLoadKind::StoredMatter)),
+            .map(|record| { record.load(StructuralLoadKind::StoredMatter) }),
         Some(expected)
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
@@ -684,8 +762,14 @@ fn dismantling_prechecks_inventory_revision_and_lot_id_exhaustion_without_mutati
     });
     let revision_before = revision_state.clone();
     assert_eq!(
-        validate_dismantle_storage_enclosure(&registries, &revision_state, target, recovery).err(),
-        Some(StorageEnclosureDismantleError::InventoryRevisionExhausted)
+        validate_start_storage_enclosure_dismantling(
+            &registries,
+            &revision_state,
+            target,
+            recovery,
+        )
+        .err(),
+        Some(StorageEnclosureDismantlingError::InventoryRevisionExhausted)
     );
     assert_eq!(revision_state, revision_before);
 
@@ -701,8 +785,9 @@ fn dismantling_prechecks_inventory_revision_and_lot_id_exhaustion_without_mutati
         .unwrap_or_else(|error| panic!("dismantle exhausted lot-id fixture should load: {error}"));
     let lot_before = lot_state.clone();
     assert_eq!(
-        validate_dismantle_storage_enclosure(&registries, &lot_state, target, recovery).err(),
-        Some(StorageEnclosureDismantleError::RecoveryLotIdExhausted)
+        validate_start_storage_enclosure_dismantling(&registries, &lot_state, target, recovery)
+            .err(),
+        Some(StorageEnclosureDismantlingError::RecoveryLotIdExhausted)
     );
     assert_eq!(lot_state, lot_before);
 }
@@ -721,7 +806,7 @@ fn stale_dismantling_token_cannot_overwrite_later_inventory_mutation() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("stale dismantle build commit failed: {error}"));
     let expected_revision = state.inventory().revision();
-    let stale = validate_dismantle_storage_enclosure(&registries, &state, target, recovery)
+    let stale = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
         .unwrap_or_else(|error| panic!("stale dismantle validation failed: {error}"));
     deposit_lot_for_test(
         &registries,
@@ -737,7 +822,7 @@ fn stale_dismantling_token_cannot_overwrite_later_inventory_mutation() {
     assert_eq!(
         stale.commit(&mut state),
         Err(
-            StorageEnclosureDismantleCommitError::StaleInventoryRevision {
+            StorageEnclosureDismantlingCommitError::StaleInventoryRevision {
                 expected: expected_revision,
                 actual: expected_revision + 1,
             }

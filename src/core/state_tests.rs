@@ -337,6 +337,18 @@ fn new_state_starts_at_zero_with_versioned_rng() {
 }
 
 #[test]
+fn app_state_debug_does_not_expose_hidden_geology_or_random_stream_state() {
+    let state = AppState::new(WorldSeed::new(0xD1A6_0001));
+
+    let debug = format!("{state:?}");
+
+    assert!(debug.contains("rng_algorithm"));
+    assert!(debug.contains("geological_knowledge"));
+    assert!(!debug.contains("random:"));
+    assert!(!debug.contains("geology:"));
+}
+
+#[test]
 fn trusted_load_rejects_random_world_seed_mismatch() {
     let registries = build_registries();
     let state = AppState::new(WorldSeed::new(42));

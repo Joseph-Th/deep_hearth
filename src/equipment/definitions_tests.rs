@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::content::{FORM_SCRAP, FORM_TOOL, MATERIAL_STONE};
+use crate::core::time::TickSpan;
 use crate::material::MaterialInputSpec;
+use crate::survival::SurvivalExertion;
 
 fn assembly_profile() -> MaterialAssemblyProfile {
     MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
@@ -18,6 +20,8 @@ fn component_maintenance_requires_the_complete_component_at_any_wear_level() {
         Mass::from_milligrams(7),
         CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
         Condition::PRISTINE,
+        TickSpan::new(7),
+        SurvivalExertion::REST,
     );
 
     assert!(profile.is_component_replacement());
@@ -37,6 +41,22 @@ fn component_maintenance_requires_the_complete_component_at_any_wear_level() {
         profile.required_replacement_mass(Condition::PRISTINE),
         Mass::ZERO
     );
+    assert_eq!(
+        profile.required_service_duration(Condition::FAILED),
+        TickSpan::new(7)
+    );
+    assert_eq!(
+        profile.required_service_duration(
+            Condition::new(999_999)
+                .unwrap_or_else(|error| panic!("worn component condition failed: {error}"))
+        ),
+        TickSpan::new(7),
+        "component replacement duration must remain indivisible with the whole component"
+    );
+    assert_eq!(
+        profile.required_service_duration(Condition::PRISTINE),
+        TickSpan::ZERO
+    );
 }
 
 #[test]
@@ -47,6 +67,8 @@ fn maintenance_replacement_mass_tracks_condition_restored_and_rounds_positive_re
         CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
         Condition::new(700_000)
             .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
+        TickSpan::new(7),
+        SurvivalExertion::REST,
     );
 
     assert_eq!(
@@ -77,6 +99,34 @@ fn maintenance_replacement_mass_tracks_condition_restored_and_rounds_positive_re
         ),
         Mass::ZERO,
         "service at the target must require no replacement stock"
+    );
+    assert_eq!(
+        profile.required_service_duration(Condition::FAILED),
+        TickSpan::new(7),
+        "failed-to-target service must require the authored full-service duration"
+    );
+    assert_eq!(
+        profile.required_service_duration(
+            Condition::new(500_000)
+                .unwrap_or_else(|error| panic!("partial condition fixture failed: {error}"))
+        ),
+        TickSpan::new(2),
+        "partial service duration must scale with the condition actually restored"
+    );
+    assert_eq!(
+        profile.required_service_duration(
+            Condition::new(699_999)
+                .unwrap_or_else(|error| panic!("near-target condition fixture failed: {error}"))
+        ),
+        TickSpan::new(1),
+        "positive repair must never round down to zero work"
+    );
+    assert_eq!(
+        profile.required_service_duration(
+            Condition::new(700_000)
+                .unwrap_or_else(|error| panic!("target condition fixture failed: {error}"))
+        ),
+        TickSpan::ZERO
     );
 }
 
@@ -122,6 +172,8 @@ fn maintenance_registry(spent: CommodityKey) -> EquipmentRegistry {
             spent,
             Condition::new(900_000)
                 .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
+            TickSpan::new(1),
+            SurvivalExertion::REST,
         ))])
 }
 
@@ -159,6 +211,8 @@ fn equipment_definition_rejects_duplicate_authoritative_profiles() {
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
             Condition::new(900_000)
                 .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
+            TickSpan::new(1),
+            SurvivalExertion::REST,
         )
     };
     let duplicate_maintenance = std::panic::catch_unwind(|| {
@@ -223,6 +277,8 @@ fn equipment_definition_rejects_aggregate_maintenance_on_exact_assembled_matter(
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
             Condition::new(900_000)
                 .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
+            TickSpan::new(1),
+            SurvivalExertion::REST,
         )
     };
     let assembly_then_maintenance = std::panic::catch_unwind(|| {
@@ -250,6 +306,8 @@ fn equipment_registry_accepts_component_replacement_that_matches_exact_assembly_
             Mass::from_milligrams(1),
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
             Condition::PRISTINE,
+            TickSpan::new(1),
+            SurvivalExertion::REST,
         ));
     let registry = EquipmentRegistry::new([definition]);
 
@@ -266,6 +324,8 @@ fn equipment_registry_rejects_component_replacement_mass_that_is_not_whole_compo
             Mass::from_milligrams(2),
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
             Condition::PRISTINE,
+            TickSpan::new(1),
+            SurvivalExertion::REST,
         ));
     let registry = EquipmentRegistry::new([definition]);
 

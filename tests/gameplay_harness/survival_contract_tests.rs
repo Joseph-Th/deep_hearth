@@ -15,9 +15,9 @@ use super::focused_seeds::{
 use super::preservation_route::preservation_construction_plan;
 use super::survival_probe::{
     DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
-    diet_provisioning_policy_for_behavior_seed, preservation_investment_policy_for_behavior_seed,
-    preservation_storage_definition_for_policy, prospecting_method_for_work_pressure,
-    provisioning_world,
+    diet_provisioning_policy_for_behavior_seed, preservation_freshness_return_threshold_ppm,
+    preservation_policy_for_projected_return, preservation_storage_definition_for_policy,
+    prospecting_method_for_work_pressure, provisioning_world,
 };
 
 #[test]
@@ -213,12 +213,32 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         diet_policies,
         DietProvisioningPolicy::ALL.into_iter().collect()
     );
-    let preservation_policies = (1_u64..=32)
-        .map(preservation_investment_policy_for_behavior_seed)
+    let preservation_thresholds = (1_u64..=32)
+        .map(preservation_freshness_return_threshold_ppm)
         .collect::<BTreeSet<_>>();
+    assert!(preservation_thresholds.len() > 1);
+    assert!(
+        preservation_thresholds
+            .iter()
+            .all(|threshold| (1_000_000..=4_000_000).contains(threshold))
+    );
     assert_eq!(
-        preservation_policies,
-        PreservationInvestmentPolicy::ALL.into_iter().collect()
+        preservation_policy_for_projected_return(1, 0, 140),
+        PreservationInvestmentPolicy::AttentionEfficient
+    );
+    let low_threshold_seed = (1_u64..=1_024)
+        .min_by_key(|seed| preservation_freshness_return_threshold_ppm(*seed))
+        .unwrap_or_else(|| unreachable!("nonempty bounded behavior seed search"));
+    let high_threshold_seed = (1_u64..=1_024)
+        .max_by_key(|seed| preservation_freshness_return_threshold_ppm(*seed))
+        .unwrap_or_else(|| unreachable!("nonempty bounded behavior seed search"));
+    assert_eq!(
+        preservation_policy_for_projected_return(low_threshold_seed, 560, 140),
+        PreservationInvestmentPolicy::MaximumProtection
+    );
+    assert_eq!(
+        preservation_policy_for_projected_return(high_threshold_seed, 140, 140),
+        PreservationInvestmentPolicy::AttentionEfficient
     );
 
     let exploratory = focused_probe_cases_from(FocusedProbeSeedPlan {
@@ -249,7 +269,7 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
 
     let original = provisioning_world(&registries, 0x51A2_0001);
     for behavior_seed in 1_u64..=4 {
-        let policy = preservation_investment_policy_for_behavior_seed(behavior_seed);
+        let policy = preservation_policy_for_projected_return(behavior_seed, 100, 140);
         let _selected = preservation_storage_definition_for_policy(&registries, policy);
         let replay = provisioning_world(&registries, 0x51A2_0001);
         assert_eq!(

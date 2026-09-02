@@ -4,7 +4,9 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
+use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
 use crate::mining::MiningJobId;
@@ -55,6 +57,11 @@ pub enum EquipmentMaintenanceError {
         commodity: CommodityKey,
     },
     EquipmentRevisionExhausted,
+    CompletionTickOverflow {
+        current: SimulationTick,
+        duration: TickSpan,
+    },
+    PlayerWork(PlayerWorkStartError),
     Material(EquipmentMaintenanceMaterialError),
 }
 
@@ -333,6 +340,16 @@ impl Display for EquipmentMaintenanceError {
             Self::EquipmentRevisionExhausted => {
                 formatter.write_str("equipment revision space is exhausted during maintenance")
             }
+            Self::CompletionTickOverflow { current, duration } => write!(
+                formatter,
+                "equipment maintenance starting at tick {} cannot schedule {} active ticks",
+                current.value(),
+                duration.value()
+            ),
+            Self::PlayerWork(error) => write!(
+                formatter,
+                "equipment maintenance labor cannot start: {error}"
+            ),
             Self::Material(error) => write!(
                 formatter,
                 "equipment maintenance material transaction is invalid: {error}"
@@ -345,6 +362,7 @@ impl Error for EquipmentMaintenanceError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Material(error) => Some(error),
+            Self::PlayerWork(error) => Some(error),
             Self::UnknownEquipment {
                 equipment: _equipment,
             } => None,
@@ -383,6 +401,7 @@ impl Error for EquipmentMaintenanceError {
                 commodity: _commodity,
             } => None,
             Self::EquipmentRevisionExhausted => None,
+            Self::CompletionTickOverflow { .. } => None,
         }
     }
 }
@@ -419,6 +438,7 @@ pub enum EquipmentMaintenanceCommitError {
         actual: u64,
     },
     Structure(StructuralCommitError),
+    PlayerWork(PlayerWorkCommitError),
 }
 
 impl Display for EquipmentMaintenanceCommitError {
@@ -473,6 +493,10 @@ impl Display for EquipmentMaintenanceCommitError {
                 formatter,
                 "equipment maintenance material structural commit failed: {error}"
             ),
+            Self::PlayerWork(error) => write!(
+                formatter,
+                "equipment maintenance labor commit failed: {error}"
+            ),
         }
     }
 }
@@ -481,6 +505,7 @@ impl Error for EquipmentMaintenanceCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
+            Self::PlayerWork(error) => Some(error),
             Self::StaleEquipmentRevision {
                 expected: _expected,
                 actual: _actual,

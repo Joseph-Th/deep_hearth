@@ -153,8 +153,10 @@ impl ScenarioReport {
             choices: ScenarioChoiceReport::default(),
             maintenance: ScenarioMaintenanceReport {
                 services: 0,
+                service_ticks: 0,
                 replacement_spent: Mass::ZERO,
                 supply_exhausted: false,
+                labor_unavailable: false,
             },
             limits: ScenarioLimitReport::default(),
             progress: ScenarioProgressReport {
@@ -215,8 +217,10 @@ pub(super) struct ScenarioInputReport {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ScenarioMaintenanceReport {
     pub(super) services: u8,
+    pub(super) service_ticks: u64,
     pub(super) replacement_spent: Mass,
     pub(super) supply_exhausted: bool,
+    pub(super) labor_unavailable: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]

@@ -51,13 +51,32 @@ fn prepare_episode(registries: &Registries, variation: ScenarioVariation) -> Wor
                 .initial_crusher_condition
                 .parts_per_million(),
         );
-        if service_crusher(registries, &mut state, ids, &mut report.maintenance)
-            == MaintenanceAttempt::SupplyExhausted
-        {
-            report.limits.maintenance_stop = true;
-            println!(
-                "  initial maintenance gate: no replacement stock is available; the work order cannot start"
-            );
+        match service_crusher(registries, &mut state, ids, &mut report.maintenance) {
+            MaintenanceAttempt::Serviced => {
+                let (service_ticks, completion) = finish_active_equipment_maintenance(
+                    registries,
+                    &mut state,
+                    "initial crusher maintenance",
+                );
+                assert_eq!(completion.equipment(), ids.crusher);
+                report.maintenance.service_ticks = report
+                    .maintenance
+                    .service_ticks
+                    .checked_add(service_ticks)
+                    .unwrap_or_else(|| panic!("initial maintenance service time overflowed"));
+            }
+            MaintenanceAttempt::SupplyExhausted => {
+                report.limits.maintenance_stop = true;
+                println!(
+                    "  initial maintenance gate: no replacement stock is available; the work order cannot start"
+                );
+            }
+            MaintenanceAttempt::LaborUnavailable => {
+                report.limits.maintenance_stop = true;
+                println!(
+                    "  initial maintenance gate: player reserves cannot sustain required service labor; the work order cannot start"
+                );
+            }
         }
     }
     let maintenance_profile = crusher_definition
@@ -205,6 +224,7 @@ struct SelectedBatch {
 
 enum BatchSelection {
     Ready(SelectedBatch),
+    MaintenanceActive,
     Stop,
 }
 
@@ -264,6 +284,11 @@ fn handle_pre_batch_maintenance(
                     "  maintenance policy: preventive service is unavailable; continue legal work until condition or another constraint forces a stop"
                 );
             }
+            MaintenanceAttempt::LaborUnavailable => {
+                println!(
+                    "  maintenance policy: preventive service exceeds current body reserves; continue legal autonomous work until maintenance becomes mandatory or another constraint stops the episode"
+                );
+            }
         }
     }
     if band != MaintenanceBand::Critical {
@@ -282,6 +307,13 @@ fn handle_pre_batch_maintenance(
             context.report.limits.maintenance_stop = true;
             println!(
                 "  decision: stop crushing; replacement stock is exhausted and the crusher remains critical"
+            );
+            PreBatchTransition::Stop
+        }
+        MaintenanceAttempt::LaborUnavailable => {
+            context.report.limits.maintenance_stop = true;
+            println!(
+                "  decision: stop crushing; required maintenance labor exceeds current body reserves and the crusher remains critical"
             );
             PreBatchTransition::Stop
         }
@@ -306,6 +338,13 @@ fn handle_maintenance_blocked_plan(
             context.report.limits.maintenance_stop = true;
             println!(
                 "  decision: stop crushing; replacement stock is exhausted and even the smallest powered batch is outside the crusher's remaining safe working envelope"
+            );
+            PreBatchTransition::Stop
+        }
+        MaintenanceAttempt::LaborUnavailable => {
+            context.report.limits.maintenance_stop = true;
+            println!(
+                "  decision: stop crushing; maintenance is required for any safe powered batch but current body reserves cannot sustain the service labor"
             );
             PreBatchTransition::Stop
         }
@@ -489,6 +528,12 @@ fn select_next_batch(
         .unwrap_or_else(|| panic!("workshop pre-batch transition budget overflowed"));
 
     for _ in 0..transition_budget {
+        if matches!(
+            context.state.player_work().active(),
+            Some(PlayerWork::EquipmentMaintenance { .. })
+        ) {
+            return BatchSelection::MaintenanceActive;
+        }
         match handle_pre_batch_maintenance(registries, &mut context) {
             PreBatchTransition::Proceed => {}
             PreBatchTransition::Retry => continue,
@@ -600,6 +645,64 @@ fn apply_due_delivery(registries: &Registries, episode: &mut WorkshopEpisode) ->
         &mut actor,
     );
     true
+}
+
+fn advance_active_maintenance(registries: &Registries, episode: &mut WorkshopEpisode) {
+    let work = match episode.state.player_work().active() {
+        Some(PlayerWork::EquipmentMaintenance { work }) => work,
+        other => panic!("workshop maintenance advance expected active service, found {other:?}"),
+    };
+    let current_tick = episode.state.tick().value();
+    let completion_tick = work.completes_at().value();
+    let delivery_tick = episode.variation.delivery.delivery_at_tick;
+    let target_tick = if !episode.report.progress.delivery_applied
+        && delivery_tick > current_tick
+        && delivery_tick < completion_tick
+    {
+        delivery_tick
+    } else {
+        completion_tick
+    };
+    let elapsed = target_tick - current_tick;
+    let completion = advance_equipment_maintenance_to(
+        registries,
+        &mut episode.state,
+        work,
+        target_tick,
+        "workshop crusher maintenance",
+    );
+    episode.report.maintenance.service_ticks = episode
+        .report
+        .maintenance
+        .service_ticks
+        .checked_add(elapsed)
+        .unwrap_or_else(|| panic!("workshop maintenance service time overflowed"));
+    if let Some(completion) = completion {
+        assert_eq!(completion.equipment(), episode.ids.crusher);
+        if episode.report.progress.delivery_applied {
+            let mut actor = ScenarioActorRuntime::new(
+                episode.variation.policy,
+                episode.variation.ore.nominal_batch_mass,
+                &mut episode.current_support,
+                &mut episode.alternate_support,
+                ScenarioActorReport {
+                    structure: &mut episode.report.structure,
+                    choices: &mut episode.report.choices,
+                    progress: &mut episode.report.progress,
+                    resources: &mut episode.report.resources,
+                },
+            );
+            adapt_current_support_if_needed(
+                registries,
+                &mut episode.state,
+                episode.ids,
+                &mut actor,
+            );
+        }
+    }
+    if target_tick == delivery_tick && !episode.report.progress.delivery_applied {
+        assert!(apply_due_delivery(registries, episode));
+    }
 }
 
 fn record_completed_batch(
@@ -840,6 +943,10 @@ pub(super) fn run_scenario(
 
         let batch = match select_episode_batch(registries, &mut episode) {
             BatchSelection::Ready(batch) => batch,
+            BatchSelection::MaintenanceActive => {
+                advance_active_maintenance(registries, &mut episode);
+                continue;
+            }
             BatchSelection::Stop => break,
         };
         if !execute_selected_batch(registries, &mut episode, batch) {
@@ -859,14 +966,27 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let behavior_raw = env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok();
-    let mode_salt = match mode {
+    let (default_world_root, default_behavior_root) = match mode {
         #[cfg(test)]
-        ScenarioPlanMode::Gate => 0x4741_5445_5EED_2026_u64,
-        ScenarioPlanMode::Explore => 0x4558_504C_5EED_2026_u64,
+        ScenarioPlanMode::Gate => {
+            let mode_salt = 0x4741_5445_5EED_2026_u64;
+            (
+                fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt),
+                fresh_root(
+                    MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
+                ),
+            )
+        }
+        ScenarioPlanMode::Explore => {
+            let mode_salt = 0x4558_504C_5EED_2026_u64;
+            (
+                fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt),
+                fresh_root(
+                    MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
+                ),
+            )
+        }
     };
-    let default_world_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt);
-    let default_behavior_root =
-        fresh_root(MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026);
     let plan = scenario_seeds_from(
         mode,
         scenario_raw.as_deref(),
@@ -892,7 +1012,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     );
     if verbose {
         std::println!(
-            "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,future-controlled-event] routine-gates=maintained+one-fresh-replayable-organic exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+            "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,future-controlled-event] routine-gates=maintained-regressions+one-fresh-replayable-organic exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
         );
     }
     println!(
@@ -936,7 +1056,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     }
     let evidence_mode = match mode {
         #[cfg(test)]
-        ScenarioPlanMode::Gate => "gate-bounded-organic",
+        ScenarioPlanMode::Gate => "gate-maintained+organic",
         ScenarioPlanMode::Explore => "exploratory",
     };
     print_harness_summary(evidence_mode, &reports, verbose);

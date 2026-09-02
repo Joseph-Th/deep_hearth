@@ -12,16 +12,20 @@ use super::{
 };
 
 mod direct_consumption;
+mod equipment_maintenance;
 mod error;
 mod manual_power;
 mod prospecting;
+mod storage_enclosure_dismantling;
 
 use direct_consumption::{
     validate_direct_consumption_binding, validate_drinking_work, validate_eating_work,
 };
+use equipment_maintenance::validate_equipment_maintenance_work;
 pub use error::PlayerWorkValidationError;
 use manual_power::validate_manual_power_work;
 use prospecting::validate_prospecting_work;
+use storage_enclosure_dismantling::validate_storage_enclosure_dismantling_work;
 
 struct ActivePlayerJobs {
     manual_production: Vec<crate::production::ProductionJobId>,
@@ -98,6 +102,24 @@ pub(crate) fn validate_loaded_player_work(
         PlayerWork::Eating { work } => validate_eating_work(registries, state, &active_jobs, work),
         PlayerWork::Drinking { work } => {
             validate_drinking_work(registries, state, &active_jobs, work)
+        }
+        PlayerWork::EquipmentMaintenance { work } => validate_equipment_maintenance_work(
+            registries,
+            state,
+            &active_jobs,
+            work,
+            available_energy,
+            available_hydration,
+        ),
+        PlayerWork::StorageEnclosureDismantling { work } => {
+            validate_storage_enclosure_dismantling_work(
+                registries,
+                state,
+                &active_jobs,
+                work,
+                available_energy,
+                available_hydration,
+            )
         }
     }?;
     validate_direct_consumption_binding(state, Some(work))

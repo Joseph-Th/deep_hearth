@@ -184,18 +184,18 @@ exhaustive check establishes that conclusion.
 
 ## Focused scopes
 
-All focused targets use the `test-gameplay` feature contract. Broad gameplay verification reuses the five
-focused targets plus the lightweight `gameplay_contracts` target in one Cargo invocation; there is no duplicate
-aggregate gameplay test crate. `python ci.py report` is a separate explicit Cargo example so exploratory output
+All focused targets use the `test-gameplay` feature contract. Broad gameplay verification uses one consolidated
+`gameplay_audit` target so the shared harness module graph is compiled and linked once; the small focused targets
+remain the repair-loop surfaces. `python ci.py report` is a separate explicit Cargo example so exploratory output
 does not participate in routine test builds.
 
 | Scope | Contract |
 | --- | --- |
-| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, world-seeded inherited reserve history independent of actor behavior, actor-selected attention-efficient versus maximum-protection storage investment from one shared raw-material opportunity, survival-owned prospective freshness across a future authored enclosure transition, ordinary raw-timber -> manual-board -> manual-enclosure-body -> preservation construction, matched storage counterfactuals at one wall-clock endpoint, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, varied prospecting-work cost, reserve recovery, and actual diet-supported vitality recovery. |
-| `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, direct-labor fallback versus mechanization, delegated work, finite-recovery sorting, flywheel self-discharge/recharge, second reinforcement, convergence, finite machine lifecycle, timed replacement-material preparation plus the currently untimed maintenance transition that preserves prior scarce upgrades, maintained mature reinvestment that executes crusher, separator, and flywheel upgrades, and finite organic geological opportunity that may prevent either mechanization payback or later reinvestment. |
+| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, world-seeded inherited reserve history independent of actor behavior, value-sensitive storage investment from one shared raw-material opportunity using projected edible-horizon return versus actor attention tolerance, survival-owned prospective freshness across a future authored enclosure transition, ordinary raw-timber -> manual-board -> manual-enclosure-body -> preservation construction, timed player-work enclosure dismantling with exact matter recovery and ambient-storage restoration, matched storage counterfactuals at one wall-clock endpoint, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, varied prospecting-work cost, reserve recovery, an integrated hydration-warning -> provision -> prospect -> stored-work sequence, and actual diet-supported vitality recovery. |
+| `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, a currently dominant first copper investment in the pick measured against a crank-first counterfactual, direct-labor fallback versus mechanization, delegated work, finite-recovery sorting, flywheel self-discharge/recharge, later crank reinforcement, finite machine lifecycle, timed replacement-material preparation plus timed exclusive player-work maintenance that preserves prior scarce upgrades, maintained mature reinvestment that executes crusher, separator, and flywheel upgrades, and finite organic geological opportunity that may prevent either mechanization payback or later reinvestment. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, visible-work adaptive order sizing that leaves deferred ore physically owned, and terminal current-tier tailings. Capability-only. |
-| `foundry` | Installed room-temperature pure-copper heating/melting/casting with a direct-vs-sensible-preheat counterfactual, useful-mass/time strategy selection, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
+| `foundry` | Installed room-temperature pure-copper heating/melting/casting with a same-furnace/same-electrical-source sensible-preheat energy-partition counterfactual, currently dominated rather than claimed as an active strategy, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
 
 Routine focused gates keep maintained regression/coverage cases and add one fresh replayable organic case.
 `python ci.py report` expands that sample for broader exploration without turning the ordinary repair loop into
@@ -229,13 +229,19 @@ evidence only and never substitutes for construction validation.
 Each current timber preservation body must expose at least one
 manual salvage route that exactly partitions detached body mass into reusable boards and explicit chip residue;
 additional legitimate salvage routes may coexist, and reverse routes must not create a cheaper construction cycle.
+The runtime experience must first dismantle the installed enclosure through the production player-work path: the
+enclosure remains authoritative until its authored completion tick, survival reserves pay the authored exertion,
+ambient storage is restored only on completion, and the complete embodied body mass returns to inventory before
+any later manual salvage interpretation.
 
 Primitive stone maintenance recovery must remain a zero-machine manual path from pure stone scrap to nonzero
 reusable tool matter plus explicit chip residue with exact mass conservation and more attention than fresh lump
 knapping. Unit evidence also requires contaminated or mixed-temperature scrap to reject atomically and an executed
-maintenance loop to use recovered stone for a later service. Bounded survival behavior must exercise both preservation investment
-objectives when multiple physically distinct definitions exist. The progression episode's matched first-investment counterfactual
-remains the narrower pick-versus-crank behavioral experiment.
+maintenance loop to use recovered stone for a later service. Bounded survival behavior must vary preservation willingness without choosing infrastructure independently of its observed payoff: the actor compares the stronger enclosure's additional edible horizon against its additional attention and applies a replayable behavior-root tolerance. Coverage must include both accepting a strong return and rejecting a marginal return when multiple physically distinct definitions exist. The progression episode's matched first-investment counterfactual
+remains as balance evidence, not actor-policy variation: current authored timing must show why pick-first is the
+rational ordinary action while crank-first still retains a measurable early-autonomy benefit. If future content
+or tuning makes those benefits genuinely reciprocal, the harness may promote the counterfactual back into actor
+policy only after the executed comparison demonstrates that change.
 
 Primitive automation coverage distinguishes capability from economics. Maintained progression worlds carry a
 deep deterministic geological opportunity and must demonstrate setup-attention payback plus continued useful
@@ -247,9 +253,10 @@ input merely to make the investment look optimal in hindsight. The mature reinve
 resolved only from the post-delegation, post-service state the actor actually reaches. Maintained deep worlds must
 still execute that branch, while an organic branch that has canonically exhausted its known target reports
 `known-target-supply` rather than receiving fixture ore or advertising an opportunity that later experience has
-erased. Progression reporting labels only replacement-component preparation as timed maintenance
-work; the maintenance transition itself remains untimed until the ordinary labor/access edge described by
-`STATUS.md` exists.
+erased. Progression reporting records replacement-component preparation and the authored maintenance service interval
+separately. Service occupies exclusive player work, consumes survival reserves through ordinary tick advancement,
+and restores equipment condition only at its scheduled completion; missing world-space tool/access mechanics in
+`STATUS.md` must not be described as missing maintenance labor.
 
 Actor policy reads these values from production registries and state. The prose above owns required coverage,
 not a second copy of the formulas or selection thresholds used to make actor decisions.

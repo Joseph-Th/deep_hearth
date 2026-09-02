@@ -5,7 +5,7 @@
 //! performs the corresponding owner mutation exactly once. No alternate single-lot ingress path is
 //! retained.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
@@ -15,23 +15,25 @@ use crate::material::{CommodityKey, FormId};
 use crate::registry::Registries;
 
 use super::coalescing::LotMergePolicy;
-use super::lot_identity::LotIdentityPlanner;
 use super::state::{
     ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
-    MaterialLotProvenance, MaterialLotRecord, MaterialStorageHistory, StockpileId, StockpileRecord,
-    apply_insert_or_merge_new_lot,
-};
-use super::storage_validation::{
-    CommodityReferenceError, StockpileStorageError, validate_commodity_reference,
-    validate_stockpile_storage,
+    MaterialLotProvenance, MaterialLotRecord, MaterialStorageHistory, StockpileId,
+    apply_insert_or_merge_new_lot, get_stockpile_mut_or_panic,
 };
 
 mod errors;
+mod identity;
 mod integrity;
 mod projection;
+mod validation;
 
 pub(crate) use errors::MaterialIngressError;
+use identity::{plan_ingress_identities, replay_ingress_identity_plan};
 pub(crate) use projection::validate_material_ingress_after_egress;
+use validation::{
+    IngressMassSummary, summarize_ingress_mass, validate_ingress_capacity,
+    validate_ingress_capacity_with_reserved_credit,
+};
 
 /// One source-owned material parcel prepared for canonical inventory admission.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,233 +107,17 @@ pub(crate) struct ValidatedMaterialIngress {
     excluded_existing: BTreeSet<MaterialLotId>,
     next_lot_id: u64,
     current_tick: SimulationTick,
+    reserved_mass: Mass,
 }
 
 impl ValidatedMaterialIngress {
     pub(crate) const fn expected_revision(&self) -> u64 {
         self.expected_revision
     }
-}
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct IngressMassSummary {
-    total: Mass,
-    by_commodity: BTreeMap<CommodityKey, Mass>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct IngressIdentityPlan {
-    lot_ids: Vec<MaterialLotId>,
-    merge_policies: Vec<LotMergePolicy>,
-    excluded_existing: BTreeSet<MaterialLotId>,
-    next_lot_id: u64,
-}
-
-fn map_commodity_reference_error(error: CommodityReferenceError) -> MaterialIngressError {
-    match error {
-        CommodityReferenceError::UnknownMaterial { material } => {
-            MaterialIngressError::UnknownMaterial { material }
-        }
-        CommodityReferenceError::UnknownForm { form } => MaterialIngressError::UnknownForm { form },
-        CommodityReferenceError::UnsupportedCommodity { commodity } => {
-            MaterialIngressError::Storage(StockpileStorageError::UnsupportedCommodity { commodity })
-        }
+    pub(crate) const fn next_revision(&self) -> u64 {
+        self.next_revision
     }
-}
-
-fn validate_ingress_entry(
-    registries: &Registries,
-    destination_record: &StockpileRecord,
-    destination: StockpileId,
-    entry: &MaterialIngressEntry,
-    current_tick: SimulationTick,
-) -> Result<(), MaterialIngressError> {
-    if entry.mass.is_zero() {
-        return Err(MaterialIngressError::ZeroMass);
-    }
-    let profile = &entry.profile;
-    profile
-        .composition()
-        .validate()
-        .map_err(|error| MaterialIngressError::InvalidComposition { error })?;
-    if profile
-        .composition()
-        .parts_per_million(profile.commodity().material())
-        == 0
-    {
-        return Err(MaterialIngressError::CompositionMissingHost {
-            host: profile.commodity().material(),
-        });
-    }
-    validate_commodity_reference(registries, profile.commodity())
-        .map_err(map_commodity_reference_error)?;
-    for component in profile.composition().components() {
-        if registries
-            .materials()
-            .get_material(component.material())
-            .is_none()
-        {
-            return Err(MaterialIngressError::UnknownCompositionMaterial {
-                material: component.material(),
-            });
-        }
-    }
-    validate_stockpile_storage(
-        registries,
-        destination_record,
-        destination,
-        profile.commodity(),
-        profile.composition(),
-        profile.temperature(),
-        profile.particle_size_distribution(),
-    )
-    .map_err(MaterialIngressError::Storage)?;
-    if entry.provenance.latest_created_at() < entry.provenance.earliest_created_at() {
-        return Err(MaterialIngressError::InvalidProvenance);
-    }
-    if entry.provenance.latest_created_at() > current_tick {
-        return Err(MaterialIngressError::ProvenanceInFuture {
-            latest: entry.provenance.latest_created_at(),
-            current: current_tick,
-        });
-    }
-    Ok(())
-}
-
-fn summarize_ingress_mass(
-    registries: &Registries,
-    destination_record: &StockpileRecord,
-    destination: StockpileId,
-    entries: &[MaterialIngressEntry],
-    current_tick: SimulationTick,
-) -> Result<IngressMassSummary, MaterialIngressError> {
-    let mut total = Mass::ZERO;
-    let mut by_commodity = BTreeMap::new();
-    for entry in entries {
-        validate_ingress_entry(
-            registries,
-            destination_record,
-            destination,
-            entry,
-            current_tick,
-        )?;
-        total = total
-            .checked_add(entry.mass)
-            .ok_or(MaterialIngressError::MassOverflow {
-                stockpile: destination,
-            })?;
-        let existing = by_commodity
-            .get(&entry.profile.commodity())
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        by_commodity.insert(
-            entry.profile.commodity(),
-            existing
-                .checked_add(entry.mass)
-                .ok_or(MaterialIngressError::MassOverflow {
-                    stockpile: destination,
-                })?,
-        );
-    }
-    Ok(IngressMassSummary {
-        total,
-        by_commodity,
-    })
-}
-
-fn validate_ingress_capacity(
-    destination_record: &StockpileRecord,
-    destination: StockpileId,
-    summary: &IngressMassSummary,
-) -> Result<(), MaterialIngressError> {
-    let projection = destination_record
-        .project_mass_exchange(Mass::ZERO, summary.total)
-        .ok_or(MaterialIngressError::MassOverflow {
-            stockpile: destination,
-        })?;
-    if projection.after_incoming > destination_record.capacity() {
-        return Err(MaterialIngressError::CapacityExceeded {
-            stockpile: destination,
-            capacity: destination_record.capacity(),
-            committed: projection.committed_before_incoming,
-            requested: summary.total,
-        });
-    }
-    for (commodity, incoming) in &summary.by_commodity {
-        destination_record
-            .get_mass(*commodity)
-            .checked_add(*incoming)
-            .ok_or(MaterialIngressError::MassOverflow {
-                stockpile: destination,
-            })?;
-    }
-    Ok(())
-}
-
-fn plan_ingress_identities(
-    registries: &Registries,
-    state: &InventoryState,
-    destination_record: &StockpileRecord,
-    destination: StockpileId,
-    entries: &[MaterialIngressEntry],
-    current_tick: SimulationTick,
-    excluded_existing: BTreeSet<MaterialLotId>,
-) -> Result<IngressIdentityPlan, MaterialIngressError> {
-    let merge_policies = entries
-        .iter()
-        .map(|entry| LotMergePolicy::for_commodity(registries, entry.profile.commodity()))
-        .collect::<Vec<_>>();
-    replay_ingress_identity_plan(
-        state,
-        destination_record,
-        destination,
-        entries,
-        current_tick,
-        excluded_existing,
-        merge_policies,
-    )
-}
-
-fn replay_ingress_identity_plan(
-    state: &InventoryState,
-    destination_record: &StockpileRecord,
-    destination: StockpileId,
-    entries: &[MaterialIngressEntry],
-    current_tick: SimulationTick,
-    excluded_existing: BTreeSet<MaterialLotId>,
-    merge_policies: Vec<LotMergePolicy>,
-) -> Result<IngressIdentityPlan, MaterialIngressError> {
-    assert_eq!(
-        entries.len(),
-        merge_policies.len(),
-        "ingress identity planning requires one merge policy per parcel"
-    );
-    let preservation_multiplier_ppm = destination_record
-        .storage_profile()
-        .preservation_multiplier_ppm();
-    let storage_history = MaterialStorageHistory::new(current_tick);
-    let mut identity_planner = LotIdentityPlanner::new(state, excluded_existing.iter().copied());
-    let mut lot_ids = Vec::with_capacity(entries.len());
-    for (entry, merge_policy) in entries.iter().zip(&merge_policies) {
-        lot_ids.push(
-            identity_planner
-                .plan(
-                    destination,
-                    &entry.profile,
-                    storage_history,
-                    current_tick,
-                    preservation_multiplier_ppm,
-                    *merge_policy,
-                )
-                .ok_or(MaterialIngressError::LotIdExhausted)?,
-        );
-    }
-    Ok(IngressIdentityPlan {
-        lot_ids,
-        merge_policies,
-        excluded_existing,
-        next_lot_id: identity_planner.next_lot_id(),
-    })
 }
 
 /// Validates all material parcels entering one stockpile under one inventory revision.
@@ -383,6 +169,74 @@ pub(crate) fn validate_material_ingress(
         excluded_existing: identity_plan.excluded_existing,
         next_lot_id: identity_plan.next_lot_id,
         current_tick,
+        reserved_mass: Mass::ZERO,
+    })
+}
+
+/// Validates exact source-owned parcels returning to inventory against capacity already reserved
+/// for this same matter. The reserved mass is consumed atomically by the resulting ingress.
+pub(crate) fn validate_reserved_material_ingress(
+    registries: &Registries,
+    state: &InventoryState,
+    destination: StockpileId,
+    entries: impl IntoIterator<Item = MaterialIngressEntry>,
+    current_tick: SimulationTick,
+    reserved_mass: Mass,
+) -> Result<ValidatedMaterialIngress, MaterialIngressError> {
+    let entries = entries.into_iter().collect::<Vec<_>>();
+    if entries.is_empty() {
+        return Err(MaterialIngressError::Empty);
+    }
+    let Some(destination_record) = state.get_stockpile(destination) else {
+        return Err(MaterialIngressError::UnknownStockpile {
+            stockpile: destination,
+        });
+    };
+    let mass_summary = summarize_ingress_mass(
+        registries,
+        destination_record,
+        destination,
+        &entries,
+        current_tick,
+    )?;
+    if mass_summary.total != reserved_mass {
+        return Err(MaterialIngressError::CapacityExceeded {
+            stockpile: destination,
+            capacity: destination_record.capacity(),
+            committed: destination_record.stored_mass(),
+            requested: mass_summary.total,
+        });
+    }
+    validate_ingress_capacity_with_reserved_credit(
+        destination_record,
+        destination,
+        &mass_summary,
+        reserved_mass,
+    )?;
+    let identity_plan = plan_ingress_identities(
+        registries,
+        state,
+        destination_record,
+        destination,
+        &entries,
+        current_tick,
+        BTreeSet::new(),
+    )?;
+    let next_revision = state
+        .revision()
+        .checked_add(1)
+        .ok_or(MaterialIngressError::RevisionExhausted)?;
+    Ok(ValidatedMaterialIngress {
+        expected_revision: state.revision(),
+        next_revision,
+        destination,
+        entries,
+        lot_ids: identity_plan.lot_ids,
+        merge_policies: identity_plan.merge_policies,
+        excluded_existing: identity_plan.excluded_existing,
+        next_lot_id: identity_plan.next_lot_id,
+        current_tick,
+        reserved_mass,
     })
 }
 
@@ -402,6 +256,7 @@ pub(crate) fn apply_material_ingress(
         excluded_existing: _,
         next_lot_id,
         current_tick,
+        reserved_mass,
     } = ingress;
     assert_eq!(
         state.revision(),
@@ -414,6 +269,13 @@ pub(crate) fn apply_material_ingress(
         .unwrap_or_else(|| panic!("validated material ingress destination disappeared"))
         .storage_profile()
         .preservation_multiplier_ppm();
+    if !reserved_mass.is_zero() {
+        let destination_record = get_stockpile_mut_or_panic(state, destination);
+        destination_record.reserved_inbound = destination_record
+            .reserved_inbound
+            .checked_sub(reserved_mass)
+            .unwrap_or_else(|| panic!("validated reserved ingress reservation underflowed"));
+    }
 
     let mut resulting_lots = Vec::with_capacity(entries.len());
     for ((entry, lot_id), merge_policy) in entries.into_iter().zip(lot_ids).zip(merge_policies) {

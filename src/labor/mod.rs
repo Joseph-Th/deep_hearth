@@ -19,7 +19,8 @@ pub use power_execution::{
     ValidatedManualPowerStart, validate_start_manual_power,
 };
 pub use state::{
-    DrinkingWork, EatingWork, ManualPowerWork, PlayerWork, PlayerWorkState, ProspectingWork,
+    DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerWork,
+    PlayerWorkState, ProspectingWork, StorageEnclosureDismantlingWork,
 };
 pub use validation::PlayerWorkValidationError;
 pub use work_resources::PlayerWorkResourceBudget;

@@ -3,10 +3,10 @@
 use super::*;
 use crate::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    build_registries,
+    FORM_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_ORE, FORM_REINFORCEMENT,
+    FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, STORAGE_TIMBER_PROVISIONS_CHEST,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -28,7 +28,8 @@ use crate::geology::{
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotSelection, STORAGE_AGE_PARTS_PER_TICK,
     StockpileStructuralLoadError, add_solid_stockpile_for_test, deposit_lot_for_test,
-    validate_mount_stockpile, validate_unmount_stockpile,
+    validate_build_storage_enclosure, validate_mount_stockpile,
+    validate_start_storage_enclosure_dismantling, validate_unmount_stockpile,
 };
 use crate::labor::{
     PlayerWork, PlayerWorkStartError, PlayerWorkValidationError,
@@ -162,6 +163,89 @@ fn unstarted_mining_fixture() -> (
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining exhaustion deposit failed: {error}"));
     (registries, state, deposit, destination, pick)
+}
+
+#[test]
+fn mining_cannot_reserve_output_into_an_active_dismantling_target() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let construction = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_400_000))
+        .unwrap_or_else(|error| panic!("mining dismantle construction stockpile failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        construction,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+        Mass::from_milligrams(2_400_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("mining dismantle enclosure body failed: {error}"));
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        destination,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("mining dismantle enclosure build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining dismantle enclosure build commit failed: {error}"));
+    let recovery = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_400_000))
+        .unwrap_or_else(|error| panic!("mining dismantle recovery stockpile failed: {error}"));
+    let _ =
+        validate_start_storage_enclosure_dismantling(&registries, &state, destination, recovery)
+            .unwrap_or_else(|error| panic!("mining dismantle start failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("mining dismantle start commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(1_000),
+        )
+        .err(),
+        Some(MiningStartError::DestinationBusyStorageDismantling {
+            stockpile: destination,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn public_mining_debug_does_not_expose_hidden_source_or_reserved_output() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(1_000),
+    )
+    .unwrap_or_else(|error| panic!("mining debug start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining debug commit failed: {error}"));
+
+    let job_debug = format!(
+        "{:?}",
+        state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("mining debug job disappeared"))
+    );
+    let owner_debug = format!("{:?}", state.mining());
+
+    for debug in [&job_debug, &owner_debug] {
+        assert!(!debug.contains("deposit"));
+        assert!(!debug.contains("deposit_mass_before"));
+        assert!(!debug.contains("output"));
+    }
 }
 
 fn ready_mining_claim_fixture() -> (Registries, AppState, MiningJobId) {

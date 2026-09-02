@@ -83,6 +83,23 @@ fn compatible_local_evidence_resolves_one_opaque_target() {
 }
 
 #[test]
+fn opaque_target_debug_exposes_only_acquired_target_facts() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_100B));
+    let region = bounds(0, 1);
+    insert_copper_deposit(&registries, &mut state, region);
+    record_copper_evidence(&registries, &mut state, region, 900_000, 1_000_000);
+    let target = resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER))
+        .unwrap_or_else(|error| panic!("opaque target debug fixture failed: {error}"));
+
+    let debug = format!("{target:?}");
+
+    assert!(debug.contains("region"));
+    assert!(debug.contains("material"));
+    assert!(!debug.contains("deposit"));
+}
+
+#[test]
 fn zero_upper_bound_rules_out_target_even_when_hidden_truth_contains_material() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_1003));

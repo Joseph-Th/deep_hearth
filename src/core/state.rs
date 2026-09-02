@@ -1,6 +1,8 @@
-//! Owns the serializable root runtime state and deterministic subsystem state graph.
+//! Owns the persistent root runtime state and deterministic subsystem state graph.
 
-use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt::{Debug, Formatter};
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::energy::EnergyState;
 use crate::equipment::EquipmentState;
@@ -17,12 +19,64 @@ use super::rng::{RandomState, RngStreamId};
 use super::time::{SimulationTick, WorldSeed};
 
 /// Mutable runtime state that must survive execution and restart boundaries.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AppState {
     world_seed: WorldSeed,
     clock: ClockState,
     random: RandomState,
     systems: SystemState,
+}
+
+/// Serializes the complete trusted runtime root only through the persistence envelope.
+///
+/// `AppState` intentionally does not implement `Serialize`: public read access must not become an
+/// alternate route to exact PRNG continuation or hidden geological truth. Persistence is the sole
+/// owner of that complete representation.
+pub(crate) fn serialize_app_state<S>(state: &&AppState, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    #[derive(Serialize)]
+    struct PersistentAppState<'state> {
+        world_seed: WorldSeed,
+        clock: &'state ClockState,
+        random: &'state RandomState,
+        systems: &'state SystemState,
+    }
+
+    PersistentAppState {
+        world_seed: state.world_seed,
+        clock: &state.clock,
+        random: &state.random,
+        systems: &state.systems,
+    }
+    .serialize(serializer)
+}
+
+/// Actor-safe diagnostics for the runtime root.
+///
+/// Persistence deliberately owns exact random-stream continuation and hidden geological truth, but
+/// neither is part of the public read surface. A derived `Debug` implementation would bypass those
+/// boundaries and turn ordinary diagnostics into an oracle for future randomness and deposit truth.
+impl Debug for AppState {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AppState")
+            .field("world_seed", &self.world_seed)
+            .field("tick", &self.clock.tick)
+            .field("rng_algorithm", &self.rng_algorithm())
+            .field("energy", &self.systems.energy)
+            .field("fluid", &self.systems.fluid)
+            .field("equipment", &self.systems.equipment)
+            .field("structures", &self.systems.structures)
+            .field("geological_knowledge", &self.systems.geological_knowledge)
+            .field("inventory", &self.systems.inventory)
+            .field("production", &self.systems.production)
+            .field("mining", &self.systems.mining)
+            .field("player_work", &self.systems.player_work)
+            .field("survival", &self.systems.survival)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Raw current-schema state representation used only inside the trusted persistence envelope.
@@ -63,6 +117,7 @@ struct SystemState {
     geological_knowledge: GeologicalKnowledgeState,
     inventory: InventoryState,
     production: ProductionState,
+    #[serde(serialize_with = "crate::mining::serialize_mining_state")]
     mining: MiningState,
     player_work: PlayerWorkState,
     survival: SurvivalState,

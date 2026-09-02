@@ -1,6 +1,7 @@
 //! Persistent mining work-in-progress state.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{Debug, Formatter};
 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +14,10 @@ use crate::maintenance::Condition;
 use crate::material::MaterialLotSpec;
 
 use super::MiningMethodId;
+
+mod persistence;
+
+pub(crate) use persistence::serialize_mining_state;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MiningJobId(u64);
@@ -63,12 +68,42 @@ pub(super) struct MiningJobSchedule {
     pub(super) phase: MiningJobPhase,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MiningJobRecord {
     identity: MiningJobIdentity,
     resources: MiningJobResources,
     schedule: MiningJobSchedule,
+}
+
+/// Actor-safe diagnostics for durable mining work.
+///
+/// The deposit binding, source-mass trace, and exact reserved output are execution proofs rather
+/// than player knowledge. Public diagnostics therefore expose only the same schedule and equipment
+/// facts available through the record's public read API.
+impl Debug for MiningJobRecord {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MiningJobRecord")
+            .field("id", &self.id())
+            .field("method", &self.method())
+            .field("destination", &self.destination())
+            .field("equipment", &self.equipment())
+            .field("equipment_definition", &self.equipment_definition())
+            .field("started_at", &self.started_at())
+            .field("completes_at", &self.completes_at())
+            .field(
+                "equipment_condition_before",
+                &self.equipment_condition_before(),
+            )
+            .field(
+                "equipment_condition_after",
+                &self.equipment_condition_after(),
+            )
+            .field("working", &self.is_working())
+            .field("ready_to_claim", &self.is_ready_to_claim())
+            .finish_non_exhaustive()
+    }
 }
 
 impl MiningJobRecord {
@@ -142,7 +177,7 @@ impl MiningJobRecord {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MiningState {
     revision: u64,
@@ -153,6 +188,16 @@ pub struct MiningState {
     due_jobs: BTreeMap<SimulationTick, BTreeSet<MiningJobId>>,
     #[serde(skip)]
     equipment_occupancy: BTreeMap<EquipmentId, MiningJobId>,
+}
+
+impl Debug for MiningState {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MiningState")
+            .field("revision", &self.revision)
+            .field("jobs", &self.jobs)
+            .finish_non_exhaustive()
+    }
 }
 
 impl MiningState {

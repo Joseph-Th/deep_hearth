@@ -62,6 +62,9 @@ pub enum MiningStartError {
     UnknownDestination {
         stockpile: StockpileId,
     },
+    DestinationBusyStorageDismantling {
+        stockpile: StockpileId,
+    },
     DestinationStorage(StockpileStorageError),
     DestinationMassOverflow {
         stockpile: StockpileId,
@@ -156,6 +159,11 @@ impl Display for MiningStartError {
                 "unknown mining destination stockpile {}",
                 stockpile.value()
             ),
+            Self::DestinationBusyStorageDismantling { stockpile } => write!(
+                formatter,
+                "stockpile {} is being dismantled and cannot reserve mining output",
+                stockpile.value()
+            ),
             Self::DestinationStorage(error) => {
                 write!(formatter, "mining destination rejects output: {error}")
             }
@@ -218,6 +226,7 @@ impl Error for MiningStartError {
             | Self::ZeroThroughput
             | Self::CompletionTickOverflow
             | Self::UnknownDestination { .. }
+            | Self::DestinationBusyStorageDismantling { .. }
             | Self::DestinationMassOverflow { .. }
             | Self::DestinationCapacityExceeded { .. }
             | Self::InventoryRevisionExhausted

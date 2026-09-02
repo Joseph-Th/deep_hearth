@@ -1,16 +1,27 @@
 //! Shared constructors for deterministic built-in equipment authoring.
 
 use crate::capability::{CapabilityId, CapabilityProfile, CapabilityValue};
-use crate::core::quantity::{Mass, MassFlow, Power};
+use crate::core::quantity::{Energy, Mass, MassFlow, Power, Volume};
+use crate::core::time::TickSpan;
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentMaintenanceProfile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::CommodityKey;
+use crate::survival::SurvivalExertion;
 
 use super::super::materials::{FORM_INGOT, FORM_SCRAP, MATERIAL_COPPER};
 
 pub(super) const INDUSTRIAL_MAINTENANCE_MASS_DIVISOR: u64 = 1_000;
+const COMPONENT_MAINTENANCE_MILLIGRAMS_PER_TICK: u64 = 20_000;
+const INDUSTRIAL_MAINTENANCE_MILLIGRAMS_PER_TICK: u64 = 1_000;
+
+const fn maintenance_exertion() -> SurvivalExertion {
+    SurvivalExertion::new(
+        Energy::from_nanojoules(1_000_000_000_000),
+        Volume::from_microliters(250),
+    )
+}
 
 pub(super) fn condition(parts_per_million: u32) -> Condition {
     match Condition::new(parts_per_million) {
@@ -40,11 +51,19 @@ pub(super) fn component_maintenance(
     replacement: CommodityKey,
     component_mass: Mass,
 ) -> EquipmentMaintenanceProfile {
+    let duration = TickSpan::new(
+        component_mass
+            .milligrams()
+            .div_ceil(COMPONENT_MAINTENANCE_MILLIGRAMS_PER_TICK)
+            .max(1),
+    );
     EquipmentMaintenanceProfile::new_component_replacement(
         replacement,
         component_mass,
         CommodityKey::new(replacement.material(), FORM_SCRAP),
         Condition::PRISTINE,
+        duration,
+        maintenance_exertion(),
     )
 }
 
@@ -57,11 +76,19 @@ pub(super) fn industrial_maintenance(equipment_mass: Mass) -> EquipmentMaintenan
             .milligrams()
             .div_ceil(INDUSTRIAL_MAINTENANCE_MASS_DIVISOR),
     );
+    let duration = TickSpan::new(
+        replacement_mass
+            .milligrams()
+            .div_ceil(INDUSTRIAL_MAINTENANCE_MILLIGRAMS_PER_TICK)
+            .max(1),
+    );
     EquipmentMaintenanceProfile::new(
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
         replacement_mass,
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
         condition(900_000),
+        duration,
+        maintenance_exertion(),
     )
 }
 

@@ -20,6 +20,7 @@ impl ValidatedMaterialIngress {
         state: &InventoryState,
         egress: &ValidatedMaterialEgress,
     ) {
+        assert!(self.reserved_mass.is_zero());
         egress.assert_matches_state(state);
         assert_eq!(
             self.expected_revision,
@@ -162,5 +163,6 @@ pub(crate) fn validate_material_ingress_after_egress(
         excluded_existing: identity_plan.excluded_existing,
         next_lot_id: identity_plan.next_lot_id,
         current_tick,
+        reserved_mass: crate::core::quantity::Mass::ZERO,
     })
 }

@@ -313,7 +313,7 @@ semantic entry point; inspect its implementation and adjacent tests before readi
 | Inventory -> equipment embodiment | `validate_assemble_equipment` / `validate_upgrade_equipment` | Exact material traces leave inventory custody and become `EquipmentState` embodiment. Upgrade preserves equipment identity and prior embodiment/condition while adding only the authored trace. |
 | Equipment embodiment -> inventory recovery | `validate_disassemble_equipment` / `validate_equipment_maintenance` | Disassembly returns authored recoverable traces as inventory lots. Maintenance consumes exact replacement matter, changes equipment condition/component state, and emits represented spent matter rather than deleting it. |
 | Inventory -> finite energy-store embodiment | `validate_assemble_energy_store` / `validate_upgrade_energy_store` | Exact material traces become `EnergyState` embodiment; upgrade preserves store identity and carrier/transfer semantics while changing the authored store definition. `validate_disassemble_energy_store` is the exact reverse custody route for empty idle stores. |
-| Inventory enclosure matter <-> inventory storage profile | `validate_build_storage_enclosure` / `validate_dismantle_storage_enclosure` | Inventory remains the owner on both sides: construction embeds exact traces into a stockpile enclosure and checkpoints preservation before the new profile; dismantling checkpoints again, restores ambient storage, and returns exact enclosure matter to a recovery stockpile. |
+| Inventory enclosure matter <-> inventory storage profile | `validate_build_storage_enclosure` / `validate_start_storage_enclosure_dismantling` -> simulation tick | Inventory remains the material owner while `PlayerWorkState` owns the timed dismantling interval. Start reserves the recovery destination and binds survival/labor; the enclosure and its preservation profile remain authoritative until completion, when exposure is checkpointed, ambient storage is restored, and exact enclosure matter enters the recovery stockpile. |
 | Inventory / equipment / fluid -> structural load | owner-specific mount/unmount validators | The mounted owner retains object custody while `StructureState` owns its source-separated load. Final aggregate load is validated before support assignment changes, and returned support outcomes expose the structural consequence. |
 | Player physiology + equipment -> stored mechanical work | `validate_start_manual_power` -> simulation tick | `PlayerWorkState` owns pending generation during direct labor; admission binds survival budget, equipment wear, and energy-store capacity. Completion deposits exact work into `EnergyState`, applies wear/physiological expenditure, releases attention, and exposes `ManualPowerOutcome`. |
 | Inventory / fluid -> terminal survival consumption | `validate_eat` / `validate_drink` -> simulation tick | Admission transfers selected matter/fluid into `SurvivalState` pending-consumption custody, reserves exclusive attention, and returns the exact completion tick with the accepted intake outcome. Tick installments release only earned physiological benefit; terminal consumed totals retain represented custody after the explicit food/fluid simulation boundary. |
@@ -432,12 +432,14 @@ prospective freshness projection lets legitimate callers inspect that break-even
 world or duplicating storage-aging formulas.
 
 Enclosure dismantling is the inverse custody transition for that exact embodied matter, not generic demolition.
-The target must be unmounted, have no reserved inbound work, and remain valid under the ambient storage profile.
-Retained lots checkpoint exposure under the enclosure's current preservation multiplier before the profile
-reverts, so dismantling cannot reset or improve food age. The enclosure traces then enter a distinct recovery
-stockpile with their exact temperature, composition, particle state, and provenance. Recovery capacity, lot-ID
-space, inventory revisions, and any destination structural-load increase are prevalidated before mutation. This
-transition does not itself model player dismantling labor, tools, or duration.
+The target and recovery stockpiles must be unmounted; the target must have no reserved inbound work and remain
+valid under the ambient storage profile. Admission reserves exact recovery capacity and starts exclusive timed
+player work with authored survival exertion. The enclosure remains installed throughout the interval, so retained
+lots continue aging under its current preservation multiplier. Completion checkpoints that exposure, restores
+ambient storage, and returns the enclosure traces to the distinct recovery stockpile with their exact temperature,
+composition, particle state, and provenance. Recovery capacity, lot-ID space, inventory revisions, and competing
+delayed-output ownership are validated before admission/completion mutation. General world-space demolition,
+access, and dismantling tools remain outside this transition.
 
 Detached timber bodies may then be reused intact or entered into explicit manual salvage. Standard-body salvage
 occupies 70 player-attention ticks and reforms 2.4 kg of body into 1.6 kg boards plus 0.8 kg chips; double-wall

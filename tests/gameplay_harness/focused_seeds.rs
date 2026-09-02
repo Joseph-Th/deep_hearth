@@ -4,10 +4,10 @@ use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
 pub(super) const GATE_VARIATION_COUNT: usize = 1;
-pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 2;
+pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
 pub(super) fn probe_uses_actor_behavior(name: &str) -> bool {
-    matches!(name, "survival-provisioning" | "primitive-progression")
+    matches!(name, "survival-provisioning")
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,9 +74,9 @@ impl FocusedProbeCase {
 /// Resolves maintained regression cases plus an optional bounded replayable variation sample.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
-/// focused gates keep maintained cases and add one fresh replayable organic case; reports sample a
-/// slightly broader pair. A probe-specific salt keeps concerns independent. Physical and actor
-/// variation use independent replay roots so changing a preference cannot silently change the world.
+/// focused gates keep maintained deterministic cases plus one replayable organic case; reports
+/// sample a broader replayable organic set. A probe-specific salt keeps concerns independent. Physical and actor variation use independent
+/// replay roots so changing a preference cannot silently change the world.
 pub(super) fn focused_probe_cases_from(
     plan: FocusedProbeSeedPlan<'_>,
 ) -> Result<Vec<FocusedProbeCase>, FocusedProbeSeedError> {
@@ -172,7 +172,7 @@ fn behavior_seed(root: u64, probe_salt: u64, index: usize) -> u64 {
     let mixed =
         mix64(root ^ probe_salt.rotate_left(31) ^ ordinal.wrapping_mul(0x9E37_79B9_7F4A_7C15));
     // Keep almost all actor entropy fresh while deliberately stratifying one generic behavior bit.
-    // Exploratory focused probes use two organic cases, so this prevents a tiny sample from
+    // Exploratory focused probes use a small organic set, so this prevents the bounded sample from
     // accidentally collapsing to one binary preference without coupling physical world generation
     // to actor behavior. The root controls which stratum appears first and remains fully replayable.
     (mixed & !1) | ((root ^ ordinal) & 1)

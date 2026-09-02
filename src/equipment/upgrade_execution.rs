@@ -83,6 +83,15 @@ impl ValidatedEquipmentUpgrade {
                 equipment: self.equipment,
             });
         }
+        if let Some(work) = state
+            .player_work()
+            .get_equipment_maintenance_occupant(self.equipment)
+        {
+            return Err(EquipmentUpgradeCommitError::EquipmentUnderMaintenance {
+                equipment: self.equipment,
+                completes_at: work.completes_at(),
+            });
+        }
         self.egress.assert_matches_state(state.inventory());
         let mutation = EquipmentUpgradeMutation {
             equipment: self.equipment,
@@ -156,6 +165,15 @@ pub fn validate_upgrade_equipment(
         .is_some()
     {
         return Err(EquipmentUpgradeError::EquipmentBusyManualPower { equipment });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_equipment_maintenance_occupant(equipment)
+    {
+        return Err(EquipmentUpgradeError::EquipmentUnderMaintenance {
+            equipment,
+            completes_at: work.completes_at(),
+        });
     }
 
     let selection =

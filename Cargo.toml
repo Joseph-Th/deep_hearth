@@ -29,6 +29,11 @@ path = "tests/gameplay_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_audit"
+path = "tests/gameplay_audit.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_workshop"
 path = "tests/gameplay_workshop.rs"
 required-features = ["test-gameplay"]

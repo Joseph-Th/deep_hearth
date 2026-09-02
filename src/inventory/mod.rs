@@ -20,9 +20,13 @@ mod test_support;
 mod transactions;
 
 pub use enclosure_dismantling::{
-    StorageEnclosureDismantleCommitError, StorageEnclosureDismantleError,
-    StorageEnclosureDismantleOutcome, ValidatedStorageEnclosureDismantling,
-    validate_dismantle_storage_enclosure,
+    StorageEnclosureDismantlingCommitError, StorageEnclosureDismantlingError,
+    StorageEnclosureDismantlingOutcome, StorageEnclosureDismantlingStartOutcome,
+    ValidatedStorageEnclosureDismantlingStart, validate_start_storage_enclosure_dismantling,
+};
+pub(crate) use enclosure_dismantling::{
+    StorageEnclosureDismantlingTickError, apply_storage_enclosure_dismantling_tick,
+    decide_storage_enclosure_dismantling_tick, validate_storage_dismantling_target_for_completion,
 };
 pub use enclosure_execution::{
     StorageEnclosureCommitError, StorageEnclosureConstructionError,
@@ -40,6 +44,7 @@ pub(crate) use inbound_reservation::{
 pub(crate) use ingress::{
     MaterialIngressEntry, MaterialIngressError, ValidatedMaterialIngress, apply_material_ingress,
     validate_material_ingress, validate_material_ingress_after_egress,
+    validate_reserved_material_ingress,
 };
 pub(crate) use reserved_ingress::{
     ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositReceipt, ReservedDepositRequest,

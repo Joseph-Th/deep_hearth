@@ -14,10 +14,9 @@ use deep_hearth::content::{
 use deep_hearth::material::CommodityKey;
 
 use super::catalog::{ProcessResolverKind, process_catalog_entries};
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::progression_probe::{
-    OreOpportunityDepth, extraction_grade_premium_ppm, manual_processing::manual_processing_setup,
-    ore_opportunity, varied_four_way_order,
+    OreOpportunityDepth, manual_processing::manual_processing_setup, ore_opportunity,
+    varied_four_way_order,
 };
 
 #[test]
@@ -192,8 +191,12 @@ fn progression_generators_cover_distinct_search_and_economic_pressures() {
             .iter()
             .map(|opportunity| opportunity.depth())
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from([OreOpportunityDepth::Shallow, OreOpportunityDepth::Deep]),
-        "organic progression must exercise both finite-opportunity classes"
+        BTreeSet::from([
+            OreOpportunityDepth::Shallow,
+            OreOpportunityDepth::Marginal,
+            OreOpportunityDepth::Deep,
+        ]),
+        "organic progression must exercise shallow, marginal, and deep finite-opportunity classes"
     );
     let shallow_max = opportunities
         .iter()
@@ -201,31 +204,30 @@ fn progression_generators_cover_distinct_search_and_economic_pressures() {
         .map(|opportunity| opportunity.batch_budget())
         .max()
         .unwrap_or_else(|| panic!("organic progression generated no shallow opportunity"));
+    let marginal_min = opportunities
+        .iter()
+        .filter(|opportunity| opportunity.depth() == OreOpportunityDepth::Marginal)
+        .map(|opportunity| opportunity.batch_budget())
+        .min()
+        .unwrap_or_else(|| panic!("organic progression generated no marginal opportunity"));
+    let marginal_max = opportunities
+        .iter()
+        .filter(|opportunity| opportunity.depth() == OreOpportunityDepth::Marginal)
+        .map(|opportunity| opportunity.batch_budget())
+        .max()
+        .unwrap_or_else(|| panic!("organic progression generated no marginal opportunity"));
     let deep_min = opportunities
         .iter()
         .filter(|opportunity| opportunity.depth() == OreOpportunityDepth::Deep)
         .map(|opportunity| opportunity.batch_budget())
         .min()
         .unwrap_or_else(|| panic!("organic progression generated no deep opportunity"));
-    assert!(deep_min > shallow_max);
+    assert!(marginal_min > shallow_max);
+    assert!(deep_min > marginal_max);
     assert_eq!(
         ore_opportunity(1, true).depth(),
         OreOpportunityDepth::Deep,
         "maintained progression must keep a deep automation-payback opportunity"
-    );
-
-    let actor_policies = (1_u64..=16)
-        .map(|behavior_seed| {
-            extraction_grade_premium_ppm(FocusedProbeCase::new(
-                0xCAFE,
-                Some(behavior_seed),
-                FocusedProbeRole::OrganicVariation,
-            ))
-        })
-        .collect::<BTreeSet<_>>();
-    assert!(
-        actor_policies.len() > 1,
-        "progression actor policy collapsed to one threshold"
     );
 
     let registries = build_registries();

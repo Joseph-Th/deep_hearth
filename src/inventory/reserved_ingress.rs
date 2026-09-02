@@ -82,7 +82,7 @@ struct ReservedDepositPlanEntry {
 }
 
 /// Inventory-owned allocation and revision plan for already-reserved material outputs.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ReservedDepositPlan {
     expected_revision: u64,
     next_revision: u64,

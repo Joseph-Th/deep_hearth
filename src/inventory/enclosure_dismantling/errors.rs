@@ -1,22 +1,24 @@
-//! Diagnostics for exact stockpile enclosure recovery and commit.
+//! Diagnostics for timed stockpile-enclosure dismantling admission.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
-use crate::inventory::{
-    MaterialLotId, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
-};
-use crate::structural::{StructuralCommitError, StructuralElementId};
+use crate::core::time::{SimulationTick, TickSpan};
+use crate::inventory::{MaterialLotId, StockpileId, StockpileStorageError, StorageDefinitionId};
+use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
+use crate::structural::StructuralElementId;
 
-/// Failure while validating exact recovery of one stockpile enclosure.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StorageEnclosureDismantleError {
+pub enum StorageEnclosureDismantlingError {
     UnknownTarget {
         stockpile: StockpileId,
     },
     NotEnclosed {
         stockpile: StockpileId,
+    },
+    UnknownDefinition {
+        definition: StorageDefinitionId,
     },
     TargetMounted {
         stockpile: StockpileId,
@@ -31,6 +33,10 @@ pub enum StorageEnclosureDismantleError {
     },
     RecoveryDestinationIsTarget {
         stockpile: StockpileId,
+    },
+    RecoveryDestinationMounted {
+        stockpile: StockpileId,
+        element: StructuralElementId,
     },
     TargetContentsIncompatible {
         lot: MaterialLotId,
@@ -51,10 +57,14 @@ pub enum StorageEnclosureDismantleError {
     },
     RecoveryLotIdExhausted,
     InventoryRevisionExhausted,
-    StructuralLoad(StockpileStructuralLoadError),
+    CompletionTickOverflow {
+        current: SimulationTick,
+        duration: TickSpan,
+    },
+    PlayerWork(PlayerWorkStartError),
 }
 
-impl Display for StorageEnclosureDismantleError {
+impl Display for StorageEnclosureDismantlingError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownTarget { stockpile } => write!(
@@ -67,6 +77,11 @@ impl Display for StorageEnclosureDismantleError {
                 "stockpile {} has no material-backed enclosure to dismantle",
                 stockpile.value()
             ),
+            Self::UnknownDefinition { definition } => write!(
+                formatter,
+                "unknown storage enclosure definition {}",
+                definition.value()
+            ),
             Self::TargetMounted { stockpile, element } => write!(
                 formatter,
                 "stockpile {} must be unmounted before dismantling its enclosure; current support is {}",
@@ -78,7 +93,7 @@ impl Display for StorageEnclosureDismantleError {
                 reserved,
             } => write!(
                 formatter,
-                "stockpile {} cannot change storage enclosure while {} mg of inbound matter is reserved",
+                "stockpile {} cannot begin enclosure dismantling while {} mg of inbound matter is reserved",
                 stockpile.value(),
                 reserved.milligrams()
             ),
@@ -92,6 +107,12 @@ impl Display for StorageEnclosureDismantleError {
                 "stockpile {} cannot receive its own enclosure body during dismantling; use a distinct recovery stockpile",
                 stockpile.value()
             ),
+            Self::RecoveryDestinationMounted { stockpile, element } => write!(
+                formatter,
+                "recovery stockpile {} must be unmounted while enclosure recovery is pending; current support is {}",
+                stockpile.value(),
+                element.value()
+            ),
             Self::TargetContentsIncompatible { lot, error } => write!(
                 formatter,
                 "material lot {} cannot remain in ambient storage after enclosure dismantling: {error}",
@@ -99,15 +120,13 @@ impl Display for StorageEnclosureDismantleError {
             ),
             Self::StorageHistoryOverflow { lot } => write!(
                 formatter,
-                "material lot {} cannot checkpoint its preserved storage exposure at dismantling time",
+                "material lot {} cannot checkpoint its preserved storage exposure at dismantling completion",
                 lot.value()
             ),
-            Self::RecoveryDestinationStorage(error) => {
-                write!(
-                    formatter,
-                    "recovery destination rejects enclosure matter: {error}"
-                )
-            }
+            Self::RecoveryDestinationStorage(error) => write!(
+                formatter,
+                "recovery destination rejects enclosure matter: {error}"
+            ),
             Self::RecoveryCapacityExceeded {
                 stockpile,
                 capacity,
@@ -115,7 +134,7 @@ impl Display for StorageEnclosureDismantleError {
                 requested,
             } => write!(
                 formatter,
-                "stockpile {} capacity {} mg cannot accept {} mg of recovered enclosure matter after {} mg already committed",
+                "stockpile {} capacity {} mg cannot reserve {} mg of recovered enclosure matter after {} mg already committed",
                 stockpile.value(),
                 capacity.milligrams(),
                 requested.milligrams(),
@@ -131,85 +150,74 @@ impl Display for StorageEnclosureDismantleError {
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
             }
-            Self::StructuralLoad(error) => {
-                write!(
-                    formatter,
-                    "recovered enclosure structural load failed: {error}"
-                )
+            Self::CompletionTickOverflow { current, duration } => write!(
+                formatter,
+                "storage dismantling starting at tick {} cannot schedule {} active ticks",
+                current.value(),
+                duration.value()
+            ),
+            Self::PlayerWork(error) => {
+                write!(formatter, "storage dismantling labor cannot start: {error}")
             }
         }
     }
 }
 
-impl Error for StorageEnclosureDismantleError {
+impl Error for StorageEnclosureDismantlingError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::RecoveryDestinationStorage(error) => Some(error),
-            Self::TargetContentsIncompatible { error, .. } => Some(error),
-            Self::StructuralLoad(error) => Some(error),
-            Self::UnknownTarget { .. }
-            | Self::NotEnclosed { .. }
-            | Self::TargetMounted { .. }
-            | Self::TargetHasReservedInbound { .. }
-            | Self::UnknownRecoveryDestination { .. }
-            | Self::RecoveryDestinationIsTarget { .. }
-            | Self::StorageHistoryOverflow { .. }
-            | Self::RecoveryCapacityExceeded { .. }
-            | Self::RecoveryMassOverflow { .. }
-            | Self::RecoveryLotIdExhausted
-            | Self::InventoryRevisionExhausted => None,
+            Self::RecoveryDestinationStorage(error)
+            | Self::TargetContentsIncompatible { error, .. } => Some(error),
+            Self::PlayerWork(error) => Some(error),
+            _ => None,
         }
     }
 }
 
-/// Failure to commit an already validated enclosure dismantling transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StorageEnclosureDismantleCommitError {
+pub enum StorageEnclosureDismantlingCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
     UnknownTarget { stockpile: StockpileId },
     TargetProfileChanged { stockpile: StockpileId },
     TargetEnclosureChanged { stockpile: StockpileId },
-    Structure(StructuralCommitError),
+    PlayerWork(PlayerWorkCommitError),
 }
 
-impl Display for StorageEnclosureDismantleCommitError {
+impl Display for StorageEnclosureDismantlingCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
-                "storage dismantling expected inventory revision {expected} but current revision is {actual}"
+                "storage dismantling admission expected inventory revision {expected} but current revision is {actual}"
             ),
             Self::UnknownTarget { stockpile } => write!(
                 formatter,
-                "storage dismantling target stockpile {} disappeared before commit",
+                "storage dismantling target stockpile {} disappeared before admission",
                 stockpile.value()
             ),
             Self::TargetProfileChanged { stockpile } => write!(
                 formatter,
-                "storage dismantling target stockpile {} changed storage profile before commit",
+                "storage dismantling target stockpile {} changed storage profile before admission",
                 stockpile.value()
             ),
             Self::TargetEnclosureChanged { stockpile } => write!(
                 formatter,
-                "storage dismantling target stockpile {} changed enclosure before commit",
+                "storage dismantling target stockpile {} changed enclosure before admission",
                 stockpile.value()
             ),
-            Self::Structure(error) => write!(
+            Self::PlayerWork(error) => write!(
                 formatter,
-                "storage dismantling structural-load commit failed: {error}"
+                "storage dismantling labor commit failed: {error}"
             ),
         }
     }
 }
 
-impl Error for StorageEnclosureDismantleCommitError {
+impl Error for StorageEnclosureDismantlingCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision { .. }
-            | Self::UnknownTarget { .. }
-            | Self::TargetProfileChanged { .. }
-            | Self::TargetEnclosureChanged { .. } => None,
+            Self::PlayerWork(error) => Some(error),
+            _ => None,
         }
     }
 }

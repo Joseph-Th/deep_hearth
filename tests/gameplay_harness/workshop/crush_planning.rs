@@ -315,8 +315,12 @@ pub(super) fn schedule_controlled_delivery_event(
     let work_horizon = reference_duration
         .checked_mul(nominal_batch_count)
         .unwrap_or_else(|| panic!("gameplay harness work horizon overflowed"));
-    variation.delivery.delivery_at_tick =
-        1 + mix64(variation.world_seed ^ 0x57A1_1EED_71A1_1EED) % work_horizon;
+    let offset = 1 + mix64(variation.world_seed ^ 0x57A1_1EED_71A1_1EED) % work_horizon;
+    variation.delivery.delivery_at_tick = state
+        .tick()
+        .value()
+        .checked_add(offset)
+        .unwrap_or_else(|| panic!("gameplay harness controlled-event tick overflowed"));
 }
 
 pub(super) fn print_crush_option(

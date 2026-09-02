@@ -167,6 +167,41 @@ impl EquipmentState {
         assert_eq!(replaced_mass, replacement_mass);
     }
 
+    pub(super) fn assert_maintenance_admission_available(
+        &self,
+        equipment: EquipmentId,
+        condition_before: Condition,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let record = self.records.get(&equipment).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: equipment {} disappeared before maintenance admission",
+                equipment.value()
+            )
+        });
+        assert_eq!(record.condition, condition_before);
+    }
+
+    /// Advances equipment freshness when service begins without granting the future condition gain.
+    pub(super) fn apply_maintenance_admission(
+        &mut self,
+        equipment: EquipmentId,
+        condition_before: Condition,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        self.assert_maintenance_admission_available(
+            equipment,
+            condition_before,
+            expected_revision,
+            next_revision,
+        );
+        self.revision = next_revision;
+    }
+
     /// Exchanges every trace belonging to one authored component for exact fresh traces while
     /// preserving equipment identity, all unrelated embodied matter, and total embodied mass.
     pub(super) fn apply_component_maintenance(
@@ -196,7 +231,6 @@ impl EquipmentState {
         }
         assert!(inserted);
         record.embodied_material = next_embodied;
-        record.condition = mutation.condition_after;
         self.revision = next_revision;
     }
 

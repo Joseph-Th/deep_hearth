@@ -122,6 +122,15 @@ fn build_routed_output_streams(
                 stockpile: destination,
             });
         };
+        if state
+            .player_work()
+            .get_storage_dismantling_stockpile_occupant(destination)
+            .is_some_and(|work| work.target() == destination)
+        {
+            return Err(StartProcessError::OutputDestinationBusyStorageDismantling {
+                stockpile: destination,
+            });
+        }
         for output in stream.outputs() {
             validate_stockpile_storage(
                 registries,

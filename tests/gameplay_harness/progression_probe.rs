@@ -8,6 +8,7 @@ use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
+use super::maintenance_timing::finish_active_equipment_maintenance;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
@@ -31,7 +32,7 @@ use deep_hearth::content::{
     PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY,
     PROSPECTING_FIELD_INSPECTION, PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
-use deep_hearth::core::quantity::{Energy, Mass, Power, Pressure};
+use deep_hearth::core::quantity::{Energy, Mass, MassFlow, Power, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -72,29 +73,13 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
 const POST_PAYBACK_OBSERVATION_CYCLES: u64 = 2;
-const MAINTAINED_EXTRACTION_GRADE_PREMIUM_PPM: u32 = 100_000;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
-
-pub(super) fn extraction_grade_premium_ppm(case: FocusedProbeCase) -> u32 {
-    match case.role() {
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
-            MAINTAINED_EXTRACTION_GRADE_PREMIUM_PPM
-        }
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            // Evaluation policy, not a production balance value. Organic actors vary how much
-            // guaranteed grade improvement justifies delaying mechanization for better extraction.
-            let behavior_seed = case.behavior_seed().unwrap_or_else(|| {
-                panic!("progression actor-policy case is missing its behavior seed")
-            });
-            50_000 + (mix64(behavior_seed ^ 0x4752_4144_4550_5245) % 100_001) as u32
-        }
-    }
-}
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum OreOpportunityDepth {
     Shallow,
+    Marginal,
     Deep,
 }
 
@@ -125,18 +110,24 @@ pub(super) fn ore_opportunity(seed: u64, maintained_payback_required: bool) -> O
         };
     }
     let opportunity_roll = mix64(seed ^ 0x4F50_504F_5254_554E);
-    if opportunity_roll.is_multiple_of(2) {
-        OreOpportunity {
+    let magnitude_roll = opportunity_roll / 3;
+    match opportunity_roll % 3 {
+        0 => OreOpportunity {
             #[cfg(test)]
             depth: OreOpportunityDepth::Shallow,
-            batch_budget: 6 + (opportunity_roll >> 1) % 35,
-        }
-    } else {
-        OreOpportunity {
+            batch_budget: 6 + magnitude_roll % 35,
+        },
+        1 => OreOpportunity {
+            #[cfg(test)]
+            depth: OreOpportunityDepth::Marginal,
+            batch_budget: 48 + magnitude_roll % 145,
+        },
+        2 => OreOpportunity {
             #[cfg(test)]
             depth: OreOpportunityDepth::Deep,
-            batch_budget: 384 + (opportunity_roll >> 1) % 129,
-        }
+            batch_budget: 384 + magnitude_roll % 129,
+        },
+        _ => unreachable!("modulo-three opportunity class is bounded"),
     }
 }
 
@@ -976,9 +967,7 @@ fn observed_copper_bounds(state: &AppState, request: MiningTargetRequest) -> (u3
             lower_ppm,
             upper_ppm,
         } => (lower_ppm, upper_ppm),
-        other @ (GeologicalEvidenceConsistency::NoEvidence
-        | GeologicalEvidenceConsistency::SpatiallyIncomparable
-        | GeologicalEvidenceConsistency::Conflicting { .. }) => panic!(
+        other => panic!(
             "primitive progression expected compatible copper evidence for {:?}, found {other:?}",
             request.region()
         ),
@@ -1040,32 +1029,25 @@ fn preview_stone_pick_mining(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PrimitivePriority {
-    ExtractionFirst,
-    MechanizationFirst,
+    PickFirst,
+    CrankFirstCounterfactual,
 }
 
 impl PrimitivePriority {
     const fn label(self) -> &'static str {
         match self {
-            Self::ExtractionFirst => "extraction-first",
-            Self::MechanizationFirst => "mechanization-first",
+            Self::PickFirst => "pick-first",
+            Self::CrankFirstCounterfactual => "crank-first-counterfactual",
         }
     }
 }
 
-fn observed_primitive_priority(
-    bulk_sample_copper_ppm: u32,
-    hard_clue: ObservedCopperClue,
-    extraction_grade_premium_ppm: u32,
-) -> PrimitivePriority {
-    // The actor knows the exact grade of matter it already extracted, but only the evidence bounds
-    // for the blocked hard seam. Prefer extraction only when the observed lower bound guarantees a
-    // richer feed than the owned bulk sample; otherwise take the certain stored-work improvement.
-    if hard_clue.lower_ppm.saturating_sub(bulk_sample_copper_ppm) >= extraction_grade_premium_ppm {
-        PrimitivePriority::ExtractionFirst
-    } else {
-        PrimitivePriority::MechanizationFirst
-    }
+fn observed_primitive_priority() -> PrimitivePriority {
+    // The first directly usable copper parcel has one currently dominant ordinary-play use: the
+    // reinforced pick opens a known blocked seam immediately and reduces extraction attention.
+    // The crank-first branch remains a matched counterfactual below so future balance/content can
+    // prove when this stops being true, but it is not offered as a fake strategic choice today.
+    PrimitivePriority::PickFirst
 }
 
 #[derive(Clone, Copy)]
@@ -1095,9 +1077,16 @@ struct PrimitiveProgressionExperience {
     hard_ore_evidence_lower_ppm: u32,
     hard_ore_evidence_upper_ppm: u32,
     bulk_sample_copper_ppm: u32,
+    processing_decision_at: u64,
+    manual_bridge_ready_at: u64,
     manual_bridge_feed_mass: Mass,
     manual_bridge_attention_ticks: u64,
     manual_bridge_recovery_ppm: u32,
+    manual_bootstrap_pick_ready_ticks: u64,
+    manual_bootstrap_hard_sample_ticks: u64,
+    manual_bootstrap_second_ready_ticks: u64,
+    manual_bootstrap_machine_ready_ticks: u64,
+    manual_bootstrap_selected_hard_feed: bool,
     manual_bridge_metabolic_cost_nj: u128,
     manual_bridge_hydration_cost_ul: u64,
     selected_processing_feed_copper_ppm: u32,
@@ -1128,6 +1117,7 @@ struct PrimitiveProgressionExperience {
     reinforced_mining_ticks: Option<u64>,
     charge_ticks: u64,
     machine_work_ticks: u64,
+    reserve_batch_mass: Mass,
     reserve_machine_work_ticks: u64,
     overlap_ticks: u64,
     machine_useful_overlap_ticks: u64,
@@ -1154,6 +1144,7 @@ struct PrimitiveProgressionExperience {
     initial_crank_reinforced: bool,
     crank_reinforced: bool,
     maintenance_material_preparation_ticks: u64,
+    component_service_ticks: u64,
     component_service_mass: Mass,
     component_service_condition_before_ppm: u32,
     component_service_preserved_reinforcement: bool,
@@ -1177,7 +1168,9 @@ struct PrimitiveReinvestmentExperience {
     crusher_time_reduction_ppm: u32,
     base_separator_ticks: u64,
     reinforced_separator_ticks: u64,
-    separator_time_reduction_ppm: u32,
+    base_separator_processing_rate: MassFlow,
+    reinforced_separator_processing_rate: MassFlow,
+    separator_processing_rate_gain_ppm: u32,
     base_separator_target_mass: Mass,
     reinforced_separator_target_mass: Mass,
     base_separator_batch_capacity: Mass,
@@ -1198,6 +1191,7 @@ struct PrimitiveReinvestmentExperience {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PrimitiveComponentService {
     preparation_ticks: u64,
+    service_ticks: u64,
     material_mass: Mass,
     condition_before_ppm: u32,
     preserved_reinforcement: bool,
@@ -1271,6 +1265,9 @@ fn service_reinforced_pick(
         .unwrap_or_else(|error| panic!("primitive pick service commit failed: {error}"));
     assert_eq!(outcome.equipment(), pick);
     assert_eq!(outcome.material_mass(), replacement_mass);
+    let (service_ticks, completion) =
+        finish_active_equipment_maintenance(registries, state, "primitive reinforced-pick service");
+    assert_eq!(completion.equipment(), pick);
 
     let serviced = state
         .equipment()
@@ -1298,6 +1295,7 @@ fn service_reinforced_pick(
 
     PrimitiveComponentService {
         preparation_ticks,
+        service_ticks,
         material_mass: replacement_mass,
         condition_before_ppm: condition_before.parts_per_million(),
         preserved_reinforcement,
@@ -2054,8 +2052,11 @@ struct PrimitiveSeparationWork {
     feed_mass: Mass,
     target_mass: Mass,
     residue_mass: Mass,
+    processing_rate: MassFlow,
     required_energy: Energy,
     charge_ticks: u64,
+    throughput_ticks: u64,
+    energy_ticks: u64,
     ticks: u64,
 }
 
@@ -2159,8 +2160,11 @@ fn separate_native_copper(
         feed_mass,
         target_mass: resolved.target_mass(),
         residue_mass: resolved.residue_mass(),
+        processing_rate: resolved.processing_rate(),
         required_energy: resolved.required_energy(),
         charge_ticks,
+        throughput_ticks: resolved.throughput_duration().value(),
+        energy_ticks: resolved.energy_duration().value(),
         ticks,
     }
 }
@@ -2382,27 +2386,7 @@ fn crush_while_mining(
                     MiningStartError::ConditionDuration(_) | MiningStartError::ZeroThroughput => {
                         AutonomousWorkStop::ToolCondition
                     }
-                    other @ (MiningStartError::UnknownMethod { .. }
-                    | MiningStartError::ZeroMass
-                    | MiningStartError::Equipment(_)
-                    | MiningStartError::EquipmentMounted { .. }
-                    | MiningStartError::EquipmentBusyProduction { .. }
-                    | MiningStartError::EquipmentBusyMining { .. }
-                    | MiningStartError::MissingCapability { .. }
-                    | MiningStartError::CapabilityKindMismatch { .. }
-                    | MiningStartError::BatchTooLarge { .. }
-                    | MiningStartError::TargetTooHard { .. }
-                    | MiningStartError::Duration(_)
-                    | MiningStartError::CompletionTickOverflow
-                    | MiningStartError::InvalidOutput(_)
-                    | MiningStartError::UnknownDestination { .. }
-                    | MiningStartError::DestinationStorage(_)
-                    | MiningStartError::DestinationMassOverflow { .. }
-                    | MiningStartError::InventoryRevisionExhausted
-                    | MiningStartError::DestinationSupport(_)
-                    | MiningStartError::MiningIdExhausted
-                    | MiningStartError::MiningRevisionExhausted
-                    | MiningStartError::Work(_)) => panic!(
+                    other => panic!(
                         "primitive progression autonomous-window mining hit unexpected blocker: {other}"
                     ),
                 };
@@ -2540,7 +2524,8 @@ use episode::run_primitive_progression_case;
 #[path = "progression_probe/manual_processing.rs"]
 pub(super) mod manual_processing;
 use manual_processing::{
-    OwnedOreManualBridgePlan, evaluate_manual_processing_fallback, evaluate_owned_ore_manual_bridge,
+    OwnedOreManualBridgePlan, evaluate_manual_processing_fallback,
+    evaluate_owned_ore_manual_bridge, run_owned_ore_manual_bridge,
 };
 
 #[path = "progression_probe/review.rs"]

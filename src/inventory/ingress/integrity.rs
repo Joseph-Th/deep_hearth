@@ -8,7 +8,7 @@ use crate::inventory::state::InventoryState;
 
 use super::{
     IngressMassSummary, MaterialIngressEntry, ValidatedMaterialIngress,
-    replay_ingress_identity_plan, validate_ingress_capacity,
+    replay_ingress_identity_plan, validate_ingress_capacity_with_reserved_credit,
 };
 
 impl ValidatedMaterialIngress {
@@ -78,9 +78,13 @@ impl ValidatedMaterialIngress {
             )
         });
         let summary = summarize_planned_ingress_mass(&self.entries, self.current_tick);
-        validate_ingress_capacity(destination_record, self.destination, &summary).unwrap_or_else(
-            |error| panic!("validated material ingress capacity changed: {error:?}"),
-        );
+        validate_ingress_capacity_with_reserved_credit(
+            destination_record,
+            self.destination,
+            &summary,
+            self.reserved_mass,
+        )
+        .unwrap_or_else(|error| panic!("validated material ingress capacity changed: {error:?}"));
         self.assert_identity_plan_matches_state(state);
     }
 }

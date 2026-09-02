@@ -20,7 +20,7 @@ use deep_hearth::fluid::{FluidStoreId, calculate_fluid_volume_accounting};
 use deep_hearth::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, StorageDefinitionId,
-    validate_build_storage_enclosure,
+    validate_build_storage_enclosure, validate_start_storage_enclosure_dismantling,
 };
 use deep_hearth::labor::{
     ManualPowerRequest, PlayerWork, ProspectingMethodId, validate_start_manual_power,
@@ -38,7 +38,7 @@ use deep_hearth::survival::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_runner::focused_probe_role_label;
-use super::focused_seeds::FocusedProbeCase;
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::physical_time::format_physical_duration;
@@ -49,8 +49,8 @@ use super::temporal::advance_idle_ticks;
 #[path = "survival_probe/preservation.rs"]
 mod preservation;
 pub(super) use preservation::{
-    PreservationInvestmentPolicy, preservation_investment_policy_for_behavior_seed,
-    preservation_storage_definition_for_policy,
+    PreservationInvestmentPolicy, preservation_freshness_return_threshold_ppm,
+    preservation_policy_for_projected_return, preservation_storage_definition_for_policy,
 };
 use preservation::{preservation_candidate_for_policy, preservation_candidates};
 
@@ -184,6 +184,10 @@ struct PreservationInfrastructureReview {
     enclosed_fresh: bool,
     metabolic_cost_nj: u128,
     hydration_cost_ul: u64,
+    dismantle_ticks: u64,
+    dismantle_metabolic_cost_nj: u128,
+    dismantle_hydration_cost_ul: u64,
+    recovered_enclosure_mass_mg: u64,
 }
 
 fn evaluate_preservation_infrastructure_probe(
@@ -303,6 +307,11 @@ fn evaluate_preservation_infrastructure_probe(
     let assembled = seed_stockpile(
         &mut state,
         construction_plan.raw_mass,
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let dismantle_recovery = seed_stockpile(
+        &mut state,
+        definition.assembly_profile().input_mass(),
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let mut maximum_raw_requirements = BTreeMap::<CommodityKey, Mass>::new();
@@ -579,6 +588,98 @@ fn evaluate_preservation_infrastructure_probe(
         "material-backed preservation must keep the matched witness edible over the same interval"
     );
     assert!(enclosed_age_after_ticks < shelf_life_ticks);
+
+    let survival_before_dismantle = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("preservation dismantling player disappeared before service"));
+    let dismantle = validate_start_storage_enclosure_dismantling(
+        registries,
+        &state,
+        enclosed_food,
+        dismantle_recovery,
+    )
+    .unwrap_or_else(|error| panic!("preservation enclosure dismantling failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("preservation enclosure dismantling commit failed: {error}"));
+    let dismantle_ticks = dismantle
+        .completes_at()
+        .value()
+        .checked_sub(state.tick().value())
+        .unwrap_or_else(|| panic!("preservation dismantling completion precedes start"));
+    assert_eq!(dismantle_ticks, definition.dismantle_duration().value());
+    assert!(matches!(
+        state.player_work().active(),
+        Some(PlayerWork::StorageEnclosureDismantling { .. })
+    ));
+    let mut dismantle_outcome = None;
+    for elapsed in 1..=dismantle_ticks {
+        let outcome = advance_tick(registries, &mut state)
+            .unwrap_or_else(|error| panic!("preservation dismantling tick failed: {error}"));
+        if elapsed < dismantle_ticks {
+            assert!(
+                state
+                    .inventory()
+                    .get_stockpile(enclosed_food)
+                    .and_then(|record| record.enclosure())
+                    .is_some(),
+                "storage enclosure must remain installed until dismantling completes"
+            );
+            assert!(outcome.storage_enclosure_dismantling().is_none());
+        } else {
+            dismantle_outcome = outcome.storage_enclosure_dismantling().cloned();
+        }
+    }
+    let dismantle_outcome = dismantle_outcome
+        .unwrap_or_else(|| panic!("preservation dismantling reached due tick without completion"));
+    assert_eq!(dismantle_outcome.target(), enclosed_food);
+    assert_eq!(dismantle_outcome.definition(), definition.id());
+    assert_eq!(state.player_work().active(), None);
+    let target_after = state
+        .inventory()
+        .get_stockpile(enclosed_food)
+        .unwrap_or_else(|| panic!("preservation target disappeared after dismantling"));
+    assert!(target_after.enclosure().is_none());
+    assert_eq!(
+        target_after.storage_profile(),
+        StockpileStorageProfile::unbounded_solid_only()
+    );
+    let recovered_enclosure_mass_mg = dismantle_outcome
+        .recovered_lots()
+        .iter()
+        .map(|lot| {
+            state
+                .inventory()
+                .get_lot(*lot)
+                .unwrap_or_else(|| panic!("recovered enclosure lot disappeared"))
+                .mass()
+                .milligrams()
+        })
+        .sum::<u64>();
+    assert_eq!(
+        recovered_enclosure_mass_mg,
+        definition.assembly_profile().input_mass().milligrams(),
+        "dismantling must return exactly the enclosure's embodied matter"
+    );
+    let survival_after_dismantle = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("preservation dismantling player disappeared after service"));
+    let dismantle_metabolic_cost_nj = survival_before_dismantle
+        .metabolic_energy()
+        .checked_sub(survival_after_dismantle.metabolic_energy())
+        .unwrap_or_else(|| unreachable!("storage dismantling cannot create metabolic reserve"))
+        .nanojoules();
+    let dismantle_hydration_cost_ul = survival_before_dismantle
+        .hydration()
+        .checked_sub(survival_after_dismantle.hydration())
+        .unwrap_or_else(|| unreachable!("storage dismantling cannot create hydration reserve"))
+        .microliters();
+    assert!(dismantle_metabolic_cost_nj > 0);
+    assert!(dismantle_hydration_cost_ul > 0);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("preservation dismantling matter audit failed: {error}"))
+            .total(),
+        matter_before,
+        "dismantling preservation storage must conserve represented matter"
+    );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("preservation infrastructure state audit failed: {error}"));
 
@@ -616,6 +717,10 @@ fn evaluate_preservation_infrastructure_probe(
         enclosed_fresh: !enclosed_spoiled,
         metabolic_cost_nj,
         hydration_cost_ul,
+        dismantle_ticks,
+        dismantle_metabolic_cost_nj,
+        dismantle_hydration_cost_ul,
+        recovered_enclosure_mass_mg,
     }
 }
 
@@ -2097,6 +2202,19 @@ struct SurvivalWorkPressureReview {
     stored_work_nj: u128,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct IntegratedSurvivalWorkReview {
+    initial_drink_ticks: u64,
+    prospecting_ticks: u64,
+    reprovisioned_after_prospecting: bool,
+    reprovision_ticks: u64,
+    manual_power_ticks: u64,
+    stored_work_nj: u128,
+    energy_deficit_ppm: u32,
+    hydration_deficit_ppm: u32,
+    hydration_warning_safe: bool,
+}
+
 pub(super) fn prospecting_method_for_work_pressure(
     registries: &Registries,
     seed: u64,
@@ -2351,6 +2469,203 @@ fn evaluate_survival_work_pressure_probe(
     }
 }
 
+fn evaluate_integrated_survival_work_loop(
+    registries: &Registries,
+    seed: u64,
+) -> IntegratedSurvivalWorkReview {
+    let physiology = registries.survival().physiology();
+    let direct = physiology.direct_consumption();
+    let drink = registries
+        .survival()
+        .drinks()
+        .copied()
+        .next()
+        .unwrap_or_else(|| panic!("integrated survival work loop requires one authored drink"));
+    let drink_volume = direct.maximum_drink_volume();
+    let mut state = AppState::new(WorldSeed::new(seed ^ 0x494E_5445_4752_4154));
+    let drink_store = seed_fluid_store(
+        registries,
+        &mut state,
+        drink_volume
+            .checked_add(drink_volume)
+            .unwrap_or_else(|| panic!("integrated survival drink capacity overflowed")),
+        drink.fluid(),
+        drink_volume
+            .checked_add(drink_volume)
+            .unwrap_or_else(|| panic!("integrated survival drink supply overflowed")),
+        ROOM_TEMPERATURE,
+    );
+
+    let crank_profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_HAND_CRANK)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("integrated survival stone crank lost its assembly route"));
+    let drive_profile = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("integrated survival stone flywheel lost its assembly route"));
+    let component_capacity = crank_profile
+        .inputs()
+        .iter()
+        .chain(drive_profile.inputs())
+        .try_fold(Mass::ZERO, |total, input| total.checked_add(input.mass()))
+        .unwrap_or_else(|| panic!("integrated survival primitive power component mass overflowed"));
+    let component_source = seed_stockpile(
+        &mut state,
+        component_capacity,
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    for input in crank_profile.inputs().iter().chain(drive_profile.inputs()) {
+        seed_lot(
+            registries,
+            &mut state,
+            component_source,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let crank = validate_assemble_equipment(
+        registries,
+        &state,
+        EQUIPMENT_STONE_HAND_CRANK,
+        component_source,
+    )
+    .unwrap_or_else(|error| panic!("integrated survival crank assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("integrated survival crank assembly commit failed: {error}"));
+    let drive = validate_assemble_energy_store(
+        registries,
+        &state,
+        ENERGY_STONE_FLYWHEEL_DRIVE,
+        component_source,
+    )
+    .unwrap_or_else(|error| panic!("integrated survival flywheel assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("integrated survival flywheel assembly commit failed: {error}"));
+    seed_player_survival_at_hydration_warning_boundary(registries, &mut state);
+
+    let start = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("integrated survival player disappeared at start"));
+    assert_eq!(start.hydration(), physiology.thirsty_below());
+    let first_drink = validate_drink(registries, &state, drink_store, drink_volume)
+        .unwrap_or_else(|error| panic!("integrated survival initial drink failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("integrated survival initial drink commit failed: {error}"));
+    let initial_drink_ticks =
+        finish_direct_consumption(registries, &mut state, first_drink.completes_at());
+    let after_drink = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("integrated survival player disappeared after drinking"));
+    assert!(after_drink.hydration() > physiology.thirsty_below());
+
+    let prospecting_method = prospecting_method_for_work_pressure(registries, seed);
+    let prospecting_definition = registries
+        .labor()
+        .get_prospecting(prospecting_method)
+        .copied()
+        .unwrap_or_else(|| panic!("integrated survival prospecting method disappeared"));
+    let region_width = i64::try_from(prospecting_definition.maximum_region_voxels().min(4))
+        .unwrap_or_else(|_| unreachable!("bounded integrated prospecting footprint fits i64"));
+    let region = VoxelBounds::new(
+        VoxelCoord::new(40, -1, 0),
+        VoxelCoord::new(40 + region_width, 0, 1),
+    )
+    .unwrap_or_else(|error| panic!("integrated survival prospecting bounds failed: {error}"));
+    let prospecting = validate_start_field_prospecting(
+        registries,
+        &state,
+        FieldProspectingRequest::new(prospecting_method, region, MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("integrated survival prospecting start failed: {error}"));
+    let prospecting_work = prospecting.work();
+    let prospecting_ticks = prospecting_work.completes_at().value() - state.tick().value();
+    prospecting
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("integrated survival prospecting commit failed: {error}"));
+    let mut observation = None;
+    for _ in 0..prospecting_ticks {
+        observation = advance_tick(registries, &mut state)
+            .unwrap_or_else(|error| panic!("integrated survival prospecting tick failed: {error}"))
+            .field_prospecting();
+    }
+    assert!(
+        observation.is_some(),
+        "integrated survival prospecting produced no observation"
+    );
+
+    let after_prospecting = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("integrated survival player disappeared after prospecting"));
+    let reprovisioned_after_prospecting =
+        after_prospecting.hydration() < physiology.thirsty_below();
+    let reprovision_ticks = if reprovisioned_after_prospecting {
+        let drink = validate_drink(registries, &state, drink_store, drink_volume)
+            .unwrap_or_else(|error| panic!("integrated survival follow-up drink failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("integrated survival follow-up drink commit failed: {error}")
+            });
+        finish_direct_consumption(registries, &mut state, drink.completes_at())
+    } else {
+        0
+    };
+
+    let requested_energy = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .map(|definition| definition.capacity())
+        .unwrap_or_else(|| panic!("integrated survival flywheel definition disappeared"));
+    let power = validate_start_manual_power(
+        registries,
+        &state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested_energy),
+    )
+    .unwrap_or_else(|error| panic!("integrated survival manual-power start failed: {error}"));
+    let work = power.work();
+    let manual_power_ticks = work.completes_at().value() - state.tick().value();
+    power
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("integrated survival manual-power commit failed: {error}"));
+    assert_eq!(
+        finish_manual_power_work(
+            registries,
+            &mut state,
+            work,
+            "integrated survival manual power"
+        ),
+        manual_power_ticks
+    );
+    assert_eq!(
+        state.energy().get_store(drive).map(|store| store.stored()),
+        Some(requested_energy)
+    );
+    let final_survival = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("integrated survival player disappeared after work loop"));
+    let energy_deficit_ppm = normalized_energy_deficit_ppm(
+        physiology.maximum_metabolic_energy(),
+        final_survival.metabolic_energy(),
+    );
+    let hydration_deficit_ppm = normalized_hydration_deficit_ppm(
+        physiology.maximum_hydration(),
+        final_survival.hydration(),
+    );
+    validate_loaded_state(registries, &state)
+        .unwrap_or_else(|error| panic!("integrated survival work-loop audit failed: {error}"));
+
+    IntegratedSurvivalWorkReview {
+        initial_drink_ticks,
+        prospecting_ticks,
+        reprovisioned_after_prospecting,
+        reprovision_ticks,
+        manual_power_ticks,
+        stored_work_nj: requested_energy.nanojoules(),
+        energy_deficit_ppm,
+        hydration_deficit_ppm,
+        hydration_warning_safe: final_survival.hydration() >= physiology.thirsty_below(),
+    }
+}
+
 fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
     let sample = focused_probe_role_label(case.role());
@@ -2358,7 +2673,6 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         .behavior_seed()
         .unwrap_or_else(|| panic!("survival probe is missing its actor behavior seed"));
     let world = provisioning_world(registries, seed);
-    let preservation_policy = preservation_investment_policy_for_behavior_seed(behavior_seed);
     let attention_investment = evaluate_preservation_infrastructure_probe(
         registries,
         seed,
@@ -2381,10 +2695,6 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         attention_investment.ambient_age_after_ticks, protection_investment.ambient_age_after_ticks,
         "matched preservation choices must be judged at the same wall-clock endpoint"
     );
-    let preservation_infrastructure = match preservation_policy {
-        PreservationInvestmentPolicy::AttentionEfficient => attention_investment,
-        PreservationInvestmentPolicy::MaximumProtection => protection_investment,
-    };
     let protection_attention_delta_ticks = protection_investment
         .production_ticks
         .checked_sub(attention_investment.production_ticks)
@@ -2399,6 +2709,36 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     let protection_remaining_fresh_delta_ticks =
         i128::from(protection_investment.enclosed_remaining_fresh_ticks)
             - i128::from(attention_investment.enclosed_remaining_fresh_ticks);
+    let protection_remaining_fresh_gain_ticks =
+        u64::try_from(protection_remaining_fresh_delta_ticks.max(0))
+            .unwrap_or_else(|_| panic!("bounded preservation benefit exceeds u64"));
+    let preservation_policy = preservation_policy_for_projected_return(
+        behavior_seed,
+        protection_remaining_fresh_gain_ticks,
+        protection_attention_delta_ticks,
+    );
+    if case.role() == FocusedProbeRole::MaintainedCoverage && seed == 5 {
+        assert_eq!(
+            preservation_policy,
+            PreservationInvestmentPolicy::AttentionEfficient,
+            "survival coverage seed 5 must preserve the visible case where stronger storage is not worth its extra attention"
+        );
+    }
+    let preservation_return_ppm = if protection_attention_delta_ticks == 0 {
+        0
+    } else {
+        u32::try_from(
+            u128::from(protection_remaining_fresh_gain_ticks) * 1_000_000
+                / u128::from(protection_attention_delta_ticks),
+        )
+        .unwrap_or(u32::MAX)
+    };
+    let preservation_return_threshold_ppm =
+        preservation_freshness_return_threshold_ppm(behavior_seed);
+    let preservation_infrastructure = match preservation_policy {
+        PreservationInvestmentPolicy::AttentionEfficient => attention_investment,
+        PreservationInvestmentPolicy::MaximumProtection => protection_investment,
+    };
     let protection_metabolic_delta_nj = protection_investment
         .metabolic_cost_nj
         .checked_sub(attention_investment.metabolic_cost_nj)
@@ -2441,6 +2781,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     );
     evaluate_survival_pressure_response_probe(registries, seed);
     let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
+    let integrated_work = evaluate_integrated_survival_work_loop(registries, seed);
     let prospecting_pressure = normalized_deficit_priority(
         work_pressure.prospecting_energy_deficit_ppm,
         work_pressure.prospecting_hydration_deficit_ppm,
@@ -2581,7 +2922,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     };
     let food_options = food_option_summary(registries, foods);
     std::println!(
-        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] current-investment=[storage-policy:{} selected:{} preservation:{}ppm candidates:{} fastest:{}:{}t/{}:{}ppm strongest:{}:{}t/{}:{}ppm build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg stronger-tradeoff=[attention:+{}t/+{} raw:+{}mg body:+{}nJ/+{}uL matched-age:{:+}t/{} remaining-edible:{:+}t/{}]] consequence=[reserve-improved:{} diet-delta:{:+}ppm recovery-delta:{:+}ppm/t horizon:{}t] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{}]",
+        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] current-investment=[storage-policy:{} value=[freshness-return:{}ppm threshold:{}ppm] selected:{} preservation:{}ppm candidates:{} fastest:{}:{}t/{}:{}ppm strongest:{}:{}t/{}:{}ppm build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg dismantle=[{}t body:{}nJ/{}uL returned:{}mg] stronger-tradeoff=[attention:+{}t/+{} raw:+{}mg body:+{}nJ/+{}uL matched-age:{:+}t/{} remaining-edible:{:+}t/{}]] consequence=[reserve-improved:{} diet-delta:{:+}ppm recovery-delta:{:+}ppm/t horizon:{}t] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}t prospect:{}t reprovision:{}:{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
         world.start_profile.label(),
         foods.len(),
         available_category_count,
@@ -2594,6 +2935,8 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         compact.retained_preserved_mass_mg,
         compact.preservation_age_saved_ticks,
         preservation_infrastructure.policy.label(),
+        preservation_return_ppm,
+        preservation_return_threshold_ppm,
         preservation_infrastructure.storage_definition.value(),
         preservation_infrastructure.preservation_multiplier_ppm,
         preservation_infrastructure.candidate_count,
@@ -2610,6 +2953,10 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         preservation_infrastructure.raw_material_mass_mg,
         preservation_infrastructure.embodied_mass_mg,
         preservation_infrastructure.capacity_mass_mg,
+        preservation_infrastructure.dismantle_ticks,
+        preservation_infrastructure.dismantle_metabolic_cost_nj,
+        preservation_infrastructure.dismantle_hydration_cost_ul,
+        preservation_infrastructure.recovered_enclosure_mass_mg,
         protection_attention_delta_ticks,
         protection_attention_delta_time,
         protection_raw_delta_mg,
@@ -2631,13 +2978,24 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         work_pressure.manual_power_energy_deficit_ppm,
         work_pressure.manual_power_hydration_deficit_ppm,
         manual_power_pressure.label(),
+        integrated_work.initial_drink_ticks,
+        integrated_work.prospecting_ticks,
+        integrated_work.reprovisioned_after_prospecting,
+        integrated_work.reprovision_ticks,
+        integrated_work.manual_power_ticks,
+        integrated_work.stored_work_nj,
+        1_000_000 - integrated_work.energy_deficit_ppm,
+        1_000_000 - integrated_work.hydration_deficit_ppm,
+        integrated_work.hydration_warning_safe,
     );
     std::println!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available:[foods:{} categories:{} options:{food_options}]] preservation-choice=[policy:{} candidates:{} fastest=[storage:{} attention:{}t multiplier:{}ppm remaining:{}t] strongest=[storage:{} attention:{}t multiplier:{}ppm remaining:{}t] selected:{} stronger-tradeoff=[attention:+{}t raw:+{}mg metabolic:+{}nJ hydration:+{}uL matched-age:{:+}t remaining-edible:{:+}t]] preservation-infrastructure=[food:{} stages:{} route=shared-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] matched-counterfactual=[horizon:{}t compact-calories:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:{:+}mg water-saved-delta:{:+}uL diet-quality-delta:{:+}ppm recovery-delta:{:+}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{} age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available:[foods:{} categories:{} options:{food_options}]] preservation-choice=[policy:{} value=[freshness-return:{}ppm threshold:{}ppm] candidates:{} fastest=[storage:{} attention:{}t multiplier:{}ppm remaining:{}t] strongest=[storage:{} attention:{}t multiplier:{}ppm remaining:{}t] selected:{} stronger-tradeoff=[attention:+{}t raw:+{}mg metabolic:+{}nJ hydration:+{}uL matched-age:{:+}t remaining-edible:{:+}t]] preservation-infrastructure=[food:{} stages:{} route=shared-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning provision:{}t prospect:{}t reprovision:{}:{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] matched-counterfactual=[horizon:{}t compact-calories:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:{:+}mg water-saved-delta:{:+}uL diet-quality-delta:{:+}ppm recovery-delta:{:+}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{} age-saved:{}t retained:{}mg] reserve-recovered:{}",
         world.start_profile.label(),
         foods.len(),
         available_category_count,
         preservation_infrastructure.policy.label(),
+        preservation_return_ppm,
+        preservation_return_threshold_ppm,
         preservation_infrastructure.candidate_count,
         preservation_infrastructure.fastest_definition.value(),
         preservation_infrastructure.fastest_ticks,
@@ -2680,6 +3038,10 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         preservation_infrastructure.age_saved_ticks,
         preservation_infrastructure.metabolic_cost_nj,
         preservation_infrastructure.hydration_cost_ul,
+        preservation_infrastructure.dismantle_ticks,
+        preservation_infrastructure.dismantle_metabolic_cost_nj,
+        preservation_infrastructure.dismantle_hydration_cost_ul,
+        preservation_infrastructure.recovered_enclosure_mass_mg,
         work_pressure.prospecting_method.value(),
         work_pressure.prospecting_region_voxels,
         work_pressure.prospecting_ticks,
@@ -2692,6 +3054,15 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         manual_power_pressure.label(),
         work_pressure.stored_work_nj,
         prospecting_pressure != manual_power_pressure,
+        integrated_work.initial_drink_ticks,
+        integrated_work.prospecting_ticks,
+        integrated_work.reprovisioned_after_prospecting,
+        integrated_work.reprovision_ticks,
+        integrated_work.manual_power_ticks,
+        integrated_work.stored_work_nj,
+        1_000_000 - integrated_work.energy_deficit_ppm,
+        1_000_000 - integrated_work.hydration_deficit_ppm,
+        integrated_work.hydration_warning_safe,
         natural_policy.label(),
         natural.selected_category_count,
         natural.meal_mass_mg,

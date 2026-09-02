@@ -112,6 +112,33 @@ pub(crate) fn player_work_exertion(
                 panic!("runtime invariant broken: player prospecting work has no method definition")
             })
             .exertion(),
+        PlayerWork::EquipmentMaintenance { work } => {
+            let record = state
+                .equipment()
+                .get_equipment(work.equipment())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: maintenance work references missing equipment"
+                    )
+                });
+            registries
+                .equipment()
+                .get_equipment(record.definition())
+                .and_then(|definition| definition.maintenance_profile())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: maintenance work has no authored service profile"
+                    )
+                })
+                .exertion()
+        }
+        PlayerWork::StorageEnclosureDismantling { work } => registries
+            .storage()
+            .get(work.definition())
+            .unwrap_or_else(|| {
+                panic!("runtime invariant broken: storage dismantling has no authored definition")
+            })
+            .dismantle_exertion(),
         PlayerWork::Eating { work: _ } | PlayerWork::Drinking { work: _ } => SurvivalExertion::REST,
     }
 }
@@ -257,6 +284,8 @@ fn active_work_releases_now(
                     .player()
                     .is_some_and(|player| player.vitality() == Vitality::ZERO)
         }
+        PlayerWork::EquipmentMaintenance { work } => work.completes_at() == next_tick,
+        PlayerWork::StorageEnclosureDismantling { work } => work.completes_at() == next_tick,
     }
 }
 

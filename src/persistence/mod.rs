@@ -16,6 +16,7 @@ pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 61;
 pub struct SaveEnvelope<'state> {
     schema_version: u32,
     registry_schema_version: RegistrySchemaVersion,
+    #[serde(serialize_with = "crate::core::state::serialize_app_state")]
     state: &'state AppState,
 }
 

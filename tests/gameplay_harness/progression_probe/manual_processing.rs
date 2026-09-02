@@ -58,6 +58,18 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
     decision_state: &AppState,
     plan: OwnedOreManualBridgePlan,
 ) -> OwnedOreManualBridgeReview {
+    let mut state = decision_state.clone();
+    run_owned_ore_manual_bridge(registries, &mut state, plan)
+}
+
+/// Executes the same manual bridge on a live branch state. This exists so progression can compare
+/// infrastructure-first play against a genuine manual-bootstrap branch without duplicating ore
+/// processing arithmetic or bypassing canonical production work.
+pub(super) fn run_owned_ore_manual_bridge(
+    registries: &Registries,
+    state: &mut AppState,
+    plan: OwnedOreManualBridgePlan,
+) -> OwnedOreManualBridgeReview {
     let breaking = registries
         .ore_processing()
         .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
@@ -81,59 +93,58 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
         "player-owned bulk ore cannot fund one reinforcement inside the authored manual batch envelope"
     );
     assert!(
-        decision_state
+        state
             .inventory()
             .get_stockpile(plan.ore_source)
             .is_some_and(|stockpile| stockpile.stored_mass() >= feed_mass),
         "manual bridge requires its feed to be present in player-owned ore"
     );
 
-    let mut state = decision_state.clone();
-    let matter_before = calculate_matter_accounting(&state)
+    let matter_before = calculate_matter_accounting(state)
         .unwrap_or_else(|error| panic!("owned-ore manual bridge matter setup failed: {error}"))
         .total();
-    let survival_before = assess_survival(registries, &state)
+    let survival_before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("owned-ore manual bridge player disappeared at decision point"));
     let ore_selections = select_stockpile_mass(
-        &state,
+        state,
         plan.ore_source,
         feed_mass,
         "owned-ore manual bridge feed",
     );
     let breaking = resolve_manual_comminution_process(
         registries,
-        &state,
+        state,
         ManualComminutionRequest::new(PROCESS_HAND_BREAK_ORE, plan.ore_source, &ore_selections),
     )
     .unwrap_or_else(|error| panic!("owned-ore manual bridge hand breaking failed: {error}"));
     let break_ticks = breaking.duration().value();
     let break_job = validate_start_manual_comminution(
         registries,
-        &state,
+        state,
         &breaking,
         plan.ore_source,
         plan.crushed_destination,
     )
     .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking start failed: {error}"))
-    .commit(&mut state)
+    .commit(state)
     .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking commit failed: {error}"));
     finish_uninterrupted_production_job(
         registries,
-        &mut state,
+        state,
         break_job,
         TickSpan::new(break_ticks),
         "owned-ore manual breaking",
     );
 
     let crushed_selections = select_stockpile_mass(
-        &state,
+        state,
         plan.crushed_destination,
         feed_mass,
         "owned-ore manual sorting feed",
     );
     let sorting = resolve_manual_constituent_separation_process(
         registries,
-        &state,
+        state,
         ManualConstituentSeparationRequest::new(
             PROCESS_HAND_SORT_NATIVE_COPPER,
             plan.crushed_destination,
@@ -155,18 +166,18 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
     );
     let sort_job = validate_start_manual_constituent_separation(
         registries,
-        &state,
+        state,
         &sorting,
         plan.crushed_destination,
         plan.native_destination,
         plan.residue_destination,
     )
     .unwrap_or_else(|error| panic!("owned-ore manual bridge sorting start failed: {error}"))
-    .commit(&mut state)
+    .commit(state)
     .unwrap_or_else(|error| panic!("owned-ore manual bridge sorting commit failed: {error}"));
     finish_uninterrupted_production_job(
         registries,
-        &mut state,
+        state,
         sort_job,
         TickSpan::new(sort_ticks),
         "owned-ore manual sorting",
@@ -175,7 +186,7 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
     let cold_work_started_at = state.tick().value();
     craft_batches(
         registries,
-        &mut state,
+        state,
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
         plan.native_destination,
         plan.shaped_destination,
@@ -187,14 +198,14 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
         .checked_sub(cold_work_started_at)
         .unwrap_or_else(|| unreachable!("owned-ore manual bridge cold work cannot reverse time"));
     assert_eq!(
-        calculate_matter_accounting(&state)
+        calculate_matter_accounting(state)
             .unwrap_or_else(|error| panic!("owned-ore manual bridge matter audit failed: {error}"))
             .total(),
         matter_before
     );
-    validate_loaded_state(registries, &state)
+    validate_loaded_state(registries, state)
         .unwrap_or_else(|error| panic!("owned-ore manual bridge state audit failed: {error}"));
-    let survival_after = assess_survival(registries, &state)
+    let survival_after = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("owned-ore manual bridge player disappeared after work"));
     let metabolic_cost_nj = survival_before
         .metabolic_energy()

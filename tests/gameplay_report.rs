@@ -28,6 +28,8 @@ mod fresh_seed;
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
+#[path = "gameplay_harness/maintenance_timing.rs"]
+mod maintenance_timing;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]

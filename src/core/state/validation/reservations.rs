@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::StockpileId;
+use crate::labor::PlayerWork;
 
 use super::StateValidationError;
 
@@ -36,6 +37,9 @@ pub(super) fn validate_reserved_inbound(
 ) -> Result<(), StateValidationError> {
     for job in state.systems.mining.jobs() {
         expected.add(job.destination(), job.output().mass())?;
+    }
+    if let Some(PlayerWork::StorageEnclosureDismantling { work }) = state.player_work().active() {
+        expected.add(work.recovery_destination(), work.recovered_mass())?;
     }
     for stockpile in state.systems.inventory.stockpiles() {
         let expected_mass = expected.get(stockpile.id());

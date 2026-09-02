@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass, Volume};
+use crate::inventory::MaterialLotId;
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::MaterialId;
 
@@ -48,6 +49,31 @@ pub enum PlayerWorkValidationError {
     DrinkingVolumeInvalid { volume: Volume },
     DrinkingScheduleInvalid,
     DrinkingDurationMismatch,
+    EquipmentMaintenanceEquipmentMissing,
+    EquipmentMaintenanceDefinitionMismatch,
+    EquipmentMaintenanceConditionMismatch,
+    EquipmentMaintenanceProfileMissing,
+    EquipmentMaintenanceTargetMismatch,
+    EquipmentMaintenanceScheduleInvalid,
+    EquipmentMaintenanceDurationMismatch,
+    EquipmentMaintenanceResourceDoubleBooked,
+    StorageDismantlingTargetMissing,
+    StorageDismantlingEnclosureMissing,
+    StorageDismantlingDefinitionMissing,
+    StorageDismantlingDefinitionMismatch,
+    StorageDismantlingEnclosureIdentityMismatch,
+    StorageDismantlingRecoveredMassMismatch,
+    StorageDismantlingTargetMounted,
+    StorageDismantlingTargetReservedInbound,
+    StorageDismantlingRecoveryMissing,
+    StorageDismantlingRecoveryIsTarget,
+    StorageDismantlingRecoveryMounted,
+    StorageDismantlingStorageProfileMismatch,
+    StorageDismantlingTargetContentsIncompatible { lot: MaterialLotId },
+    StorageDismantlingStorageHistoryOverflow { lot: MaterialLotId },
+    StorageDismantlingScheduleInvalid,
+    StorageDismantlingDurationMismatch,
+    StorageDismantlingResourceDoubleBooked,
     PendingDirectConsumptionWithoutWork,
     EatingConsumptionMissing,
     EatingConsumptionMismatch,
@@ -179,6 +205,78 @@ impl Display for PlayerWorkValidationError {
             }
             Self::DrinkingDurationMismatch => formatter
                 .write_str("player drinking duration disagrees with authored intake timing"),
+            Self::EquipmentMaintenanceEquipmentMissing => {
+                formatter.write_str("equipment maintenance work references missing equipment")
+            }
+            Self::EquipmentMaintenanceDefinitionMismatch => formatter.write_str(
+                "equipment maintenance definition disagrees with its persisted equipment trace",
+            ),
+            Self::EquipmentMaintenanceConditionMismatch => formatter.write_str(
+                "equipment maintenance condition disagrees with its persisted equipment trace",
+            ),
+            Self::EquipmentMaintenanceProfileMissing => formatter.write_str(
+                "equipment maintenance work references equipment with no service profile",
+            ),
+            Self::EquipmentMaintenanceTargetMismatch => formatter.write_str(
+                "equipment maintenance target condition disagrees with current authored service",
+            ),
+            Self::EquipmentMaintenanceScheduleInvalid => {
+                formatter.write_str("equipment maintenance work has an invalid persisted schedule")
+            }
+            Self::EquipmentMaintenanceDurationMismatch => formatter.write_str(
+                "equipment maintenance duration disagrees with current authored service timing",
+            ),
+            Self::EquipmentMaintenanceResourceDoubleBooked => formatter.write_str(
+                "equipment under maintenance is simultaneously occupied by another operation",
+            ),
+            Self::StorageDismantlingTargetMissing => formatter
+                .write_str("storage dismantling work references a missing target stockpile"),
+            Self::StorageDismantlingEnclosureMissing => formatter
+                .write_str("storage dismantling target no longer has its persisted enclosure"),
+            Self::StorageDismantlingDefinitionMissing => formatter
+                .write_str("storage dismantling work references a missing authored definition"),
+            Self::StorageDismantlingDefinitionMismatch => formatter
+                .write_str("storage dismantling definition disagrees with the target enclosure"),
+            Self::StorageDismantlingEnclosureIdentityMismatch => formatter.write_str(
+                "storage dismantling enclosure identity disagrees with the installed enclosure",
+            ),
+            Self::StorageDismantlingRecoveredMassMismatch => formatter.write_str(
+                "storage dismantling recovered mass disagrees with the installed enclosure",
+            ),
+            Self::StorageDismantlingTargetMounted => formatter
+                .write_str("storage dismantling target must remain unmounted while work is active"),
+            Self::StorageDismantlingTargetReservedInbound => formatter.write_str(
+                "storage dismantling target gained an inbound reservation while work is active",
+            ),
+            Self::StorageDismantlingRecoveryMissing => formatter
+                .write_str("storage dismantling work references a missing recovery stockpile"),
+            Self::StorageDismantlingRecoveryIsTarget => formatter.write_str(
+                "storage dismantling target and recovery stockpile must remain distinct",
+            ),
+            Self::StorageDismantlingRecoveryMounted => formatter.write_str(
+                "storage dismantling recovery stockpile must remain unmounted while work is active",
+            ),
+            Self::StorageDismantlingStorageProfileMismatch => formatter.write_str(
+                "storage dismantling target profile disagrees with its authored enclosure",
+            ),
+            Self::StorageDismantlingTargetContentsIncompatible { lot } => write!(
+                formatter,
+                "storage dismantling target lot {} cannot remain in ambient storage at completion",
+                lot.value()
+            ),
+            Self::StorageDismantlingStorageHistoryOverflow { lot } => write!(
+                formatter,
+                "storage dismantling target lot {} cannot checkpoint preservation history at completion",
+                lot.value()
+            ),
+            Self::StorageDismantlingScheduleInvalid => {
+                formatter.write_str("storage dismantling work has an invalid persisted schedule")
+            }
+            Self::StorageDismantlingDurationMismatch => formatter
+                .write_str("storage dismantling duration disagrees with its authored definition"),
+            Self::StorageDismantlingResourceDoubleBooked => formatter.write_str(
+                "storage dismantling labor is simultaneously owned by another active job",
+            ),
             Self::PendingDirectConsumptionWithoutWork => formatter.write_str(
                 "pending direct consumption exists without matching eating or drinking work",
             ),
@@ -267,6 +365,31 @@ impl Error for PlayerWorkValidationError {
             | Self::DrinkingVolumeInvalid { .. }
             | Self::DrinkingScheduleInvalid
             | Self::DrinkingDurationMismatch
+            | Self::EquipmentMaintenanceEquipmentMissing
+            | Self::EquipmentMaintenanceDefinitionMismatch
+            | Self::EquipmentMaintenanceConditionMismatch
+            | Self::EquipmentMaintenanceProfileMissing
+            | Self::EquipmentMaintenanceTargetMismatch
+            | Self::EquipmentMaintenanceScheduleInvalid
+            | Self::EquipmentMaintenanceDurationMismatch
+            | Self::EquipmentMaintenanceResourceDoubleBooked
+            | Self::StorageDismantlingTargetMissing
+            | Self::StorageDismantlingEnclosureMissing
+            | Self::StorageDismantlingDefinitionMissing
+            | Self::StorageDismantlingDefinitionMismatch
+            | Self::StorageDismantlingEnclosureIdentityMismatch
+            | Self::StorageDismantlingRecoveredMassMismatch
+            | Self::StorageDismantlingTargetMounted
+            | Self::StorageDismantlingTargetReservedInbound
+            | Self::StorageDismantlingRecoveryMissing
+            | Self::StorageDismantlingRecoveryIsTarget
+            | Self::StorageDismantlingRecoveryMounted
+            | Self::StorageDismantlingStorageProfileMismatch
+            | Self::StorageDismantlingTargetContentsIncompatible { .. }
+            | Self::StorageDismantlingStorageHistoryOverflow { .. }
+            | Self::StorageDismantlingScheduleInvalid
+            | Self::StorageDismantlingDurationMismatch
+            | Self::StorageDismantlingResourceDoubleBooked
             | Self::PendingDirectConsumptionWithoutWork
             | Self::EatingConsumptionMissing
             | Self::EatingConsumptionMismatch

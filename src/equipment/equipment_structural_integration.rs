@@ -125,6 +125,15 @@ impl ValidatedEquipmentSupportChange {
                 equipment: self.equipment,
             });
         }
+        if let Some(work) = state
+            .player_work()
+            .get_equipment_maintenance_occupant(self.equipment)
+        {
+            return Err(EquipmentSupportCommitError::EquipmentUnderMaintenance {
+                equipment: self.equipment,
+                completes_at: work.completes_at(),
+            });
+        }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
             return Err(EquipmentSupportCommitError::UnknownEquipment {
                 equipment: self.equipment,
@@ -251,6 +260,15 @@ fn validate_not_busy(
         .is_some()
     {
         return Err(EquipmentSupportError::EquipmentBusyManualPower { equipment });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_equipment_maintenance_occupant(equipment)
+    {
+        return Err(EquipmentSupportError::EquipmentUnderMaintenance {
+            equipment,
+            completes_at: work.completes_at(),
+        });
     }
     Ok(())
 }

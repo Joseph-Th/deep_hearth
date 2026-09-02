@@ -8,6 +8,7 @@ use crate::capability::{
 };
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::maintenance::{Condition, MaintenanceBand, MaintenanceThresholds};
 use crate::registry::Registries;
 use crate::structural::{StructuralElementId, StructuralLifecycle};
@@ -191,6 +192,10 @@ pub enum EquipmentProviderError {
         element: StructuralElementId,
         lifecycle: StructuralLifecycle,
     },
+    MaintenanceInProgress {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
 }
 
 impl Display for EquipmentProviderError {
@@ -219,6 +224,15 @@ impl Display for EquipmentProviderError {
                 equipment.value(),
                 element.value()
             ),
+            Self::MaintenanceInProgress {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is under maintenance until tick {} and cannot authorize a new operation",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::StructuralSupportNotActive {
                 equipment,
                 element,
@@ -244,6 +258,15 @@ pub fn resolve_equipment_provider<'state>(
     let Some(record) = state.equipment().get_equipment(equipment) else {
         return Err(EquipmentProviderError::UnknownEquipment { equipment });
     };
+    if let Some(work) = state
+        .player_work()
+        .get_equipment_maintenance_occupant(equipment)
+    {
+        return Err(EquipmentProviderError::MaintenanceInProgress {
+            equipment,
+            completes_at: work.completes_at(),
+        });
+    }
     let Some(definition) = registries.equipment().get_equipment(record.definition()) else {
         return Err(EquipmentProviderError::UnknownDefinition {
             equipment,

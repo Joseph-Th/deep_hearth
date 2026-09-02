@@ -7,9 +7,17 @@ pub use error::TickError;
 use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
 use crate::core::time::SimulationTick;
 use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
+use crate::equipment::{
+    EquipmentMaintenanceOutcome, apply_equipment_maintenance_tick,
+    decide_equipment_maintenance_tick,
+};
 use crate::geology::{
     FieldProspectingOutcome, FieldProspectingTickError, apply_field_prospecting_tick,
     decide_field_prospecting_tick,
+};
+use crate::inventory::{
+    StorageEnclosureDismantlingOutcome, StorageEnclosureDismantlingTickError,
+    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_tick,
 };
 use crate::labor::{
     ManualPowerOutcome, ManualPowerTickError, apply_manual_power_tick, apply_player_work_tick,
@@ -35,6 +43,8 @@ pub struct TickOutcome {
     production_completions: Vec<ProcessCompletion>,
     ready_mining_jobs: Vec<MiningJobId>,
     manual_power: Option<ManualPowerOutcome>,
+    equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
+    storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
     field_prospecting: Option<FieldProspectingOutcome>,
     survival: Option<SurvivalAssessment>,
 }
@@ -69,6 +79,18 @@ impl TickOutcome {
     #[must_use]
     pub const fn manual_power(&self) -> Option<ManualPowerOutcome> {
         self.manual_power
+    }
+
+    /// Returns equipment condition recovery completed by direct maintenance this tick.
+    #[must_use]
+    pub const fn equipment_maintenance(&self) -> Option<EquipmentMaintenanceOutcome> {
+        self.equipment_maintenance
+    }
+
+    /// Returns enclosure matter recovered by direct dismantling completed during this tick.
+    #[must_use]
+    pub fn storage_enclosure_dismantling(&self) -> Option<&StorageEnclosureDismantlingOutcome> {
+        self.storage_enclosure_dismantling.as_ref()
     }
 
     /// Returns the geological observation acquired by field prospecting on this tick, if any.
@@ -128,6 +150,20 @@ pub fn advance_tick(
             }
             CompletionPlanError::StructuralLoad(error) => TickError::StructuralLoad(error),
         })?;
+    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
+    let storage_enclosure_dismantling_plan = decide_storage_enclosure_dismantling_tick(
+        registries,
+        state,
+        &projected_inventory,
+        next_tick,
+    )
+    .map_err(|error| match error {
+        StorageEnclosureDismantlingTickError::MaterialLotIds => TickError::MaterialLotIdExhausted,
+        StorageEnclosureDismantlingTickError::InventoryRevision => {
+            TickError::InventoryRevisionExhausted
+        }
+    })?;
+    let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);
     let player_work_plan = decide_player_work_tick(
         registries,
         state,
@@ -168,6 +204,13 @@ pub fn advance_tick(
         .and_then(|steps| {
             steps.checked_add(
                 manual_power_plan
+                    .as_ref()
+                    .map_or(0, |plan| plan.equipment_revision_steps()),
+            )
+        })
+        .and_then(|steps| {
+            steps.checked_add(
+                equipment_maintenance_plan
                     .as_ref()
                     .map_or(0, |plan| plan.equipment_revision_steps()),
             )
@@ -228,8 +271,11 @@ pub fn advance_tick(
     })?;
     let ready_mining_jobs = apply_mining_tick(state, mining_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
+    let equipment_maintenance = apply_equipment_maintenance_tick(state, equipment_maintenance_plan);
     apply_passive_energy_dissipation(state, passive_energy_plan);
     let field_prospecting = apply_field_prospecting_tick(state, field_prospecting_plan);
+    let storage_enclosure_dismantling =
+        apply_storage_enclosure_dismantling_tick(state, storage_enclosure_dismantling_plan);
     apply_player_work_tick(state, player_work_plan);
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
@@ -242,6 +288,8 @@ pub fn advance_tick(
         production_completions,
         ready_mining_jobs,
         manual_power,
+        equipment_maintenance,
+        storage_enclosure_dismantling,
         field_prospecting,
         survival,
     })

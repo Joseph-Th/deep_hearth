@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::capability::{CapabilityId, CapabilityProfile, CapabilityValue};
 use crate::core::quantity::Mass;
+use crate::core::time::TickSpan;
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::{CommodityKey, FormId, MaterialAssemblyProfile};
+use crate::survival::SurvivalExertion;
 
 /// Stable authored identifier for one equipment definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -46,6 +48,8 @@ pub struct EquipmentMaintenanceProfile {
     full_service_replacement_mass: Mass,
     spent: CommodityKey,
     restored_condition: Condition,
+    full_service_duration: TickSpan,
+    exertion: SurvivalExertion,
 }
 
 impl EquipmentMaintenanceProfile {
@@ -55,6 +59,8 @@ impl EquipmentMaintenanceProfile {
         full_service_replacement_mass: Mass,
         spent: CommodityKey,
         restored_condition: Condition,
+        full_service_duration: TickSpan,
+        exertion: SurvivalExertion,
     ) -> Self {
         assert!(
             !full_service_replacement_mass.is_zero(),
@@ -63,6 +69,10 @@ impl EquipmentMaintenanceProfile {
         assert!(
             restored_condition > Condition::FAILED,
             "equipment maintenance restored condition must be above failed"
+        );
+        assert!(
+            full_service_duration != TickSpan::ZERO,
+            "equipment maintenance full-service duration must be nonzero"
         );
         assert_eq!(
             replacement.material(),
@@ -79,6 +89,8 @@ impl EquipmentMaintenanceProfile {
             full_service_replacement_mass,
             spent,
             restored_condition,
+            full_service_duration,
+            exertion,
         }
     }
 
@@ -92,8 +104,17 @@ impl EquipmentMaintenanceProfile {
         component_mass: Mass,
         spent: CommodityKey,
         restored_condition: Condition,
+        full_service_duration: TickSpan,
+        exertion: SurvivalExertion,
     ) -> Self {
-        let mut profile = Self::new(replacement, component_mass, spent, restored_condition);
+        let mut profile = Self::new(
+            replacement,
+            component_mass,
+            spent,
+            restored_condition,
+            full_service_duration,
+            exertion,
+        );
         profile.material_mode = EquipmentMaintenanceMaterialMode::EmbodiedComponentReplacement;
         profile
     }
@@ -145,6 +166,45 @@ impl EquipmentMaintenanceProfile {
     #[must_use]
     pub const fn restored_condition(self) -> Condition {
         self.restored_condition
+    }
+
+    #[must_use]
+    pub const fn full_service_duration(self) -> TickSpan {
+        self.full_service_duration
+    }
+
+    /// Active player-work duration required to restore `condition_before` to the service target.
+    ///
+    /// Aggregate service scales duration with the same restored-condition fraction as replacement
+    /// stock. Component replacement remains indivisible because the whole authored component is
+    /// exchanged as one service operation.
+    #[must_use]
+    pub fn required_service_duration(self, condition_before: Condition) -> TickSpan {
+        if condition_before >= self.restored_condition {
+            return TickSpan::ZERO;
+        }
+        if self.is_component_replacement() {
+            return self.full_service_duration;
+        }
+        let restored_parts = self
+            .restored_condition
+            .parts_per_million()
+            .checked_sub(condition_before.parts_per_million())
+            .unwrap_or_else(|| unreachable!("lower condition must leave a positive repair delta"));
+        let numerator = u128::from(self.full_service_duration.value()) * u128::from(restored_parts);
+        let denominator = u128::from(self.restored_condition.parts_per_million());
+        let required = numerator.div_ceil(denominator);
+        let required = u64::try_from(required).unwrap_or_else(|_| {
+            unreachable!(
+                "partial maintenance duration cannot exceed authored full-service duration"
+            )
+        });
+        TickSpan::new(required.max(1))
+    }
+
+    #[must_use]
+    pub const fn exertion(self) -> SurvivalExertion {
+        self.exertion
     }
 
     #[must_use]

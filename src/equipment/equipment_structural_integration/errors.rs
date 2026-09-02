@@ -42,6 +42,10 @@ pub enum EquipmentSupportError {
     EquipmentBusyManualPower {
         equipment: EquipmentId,
     },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     AggregateMassOverflow {
         element: StructuralElementId,
     },
@@ -101,6 +105,15 @@ impl Display for EquipmentSupportError {
                 "equipment {} is occupied by direct player-powered generation and cannot be moved",
                 equipment.value()
             ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is under maintenance until tick {} and cannot be moved",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::AggregateMassOverflow { element } => write!(
                 formatter,
                 "mounted equipment mass overflows aggregate accounting on structural element {}",
@@ -143,6 +156,7 @@ impl Error for EquipmentSupportError {
             | Self::EquipmentBusy { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentUnderMaintenance { .. }
             | Self::AggregateMassOverflow { .. }
             | Self::WeightForceOverflow { .. }
             | Self::ExistingEquipmentLoadMismatch { .. }
@@ -177,6 +191,10 @@ pub enum EquipmentSupportCommitError {
     },
     EquipmentBusyManualPower {
         equipment: EquipmentId,
+    },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     Structure(StructuralCommitError),
 }
@@ -224,6 +242,15 @@ impl Display for EquipmentSupportCommitError {
                 "equipment {} became occupied by direct player-powered generation before support commit",
                 equipment.value()
             ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} entered maintenance until tick {} before support commit",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::Structure(error) => {
                 write!(formatter, "structural support commit failed: {error}")
             }
@@ -240,7 +267,8 @@ impl Error for EquipmentSupportCommitError {
             | Self::SupportChanged { .. }
             | Self::EquipmentBusy { .. }
             | Self::EquipmentBusyMining { .. }
-            | Self::EquipmentBusyManualPower { .. } => None,
+            | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentUnderMaintenance { .. } => None,
         }
     }
 }

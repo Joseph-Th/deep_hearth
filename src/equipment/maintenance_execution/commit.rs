@@ -3,14 +3,15 @@
 use crate::core::state::AppState;
 
 use super::{
-    EquipmentMaintenanceCommitError, EquipmentMaintenanceOutcome, ValidatedEquipmentMaintenance,
+    EquipmentMaintenanceCommitError, EquipmentMaintenanceStartOutcome,
+    ValidatedEquipmentMaintenance,
 };
 
 impl ValidatedEquipmentMaintenance {
     pub fn commit(
         self,
         state: &mut AppState,
-    ) -> Result<EquipmentMaintenanceOutcome, EquipmentMaintenanceCommitError> {
+    ) -> Result<EquipmentMaintenanceStartOutcome, EquipmentMaintenanceCommitError> {
         let actual_revision = state.equipment().revision();
         if actual_revision != self.expected_equipment_revision {
             return Err(EquipmentMaintenanceCommitError::StaleEquipmentRevision {
@@ -52,22 +53,26 @@ impl ValidatedEquipmentMaintenance {
                 release: job.occupancy_release(),
             });
         }
+        self.player_work
+            .precheck(state)
+            .map_err(EquipmentMaintenanceCommitError::PlayerWork)?;
 
         let material_mass = self.material.material_mass();
         self.material.commit(
             state,
             self.equipment,
             self.condition_before,
-            self.condition_after,
             self.expected_equipment_revision,
             self.next_equipment_revision,
         )?;
+        self.player_work.apply(state);
 
-        Ok(EquipmentMaintenanceOutcome {
+        Ok(EquipmentMaintenanceStartOutcome {
             equipment: self.equipment,
             condition_before: self.condition_before,
-            condition_after: self.condition_after,
+            target_condition: self.condition_after,
             material_mass,
+            completes_at: self.work.completes_at(),
         })
     }
 }

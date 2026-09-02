@@ -498,6 +498,14 @@ class LocalCiPlanTests(unittest.TestCase):
         ]
         self.assertEqual(offenders, [])
 
+    def test_gameplay_harness_does_not_enumerate_unexpected_variants_only_to_panic(self) -> None:
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "tests" / "gameplay_harness").rglob("*.rs")
+            if "other @ (" in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(offenders, [])
+
     def test_gameplay_harness_does_not_bind_assertions_to_panic_prose(self) -> None:
         forbidden = re.compile(r"#\[should_panic\s*\([^]]*\bexpected\s*=", re.DOTALL)
         offenders = [
@@ -729,6 +737,10 @@ class LocalCiPlanTests(unittest.TestCase):
             definitions[ci.GAMEPLAY_CONTRACTS_TARGET].get("required-features"),
             ["test-gameplay"],
         )
+        self.assertEqual(
+            definitions[ci.GAMEPLAY_AUDIT_TARGET].get("required-features"),
+            ["test-gameplay"],
+        )
         self.assertNotIn("--nocapture", ci.gameplay_command("all"))
 
     def test_focused_gameplay_roots_do_not_import_unrelated_probe_families(self) -> None:
@@ -767,6 +779,14 @@ class LocalCiPlanTests(unittest.TestCase):
                 "replay=anchor:0xA@0x1,organic:0xC@0x3\n"
             ),
             "roots=0x111/0x222",
+        )
+        self.assertEqual(
+            ci.gameplay_replay_summary(
+                "PROBE INPUT name=survival-provisioning mode=gate samples=3 organic=0 "
+                "world_root=0xE7A10A7E5EED2026 behavior_root=0xE7A10A7E5EED2026 "
+                "replay=anchor:0xA@0x1,coverage:0xB@0x2,coverage:0xC@0x3\n"
+            ),
+            "maintained=3",
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
@@ -822,7 +842,7 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("--lib", builds[0])
         self.assertEqual(
             cargo_test_targets(builds[0]),
-            list(ci.GAMEPLAY_AUDIT_TARGETS),
+            [ci.GAMEPLAY_AUDIT_TARGET],
         )
 
     def test_combined_audit_summary_keeps_core_and_gameplay_counts_legible(self) -> None:
@@ -853,15 +873,15 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", gameplay_builds[0])
         self.assertNotIn(["cargo", "test-core"], gameplay_builds)
 
-    def test_broad_gameplay_audit_reuses_contracts_and_every_focused_target(self) -> None:
+    def test_broad_gameplay_audit_uses_one_consolidated_target(self) -> None:
         command = ci.gameplay_command("all")
-        self.assertEqual(
-            cargo_test_targets(command),
-            list(ci.GAMEPLAY_AUDIT_TARGETS),
-        )
-        self.assertEqual(
-            set(ci.GAMEPLAY_AUDIT_TARGETS),
-            {ci.GAMEPLAY_CONTRACTS_TARGET, *ci.GAMEPLAY_TARGETS.values()},
+        self.assertEqual(cargo_test_targets(command), [ci.GAMEPLAY_AUDIT_TARGET])
+        catalog = run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None)
+        for test_name in ci.GAMEPLAY_TESTS.values():
+            self.assertIn(test_name, catalog)
+        self.assertIn(
+            "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
+            catalog,
         )
 
     def test_broad_core_failure_points_to_one_exact_repair(self) -> None:
@@ -873,10 +893,10 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_gameplay_contract_failure_reuses_the_already_built_contract_target(self) -> None:
         output = "failures:\n    configuration_tests::broken_contract\n"
-        error = "error: test failed, to rerun pass `--test gameplay_contracts`"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_contracts configuration_tests::broken_contract",
+            "python tools/run_test.py --target gameplay_audit configuration_tests::broken_contract",
         )
 
     def test_combined_audit_core_failure_points_to_exact_unit_test(self) -> None:
@@ -902,36 +922,83 @@ class LocalCiPlanTests(unittest.TestCase):
             "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
         )
 
-    def test_broad_focused_failure_stays_on_the_warm_focused_target(self) -> None:
-        output = "failures:\n    gameplay_ore_preparation_probe\n"
-        error = "error: test failed, to rerun pass `--test gameplay_ore`"
+    def test_broad_focused_failure_stays_on_the_warm_audit_target(self) -> None:
+        output = (
+            "PROBE INPUT name=ore-preparation mode=gate samples=3 organic=1 "
+            "world_root=0x1234 behavior_root=n/a replay=anchor:0x1,organic:0x2\n"
+            "failures:\n    gameplay_ore_preparation_probe\n"
+        )
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0x1234 gameplay_ore_preparation_probe",
         )
 
-    def test_agency_failure_reuses_the_workshop_target(self) -> None:
-        output = "failures:\n    agency::gameplay_agency_counterfactuals\n"
-        error = "error: test failed, to rerun pass `--test gameplay_workshop`"
+    def test_agency_failure_reuses_the_warm_audit_target(self) -> None:
+        output = (
+            "AGENCY INPUT mode=gate organic=1 variation_root=0x24311DCEB06D58AE\n"
+            "failures:\n    agency::gameplay_agency_counterfactuals\n"
+        )
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_workshop agency::gameplay_agency_counterfactuals",
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0x24311DCEB06D58AE agency::gameplay_agency_counterfactuals",
         )
 
-    def test_process_catalog_failure_reuses_the_contract_target(self) -> None:
+    def test_workshop_failure_preserves_both_replay_roots(self) -> None:
+        output = (
+            "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
+            "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
+            "failures:\n    workshop_contract_tests::gameplay_harness_gate\n"
+        )
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, error),
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA --behavior-seed 0xBBBB workshop_contract_tests::gameplay_harness_gate",
+        )
+
+    def test_process_catalog_failure_reuses_the_warm_audit_target(self) -> None:
         output = "failures:\n    process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology\n"
-        error = "error: test failed, to rerun pass `--test gameplay_contracts`"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_contracts process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
+            "python tools/run_test.py --target gameplay_audit process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
         )
 
-    def test_survival_generator_failure_reuses_the_survival_target(self) -> None:
+    def test_survival_generator_failure_reuses_the_warm_audit_target(self) -> None:
         output = "failures:\n    survival_contract_tests::survival_generation_covers_authored_options_without_policy_leakage\n"
-        error = "error: test failed, to rerun pass `--test gameplay_survival`"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_survival survival_contract_tests::survival_generation_covers_authored_options_without_policy_leakage",
+            "python tools/run_test.py --target gameplay_audit survival_contract_tests::survival_generation_covers_authored_options_without_policy_leakage",
+        )
+
+    def test_failure_output_keeps_context_and_tail_without_unbounded_transcripts(self) -> None:
+        lines = [f"line-{index}" for index in range(100)]
+        bounded = ci.bounded_failure_output("\n".join(lines))
+        self.assertIn("line-0", bounded)
+        self.assertIn("line-99", bounded)
+        self.assertIn("20 line(s) omitted", bounded)
+        self.assertNotIn("line-20\n", bounded)
+
+    def test_run_test_replay_flags_map_to_existing_harness_environment(self) -> None:
+        args = run_test.parse_args(
+            [
+                "--target",
+                ci.GAMEPLAY_AUDIT_TARGET,
+                "--variation-seed",
+                "0xAAAA",
+                "--behavior-seed",
+                "0xBBBB",
+                "workshop_contract_tests::gameplay_harness_gate",
+            ]
+        )
+        self.assertEqual(
+            run_test.gameplay_replay_environment(args),
+            {
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
+            },
         )
 
     def test_unknown_gameplay_failure_falls_back_to_the_broad_gameplay_audit(self) -> None:
@@ -986,6 +1053,32 @@ class LocalCiPlanTests(unittest.TestCase):
                 "test-gameplay",
             ],
         )
+
+    def test_check_mode_is_target_only_and_needs_no_test_selector(self) -> None:
+        args = run_test.parse_args(["--check", "--target", ci.GAMEPLAY_AUDIT_TARGET])
+        self.assertTrue(args.check)
+        self.assertIsNone(args.name)
+        self.assertEqual(args.target, ci.GAMEPLAY_AUDIT_TARGET)
+
+    def test_check_mode_rejects_a_misleading_test_selector(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                run_test.parse_args(
+                    [
+                        "--check",
+                        "--target",
+                        ci.GAMEPLAY_AUDIT_TARGET,
+                        "gameplay_ore_preparation_probe",
+                    ]
+                )
+
+    def test_run_test_failure_output_is_bounded(self) -> None:
+        lines = [f"line-{index}" for index in range(100)]
+        bounded = run_test.bounded_failure_output("\n".join(lines))
+        self.assertIn("line-0", bounded)
+        self.assertIn("line-99", bounded)
+        self.assertIn("20 line(s) omitted", bounded)
+        self.assertNotIn("line-20\n", bounded)
 
     def test_report_reuses_ordinary_gameplay_feature_shape(self) -> None:
         plan = ci.report_plan()
@@ -1045,7 +1138,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 "running 1 test",
                 "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified",
                 "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
-                "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,organic:0x00000000000000CC",
+                "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000CC",
                 "HARNESS INPUT plan=anchor+variation",
                 "CONTENT registry_schema=64 equipment=[authored:12]",
                 "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4] energy=[authored-edge:2 no-authored-edge:4] reachability=direct-edge-not-end-to-end-proof",
@@ -1059,10 +1152,13 @@ class LocalCiPlanTests(unittest.TestCase):
                 "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
                 "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
                 "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
-                "PROGRESSION EXPERIENCE seed=0x0000000000000001 anchor-experience",
+                "PROGRESSION EXPERIENCE seed=0x0000000000000001 information=deferred-refinement first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[available] economics:setup-repaid",
+                "PROGRESSION EXPERIENCE seed=0x00000000000000AA information=surface-resolved first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
+                "PROGRESSION EXPERIENCE seed=0x00000000000000BB information=surface-resolved first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
                 "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000AA organic-experience",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000CC survival-organic-experience",
+                "SURVIVAL EXPERIENCE seed=0x0000000000000001 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[storage-policy:maximum-protection]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000AA pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[storage-policy:attention-efficient]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000CC pressure=hydration choice=[state:policy-sensitive diet:compact-calories] current-investment=[storage-policy:maximum-protection]",
                 "SURVIVAL REVIEW seed=0x00000000000000AA accounting-detail",
                 "test result: ok. 1 passed",
             ]
@@ -1073,14 +1169,18 @@ class LocalCiPlanTests(unittest.TestCase):
                 [
                     "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified",
                     "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
-                    "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,organic:0x00000000000000CC",
+                    "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000CC",
                     "CONTENT registry_schema=64 equipment=[authored:12]",
                     "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4] energy=[authored-edge:2 no-authored-edge:4] reachability=direct-edge-not-end-to-end-proof",
                     "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
                     "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
                     "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
-                    "PROGRESSION EXPERIENCE seed=0x0000000000000001 anchor-experience",
-                    "SURVIVAL EXPERIENCE seed=0x00000000000000CC survival-organic-experience",
+                    "PROGRESSION EXPERIENCE seed=0x0000000000000001 information=deferred-refinement first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[available] economics:setup-repaid",
+                    "PROGRESSION EXPERIENCE seed=0x00000000000000AA information=surface-resolved first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
+                    "SURVIVAL EXPERIENCE seed=0x0000000000000001 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[storage-policy:maximum-protection]",
+                    "SURVIVAL EXPERIENCE seed=0x00000000000000AA pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[storage-policy:attention-efficient]",
+                    "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[attention-efficient:1 maximum-protection:2]",
+                    "PROGRESSION DIVERSITY samples=3 first-copper=[pick:3 crank-first-counterfactual:3] information=[surface-resolved:2 deferred-refinement:1] automation=[setup-repaid:1 opportunity-ended-before-payback:2] reinvestment=[available:1 known-target-supply:2]",
                 ]
             ),
         )
@@ -1102,7 +1202,14 @@ class LocalCiPlanTests(unittest.TestCase):
         for key in ("autobins", "autoexamples", "autotests", "autobenches"):
             self.assertFalse(package[key])
         targets = {definition["name"] for definition in manifest.get("test", [])}
-        self.assertEqual(targets, set(ci.GAMEPLAY_AUDIT_TARGETS))
+        self.assertEqual(
+            targets,
+            {
+                ci.GAMEPLAY_AUDIT_TARGET,
+                ci.GAMEPLAY_CONTRACTS_TARGET,
+                *ci.GAMEPLAY_TARGETS.values(),
+            },
+        )
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
         self.assertEqual(binaries, {"validate-shaders"})
         examples = {definition["name"] for definition in manifest.get("example", [])}
@@ -1377,6 +1484,19 @@ class ExactTestCommandTests(unittest.TestCase):
         self.assertFalse(
             run_test.attributes_enabled(['#[cfg(feature = "missing")]'], features)
         )
+        self.assertTrue(
+            run_test.attributes_enabled(
+                ['#[cfg(all(test, feature = "leaf"))]'], features
+            )
+        )
+        self.assertFalse(run_test.attributes_enabled(['#[cfg(not(test))]'], features))
+        self.assertFalse(
+            run_test.attributes_enabled(
+                ['#[cfg(all(not(test), feature = "leaf"))]'], features
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "does not understand cfg predicate"):
+            run_test.attributes_enabled(['#[cfg(target_os = "windows")]'], features)
 
     def test_unique_test_selector_resolves_to_one_exact_catalog_name(self) -> None:
         catalog = [

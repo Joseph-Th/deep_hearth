@@ -90,7 +90,7 @@ fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
 }
 
 #[test]
-fn default_gate_keeps_maintained_anchors_and_adds_one_organic_case() {
+fn default_gate_keeps_maintained_anchors_and_adds_one_replayable_variation() {
     let plan = plan(ScenarioPlanMode::Gate, None, None, None)
         .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
@@ -116,11 +116,17 @@ fn default_gate_keeps_maintained_anchors_and_adds_one_organic_case() {
     );
     assert_eq!(plan.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
     assert_eq!(plan.variation_seed_count(), 1);
+    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len() + 1);
     assert_eq!(
         plan.variation_label(),
         format!("0x{MAINTAINED_VARIATION_ROOT:016X}")
     );
     assert_eq!(plan.behavior_label(), "0x0000000000000001");
+    assert!(
+        plan.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()]
+            .iter()
+            .all(|case| case.anchor.is_some())
+    );
     assert!(
         plan.cases()
             .last()
@@ -129,7 +135,7 @@ fn default_gate_keeps_maintained_anchors_and_adds_one_organic_case() {
 }
 
 #[test]
-fn gate_uses_replay_roots_for_one_organic_case_without_changing_maintained_anchors() {
+fn explicit_gate_variation_root_adds_one_replay_case_without_changing_maintained_anchors() {
     let first = scenario_seeds_from(
         ScenarioPlanMode::Gate,
         None,
@@ -166,6 +172,12 @@ fn gate_uses_replay_roots_for_one_organic_case_without_changing_maintained_ancho
     assert_eq!(first.behavior_label(), "0x0000000000002222");
     assert_eq!(second.variation_label(), "0x000000000000AAAA");
     assert_eq!(second.behavior_label(), "0x000000000000BBBB");
+
+    assert_eq!(
+        plan(ScenarioPlanMode::Gate, None, None, Some("ignored")),
+        Err(GameplayHarnessConfigError::InvalidBehaviorSeed),
+        "gate behavior input is active because the supplemental organic case varies actor policy"
+    );
 
     let exploratory =
         scenario_seeds_from(ScenarioPlanMode::Explore, None, None, None, 0x1111, 0x2222)

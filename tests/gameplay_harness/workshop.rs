@@ -13,6 +13,9 @@ use super::environment::ROOM_TEMPERATURE;
 use super::fresh_seed::fresh_root;
 use super::industrial_support::install_equipment_on_grounded_support;
 use super::inventory_support::add_solid_stockpile;
+use super::maintenance_timing::{
+    advance_equipment_maintenance_to, finish_active_equipment_maintenance,
+};
 use super::manual_power_timing::{advance_manual_power_to, finish_manual_power_work};
 use super::ore_fixture::copper_ore_composition;
 use super::output::has_verbose_output;
@@ -44,17 +47,17 @@ use deep_hearth::energy::{
     EnergySinkError, EnergyStoreId, EnergySupplyError, calculate_mass_specific_energy,
 };
 use deep_hearth::equipment::{
-    EquipmentId, EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError,
-    EquipmentProviderError, EquipmentSupportError, resolve_equipment_maintenance,
-    validate_assemble_equipment, validate_equipment_maintenance, validate_mount_equipment,
-    validate_relocate_equipment,
+    EquipmentId, EquipmentMaintenanceError, EquipmentMaintenanceRequest,
+    EquipmentMaintenanceResolutionError, EquipmentProviderError, EquipmentSupportError,
+    resolve_equipment_maintenance, validate_assemble_equipment, validate_equipment_maintenance,
+    validate_mount_equipment, validate_relocate_equipment,
 };
 use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, validate_mount_stockpile,
 };
 use deep_hearth::labor::{
-    ManualPowerError, ManualPowerRequest, PlayerWorkStartError, ValidatedManualPowerStart,
-    validate_start_manual_power,
+    ManualPowerError, ManualPowerRequest, PlayerWork, PlayerWorkStartError,
+    ValidatedManualPowerStart, validate_start_manual_power,
 };
 use deep_hearth::maintenance::{Condition, MaintenanceBand};
 use deep_hearth::material::CommodityKey;
@@ -518,6 +521,7 @@ fn setup_workshop(
 enum MaintenanceAttempt {
     Serviced,
     SupplyExhausted,
+    LaborUnavailable,
 }
 
 fn service_crusher(
@@ -561,12 +565,43 @@ fn service_crusher(
         .get_form(spent_commodity.form())
         .map(|form| form.name())
         .unwrap_or_else(|| panic!("gameplay harness maintenance spent form disappeared"));
-    let outcome = validate_equipment_maintenance(registries, state, resolution)
-        .unwrap_or_else(|error| panic!("gameplay harness maintenance validation failed: {error}"))
+    let maintenance_start = match validate_equipment_maintenance(registries, state, resolution) {
+        Ok(start) => start,
+        Err(EquipmentMaintenanceError::PlayerWork(
+            PlayerWorkStartError::InsufficientMetabolicEnergy {
+                available,
+                required,
+            },
+        )) => {
+            maintenance.labor_unavailable = true;
+            println!(
+                "  maintenance labor: service needs {}nJ metabolic reserve but only {}nJ remains",
+                required.nanojoules(),
+                available.nanojoules(),
+            );
+            return MaintenanceAttempt::LaborUnavailable;
+        }
+        Err(EquipmentMaintenanceError::PlayerWork(
+            PlayerWorkStartError::InsufficientHydration {
+                available,
+                required,
+            },
+        )) => {
+            maintenance.labor_unavailable = true;
+            println!(
+                "  maintenance labor: service needs {}uL hydration reserve but only {}uL remains",
+                required.microliters(),
+                available.microliters(),
+            );
+            return MaintenanceAttempt::LaborUnavailable;
+        }
+        Err(error) => panic!("gameplay harness maintenance validation failed: {error}"),
+    };
+    let outcome = maintenance_start
         .commit(state)
         .unwrap_or_else(|error| panic!("gameplay harness maintenance commit failed: {error}"));
     assert_eq!(outcome.condition_before(), before);
-    assert_eq!(outcome.condition_after(), after);
+    assert_eq!(outcome.target_condition(), after);
     assert_eq!(outcome.material_mass(), material_mass);
     maintenance.services = maintenance
         .services
@@ -584,10 +619,11 @@ fn service_crusher(
         "gameplay maintenance must preserve spent matter in its authored non-reusable form"
     );
     println!(
-        "  maintenance service: spend={}mg replacement stock condition={}ppm->{}ppm; output becomes {spent_form} and is no longer replacement stock",
+        "  maintenance service: spend={}mg replacement stock condition={}ppm->{}ppm by tick {}; output becomes {spent_form} and is no longer replacement stock",
         material_mass.milligrams(),
         before.parts_per_million(),
         after.parts_per_million(),
+        outcome.completes_at().value(),
     );
     MaintenanceAttempt::Serviced
 }
@@ -1265,6 +1301,15 @@ fn adapt_after_delivery(
     actor: &mut ScenarioActorRuntime<'_>,
     after: StructuralAssessment,
 ) {
+    if matches!(
+        state.player_work().active(),
+        Some(PlayerWork::EquipmentMaintenance { .. })
+    ) {
+        println!(
+            "  recovery deferred: structural change occurred during crusher maintenance; relocation waits for service ownership to release"
+        );
+        return;
+    }
     if after.stage() == StructuralStage::Failed {
         let suspended_wip = state.production().jobs().find(|job| {
             job.is_suspended()
@@ -1400,6 +1445,23 @@ fn adapt_after_delivery(
                 structural_label(alternate_assessment)
             );
         }
+    }
+}
+
+fn adapt_current_support_if_needed(
+    registries: &Registries,
+    state: &mut AppState,
+    ids: WorkshopIds,
+    actor: &mut ScenarioActorRuntime<'_>,
+) {
+    let (compact, reinforced) = analyze_workshop_supports(registries, state, ids);
+    let current = if *actor.current_support == ids.compact_support {
+        compact
+    } else {
+        reinforced
+    };
+    if current.stage() != StructuralStage::Stable {
+        adapt_after_delivery(registries, state, ids, actor, current);
     }
 }
 

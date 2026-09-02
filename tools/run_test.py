@@ -14,6 +14,8 @@ import sys
 import time
 import tomllib
 
+import test_catalog
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_SUPPORT_FEATURE = "test-gameplay"
@@ -22,16 +24,8 @@ TEST_RESULT = re.compile(
     r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
     r"(?P<ignored>\d+) ignored;"
 )
-ATTRIBUTE = re.compile(r"^\s*#\[(?P<body>.+)\]\s*$")
-FUNCTION = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(?P<name>[A-Za-z_]\w*)\s*\(")
-INLINE_MODULE = re.compile(r"^mod\s+(?P<name>[A-Za-z_]\w*)\s*\{$")
-EXTERNAL_MODULE = re.compile(
-    r"^(?:pub(?:\([^)]*\))?\s+)?mod\s+(?P<name>[A-Za-z_]\w*)\s*;$"
-)
-PATH_ATTRIBUTE = re.compile(r'^#\[path\s*=\s*"(?P<path>[^"]+)"\]$')
-FEATURE_NAME = re.compile(r'feature\s*=\s*"(?P<name>[^"]+)"')
-BARE_TEST_CFG = re.compile(r"(?:^|[,(])\s*test\s*(?:[,)]|$)")
-TOP_LEVEL_USE = re.compile(r"^use\s+(?P<body>.*?);", re.MULTILINE | re.DOTALL)
+FAILURE_HEAD_LINES = 16
+FAILURE_TAIL_LINES = 64
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -92,203 +86,28 @@ def cargo_feature_set(target: str, raw: str | None) -> set[str]:
     )
 
 
-def attributes_enabled(attributes: list[str], features: set[str]) -> bool:
-    """Evaluate the simple feature cfgs used by this repository's test declarations."""
-
-    for attribute in attributes:
-        if not attribute.startswith("#[cfg("):
-            continue
-        if attribute == "#[cfg(test)]":
-            continue
-        required = FEATURE_NAME.findall(attribute)
-        if not required:
-            continue
-        if "any(" in attribute:
-            if BARE_TEST_CFG.search(attribute):
-                continue
-            if not any(feature in features for feature in required):
-                return False
-        elif not all(feature in features for feature in required):
-            return False
-    return True
-
-
-def file_test_names(path: Path, prefix: tuple[str, ...], features: set[str]) -> list[str]:
-    """Read direct #[test] declarations from one rustfmt-formatted source module."""
-
-    names: list[str] = []
-    pending_attributes: list[str] = []
-    inline_test_module: str | None = None
-
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if ATTRIBUTE.match(line):
-            pending_attributes.append(stripped)
-            continue
-
-        module_match = INLINE_MODULE.match(stripped)
-        if (
-            line == stripped
-            and module_match is not None
-            and "#[cfg(test)]" in pending_attributes
-        ):
-            inline_test_module = module_match.group("name")
-            pending_attributes.clear()
-            continue
-
-        if inline_test_module is not None and line == "}":
-            inline_test_module = None
-            pending_attributes.clear()
-            continue
-
-        function_match = FUNCTION.match(line)
-        if function_match is not None and "#[test]" in pending_attributes:
-            if attributes_enabled(pending_attributes, features):
-                components = [*prefix]
-                if inline_test_module is not None:
-                    components.append(inline_test_module)
-                components.append(function_match.group("name"))
-                names.append("::".join(components))
-            pending_attributes.clear()
-            continue
-
-        if stripped:
-            pending_attributes.clear()
-
-    return names
-
-
 def cargo_test_target_path(target: str) -> Path:
     return ROOT / cargo_test_target_definition(target)["path"]
 
 
-def explicit_module_source(attributes: list[str]) -> str | None:
-    for attribute in attributes:
-        match = PATH_ATTRIBUTE.match(attribute)
-        if match is not None:
-            return match.group("path")
-    return None
-
-
-def resolve_external_module_path(
-    source: Path,
-    name: str,
-    attributes: list[str],
-) -> Path:
-    explicit = explicit_module_source(attributes)
-    if explicit is not None:
-        candidate = source.parent / explicit
-    else:
-        module_root = (
-            source.parent
-            if source.name in {"lib.rs", "main.rs", "mod.rs"}
-            else source.parent / source.stem
-        )
-        direct = module_root / f"{name}.rs"
-        nested = module_root / name / "mod.rs"
-        candidate = direct if direct.is_file() else nested
-    if not candidate.is_file():
-        raise ValueError(
-            f"source catalog cannot resolve module {name!r} from {source.relative_to(ROOT)}"
-        )
-    return candidate
-
-
-def external_modules(path: Path, features: set[str]) -> list[tuple[str, Path]]:
-    modules: list[tuple[str, Path]] = []
-    pending_attributes: list[str] = []
-
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if line == stripped and ATTRIBUTE.match(line):
-            pending_attributes.append(stripped)
-            continue
-
-        module_match = EXTERNAL_MODULE.match(stripped) if line == stripped else None
-        if module_match is not None:
-            if attributes_enabled(pending_attributes, features):
-                name = module_match.group("name")
-                modules.append(
-                    (name, resolve_external_module_path(path, name, pending_attributes))
-                )
-            pending_attributes.clear()
-            continue
-
-        if stripped:
-            pending_attributes.clear()
-
-    return modules
-
-
-def reachable_modules(
-    root: Path,
-    features: set[str],
-) -> list[tuple[Path, tuple[str, ...]]]:
-    """Return one Rust crate's external module closure with stable module prefixes."""
-
-    modules: list[tuple[Path, tuple[str, ...]]] = []
-    pending: list[tuple[Path, tuple[str, ...]]] = [(root, ())]
-    visited: set[tuple[Path, tuple[str, ...]]] = set()
-    while pending:
-        path, prefix = pending.pop()
-        key = (path.resolve(), prefix)
-        if key in visited:
-            continue
-        visited.add(key)
-        modules.append((path, prefix))
-        for module, module_path in external_modules(path, features):
-            pending.append((module_path, (*prefix, module)))
-    return modules
-
-
-def root_sibling_imports(source: str, module_depth: int) -> set[str]:
-    """Return crate-root sibling modules referenced by ancestor-relative top-level imports."""
-
-    required: set[str] = set()
-    prefix = "super::" * module_depth
-    for match in TOP_LEVEL_USE.finditer(source):
-        body = " ".join(match.group("body").split())
-        if not body.startswith(prefix):
-            continue
-        body = body[len(prefix) :]
-        if body.startswith("super::"):
-            continue
-        if body.startswith("{") and body.endswith("}"):
-            for item in body[1:-1].split(","):
-                name = item.strip().split("::", 1)[0].strip()
-                if re.fullmatch(r"[A-Za-z_]\w*", name) and name != "self":
-                    required.add(name)
-            continue
-        name = body.split("::", 1)[0].strip()
-        if re.fullmatch(r"[A-Za-z_]\w*", name):
-            required.add(name)
-    return required
+attributes_enabled = test_catalog.attributes_enabled
+root_sibling_imports = test_catalog.root_sibling_imports
 
 
 def missing_root_modules(target: str, module_directory: Path) -> list[str]:
     """Find source-referenced root sibling modules omitted by one integration-test crate root."""
 
-    root = cargo_test_target_path(target)
     features = cargo_feature_set(target, None)
-    declared = {name for name, _path in external_modules(root, features)}
-    available = {path.stem for path in module_directory.glob("*.rs")}
-    required: set[str] = set()
-    for path, prefix in reachable_modules(root, features):
-        if not prefix:
-            continue
-        required.update(
-            root_sibling_imports(path.read_text(encoding="utf-8"), len(prefix)) & available
-        )
-    return sorted(required - declared)
+    return test_catalog.missing_root_modules(
+        ROOT,
+        cargo_test_target_path(target),
+        module_directory,
+        features,
+    )
 
 
 def reachable_test_names(root: Path, features: set[str]) -> list[str]:
-    """Walk one Rust crate/module graph and return only tests reachable from its root."""
-
-    names: list[str] = []
-    for path, prefix in reachable_modules(root, features):
-        names.extend(file_test_names(path, prefix, features))
-    return names
+    return test_catalog.reachable_test_names(ROOT, root, features)
 
 
 def integration_test_names(target: str, features: set[str]) -> list[str]:
@@ -385,7 +204,7 @@ def cargo_check_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run one exact cached Rust test or one bounded source-catalog suite, type-check one "
@@ -419,9 +238,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--ignored", action="store_true", help="select an ignored exact test")
     parser.add_argument("--nocapture", action="store_true", help="show selected-test output")
-    args = parser.parse_args()
-    if not args.list and not args.name:
-        parser.error("a test selector is required unless --list is used")
+    parser.add_argument(
+        "--variation-seed",
+        help="replay DEEP_HEARTH_GAMEPLAY_VARIATION_SEED for this test execution",
+    )
+    parser.add_argument(
+        "--behavior-seed",
+        help="replay DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED for this test execution",
+    )
+    args = parser.parse_args(argv)
+    if not args.list and not args.check and not args.name:
+        parser.error("a test selector is required for test execution")
     if args.list and args.check:
         parser.error("--list and --check are mutually exclusive")
     if args.suite and (args.list or args.check):
@@ -431,10 +258,14 @@ def parse_args() -> argparse.Namespace:
             "--check cannot target lib without checking every integration target; run the exact "
             "unit test instead"
         )
+    if args.check and args.name:
+        parser.error("--check validates the whole integration target; omit the test selector")
     if args.suite and args.ignored:
         parser.error("--ignored requires exact execution; use an exact ignored-test selector")
     if (args.list or args.check) and (args.ignored or args.nocapture):
         parser.error("--ignored and --nocapture apply only to execution modes")
+    if (args.list or args.check) and (args.variation_seed or args.behavior_seed):
+        parser.error("gameplay replay seeds are execution-only options")
     return args
 
 
@@ -481,9 +312,23 @@ def resolve_requested_selection(args: argparse.Namespace, catalog: list[str]) ->
     return selector
 
 
-def execute_cargo_command(command: list[str]) -> tuple[subprocess.CompletedProcess[str], float]:
+def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
+    replay: dict[str, str] = {}
+    if args.variation_seed:
+        replay["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"] = args.variation_seed
+    if args.behavior_seed:
+        replay["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"] = args.behavior_seed
+    return replay
+
+
+def execute_cargo_command(
+    command: list[str],
+    environment_overrides: dict[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], float]:
     environment = os.environ.copy()
     environment["CARGO_TERM_COLOR"] = "never"
+    if environment_overrides:
+        environment.update(environment_overrides)
     started = time.perf_counter()
     result = subprocess.run(
         command,
@@ -504,9 +349,26 @@ def report_cargo_failure(
     print(f"FAIL ({elapsed:.1f}s)", file=sys.stderr)
     print(f"reproduce: {' '.join(command)}", file=sys.stderr)
     if result.stdout.strip():
-        print(result.stdout.rstrip(), file=sys.stderr)
+        print(bounded_failure_output(result.stdout), file=sys.stderr)
     if result.stderr.strip():
-        print(result.stderr.rstrip(), file=sys.stderr)
+        print(bounded_failure_output(result.stderr), file=sys.stderr)
+
+
+def bounded_failure_output(output: str) -> str:
+    """Retain useful compiler/test context without flooding a local repair loop."""
+
+    lines = output.rstrip().splitlines()
+    limit = FAILURE_HEAD_LINES + FAILURE_TAIL_LINES
+    if len(lines) <= limit:
+        return "\n".join(lines)
+    omitted = len(lines) - limit
+    return "\n".join(
+        [
+            *lines[:FAILURE_HEAD_LINES],
+            f"... {omitted} line(s) omitted ...",
+            *lines[-FAILURE_TAIL_LINES:],
+        ]
+    )
 
 
 def suite_result_detail(stdout: str) -> str:
@@ -522,10 +384,13 @@ def suite_result_detail(stdout: str) -> str:
 
 def report_cargo_success(
     args: argparse.Namespace,
-    selector: str,
+    selector: str | None,
     result: subprocess.CompletedProcess[str],
     elapsed: float,
 ) -> None:
+    if args.check:
+        print(f"PASS check {args.target} ({elapsed:.1f}s)")
+        return
     if not args.check and args.nocapture and result.stdout.strip():
         print(result.stdout.rstrip())
     if args.suite:
@@ -534,12 +399,20 @@ def report_cargo_success(
             f"({suite_result_detail(result.stdout)}; {elapsed:.1f}s)"
         )
         return
-    action = "check " if args.check else ""
-    print(f"PASS {action}{args.target}::{args.name} ({elapsed:.1f}s)")
+    print(f"PASS {args.target}::{args.name} ({elapsed:.1f}s)")
 
 
 def main() -> int:
     args = parse_args()
+    if args.check:
+        command = cargo_check_command(args)
+        result, elapsed = execute_cargo_command(command)
+        if result.returncode != 0:
+            report_cargo_failure(command, result, elapsed)
+            return result.returncode
+        report_cargo_success(args, None, result, elapsed)
+        return 0
+
     catalog = load_source_catalog(args)
     if catalog is None:
         return 2
@@ -551,8 +424,8 @@ def main() -> int:
     if selector is None:
         return 2
 
-    command = cargo_check_command(args) if args.check else cargo_command(args)
-    result, elapsed = execute_cargo_command(command)
+    command = cargo_command(args)
+    result, elapsed = execute_cargo_command(command, gameplay_replay_environment(args))
     if result.returncode != 0:
         report_cargo_failure(command, result, elapsed)
         return result.returncode

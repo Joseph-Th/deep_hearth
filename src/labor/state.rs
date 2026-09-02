@@ -6,6 +6,7 @@ use crate::core::quantity::{Mass, Volume};
 use crate::core::time::SimulationTick;
 use crate::energy::{EnergyStoreId, ReleasedEnergyTrace};
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
+use crate::inventory::{StockpileId, StorageDefinitionId};
 use crate::maintenance::Condition;
 use crate::material::MaterialId;
 use crate::mining::MiningJobId;
@@ -24,6 +25,131 @@ pub struct ManualPowerWork {
     output: ReleasedEnergyTrace,
     started_at: SimulationTick,
     completes_at: SimulationTick,
+}
+
+/// Durable direct-labor interval for dismantling one installed storage enclosure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageEnclosureDismantlingWork {
+    target: StockpileId,
+    recovery_destination: StockpileId,
+    definition: StorageDefinitionId,
+    enclosure_created_at: SimulationTick,
+    recovered_mass: Mass,
+    started_at: SimulationTick,
+    completes_at: SimulationTick,
+}
+
+impl StorageEnclosureDismantlingWork {
+    pub(crate) const fn new(
+        target: StockpileId,
+        recovery_destination: StockpileId,
+        definition: StorageDefinitionId,
+        enclosure_created_at: SimulationTick,
+        recovered_mass: Mass,
+        started_at: SimulationTick,
+        completes_at: SimulationTick,
+    ) -> Self {
+        Self {
+            target,
+            recovery_destination,
+            definition,
+            enclosure_created_at,
+            recovered_mass,
+            started_at,
+            completes_at,
+        }
+    }
+
+    #[must_use]
+    pub const fn target(self) -> StockpileId {
+        self.target
+    }
+    #[must_use]
+    pub const fn recovery_destination(self) -> StockpileId {
+        self.recovery_destination
+    }
+    #[must_use]
+    pub const fn definition(self) -> StorageDefinitionId {
+        self.definition
+    }
+    #[must_use]
+    pub const fn enclosure_created_at(self) -> SimulationTick {
+        self.enclosure_created_at
+    }
+    #[must_use]
+    pub const fn recovered_mass(self) -> Mass {
+        self.recovered_mass
+    }
+    #[must_use]
+    pub const fn started_at(self) -> SimulationTick {
+        self.started_at
+    }
+    #[must_use]
+    pub const fn completes_at(self) -> SimulationTick {
+        self.completes_at
+    }
+
+    #[must_use]
+    pub fn occupies_stockpile(self, stockpile: StockpileId) -> bool {
+        self.target == stockpile || self.recovery_destination == stockpile
+    }
+}
+
+/// Durable direct-labor interval for an already-admitted equipment service.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EquipmentMaintenanceWork {
+    equipment: EquipmentOperationTrace,
+    condition_after: Condition,
+    started_at: SimulationTick,
+    completes_at: SimulationTick,
+}
+
+impl EquipmentMaintenanceWork {
+    pub(crate) const fn new(
+        equipment: EquipmentOperationTrace,
+        condition_after: Condition,
+        started_at: SimulationTick,
+        completes_at: SimulationTick,
+    ) -> Self {
+        Self {
+            equipment,
+            condition_after,
+            started_at,
+            completes_at,
+        }
+    }
+
+    #[must_use]
+    pub const fn equipment(self) -> EquipmentId {
+        self.equipment.equipment()
+    }
+
+    #[must_use]
+    pub const fn equipment_trace(self) -> EquipmentOperationTrace {
+        self.equipment
+    }
+
+    #[must_use]
+    pub const fn condition_before(self) -> Condition {
+        self.equipment.condition()
+    }
+
+    #[must_use]
+    pub const fn condition_after(self) -> Condition {
+        self.condition_after
+    }
+
+    #[must_use]
+    pub const fn started_at(self) -> SimulationTick {
+        self.started_at
+    }
+
+    #[must_use]
+    pub const fn completes_at(self) -> SimulationTick {
+        self.completes_at
+    }
 }
 
 /// Durable attention interval occupied by one already-admitted direct meal.
@@ -220,12 +346,30 @@ impl ManualPowerWork {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum PlayerWork {
-    ManualProduction { job: ProductionJobId },
-    Mining { job: MiningJobId },
-    ManualPower { work: ManualPowerWork },
-    Prospecting { work: ProspectingWork },
-    Eating { work: EatingWork },
-    Drinking { work: DrinkingWork },
+    ManualProduction {
+        job: ProductionJobId,
+    },
+    Mining {
+        job: MiningJobId,
+    },
+    ManualPower {
+        work: ManualPowerWork,
+    },
+    Prospecting {
+        work: ProspectingWork,
+    },
+    Eating {
+        work: EatingWork,
+    },
+    Drinking {
+        work: DrinkingWork,
+    },
+    EquipmentMaintenance {
+        work: EquipmentMaintenanceWork,
+    },
+    StorageEnclosureDismantling {
+        work: StorageEnclosureDismantlingWork,
+    },
 }
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
@@ -270,6 +414,12 @@ impl PlayerWorkState {
             Some(PlayerWork::Drinking { work }) => {
                 work.started_at() <= current && work.completes_at() > current
             }
+            Some(PlayerWork::EquipmentMaintenance { work }) => {
+                work.started_at() <= current && work.completes_at() > current
+            }
+            Some(PlayerWork::StorageEnclosureDismantling { work }) => {
+                work.started_at() <= current && work.completes_at() > current
+            }
             Some(PlayerWork::ManualProduction { job: _ })
             | Some(PlayerWork::Mining { job: _ })
             | None => true,
@@ -289,6 +439,8 @@ impl PlayerWorkState {
             | Some(PlayerWork::Prospecting { work: _ })
             | Some(PlayerWork::Eating { work: _ })
             | Some(PlayerWork::Drinking { work: _ })
+            | Some(PlayerWork::EquipmentMaintenance { work: _ })
+            | Some(PlayerWork::StorageEnclosureDismantling { work: _ })
             | None => None,
         }
     }
@@ -306,6 +458,52 @@ impl PlayerWorkState {
             | Some(PlayerWork::Prospecting { work: _ })
             | Some(PlayerWork::Eating { work: _ })
             | Some(PlayerWork::Drinking { work: _ })
+            | Some(PlayerWork::EquipmentMaintenance { work: _ })
+            | Some(PlayerWork::StorageEnclosureDismantling { work: _ })
+            | None => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn get_equipment_maintenance_occupant(
+        &self,
+        equipment: EquipmentId,
+    ) -> Option<EquipmentMaintenanceWork> {
+        match self.active {
+            Some(PlayerWork::EquipmentMaintenance { work }) if work.equipment() == equipment => {
+                Some(work)
+            }
+            Some(PlayerWork::ManualProduction { job: _ })
+            | Some(PlayerWork::Mining { job: _ })
+            | Some(PlayerWork::ManualPower { work: _ })
+            | Some(PlayerWork::Prospecting { work: _ })
+            | Some(PlayerWork::Eating { work: _ })
+            | Some(PlayerWork::Drinking { work: _ })
+            | Some(PlayerWork::EquipmentMaintenance { work: _ })
+            | Some(PlayerWork::StorageEnclosureDismantling { work: _ })
+            | None => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn get_storage_dismantling_stockpile_occupant(
+        &self,
+        stockpile: StockpileId,
+    ) -> Option<StorageEnclosureDismantlingWork> {
+        match self.active {
+            Some(PlayerWork::StorageEnclosureDismantling { work })
+                if work.occupies_stockpile(stockpile) =>
+            {
+                Some(work)
+            }
+            Some(PlayerWork::ManualProduction { job: _ })
+            | Some(PlayerWork::Mining { job: _ })
+            | Some(PlayerWork::ManualPower { work: _ })
+            | Some(PlayerWork::Prospecting { work: _ })
+            | Some(PlayerWork::Eating { work: _ })
+            | Some(PlayerWork::Drinking { work: _ })
+            | Some(PlayerWork::EquipmentMaintenance { work: _ })
+            | Some(PlayerWork::StorageEnclosureDismantling { work: _ })
             | None => None,
         }
     }

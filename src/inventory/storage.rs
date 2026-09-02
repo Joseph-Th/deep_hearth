@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
+use crate::core::time::TickSpan;
 use crate::material::{MaterialAssemblyProfile, MaterialRegistry};
+use crate::survival::SurvivalExertion;
 
 use super::{AMBIENT_PRESERVATION_MULTIPLIER_PPM, StockpileStorageProfile};
 
@@ -34,6 +36,8 @@ pub struct StorageDefinition {
     maximum_stockpile_capacity: Mass,
     storage_profile: StockpileStorageProfile,
     assembly_profile: MaterialAssemblyProfile,
+    dismantle_duration: TickSpan,
+    dismantle_exertion: SurvivalExertion,
 }
 
 impl StorageDefinition {
@@ -44,6 +48,8 @@ impl StorageDefinition {
         maximum_stockpile_capacity: Mass,
         storage_profile: StockpileStorageProfile,
         assembly_profile: MaterialAssemblyProfile,
+        dismantle_duration: TickSpan,
+        dismantle_exertion: SurvivalExertion,
     ) -> Self {
         assert!(
             !name.trim().is_empty(),
@@ -64,12 +70,18 @@ impl StorageDefinition {
             !assembly_profile.input_mass().is_zero(),
             "constructible storage must embody nonzero construction matter"
         );
+        assert!(
+            dismantle_duration != TickSpan::ZERO,
+            "storage dismantling duration must be nonzero"
+        );
         Self {
             id,
             name,
             maximum_stockpile_capacity,
             storage_profile,
             assembly_profile,
+            dismantle_duration,
+            dismantle_exertion,
         }
     }
 
@@ -96,6 +108,16 @@ impl StorageDefinition {
     #[must_use]
     pub const fn assembly_profile(&self) -> &MaterialAssemblyProfile {
         &self.assembly_profile
+    }
+
+    #[must_use]
+    pub const fn dismantle_duration(&self) -> TickSpan {
+        self.dismantle_duration
+    }
+
+    #[must_use]
+    pub const fn dismantle_exertion(&self) -> SurvivalExertion {
+        self.dismantle_exertion
     }
 }
 

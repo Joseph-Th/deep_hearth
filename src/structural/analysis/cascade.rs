@@ -5,11 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::core::quantity::Force;
 use crate::material::MaterialRegistry;
 
+use super::topology::{LoadProjection, expand_unsupported_failures, project_loads};
 use super::{
-    LoadProjection, StructuralAnalysis, StructuralAnalysisError, StructuralAnalysisOverlay,
-    StructuralAssessment, StructuralDamageEvent, StructuralFailureCause, StructuralStage,
-    calculate_structural_utilization_ppm, expand_unsupported_failures, is_at_or_above_fraction,
-    pristine_capacity, project_loads, scale_capacity,
+    StructuralAnalysis, StructuralAnalysisError, StructuralAnalysisOverlay, StructuralAssessment,
+    StructuralDamageEvent, StructuralFailureCause, StructuralStage,
+    calculate_structural_utilization_ppm, is_at_or_above_fraction, pristine_capacity,
+    scale_capacity,
 };
 use crate::structural::definitions::{StructuralProfileDefinition, StructuralRegistry};
 use crate::structural::state::{StructuralElementId, StructuralLifecycle, StructureState};

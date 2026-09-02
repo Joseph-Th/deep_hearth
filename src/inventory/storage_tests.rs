@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::core::quantity::Temperature;
+use crate::core::time::TickSpan;
 use crate::material::{CommodityKey, FormId, MaterialId, MaterialInputSpec};
+use crate::survival::SurvivalExertion;
 
 const TEST_STORAGE: StorageDefinitionId = StorageDefinitionId::new(99);
 const TEST_MATERIAL: MaterialId = MaterialId::new(99);
@@ -35,6 +37,8 @@ fn storage_definition_requires_nonempty_name() {
                 Mass::from_milligrams(1),
                 preservation_profile(),
                 assembly_profile(),
+                TickSpan::new(1),
+                SurvivalExertion::REST,
             )
         })
         .is_err()

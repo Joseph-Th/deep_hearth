@@ -116,6 +116,15 @@ impl ValidatedEquipmentDisassembly {
                 equipment: self.equipment,
             });
         }
+        if let Some(work) = state
+            .player_work()
+            .get_equipment_maintenance_occupant(self.equipment)
+        {
+            return Err(EquipmentDisassemblyCommitError::EquipmentUnderMaintenance {
+                equipment: self.equipment,
+                completes_at: work.completes_at(),
+            });
+        }
         if let Some(element) = record.supported_by() {
             return Err(EquipmentDisassemblyCommitError::EquipmentMounted {
                 equipment: self.equipment,
@@ -210,6 +219,15 @@ pub fn validate_disassemble_equipment(
         .is_some()
     {
         return Err(EquipmentDisassemblyError::EquipmentBusyManualPower { equipment });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_equipment_maintenance_occupant(equipment)
+    {
+        return Err(EquipmentDisassemblyError::EquipmentUnderMaintenance {
+            equipment,
+            completes_at: work.completes_at(),
+        });
     }
 
     let entries = record

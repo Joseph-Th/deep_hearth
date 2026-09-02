@@ -17,6 +17,7 @@ import time
 ROOT = Path(__file__).resolve().parent
 
 GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
+GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_REPORT_EXAMPLE = "gameplay-report"
 GAMEPLAY_TARGETS = {
     "workshop": "gameplay_workshop",
@@ -25,7 +26,7 @@ GAMEPLAY_TARGETS = {
     "ore": "gameplay_ore",
     "foundry": "gameplay_foundry",
 }
-GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_CONTRACTS_TARGET, *GAMEPLAY_TARGETS.values())
+GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_AUDIT_TARGET,)
 GAMEPLAY_TESTS = {
     "workshop": "workshop_contract_tests::gameplay_harness_gate",
     "survival": "gameplay_survival_provisioning_probe",
@@ -60,6 +61,9 @@ RUST_TEST_RESULT = re.compile(
     r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
     r"(?P<ignored>\d+) ignored;"
 )
+
+FAILURE_HEAD_LINES = 16
+FAILURE_TAIL_LINES = 64
 ORDINARY_GAMEPLAY_REPORT_PREFIXES = (
     "PLAYER FANTASY ",
     "CONTENT registry_schema=",
@@ -71,12 +75,16 @@ ORDINARY_PROBE_REVIEW_PREFIXES = (
     ("primitive-progression", "PROGRESSION FALLBACK "),
     ("primitive-progression", "PROGRESSION EXPERIENCE "),
 )
-FOCUSED_VISIBLE_REPLAY_SEED = re.compile(
-    r"\b(?:anchor|coverage|organic):(0x[0-9A-Fa-f]+)"
+FOCUSED_REPLAY_CASE = re.compile(
+    r"\b(?P<role>anchor|coverage|organic|replay):(?P<seed>0x[0-9A-Fa-f]+)"
 )
 GAMEPLAY_REPLAY_ROOTS = re.compile(
     r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
 )
+FOCUSED_PROBE_SUMMARY = re.compile(
+    r"\bsamples=(?P<samples>\d+)\s+organic=(?P<organic>\d+)"
+)
+AGENCY_REPLAY_ROOT = re.compile(r"\bvariation_root=(?P<world>0x[0-9A-Fa-f]+)")
 WORKSHOP_PLAN_SUMMARY = re.compile(
     r"\bplan=(?P<plan>\S+)\s+anchors=(?P<anchors>\d+)\s+variation=(?P<variation>\d+)\s+custom=(?P<custom>\d+)"
 )
@@ -106,6 +114,14 @@ def gameplay_replay_summary(stdout: str) -> str | None:
     for line in stdout.splitlines():
         if line.startswith("PROBE INPUT ") and " replay=" in line:
             roots = GAMEPLAY_REPLAY_ROOTS.search(line)
+            probe = FOCUSED_PROBE_SUMMARY.search(line)
+            if (
+                roots is not None
+                and roots.group("world") != "explicit"
+                and probe is not None
+                and probe.group("organic") == "0"
+            ):
+                return f"maintained={probe.group('samples')}"
             if roots is not None and roots.group("world") != "explicit":
                 return f"roots={roots.group('world')}/{roots.group('behavior')}"
             replay = line.split(" replay=", 1)[1]
@@ -141,6 +157,84 @@ def combined_test_summary(stdout: str) -> str | None:
     return detail
 
 
+def representative_probe_seeds(probe_lines: list[str]) -> set[str]:
+    """Choose one maintained and one organic case for concise exploratory output."""
+
+    cases = [
+        (match.group("role"), match.group("seed").upper())
+        for line in probe_lines
+        for match in FOCUSED_REPLAY_CASE.finditer(line)
+    ]
+    selected: list[str] = []
+    for role in ("anchor", "organic"):
+        if seed := next((seed for candidate, seed in cases if candidate == role), None):
+            selected.append(seed)
+    if not selected and cases:
+        selected.append(cases[0][1])
+    return set(selected)
+
+
+def contrasting_probe_seeds(
+    probe_lines: list[str], experience_lines: list[str], dimensions: tuple[tuple[str, ...], ...]
+) -> set[str]:
+    """Choose the anchor and the organic episode that differs from it most visibly."""
+
+    fallback = representative_probe_seeds(probe_lines)
+    anchor = next((line for line in experience_lines if " sample=anchor " in line), None)
+    organic = [line for line in experience_lines if " sample=organic " in line]
+    if anchor is None or not organic:
+        return fallback
+
+    def signature(line: str) -> tuple[int, ...]:
+        return tuple(
+            next((index for index, marker in enumerate(options) if marker in line), -1)
+            for options in dimensions
+        )
+
+    anchor_signature = signature(anchor)
+    contrast = max(
+        organic,
+        key=lambda line: sum(
+            candidate != baseline
+            for candidate, baseline in zip(signature(line), anchor_signature, strict=True)
+            if candidate >= 0 and baseline >= 0
+        ),
+    )
+    return {
+        anchor.split(" seed=", 1)[1].split(maxsplit=1)[0].upper(),
+        contrast.split(" seed=", 1)[1].split(maxsplit=1)[0].upper(),
+    }
+
+
+def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
+    """Summarize all bounded ordinary-play samples without dumping every episode."""
+
+    survival = [line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")]
+    progression = [line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")]
+    summaries: list[str] = []
+    if survival:
+        count = lambda marker: sum(marker in line for line in survival)
+        summaries.append(
+            "SURVIVAL DIVERSITY "
+            f"samples={len(survival)} "
+            f"pressure=[hydration:{count('pressure=hydration')} energy:{count('pressure=energy')}] "
+            f"choice-state=[supply-constrained:{count('state:supply-constrained')} policy-sensitive:{count('state:policy-sensitive')}] "
+            f"diet=[balanced-recovery:{count('diet:balanced-recovery')} compact-calories:{count('diet:compact-calories')}] "
+            f"preservation=[attention-efficient:{count('storage-policy:attention-efficient')} maximum-protection:{count('storage-policy:maximum-protection')}]"
+        )
+    if progression:
+        count = lambda marker: sum(marker in line for line in progression)
+        summaries.append(
+            "PROGRESSION DIVERSITY "
+            f"samples={len(progression)} "
+            f"first-copper=[pick:{count('first-copper=pick')} crank-first-counterfactual:{count('counterfactual=[crank-first-dominated')}] "
+            f"information=[surface-resolved:{count('information=surface-resolved')} deferred-refinement:{count('information=deferred-refinement')}] "
+            f"automation=[setup-repaid:{count('economics:setup-repaid')} opportunity-ended-before-payback:{count('economics:opportunity-ended-before-payback')}] "
+            f"reinvestment=[available:{count('next-reinvestment=[available')} known-target-supply:{count('next-reinvestment=[blocked:known-target-supply]')}]"
+        )
+    return summaries
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
     """Keep the current ordinary-player experience; verbose mode retains capability diagnostics."""
 
@@ -158,18 +252,40 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         ]
         for probe, _prefix in ORDINARY_PROBE_REVIEW_PREFIXES
     }
+    survival_experiences = [
+        line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")
+    ]
+    progression_experiences = [
+        line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")
+    ]
     visible_seeds = {
-        probe: {
-            match.group(1).upper()
-            for line in probe_lines
-            for match in FOCUSED_VISIBLE_REPLAY_SEED.finditer(line)
-        }
-        for probe, probe_lines in ordinary_probe_inputs.items()
+        "survival-provisioning": contrasting_probe_seeds(
+            ordinary_probe_inputs.get("survival-provisioning", []),
+            survival_experiences,
+            (
+                ("pressure=hydration", "pressure=energy"),
+                ("state:supply-constrained", "state:policy-sensitive"),
+                ("diet:balanced-recovery", "diet:compact-calories"),
+                ("storage-policy:attention-efficient", "storage-policy:maximum-protection"),
+            ),
+        ),
+        "primitive-progression": contrasting_probe_seeds(
+            ordinary_probe_inputs.get("primitive-progression", []),
+            progression_experiences,
+            (
+                ("information=surface-resolved", "information=deferred-refinement"),
+                ("economics:setup-repaid", "economics:opportunity-ended-before-payback"),
+                (
+                    "next-reinvestment=[available",
+                    "next-reinvestment=[blocked:known-target-supply]",
+                ),
+            ),
+        ),
     }
     ordinary_input_lines = {
         line for probe_lines in ordinary_probe_inputs.values() for line in probe_lines
     }
-    return "\n".join(
+    selected = [
         line
         for line in lines
         if line.startswith(ORDINARY_GAMEPLAY_REPORT_PREFIXES)
@@ -185,7 +301,9 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
                 for probe, prefix in ORDINARY_PROBE_REVIEW_PREFIXES
             )
         )
-    )
+    ]
+    selected.extend(ordinary_gameplay_diversity(lines))
+    return "\n".join(selected)
 
 
 def quick_plan() -> list[tuple[str, list[str]]]:
@@ -217,16 +335,40 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
     if any(target in command for target in gameplay_targets):
         failed = FAILED_TEST.findall(combined)
         if failed:
+            replay_flags = gameplay_replay_flags(combined)
+            replay_suffix = f" {replay_flags}" if replay_flags else ""
             rerun_targets = FAILED_RERUN_TARGET.findall(combined)
             if rerun_targets and rerun_targets[-1] == "--lib":
                 return f"python tools/run_test.py {failed[-1]}"
             if rerun_targets and rerun_targets[-1].startswith("--test "):
                 target = rerun_targets[-1].removeprefix("--test ")
-                return f"python tools/run_test.py --target {target} {failed[-1]}"
+                return (
+                    f"python tools/run_test.py --target {target}{replay_suffix} {failed[-1]}"
+                )
             return "python ci.py audit --gameplay"
         for scope, test_name in GAMEPLAY_TESTS.items():
             if test_name in command:
                 return f"python ci.py gate --gameplay {scope}"
+    return None
+
+
+def gameplay_replay_flags(output: str) -> str | None:
+    """Return exact-test CLI replay flags from one captured failing gameplay test."""
+
+    for line in reversed(output.splitlines()):
+        if line.startswith("AGENCY INPUT "):
+            match = AGENCY_REPLAY_ROOT.search(line)
+            if match is not None:
+                return f"--variation-seed {match.group('world')}"
+        if line.startswith("PROBE INPUT ") or line.startswith("HARNESS INPUT "):
+            match = GAMEPLAY_REPLAY_ROOTS.search(line)
+            if match is None or match.group("world") == "explicit":
+                continue
+            flags = ["--variation-seed", match.group("world")]
+            behavior = match.group("behavior")
+            if behavior not in ("n/a", "none", "None"):
+                flags.extend(("--behavior-seed", behavior))
+            return " ".join(flags)
     return None
 
 
@@ -248,12 +390,13 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
 
 
 def combined_test_command() -> list[str]:
-    """Run core and gameplay tests in one Cargo graph with one shared feature fingerprint."""
+    """Run core and the consolidated gameplay audit in one shared Cargo feature graph."""
 
     command = [
         "cargo",
         "test",
         "--quiet",
+        "--no-fail-fast",
         "--locked",
         "--features",
         "test-gameplay",
@@ -262,6 +405,23 @@ def combined_test_command() -> list[str]:
     for target in GAMEPLAY_AUDIT_TARGETS:
         command.extend(("--test", target))
     return command
+
+
+def bounded_failure_output(output: str) -> str:
+    """Keep failure diagnostics useful without dumping an entire gameplay transcript."""
+
+    lines = output.rstrip().splitlines()
+    limit = FAILURE_HEAD_LINES + FAILURE_TAIL_LINES
+    if len(lines) <= limit:
+        return "\n".join(lines)
+    omitted = len(lines) - limit
+    return "\n".join(
+        [
+            *lines[:FAILURE_HEAD_LINES],
+            f"... {omitted} line(s) omitted ...",
+            *lines[-FAILURE_TAIL_LINES:],
+        ]
+    )
 
 
 def gameplay_targets_command(
@@ -479,9 +639,9 @@ def report_stage(
     print(f"FAIL ({elapsed:.1f}s)")
     print(f"reproduce: {' '.join(command)}", file=sys.stderr)
     if result.stdout.strip():
-        print(result.stdout.rstrip(), file=sys.stderr)
+        print(bounded_failure_output(result.stdout), file=sys.stderr)
     if result.stderr.strip():
-        print(result.stderr.rstrip(), file=sys.stderr)
+        print(bounded_failure_output(result.stderr), file=sys.stderr)
     if hint := repair_hint(command, result.stdout, result.stderr):
         print(f"repair: {hint}", file=sys.stderr)
     return None

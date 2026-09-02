@@ -5,7 +5,8 @@ use deep_hearth::core::quantity::Mass;
 use deep_hearth::maintenance::Condition;
 
 use super::configuration::{
-    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from,
+    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, MaintainedAnchor, ScenarioPlanMode,
+    scenario_seeds_from,
 };
 use super::{scenario, workshop};
 
@@ -39,6 +40,25 @@ fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hid
 }
 
 #[test]
+fn initial_service_rebases_hidden_event_timing_after_elapsed_work() {
+    let registries = build_registries();
+    let variation = scenario::ScenarioVariation::from_seeds(
+        &registries,
+        9,
+        0x88BD_D3FE_783B_B94D,
+        Some(super::configuration::MaintainedAnchor::CriticalMaintenance),
+    );
+
+    let report = workshop::run_scenario(&registries, variation, None);
+
+    assert!(report.maintenance.service_ticks > 0);
+    assert!(
+        report.inputs.delivery_at_tick > report.maintenance.service_ticks,
+        "controlled delivery must be scheduled after initial service has advanced authoritative time"
+    );
+}
+
+#[test]
 fn hidden_delivery_payload_does_not_change_pre_event_actor_choices() {
     let registries = build_registries();
     let plan = scenario_seeds_from(
@@ -50,27 +70,23 @@ fn hidden_delivery_payload_does_not_change_pre_event_actor_choices() {
         MAINTAINED_BEHAVIOR_ROOT,
     )
     .unwrap_or_else(|error| panic!("maintained hidden-delivery seed plan failed: {error:?}"));
-    let (baseline, baseline_report) = plan
+    let case = plan
         .cases()
         .iter()
-        .filter_map(|case| {
-            let anchor = case.anchor?;
-            let variation = scenario::ScenarioVariation::from_seeds(
-                &registries,
-                case.world_seed,
-                case.behavior_seed,
-                Some(anchor),
-            );
-            let report = workshop::run_scenario(&registries, variation, None);
-            report
-                .progress
-                .delivery_applied
-                .then_some((variation, report))
-        })
-        .next()
-        .unwrap_or_else(|| {
-            panic!("maintained workshop anchors contain no reached hidden delivery")
-        });
+        .find(|case| case.anchor == Some(MaintainedAnchor::ManualRecovery))
+        .copied()
+        .unwrap_or_else(|| panic!("maintained world-disruption workshop case disappeared"));
+    let baseline = scenario::ScenarioVariation::from_seeds(
+        &registries,
+        case.world_seed,
+        case.behavior_seed,
+        case.anchor,
+    );
+    let baseline_report = workshop::run_scenario(&registries, baseline, None);
+    assert!(
+        baseline_report.progress.delivery_applied,
+        "maintained world-disruption fixture must reach the controlled delivery"
+    );
     let mut alternate = baseline;
     alternate.delivery.destination_is_compact = !baseline.delivery.destination_is_compact;
     alternate.delivery.mass = Mass::from_milligrams(

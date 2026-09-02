@@ -218,7 +218,7 @@ pub(super) fn finalize_scenario(
         state.tick().value(),
     );
     println!(
-        "  report: structural_change={} damage_debt={} support_block={} relocation={} structural_stop={} production_suspension={} stranded_wip={} machine_ops=[small:{} large:{}] manual_recharges={} power_choices=[policy:{} single-source:{}] bottlenecks=[energy:{} throughput:{} balanced:{}] maintenance_warning={} maintenance_services={} maintenance_supply_exhausted={} stops=[maintenance:{} energy:{} recovery_declined:{} recovery_survival_limited:{}] ore_frontier={}",
+        "  report: structural_change={} damage_debt={} support_block={} relocation={} structural_stop={} production_suspension={} stranded_wip={} machine_ops=[small:{} large:{}] manual_recharges={} power_choices=[policy:{} single-source:{}] bottlenecks=[energy:{} throughput:{} balanced:{}] maintenance_warning={} maintenance_services={} maintenance_ticks={} maintenance_supply_exhausted={} maintenance_labor_unavailable={} stops=[maintenance:{} energy:{} recovery_declined:{} recovery_survival_limited:{}] ore_frontier={}",
         report.structure.structural_consequence,
         report.structure.structural_damage_debt,
         report.structure.support_failure_blocked_production,
@@ -236,7 +236,9 @@ pub(super) fn finalize_scenario(
         report.limits.balanced_bottleneck_batches,
         report.limits.maintenance_warning,
         report.maintenance.services,
+        report.maintenance.service_ticks,
         report.maintenance.supply_exhausted,
+        report.maintenance.labor_unavailable,
         report.limits.maintenance_stop,
         report.limits.energy_stop,
         report.limits.manual_recovery_declined,

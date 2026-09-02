@@ -11,7 +11,8 @@ use super::report::{
     ScenarioReport, StructuralPreference,
 };
 use super::scenario::ScenarioVariation;
-use super::seed::{MAINTAINED_VARIATION_ROOT, mix64};
+use super::seed::MAINTAINED_VARIATION_ROOT;
+use super::seed::mix64;
 use super::seed_input::parse_seed;
 use super::workshop::run_scenario;
 use deep_hearth::content::build_registries;

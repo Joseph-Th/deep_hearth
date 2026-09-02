@@ -220,6 +220,17 @@ impl ValidatedStockpileSupportChange {
                 release: job.occupancy_release(),
             });
         }
+        if state
+            .player_work()
+            .get_storage_dismantling_stockpile_occupant(self.stockpile)
+            .is_some()
+        {
+            return Err(
+                StockpileSupportCommitError::StockpileBusyStorageDismantling {
+                    stockpile: self.stockpile,
+                },
+            );
+        }
         state.inventory().assert_support_change_available(
             self.stockpile,
             self.before,
@@ -262,6 +273,13 @@ fn validate_not_busy(
             job: job.id(),
             release: job.occupancy_release(),
         });
+    }
+    if state
+        .player_work()
+        .get_storage_dismantling_stockpile_occupant(stockpile)
+        .is_some()
+    {
+        return Err(StockpileSupportError::StockpileBusyStorageDismantling { stockpile });
     }
     Ok(())
 }

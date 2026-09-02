@@ -10,7 +10,7 @@ use crate::equipment::EquipmentOperationConditionOutcome;
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotId, ReservedDepositPlan,
     ReservedDepositPlanError, ReservedDepositRequest, StockpileId, StockpileStoredMassChange,
-    ValidatedStockpileStructuralLoad, decide_reserved_deposits,
+    ValidatedStockpileStructuralLoad, apply_reserved_deposits, decide_reserved_deposits,
     validate_stockpile_stored_mass_changes,
 };
 use crate::material::MaterialLotSpec;
@@ -171,6 +171,17 @@ pub(crate) struct CompletionPlan {
 impl CompletionPlan {
     pub(crate) fn availability_changes(&self) -> &[ProductionAvailabilityChange] {
         &self.availability_changes
+    }
+
+    /// Projects only the inventory deposits that this production tick will apply, allowing later
+    /// same-tick inventory owners to plan against the deterministic post-production inventory.
+    pub(crate) fn project_inventory_after_deposits(
+        &self,
+        inventory: &crate::inventory::InventoryState,
+    ) -> crate::inventory::InventoryState {
+        let mut projected = inventory.clone();
+        apply_reserved_deposits(&mut projected, self.inventory_deposits.clone());
+        projected
     }
 
     pub(crate) fn equipment_revision_steps(&self) -> u64 {

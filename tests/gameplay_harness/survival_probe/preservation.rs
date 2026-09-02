@@ -12,9 +12,6 @@ pub(in super::super) enum PreservationInvestmentPolicy {
 }
 
 impl PreservationInvestmentPolicy {
-    #[cfg(test)]
-    pub(in super::super) const ALL: [Self; 2] = [Self::AttentionEfficient, Self::MaximumProtection];
-
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::AttentionEfficient => "attention-efficient",
@@ -23,13 +20,27 @@ impl PreservationInvestmentPolicy {
     }
 }
 
-pub(in super::super) fn preservation_investment_policy_for_behavior_seed(
+pub(in super::super) fn preservation_freshness_return_threshold_ppm(behavior_seed: u64) -> u32 {
+    1_000_000 + (mix64(behavior_seed ^ 0x5052_4553_5641_4C55) % 3_000_001) as u32
+}
+
+pub(in super::super) fn preservation_policy_for_projected_return(
     behavior_seed: u64,
+    additional_fresh_ticks: u64,
+    additional_attention_ticks: u64,
 ) -> PreservationInvestmentPolicy {
-    if mix64(behavior_seed ^ 0x5052_4553_504F_4C59) & 1 == 0 {
-        PreservationInvestmentPolicy::AttentionEfficient
-    } else {
+    if additional_fresh_ticks == 0 || additional_attention_ticks == 0 {
+        return PreservationInvestmentPolicy::AttentionEfficient;
+    }
+    let return_ppm = u128::from(additional_fresh_ticks)
+        .checked_mul(1_000_000)
+        .map(|scaled| scaled / u128::from(additional_attention_ticks))
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(u32::MAX);
+    if return_ppm >= preservation_freshness_return_threshold_ppm(behavior_seed) {
         PreservationInvestmentPolicy::MaximumProtection
+    } else {
+        PreservationInvestmentPolicy::AttentionEfficient
     }
 }
 

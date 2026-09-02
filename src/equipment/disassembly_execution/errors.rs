@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
+use crate::core::time::SimulationTick;
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
 use crate::maintenance::Condition;
 use crate::mining::MiningJobId;
@@ -39,6 +40,10 @@ pub enum EquipmentDisassemblyError {
     },
     EquipmentBusyManualPower {
         equipment: EquipmentId,
+    },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     UnknownDestination {
         stockpile: StockpileId,
@@ -109,6 +114,15 @@ impl Display for EquipmentDisassemblyError {
                 "equipment {} is occupied by direct player-powered generation and cannot be disassembled",
                 equipment.value()
             ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is under maintenance until tick {} and cannot be disassembled",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::UnknownDestination { stockpile } => write!(
                 formatter,
                 "equipment disassembly destination stockpile {} does not exist",
@@ -170,6 +184,7 @@ impl Error for EquipmentDisassemblyError {
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentUnderMaintenance { .. }
             | Self::UnknownDestination { .. }
             | Self::InvalidEmbodiedMatter { .. }
             | Self::DestinationMassOverflow { .. }
@@ -211,6 +226,10 @@ pub enum EquipmentDisassemblyCommitError {
     },
     EquipmentBusyManualPower {
         equipment: EquipmentId,
+    },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     Structure(StructuralCommitError),
 }
@@ -259,6 +278,15 @@ impl Display for EquipmentDisassemblyCommitError {
                 "equipment {} became occupied by direct player-powered generation before disassembly commit",
                 equipment.value()
             ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} entered maintenance until tick {} before disassembly commit",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::Structure(error) => {
                 write!(formatter, "equipment disassembly structure failed: {error}")
             }
@@ -277,7 +305,8 @@ impl Error for EquipmentDisassemblyCommitError {
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
-            | Self::EquipmentBusyManualPower { .. } => None,
+            | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentUnderMaintenance { .. } => None,
         }
     }
 }

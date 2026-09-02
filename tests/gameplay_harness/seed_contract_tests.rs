@@ -84,6 +84,15 @@ fn focused_gate_keeps_maintained_cases_and_adds_one_replayable_organic_case() {
     assert_eq!(first[3].role(), FocusedProbeRole::OrganicVariation);
     assert_eq!(second[3].role(), FocusedProbeRole::OrganicVariation);
     assert_ne!(first[3].seed(), second[3].seed());
+    assert_eq!(
+        first
+            .iter()
+            .map(|case| case.seed())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        first.len(),
+        "focused gate must keep the supplemental organic world distinct from maintained worlds"
+    );
 }
 
 #[test]
@@ -310,7 +319,7 @@ fn focused_behavior_root_is_validated_even_for_explicit_world_replay() {
 #[test]
 fn focused_behavior_channel_exists_only_for_probes_with_actor_policy() {
     assert!(probe_uses_actor_behavior("survival-provisioning"));
-    assert!(probe_uses_actor_behavior("primitive-progression"));
+    assert!(!probe_uses_actor_behavior("primitive-progression"));
     assert!(!probe_uses_actor_behavior("ore-preparation"));
     assert!(!probe_uses_actor_behavior("foundry"));
 }

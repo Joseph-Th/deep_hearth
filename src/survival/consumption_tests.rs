@@ -177,7 +177,9 @@ fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u
         other @ (PlayerWork::ManualProduction { .. }
         | PlayerWork::Mining { .. }
         | PlayerWork::ManualPower { .. }
-        | PlayerWork::Prospecting { .. }) => {
+        | PlayerWork::Prospecting { .. }
+        | PlayerWork::EquipmentMaintenance { .. }
+        | PlayerWork::StorageEnclosureDismantling { .. }) => {
             panic!("direct-consumption test has wrong active work: {other:?}")
         }
     };

@@ -48,22 +48,22 @@ impl ValidatedMaintenanceMaterial {
         state: &mut AppState,
         equipment: EquipmentId,
         condition_before: crate::maintenance::Condition,
-        condition_after: crate::maintenance::Condition,
         expected_equipment_revision: u64,
         next_equipment_revision: u64,
     ) -> Result<(), EquipmentMaintenanceCommitError> {
         match self {
             Self::Aggregate(material) => {
-                state.equipment().assert_condition_change_available(
+                state.equipment().assert_maintenance_admission_available(
                     equipment,
                     condition_before,
+                    expected_equipment_revision,
                     next_equipment_revision,
                 );
                 material.commit(state).map_err(map_reform_commit_error)?;
-                state.equipment_state_mut().apply_condition_change(
+                state.equipment_state_mut().apply_maintenance_admission(
                     equipment,
                     condition_before,
-                    condition_after,
+                    expected_equipment_revision,
                     next_equipment_revision,
                 );
             }
@@ -78,7 +78,6 @@ impl ValidatedMaintenanceMaterial {
                     equipment,
                     component,
                     condition_before,
-                    condition_after,
                     replacement,
                 };
                 state.equipment().assert_component_maintenance_available(

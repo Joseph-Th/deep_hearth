@@ -38,7 +38,8 @@ pub use equipment_structural_integration::{
 };
 pub use maintenance_execution::{
     EquipmentMaintenanceCommitError, EquipmentMaintenanceError, EquipmentMaintenanceMaterialError,
-    EquipmentMaintenanceOutcome, ValidatedEquipmentMaintenance, validate_equipment_maintenance,
+    EquipmentMaintenanceOutcome, EquipmentMaintenanceStartOutcome, ValidatedEquipmentMaintenance,
+    validate_equipment_maintenance,
 };
 pub use maintenance_resolution::{
     EquipmentMaintenanceRequest, EquipmentMaintenanceResolution,
@@ -58,4 +59,7 @@ pub use upgrade_execution::{
 };
 
 pub(crate) use equipment_integration::{ValidatedEquipmentUse, resolve_equipment_capability};
+pub(crate) use maintenance_execution::{
+    apply_equipment_maintenance_tick, decide_equipment_maintenance_tick,
+};
 pub(crate) use state::{EquipmentOperationConditionOutcome, validate_loaded_equipment};

@@ -2,7 +2,7 @@
 //! deposit identity to player-facing code.
 
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::geology::{
@@ -42,11 +42,21 @@ impl MiningTargetRequest {
 /// this proof is consumed so unrelated geological or knowledge changes do not invalidate it while
 /// new local ambiguity or contradiction still does.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct MiningTargetResolution {
     pub(super) deposit: GeologicalDepositId,
     region: VoxelBounds,
     material: MaterialId,
+}
+
+impl Debug for MiningTargetResolution {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MiningTargetResolution")
+            .field("region", &self.region)
+            .field("material", &self.material)
+            .finish_non_exhaustive()
+    }
 }
 
 impl MiningTargetResolution {

@@ -455,7 +455,9 @@ registry schemas.
 ## Persistence and adapters
 
 - Save/load preserves every value required for supported continuation.
-- `AppState` is serializable but is not a public deserialization target. Untrusted bytes decode only through
+- Complete `AppState` persistence is serialized only through `SaveEnvelope`; the runtime root itself is not a
+  public serialization or deserialization target. This keeps hidden geology and exact PRNG continuation behind
+  the persistence boundary rather than ordinary read access. Untrusted bytes decode only through
   `LoadedSaveEnvelope`; `into_state` is the promotion boundary that checks exact schemas, rebuilds derived
   indexes, and validates the complete state graph before returning runtime state.
 - Derived indexes may be omitted from persistence only when they rebuild deterministically and validate

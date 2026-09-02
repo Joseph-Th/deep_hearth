@@ -31,6 +31,9 @@ pub enum StorageEnclosureConstructionError {
         stockpile: StockpileId,
         element: StructuralElementId,
     },
+    TargetBusyStorageDismantling {
+        stockpile: StockpileId,
+    },
     TargetCapacityTooLarge {
         stockpile: StockpileId,
         capacity: Mass,
@@ -97,6 +100,11 @@ impl Display for StorageEnclosureConstructionError {
                 "stockpile {} must be unmounted before constructing an enclosure around it; current support is {}",
                 stockpile.value(),
                 element.value()
+            ),
+            Self::TargetBusyStorageDismantling { stockpile } => write!(
+                formatter,
+                "stockpile {} participates in active storage-enclosure dismantling and cannot change enclosure",
+                stockpile.value()
             ),
             Self::TargetCapacityTooLarge {
                 stockpile,
@@ -172,6 +180,7 @@ impl Error for StorageEnclosureConstructionError {
             | Self::UnknownSource { .. }
             | Self::AlreadyEnclosed { .. }
             | Self::TargetMounted { .. }
+            | Self::TargetBusyStorageDismantling { .. }
             | Self::TargetCapacityTooLarge { .. }
             | Self::TargetStorageProfileMismatch { .. }
             | Self::TargetHasReservedInbound { .. }

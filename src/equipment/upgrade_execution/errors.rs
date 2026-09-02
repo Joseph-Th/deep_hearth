@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
+use crate::core::time::SimulationTick;
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
@@ -42,6 +43,10 @@ pub enum EquipmentUpgradeError {
     },
     EquipmentBusyManualPower {
         equipment: EquipmentId,
+    },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     UnknownSource {
         stockpile: StockpileId,
@@ -117,6 +122,15 @@ impl Display for EquipmentUpgradeError {
                 "equipment {} is occupied by direct player-powered generation and cannot be upgraded",
                 equipment.value()
             ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is under maintenance until tick {} and cannot be upgraded",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::UnknownSource { stockpile } => write!(
                 formatter,
                 "unknown equipment-upgrade material stockpile {}",
@@ -167,6 +181,7 @@ impl Error for EquipmentUpgradeError {
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentUnderMaintenance { .. }
             | Self::UnknownSource { .. }
             | Self::InsufficientMaterial { .. }
             | Self::SourceMassOverflow { .. }
@@ -209,6 +224,10 @@ pub enum EquipmentUpgradeCommitError {
     },
     EquipmentBusyManualPower {
         equipment: EquipmentId,
+    },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     Structure(StructuralCommitError),
 }
@@ -263,6 +282,15 @@ impl Display for EquipmentUpgradeCommitError {
                 "equipment {} became occupied by direct player-powered generation before upgrade commit",
                 equipment.value()
             ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} entered maintenance until tick {} before upgrade commit",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::Structure(error) => {
                 write!(formatter, "equipment upgrade structure failed: {error}")
             }
@@ -281,7 +309,8 @@ impl Error for EquipmentUpgradeCommitError {
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
-            | Self::EquipmentBusyManualPower { .. } => None,
+            | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentUnderMaintenance { .. } => None,
         }
     }
 }

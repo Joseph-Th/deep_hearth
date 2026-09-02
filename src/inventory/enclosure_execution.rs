@@ -100,6 +100,15 @@ pub fn validate_build_storage_enclosure(
         .inventory()
         .get_stockpile(target)
         .ok_or(StorageEnclosureConstructionError::UnknownTarget { stockpile: target })?;
+    if state
+        .player_work()
+        .get_storage_dismantling_stockpile_occupant(target)
+        .is_some()
+    {
+        return Err(
+            StorageEnclosureConstructionError::TargetBusyStorageDismantling { stockpile: target },
+        );
+    }
     let required_profile = StockpileStorageProfile::unbounded_solid_only();
     validate_enclosure_target(definition_record, target_record, target, required_profile)?;
     let selection = select_enclosure_material(state, definition_record, source)?;

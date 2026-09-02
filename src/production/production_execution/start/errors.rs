@@ -37,6 +37,9 @@ pub enum StartProcessError {
     UnknownStockpile {
         stockpile: StockpileId,
     },
+    OutputDestinationBusyStorageDismantling {
+        stockpile: StockpileId,
+    },
     OutputRouteCountMismatch {
         streams: usize,
         routes: usize,
@@ -170,6 +173,11 @@ impl Display for StartProcessError {
             Self::UnknownStockpile { stockpile } => {
                 write!(formatter, "unknown stockpile id {}", stockpile.value())
             }
+            Self::OutputDestinationBusyStorageDismantling { stockpile } => write!(
+                formatter,
+                "stockpile {} is being dismantled and cannot accept a new in-flight production output",
+                stockpile.value()
+            ),
             Self::OutputRouteCountMismatch { streams, routes } => write!(
                 formatter,
                 "resolved process has {streams} output streams but start supplied {routes} routes"
@@ -377,6 +385,7 @@ impl Error for StartProcessError {
             | Self::UnknownOutputForm { .. }
             | Self::UnknownOutputCompositionMaterial { .. }
             | Self::UnknownStockpile { .. }
+            | Self::OutputDestinationBusyStorageDismantling { .. }
             | Self::OutputRouteCountMismatch { .. }
             | Self::DuplicateOutputRoute { .. }
             | Self::UnknownOutputRoute { .. }

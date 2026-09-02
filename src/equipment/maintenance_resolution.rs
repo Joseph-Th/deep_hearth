@@ -9,12 +9,14 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::TickSpan;
 use crate::inventory::{
     ConsumptionSelection, ConsumptionSelectionError, StockpileId, validate_consumption_selection,
 };
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::registry::Registries;
+use crate::survival::SurvivalExertion;
 
 use super::definitions::EquipmentDefinitionId;
 use super::state::EquipmentId;
@@ -35,6 +37,8 @@ pub struct EquipmentMaintenanceResolution {
     pub(super) spent: CommodityKey,
     pub(super) spent_destination: StockpileId,
     pub(super) material_mode: EquipmentMaintenanceMaterialResolution,
+    pub(super) duration: TickSpan,
+    pub(super) exertion: SurvivalExertion,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,6 +244,8 @@ pub fn resolve_equipment_maintenance(
         } else {
             EquipmentMaintenanceMaterialResolution::AggregateWearStock
         },
+        duration: profile.required_service_duration(condition_before),
+        exertion: profile.exertion(),
     })
 }
 
@@ -295,5 +301,10 @@ impl EquipmentMaintenanceResolution {
             self.material_mode,
             EquipmentMaintenanceMaterialResolution::EmbodiedComponentReplacement { .. }
         )
+    }
+
+    #[must_use]
+    pub const fn duration(&self) -> TickSpan {
+        self.duration
     }
 }

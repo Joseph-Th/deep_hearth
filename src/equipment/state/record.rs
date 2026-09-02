@@ -42,7 +42,6 @@ pub(in crate::equipment) struct EquipmentComponentMaintenanceMutation {
     pub(in crate::equipment) equipment: EquipmentId,
     pub(in crate::equipment) component: crate::material::CommodityKey,
     pub(in crate::equipment) condition_before: Condition,
-    pub(in crate::equipment) condition_after: Condition,
     pub(in crate::equipment) replacement: Vec<ConsumedMaterialTrace>,
 }
 

@@ -125,6 +125,9 @@ pub enum StockpileSupportError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    StockpileBusyStorageDismantling {
+        stockpile: StockpileId,
+    },
     InventoryRevisionExhausted,
     Load(StockpileStructuralLoadError),
 }
@@ -161,6 +164,11 @@ impl Display for StockpileSupportError {
                 stockpile.value(),
                 job.value()
             ),
+            Self::StockpileBusyStorageDismantling { stockpile } => write!(
+                formatter,
+                "stockpile {} participates in active storage-enclosure dismantling and cannot be moved",
+                stockpile.value()
+            ),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
             }
@@ -178,6 +186,7 @@ impl Error for StockpileSupportError {
             | Self::NotMounted { .. }
             | Self::TargetNotActive { .. }
             | Self::StockpileBusy { .. }
+            | Self::StockpileBusyStorageDismantling { .. }
             | Self::InventoryRevisionExhausted => None,
         }
     }
@@ -202,6 +211,9 @@ pub enum StockpileSupportCommitError {
         stockpile: StockpileId,
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
+    },
+    StockpileBusyStorageDismantling {
+        stockpile: StockpileId,
     },
     Structure(StructuralCommitError),
 }
@@ -237,6 +249,11 @@ impl Display for StockpileSupportCommitError {
                 stockpile.value(),
                 job.value()
             ),
+            Self::StockpileBusyStorageDismantling { stockpile } => write!(
+                formatter,
+                "stockpile {} became occupied by active storage-enclosure dismantling before support commit",
+                stockpile.value()
+            ),
             Self::Structure(error) => write!(
                 formatter,
                 "stockpile support structural commit failed: {error}"
@@ -252,7 +269,8 @@ impl Error for StockpileSupportCommitError {
             Self::StaleInventoryRevision { .. }
             | Self::UnknownStockpile { .. }
             | Self::SupportChanged { .. }
-            | Self::StockpileBusy { .. } => None,
+            | Self::StockpileBusy { .. }
+            | Self::StockpileBusyStorageDismantling { .. } => None,
         }
     }
 }

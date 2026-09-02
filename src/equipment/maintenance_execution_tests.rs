@@ -17,7 +17,7 @@ use crate::content::{
 };
 use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Power, Temperature};
 use crate::core::state::validate_loaded_state;
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, PreciseEnergy,
@@ -44,7 +44,7 @@ use crate::structural::{
     StructuralLoadKind, add_structural_element, calculate_aggregate_weight_force_ceiling,
     materialize_structural_element_for_test, validate_activate_structural_element,
 };
-use crate::survival::initialize_player_survival;
+use crate::survival::{SurvivalExertion, initialize_player_survival};
 use crate::thermal::{
     SensibleHeatingProcessDefinition, SensibleHeatingRequest, resolve_sensible_heating_process,
 };
@@ -62,6 +62,28 @@ fn condition(parts_per_million: u32) -> Condition {
         Ok(condition) => condition,
         Err(error) => panic!("maintenance condition fixture failed: {error}"),
     }
+}
+
+fn initialize_service_player(registries: &Registries, state: &mut AppState) {
+    initialize_player_survival(registries, state)
+        .unwrap_or_else(|error| panic!("maintenance player-survival fixture failed: {error}"));
+}
+
+fn finish_service(
+    registries: &Registries,
+    state: &mut AppState,
+    completes_at: SimulationTick,
+) -> EquipmentMaintenanceOutcome {
+    let mut completion = None;
+    while state.tick() < completes_at {
+        let tick = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("maintenance completion tick failed: {error}"));
+        if let Some(outcome) = tick.equipment_maintenance() {
+            assert!(completion.replace(outcome).is_none());
+        }
+    }
+    assert_eq!(state.player_work().active(), None);
+    completion.unwrap_or_else(|| panic!("maintenance reached completion tick without an outcome"))
 }
 
 #[test]
@@ -110,6 +132,7 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
                 )
                 .unwrap_or_else(|| unreachable!("bounded primitive service seed cannot overflow")),
         ));
+        initialize_service_player(&registries, &mut state);
         let assembly = add_solid_stockpile_for_test(&mut state, definition.mass())
             .unwrap_or_else(|error| panic!("primitive service assembly stockpile failed: {error}"));
         for input in assembly_profile.inputs() {
@@ -166,7 +189,7 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("primitive service commit failed: {error}"));
         assert_eq!(outcome.equipment(), equipment);
-        assert_eq!(outcome.condition_after(), maintenance.restored_condition());
+        assert_eq!(outcome.target_condition(), maintenance.restored_condition());
 
         let record = state
             .equipment()
@@ -174,7 +197,7 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
             .unwrap_or_else(|| panic!("primitive serviced equipment disappeared"));
         assert_eq!(record.definition(), definition_id);
         assert_eq!(record.embodied_mass(), definition.mass());
-        assert_eq!(record.condition(), maintenance.restored_condition());
+        assert_eq!(record.condition(), outcome.condition_before());
         if definition.upgrade_profile().is_some() {
             assert!(record.embodied_material().iter().any(|trace| {
                 trace.profile().commodity()
@@ -199,6 +222,20 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
             matter_before
         );
         assert_eq!(explicit_energy(&registries, &state), energy_before);
+        let completion = finish_service(&registries, &mut state, outcome.completes_at());
+        assert_eq!(completion.equipment(), equipment);
+        assert_eq!(completion.condition_before(), outcome.condition_before());
+        assert_eq!(
+            completion.condition_after(),
+            maintenance.restored_condition()
+        );
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .map(|record| record.condition()),
+            Some(maintenance.restored_condition())
+        );
         validate_loaded_state(&registries, &state)
             .unwrap_or_else(|error| panic!("primitive service state audit failed: {error}"));
     }
@@ -286,7 +323,9 @@ fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
             .unwrap_or_else(|error| panic!("fresh stone service commit {service} failed: {error}"));
         assert_eq!(outcome.equipment(), pick);
         assert_eq!(outcome.material_mass(), Mass::from_milligrams(800_000));
-        assert_eq!(outcome.condition_after(), condition(1_000_000));
+        assert_eq!(outcome.target_condition(), condition(1_000_000));
+        let completion = finish_service(&registries, &mut state, outcome.completes_at());
+        assert_eq!(completion.condition_after(), condition(1_000_000));
     }
     assert_eq!(
         state
@@ -368,7 +407,10 @@ fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
         recycled_outcome.material_mass(),
         Mass::from_milligrams(800_000)
     );
-    assert_eq!(recycled_outcome.condition_after(), condition(1_000_000));
+    assert_eq!(recycled_outcome.target_condition(), condition(1_000_000));
+    let recycled_completion =
+        finish_service(&registries, &mut state, recycled_outcome.completes_at());
+    assert_eq!(recycled_completion.condition_after(), condition(1_000_000));
 
     assert_eq!(
         state
@@ -419,6 +461,7 @@ fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
 fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_C001));
+    initialize_service_player(&registries, &mut state);
     let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("component service assembly stockpile failed: {error}"));
     for (commodity, mass) in [
@@ -519,14 +562,14 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("component service commit failed: {error}"));
     assert_eq!(outcome.equipment(), pick);
-    assert_eq!(outcome.condition_after(), Condition::PRISTINE);
+    assert_eq!(outcome.target_condition(), Condition::PRISTINE);
 
     let record = state
         .equipment()
         .get_equipment(pick)
         .unwrap_or_else(|| panic!("component service pick disappeared after repair"));
     assert_eq!(record.definition(), EQUIPMENT_COPPER_REINFORCED_PICK);
-    assert_eq!(record.condition(), Condition::PRISTINE);
+    assert_eq!(record.condition(), outcome.condition_before());
     assert_eq!(record.embodied_mass(), Mass::from_milligrams(1_020_000));
     assert!(record.embodied_material().iter().any(|trace| {
         trace.profile().commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
@@ -570,6 +613,8 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
         matter_before
     );
     assert_eq!(explicit_energy(&registries, &state), energy_before);
+    let completion = finish_service(&registries, &mut state, outcome.completes_at());
+    assert_eq!(completion.condition_after(), Condition::PRISTINE);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("component service final state audit failed: {error}"));
     let encoded =
@@ -617,6 +662,8 @@ fn registries() -> Registries {
             Mass::from_milligrams(7),
             CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
             condition(700_000),
+            TickSpan::new(1),
+            SurvivalExertion::REST,
         )),
     )
 }
@@ -667,7 +714,15 @@ fn occupied_registries() -> Registries {
             Mass::from_milligrams(40_000),
             profile,
             thresholds,
-        ),
+        )
+        .with_maintenance_profile(EquipmentMaintenanceProfile::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(7),
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+            condition(700_000),
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+        )),
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_DEFINITION,
             "maintenance occupancy battery",
@@ -776,6 +831,8 @@ fn bind_selections(
         spent: CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         spent_destination,
         material_mode: EquipmentMaintenanceMaterialResolution::AggregateWearStock,
+        duration: TickSpan::new(1),
+        exertion: SurvivalExertion::REST,
     }
 }
 
@@ -783,6 +840,7 @@ fn bind_selections(
 fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_target() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0000));
+    initialize_service_player(&registries, &mut state);
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
         .unwrap_or_else(|error| panic!("maintenance resolver equipment fixture failed: {error}"));
     let second_equipment =
@@ -821,8 +879,16 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("maintenance transaction commit failed: {error}"));
     assert_eq!(outcome.condition_before(), condition(500_000));
-    assert_eq!(outcome.condition_after(), condition(700_000));
+    assert_eq!(outcome.target_condition(), condition(700_000));
     assert_eq!(outcome.material_mass(), Mass::from_milligrams(2));
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(equipment)
+            .map(|record| record.condition()),
+        Some(condition(500_000)),
+        "service admission must not grant condition recovery before labor completes"
+    );
     assert_eq!(
         state
             .inventory()
@@ -869,6 +935,8 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
         ),
         "spent maintenance output must not service another worn machine"
     );
+    let completion = finish_service(&registries, &mut state, outcome.completes_at());
+    assert_eq!(completion.condition_after(), condition(700_000));
 }
 
 #[test]
@@ -994,6 +1062,7 @@ fn maintenance_filters_contaminated_stock_and_rejects_forged_impure_selection() 
 fn maintenance_moves_exact_material_to_spent_storage_and_preserves_conservation() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0001));
+    initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -1043,14 +1112,14 @@ fn maintenance_moves_exact_material_to_spent_storage_and_preserves_conservation(
     };
 
     assert_eq!(outcome.condition_before(), condition(500_000));
-    assert_eq!(outcome.condition_after(), condition(700_000));
+    assert_eq!(outcome.target_condition(), condition(700_000));
     assert_eq!(outcome.material_mass(), Mass::from_milligrams(7));
     assert_eq!(
         state
             .equipment()
             .get_equipment(equipment)
             .map(|record| record.condition()),
-        Some(condition(700_000))
+        Some(condition(500_000))
     );
     assert_eq!(
         state.inventory().get_lot(lot).map(|record| record.mass()),
@@ -1079,6 +1148,8 @@ fn maintenance_moves_exact_material_to_spent_storage_and_preserves_conservation(
         Ok(matter_before)
     );
     assert_eq!(explicit_energy(&registries, &state), energy_before);
+    let completion = finish_service(&registries, &mut state, outcome.completes_at());
+    assert_eq!(completion.condition_after(), condition(700_000));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
@@ -1086,6 +1157,7 @@ fn maintenance_moves_exact_material_to_spent_storage_and_preserves_conservation(
 fn maintenance_rejects_non_improvement_and_allows_spent_material_to_return_to_source() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0002));
+    initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -1137,7 +1209,7 @@ fn maintenance_rejects_non_improvement_and_allows_spent_material_to_return_to_so
             .equipment()
             .get_equipment(equipment)
             .map(|record| record.condition()),
-        Some(condition(700_000))
+        Some(condition(500_000))
     );
     let source_record = state
         .inventory()
@@ -1152,12 +1224,15 @@ fn maintenance_rejects_non_improvement_and_allows_spent_material_to_return_to_so
         source_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
         Mass::from_milligrams(2)
     );
+    let completion = finish_service(&registries, &mut state, outcome.completes_at());
+    assert_eq!(completion.condition_after(), condition(700_000));
 }
 
 #[test]
 fn maintenance_rechecks_inventory_and_equipment_before_any_partial_commit() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0003));
+    initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -1341,6 +1416,7 @@ fn active_support(
 fn maintenance_material_relocation_updates_supported_stockpile_loads_atomically() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0004));
+    initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -1421,6 +1497,7 @@ fn maintenance_material_relocation_updates_supported_stockpile_loads_atomically(
 fn maintenance_preserves_multiple_partial_lot_profiles_without_id_collision() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0005));
+    initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -1511,6 +1588,7 @@ fn maintenance_preserves_multiple_partial_lot_profiles_without_id_collision() {
 fn maintenance_spent_capacity_failure_is_atomic() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0006));
+    initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -1659,6 +1737,7 @@ fn equipment_maintenance_soak_preserves_resource_conservation_and_replay() {
 fn maintenance_commit_rechecks_late_production_occupancy_before_moving_material() {
     let registries = occupied_registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0008));
+    initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -1792,6 +1871,7 @@ fn maintenance_commit_rechecks_late_production_occupancy_before_moving_material(
 fn maintenance_counts_reserved_inbound_as_capacity_but_not_structural_weight() {
     let registries = occupied_registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0009));
+    initialize_service_player(&registries, &mut state);
     let process_equipment = match add_equipment(
         &registries,
         &mut state,

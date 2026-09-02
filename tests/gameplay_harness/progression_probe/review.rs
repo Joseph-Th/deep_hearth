@@ -90,6 +90,7 @@ struct PrimitiveProgressionReview {
     steady_mining_jobs: u64,
     steady_feed_buffer_limited_cycles: u64,
     maintenance_material_preparation_ticks: u64,
+    component_service_ticks: u64,
     component_service_mass_mg: u64,
     component_service_condition_before_ppm: u32,
     component_service_preserved_reinforcement: bool,
@@ -126,7 +127,7 @@ fn information_path_captured(review: &PrimitiveProgressionReview) -> bool {
 fn shallow_opportunity_stops_cleanly() {
     let registries = deep_hearth::content::build_registries();
     let case = FocusedProbeCase::new(
-        0x4193_2154_AF3D_FB05,
+        11,
         Some(0xE242_49A0_7762_6A70),
         FocusedProbeRole::ExplicitReplay,
     );
@@ -137,11 +138,32 @@ fn shallow_opportunity_stops_cleanly() {
     );
     let review = evaluate_primitive_progression_probe(&registries, case);
     assert_eq!(review.productive_payback_cycles, None);
-    assert_eq!(review.steady_state_cycles, 1);
+    assert!(
+        review.steady_state_cycles > 0,
+        "shallow opportunity should permit some useful machinery before local supply ends"
+    );
     assert_eq!(review.steady_state_stop, PrimitiveSteadyStop::TargetSupply);
     assert_eq!(
         review.reinvestment,
         PrimitiveReinvestmentOutcome::TargetSupplyLimited
+    );
+}
+
+#[test]
+fn first_copper_pick_dominance_is_measured_against_the_crank_counterfactual() {
+    let registries = deep_hearth::content::build_registries();
+    let review = evaluate_primitive_progression_probe(
+        &registries,
+        FocusedProbeCase::new(404, Some(1_648), FocusedProbeRole::ExplicitReplay),
+    );
+    assert_eq!(review.natural_priority, PrimitivePriority::PickFirst);
+    assert!(review.extraction_hard_access_lead_ticks > 0);
+    assert!(review.extraction_hard_material_window_ticks > 0);
+    assert!(review.mechanization_processed_output_window_ticks > 0);
+    assert!(
+        review.extraction_hard_access_lead_ticks
+            > review.mechanization_processed_output_window_ticks,
+        "the current first copper parcel must not be advertised as a reciprocal choice while pick-first buys substantially more immediate player-visible leverage"
     );
 }
 
@@ -212,6 +234,7 @@ fn investment_choice_captured(
 
 fn lifecycle_obligations_captured(review: &PrimitiveProgressionReview) -> bool {
     review.maintenance_material_preparation_ticks > 0
+        && review.component_service_ticks > 0
         && review.flywheel_loss_before_reserve_nj > 0
         && review.component_service_mass_mg > 0
         && review.component_service_condition_before_ppm < review.final_pick_condition_ppm
@@ -222,8 +245,10 @@ fn completed_reinvestment_captured(reinvestment: PrimitiveReinvestmentExperience
     reinvestment.invested_copper_mass == Mass::from_milligrams(60_000)
         && reinvestment.base_crush_ticks > reinvestment.reinforced_crush_ticks
         && reinvestment.crusher_time_reduction_ppm > 0
-        && reinvestment.base_separator_ticks > reinvestment.reinforced_separator_ticks
-        && reinvestment.separator_time_reduction_ppm > 0
+        && reinvestment.base_separator_ticks >= reinvestment.reinforced_separator_ticks
+        && reinvestment.reinforced_separator_processing_rate
+            > reinvestment.base_separator_processing_rate
+        && reinvestment.separator_processing_rate_gain_ppm > 0
         && !reinvestment.base_separator_target_mass.is_zero()
         && !reinvestment.reinforced_separator_target_mass.is_zero()
         && reinvestment.upgraded_separator_batch_capacity
@@ -335,10 +360,7 @@ fn nominal_manual_power(
         });
     match value {
         CapabilityValue::Power(power) => power,
-        other @ (CapabilityValue::Mass(_)
-        | CapabilityValue::Temperature(_)
-        | CapabilityValue::Pressure(_)
-        | CapabilityValue::MassFlow(_)) => panic!(
+        other => panic!(
             "primitive progression equipment {} manual-power capability has wrong kind {:?}",
             equipment.value(),
             other.kind()
@@ -387,12 +409,18 @@ fn concise_reinvestment_summary(outcome: PrimitiveReinvestmentOutcome) -> String
         return "blocked:known-target-supply".to_string();
     };
     format!(
-        "available copper-needed:{}mg projected=[crusher:{}->{}t separator:{}->{}t recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded:crusher:{}mg/{}t separator:{}t]",
+        "available copper-needed:{}mg projected=[crusher:{}->{}t separator-resolved:{}->{}t flow:{}->{}mg/s recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded:crusher:{}mg/{}t separator:{}t]",
         reinvestment.invested_copper_mass.milligrams(),
         reinvestment.base_crush_ticks,
         reinvestment.reinforced_crush_ticks,
         reinvestment.base_separator_ticks,
         reinvestment.reinforced_separator_ticks,
+        reinvestment
+            .base_separator_processing_rate
+            .milligrams_per_second(),
+        reinvestment
+            .reinforced_separator_processing_rate
+            .milligrams_per_second(),
         reinvestment.base_separator_target_mass.milligrams(),
         reinvestment.reinforced_separator_target_mass.milligrams(),
         reinvestment.base_separator_batch_capacity.milligrams(),
@@ -410,14 +438,20 @@ fn detailed_reinvestment_summary(outcome: PrimitiveReinvestmentOutcome) -> Strin
         return "blocked:known-target-supply".to_string();
     };
     format!(
-        "available copper-needed:{}mg projected=[crusher-time:{}->{}t reduction:{}ppm separator-time:{}->{}t reduction:{}ppm separator-recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded:[mass:{}mg crusher-energy:{}nJ charge:{}t crush:{}t separator-energy:{}nJ separator:{}t target:{}mg] survival:{}nJ/{}uL]",
+        "available copper-needed:{}mg projected=[crusher-time:{}->{}t reduction:{}ppm separator-resolved-time:{}->{}t flow:{}->{}mg/s gain:{}ppm separator-recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded:[mass:{}mg crusher-energy:{}nJ charge:{}t crush:{}t separator-energy:{}nJ separator:{}t target:{}mg] survival:{}nJ/{}uL]",
         reinvestment.invested_copper_mass.milligrams(),
         reinvestment.base_crush_ticks,
         reinvestment.reinforced_crush_ticks,
         reinvestment.crusher_time_reduction_ppm,
         reinvestment.base_separator_ticks,
         reinvestment.reinforced_separator_ticks,
-        reinvestment.separator_time_reduction_ppm,
+        reinvestment
+            .base_separator_processing_rate
+            .milligrams_per_second(),
+        reinvestment
+            .reinforced_separator_processing_rate
+            .milligrams_per_second(),
+        reinvestment.separator_processing_rate_gain_ppm,
         reinvestment.base_separator_target_mass.milligrams(),
         reinvestment.reinforced_separator_target_mass.milligrams(),
         reinvestment.base_separator_batch_capacity.milligrams(),
@@ -443,14 +477,11 @@ fn evaluate_primitive_progression_probe(
     assert_progression_authored_dependencies(registries);
     let seed = case.seed();
     let sample = focused_probe_role_label(case.role());
-    let behavior_seed = case
-        .behavior_seed()
-        .unwrap_or_else(|| panic!("progression probe is missing its actor behavior seed"));
-    let extraction_grade_premium_ppm = extraction_grade_premium_ppm(case);
     let manual_fallback = (case.role() == FocusedProbeRole::MaintainedAnchor)
         .then(|| evaluate_manual_processing_fallback(registries, seed));
     let deferred_trace_refinement = match case.role() {
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => true,
+        FocusedProbeRole::MaintainedAnchor => true,
+        FocusedProbeRole::MaintainedCoverage => seed == 3,
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
             mix64(seed ^ 0x494E_464F_5F50_4154).is_multiple_of(2)
         }
@@ -464,8 +495,7 @@ fn evaluate_primitive_progression_probe(
     let extraction = run_primitive_progression_case(
         registries,
         seed,
-        PrimitivePriority::ExtractionFirst,
-        extraction_grade_premium_ppm,
+        PrimitivePriority::PickFirst,
         deferred_trace_refinement,
         ore_opportunity_batch_budget,
         true,
@@ -473,47 +503,45 @@ fn evaluate_primitive_progression_probe(
     let mechanization = run_primitive_progression_case(
         registries,
         seed,
-        PrimitivePriority::MechanizationFirst,
-        extraction_grade_premium_ppm,
+        PrimitivePriority::CrankFirstCounterfactual,
         deferred_trace_refinement,
         ore_opportunity_batch_budget,
         true,
     );
-    assert_eq!(
-        extraction.natural_priority, mechanization.natural_priority,
-        "matched-world branches must derive the same natural actor choice from the same observable decision state"
-    );
-    let natural_priority = extraction.natural_priority;
-    let natural = match natural_priority {
-        PrimitivePriority::ExtractionFirst => extraction,
-        PrimitivePriority::MechanizationFirst => mechanization,
-    };
+    assert_eq!(extraction.natural_priority, PrimitivePriority::PickFirst);
+    assert_eq!(mechanization.natural_priority, PrimitivePriority::PickFirst);
+    let natural_priority = PrimitivePriority::PickFirst;
+    let natural = extraction;
 
     let extraction_pick_at = extraction
         .pick_upgraded_at
-        .unwrap_or_else(|| panic!("extraction-first never acquired its pick reinforcement"));
-    let mechanization_pick_at = mechanization
-        .pick_upgraded_at
-        .unwrap_or_else(|| panic!("mechanization-first never converged on the pick reinforcement"));
-    let extraction_hard_at = extraction.hard_seam_accessed_at.unwrap_or_else(|| {
-        panic!("extraction-first pick upgrade failed to unlock the known hard seam")
+        .unwrap_or_else(|| panic!("pick-first never acquired its pick reinforcement"));
+    let mechanization_pick_at = mechanization.pick_upgraded_at.unwrap_or_else(|| {
+        panic!("crank-first counterfactual never converged on the pick reinforcement")
     });
+    let extraction_hard_at = extraction
+        .hard_seam_accessed_at
+        .unwrap_or_else(|| panic!("pick-first upgrade failed to unlock the known hard seam"));
     let mechanization_hard_at = mechanization.hard_seam_accessed_at.unwrap_or_else(|| {
-        panic!("mechanization-first failed to reach the hard seam after convergence")
+        panic!("crank-first counterfactual failed to reach the hard seam after convergence")
     });
+    let extraction_hard_access_lead_ticks = mechanization_hard_at
+        .checked_sub(extraction_hard_at)
+        .unwrap_or_else(|| unreachable!("pick-first cannot reach the hard seam after crank-first"));
     let extraction_reinforced_mining_ticks = extraction
         .reinforced_mining_ticks
-        .unwrap_or_else(|| panic!("extraction-first never exercised its reinforced pick"));
-    let mechanization_reinforced_mining_ticks = mechanization
-        .reinforced_mining_ticks
-        .unwrap_or_else(|| panic!("mechanization-first never exercised its reinforced pick"));
+        .unwrap_or_else(|| panic!("pick-first never exercised its reinforced pick"));
+    let mechanization_reinforced_mining_ticks =
+        mechanization.reinforced_mining_ticks.unwrap_or_else(|| {
+            panic!("crank-first counterfactual never exercised its reinforced pick")
+        });
     assert!(!extraction.initial_crank_reinforced);
     assert!(mechanization.initial_crank_reinforced);
     assert!(extraction.crank_reinforced && mechanization.crank_reinforced);
     assert_eq!(extraction.first_upgrade_at, extraction_pick_at);
-    assert_eq!(
-        extraction.first_upgrade_at, mechanization.first_upgrade_at,
-        "matched-world priorities must allocate the scarce copper parcel from the same prepared decision state"
+    assert!(
+        extraction.first_upgrade_at < mechanization.first_upgrade_at,
+        "pick-first must spend its scarce copper on the pick before the crank-first counterfactual finishes infrastructure preparation"
     );
     assert!(mechanization.first_upgrade_at < mechanization_pick_at);
     assert!(extraction.second_upgrade_at > extraction.first_upgrade_at);
@@ -529,7 +557,14 @@ fn evaluate_primitive_progression_probe(
     );
     assert!(
         mechanization.machine_started_at < extraction.machine_started_at,
-        "mechanization-first must deliver autonomous work earlier on the same world"
+        "crank-first counterfactual must retain its small early-autonomy benefit so the comparison remains meaningful"
+    );
+    assert!(
+        extraction_hard_access_lead_ticks
+            > mechanization
+                .first_processed_output_at
+                .saturating_sub(mechanization.machine_started_at),
+        "pick-first must remain the rational ordinary first-copper use while its information/access lead exceeds crank-first's initial autonomous-output window"
     );
     assert!(
         extraction_reinforced_mining_ticks < extraction.soft_ore_mining_ticks,
@@ -538,9 +573,13 @@ fn evaluate_primitive_progression_probe(
     assert!(mechanization_reinforced_mining_ticks < mechanization.soft_ore_mining_ticks);
     assert!(extraction.hard_ore_before_convergence > Mass::ZERO);
     assert_eq!(mechanization.hard_ore_before_convergence, Mass::ZERO);
-    assert_eq!(
-        extraction.reserve_machine_work_ticks, mechanization.reserve_machine_work_ticks,
-        "matched-world priorities must compare the same banked follow-up crusher workload"
+    assert!(
+        !extraction.reserve_batch_mass.is_zero() && !mechanization.reserve_batch_mass.is_zero(),
+        "both strategies must bank a useful follow-up crusher batch"
+    );
+    assert!(
+        extraction.reserve_machine_work_ticks > 0 && mechanization.reserve_machine_work_ticks > 0,
+        "both follow-up crusher workloads must remain productive"
     );
     assert_eq!(
         extraction.primary_batch_mass, mechanization.primary_batch_mass,
@@ -667,7 +706,7 @@ fn evaluate_primitive_progression_probe(
     assert!(
         extraction.selected_processing_feed_copper_ppm
             >= mechanization.selected_processing_feed_copper_ppm,
-        "extraction-first must reassess the unlocked hard-seam sample and never choose worse feed than the already-owned bulk ore"
+        "pick-first must reassess the unlocked hard-seam sample and never choose worse feed than the already-owned bulk ore"
     );
     assert!(
         extraction.separation_feed_mass <= mechanization.separation_feed_mass,
@@ -689,17 +728,21 @@ fn evaluate_primitive_progression_probe(
     let mechanization_autonomy_lead_ticks = extraction
         .machine_started_at
         .checked_sub(mechanization.machine_started_at)
-        .unwrap_or_else(|| unreachable!("mechanization-first already wins autonomous-work access"));
+        .unwrap_or_else(|| {
+            unreachable!("crank-first counterfactual already wins autonomous-work access")
+        });
     let extraction_hard_access_lead_ticks = mechanization_hard_at
         .checked_sub(extraction_hard_at)
-        .unwrap_or_else(|| panic!("extraction-first must reach the hard seam before convergence"));
+        .unwrap_or_else(|| panic!("pick-first must reach the hard seam before convergence"));
     let extraction_hard_material_window_ticks = extraction
         .second_upgrade_at
         .checked_sub(extraction_hard_at)
-        .unwrap_or_else(|| unreachable!("extraction-first hard access precedes convergence"));
+        .unwrap_or_else(|| unreachable!("pick-first hard access precedes convergence"));
     let mechanization_processed_output_window_ticks = mechanization_pick_at
         .checked_sub(mechanization.first_processed_output_at)
-        .unwrap_or_else(|| unreachable!("mechanization-first output precedes pick convergence"));
+        .unwrap_or_else(|| {
+            unreachable!("crank-first counterfactual output precedes pick convergence")
+        });
     let mechanization_processed_before_pick_upgrade = mechanization.machine_started_at
         < mechanization.first_processed_output_at
         && mechanization.first_processed_output_at < mechanization_pick_at;
@@ -835,7 +878,7 @@ fn evaluate_primitive_progression_probe(
             extraction.direct_second_upgrade_blocked,
         );
         std::println!(
-            "PROGRESSION AGENCY seed=0x{seed:016X} matched-world choices=[extraction-first,mechanization-first] milestones=[machine-start:{}vs{}t first-output:{}vs{}t second-upgrade:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm episode-charge:{}vs{}t full-accumulator:stone:{}t reinforced:{}t reduction:{}ppm] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free:{}vs{}t] durability=[pick:{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t]",
+            "PROGRESSION AGENCY seed=0x{seed:016X} matched-world branches=[pick-first,crank-first-counterfactual] milestones=[machine-start:{}vs{}t first-output:{}vs{}t second-upgrade:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm episode-charge:{}vs{}t full-accumulator:stone:{}t reinforced:{}t reduction:{}ppm] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free:{}vs{}t] durability=[pick:{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t]",
             extraction.machine_started_at,
             mechanization.machine_started_at,
             extraction.first_processed_output_at,
@@ -961,6 +1004,7 @@ fn evaluate_primitive_progression_probe(
         steady_mining_jobs: natural.steady_mining_jobs,
         steady_feed_buffer_limited_cycles: natural.steady_feed_buffer_limited_cycles,
         maintenance_material_preparation_ticks: natural.maintenance_material_preparation_ticks,
+        component_service_ticks: natural.component_service_ticks,
         component_service_mass_mg: natural.component_service_mass.milligrams(),
         component_service_condition_before_ppm: natural.component_service_condition_before_ppm,
         component_service_preserved_reinforcement: natural
@@ -1022,29 +1066,85 @@ fn evaluate_primitive_progression_probe(
         };
     let extraction_window_time =
         format_physical_duration(registries, review.extraction_hard_material_window_ticks);
-    let mechanization_window_time = format_physical_duration(
-        registries,
-        review.mechanization_processed_output_window_ticks,
-    );
     let manual_bridge_time =
         format_physical_duration(registries, review.manual_bridge_attention_ticks);
     let machine_preparation_time =
         format_physical_duration(registries, review.processing_line_preparation_ticks);
+    let manual_second_ready_delay = natural
+        .manual_bridge_ready_at
+        .checked_sub(natural.processing_decision_at)
+        .unwrap_or_else(|| unreachable!("manual bridge cannot precede its decision state"));
+    let milestone_delay = |tick: u64, label: &str| {
+        tick.checked_sub(natural.processing_decision_at)
+            .unwrap_or_else(|| {
+                panic!("{label} cannot precede the shared processing decision state")
+            })
+    };
+    let extraction_pick_delay = milestone_delay(extraction_pick_at, "pick-first pick");
+    let extraction_hard_delay = milestone_delay(extraction_hard_at, "pick-first hard seam");
+    let extraction_machine_start_delay =
+        milestone_delay(extraction.machine_started_at, "pick-first machine start");
+    let extraction_second_upgrade_delay =
+        milestone_delay(extraction.second_upgrade_at, "pick-first second upgrade");
+    let mechanization_crank_delay = milestone_delay(
+        mechanization.first_upgrade_at,
+        "crank-first counterfactual crank upgrade",
+    );
+    let mechanization_machine_start_delay = milestone_delay(
+        mechanization.machine_started_at,
+        "crank-first counterfactual machine start",
+    );
+    let mechanization_output_delay = milestone_delay(
+        mechanization.first_processed_output_at,
+        "crank-first counterfactual first processed output",
+    );
+    let mechanization_pick_delay = milestone_delay(
+        mechanization_pick_at,
+        "crank-first counterfactual pick upgrade",
+    );
+    let manual_bootstrap_feed = if natural.manual_bootstrap_selected_hard_feed {
+        "hard-sample"
+    } else {
+        "owned-bulk"
+    };
+    let manual_bootstrap_hard_information_lead_ticks =
+        mechanization_crank_delay.saturating_sub(natural.manual_bootstrap_hard_sample_ticks);
+    let manual_bootstrap_automation_delay_ticks = natural
+        .manual_bootstrap_machine_ready_ticks
+        .saturating_sub(mechanization_machine_start_delay);
+    let productive_setup_recovery_ticks = natural
+        .machine_useful_overlap_ticks
+        .min(natural.automation_preparation_ticks);
+    let productive_setup_recovery_ppm = u32::try_from(
+        u128::from(productive_setup_recovery_ticks) * 1_000_000
+            / u128::from(natural.automation_preparation_ticks),
+    )
+    .unwrap_or_else(|_| unreachable!("bounded productive setup recovery fits normalized ppm"));
+    let productive_setup_gap_ticks = natural
+        .automation_preparation_ticks
+        .saturating_sub(natural.machine_useful_overlap_ticks);
     let reinvestment_summary = concise_reinvestment_summary(review.reinvestment);
     report_maintained_manual_fallback(seed, manual_fallback);
     std::println!(
-        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} first-copper={} choice-window=[extraction-hard:{}t/{}:{}mg mechanization-output:{}t/{} convergence-lead:{:+}t] bridge-tradeoff=[manual-now:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; mechanize:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] post-upgrade-feed={} delegation=[productive:{}t utilization:{}ppm payback:{productive_payback} post-payback:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] next-reinvestment=[{reinvestment_summary}] obligations=[maintenance-material-prep:{}t maintenance-transition:untimed survival:{}ppm/{}ppm]",
+        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} first-copper=pick counterfactual=[crank-first-dominated hard-access-lead:{}t autonomous-output-window:{}t] pick-first=[pick:{}t hard-sample:{}t exclusive-hard-window:{}t/{}:{}mg machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t eventual-convergence:{:+}t] bridge-tradeoff=[manual-second:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; powered-line:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] manual-second-counterfactual=[pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} trade=[hard-info-lead-vs-crank-first:{}t automation-delay:+{}t]] post-upgrade-feed={} delegation=[productive:{}t utilization:{}ppm setup-recovery:{}ppm gap:{}t payback:{productive_payback} post-payback:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] next-reinvestment=[{reinvestment_summary}] obligations=[maintenance-material-prep:{}t maintenance-service:{}t survival:{}ppm/{}ppm]",
         if review.information_refinement_required {
             "deferred-refinement"
         } else {
             "surface-resolved"
         },
-        review.natural_priority.label(),
+        review.extraction_hard_access_lead_ticks,
+        review.mechanization_processed_output_window_ticks,
+        extraction_pick_delay,
+        extraction_hard_delay,
         review.extraction_hard_material_window_ticks,
         extraction_window_time,
         review.extraction_hard_ore_before_convergence_mg,
-        review.mechanization_processed_output_window_ticks,
-        mechanization_window_time,
+        extraction_machine_start_delay,
+        extraction_second_upgrade_delay,
+        mechanization_crank_delay,
+        mechanization_machine_start_delay,
+        mechanization_output_delay,
+        mechanization_pick_delay,
         review.mechanization_convergence_delta_ticks,
         review.manual_bridge_attention_ticks,
         manual_bridge_time,
@@ -1062,6 +1162,13 @@ fn evaluate_primitive_progression_probe(
             .unwrap_or_else(|| panic!("primitive powered sorting route disappeared during review")),
         review.processing_line_preparation_metabolic_cost_nj,
         review.processing_line_preparation_hydration_cost_ul,
+        natural.manual_bootstrap_pick_ready_ticks,
+        natural.manual_bootstrap_hard_sample_ticks,
+        natural.manual_bootstrap_second_ready_ticks,
+        natural.manual_bootstrap_machine_ready_ticks,
+        manual_bootstrap_feed,
+        manual_bootstrap_hard_information_lead_ticks,
+        manual_bootstrap_automation_delay_ticks,
         if review.post_convergence_mining_target_is_hard {
             "hard-sample"
         } else {
@@ -1069,17 +1176,20 @@ fn evaluate_primitive_progression_probe(
         },
         natural.machine_useful_overlap_ticks,
         review.productive_autonomy_utilization_ppm,
+        productive_setup_recovery_ppm,
+        productive_setup_gap_ticks,
         post_productive_payback_cycles,
         review.steady_state_stop.label(),
         review.tool_attention_reduction_ppm,
         review.crank_power_gain_ppm,
         review.maintenance_material_preparation_ticks,
+        review.component_service_ticks,
         natural_energy_spent_ppm,
         natural_hydration_spent_ppm,
     );
     let reinvestment_review = detailed_reinvestment_summary(review.reinvestment);
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} extraction-hard-window:{}t/{}mg mechanization-output-window:{}t convergence-lead:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] next-reinvestment-counterfactual=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t transition:untimed copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] first-copper=[policy:pick-dominant owned-bulk:{}ppm hard-evidence:{}..{}ppm counterfactual:crank-first] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[pick-feed:{} pick-grade:{}ppm crank-first-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} hard-access-lead:{}t hard-window:{}t/{}mg crank-output-window:{}t autonomy-lead:{}t eventual-convergence:{:+}t converged:{}] strategy-timing=[pick-first=[pick:{}t hard-sample:{}t machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t]] manual-second-counterfactual=[isolated:{}t pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} hard-info-lead-vs-crank-first:{}t automation-delay:+{}t manual-recovery:{}ppm powered-recovery:{}ppm] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm setup-recovery:{}ppm gap:{}t post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] next-reinvestment-counterfactual=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t service:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
         } else {
@@ -1098,8 +1208,6 @@ fn evaluate_primitive_progression_probe(
         review.detailed_survey_ticks,
         review.refined_coarse_lower_ppm,
         review.refined_coarse_upper_ppm,
-        extraction_grade_premium_ppm,
-        review.natural_priority.label(),
         review.bulk_sample_copper_ppm,
         review.hard_ore_evidence_lower_ppm,
         review.hard_ore_evidence_upper_ppm,
@@ -1115,15 +1223,40 @@ fn evaluate_primitive_progression_probe(
         review.mechanization_feed_copper_ppm,
         review.material_efficiency_tradeoff,
         review.extraction_reassessment_avoided_worse_feed,
+        review.extraction_hard_access_lead_ticks,
         review.extraction_hard_material_window_ticks,
         review.extraction_hard_ore_before_convergence_mg,
         review.mechanization_processed_output_window_ticks,
+        review.mechanization_autonomy_lead_ticks,
         review.mechanization_convergence_delta_ticks,
-        review.sequencing_tradeoff,
         review.converged_both_upgrades,
+        extraction_pick_delay,
+        extraction_hard_delay,
+        extraction_machine_start_delay,
+        extraction_second_upgrade_delay,
+        mechanization_crank_delay,
+        mechanization_machine_start_delay,
+        mechanization_output_delay,
+        mechanization_pick_delay,
+        manual_second_ready_delay,
+        natural.manual_bootstrap_pick_ready_ticks,
+        natural.manual_bootstrap_hard_sample_ticks,
+        natural.manual_bootstrap_second_ready_ticks,
+        natural.manual_bootstrap_machine_ready_ticks,
+        manual_bootstrap_feed,
+        manual_bootstrap_hard_information_lead_ticks,
+        manual_bootstrap_automation_delay_ticks,
+        review.manual_bridge_recovery_ppm,
+        registries
+            .ore_processing()
+            .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+            .map(ConstituentSeparationProcessDefinition::target_recovery_ppm)
+            .unwrap_or_else(|| panic!("primitive powered sorting route disappeared during review")),
         natural.machine_useful_overlap_ticks,
         review.unfilled_autonomous_ticks,
         review.productive_autonomy_utilization_ppm,
+        productive_setup_recovery_ppm,
+        productive_setup_gap_ticks,
         if review.post_convergence_mining_target_is_hard {
             "hard-sample"
         } else {
@@ -1146,6 +1279,7 @@ fn evaluate_primitive_progression_probe(
         review.final_pick_condition_ppm,
         review.component_service_mass_mg,
         review.maintenance_material_preparation_ticks,
+        review.component_service_ticks,
         review.component_service_preserved_reinforcement,
         natural_energy_spent_ppm,
         natural_hydration_spent_ppm,
@@ -1153,7 +1287,7 @@ fn evaluate_primitive_progression_probe(
     );
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "PROGRESSION TRADEOFF seed=0x{seed:016X} evidence=matched-counterfactual same-decision-state:true authorship=distinct-physical-consequences extraction-first=[unlock:hard-seam grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t hard-window:{}t] mechanization-first=[feed-grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t autonomy-lead:{}t first-output-delta:{:+}t crank:{}uW flywheel-input:{}uW unclipped:true full-charge-attention-reduction:{}ppm pre-pick-output-window:{}t] reciprocal-leverage:{} convergence=[both-upgrades:{} delta:{:+}t final-hard-ore:{}vs{}mg]",
+            "PROGRESSION TRADEOFF seed=0x{seed:016X} evidence=matched-counterfactual same-decision-state:true authorship=distinct-physical-consequences pick-first=[unlock:hard-seam grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t hard-window:{}t] crank-first-counterfactual=[feed-grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t autonomy-lead:{}t first-output-delta:{:+}t crank:{}uW flywheel-input:{}uW unclipped:true full-charge-attention-reduction:{}ppm pre-pick-output-window:{}t] counterfactual-distinct:{} convergence=[both-upgrades:{} delta:{:+}t final-hard-ore:{}vs{}mg]",
             review.extraction_feed_copper_ppm,
             review.extraction_separation_feed_mg,
             review.extraction_separation_energy_nj,
@@ -1206,23 +1340,28 @@ fn evaluate_primitive_progression_probe(
 pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: FocusedProbeCase) {
     let review = evaluate_primitive_progression_probe(registries, case);
     if case.role() == FocusedProbeRole::MaintainedCoverage {
-        assert_eq!(
-            case.seed(),
-            3,
-            "unknown maintained progression coverage seed"
-        );
-        assert_eq!(
-            review.natural_priority,
-            PrimitivePriority::MechanizationFirst,
-            "progression coverage seed 3 must preserve the alternate scarce-copper priority"
-        );
-        assert!(
-            review.extraction_reassessment_avoided_worse_feed,
-            "progression coverage seed 3 must preserve a worse hard-seam sample"
-        );
-        assert!(
-            !review.post_convergence_mining_target_is_hard,
-            "progression coverage seed 3 must switch subsequent extraction back to the known better bulk ore"
-        );
+        assert_eq!(review.natural_priority, PrimitivePriority::PickFirst);
+        match case.seed() {
+            3 => {
+                assert!(review.information_refinement_required);
+                assert!(
+                    review.extraction_reassessment_avoided_worse_feed,
+                    "progression coverage seed 3 must preserve a worse hard-seam sample"
+                );
+                assert!(
+                    !review.post_convergence_mining_target_is_hard,
+                    "progression coverage seed 3 must switch subsequent extraction back to the known better bulk ore"
+                );
+            }
+            4 => {
+                assert!(
+                    !review.information_refinement_required,
+                    "progression coverage seed 4 must preserve the surface-resolved information path"
+                );
+                assert_eq!(review.detailed_survey_ticks, 0);
+                assert_eq!(review.refined_clue_sample_mg, 0);
+            }
+            seed => panic!("unknown maintained progression coverage seed {seed}"),
+        }
     }
 }
