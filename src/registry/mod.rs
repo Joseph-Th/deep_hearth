@@ -195,10 +195,14 @@ fn validate_registry_domains(core: &CoreDefinitions, domains: &RegistryDomains) 
         .energy
         .validate_references(&domains.materials, core.physical_tick_duration());
     domains.fluid.validate_references(&domains.materials);
+    domains.crafting.validate_references(
+        &domains.production,
+        &domains.materials,
+        &domains.capabilities,
+    );
     domains
-        .crafting
-        .validate_references(&domains.production, &domains.materials);
-    domains.labor.validate_references(&domains.capabilities);
+        .labor
+        .validate_references(&domains.capabilities, &domains.equipment);
     domains
         .equipment
         .validate_references(&domains.capabilities, &domains.materials);

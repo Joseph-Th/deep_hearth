@@ -10,13 +10,15 @@ use super::authoring::{INDUSTRIAL_MAINTENANCE_MASS_DIVISOR, condition};
 use super::*;
 use crate::content::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
-    CAPABILITY_HEATING_POWER, CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_MINING_FLOW,
-    CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS, CAPABILITY_SEPARATOR_BATCH,
-    CAPABILITY_SEPARATOR_FLOW, CAPABILITY_TREADLE_POWER_OUTPUT,
+    CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
+    CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_MINING_FLOW, CAPABILITY_MINING_MAX_BATCH,
+    CAPABILITY_MINING_MAX_HARDNESS, CAPABILITY_SAWING_FLOW, CAPABILITY_SCREEN_BATCH,
+    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_TREADLE_POWER_OUTPUT,
+    CAPABILITY_WOODWORKING_FLOW,
 };
 use crate::content::materials::{
-    FORM_BOARD, FORM_HANDLE, FORM_INGOT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD,
+    FORM_BOARD, FORM_HANDLE, FORM_INGOT, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE, FORM_TOOL,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::Condition;
@@ -119,6 +121,16 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
             Mass::from_milligrams(800_000),
         ),
         (
+            EQUIPMENT_STONE_ROTARY_QUERN,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
+            Mass::from_milligrams(18_000),
+        ),
+        (
             EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
             CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
             Mass::from_milligrams(1_600_000),
@@ -127,6 +139,36 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
             EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
             CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
             Mass::from_milligrams(800_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(500_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(500_000),
+        ),
+        (
+            EQUIPMENT_STONE_WOODWORKING_ADZE,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+            CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
+            Mass::from_milligrams(54_000),
         ),
     ] {
         let maintenance = registry
@@ -147,6 +189,36 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
             CommodityKey::new(component.material(), FORM_SCRAP)
         );
     }
+}
+
+#[test]
+fn saw_bench_is_a_distinct_high_throughput_woodworking_provider() {
+    let registry = build_equipment_registry();
+    let saw = registry
+        .get_equipment(EQUIPMENT_TIMBER_FRAME_SAW_BENCH)
+        .unwrap_or_else(|| panic!("timber frame saw bench disappeared"));
+    let reinforced_adze = registry
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE)
+        .unwrap_or_else(|| panic!("reinforced woodworking adze disappeared"));
+    assert_eq!(
+        saw.capabilities().get_capability(CAPABILITY_SAWING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            crate::core::quantity::MassFlow::from_milligrams_per_second(40_000)
+        ))
+    );
+    assert!(
+        saw.capabilities()
+            .get_capability(CAPABILITY_WOODWORKING_FLOW)
+            .is_none(),
+        "the saw bench must not impersonate a general hewing tool"
+    );
+    assert!(
+        reinforced_adze
+            .capabilities()
+            .get_capability(CAPABILITY_SAWING_FLOW)
+            .is_none(),
+        "the adze must not unlock the high-yield sawing recipe"
+    );
 }
 
 #[test]
@@ -235,6 +307,16 @@ fn primitive_copper_upgrades_improve_their_intended_nominal_capability() {
             CAPABILITY_SEPARATOR_BATCH,
         ),
         (
+            EQUIPMENT_STONE_ROTARY_QUERN,
+            EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
+            CAPABILITY_GRINDER_FLOW,
+        ),
+        (
+            EQUIPMENT_STONE_ROTARY_QUERN,
+            EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
+            CAPABILITY_GRINDER_BATCH,
+        ),
+        (
             EQUIPMENT_STONE_QUARRY_PICK,
             EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
             CAPABILITY_MINING_FLOW,
@@ -243,6 +325,11 @@ fn primitive_copper_upgrades_improve_their_intended_nominal_capability() {
             EQUIPMENT_STONE_QUARRY_PICK,
             EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
             CAPABILITY_MINING_MAX_BATCH,
+        ),
+        (
+            EQUIPMENT_STONE_WOODWORKING_ADZE,
+            EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+            CAPABILITY_WOODWORKING_FLOW,
         ),
     ] {
         let base_definition = registry
@@ -421,6 +508,24 @@ fn primitive_processing_wear_reduces_safe_batch_capacity_before_failure() {
             Mass::from_milligrams(750_000),
             Mass::from_milligrams(375_000),
         ),
+        (
+            EQUIPMENT_STONE_ROTARY_QUERN,
+            CAPABILITY_GRINDER_BATCH,
+            Mass::from_milligrams(500_000),
+            Mass::from_milligrams(250_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
+            CAPABILITY_GRINDER_BATCH,
+            Mass::from_milligrams(750_000),
+            Mass::from_milligrams(375_000),
+        ),
+        (
+            EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
+            CAPABILITY_SCREEN_BATCH,
+            Mass::from_milligrams(500_000),
+            Mass::from_milligrams(250_000),
+        ),
     ] {
         let definition = registry
             .get_equipment(equipment)
@@ -465,8 +570,16 @@ fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
+        EQUIPMENT_STONE_ROTARY_QUERN,
+        EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+        EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
         EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+        EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
+        EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
     ] {
         assert!(
             registry

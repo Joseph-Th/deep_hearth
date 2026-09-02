@@ -141,6 +141,10 @@ pub enum StartProcessError {
     EquipmentBusyManualPower {
         equipment: EquipmentId,
     },
+    EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     StructuralLoad(StockpileStructuralLoadError),
 }
 
@@ -366,6 +370,15 @@ impl Display for StartProcessError {
                 "equipment {} is occupied by direct player-powered generation",
                 equipment.value()
             ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by geological sampling until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::StructuralLoad(error) => write!(
                 formatter,
                 "process start cannot update stored-matter load: {error}"
@@ -417,7 +430,8 @@ impl Error for StartProcessError {
             | Self::ResolvedEquipmentSupportNotActive { .. }
             | Self::EquipmentBusy { .. }
             | Self::EquipmentBusyMining { .. }
-            | Self::EquipmentBusyManualPower { .. } => None,
+            | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentBusyProspecting { .. } => None,
         }
     }
 }

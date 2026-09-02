@@ -1,6 +1,6 @@
 //! Primitive mining tools and their copper-reinforced variants.
 
-use crate::capability::CapabilityValue;
+use crate::capability::{CapabilityProfile, CapabilityValue};
 use crate::core::quantity::{Mass, MassFlow, Pressure};
 use crate::equipment::EquipmentDefinition;
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
@@ -16,7 +16,8 @@ use super::super::authoring::{
     component_maintenance, mass_flow_condition_curve, profile, thresholds,
 };
 use super::super::{
-    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+    EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_COPPER_REINFORCED_PICK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
     EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK,
 };
 use super::{copper_reinforcement_input, copper_upgrade};
@@ -198,4 +199,59 @@ pub(super) fn copper_reinforced_stone_quarry_pick() -> EquipmentDefinition {
     ))
     .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_QUARRY_PICK))
+}
+
+/// Portable sampling hammer used to cut repeatable chips for detailed geological observations.
+/// Its value is not a generic prospecting score: the labor method explicitly authors this physical
+/// instrument as an accepted tool and owns the information quality of the resulting observation.
+pub(super) fn stone_geological_hammer() -> EquipmentDefinition {
+    EquipmentDefinition::new(
+        EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+        "stone geological sampling hammer",
+        Mass::from_milligrams(650_000),
+        CapabilityProfile::default(),
+        thresholds(),
+    )
+    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(500_000),
+        ),
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(150_000),
+        ),
+    ]))
+    .with_maintenance_profile(component_maintenance(
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(500_000),
+    ))
+    .with_worn_recovery_form(FORM_SCRAP)
+}
+
+pub(super) fn copper_reinforced_geological_hammer() -> EquipmentDefinition {
+    EquipmentDefinition::new(
+        EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+        "copper-reinforced geological sampling hammer",
+        Mass::from_milligrams(670_000),
+        CapabilityProfile::default(),
+        thresholds(),
+    )
+    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(500_000),
+        ),
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(150_000),
+        ),
+        copper_reinforcement_input(),
+    ]))
+    .with_maintenance_profile(component_maintenance(
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(500_000),
+    ))
+    .with_worn_recovery_form(FORM_SCRAP)
+    .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_GEOLOGICAL_HAMMER))
 }

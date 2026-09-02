@@ -79,12 +79,18 @@ mod foundry_probe;
 mod ore_contract_tests;
 #[path = "gameplay_harness/ore_probe.rs"]
 mod ore_probe;
+#[path = "gameplay_harness/primitive_liberation_contract_tests.rs"]
+mod primitive_liberation_contract_tests;
 #[path = "gameplay_harness/process_catalog_contract_tests.rs"]
 mod process_catalog_contract_tests;
 #[path = "gameplay_harness/progression_contract_tests.rs"]
 mod progression_contract_tests;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
+#[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
+mod prospecting_instrument_contract_tests;
+#[path = "gameplay_harness/saw_bench_contract_tests.rs"]
+mod saw_bench_contract_tests;
 #[path = "gameplay_harness/scenario_tests.rs"]
 mod scenario_tests;
 #[path = "gameplay_harness/seed_contract_tests.rs"]
@@ -93,6 +99,8 @@ mod seed_contract_tests;
 mod survival_contract_tests;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
+#[path = "gameplay_harness/woodworking_contract_tests.rs"]
+mod woodworking_contract_tests;
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
 #[path = "gameplay_harness/workshop_contract_tests.rs"]

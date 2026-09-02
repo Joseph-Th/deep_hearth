@@ -6,11 +6,14 @@ use crate::energy::EnergyCarrier;
 use crate::geology::GeologicalEvidenceKind;
 use crate::labor::{
     LaborRegistry, ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition,
-    ProspectingMethodId,
+    ProspectingEquipmentProfile, ProspectingMethodId,
 };
 use crate::survival::SurvivalExertion;
 
 use super::capabilities::{CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_POWER_OUTPUT};
+use super::equipment::{
+    EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+};
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
@@ -18,6 +21,7 @@ pub const PROSPECTING_FIELD_INSPECTION: ProspectingMethodId = ProspectingMethodI
 pub const PROSPECTING_DETAILED_FIELD_SURVEY: ProspectingMethodId = ProspectingMethodId::new(2);
 pub const PROSPECTING_REGIONAL_RECONNAISSANCE: ProspectingMethodId = ProspectingMethodId::new(3);
 pub const PROSPECTING_LOCAL_TRANSECT: ProspectingMethodId = ProspectingMethodId::new(4);
+pub const PROSPECTING_INDEXED_CHANNEL_SURVEY: ProspectingMethodId = ProspectingMethodId::new(5);
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
@@ -57,7 +61,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                     Volume::from_microliters(125),
                 ),
             ),
-            ProspectingDefinition::new(
+            ProspectingDefinition::new_with_equipment(
                 PROSPECTING_DETAILED_FIELD_SURVEY,
                 GeologicalEvidenceKind::SurfaceExposure,
                 TickSpan::new(48),
@@ -66,6 +70,11 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(650_000_000_000),
                     Volume::from_microliters(160),
+                ),
+                ProspectingEquipmentProfile::new(
+                    EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+                    Some(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER),
+                    120,
                 ),
             ),
             ProspectingDefinition::new(
@@ -88,6 +97,22 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(550_000_000_000),
                     Volume::from_microliters(150),
+                ),
+            ),
+            ProspectingDefinition::new_with_equipment(
+                PROSPECTING_INDEXED_CHANNEL_SURVEY,
+                GeologicalEvidenceKind::SurfaceExposure,
+                TickSpan::new(72),
+                4,
+                25_000,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(650_000_000_000),
+                    Volume::from_microliters(175),
+                ),
+                ProspectingEquipmentProfile::new(
+                    EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+                    None,
+                    150,
                 ),
             ),
         ],

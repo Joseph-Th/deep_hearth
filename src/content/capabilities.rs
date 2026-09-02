@@ -21,6 +21,8 @@ pub(crate) const CAPABILITY_MANUAL_POWER_OUTPUT: CapabilityId = CapabilityId::ne
 pub(crate) const CAPABILITY_SEPARATOR_FLOW: CapabilityId = CapabilityId::new(15);
 pub(crate) const CAPABILITY_SEPARATOR_BATCH: CapabilityId = CapabilityId::new(16);
 pub(crate) const CAPABILITY_TREADLE_POWER_OUTPUT: CapabilityId = CapabilityId::new(17);
+pub(crate) const CAPABILITY_WOODWORKING_FLOW: CapabilityId = CapabilityId::new(18);
+pub(crate) const CAPABILITY_SAWING_FLOW: CapabilityId = CapabilityId::new(19);
 
 pub(crate) fn build_capability_registry() -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
@@ -109,6 +111,16 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_TREADLE_POWER_OUTPUT,
             "foot treadle mechanical power output",
             CapabilityValueKind::Power,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_WOODWORKING_FLOW,
+            "hand-tool timber shaping throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_SAWING_FLOW,
+            "frame-saw timber ripping throughput",
+            CapabilityValueKind::MassFlow,
         ),
     ] {
         registry.register_capability(definition);

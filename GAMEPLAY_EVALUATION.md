@@ -192,9 +192,9 @@ does not participate in routine test builds.
 | Scope | Contract |
 | --- | --- |
 | `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, world-seeded inherited reserve history independent of actor behavior, value-sensitive storage investment from one shared raw-material opportunity using projected edible-horizon return versus actor attention tolerance, survival-owned prospective freshness across a future authored enclosure transition, ordinary raw-timber -> manual-board -> manual-enclosure-body -> preservation construction, timed player-work enclosure dismantling with exact matter recovery and ambient-storage restoration, matched storage counterfactuals at one wall-clock endpoint, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, varied prospecting-work cost, reserve recovery, an integrated hydration-warning -> provision -> prospect -> stored-work sequence, and actual diet-supported vitality recovery. |
-| `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, a currently dominant first copper investment in the pick measured against a crank-first counterfactual, direct-labor fallback versus mechanization, delegated work, finite-recovery sorting, flywheel self-discharge/recharge, later crank reinforcement, finite machine lifecycle, timed replacement-material preparation plus timed exclusive player-work maintenance that preserves prior scarce upgrades, maintained mature reinvestment that executes crusher, separator, and flywheel upgrades, and finite organic geological opportunity that may prevent either mechanization payback or later reinvestment. |
+| `progression` | Coarse-to-fine evidence and information-value decisions; material-backed sampling; primitive crafting/mining/power/processing; first-copper pick-vs-crank counterfactual; direct-labor fallback versus mechanization; delegated work; finite recovery, stored-work loss/recharge, maintenance, and later reinvestment; ordinary quern/sizing-screen liberation through concentration; and finite organic opportunity. Separate contracts verify the reinforced sampling hammer, the adze's ordinary acquisition/payback and unchanged 80/20 timber yield, and a settlement-scale frame saw built from ordinary boards plus a 60 g native-copper blade opportunity. The saw contract proves explicit no-tool/adze rejection, 90/10 board/chip recovery, attention payback on a 12-log run, blade wear, exact matter, and mid-job save/load replay. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
-| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, visible-work adaptive order sizing that leaves deferred ore physically owned, and terminal current-tier tailings. Capability-only. |
+| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, independently varied finite stored work, canonical per-stage stopping behavior, and terminal current-tier tailings. Capability-only industrial benchmark. |
 | `foundry` | Installed room-temperature pure-copper heating/melting/casting with a same-furnace/same-electrical-source sensible-preheat energy-partition counterfactual, currently dominated rather than claimed as an active strategy, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
 
 Routine focused gates keep maintained regression/coverage cases and add one fresh replayable organic case.
@@ -207,12 +207,18 @@ validity and relevant conservation.
 
 The catalog contract checks ordinary acquisition-graph continuity that should not depend on one actor-policy
 branch. Copper reinforcement coverage derives the canonical reinforcement input from the authored pick upgrade
-and requires that same input to reach the hand crank, stone crusher, and stone separator, while allowing new
-compatible upgrade targets to be added. The ordinary mature reinvestment branch must execute the crusher and separator
+and requires that same input to reach the geological sampling hammer, woodworking adze, hand crank, stone crusher,
+stone separator, and stone rotary quern, while allowing new compatible upgrade targets to be added. The ordinary mature reinvestment branch must execute the crusher and separator
 upgrades, including a separator batch above the base 500 g envelope, rather than treating those edges as catalog
 facts only. The same reinforcement must also increase the material-backed stone flywheel's stored-work capacity
 through the energy owner without regressing carrier, transfer limits, passive loss, or disassembly recovery; the
 expanded stored-work envelope must fund a real larger primitive-processing batch.
+
+Woodworking continuity keeps the hewing and sawing routes physically distinct. The adze may accelerate the
+ordinary 80/20 board/chip process but cannot satisfy the dedicated sawing capability. The frame-saw process has
+no equipment-free fallback, produces 90/10 boards/chips, and must remain reachable only after the authored 54 g
+copper blade and timber frame are assembled. Its better yield therefore spends scarce copper and a replaceable
+wear component rather than becoming a hidden free efficiency multiplier.
 
 Preservation coverage requires every authored enclosure to remain ordinarily producible and recoverable while
 retaining a distinct practical tradeoff in capacity, preservation, raw material, or construction attention.

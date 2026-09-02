@@ -48,6 +48,10 @@ pub enum EquipmentMaintenanceError {
     EquipmentBusyManualPower {
         equipment: EquipmentId,
     },
+    EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     ConditionNotImproved {
         equipment: EquipmentId,
         before: Condition,
@@ -321,6 +325,15 @@ impl Display for EquipmentMaintenanceError {
                 "equipment {} is occupied by direct player-powered generation and cannot be serviced",
                 equipment.value()
             ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by geological sampling until tick {} and cannot be serviced",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::ConditionNotImproved {
                 equipment,
                 before,
@@ -392,6 +405,10 @@ impl Error for EquipmentMaintenanceError {
             Self::EquipmentBusyManualPower {
                 equipment: _equipment,
             } => None,
+            Self::EquipmentBusyProspecting {
+                equipment: _equipment,
+                completes_at: _completes_at,
+            } => None,
             Self::ConditionNotImproved {
                 equipment: _equipment,
                 before: _before,
@@ -432,6 +449,10 @@ pub enum EquipmentMaintenanceCommitError {
     },
     EquipmentBusyManualPower {
         equipment: EquipmentId,
+    },
+    EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     StaleInventoryRevision {
         expected: u64,
@@ -485,6 +506,15 @@ impl Display for EquipmentMaintenanceCommitError {
                 "equipment {} became occupied by direct player-powered generation before maintenance commit",
                 equipment.value()
             ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} became occupied by geological sampling until tick {} before maintenance commit",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment maintenance expected inventory revision {expected} but current revision is {actual}"
@@ -533,6 +563,10 @@ impl Error for EquipmentMaintenanceCommitError {
             } => None,
             Self::EquipmentBusyManualPower {
                 equipment: _equipment,
+            } => None,
+            Self::EquipmentBusyProspecting {
+                equipment: _equipment,
+                completes_at: _completes_at,
             } => None,
         }
     }

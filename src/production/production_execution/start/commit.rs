@@ -46,6 +46,10 @@ pub enum StartProcessCommitError {
     EquipmentBusyManualPower {
         equipment: EquipmentId,
     },
+    EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: crate::core::time::SimulationTick,
+    },
     Structure(StructuralCommitError),
 }
 
@@ -88,6 +92,15 @@ impl Display for StartProcessCommitError {
                 "validated process start equipment {} is occupied by direct player-powered generation",
                 equipment.value()
             ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "validated process start equipment {} is occupied by geological sampling until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::Structure(error) => write!(
                 formatter,
                 "validated process start could not commit stored-matter structural load: {error}"
@@ -127,6 +140,10 @@ impl Error for StartProcessCommitError {
             } => None,
             Self::EquipmentBusyManualPower {
                 equipment: _equipment,
+            } => None,
+            Self::EquipmentBusyProspecting {
+                equipment: _equipment,
+                completes_at: _completes_at,
             } => None,
         }
     }
@@ -235,6 +252,15 @@ fn validate_commit_occupancy(
         .is_some()
     {
         return Err(StartProcessCommitError::EquipmentBusyManualPower { equipment });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_prospecting_equipment_occupant(equipment)
+    {
+        return Err(StartProcessCommitError::EquipmentBusyProspecting {
+            equipment,
+            completes_at: work.completes_at(),
+        });
     }
     Ok(())
 }

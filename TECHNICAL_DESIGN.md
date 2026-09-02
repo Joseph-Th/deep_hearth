@@ -217,7 +217,7 @@ then read the owning section/source for exact semantics and errors.
 | Energy | `EnergyRegistry`, store definitions, carrier/power contracts | `AppState::energy()`, store records, explicit energy accounting | process/manual-power resolvers use `validate_energy_supply` / `validate_energy_sink` as part of their plan | assembly/upgrade/disassembly validators; reserved consumption/release and passive loss apply through canonical owners/tick |
 | Fluids | `FluidRegistry`, fluid definitions | `AppState::fluid()`, store records, fluid accounting | consumers validate exact egress internally; no generic routing planner exists | support validators and canonical consumers; generic transfer/pumping/mixing absent |
 | Structures | `StructuralRegistry`, profiles and geometry | `AppState::structures()`, `analyze_structure`, `StructuralAssessment` | owner-specific support/load validation plans final aggregate load | support/load commits through inventory/equipment/fluid/structural owners; general player construction remains absent |
-| Manual crafting overlay | `CraftingRegistry`, manual craft definitions | inventory, survival, and authored craft definitions | `resolve_manual_craft` is folded into `validate_start_manual_craft` for ordinary admission | `validate_start_manual_craft` -> production job + player work -> tick |
+| Manual crafting overlay | `CraftingRegistry`, manual craft definitions, optional-or-required equipment profile | inventory, survival, authored craft definitions, optional equipment instance | `resolve_manual_craft` uses fixed authored duration when fallback is permitted, otherwise requires canonical condition-adjusted MassFlow | `validate_start_manual_craft` -> equipment-reserving production job + player work -> tick |
 | Ore-processing overlay | `OreProcessingRegistry`, manual/powered process profiles | inventory, equipment, energy, production state | `assess_powered_ore_mass_envelope` for shared current scale bounds; `resolve_comminution_process`, `resolve_screening_process`, `resolve_constituent_separation_process` for exact selected-batch legality; manual counterparts expose their own resolutions | powered resolutions enter `validate_start_process*`; manual start validators also bind player work |
 | Thermal overlay | `ThermalRegistry`, heating/melting/casting definitions | inventory, equipment, energy, production state | `assess_melting_lot_mass_envelope` and `assess_casting_lot_mass_envelope` for current homogeneous-lot scale bounds; `resolve_sensible_heating_process`, `resolve_melting_process`, `resolve_casting_process` for exact selected-batch legality | resolved work enters `validate_start_process*`; tick applies outputs, wear, and energy consequences |
 | Conservation/accounting | authored material/fluid/energy properties | `calculate_matter_accounting`, `calculate_fluid_volume_accounting`, `calculate_explicit_energy_accounting` | read-only reconciliation only | none; accounting never mutates or authorizes custody |
@@ -507,8 +507,13 @@ by remaining incomplete. Completion is revision-bound and conserves represented 
 across all streams.
 
 Manual shaping conserves material identity and mass, preserves temperature, cannot change phase, and only emits
-forms whose particle-size state is untracked. Particulate output requires an owner that defines particle-size
-state. `chip` and `scrap` outputs remain represented matter; no owner may reinterpret them as fuel or fresh
+forms whose particle-size state is untracked. A manual definition may additionally expose a MassFlow-based
+equipment profile. Optional profiles retain the authored fixed attention duration when no provider is supplied;
+required profiles reject equipment-less work. A supplied provider resolves condition-adjusted throughput through
+the normal equipment boundary, becomes production-occupied, wears for the exact active duration, and persists
+its validated post-condition with the job. Equipment never mutates a process's yield: materially different yields
+are separate authored transformations, as with 80/20 hewn boards versus 90/10 frame-sawn boards. Particulate
+output requires an owner that defines particle-size state. `chip` and `scrap` outputs remain represented matter; no owner may reinterpret them as fuel or fresh
 components without an explicit recovery process. Clean built-in copper scrap has two such routes: a slower
 manual cold-work process reforms an exact reinforcement mass without phase change, while pure-copper melting
 accepts authored copper ingot, reinforcement, native-metal, and scrap forms and resolves all of them through the
@@ -586,9 +591,10 @@ physical: aggregate replacement consumes an exact commodity and emits conserved 
 service replaces one complete authored component while preserving unrelated traces and upgrades. Phase or
 particle transformations remain owned by their physical process.
 
-Built-in primitive copper reinforcement uses that additive path for extraction, manual power, crushing, and
-separation equipment. Reinforced processors increase authored flow and maximum batch capability without
-replacing the machine instance. Their condition curves degrade both productive flow and safe batch capacity;
+Built-in primitive copper reinforcement uses that additive path for extraction, geological sampling,
+woodworking, manual power, crushing, grinding, and separation equipment. Reinforced equipment improves its
+authored capability without replacing the instance or prior wear; processors may increase both flow and batch
+capacity. Their condition curves degrade both productive flow and safe batch capacity;
 component service replaces only the stone working component and leaves copper reinforcement embodied. Worn
 disassembly returns the copper trace as copper scrap, which can re-enter the manual reinforcement-recovery route.
 Stone working-component service emits the exact replaced mass as stone scrap. Once at least 1 kg of compatible

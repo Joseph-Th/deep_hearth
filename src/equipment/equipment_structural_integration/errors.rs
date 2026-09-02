@@ -42,6 +42,10 @@ pub enum EquipmentSupportError {
     EquipmentBusyManualPower {
         equipment: EquipmentId,
     },
+    EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -105,6 +109,15 @@ impl Display for EquipmentSupportError {
                 "equipment {} is occupied by direct player-powered generation and cannot be moved",
                 equipment.value()
             ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by geological sampling until tick {} and cannot be moved",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
@@ -156,6 +169,7 @@ impl Error for EquipmentSupportError {
             | Self::EquipmentBusy { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentBusyProspecting { .. }
             | Self::EquipmentUnderMaintenance { .. }
             | Self::AggregateMassOverflow { .. }
             | Self::WeightForceOverflow { .. }
@@ -191,6 +205,10 @@ pub enum EquipmentSupportCommitError {
     },
     EquipmentBusyManualPower {
         equipment: EquipmentId,
+    },
+    EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -242,6 +260,15 @@ impl Display for EquipmentSupportCommitError {
                 "equipment {} became occupied by direct player-powered generation before support commit",
                 equipment.value()
             ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} became occupied by geological sampling until tick {} before support commit",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
@@ -268,6 +295,7 @@ impl Error for EquipmentSupportCommitError {
             | Self::EquipmentBusy { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentBusyProspecting { .. }
             | Self::EquipmentUnderMaintenance { .. } => None,
         }
     }

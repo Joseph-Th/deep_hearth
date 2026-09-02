@@ -176,6 +176,9 @@ pub fn advance_tick(
             equipment_maintenance_plan
                 .as_ref()
                 .map_or(0, |plan| plan.equipment_revision_steps()),
+            field_prospecting_plan
+                .as_ref()
+                .map_or(0, |plan| plan.equipment_revision_steps()),
         ],
         "fixed per-tick equipment revision budget overflowed",
         TickError::EquipmentRevisionExhausted,

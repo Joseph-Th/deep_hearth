@@ -235,6 +235,8 @@ pub struct ProspectingWork {
     method: ProspectingMethodId,
     region: VoxelBounds,
     material: MaterialId,
+    equipment: Option<EquipmentOperationTrace>,
+    condition_after: Option<Condition>,
     started_at: SimulationTick,
     completes_at: SimulationTick,
 }
@@ -244,6 +246,8 @@ impl ProspectingWork {
         method: ProspectingMethodId,
         region: VoxelBounds,
         material: MaterialId,
+        equipment: Option<EquipmentOperationTrace>,
+        condition_after: Option<Condition>,
         started_at: SimulationTick,
         completes_at: SimulationTick,
     ) -> Self {
@@ -251,6 +255,8 @@ impl ProspectingWork {
             method,
             region,
             material,
+            equipment,
+            condition_after,
             started_at,
             completes_at,
         }
@@ -269,6 +275,24 @@ impl ProspectingWork {
     #[must_use]
     pub const fn material(self) -> MaterialId {
         self.material
+    }
+
+    #[must_use]
+    pub const fn equipment(self) -> Option<EquipmentId> {
+        match self.equipment {
+            Some(trace) => Some(trace.equipment()),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn equipment_trace(self) -> Option<EquipmentOperationTrace> {
+        self.equipment
+    }
+
+    #[must_use]
+    pub const fn condition_after(self) -> Option<Condition> {
+        self.condition_after
     }
 
     #[must_use]
@@ -386,6 +410,27 @@ impl PlayerWorkState {
         Self {
             revision: 0,
             active: None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn get_prospecting_equipment_occupant(
+        &self,
+        equipment: EquipmentId,
+    ) -> Option<ProspectingWork> {
+        match self.active {
+            Some(PlayerWork::Prospecting { work }) if work.equipment() == Some(equipment) => {
+                Some(work)
+            }
+            Some(PlayerWork::ManualProduction { job: _ })
+            | Some(PlayerWork::Mining { job: _ })
+            | Some(PlayerWork::ManualPower { work: _ })
+            | Some(PlayerWork::Prospecting { work: _ })
+            | Some(PlayerWork::Eating { work: _ })
+            | Some(PlayerWork::Drinking { work: _ })
+            | Some(PlayerWork::EquipmentMaintenance { work: _ })
+            | Some(PlayerWork::StorageEnclosureDismantling { work: _ })
+            | None => None,
         }
     }
 

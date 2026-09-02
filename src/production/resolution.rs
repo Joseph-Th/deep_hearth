@@ -77,6 +77,9 @@ impl ProcessOutputStream {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProcessResourceResolution {
     None,
+    Equipment {
+        equipment: ProcessEquipmentResolution,
+    },
     SupplyAndEquipment {
         energy_supply: ValidatedEnergySupply,
         equipment: ProcessEquipmentResolution,
@@ -152,6 +155,15 @@ impl ProcessResourceResolution {
                 equipment_use: None,
                 equipment_condition_after: None,
             }),
+            Self::Equipment { equipment } => {
+                let equipment = equipment.validate()?;
+                Ok(ResolvedProcessResources {
+                    energy_supply: None,
+                    energy_sink: None,
+                    equipment_use: Some(equipment.equipment_use),
+                    equipment_condition_after: Some(equipment.condition_after),
+                })
+            }
             Self::SupplyAndEquipment {
                 energy_supply,
                 equipment,
@@ -181,6 +193,27 @@ impl ProcessResourceResolution {
 }
 
 impl ValidatedProcessInputs {
+    pub(crate) fn resolve_with_equipment(
+        self,
+        duration: TickSpan,
+        outputs: Vec<MaterialLotSpec>,
+        equipment_use: ValidatedEquipmentUse,
+        equipment_condition_after: Condition,
+    ) -> Result<ProcessResolution, ProcessResolutionError> {
+        self.resolve_inner(
+            duration,
+            vec![ProcessOutputStream::new(
+                ProcessOutputStreamId::PRIMARY,
+                outputs,
+            )],
+            ProcessResourceResolution::Equipment {
+                equipment: ProcessEquipmentResolution {
+                    equipment_use,
+                    condition_after: equipment_condition_after,
+                },
+            },
+        )
+    }
     pub(crate) fn resolve_without_resources(
         self,
         duration: TickSpan,

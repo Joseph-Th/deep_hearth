@@ -85,6 +85,15 @@ impl ValidatedEquipmentUpgrade {
         }
         if let Some(work) = state
             .player_work()
+            .get_prospecting_equipment_occupant(self.equipment)
+        {
+            return Err(EquipmentUpgradeCommitError::EquipmentBusyProspecting {
+                equipment: self.equipment,
+                completes_at: work.completes_at(),
+            });
+        }
+        if let Some(work) = state
+            .player_work()
             .get_equipment_maintenance_occupant(self.equipment)
         {
             return Err(EquipmentUpgradeCommitError::EquipmentUnderMaintenance {
@@ -165,6 +174,15 @@ pub fn validate_upgrade_equipment(
         .is_some()
     {
         return Err(EquipmentUpgradeError::EquipmentBusyManualPower { equipment });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_prospecting_equipment_occupant(equipment)
+    {
+        return Err(EquipmentUpgradeError::EquipmentBusyProspecting {
+            equipment,
+            completes_at: work.completes_at(),
+        });
     }
     if let Some(work) = state
         .player_work()

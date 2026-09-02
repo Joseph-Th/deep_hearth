@@ -34,6 +34,15 @@ impl ValidatedEquipmentMaintenance {
                 equipment: self.equipment,
             });
         }
+        if let Some(work) = state
+            .player_work()
+            .get_prospecting_equipment_occupant(self.equipment)
+        {
+            return Err(EquipmentMaintenanceCommitError::EquipmentBusyProspecting {
+                equipment: self.equipment,
+                completes_at: work.completes_at(),
+            });
+        }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
             return Err(EquipmentMaintenanceCommitError::UnknownEquipment {
                 equipment: self.equipment,

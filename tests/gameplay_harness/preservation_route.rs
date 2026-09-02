@@ -43,11 +43,11 @@ fn discover_manual_construction_route(
     if !visiting.insert(output) {
         return None;
     }
-    let producers = registries
+    let authored_producers = registries
         .crafting()
         .manual_producers(output)
         .collect::<Vec<_>>();
-    if producers.is_empty() {
+    if authored_producers.is_empty() {
         assert!(visiting.remove(&output));
         return Some(ManualConstructionRoute {
             raw_commodity: output,
@@ -57,6 +57,22 @@ fn discover_manual_construction_route(
             exertion_energy_nj: 0,
             exertion_hydration_ul: 0,
         });
+    }
+    // This planner proves the ordinary raw-material bootstrap for preservation infrastructure. It
+    // may use recipes whose equipment profile is optional, but it must not assume that another
+    // durable station already exists. Required-equipment recipes remain valid authored alternatives
+    // for actors that own their provider; they are not bootstrap edges.
+    let producers = authored_producers
+        .into_iter()
+        .filter(|producer| {
+            !producer
+                .equipment_profile()
+                .is_some_and(|profile| profile.requires_equipment())
+        })
+        .collect::<Vec<_>>();
+    if producers.is_empty() {
+        assert!(visiting.remove(&output));
+        return None;
     }
 
     let mut candidates = Vec::new();

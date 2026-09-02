@@ -27,6 +27,18 @@ pub const EQUIPMENT_STONE_QUARRY_PICK: EquipmentDefinitionId = EquipmentDefiniti
 pub const EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK: EquipmentDefinitionId =
     EquipmentDefinitionId::new(16);
 pub const EQUIPMENT_TIMBER_TREADLE_DRIVE: EquipmentDefinitionId = EquipmentDefinitionId::new(17);
+pub const EQUIPMENT_STONE_ROTARY_QUERN: EquipmentDefinitionId = EquipmentDefinitionId::new(18);
+pub const EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(19);
+pub const EQUIPMENT_COPPER_PLATE_SIZING_SCREEN: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(20);
+pub const EQUIPMENT_STONE_GEOLOGICAL_HAMMER: EquipmentDefinitionId = EquipmentDefinitionId::new(21);
+pub const EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(22);
+pub const EQUIPMENT_STONE_WOODWORKING_ADZE: EquipmentDefinitionId = EquipmentDefinitionId::new(23);
+pub const EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(24);
+pub const EQUIPMENT_TIMBER_FRAME_SAW_BENCH: EquipmentDefinitionId = EquipmentDefinitionId::new(25);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

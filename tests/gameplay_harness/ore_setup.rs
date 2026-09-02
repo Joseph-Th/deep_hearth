@@ -42,7 +42,6 @@ pub(super) struct OrePreparationProbeIds {
 #[derive(Clone, Copy)]
 pub(super) struct OrePreparationSetup {
     pub(super) batch_mass: Mass,
-    pub(super) representable_unit_mg: u64,
     pub(super) copper_ppm: u32,
     pub(super) clay_share_ppm: u32,
     pub(super) crusher_condition: Condition,
@@ -59,7 +58,6 @@ pub(super) fn setup_ore_preparation_probe(
 ) -> (AppState, OrePreparationProbeIds) {
     let OrePreparationSetup {
         batch_mass,
-        representable_unit_mg: _,
         copper_ppm,
         clay_share_ppm,
         crusher_condition,

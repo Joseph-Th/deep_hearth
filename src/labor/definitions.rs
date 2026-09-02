@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
+use crate::equipment::{EquipmentDefinitionId, EquipmentRegistry};
 use crate::geology::GeologicalEvidenceKind;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::survival::SurvivalExertion;
@@ -65,6 +66,59 @@ pub struct ProspectingDefinition {
     maximum_region_voxels: u128,
     abundance_uncertainty_ppm: u32,
     exertion: SurvivalExertion,
+    equipment: Option<ProspectingEquipmentProfile>,
+}
+
+/// Physical instrument requirement and wear for one prospecting method.
+///
+/// The accepted definitions are explicit authored tool identities rather than a generic tier score.
+/// This keeps prospecting precision owned by the method while equipment remains responsible for
+/// persistent condition, maintenance, assembly, and upgrade identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProspectingEquipmentProfile {
+    primary: EquipmentDefinitionId,
+    alternative: Option<EquipmentDefinitionId>,
+    condition_wear_ppm_per_active_tick: u32,
+}
+
+impl ProspectingEquipmentProfile {
+    #[must_use]
+    pub fn new(
+        primary: EquipmentDefinitionId,
+        alternative: Option<EquipmentDefinitionId>,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert!(
+            alternative != Some(primary),
+            "prospecting equipment alternatives must identify distinct definitions"
+        );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        Self {
+            primary,
+            alternative,
+            condition_wear_ppm_per_active_tick,
+        }
+    }
+
+    #[must_use]
+    pub fn accepts(self, definition: EquipmentDefinitionId) -> bool {
+        definition == self.primary || self.alternative == Some(definition)
+    }
+
+    #[must_use]
+    pub const fn primary(self) -> EquipmentDefinitionId {
+        self.primary
+    }
+
+    #[must_use]
+    pub const fn alternative(self) -> Option<EquipmentDefinitionId> {
+        self.alternative
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.condition_wear_ppm_per_active_tick
+    }
 }
 
 impl ProspectingDefinition {
@@ -100,7 +154,30 @@ impl ProspectingDefinition {
             maximum_region_voxels,
             abundance_uncertainty_ppm,
             exertion,
+            equipment: None,
         }
+    }
+
+    #[must_use]
+    pub fn new_with_equipment(
+        id: ProspectingMethodId,
+        evidence: GeologicalEvidenceKind,
+        duration: TickSpan,
+        maximum_region_voxels: u128,
+        abundance_uncertainty_ppm: u32,
+        exertion: SurvivalExertion,
+        equipment: ProspectingEquipmentProfile,
+    ) -> Self {
+        let mut definition = Self::new(
+            id,
+            evidence,
+            duration,
+            maximum_region_voxels,
+            abundance_uncertainty_ppm,
+            exertion,
+        );
+        definition.equipment = Some(equipment);
+        definition
     }
 
     #[must_use]
@@ -131,6 +208,11 @@ impl ProspectingDefinition {
     #[must_use]
     pub const fn exertion(self) -> SurvivalExertion {
         self.exertion
+    }
+
+    #[must_use]
+    pub const fn equipment(self) -> Option<ProspectingEquipmentProfile> {
+        self.equipment
     }
 }
 
@@ -248,7 +330,11 @@ impl LaborRegistry {
         self.prospecting.values()
     }
 
-    pub(crate) fn validate_references(&self, capabilities: &CapabilityRegistry) {
+    pub(crate) fn validate_references(
+        &self,
+        capabilities: &CapabilityRegistry,
+        equipment: &EquipmentRegistry,
+    ) {
         for definition in self.manual_power.values() {
             let capability = capabilities
                 .get_capability(definition.power_capability())
@@ -266,6 +352,22 @@ impl LaborRegistry {
                 definition.id().value(),
                 definition.power_capability().value()
             );
+        }
+        for definition in self.prospecting.values() {
+            let Some(profile) = definition.equipment() else {
+                continue;
+            };
+            for equipment_id in [Some(profile.primary()), profile.alternative()]
+                .into_iter()
+                .flatten()
+            {
+                assert!(
+                    equipment.get_equipment(equipment_id).is_some(),
+                    "prospecting method {} references missing equipment definition {}",
+                    definition.id().value(),
+                    equipment_id.value()
+                );
+            }
         }
     }
 }

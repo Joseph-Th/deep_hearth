@@ -2,14 +2,16 @@
 
 use super::*;
 use crate::content::{
-    FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE, PROSPECTING_DETAILED_FIELD_SURVEY,
-    PROSPECTING_FIELD_INSPECTION, PROSPECTING_LOCAL_TRANSECT, PROSPECTING_REGIONAL_RECONNAISSANCE,
-    build_registries,
+    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, FORM_HANDLE, FORM_ORE, FORM_TOOL, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
+    PROSPECTING_LOCAL_TRANSECT, PROSPECTING_REGIONAL_RECONNAISSANCE, build_registries,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
+use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::mining::{MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target};
@@ -285,6 +287,35 @@ fn start_inspection(registries: &Registries, state: &mut AppState, region: Voxel
     start_prospecting(registries, state, PROSPECTING_FIELD_INSPECTION, region);
 }
 
+fn assemble_sampling_hammer(registries: &Registries, state: &mut AppState) -> EquipmentId {
+    let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(650_000))
+        .unwrap_or_else(|error| panic!("sampling-hammer assembly stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(500_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(150_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("sampling-hammer assembly material failed: {error}"));
+    }
+    validate_assemble_equipment(registries, state, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, source)
+        .unwrap_or_else(|error| panic!("sampling-hammer assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("sampling-hammer assembly commit failed: {error}"))
+}
+
 fn prospecting_duration(registries: &Registries, method: ProspectingMethodId) -> u64 {
     registries
         .labor()
@@ -556,6 +587,7 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     let region = one_voxel(25);
     insert_low_grade_copper(&registries, &mut state, region);
     let request = MiningTargetRequest::new(region, MATERIAL_COPPER);
+    let hammer = assemble_sampling_hammer(&registries, &mut state);
 
     start_prospecting(
         &registries,
@@ -585,12 +617,19 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
         .unwrap_or_else(|| panic!("surface refinement finding disappeared"));
     assert_eq!((surface.lower_ppm(), surface.upper_ppm()), (0, 175_000));
 
-    start_prospecting(
+    validate_start_field_prospecting(
         &registries,
-        &mut state,
-        PROSPECTING_DETAILED_FIELD_SURVEY,
-        region,
-    );
+        &state,
+        FieldProspectingRequest::new_with_equipment(
+            PROSPECTING_DETAILED_FIELD_SURVEY,
+            region,
+            MATERIAL_COPPER,
+            hammer,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("detailed refinement prospecting start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("detailed refinement prospecting commit failed: {error}"));
     let detailed_duration = prospecting_duration(&registries, PROSPECTING_DETAILED_FIELD_SURVEY);
     assert!(detailed_duration > field_duration);
     for _ in 0..detailed_duration {

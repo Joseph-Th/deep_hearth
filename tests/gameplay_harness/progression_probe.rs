@@ -24,9 +24,9 @@ use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE,
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
     EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    EQUIPMENT_STONE_SEPARATOR, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
+    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR, FORM_NATIVE_METAL, FORM_ORE,
+    FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
     PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_SEPARATE_NATIVE_COPPER,
     PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY,
@@ -40,8 +40,8 @@ use deep_hearth::energy::{
     calculate_mass_specific_energy, validate_assemble_energy_store, validate_upgrade_energy_store,
 };
 use deep_hearth::equipment::{
-    EquipmentMaintenanceRequest, resolve_equipment_maintenance, validate_assemble_equipment,
-    validate_equipment_maintenance, validate_upgrade_equipment,
+    EquipmentId, EquipmentMaintenanceRequest, resolve_equipment_maintenance,
+    validate_assemble_equipment, validate_equipment_maintenance, validate_upgrade_equipment,
 };
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceConsistency, assess_geological_knowledge,
@@ -218,6 +218,7 @@ fn progression_clue_bounds(slot: usize) -> VoxelBounds {
 fn assert_progression_authored_dependencies(registries: &Registries) {
     for equipment in [
         EQUIPMENT_STONE_PICK,
+        EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
         EQUIPMENT_STONE_HAND_CRANK,
         EQUIPMENT_COPPER_REINFORCED_PICK,
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
@@ -504,6 +505,7 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
     let mut requirements = BTreeMap::new();
     for equipment in [
         EQUIPMENT_STONE_PICK,
+        EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
         EQUIPMENT_STONE_HAND_CRANK,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
@@ -902,12 +904,24 @@ fn acquire_copper_evidence(
     method: ProspectingMethodId,
     region: VoxelBounds,
 ) -> u64 {
-    let start = validate_start_field_prospecting(
-        registries,
-        state,
-        FieldProspectingRequest::new(method, region, MATERIAL_COPPER),
-    )
-    .unwrap_or_else(|error| panic!("primitive progression prospecting failed: {error}"));
+    acquire_copper_evidence_with_equipment(registries, state, method, region, None)
+}
+
+fn acquire_copper_evidence_with_equipment(
+    registries: &Registries,
+    state: &mut AppState,
+    method: ProspectingMethodId,
+    region: VoxelBounds,
+    equipment: Option<EquipmentId>,
+) -> u64 {
+    let request = match equipment {
+        Some(equipment) => {
+            FieldProspectingRequest::new_with_equipment(method, region, MATERIAL_COPPER, equipment)
+        }
+        None => FieldProspectingRequest::new(method, region, MATERIAL_COPPER),
+    };
+    let start = validate_start_field_prospecting(registries, state, request)
+        .unwrap_or_else(|error| panic!("primitive progression prospecting failed: {error}"));
     let work = start.work();
     let duration = work
         .completes_at()

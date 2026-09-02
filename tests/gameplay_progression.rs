@@ -26,16 +26,24 @@ mod material_selection;
 mod ore_fixture;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
+#[path = "gameplay_harness/primitive_liberation_contract_tests.rs"]
+mod primitive_liberation_contract_tests;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/progression_contract_tests.rs"]
 mod progression_contract_tests;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
+#[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
+mod prospecting_instrument_contract_tests;
+#[path = "gameplay_harness/saw_bench_contract_tests.rs"]
+mod saw_bench_contract_tests;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/woodworking_contract_tests.rs"]
+mod woodworking_contract_tests;
 
 #[test]
 fn gameplay_primitive_progression_probe() {

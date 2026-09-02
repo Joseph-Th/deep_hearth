@@ -366,11 +366,33 @@ fn discover_primitive_progression(
             refinement_started_at, direct_supply_blocked_at,
             "the actor should revisit unresolved evidence as the immediate response to exhausting the clear direct-copper option"
         );
-        let detailed_survey_ticks = acquire_copper_evidence(
+        craft_for_profile(
+            registries,
+            state,
+            raw,
+            native_storage,
+            shaped,
+            equipment_assembly_profile(registries, EQUIPMENT_STONE_GEOLOGICAL_HAMMER),
+        );
+        let sampling_hammer = validate_assemble_equipment(
+            registries,
+            state,
+            EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+            shaped,
+        )
+        .unwrap_or_else(|error| {
+            panic!("primitive progression sampling-hammer assembly failed: {error}")
+        })
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("primitive progression sampling-hammer assembly commit failed: {error}")
+        });
+        let detailed_survey_ticks = acquire_copper_evidence_with_equipment(
             registries,
             state,
             PROSPECTING_DETAILED_FIELD_SURVEY,
             refinement_request.region(),
+            Some(sampling_hammer),
         );
         let refined_clue = observed_resolved_copper_clue(state, refinement_request);
         assert!(

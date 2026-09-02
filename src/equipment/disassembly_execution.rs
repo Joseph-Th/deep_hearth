@@ -118,6 +118,15 @@ impl ValidatedEquipmentDisassembly {
         }
         if let Some(work) = state
             .player_work()
+            .get_prospecting_equipment_occupant(self.equipment)
+        {
+            return Err(EquipmentDisassemblyCommitError::EquipmentBusyProspecting {
+                equipment: self.equipment,
+                completes_at: work.completes_at(),
+            });
+        }
+        if let Some(work) = state
+            .player_work()
             .get_equipment_maintenance_occupant(self.equipment)
         {
             return Err(EquipmentDisassemblyCommitError::EquipmentUnderMaintenance {
@@ -219,6 +228,15 @@ pub fn validate_disassemble_equipment(
         .is_some()
     {
         return Err(EquipmentDisassemblyError::EquipmentBusyManualPower { equipment });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_prospecting_equipment_occupant(equipment)
+    {
+        return Err(EquipmentDisassemblyError::EquipmentBusyProspecting {
+            equipment,
+            completes_at: work.completes_at(),
+        });
     }
     if let Some(work) = state
         .player_work()

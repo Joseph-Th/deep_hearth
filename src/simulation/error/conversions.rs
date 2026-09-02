@@ -81,12 +81,11 @@ impl From<StorageEnclosureDismantlingTickError> for TickError {
 impl From<FieldProspectingTickError> for TickError {
     fn from(error: FieldProspectingTickError) -> Self {
         match error {
-            FieldProspectingTickError::ObservationIdExhausted => {
-                Self::GeologicalObservationIdExhausted
-            }
-            FieldProspectingTickError::KnowledgeRevisionExhausted => {
+            FieldProspectingTickError::ObservationId => Self::GeologicalObservationIdExhausted,
+            FieldProspectingTickError::KnowledgeRevision => {
                 Self::GeologicalKnowledgeRevisionExhausted
             }
+            FieldProspectingTickError::EquipmentRevision => Self::EquipmentRevisionExhausted,
         }
     }
 }

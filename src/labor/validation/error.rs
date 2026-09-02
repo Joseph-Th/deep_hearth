@@ -4,8 +4,9 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass, Volume};
+use crate::equipment::EquipmentId;
 use crate::inventory::MaterialLotId;
-use crate::maintenance::ActiveConditionDurationError;
+use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::MaterialId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,15 +39,44 @@ pub enum PlayerWorkValidationError {
     ManualPowerConditionMismatch,
     ManualPowerResourceDoubleBooked,
     ProspectingMethodMissing,
-    ProspectingUnknownMaterial { material: MaterialId },
+    ProspectingUnknownMaterial {
+        material: MaterialId,
+    },
     ProspectingRegionVolumeOverflow,
-    ProspectingRegionTooLarge { actual: u128, maximum: u128 },
+    ProspectingRegionTooLarge {
+        actual: u128,
+        maximum: u128,
+    },
+    ProspectingEquipmentMissing,
+    ProspectingUnexpectedEquipment {
+        equipment: EquipmentId,
+    },
+    ProspectingEquipmentDefinitionMismatch,
+    ProspectingEquipmentDefinitionNotAccepted {
+        equipment: EquipmentId,
+    },
+    ProspectingEquipmentConditionMismatch,
+    ProspectingEquipmentMounted {
+        equipment: EquipmentId,
+    },
+    ProspectingEquipmentConditionDuration(ActiveConditionDurationError),
+    ProspectingEquipmentConditionOutcomeMismatch {
+        stored: Condition,
+        required: Condition,
+    },
+    ProspectingEquipmentResourceDoubleBooked {
+        equipment: EquipmentId,
+    },
     ProspectingScheduleInvalid,
     ProspectingDurationMismatch,
-    EatingMassInvalid { mass: Mass },
+    EatingMassInvalid {
+        mass: Mass,
+    },
     EatingScheduleInvalid,
     EatingDurationMismatch,
-    DrinkingVolumeInvalid { volume: Volume },
+    DrinkingVolumeInvalid {
+        volume: Volume,
+    },
     DrinkingScheduleInvalid,
     DrinkingDurationMismatch,
     EquipmentMaintenanceEquipmentMissing,
@@ -69,8 +99,12 @@ pub enum PlayerWorkValidationError {
     StorageDismantlingRecoveryIsTarget,
     StorageDismantlingRecoveryMounted,
     StorageDismantlingStorageProfileMismatch,
-    StorageDismantlingTargetContentsIncompatible { lot: MaterialLotId },
-    StorageDismantlingStorageHistoryOverflow { lot: MaterialLotId },
+    StorageDismantlingTargetContentsIncompatible {
+        lot: MaterialLotId,
+    },
+    StorageDismantlingStorageHistoryOverflow {
+        lot: MaterialLotId,
+    },
     StorageDismantlingScheduleInvalid,
     StorageDismantlingDurationMismatch,
     StorageDismantlingResourceDoubleBooked,
@@ -81,9 +115,15 @@ pub enum PlayerWorkValidationError {
     DrinkingConsumptionMismatch,
     PlayerDead,
     MetabolicCostOverflow,
-    InsufficientMetabolicEnergy { available: Energy, required: Energy },
+    InsufficientMetabolicEnergy {
+        available: Energy,
+        required: Energy,
+    },
     HydrationCostOverflow,
-    InsufficientHydration { available: Volume, required: Volume },
+    InsufficientHydration {
+        available: Volume,
+        required: Volume,
+    },
 }
 
 impl Display for PlayerWorkValidationError {
@@ -178,6 +218,45 @@ impl Display for PlayerWorkValidationError {
             Self::ProspectingRegionTooLarge { actual, maximum } => write!(
                 formatter,
                 "player prospecting region contains {actual} voxels but method allows at most {maximum}"
+            ),
+            Self::ProspectingEquipmentMissing => formatter.write_str(
+                "player prospecting method requires a persisted physical sampling instrument",
+            ),
+            Self::ProspectingUnexpectedEquipment { equipment } => write!(
+                formatter,
+                "player prospecting work unexpectedly occupies equipment {}",
+                equipment.value()
+            ),
+            Self::ProspectingEquipmentDefinitionMismatch => formatter.write_str(
+                "player prospecting equipment definition disagrees with its persisted trace",
+            ),
+            Self::ProspectingEquipmentDefinitionNotAccepted { equipment } => write!(
+                formatter,
+                "player prospecting method does not accept equipment {}",
+                equipment.value()
+            ),
+            Self::ProspectingEquipmentConditionMismatch => formatter.write_str(
+                "player prospecting equipment condition disagrees with its persisted trace",
+            ),
+            Self::ProspectingEquipmentMounted { equipment } => write!(
+                formatter,
+                "player prospecting requires portable unmounted equipment but equipment {} is mounted",
+                equipment.value()
+            ),
+            Self::ProspectingEquipmentConditionDuration(error) => write!(
+                formatter,
+                "player prospecting exceeds sampling-instrument condition lifetime: {error}"
+            ),
+            Self::ProspectingEquipmentConditionOutcomeMismatch { stored, required } => write!(
+                formatter,
+                "player prospecting stores sampling-instrument condition {} ppm but authored wear requires {} ppm",
+                stored.parts_per_million(),
+                required.parts_per_million()
+            ),
+            Self::ProspectingEquipmentResourceDoubleBooked { equipment } => write!(
+                formatter,
+                "player prospecting equipment {} is simultaneously owned by another operation",
+                equipment.value()
             ),
             Self::ProspectingScheduleInvalid => {
                 formatter.write_str("player prospecting work has an invalid persisted schedule")
@@ -327,6 +406,7 @@ impl Error for PlayerWorkValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::ManualPowerConditionDuration(error) => Some(error),
+            Self::ProspectingEquipmentConditionDuration(error) => Some(error),
             Self::WorkWithoutPlayer
             | Self::ManualProductionJobMissing
             | Self::ManualProductionProcessMismatch
@@ -357,6 +437,14 @@ impl Error for PlayerWorkValidationError {
             | Self::ProspectingUnknownMaterial { .. }
             | Self::ProspectingRegionVolumeOverflow
             | Self::ProspectingRegionTooLarge { .. }
+            | Self::ProspectingEquipmentMissing
+            | Self::ProspectingUnexpectedEquipment { .. }
+            | Self::ProspectingEquipmentDefinitionMismatch
+            | Self::ProspectingEquipmentDefinitionNotAccepted { .. }
+            | Self::ProspectingEquipmentConditionMismatch
+            | Self::ProspectingEquipmentMounted { .. }
+            | Self::ProspectingEquipmentConditionOutcomeMismatch { .. }
+            | Self::ProspectingEquipmentResourceDoubleBooked { .. }
             | Self::ProspectingScheduleInvalid
             | Self::ProspectingDurationMismatch
             | Self::EatingMassInvalid { .. }

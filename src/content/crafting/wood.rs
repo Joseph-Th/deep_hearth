@@ -2,10 +2,11 @@
 
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::time::TickSpan;
-use crate::crafting::{ManualCraftDefinition, ManualCraftOutput};
+use crate::crafting::{ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput};
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
+use crate::content::capabilities::{CAPABILITY_SAWING_FLOW, CAPABILITY_WOODWORKING_FLOW};
 use crate::content::materials::{
     FORM_BOARD, FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_CHIP, FORM_DOUBLE_WALL_CHEST_BODY,
     FORM_HANDLE, FORM_INSULATED_PANTRY_BODY, FORM_LOG, FORM_ROUGH_BOX_BODY, MATERIAL_WOOD,
@@ -16,10 +17,10 @@ use crate::content::processes::{
     PROCESS_ASSEMBLE_TIMBER_CHEST, PROCESS_SALVAGE_BULK_TIMBER_CRATE_BODY,
     PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY, PROCESS_SALVAGE_INSULATED_TIMBER_PANTRY_BODY,
     PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY, PROCESS_SALVAGE_TIMBER_CHEST_BODY,
-    PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 12] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 13] {
     [
         assemble_rough_timber_field_box(),
         assemble_timber_chest(),
@@ -32,8 +33,33 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 12] {
         salvage_bulk_timber_crate_body(),
         salvage_insulated_timber_pantry_body(),
         shape_wood_boards(),
+        saw_wood_boards(),
         shape_wood_handle(),
     ]
+}
+
+fn saw_wood_boards() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_SAW_WOOD_BOARDS,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(1_000_000),
+        TickSpan::new(50),
+        wood_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(900_000),
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+                Mass::from_milligrams(100_000),
+            ),
+        ],
+    )
+    .with_equipment_profile(ManualCraftEquipmentProfile::new_required(
+        CAPABILITY_SAWING_FLOW,
+        1_500,
+    ))
 }
 
 fn assemble_rough_timber_field_box() -> ManualCraftDefinition {
@@ -231,6 +257,10 @@ fn shape_wood_boards() -> ManualCraftDefinition {
             ),
         ],
     )
+    .with_equipment_profile(ManualCraftEquipmentProfile::new(
+        CAPABILITY_WOODWORKING_FLOW,
+        1_000,
+    ))
 }
 
 fn shape_wood_handle() -> ManualCraftDefinition {

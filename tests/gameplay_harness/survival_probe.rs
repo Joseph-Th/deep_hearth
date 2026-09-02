@@ -1653,6 +1653,7 @@ pub(super) fn prospecting_method_for_work_pressure(
     let methods = registries
         .labor()
         .prospecting_definitions()
+        .filter(|definition| definition.equipment().is_none())
         .map(|definition| definition.id())
         .collect::<Vec<_>>();
     assert!(

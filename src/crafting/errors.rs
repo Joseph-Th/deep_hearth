@@ -4,9 +4,13 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 
+use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::Mass;
+use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
+use crate::maintenance::ActiveConditionDurationError;
 use crate::material::{CommodityKey, MaterialLotSpecError};
+use crate::ore_processing::MassFlowDurationError;
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolutionError, StartProcessCommitError,
     StartProcessError,
@@ -37,6 +41,25 @@ pub enum ManualCraftError {
     DurationOverflow {
         batches: NonZeroU64,
     },
+    RequiredEquipmentMissing {
+        process: ProcessId,
+    },
+    EquipmentNotSupported {
+        process: ProcessId,
+        equipment: EquipmentId,
+    },
+    Equipment(EquipmentProviderError),
+    MissingEquipmentCapability {
+        equipment: EquipmentId,
+        capability: CapabilityId,
+    },
+    EquipmentCapabilityKindMismatch {
+        equipment: EquipmentId,
+        capability: CapabilityId,
+        found: CapabilityValueKind,
+    },
+    EquipmentDuration(MassFlowDurationError),
+    EquipmentCondition(ActiveConditionDurationError),
     OutputMassOverflow {
         commodity: CommodityKey,
         batches: NonZeroU64,
@@ -87,6 +110,43 @@ impl Display for ManualCraftError {
                 "manual shaping duration overflows when repeated {} times",
                 batches.get()
             ),
+            Self::RequiredEquipmentMissing { process } => write!(
+                formatter,
+                "manual craft process {} requires compatible physical equipment",
+                process.value()
+            ),
+            Self::EquipmentNotSupported { process, equipment } => write!(
+                formatter,
+                "manual craft process {} has no authored equipment-assisted path for equipment {}",
+                process.value(),
+                equipment.value()
+            ),
+            Self::Equipment(error) => write!(formatter, "manual craft equipment is unavailable: {error}"),
+            Self::MissingEquipmentCapability {
+                equipment,
+                capability,
+            } => write!(
+                formatter,
+                "manual craft equipment {} does not provide required shaping capability {}",
+                equipment.value(),
+                capability.value()
+            ),
+            Self::EquipmentCapabilityKindMismatch {
+                equipment,
+                capability,
+                found,
+            } => write!(
+                formatter,
+                "manual craft equipment {} capability {} has {found:?} value instead of mass throughput",
+                equipment.value(),
+                capability.value()
+            ),
+            Self::EquipmentDuration(error) => {
+                write!(formatter, "manual craft equipment throughput cannot schedule work: {error}")
+            }
+            Self::EquipmentCondition(error) => {
+                write!(formatter, "manual craft equipment cannot remain productive: {error}")
+            }
             Self::OutputMassOverflow {
                 commodity,
                 batches,
@@ -109,6 +169,9 @@ impl Error for ManualCraftError {
             Self::Input(error) => Some(error),
             Self::Output(error) => Some(error),
             Self::Resolution(error) => Some(error),
+            Self::Equipment(error) => Some(error),
+            Self::EquipmentDuration(error) => Some(error),
+            Self::EquipmentCondition(error) => Some(error),
             Self::SurvivalNotInitialized
             | Self::PlayerDead
             | Self::UnknownManualProcess { process: _ }
@@ -117,6 +180,10 @@ impl Error for ManualCraftError {
             | Self::MixedInputTemperature
             | Self::InputMassNotWholeBatches { .. }
             | Self::DurationOverflow { batches: _ }
+            | Self::RequiredEquipmentMissing { .. }
+            | Self::EquipmentNotSupported { .. }
+            | Self::MissingEquipmentCapability { .. }
+            | Self::EquipmentCapabilityKindMismatch { .. }
             | Self::OutputMassOverflow { .. } => None,
         }
     }

@@ -2,17 +2,18 @@
 
 use super::*;
 use crate::content::{
-    FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CRUSHED, FORM_DOUBLE_WALL_CHEST_BODY, FORM_INGOT,
-    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
-    PROCESS_ASSEMBLE_TIMBER_CHEST, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_KNAP_STONE_TOOL,
-    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROSPECTING_FIELD_INSPECTION,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CRUSHED,
+    FORM_DOUBLE_WALL_CHEST_BODY, FORM_HANDLE, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
+    FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD, PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST, PROCESS_ASSEMBLE_TIMBER_CHEST,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SHAPE_WOOD_BOARDS,
+    PROSPECTING_FIELD_INSPECTION, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
+use crate::equipment::validate_assemble_equipment;
 use crate::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, add_solid_stockpile_for_test,
@@ -23,6 +24,7 @@ use crate::labor::{
     PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError,
     calculate_player_work_resource_budget,
 };
+use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -41,6 +43,181 @@ use crate::survival::{SurvivalExertion, assess_survival, initialize_player_survi
 
 fn stone_lump() -> CommodityKey {
     CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+}
+
+#[test]
+fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_exactly() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7020));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("woodworking survival setup failed: {error}"));
+
+    let components = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("woodworking component stockpile failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        components,
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(800_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("woodworking stone component failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        components,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        Mass::from_milligrams(200_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("woodworking handle component failed: {error}"));
+    let adze = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        components,
+    )
+    .unwrap_or_else(|error| panic!("woodworking adze assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("woodworking adze assembly commit failed: {error}"));
+
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+        .unwrap_or_else(|error| panic!("woodworking source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+        .unwrap_or_else(|error| panic!("woodworking destination failed: {error}"));
+    let first_log = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("woodworking first log failed: {error}"));
+    let second_log = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("woodworking second log failed: {error}"));
+
+    let hand = resolve_manual_craft(
+        &registries,
+        &state,
+        &ManualCraftRequest::single(
+            PROCESS_SHAPE_WOOD_BOARDS,
+            source,
+            MaterialLotSelection::new(first_log, Mass::from_milligrams(1_000_000)),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("hand board shaping resolution failed: {error}"));
+    let tool_request = ManualCraftRequest::single(
+        PROCESS_SHAPE_WOOD_BOARDS,
+        source,
+        MaterialLotSelection::new(second_log, Mass::from_milligrams(1_000_000)),
+    )
+    .with_equipment(adze);
+    let assisted = resolve_manual_craft(&registries, &state, &tool_request)
+        .unwrap_or_else(|error| panic!("adze board shaping resolution failed: {error}"));
+    assert_eq!(hand.duration(), TickSpan::new(50));
+    assert_eq!(assisted.duration(), TickSpan::new(28));
+    assert_eq!(assisted.outputs(), hand.outputs());
+    assert_eq!(
+        assisted
+            .outputs()
+            .iter()
+            .map(|output| (output.commodity(), output.mass()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+                Mass::from_milligrams(200_000),
+            ),
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(800_000),
+            ),
+        ]
+    );
+
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("woodworking matter-before audit failed: {error}"))
+        .total();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::new(tool_request, destination),
+    )
+    .unwrap_or_else(|error| panic!("adze board shaping start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("adze board shaping commit failed: {error}"));
+    let active = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("adze board shaping job disappeared"));
+    assert_eq!(active.active_duration(), TickSpan::new(28));
+    assert_eq!(
+        active.equipment_provider().map(|trace| trace.equipment()),
+        Some(adze)
+    );
+    assert_eq!(
+        active.equipment_condition_after(),
+        Some(Condition::new(972_000).unwrap_or_else(|error| panic!("condition failed: {error}")))
+    );
+
+    for _ in 0..7 {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("woodworking pre-save tick failed: {error}"));
+        assert!(outcome.production_completions().is_empty());
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("woodworking serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("woodworking decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("woodworking trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    while state.production().get_job(job).is_some() {
+        let expected = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("woodworking continuation failed: {error}"));
+        let actual = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("woodworking loaded continuation failed: {error}"));
+        assert_eq!(actual, expected);
+    }
+    assert_eq!(loaded, state);
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(adze)
+            .map(|record| record.condition()),
+        Some(Condition::new(972_000).unwrap_or_else(|error| panic!("condition failed: {error}")))
+    );
+    let output = state
+        .inventory()
+        .get_stockpile(destination)
+        .unwrap_or_else(|| panic!("woodworking destination disappeared"));
+    assert_eq!(
+        output.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
+        Mass::from_milligrams(800_000)
+    );
+    assert_eq!(
+        output.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("woodworking matter-after audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("woodworking final state audit failed: {error}"));
 }
 
 #[test]
@@ -66,7 +243,11 @@ fn manual_craft_registry_rejects_output_that_requires_unauthored_particle_state(
     )]);
 
     let result = std::panic::catch_unwind(|| {
-        crafting.validate_references(&production, registries.materials());
+        crafting.validate_references(
+            &production,
+            registries.materials(),
+            registries.capabilities(),
+        );
     });
 
     assert!(result.is_err());

@@ -95,6 +95,19 @@ pub const OBJECT_BULK_TIMBER_CRATE_BODY: ObjectAppearanceId = ObjectAppearanceId
 pub const OBJECT_INSULATED_TIMBER_PANTRY_BODY: ObjectAppearanceId = ObjectAppearanceId::new(39);
 pub const OBJECT_ROUGH_TIMBER_FIELD_BOX_BODY: ObjectAppearanceId = ObjectAppearanceId::new(40);
 pub const OBJECT_STONE_PROVISIONS_CROCK_BODY: ObjectAppearanceId = ObjectAppearanceId::new(41);
+pub const OBJECT_COPPER_SCREEN_PLATE: ObjectAppearanceId = ObjectAppearanceId::new(42);
+pub const OBJECT_STONE_ROTARY_QUERN: ObjectAppearanceId = ObjectAppearanceId::new(43);
+pub const OBJECT_COPPER_REINFORCED_STONE_ROTARY_QUERN: ObjectAppearanceId =
+    ObjectAppearanceId::new(44);
+pub const OBJECT_COPPER_PLATE_SIZING_SCREEN: ObjectAppearanceId = ObjectAppearanceId::new(45);
+pub const OBJECT_STONE_GEOLOGICAL_HAMMER: ObjectAppearanceId = ObjectAppearanceId::new(46);
+pub const OBJECT_COPPER_REINFORCED_GEOLOGICAL_HAMMER: ObjectAppearanceId =
+    ObjectAppearanceId::new(47);
+pub const OBJECT_STONE_WOODWORKING_ADZE: ObjectAppearanceId = ObjectAppearanceId::new(48);
+pub const OBJECT_COPPER_REINFORCED_WOODWORKING_ADZE: ObjectAppearanceId =
+    ObjectAppearanceId::new(49);
+pub const OBJECT_COPPER_SAW_BLADE: ObjectAppearanceId = ObjectAppearanceId::new(50);
+pub const OBJECT_TIMBER_FRAME_SAW_BENCH: ObjectAppearanceId = ObjectAppearanceId::new(51);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

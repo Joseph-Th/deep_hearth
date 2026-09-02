@@ -45,6 +45,8 @@ pub const FORM_BULK_CRATE_BODY: FormId = FormId::new(20);
 pub const FORM_INSULATED_PANTRY_BODY: FormId = FormId::new(21);
 pub const FORM_ROUGH_BOX_BODY: FormId = FormId::new(22);
 pub const FORM_STONE_CROCK_BODY: FormId = FormId::new(23);
+pub const FORM_SCREEN_PLATE: FormId = FormId::new(24);
+pub const FORM_SAW_BLADE: FormId = FormId::new(25);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -103,6 +105,8 @@ fn register_forms(registry: &mut MaterialRegistry) {
         consolidated_form(FORM_INSULATED_PANTRY_BODY, "insulated timber pantry body"),
         consolidated_form(FORM_ROUGH_BOX_BODY, "rough timber field box body"),
         consolidated_form(FORM_STONE_CROCK_BODY, "carved stone provisions crock body"),
+        consolidated_form(FORM_SCREEN_PLATE, "perforated sizing screen plate"),
+        consolidated_form(FORM_SAW_BLADE, "toothed frame-saw blade"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
         loose_form(
@@ -255,6 +259,8 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
         CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
         CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
+        CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
         CommodityKey::new(MATERIAL_SLAG, FORM_LUMP),

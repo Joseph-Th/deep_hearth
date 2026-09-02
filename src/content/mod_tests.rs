@@ -921,6 +921,9 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_GRINDING_MILL,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
+        EQUIPMENT_STONE_ROTARY_QUERN,
+        EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+        EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
         EQUIPMENT_COPPER_REINFORCED_PICK,
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
         EQUIPMENT_STONE_QUARRY_PICK,
@@ -928,8 +931,22 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
         EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+        EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
+        EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
     ] {
         assert!(registries.equipment().get_equipment(equipment).is_some());
+    }
+    for prospecting in [
+        PROSPECTING_REGIONAL_RECONNAISSANCE,
+        PROSPECTING_LOCAL_TRANSECT,
+        PROSPECTING_FIELD_INSPECTION,
+        PROSPECTING_DETAILED_FIELD_SURVEY,
+        PROSPECTING_INDEXED_CHANNEL_SURVEY,
+    ] {
+        assert!(registries.labor().get_prospecting(prospecting).is_some());
     }
     for energy in [
         ENERGY_MECHANICAL_SMALL_DRIVE,
@@ -963,6 +980,9 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
         PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+        PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+        PROCESS_COLD_WORK_COPPER_SAW_BLADE,
+        PROCESS_SAW_WOOD_BOARDS,
         PROCESS_HEAT_MATERIAL_BATCH,
         PROCESS_HAND_BREAK_ORE,
         PROCESS_HAND_SORT_NATIVE_COPPER,
@@ -1428,6 +1448,16 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_STONE_PROVISIONS_CROCK_BODY,
         ),
         (
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
+            None,
+            OBJECT_COPPER_SCREEN_PLATE,
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
+            None,
+            OBJECT_COPPER_SAW_BLADE,
+        ),
+        (
             CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
             None,
             OBJECT_WOOD_CHIP,
@@ -1472,6 +1502,15 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (EQUIPMENT_TIMBER_TREADLE_DRIVE, OBJECT_TIMBER_TREADLE_DRIVE),
         (EQUIPMENT_STONE_CRUSHER, OBJECT_STONE_CRUSHER),
         (EQUIPMENT_STONE_SEPARATOR, OBJECT_STONE_SEPARATOR),
+        (EQUIPMENT_STONE_ROTARY_QUERN, OBJECT_STONE_ROTARY_QUERN),
+        (
+            EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+            OBJECT_STONE_GEOLOGICAL_HAMMER,
+        ),
+        (
+            EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
+            OBJECT_COPPER_PLATE_SIZING_SCREEN,
+        ),
         (
             EQUIPMENT_COPPER_REINFORCED_PICK,
             OBJECT_COPPER_REINFORCED_PICK,
@@ -1491,6 +1530,26 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (
             EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
             OBJECT_COPPER_REINFORCED_STONE_SEPARATOR,
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
+            OBJECT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+            OBJECT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+        ),
+        (
+            EQUIPMENT_STONE_WOODWORKING_ADZE,
+            OBJECT_STONE_WOODWORKING_ADZE,
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+            OBJECT_COPPER_REINFORCED_WOODWORKING_ADZE,
+        ),
+        (
+            EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+            OBJECT_TIMBER_FRAME_SAW_BENCH,
         ),
     ] {
         let binding = match textures.get_equipment_appearance(equipment) {

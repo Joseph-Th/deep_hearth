@@ -43,6 +43,9 @@ pub const PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX: ProcessId = ProcessId::new(27
 pub const PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY: ProcessId = ProcessId::new(28);
 pub const PROCESS_SHAPE_STONE_PROVISIONS_CROCK: ProcessId = ProcessId::new(29);
 pub const PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY: ProcessId = ProcessId::new(30);
+pub const PROCESS_PIERCE_COPPER_SCREEN_PLATE: ProcessId = ProcessId::new(31);
+pub const PROCESS_COLD_WORK_COPPER_SAW_BLADE: ProcessId = ProcessId::new(32);
+pub const PROCESS_SAW_WOOD_BOARDS: ProcessId = ProcessId::new(33);
 
 fn mass_flow_resolver_requirements(
     flow_capability: CapabilityId,
@@ -234,6 +237,21 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new_selected_batch(
             PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
             "rework copper scrap reinforcement",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+            "pierce copper sizing screen plate",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_COLD_WORK_COPPER_SAW_BLADE,
+            "cold-work copper frame-saw blade",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SAW_WOOD_BOARDS,
+            "rip timber boards on frame saw",
             Vec::new(),
         ),
     ] {

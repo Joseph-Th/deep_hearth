@@ -196,6 +196,10 @@ pub enum EquipmentProviderError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
+    ProspectingInProgress {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
 }
 
 impl Display for EquipmentProviderError {
@@ -233,6 +237,15 @@ impl Display for EquipmentProviderError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::ProspectingInProgress {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by geological sampling until tick {} and cannot authorize a new operation",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::StructuralSupportNotActive {
                 equipment,
                 element,
@@ -263,6 +276,15 @@ pub fn resolve_equipment_provider<'state>(
         .get_equipment_maintenance_occupant(equipment)
     {
         return Err(EquipmentProviderError::MaintenanceInProgress {
+            equipment,
+            completes_at: work.completes_at(),
+        });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_prospecting_equipment_occupant(equipment)
+    {
+        return Err(EquipmentProviderError::ProspectingInProgress {
             equipment,
             completes_at: work.completes_at(),
         });

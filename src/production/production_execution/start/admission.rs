@@ -283,6 +283,15 @@ fn validate_equipment_available(
     {
         return Err(StartProcessError::EquipmentBusyManualPower { equipment });
     }
+    if let Some(work) = state
+        .player_work()
+        .get_prospecting_equipment_occupant(equipment)
+    {
+        return Err(StartProcessError::EquipmentBusyProspecting {
+            equipment,
+            completes_at: work.completes_at(),
+        });
+    }
     Ok(())
 }
 

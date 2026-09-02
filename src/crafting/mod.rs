@@ -1,11 +1,15 @@
 //! Manual shaping operations that reuse canonical timed production ownership.
 
+use crate::capability::CapabilityValue;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
+use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
+use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::material::{MaterialComposition, MaterialLotSpec};
+use crate::ore_processing::calculate_mass_flow_duration_ceiling;
 use crate::production::{
     ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess,
     validate_selected_process_inputs, validate_start_manual_process,
@@ -19,7 +23,7 @@ mod errors;
 mod registry;
 mod validation;
 
-pub use definitions::{ManualCraftDefinition, ManualCraftOutput};
+pub use definitions::{ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput};
 pub use errors::{ManualCraftCommitError, ManualCraftError, StartManualCraftError};
 pub use registry::CraftingRegistry;
 pub use validation::ManualCraftJobValidationError;
@@ -35,6 +39,7 @@ pub struct ManualCraftRequest {
     process: ProcessId,
     source: StockpileId,
     selections: Vec<MaterialLotSelection>,
+    equipment: Option<EquipmentId>,
 }
 
 impl ManualCraftRequest {
@@ -48,7 +53,14 @@ impl ManualCraftRequest {
             process,
             source,
             selections,
+            equipment: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_equipment(mut self, equipment: EquipmentId) -> Self {
+        self.equipment = Some(equipment);
+        self
     }
 
     #[must_use]
@@ -73,6 +85,11 @@ impl ManualCraftRequest {
     #[must_use]
     pub fn selections(&self) -> &[MaterialLotSelection] {
         &self.selections
+    }
+
+    #[must_use]
+    pub const fn equipment(&self) -> Option<EquipmentId> {
+        self.equipment
     }
 }
 
@@ -153,15 +170,69 @@ pub fn resolve_manual_craft(
             .map_err(ManualCraftError::Output)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let duration = definition
-        .duration()
-        .value()
-        .checked_mul(batches.get())
-        .map(TickSpan::new)
-        .ok_or(ManualCraftError::DurationOverflow { batches })?;
-    inputs
-        .resolve_without_resources(duration, outputs)
-        .map_err(ManualCraftError::Resolution)
+    match request.equipment() {
+        None => {
+            if definition
+                .equipment_profile()
+                .is_some_and(ManualCraftEquipmentProfile::requires_equipment)
+            {
+                return Err(ManualCraftError::RequiredEquipmentMissing { process });
+            }
+            let duration = definition
+                .duration()
+                .value()
+                .checked_mul(batches.get())
+                .map(TickSpan::new)
+                .ok_or(ManualCraftError::DurationOverflow { batches })?;
+            inputs
+                .resolve_without_resources(duration, outputs)
+                .map_err(ManualCraftError::Resolution)
+        }
+        Some(equipment) => {
+            let profile = definition
+                .equipment_profile()
+                .ok_or(ManualCraftError::EquipmentNotSupported { process, equipment })?;
+            let provider = resolve_equipment_provider(registries, state, equipment)
+                .map_err(ManualCraftError::Equipment)?;
+            let capability = profile.mass_flow_capability();
+            let rate = match provider.get_capability(capability) {
+                Some(CapabilityValue::MassFlow(rate)) => rate,
+                Some(value) => {
+                    return Err(ManualCraftError::EquipmentCapabilityKindMismatch {
+                        equipment,
+                        capability,
+                        found: value.kind(),
+                    });
+                }
+                None => {
+                    return Err(ManualCraftError::MissingEquipmentCapability {
+                        equipment,
+                        capability,
+                    });
+                }
+            };
+            let duration = calculate_mass_flow_duration_ceiling(
+                rate,
+                inputs.input_mass(),
+                registries.core().physical_tick_duration(),
+            )
+            .map_err(ManualCraftError::EquipmentDuration)?;
+            let condition_after = calculate_usable_condition_after_active_ticks(
+                profile.condition_wear_ppm_per_active_tick(),
+                provider.condition(),
+                duration,
+            )
+            .map_err(ManualCraftError::EquipmentCondition)?;
+            inputs
+                .resolve_with_equipment(
+                    duration,
+                    outputs,
+                    provider.validated_use(),
+                    condition_after,
+                )
+                .map_err(ManualCraftError::Resolution)
+        }
+    }
 }
 
 /// Consumed proof that both the process and the player's labor were available at validation time.

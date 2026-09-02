@@ -127,6 +127,15 @@ impl ValidatedEquipmentSupportChange {
         }
         if let Some(work) = state
             .player_work()
+            .get_prospecting_equipment_occupant(self.equipment)
+        {
+            return Err(EquipmentSupportCommitError::EquipmentBusyProspecting {
+                equipment: self.equipment,
+                completes_at: work.completes_at(),
+            });
+        }
+        if let Some(work) = state
+            .player_work()
             .get_equipment_maintenance_occupant(self.equipment)
         {
             return Err(EquipmentSupportCommitError::EquipmentUnderMaintenance {
@@ -260,6 +269,15 @@ fn validate_not_busy(
         .is_some()
     {
         return Err(EquipmentSupportError::EquipmentBusyManualPower { equipment });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_prospecting_equipment_occupant(equipment)
+    {
+        return Err(EquipmentSupportError::EquipmentBusyProspecting {
+            equipment,
+            completes_at: work.completes_at(),
+        });
     }
     if let Some(work) = state
         .player_work()

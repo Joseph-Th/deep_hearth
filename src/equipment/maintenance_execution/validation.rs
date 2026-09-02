@@ -25,6 +25,15 @@ fn validate_equipment_availability(
     {
         return Err(EquipmentMaintenanceError::EquipmentBusyManualPower { equipment });
     }
+    if let Some(work) = state
+        .player_work()
+        .get_prospecting_equipment_occupant(equipment)
+    {
+        return Err(EquipmentMaintenanceError::EquipmentBusyProspecting {
+            equipment,
+            completes_at: work.completes_at(),
+        });
+    }
     if let Some(job) = state.production().get_equipment_occupant(equipment) {
         return Err(EquipmentMaintenanceError::EquipmentBusy {
             equipment,

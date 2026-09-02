@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::capability::{CapabilityRegistry, CapabilityValueKind};
 use crate::material::{CommodityKey, MaterialRegistry, ParticleSizeStatePolicy};
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 
@@ -94,8 +95,27 @@ impl CraftingRegistry {
         &self,
         production: &ProductionRegistry,
         materials: &MaterialRegistry,
+        capabilities: &CapabilityRegistry,
     ) {
         for definition in self.manual.values() {
+            if let Some(equipment) = definition.equipment_profile() {
+                let capability = equipment.mass_flow_capability();
+                let capability_definition =
+                    capabilities.get_capability(capability).unwrap_or_else(|| {
+                        panic!(
+                            "manual craft {} equipment profile references unknown capability {}",
+                            definition.process().value(),
+                            capability.value()
+                        )
+                    });
+                assert_eq!(
+                    capability_definition.kind(),
+                    CapabilityValueKind::MassFlow,
+                    "manual craft {} equipment capability {} must be material throughput",
+                    definition.process().value(),
+                    capability.value()
+                );
+            }
             assert!(
                 materials.has_commodity(definition.input()),
                 "manual craft {} references unknown input commodity {}",
@@ -153,7 +173,7 @@ impl CraftingRegistry {
                 });
             assert!(
                 process.capability_requirements().is_empty(),
-                "manual craft {} cannot require machine capabilities",
+                "manual craft {} production definition cannot require machine capabilities because equipment use is a crafting-owned path",
                 definition.process().value()
             );
             assert!(

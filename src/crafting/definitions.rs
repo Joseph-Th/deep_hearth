@@ -1,7 +1,9 @@
 //! Immutable physical definitions for manual shaping operations.
 
+use crate::capability::CapabilityId;
 use crate::core::quantity::Mass;
 use crate::core::time::TickSpan;
+use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::CommodityKey;
 use crate::production::ProcessId;
 use crate::survival::SurvivalExertion;
@@ -11,6 +13,64 @@ use crate::survival::SurvivalExertion;
 pub struct ManualCraftOutput {
     commodity: CommodityKey,
     mass: Mass,
+}
+
+/// Durable equipment semantics for a manual shaping process.
+///
+/// The capability is physical material throughput supplied by runtime equipment. Optional profiles
+/// retain the fixed hand-work duration authored on [`ManualCraftDefinition`] as a fallback; required
+/// profiles reject equipment-less requests. When equipment is used, condition-adjusted throughput
+/// replaces fixed timing and the provider wears for the exact active duration. Transformation yield
+/// remains authored by the process definition rather than by the equipment profile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManualCraftEquipmentProfile {
+    mass_flow_capability: CapabilityId,
+    condition_wear_ppm_per_active_tick: u32,
+    required: bool,
+}
+
+impl ManualCraftEquipmentProfile {
+    #[must_use]
+    pub fn new(
+        mass_flow_capability: CapabilityId,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        Self {
+            mass_flow_capability,
+            condition_wear_ppm_per_active_tick,
+            required: false,
+        }
+    }
+
+    /// Authors a shaping route that cannot be performed without a compatible durable tool.
+    #[must_use]
+    pub fn new_required(
+        mass_flow_capability: CapabilityId,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        Self {
+            mass_flow_capability,
+            condition_wear_ppm_per_active_tick,
+            required: true,
+        }
+    }
+
+    #[must_use]
+    pub const fn mass_flow_capability(self) -> CapabilityId {
+        self.mass_flow_capability
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.condition_wear_ppm_per_active_tick
+    }
+
+    #[must_use]
+    pub const fn requires_equipment(self) -> bool {
+        self.required
+    }
 }
 
 impl ManualCraftOutput {
@@ -40,6 +100,7 @@ pub struct ManualCraftDefinition {
     duration: TickSpan,
     exertion: SurvivalExertion,
     outputs: Vec<ManualCraftOutput>,
+    equipment: Option<ManualCraftEquipmentProfile>,
 }
 
 impl ManualCraftDefinition {
@@ -99,7 +160,14 @@ impl ManualCraftDefinition {
             duration,
             exertion,
             outputs,
+            equipment: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_equipment_profile(mut self, equipment: ManualCraftEquipmentProfile) -> Self {
+        self.equipment = Some(equipment);
+        self
     }
 
     #[must_use]
@@ -130,5 +198,10 @@ impl ManualCraftDefinition {
     #[must_use]
     pub fn outputs(&self) -> &[ManualCraftOutput] {
         &self.outputs
+    }
+
+    #[must_use]
+    pub const fn equipment_profile(&self) -> Option<ManualCraftEquipmentProfile> {
+        self.equipment
     }
 }
