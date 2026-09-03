@@ -15,7 +15,9 @@ use crate::content::{
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_equipment,
     make_test_registries_with_sensible_heating,
 };
-use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Power, Temperature};
+use crate::core::quantity::{
+    AggregateMass, Area, Energy, Force, Length, Power, Temperature, Volume,
+};
 use crate::core::state::validate_loaded_state;
 use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -62,6 +64,10 @@ fn condition(parts_per_million: u32) -> Condition {
         Ok(condition) => condition,
         Err(error) => panic!("maintenance condition fixture failed: {error}"),
     }
+}
+
+fn active_test_exertion() -> SurvivalExertion {
+    SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO)
 }
 
 fn initialize_service_player(registries: &Registries, state: &mut AppState) {
@@ -663,7 +669,7 @@ fn registries() -> Registries {
             CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
             condition(700_000),
             TickSpan::new(1),
-            SurvivalExertion::REST,
+            active_test_exertion(),
         )),
     )
 }
@@ -721,7 +727,7 @@ fn occupied_registries() -> Registries {
             CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
             condition(700_000),
             TickSpan::new(1),
-            SurvivalExertion::REST,
+            active_test_exertion(),
         )),
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_DEFINITION,

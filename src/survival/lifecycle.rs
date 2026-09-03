@@ -56,6 +56,14 @@ impl SurvivalExertion {
     pub const fn hydration_loss_per_tick(self) -> Volume {
         self.hydration_loss_per_tick
     }
+
+    /// Rejects a resting profile where an authored action represents active physical player work.
+    pub(crate) const fn assert_active_player_work(self) {
+        assert!(
+            !self.energy_cost_per_tick.is_zero(),
+            "active player work exertion must consume metabolic energy"
+        );
+    }
 }
 
 /// Qualitative hydration state derived from authored physiology thresholds.

@@ -74,6 +74,7 @@ impl EquipmentMaintenanceProfile {
             full_service_duration != TickSpan::ZERO,
             "equipment maintenance full-service duration must be nonzero"
         );
+        exertion.assert_active_player_work();
         assert_eq!(
             replacement.material(),
             spent.material(),

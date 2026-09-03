@@ -2,9 +2,14 @@
 
 use super::*;
 use crate::content::{FORM_SCRAP, FORM_TOOL, MATERIAL_STONE};
+use crate::core::quantity::{Energy, Volume};
 use crate::core::time::TickSpan;
 use crate::material::MaterialInputSpec;
 use crate::survival::SurvivalExertion;
+
+fn active_exertion() -> SurvivalExertion {
+    SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO)
+}
 
 fn assembly_profile() -> MaterialAssemblyProfile {
     MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
@@ -21,7 +26,7 @@ fn component_maintenance_requires_the_complete_component_at_any_wear_level() {
         CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
         Condition::PRISTINE,
         TickSpan::new(7),
-        SurvivalExertion::REST,
+        active_exertion(),
     );
 
     assert!(profile.is_component_replacement());
@@ -68,7 +73,7 @@ fn maintenance_replacement_mass_tracks_condition_restored_and_rounds_positive_re
         Condition::new(700_000)
             .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
         TickSpan::new(7),
-        SurvivalExertion::REST,
+        active_exertion(),
     );
 
     assert_eq!(
@@ -173,7 +178,7 @@ fn maintenance_registry(spent: CommodityKey) -> EquipmentRegistry {
             Condition::new(900_000)
                 .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
             TickSpan::new(1),
-            SurvivalExertion::REST,
+            active_exertion(),
         ))])
 }
 
@@ -212,7 +217,7 @@ fn equipment_definition_rejects_duplicate_authoritative_profiles() {
             Condition::new(900_000)
                 .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
             TickSpan::new(1),
-            SurvivalExertion::REST,
+            active_exertion(),
         )
     };
     let duplicate_maintenance = std::panic::catch_unwind(|| {
@@ -278,7 +283,7 @@ fn equipment_definition_rejects_aggregate_maintenance_on_exact_assembled_matter(
             Condition::new(900_000)
                 .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
             TickSpan::new(1),
-            SurvivalExertion::REST,
+            active_exertion(),
         )
     };
     let assembly_then_maintenance = std::panic::catch_unwind(|| {
@@ -307,7 +312,7 @@ fn equipment_registry_accepts_component_replacement_that_matches_exact_assembly_
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
             Condition::PRISTINE,
             TickSpan::new(1),
-            SurvivalExertion::REST,
+            active_exertion(),
         ));
     let registry = EquipmentRegistry::new([definition]);
 
@@ -325,7 +330,7 @@ fn equipment_registry_rejects_component_replacement_mass_that_is_not_whole_compo
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
             Condition::PRISTINE,
             TickSpan::new(1),
-            SurvivalExertion::REST,
+            active_exertion(),
         ));
     let registry = EquipmentRegistry::new([definition]);
 
@@ -335,6 +340,22 @@ fn equipment_registry_rejects_component_replacement_mass_that_is_not_whole_compo
         })
         .is_err()
     );
+}
+
+#[test]
+fn equipment_maintenance_rejects_resting_exertion() {
+    let result = std::panic::catch_unwind(|| {
+        EquipmentMaintenanceProfile::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1),
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+            Condition::PRISTINE,
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+        )
+    });
+
+    assert!(result.is_err());
 }
 
 #[test]

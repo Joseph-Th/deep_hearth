@@ -156,10 +156,7 @@ impl ProspectingDefinition {
             abundance_uncertainty_ppm <= 1_000_000,
             "prospecting abundance uncertainty must not exceed one million ppm"
         );
-        assert!(
-            !exertion.energy_cost_per_tick().is_zero(),
-            "prospecting exertion must consume metabolic energy"
-        );
+        exertion.assert_active_player_work();
         Self {
             id,
             evidence,
@@ -218,6 +215,11 @@ impl ProspectingDefinition {
     /// equipment limits can be selected conservatively without revealing exact hidden hardness.
     #[must_use]
     pub fn with_excavation_hardness_resolution(mut self, resolution: Pressure) -> Self {
+        assert!(
+            self.excavation_hardness_resolution.is_none(),
+            "prospecting method {} cannot define excavation-hardness resolution more than once",
+            self.id.value()
+        );
         assert!(
             self.equipment.is_some(),
             "excavation-hardness prospecting requires a physical instrument"
@@ -291,10 +293,7 @@ impl ManualPowerDefinition {
             "manual power metabolic efficiency must be inside 1..=1,000,000 ppm"
         );
         assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
-        assert!(
-            !maximum_exertion.energy_cost_per_tick().is_zero(),
-            "manual power exertion must consume metabolic energy"
-        );
+        maximum_exertion.assert_active_player_work();
         Self {
             id,
             power_capability,
@@ -431,3 +430,7 @@ impl LaborRegistry {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "definitions_tests.rs"]
+mod tests;

@@ -74,6 +74,7 @@ impl StorageDefinition {
             dismantle_duration != TickSpan::ZERO,
             "storage dismantling duration must be nonzero"
         );
+        dismantle_exertion.assert_active_player_work();
         Self {
             id,
             name,

@@ -48,10 +48,7 @@ impl ManualOreProcessProfile {
             !max_batch_mass.is_zero(),
             "manual ore-processing maximum batch mass must be nonzero"
         );
-        assert!(
-            !exertion.energy_cost_per_tick().is_zero(),
-            "manual ore-processing exertion must consume metabolic energy"
-        );
+        exertion.assert_active_player_work();
         Self {
             processing_rate,
             max_batch_mass,

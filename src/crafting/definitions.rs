@@ -118,10 +118,7 @@ impl ManualCraftDefinition {
             "manual craft input mass must be nonzero"
         );
         assert!(!duration.is_zero(), "manual craft duration must be nonzero");
-        assert!(
-            !exertion.energy_cost_per_tick().is_zero(),
-            "manual craft exertion must consume metabolic energy"
-        );
+        exertion.assert_active_player_work();
         assert!(
             !outputs.is_empty(),
             "manual craft must produce conserved output matter"
@@ -166,6 +163,11 @@ impl ManualCraftDefinition {
 
     #[must_use]
     pub fn with_equipment_profile(mut self, equipment: ManualCraftEquipmentProfile) -> Self {
+        assert!(
+            self.equipment.is_none(),
+            "manual craft {} cannot define more than one equipment profile",
+            self.process.value()
+        );
         self.equipment = Some(equipment);
         self
     }
@@ -205,3 +207,7 @@ impl ManualCraftDefinition {
         self.equipment
     }
 }
+
+#[cfg(test)]
+#[path = "definitions_tests.rs"]
+mod tests;
