@@ -255,6 +255,11 @@ fn stored_energy_projection_matches_canonical_supply_boundary() {
     let envelope = envelope(&fixture);
     assert_eq!(envelope.stored_energy_capacity(), Mass::from_milligrams(5));
     assert_eq!(envelope.maximum_mass(), Mass::from_milligrams(5));
+    assert!(envelope.maximum_mass_with_replenished_energy() > envelope.maximum_mass());
+    assert_eq!(
+        envelope.additional_energy_required_for(Mass::from_milligrams(6)),
+        Some(Energy::from_nanojoules(100))
+    );
     assert_eq!(
         envelope.constraint_for(Mass::from_milligrams(6)),
         Some(PoweredOreMassConstraint::StoredEnergy)
@@ -269,6 +274,29 @@ fn stored_energy_projection_matches_canonical_supply_boundary() {
         })) if available == Energy::from_nanojoules(500)
             && requested == Energy::from_nanojoules(600)
     ));
+}
+
+#[test]
+fn replenishment_projection_refuses_mass_beyond_non_energy_constraints() {
+    let fixture = make_fixture(PlanningConfig {
+        max_batch_mg: 10,
+        stored_nj: 100,
+        ..PlanningConfig::default()
+    });
+    let envelope = envelope(&fixture);
+
+    assert_eq!(
+        envelope.maximum_mass_with_replenished_energy(),
+        Mass::from_milligrams(10)
+    );
+    assert_eq!(
+        envelope.additional_energy_required_for(Mass::from_milligrams(10)),
+        Some(Energy::from_nanojoules(900))
+    );
+    assert_eq!(
+        envelope.additional_energy_required_for(Mass::from_milligrams(11)),
+        None
+    );
 }
 
 #[test]
@@ -386,10 +414,54 @@ fn retained_envelope_never_authorizes_work_after_owner_state_changes() {
             fixture.equipment,
             fixture.store,
         ),
-        Err(PoweredOreMassEnvelopeError::Energy(EnergySupplyError::StoreBusy {
-            job: occupied_by,
-            ..
-        })) if occupied_by == job
+        Err(PoweredOreMassEnvelopeError::Equipment(
+            EquipmentProviderError::ProductionInProgress {
+                equipment: occupied_equipment,
+                job: occupied_by,
+                ..
+            }
+        )) if occupied_equipment == fixture.equipment && occupied_by == job
+    ));
+}
+
+#[test]
+fn current_envelope_rejects_busy_equipment_even_with_idle_energy_store() {
+    let mut fixture = make_fixture(PlanningConfig::default());
+    let resolved = resolve(&fixture, &fixture.state, Mass::from_milligrams(10))
+        .unwrap_or_else(|error| panic!("busy-equipment setup resolution failed: {error}"));
+    let job = validate_start_process(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.source,
+        fixture.destination,
+    )
+    .unwrap_or_else(|error| panic!("busy-equipment process start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("busy-equipment process commit failed: {error}"));
+    let idle_store = add_energy_store_with_initial_for_fixture(
+        &fixture.registries,
+        &mut fixture.state,
+        STORE,
+        Energy::from_nanojoules(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("idle planning energy fixture failed: {error}"));
+
+    assert!(matches!(
+        assess_powered_ore_mass_envelope(
+            &fixture.registries,
+            &fixture.state,
+            PROCESS,
+            fixture.equipment,
+            idle_store,
+        ),
+        Err(PoweredOreMassEnvelopeError::Equipment(
+            EquipmentProviderError::ProductionInProgress {
+                equipment: occupied_equipment,
+                job: occupied_by,
+                ..
+            }
+        )) if occupied_equipment == fixture.equipment && occupied_by == job
     ));
 }
 

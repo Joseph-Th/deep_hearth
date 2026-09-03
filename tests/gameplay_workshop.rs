@@ -2,8 +2,6 @@
 
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
-#[path = "gameplay_harness/catalog.rs"]
-mod catalog;
 #[path = "gameplay_harness/configuration.rs"]
 mod configuration;
 #[path = "gameplay_harness/contracts.rs"]

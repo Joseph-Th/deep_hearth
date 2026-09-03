@@ -75,28 +75,20 @@ pub(super) struct PreservationInfrastructureReview {
 }
 
 fn preservation_scenario_spec(
-    registries: &Registries,
     seed: u64,
     candidates: &[PreservationCandidate],
+    food: FoodDefinition,
+    food_mass: Mass,
 ) -> PreservationScenarioSpec {
     let maximum_construction_ticks = candidates
         .iter()
         .map(|candidate| candidate.construction_plan.attention_ticks)
         .max()
         .unwrap_or_else(|| unreachable!("preservation candidates are nonempty"));
-    let foods = registries
-        .survival()
-        .foods()
-        .copied()
-        .filter(|food| food.shelf_life().value() > maximum_construction_ticks.saturating_add(1))
-        .collect::<Vec<_>>();
     assert!(
-        !foods.is_empty(),
-        "no authored food remains fresh long enough to observe the ordinary preservation-construction route"
+        food.shelf_life().value() > maximum_construction_ticks.saturating_add(1),
+        "protected reserve spoils before any matched preservation-construction comparison is observable"
     );
-    let food_index = usize::try_from(mix64(seed ^ 0x5052_4553_464F_4F44) % foods.len() as u64)
-        .unwrap_or_else(|_| unreachable!("bounded preservation food index fits usize"));
-    let food = foods[food_index];
     let shelf_life_ticks = food.shelf_life().value();
     let maximum_observation = shelf_life_ticks
         .checked_sub(maximum_construction_ticks)
@@ -110,18 +102,6 @@ fn preservation_scenario_spec(
         .checked_sub(maximum_construction_ticks)
         .and_then(|ticks| ticks.checked_sub(matched_observation_ticks))
         .unwrap_or_else(|| unreachable!("bounded preservation horizon was derived above"));
-    let shared_capacity = candidates
-        .iter()
-        .map(|candidate| candidate.capacity.milligrams())
-        .min()
-        .unwrap_or_else(|| unreachable!("preservation candidates are nonempty"));
-    let maximum_witness_mass = shared_capacity.clamp(1, 250_000);
-    let minimum_witness_mass = maximum_witness_mass.min(25_000);
-    let food_mass = Mass::from_milligrams(
-        minimum_witness_mass
-            + mix64(seed ^ 0x5052_4553_4D41_5353)
-                % (maximum_witness_mass - minimum_witness_mass + 1),
-    );
     PreservationScenarioSpec {
         food,
         maximum_construction_ticks,
@@ -134,9 +114,18 @@ fn preservation_scenario_spec(
 pub(in super::super) fn project_preservation_candidates(
     registries: &Registries,
     seed: u64,
+    food: FoodDefinition,
+    food_mass: Mass,
 ) -> Vec<PreservationCandidateProjection> {
-    let candidates = preservation_candidates(registries);
-    let scenario = preservation_scenario_spec(registries, seed, &candidates);
+    let candidates = preservation_candidates(registries)
+        .into_iter()
+        .filter(|candidate| candidate.capacity >= food_mass)
+        .collect::<Vec<_>>();
+    assert!(
+        !candidates.is_empty(),
+        "protected reserve exceeds every authored preservation enclosure"
+    );
+    let scenario = preservation_scenario_spec(seed, &candidates, food, food_mass);
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x5052_4553_4552_5643));
     let stockpile = seed_stockpile(
         &mut state,
@@ -202,6 +191,13 @@ pub(in super::super) fn select_preservation_projection(
     projections: &[PreservationCandidateProjection],
 ) -> PreservationCandidateProjection {
     let attention_value_ppm = preservation_freshness_return_threshold_ppm(behavior_seed);
+    select_preservation_projection_for_attention_value(attention_value_ppm, projections)
+}
+
+pub(in super::super) fn select_preservation_projection_for_attention_value(
+    attention_value_ppm: u32,
+    projections: &[PreservationCandidateProjection],
+) -> PreservationCandidateProjection {
     let value_key = |projection: &PreservationCandidateProjection| {
         let freshness_value = i128::from(projection.remaining_fresh_ticks)
             .checked_mul(1_000_000)
@@ -237,21 +233,30 @@ pub(in super::super) fn select_preservation_projection(
 pub(super) fn evaluate_preservation_infrastructure_probe(
     registries: &Registries,
     seed: u64,
+    food: FoodDefinition,
+    food_mass: Mass,
     policy: PreservationInvestmentPolicy,
 ) -> PreservationInfrastructureReview {
     evaluate_preservation_infrastructure_definition(
         registries,
         seed,
-        preservation_storage_definition_for_policy(registries, policy),
+        food,
+        food_mass,
+        preservation_storage_definition_for_policy_and_capacity(registries, policy, food_mass),
     )
 }
 
 pub(super) fn evaluate_preservation_infrastructure_definition(
     registries: &Registries,
     seed: u64,
+    food: FoodDefinition,
+    food_mass: Mass,
     storage_definition: StorageDefinitionId,
 ) -> PreservationInfrastructureReview {
-    let candidates = preservation_candidates(registries);
+    let candidates = preservation_candidates(registries)
+        .into_iter()
+        .filter(|candidate| candidate.capacity >= food_mass)
+        .collect::<Vec<_>>();
     let selected_index = candidates
         .iter()
         .position(|candidate| candidate.definition == storage_definition)
@@ -286,8 +291,7 @@ pub(super) fn evaluate_preservation_infrastructure_definition(
         .iter()
         .map(|route| route.steps.len())
         .sum::<usize>();
-    let scenario = preservation_scenario_spec(registries, seed, &candidates);
-    let food = scenario.food;
+    let scenario = preservation_scenario_spec(seed, &candidates, food, food_mass);
     let shelf_life_ticks = food.shelf_life().value();
     let bootstrap_age_ticks = scenario.bootstrap_age_ticks;
     let observation_ticks = scenario

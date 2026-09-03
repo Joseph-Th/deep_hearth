@@ -319,7 +319,9 @@ fn focused_behavior_root_is_validated_even_for_explicit_world_replay() {
 #[test]
 fn focused_behavior_channel_exists_only_for_probes_with_actor_policy() {
     assert!(probe_uses_actor_behavior("survival-provisioning"));
+    assert!(probe_uses_actor_behavior("woodworking"));
     assert!(!probe_uses_actor_behavior("primitive-progression"));
+    assert!(!probe_uses_actor_behavior("fieldwork"));
     assert!(!probe_uses_actor_behavior("ore-preparation"));
     assert!(!probe_uses_actor_behavior("foundry"));
 }

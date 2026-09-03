@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::core::quantity::Pressure;
 use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
@@ -169,6 +170,64 @@ impl Display for MaterialAbundanceEstimateError {
 
 impl Error for MaterialAbundanceEstimateError {}
 
+/// Bounded actor-visible estimate of the excavation resistance in one observed region.
+///
+/// The interval deliberately contains no geological owner identity. Physical sampling may narrow
+/// this band enough to choose suitable extraction tooling without exposing exact hidden deposit
+/// state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExcavationHardnessEstimate {
+    lower: Pressure,
+    upper: Pressure,
+}
+
+impl ExcavationHardnessEstimate {
+    pub fn new(lower: Pressure, upper: Pressure) -> Result<Self, ExcavationHardnessEstimateError> {
+        if upper.is_zero() {
+            return Err(ExcavationHardnessEstimateError::ZeroUpperBound);
+        }
+        if lower > upper {
+            return Err(ExcavationHardnessEstimateError::InvertedBounds { lower, upper });
+        }
+        Ok(Self { lower, upper })
+    }
+
+    #[must_use]
+    pub const fn lower(self) -> Pressure {
+        self.lower
+    }
+
+    #[must_use]
+    pub const fn upper(self) -> Pressure {
+        self.upper
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExcavationHardnessEstimateError {
+    ZeroUpperBound,
+    InvertedBounds { lower: Pressure, upper: Pressure },
+}
+
+impl Display for ExcavationHardnessEstimateError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ZeroUpperBound => {
+                formatter.write_str("geological excavation-hardness upper bound must be nonzero")
+            }
+            Self::InvertedBounds { lower, upper } => write!(
+                formatter,
+                "geological excavation-hardness lower bound {} Pa exceeds upper bound {} Pa",
+                lower.pascals(),
+                upper.pascals()
+            ),
+        }
+    }
+}
+
+impl Error for ExcavationHardnessEstimateError {}
+
 /// Persisted geological observation acquired at one simulation tick.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -177,6 +236,7 @@ pub struct GeologicalObservationRecord {
     pub(super) region: VoxelBounds,
     pub(super) evidence: GeologicalEvidenceKind,
     pub(super) findings: Vec<MaterialAbundanceEstimate>,
+    pub(super) excavation_hardness: Option<ExcavationHardnessEstimate>,
     pub(super) observed_at: SimulationTick,
 }
 
@@ -199,6 +259,12 @@ impl GeologicalObservationRecord {
     #[must_use]
     pub fn findings(&self) -> &[MaterialAbundanceEstimate] {
         &self.findings
+    }
+
+    /// Returns the acquired excavation-resistance band when this observation physically measured it.
+    #[must_use]
+    pub const fn excavation_hardness(&self) -> Option<ExcavationHardnessEstimate> {
+        self.excavation_hardness
     }
 
     #[must_use]

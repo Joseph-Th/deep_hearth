@@ -9,9 +9,10 @@ use crate::core::state::AppState;
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerIntegrationError, PowerRemainder,
-    assess_energy_supply_access, integrate_power,
+    assess_energy_supply_access, calculate_mass_specific_energy,
+    calculate_mass_specific_energy_capacity, integrate_power,
 };
-use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::maintenance::{
     Condition, maximum_active_ticks_above_condition_floor, maximum_usable_active_ticks,
 };
@@ -44,6 +45,7 @@ pub struct PoweredOreMassEnvelope {
     equipment_capacity: Mass,
     stored_energy_capacity: Mass,
     condition_lifetime_capacity: Mass,
+    available_energy: Energy,
     processing_rate: MassFlow,
     available_power: Power,
     specific_energy: MassSpecificEnergy,
@@ -56,6 +58,35 @@ impl PoweredOreMassEnvelope {
     #[must_use]
     pub const fn equipment_capacity(self) -> Mass {
         self.equipment_capacity
+    }
+
+    /// Greatest mass that could be run if this same currently available supply were replenished.
+    ///
+    /// This keeps equipment capacity, output power, and condition lifetime authoritative while
+    /// excluding only the store's current finite charge. It does not prove destination capacity for
+    /// replenishment and does not reserve any resource.
+    #[must_use]
+    pub fn maximum_mass_with_replenished_energy(self) -> Mass {
+        std::cmp::min(self.equipment_capacity, self.condition_lifetime_capacity)
+    }
+
+    /// Additional stored work needed to make `requested` physically possible on this same provider
+    /// and supply, ignoring only the store's current finite charge.
+    ///
+    /// `None` means replenishing this store cannot make the requested mass fit because equipment,
+    /// output-power, or condition lifetime is already the limiting constraint. Exact process input
+    /// and output legality still belongs to the process-specific resolver.
+    #[must_use]
+    pub fn additional_energy_required_for(self, requested: Mass) -> Option<Energy> {
+        if requested > self.maximum_mass_with_replenished_energy() {
+            return None;
+        }
+        let required = calculate_mass_specific_energy(requested, self.specific_energy);
+        Some(
+            required
+                .checked_sub(self.available_energy)
+                .unwrap_or(Energy::ZERO),
+        )
     }
 
     #[must_use]
@@ -194,9 +225,10 @@ impl Error for PoweredOreMassEnvelopeError {
 /// Derives the current monotonic mass bounds shared by powered comminution, screening, and
 /// constituent separation.
 ///
-/// This projection validates current equipment support/capability and current energy-supply access,
-/// but it does not reserve either resource and does not inspect a material selection. Callers use it
-/// to size a candidate, then invoke the process-specific resolver for exact feed/output legality.
+/// This projection validates current equipment support, capability, and occupancy plus current
+/// energy-supply access, but it does not reserve either resource and does not inspect a material
+/// selection. Callers use it to size a candidate, then invoke the process-specific resolver for
+/// exact feed/output legality.
 pub fn assess_powered_ore_mass_envelope(
     registries: &Registries,
     state: &AppState,
@@ -206,7 +238,7 @@ pub fn assess_powered_ore_mass_envelope(
 ) -> Result<PoweredOreMassEnvelope, PoweredOreMassEnvelopeError> {
     let profile = powered_profile(registries, process)
         .ok_or(PoweredOreMassEnvelopeError::UnknownPoweredProcess { process })?;
-    let provider = resolve_equipment_provider(registries, state, equipment)
+    let provider = resolve_available_equipment_provider(registries, state, equipment)
         .map_err(PoweredOreMassEnvelopeError::Equipment)?;
     let process_definition = registries
         .production()
@@ -269,6 +301,7 @@ pub fn assess_powered_ore_mass_envelope(
         equipment_capacity: equipment_limits.maximum_batch_mass(),
         stored_energy_capacity,
         condition_lifetime_capacity,
+        available_energy: energy.available(),
         processing_rate: equipment_limits.processing_rate(),
         available_power: energy.max_output_power(),
         specific_energy,
@@ -295,8 +328,7 @@ fn powered_profile(
 }
 
 fn mass_capacity_from_energy(energy: Energy, specific: MassSpecificEnergy) -> Mass {
-    let milligrams = energy.nanojoules() / u128::from(specific.nanojoules_per_milligram());
-    Mass::from_milligrams(u64::try_from(milligrams).unwrap_or(u64::MAX))
+    calculate_mass_specific_energy_capacity(energy, specific)
 }
 
 fn mass_capacity_from_integrated_power(

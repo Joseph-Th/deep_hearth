@@ -16,6 +16,7 @@ Use the smallest lane that completely proves the changed contract.
 | List tests without building | `python tools/run_test.py --list [substring]` |
 | Type-check an integration target without linking | `python tools/run_test.py --check --target <integration-target>` |
 | Run one exact unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
+| Show one selected test's review output | `python tools/run_test.py --verbose <qualified-name-or-unique-substring>` |
 | Run one owner/subsystem test group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Focused gameplay | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
 | Core audit | `python ci.py audit --core` |
@@ -39,7 +40,8 @@ sample for exploration.
 
 Without `--target`, `run_test.py` resolves tests from source without Cargo and chooses the smallest complete
 explicit target. Pin `--target` only to reuse a warm failed binary or force an integration boundary. `--check`
-always requires an explicit integration target.
+always requires an explicit integration target. Exact tests are quiet by default; `--verbose` implies
+`--nocapture` and enables gameplay review lines without changing the Cargo feature shape or forcing a rebuild.
 
 ## Evidence ladder
 

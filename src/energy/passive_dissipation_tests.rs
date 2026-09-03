@@ -77,6 +77,32 @@ fn empty_dissipative_store_does_not_churn_energy_revision() {
 }
 
 #[test]
+fn passive_emptying_projection_matches_runtime_loss_boundary() {
+    let registries = registries();
+    let definition = registries
+        .energy()
+        .get_store(DISSIPATIVE_STORE)
+        .unwrap_or_else(|| panic!("passive projection definition disappeared"));
+    let stored = Energy::from_nanojoules(5_000_000_000_000_000);
+    let ticks = passive_dissipation_ticks_until_empty(&registries, definition, stored)
+        .unwrap_or_else(|| panic!("dissipative store must have a finite emptying horizon"));
+    assert_eq!(ticks, crate::core::time::TickSpan::new(2));
+    assert_eq!(
+        project_stored_energy_after_passive_dissipation(&registries, definition, stored, ticks),
+        Energy::ZERO
+    );
+    assert!(
+        !project_stored_energy_after_passive_dissipation(
+            &registries,
+            definition,
+            stored,
+            crate::core::time::TickSpan::new(ticks.value() - 1),
+        )
+        .is_zero()
+    );
+}
+
+#[test]
 fn passive_dissipation_batches_multiple_stores_under_one_owner_revision() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0xE930_0003));

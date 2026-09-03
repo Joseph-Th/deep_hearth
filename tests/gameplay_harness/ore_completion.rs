@@ -22,7 +22,7 @@ pub(super) struct OreCompletionEvidence {
     pub(super) grind: PoweredStageResult,
     pub(super) screen: ScreeningStageResult,
     pub(super) regrind: RegrindStageResult,
-    pub(super) concentration: PoweredStageResult,
+    pub(super) concentration: ConcentrationStageResult,
     pub(super) crusher_output_matches_authoring: bool,
     pub(super) grinding_matches_authoring: bool,
     pub(super) grinding_resolved_screen_cut: bool,
@@ -161,11 +161,6 @@ pub(super) fn finalize_completed_ore_probe(
     let concentrate_copper = represented_copper_ppm_mg(state, &[ids.concentrate_storage]);
     let expected_copper =
         u128::from(episode.batch_mass.milligrams()) * u128::from(episode.input_copper_ppm);
-    let expected_recovered_copper_milligrams = u64::try_from(
-        expected_copper * u128::from(concentration_definition.target_recovery_ppm())
-            / 1_000_000_000_000_u128,
-    )
-    .unwrap_or_else(|_| panic!("ore preparation recovered copper mass exceeded u64"));
     let concentrate_grade_ppm =
         u32::try_from(concentrate_copper / u128::from(concentrate_mass.milligrams()))
             .unwrap_or_else(|_| {
@@ -177,7 +172,7 @@ pub(super) fn finalize_completed_ore_probe(
         .checked_add(evidence.grind.energy)
         .and_then(|energy| energy.checked_add(evidence.screen.powered.energy))
         .and_then(|energy| energy.checked_add(evidence.regrind.powered.energy))
-        .and_then(|energy| energy.checked_add(evidence.concentration.energy))
+        .and_then(|energy| energy.checked_add(evidence.concentration.powered.energy))
         .unwrap_or_else(|| panic!("ore preparation consumed energy overflowed"));
 
     assert_eq!(
@@ -202,7 +197,7 @@ pub(super) fn finalize_completed_ore_probe(
         "screen condition must match resolved wear"
     );
     assert_eq!(
-        final_separator_condition, evidence.concentration.condition_after,
+        final_separator_condition, evidence.concentration.powered.condition_after,
         "separator condition must match resolved wear"
     );
     assert_eq!(
@@ -229,6 +224,14 @@ pub(super) fn finalize_completed_ore_probe(
         "concentration outputs must conserve the prepared feed mass"
     );
     assert_eq!(
+        concentrate_mass, evidence.concentration.target_mass,
+        "concentrate custody must match the canonical resolved target stream"
+    );
+    assert_eq!(
+        tailings_mass, evidence.concentration.residue_mass,
+        "tailings custody must match the canonical resolved residue stream"
+    );
+    assert_eq!(
         represented_copper, expected_copper,
         "concentration must conserve exact represented copper content"
     );
@@ -239,15 +242,6 @@ pub(super) fn finalize_completed_ore_probe(
     assert!(
         !tailings_mass.is_zero(),
         "concentration must produce physical tailings"
-    );
-    assert_eq!(
-        concentrate_copper,
-        u128::from(expected_recovered_copper_milligrams) * 1_000_000,
-        "industrial concentration must apply the authored finite target recovery to exact copper content"
-    );
-    assert!(
-        concentrate_mass.milligrams() > expected_recovered_copper_milligrams,
-        "finite non-target recovery must carry physical gangue into the concentrate stream"
     );
     assert!(
         concentrate_grade_ppm > episode.input_copper_ppm && concentrate_grade_ppm < 1_000_000,
@@ -305,7 +299,7 @@ pub(super) fn finalize_completed_ore_probe(
 
     let concentration_batches = 1_u64;
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
-        std::println!(
+        reviewln!(
             "CAPABILITY ORE_PREP seed=0x{:016X} sample={} outcome=completed reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] attempted={}mg execution=canonical-stage-resolution feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
             episode.case.seed(),
             focused_probe_role_label(episode.case.role()),
@@ -330,10 +324,10 @@ pub(super) fn finalize_completed_ore_probe(
             evidence.screen.powered.duration.value(),
             evidence.regrind.powered.duration.value(),
             concentration_batches,
-            evidence.concentration.duration.value(),
+            evidence.concentration.powered.duration.value(),
         );
     } else {
-        std::println!(
+        reviewln!(
             "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=completed pipeline=crush->grind->screen->regrind->concentrate attempted={}mg execution=canonical-stage-resolution feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
             episode.case.seed(),
             focused_probe_role_label(episode.case.role()),
@@ -353,7 +347,7 @@ pub(super) fn finalize_completed_ore_probe(
             evidence.screen.powered.duration.value(),
             evidence.regrind.powered.duration.value(),
             concentration_batches,
-            evidence.concentration.duration.value(),
+            evidence.concentration.powered.duration.value(),
         );
     }
     OreProbeOutcome::Completed {

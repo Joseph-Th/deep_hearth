@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
+use crate::core::quantity::Pressure;
 use crate::spatial::VoxelCoord;
 
 fn bounds() -> VoxelBounds {
@@ -9,6 +10,36 @@ fn bounds() -> VoxelBounds {
         Ok(bounds) => bounds,
         Err(error) => panic!("geological knowledge bounds fixture failed: {error}"),
     }
+}
+
+#[test]
+fn loaded_validation_rejects_invalid_excavation_hardness_band() {
+    let registries = build_registries();
+    let id = GeologicalObservationId::new(1);
+    let mut state = GeologicalKnowledgeState::new();
+    state.next_observation_id = 2;
+    state.observations.insert(
+        id,
+        GeologicalObservationRecord {
+            id,
+            region: bounds(),
+            evidence: GeologicalEvidenceKind::ExcavationSample,
+            findings: vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
+            excavation_hardness: Some(ExcavationHardnessEstimate {
+                lower: Pressure::from_pascals(600_000_000),
+                upper: Pressure::from_pascals(550_000_000),
+            }),
+            observed_at: SimulationTick::ZERO,
+        },
+    );
+    state
+        .observations_by_material
+        .insert(MATERIAL_COPPER, BTreeSet::from([id]));
+
+    assert_eq!(
+        validate_loaded_geological_knowledge(registries.materials(), &state, SimulationTick::ZERO),
+        Err(GeologicalKnowledgeValidationError::InvalidExcavationHardness { observation: id })
+    );
 }
 
 fn estimate(material: MaterialId, lower: u32, upper: u32) -> MaterialAbundanceEstimate {
@@ -70,6 +101,7 @@ fn loaded_validation_rejects_missing_material_index_entry() {
             region: bounds(),
             evidence: GeologicalEvidenceKind::CoreSample,
             findings: vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
+            excavation_hardness: None,
             observed_at: SimulationTick::ZERO,
         },
     );
@@ -101,6 +133,7 @@ fn loaded_validation_rejects_noncanonical_duplicate_material_findings() {
                 estimate(MATERIAL_COPPER, 500_000, 600_000),
                 estimate(MATERIAL_COPPER, 550_000, 650_000),
             ],
+            excavation_hardness: None,
             observed_at: SimulationTick::ZERO,
         },
     );
@@ -136,6 +169,7 @@ fn loaded_validation_rejects_impossible_combined_abundance_minima() {
             region: bounds(),
             evidence: GeologicalEvidenceKind::LaboratoryAssay,
             findings,
+            excavation_hardness: None,
             observed_at: SimulationTick::ZERO,
         },
     );
@@ -164,6 +198,7 @@ fn material_index_validation_checks_both_directions() {
             region: bounds(),
             evidence: GeologicalEvidenceKind::MagneticSurvey,
             findings: vec![estimate(MATERIAL_COPPER, 100_000, 900_000)],
+            excavation_hardness: None,
             observed_at: SimulationTick::ZERO,
         },
     );

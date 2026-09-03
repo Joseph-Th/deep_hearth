@@ -27,7 +27,7 @@ use super::super::material_selection::select_stockpile_mass;
 use super::super::ore_fixture::copper_ore_composition;
 use super::super::production_timing::finish_uninterrupted_production_job;
 use super::super::seed::mix64;
-use super::{craft_batches, feed_mass_for_exact_recovered_constituent, native_input_for_upgrade};
+use super::{craft_batches, native_input_for_upgrade};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct OwnedOreManualBridgeReview {
@@ -83,11 +83,11 @@ pub(super) fn run_owned_ore_manual_bridge(
         .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
         .unwrap_or_else(|| panic!("owned-ore manual bridge lost its powered comparison route"));
     let manual_recovery_ppm = sorting.target_recovery_ppm();
-    let feed_mass = feed_mass_for_exact_recovered_constituent(
-        plan.reinforcement_required,
-        plan.copper_ppm,
-        manual_recovery_ppm,
-    );
+    let feed_mass = sorting
+        .minimum_feed_mass_for_target_recovery(plan.reinforcement_required, plan.copper_ppm)
+        .unwrap_or_else(|| {
+            panic!("player-owned bulk ore cannot physically recover one manual reinforcement")
+        });
     assert!(
         feed_mass <= breaking.max_batch_mass() && feed_mass <= sorting.max_batch_mass(),
         "player-owned bulk ore cannot fund one reinforcement inside the authored manual batch envelope"

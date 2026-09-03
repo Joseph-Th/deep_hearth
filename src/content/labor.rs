@@ -1,6 +1,6 @@
 //! Built-in player-labor methods for primitive power generation and geological observation.
 
-use crate::core::quantity::{Energy, Volume};
+use crate::core::quantity::{Energy, Pressure, Volume};
 use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
 use crate::geology::GeologicalEvidenceKind;
@@ -63,7 +63,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             ),
             ProspectingDefinition::new_with_equipment(
                 PROSPECTING_DETAILED_FIELD_SURVEY,
-                GeologicalEvidenceKind::SurfaceExposure,
+                GeologicalEvidenceKind::ExcavationSample,
                 TickSpan::new(48),
                 1,
                 25_000,
@@ -76,7 +76,8 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                     Some(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER),
                     120,
                 ),
-            ),
+            )
+            .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000)),
             ProspectingDefinition::new(
                 PROSPECTING_REGIONAL_RECONNAISSANCE,
                 GeologicalEvidenceKind::LooseIndicator,
@@ -101,7 +102,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             ),
             ProspectingDefinition::new_with_equipment(
                 PROSPECTING_INDEXED_CHANNEL_SURVEY,
-                GeologicalEvidenceKind::SurfaceExposure,
+                GeologicalEvidenceKind::ExcavationSample,
                 TickSpan::new(72),
                 4,
                 25_000,
@@ -115,7 +116,8 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                     150,
                 ),
             )
-            .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel),
+            .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel)
+            .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000)),
         ],
     )
 }

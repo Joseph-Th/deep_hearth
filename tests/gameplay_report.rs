@@ -1,5 +1,9 @@
 //! Explicit exploratory gameplay report. Routine verification uses the focused test binaries.
 
+#[macro_use]
+#[path = "gameplay_harness/output.rs"]
+mod output;
+
 #[path = "gameplay_harness/agency.rs"]
 mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
@@ -34,6 +38,8 @@ mod inventory_support;
 mod maintenance_timing;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
+#[path = "gameplay_harness/manual_craft_planning.rs"]
+mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]
@@ -46,9 +52,6 @@ mod ore_fixture;
 mod ore_probe;
 #[path = "gameplay_harness/ore_setup.rs"]
 mod ore_setup;
-#[macro_use]
-#[path = "gameplay_harness/output.rs"]
-mod output;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/preservation_route.rs"]

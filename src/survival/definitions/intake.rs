@@ -1,6 +1,6 @@
 //! Immutable food, drink, and direct-consumption temperature definitions.
 
-use crate::core::quantity::{MassSpecificEnergy, Temperature, Volume};
+use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volume};
 use crate::core::time::TickSpan;
 use crate::fluid::FluidDefinitionId;
 use crate::material::CommodityKey;
@@ -105,6 +105,20 @@ impl FoodDefinition {
         self.dietary_energy
     }
 
+    /// Minimum whole material mass whose authored dietary energy reaches `target`.
+    ///
+    /// This is the owner-side inverse of the exact whole-milligram energy offer used by eating.
+    /// `None` means the required represented mass exceeds the [`Mass`] range.
+    #[must_use]
+    pub fn minimum_mass_for_dietary_energy(self, target: Energy) -> Option<Mass> {
+        if target.is_zero() {
+            return Some(Mass::ZERO);
+        }
+        let per_milligram = u128::from(self.dietary_energy.nanojoules_per_milligram());
+        let milligrams = target.nanojoules().div_ceil(per_milligram);
+        u64::try_from(milligrams).ok().map(Mass::from_milligrams)
+    }
+
     #[must_use]
     pub const fn hydration_microliters_per_milligram(self) -> u32 {
         self.hydration_microliters_per_milligram
@@ -155,6 +169,22 @@ impl DrinkDefinition {
     #[must_use]
     pub const fn hydration_multiplier_ppm(self) -> u32 {
         self.hydration_multiplier_ppm
+    }
+
+    /// Minimum consumed whole-fluid volume whose authored hydration offer reaches `target`.
+    ///
+    /// This owns the inverse rounding boundary of drinking so callers do not reconstruct ppm
+    /// arithmetic. `None` means the required represented source volume exceeds [`Volume`].
+    #[must_use]
+    pub fn minimum_volume_for_hydration(self, target: Volume) -> Option<Volume> {
+        if target.is_zero() {
+            return Some(Volume::ZERO);
+        }
+        let numerator = u128::from(target.microliters()) * 1_000_000_u128;
+        let microliters = numerator.div_ceil(u128::from(self.hydration_multiplier_ppm));
+        u64::try_from(microliters)
+            .ok()
+            .map(Volume::from_microliters)
     }
 
     /// Projects the whole-microliter hydration represented by one consumed fluid volume.

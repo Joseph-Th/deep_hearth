@@ -14,11 +14,11 @@ pub(crate) use generation_execution::InsertGeneratedDepositError;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use generation_execution::insert_generated_deposit;
 pub use knowledge::{
-    AbundanceBound, GeologicalEvidenceConsistency, GeologicalEvidenceKind,
-    GeologicalKnowledgeAssessment, GeologicalKnowledgeMap, GeologicalKnowledgeState,
-    GeologicalKnowledgeValidationError, GeologicalObservationId, GeologicalObservationRecord,
-    MaterialAbundanceEstimate, MaterialAbundanceEstimateError, assess_geological_knowledge,
-    build_geological_knowledge_map,
+    AbundanceBound, ExcavationHardnessEstimate, ExcavationHardnessEstimateError,
+    GeologicalEvidenceConsistency, GeologicalEvidenceKind, GeologicalKnowledgeAssessment,
+    GeologicalKnowledgeMap, GeologicalKnowledgeState, GeologicalKnowledgeValidationError,
+    GeologicalObservationId, GeologicalObservationRecord, MaterialAbundanceEstimate,
+    MaterialAbundanceEstimateError, assess_geological_knowledge, build_geological_knowledge_map,
 };
 pub use prospecting_action::{
     FieldProspectingCommitError, FieldProspectingOutcome, FieldProspectingRequest,

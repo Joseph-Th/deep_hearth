@@ -58,7 +58,9 @@ pub use upgrade_execution::{
     validate_upgrade_equipment,
 };
 
-pub(crate) use equipment_integration::{ValidatedEquipmentUse, resolve_equipment_capability};
+pub(crate) use equipment_integration::{
+    ValidatedEquipmentUse, resolve_available_equipment_provider, resolve_equipment_capability,
+};
 pub(crate) use maintenance_execution::{
     apply_equipment_maintenance_tick, decide_equipment_maintenance_tick,
 };

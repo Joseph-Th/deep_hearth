@@ -17,7 +17,7 @@ use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{PowerIntegrationError, PowerRemainder, integrate_power};
-use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
 use crate::production::{ProcessId, ProcessInputError, validate_selected_process_inputs};
@@ -100,7 +100,7 @@ fn resolve_thermal_equipment_envelope(
     equipment: EquipmentId,
     capabilities: ThermalPlanningCapabilities,
 ) -> Result<ThermalEquipmentEnvelope, ThermalEquipmentEnvelopeError> {
-    let provider = resolve_equipment_provider(registries, state, equipment)
+    let provider = resolve_available_equipment_provider(registries, state, equipment)
         .map_err(ThermalEquipmentEnvelopeError::Equipment)?;
     let process_definition = registries
         .production()

@@ -4,9 +4,9 @@ use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
 use deep_hearth::content::{
-    EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, FORM_HANDLE,
-    FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_INDEXED_CHANNEL_SURVEY, build_registries,
+    EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, FORM_ORE,
+    MATERIAL_COPPER, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_INDEXED_CHANNEL_SURVEY,
+    build_registries,
 };
 use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -16,7 +16,8 @@ use deep_hearth::equipment::{
     validate_upgrade_equipment,
 };
 use deep_hearth::geology::{
-    FieldProspectingRequest, FieldProspectingStartError, validate_start_field_prospecting,
+    ExcavationHardnessEstimate, FieldProspectingRequest, FieldProspectingStartError,
+    GeologicalEvidenceKind, validate_start_field_prospecting,
 };
 use deep_hearth::labor::ProspectingSpatialResolution;
 use deep_hearth::material::CommodityKey;
@@ -84,6 +85,14 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         channel.abundance_uncertainty_ppm(),
         detailed.abundance_uncertainty_ppm()
     );
+    assert_eq!(
+        channel.excavation_hardness_resolution(),
+        detailed.excavation_hardness_resolution()
+    );
+    assert_eq!(
+        detailed.excavation_hardness_resolution(),
+        Some(Pressure::from_pascals(50_000_000))
+    );
     assert!(channel.duration() > detailed.duration());
     assert!(
         channel.duration().value() < detailed.duration().value() * 4,
@@ -100,34 +109,47 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     assert!(!channel_tool.accepts(EQUIPMENT_STONE_GEOLOGICAL_HAMMER));
     assert!(channel_tool.accepts(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER));
 
+    let base_hammer = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_GEOLOGICAL_HAMMER)
+        .unwrap_or_else(|| panic!("stone geological hammer definition disappeared"));
+    let base_assembly = base_hammer
+        .assembly_profile()
+        .unwrap_or_else(|| panic!("stone geological hammer lost authored assembly"));
+    let reinforced_hammer = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER)
+        .unwrap_or_else(|| panic!("reinforced geological hammer definition disappeared"));
+    let reinforcement = reinforced_hammer
+        .upgrade_profile()
+        .unwrap_or_else(|| panic!("reinforced geological hammer lost authored upgrade"));
+    assert_eq!(reinforcement.from(), EQUIPMENT_STONE_GEOLOGICAL_HAMMER);
+
     let mut state = AppState::new(WorldSeed::new(0x51A2_5A6D_504C_4501));
-    let hammer_source = add_solid_stockpile(&mut state, Mass::from_milligrams(650_000));
-    seed_lot(
-        &registries,
-        &mut state,
-        hammer_source,
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(500_000),
-        ROOM_TEMPERATURE,
-    );
-    seed_lot(
-        &registries,
-        &mut state,
-        hammer_source,
-        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-        Mass::from_milligrams(150_000),
-        ROOM_TEMPERATURE,
-    );
-    let reinforcement_source = add_solid_stockpile(&mut state, Mass::from_milligrams(20_000));
-    seed_lot(
-        &registries,
-        &mut state,
-        reinforcement_source,
-        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-        Mass::from_milligrams(20_000),
-        ROOM_TEMPERATURE,
-    );
-    let recovery = add_solid_stockpile(&mut state, Mass::from_milligrams(670_000));
+    let hammer_source = add_solid_stockpile(&mut state, base_assembly.input_mass());
+    for input in base_assembly.inputs() {
+        seed_lot(
+            &registries,
+            &mut state,
+            hammer_source,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let reinforcement_source =
+        add_solid_stockpile(&mut state, reinforcement.additions().input_mass());
+    for input in reinforcement.additions().inputs() {
+        seed_lot(
+            &registries,
+            &mut state,
+            reinforcement_source,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let recovery = add_solid_stockpile(&mut state, reinforced_hammer.mass());
     let detailed_region = horizontal_region(0, 1);
     seed_geological_deposit(
         &registries,
@@ -223,6 +245,24 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     let detailed_outcome =
         complete_prospecting(&registries, &mut state, detailed.duration().value());
     assert_eq!(detailed_outcome.region(), detailed_region);
+    assert_eq!(
+        detailed_outcome.evidence(),
+        GeologicalEvidenceKind::ExcavationSample
+    );
+    let detailed_record = state
+        .geological_knowledge()
+        .get_observation(detailed_outcome.observation())
+        .unwrap_or_else(|| panic!("detailed hardness observation disappeared"));
+    assert_eq!(
+        detailed_record.excavation_hardness(),
+        Some(
+            ExcavationHardnessEstimate::new(
+                Pressure::from_pascals(300_000_000),
+                Pressure::from_pascals(350_000_000),
+            )
+            .unwrap_or_else(|error| panic!("detailed hardness expectation failed: {error}"))
+        )
+    );
     let condition_after_detailed = state
         .equipment()
         .get_equipment(hammer)
@@ -325,6 +365,28 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
             .iter()
             .any(|observation| observation.region() == hidden_target),
         "indexed channel survey must include the explicitly covered target voxel"
+    );
+    let target_observation = channel_observations
+        .iter()
+        .find(|observation| observation.region() == hidden_target)
+        .copied()
+        .unwrap_or_else(|| panic!("indexed target observation disappeared"));
+    assert_eq!(
+        target_observation.excavation_hardness(),
+        Some(
+            ExcavationHardnessEstimate::new(
+                Pressure::from_pascals(300_000_000),
+                Pressure::from_pascals(350_000_000),
+            )
+            .unwrap_or_else(|error| panic!("channel hardness expectation failed: {error}"))
+        )
+    );
+    assert!(
+        channel_observations
+            .iter()
+            .filter(|observation| observation.region() != hidden_target)
+            .all(|observation| observation.excavation_hardness().is_none()),
+        "indexed blank cells must not leak hidden geological presence through a hardness side channel"
     );
     let condition_after_channel = state
         .equipment()

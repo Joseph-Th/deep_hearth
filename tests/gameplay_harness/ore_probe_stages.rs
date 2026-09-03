@@ -368,11 +368,18 @@ pub(super) fn execute_screening_stage(
     Ok(result)
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ConcentrationStageResult {
+    pub(super) powered: PoweredStageResult,
+    pub(super) target_mass: Mass,
+    pub(super) residue_mass: Mass,
+}
+
 pub(super) fn execute_concentration_stage(
     registries: &Registries,
     episode: &mut OreProbeEpisode,
     selections: &[MaterialLotSelection],
-) -> Result<PoweredStageResult, OreProbeOutcome> {
+) -> Result<ConcentrationStageResult, OreProbeOutcome> {
     let resolved = match resolve_constituent_separation_process(
         registries,
         &episode.state,
@@ -432,10 +439,14 @@ pub(super) fn execute_concentration_stage(
         Err(error) => panic!("copper concentration resolution failed: {error}"),
     };
     let duration = resolved.process_resolution().duration();
-    let result = PoweredStageResult {
-        energy: resolved.required_energy(),
-        duration,
-        condition_after: resolved.condition_after(),
+    let result = ConcentrationStageResult {
+        powered: PoweredStageResult {
+            energy: resolved.required_energy(),
+            duration,
+            condition_after: resolved.condition_after(),
+        },
+        target_mass: resolved.target_mass(),
+        residue_mass: resolved.residue_mass(),
     };
     let job = validate_start_process_routed(
         registries,

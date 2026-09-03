@@ -22,6 +22,7 @@ use super::survival_probe::preservation::{
 };
 use super::survival_probe::preservation_evaluation::{
     project_preservation_candidates, select_preservation_projection,
+    select_preservation_projection_for_attention_value,
 };
 use super::survival_probe::{
     DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
@@ -201,8 +202,8 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         .len()
         .max(authored_prospecting.len())
         .max(authored_preservation.len())
-        .saturating_mul(8)
-        .clamp(32, 256);
+        .saturating_mul(16)
+        .clamp(64, 256);
     let worlds = (1_u64
         ..=u64::try_from(sample_count)
             .unwrap_or_else(|_| unreachable!("bounded survival sample count fits u64")))
@@ -293,15 +294,17 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
             .iter()
             .all(|threshold| (1_000_000..=4_000_000).contains(threshold))
     );
-    let low_threshold_seed = (1_u64..=1_024)
-        .min_by_key(|seed| preservation_freshness_return_threshold_ppm(*seed))
-        .unwrap_or_else(|| unreachable!("nonempty bounded behavior seed search"));
-    let high_threshold_seed = (1_u64..=1_024)
-        .max_by_key(|seed| preservation_freshness_return_threshold_ppm(*seed))
-        .unwrap_or_else(|| unreachable!("nonempty bounded behavior seed search"));
-    let projected = project_preservation_candidates(&registries, 0x51A2_0001);
-    let low_threshold_choice = select_preservation_projection(low_threshold_seed, &projected);
-    let high_threshold_choice = select_preservation_projection(high_threshold_seed, &projected);
+    let projection_world = provisioning_world(&registries, 0x51A2_0001);
+    let projected = project_preservation_candidates(
+        &registries,
+        0x51A2_0001,
+        projection_world.foods[projection_world.witness_index],
+        projection_world.preserved_reserve_mass,
+    );
+    let low_threshold_choice =
+        select_preservation_projection_for_attention_value(1_000_000, &projected);
+    let high_threshold_choice =
+        select_preservation_projection_for_attention_value(4_000_000, &projected);
     assert!(
         low_threshold_choice.remaining_fresh_ticks >= high_threshold_choice.remaining_fresh_ticks,
         "lower attention valuation must not select less preservation from the same physical frontier"
@@ -410,7 +413,12 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
     );
 
     let original = provisioning_world(&registries, 0x51A2_0001);
-    let projected = project_preservation_candidates(&registries, 0x51A2_0001);
+    let projected = project_preservation_candidates(
+        &registries,
+        0x51A2_0001,
+        original.foods[original.witness_index],
+        original.preserved_reserve_mass,
+    );
     for behavior_seed in 1_u64..=4 {
         let _selected = select_preservation_projection(behavior_seed, &projected);
         let replay = provisioning_world(&registries, 0x51A2_0001);
@@ -422,6 +430,7 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
                 replay.provisioning_wait_ticks,
                 replay.age_ticks,
                 replay.witness_index,
+                replay.preserved_reserve_mass,
             ),
             (
                 original.start_profile,
@@ -430,6 +439,7 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
                 original.provisioning_wait_ticks,
                 original.age_ticks,
                 original.witness_index,
+                original.preserved_reserve_mass,
             ),
             "actor preservation policy must not rewrite world-seeded history"
         );

@@ -9,6 +9,7 @@ use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
+use super::manual_craft_planning::manual_craft_plan_for_output;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
@@ -37,7 +38,8 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use deep_hearth::energy::{
-    calculate_mass_specific_energy, validate_assemble_energy_store, validate_upgrade_energy_store,
+    calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
+    validate_assemble_energy_store, validate_upgrade_energy_store,
 };
 use deep_hearth::equipment::{
     EquipmentId, EquipmentMaintenanceRequest, resolve_equipment_maintenance,
@@ -402,86 +404,6 @@ fn add_profile_requirements(
     }
 }
 
-fn manual_craft_plan_for_output(
-    registries: &Registries,
-    commodity: CommodityKey,
-    required: Mass,
-) -> (&deep_hearth::crafting::ManualCraftDefinition, u64) {
-    assert!(!required.is_zero());
-    let candidates = registries
-        .crafting()
-        .manual_producers(commodity)
-        .map(|definition| {
-            let batches =
-                batches_for_output(required, output_mass_per_batch(definition, commodity));
-            let total_ticks = definition
-                .duration()
-                .value()
-                .checked_mul(batches)
-                .unwrap_or_else(|| panic!("primitive manual-production attention cost overflowed"));
-            let total_input_mg = definition
-                .input_mass()
-                .milligrams()
-                .checked_mul(batches)
-                .unwrap_or_else(|| panic!("primitive manual-production input cost overflowed"));
-            let exertion = definition.exertion();
-            let policy_key = (
-                total_ticks,
-                total_input_mg,
-                exertion.energy_cost_per_tick().nanojoules(),
-                exertion.hydration_loss_per_tick().microliters(),
-            );
-            (definition, batches, policy_key)
-        })
-        .collect::<Vec<_>>();
-    let best_key = candidates
-        .iter()
-        .map(|(_, _, policy_key)| *policy_key)
-        .min()
-        .unwrap_or_else(|| {
-            panic!(
-                "primitive progression has no manual route to required component {}",
-                commodity.value()
-            )
-        });
-    let mut best = candidates
-        .into_iter()
-        .filter(|(_, _, policy_key)| *policy_key == best_key);
-    let (definition, batches, _) = best
-        .next()
-        .unwrap_or_else(|| unreachable!("best manual-production policy key came from a candidate"));
-    assert!(
-        best.next().is_none(),
-        "primitive progression has multiple equally efficient manual routes to component {}; add an explicit player-visible tie-break instead of using process identity",
-        commodity.value()
-    );
-    (definition, batches)
-}
-
-fn output_mass_per_batch(
-    definition: &deep_hearth::crafting::ManualCraftDefinition,
-    commodity: CommodityKey,
-) -> Mass {
-    definition
-        .outputs()
-        .iter()
-        .find(|output| output.commodity() == commodity)
-        .map(|output| output.mass())
-        .unwrap_or_else(|| {
-            panic!(
-                "primitive progression manual process {} no longer produces component {}",
-                definition.process().value(),
-                commodity.value()
-            )
-        })
-}
-
-fn batches_for_output(required: Mass, per_batch: Mass) -> u64 {
-    assert!(!required.is_zero());
-    assert!(!per_batch.is_zero());
-    required.milligrams().div_ceil(per_batch.milligrams())
-}
-
 #[derive(Debug)]
 struct PrimitiveMaterialPlan {
     raw_inputs: Vec<(CommodityKey, Mass)>,
@@ -547,7 +469,12 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
 
     let mut process_batches: BTreeMap<deep_hearth::production::ProcessId, u64> = BTreeMap::new();
     for (commodity, required) in requirements {
-        let (craft, batches) = manual_craft_plan_for_output(registries, commodity, required);
+        let (craft, batches) = manual_craft_plan_for_output(
+            registries,
+            commodity,
+            required,
+            "primitive progression component planning",
+        );
         process_batches
             .entry(craft.process())
             .and_modify(|existing| *existing = (*existing).max(batches))
@@ -609,7 +536,12 @@ fn craft_requirement(
     let missing = required
         .checked_sub(available)
         .unwrap_or_else(|| unreachable!("available component mass was already checked"));
-    let (craft, batches) = manual_craft_plan_for_output(registries, commodity, missing);
+    let (craft, batches) = manual_craft_plan_for_output(
+        registries,
+        commodity,
+        missing,
+        "primitive just-in-time component planning",
+    );
     let required_input = multiply_mass(craft.input_mass(), batches, "just-in-time craft input");
     let source = [raw_source, native_source]
         .into_iter()
@@ -1315,7 +1247,12 @@ fn native_input_for_upgrade(
         .iter()
         .try_fold(Mass::ZERO, |total, input| {
             let (craft, batches) =
-                manual_craft_plan_for_output(registries, input.commodity(), input.mass());
+                manual_craft_plan_for_output(
+                    registries,
+                    input.commodity(),
+                    input.mass(),
+                    "primitive copper upgrade planning",
+                );
             assert_eq!(
                 craft.input(),
                 native,
@@ -1328,36 +1265,6 @@ fn native_input_for_upgrade(
             ))
         })
         .unwrap_or_else(|| panic!("primitive upgrade native-copper requirement overflowed"))
-}
-
-fn feed_mass_for_exact_recovered_constituent(
-    target: Mass,
-    constituent_ppm: u32,
-    target_recovery_ppm: u32,
-) -> Mass {
-    assert!(!target.is_zero());
-    assert!(constituent_ppm > 0 && constituent_ppm < 1_000_000);
-    assert!(target_recovery_ppm > 0 && target_recovery_ppm <= 1_000_000);
-    let numerator = u128::from(target.milligrams())
-        .checked_mul(1_000_000_000_000)
-        .unwrap_or_else(|| panic!("primitive separation target scaling overflowed"));
-    let recovery_factor = u128::from(constituent_ppm)
-        .checked_mul(u128::from(target_recovery_ppm))
-        .unwrap_or_else(|| panic!("primitive separation recovery factor overflowed"));
-    let feed_mg = numerator.div_ceil(recovery_factor);
-    let feed_mg = u64::try_from(feed_mg)
-        .unwrap_or_else(|_| panic!("primitive separation feed mass exceeds authoritative range"));
-    let feed = Mass::from_milligrams(feed_mg);
-    let recovered = u128::from(feed.milligrams())
-        .checked_mul(recovery_factor)
-        .map(|scaled| scaled / 1_000_000_000_000)
-        .unwrap_or_else(|| panic!("primitive recovered-target calculation overflowed"));
-    assert_eq!(
-        recovered,
-        u128::from(target.milligrams()),
-        "primitive separation feed selection must recover exactly one second-upgrade copper parcel after authored sorting loss"
-    );
-    feed
 }
 
 fn reinforce_pick(
@@ -2193,17 +2100,13 @@ fn crush_mass_for_exact_energy(registries: &Registries, energy: Energy) -> Mass 
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
         .unwrap_or_else(|| panic!("primitive reinvestment crusher process disappeared"));
-    let per_milligram = u128::from(process.specific_energy().nanojoules_per_milligram());
-    assert!(per_milligram > 0);
+    let mass = calculate_mass_specific_energy_capacity(energy, process.specific_energy());
     assert_eq!(
-        energy.nanojoules() % per_milligram,
-        0,
+        calculate_mass_specific_energy(mass, process.specific_energy()),
+        energy,
         "primitive reinvestment stored work must map to an exact crusher feed mass"
     );
-    let milligrams = u64::try_from(energy.nanojoules() / per_milligram).unwrap_or_else(|_| {
-        panic!("primitive reinvestment crusher mass exceeds authoritative range")
-    });
-    Mass::from_milligrams(milligrams)
+    mass
 }
 
 fn resolve_crush_ticks(

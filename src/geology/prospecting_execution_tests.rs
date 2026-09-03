@@ -36,6 +36,7 @@ fn make_test_prospecting_resolution(
         region,
         evidence,
         findings,
+        excavation_hardness: None,
     }
 }
 

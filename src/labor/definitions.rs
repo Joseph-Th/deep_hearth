@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
+use crate::core::quantity::Pressure;
 use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
 use crate::equipment::{EquipmentDefinitionId, EquipmentRegistry};
@@ -66,6 +67,7 @@ pub struct ProspectingDefinition {
     duration: TickSpan,
     maximum_region_voxels: u128,
     abundance_uncertainty_ppm: u32,
+    excavation_hardness_resolution: Option<Pressure>,
     exertion: SurvivalExertion,
     equipment: Option<ProspectingEquipmentProfile>,
 }
@@ -165,6 +167,7 @@ impl ProspectingDefinition {
             duration,
             maximum_region_voxels,
             abundance_uncertainty_ppm,
+            excavation_hardness_resolution: None,
             exertion,
             equipment: None,
         }
@@ -208,6 +211,25 @@ impl ProspectingDefinition {
         self
     }
 
+    /// Adds a physical excavation-resistance measurement to observations from this method.
+    ///
+    /// The resolution is the width of deterministic pressure buckets, not an error radius. A
+    /// measured body at an exact bucket boundary remains in the lower bucket so common authored
+    /// equipment limits can be selected conservatively without revealing exact hidden hardness.
+    #[must_use]
+    pub fn with_excavation_hardness_resolution(mut self, resolution: Pressure) -> Self {
+        assert!(
+            self.equipment.is_some(),
+            "excavation-hardness prospecting requires a physical instrument"
+        );
+        assert!(
+            !resolution.is_zero(),
+            "excavation-hardness prospecting resolution must be nonzero"
+        );
+        self.excavation_hardness_resolution = Some(resolution);
+        self
+    }
+
     #[must_use]
     pub const fn id(self) -> ProspectingMethodId {
         self.id
@@ -236,6 +258,11 @@ impl ProspectingDefinition {
     #[must_use]
     pub const fn abundance_uncertainty_ppm(self) -> u32 {
         self.abundance_uncertainty_ppm
+    }
+
+    #[must_use]
+    pub const fn excavation_hardness_resolution(self) -> Option<Pressure> {
+        self.excavation_hardness_resolution
     }
 
     #[must_use]

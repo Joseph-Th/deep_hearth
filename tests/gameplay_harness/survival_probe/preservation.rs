@@ -26,7 +26,7 @@ pub(super) struct PreservationCandidate {
 pub(super) fn preservation_candidates(registries: &Registries) -> Vec<PreservationCandidate> {
     let ambient_preservation =
         StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm();
-    let candidates = registries
+    let mut candidates = registries
         .storage()
         .definitions()
         .filter(|definition| {
@@ -42,6 +42,7 @@ pub(super) fn preservation_candidates(registries: &Registries) -> Vec<Preservati
             capacity: definition.maximum_stockpile_capacity(),
         })
         .collect::<Vec<_>>();
+    candidates.sort_by_key(|candidate| candidate.definition);
     assert!(
         !candidates.is_empty(),
         "survival gameplay has no authored preservation enclosure"
@@ -129,13 +130,6 @@ fn preservation_candidate_for_policy_with_constraints(
         "preservation investment policy has physically equivalent best candidates; author another observable tradeoff instead of breaking ties by definition identity"
     );
     finalists[0]
-}
-
-pub(in super::super) fn preservation_storage_definition_for_policy(
-    registries: &Registries,
-    policy: PreservationInvestmentPolicy,
-) -> StorageDefinitionId {
-    preservation_storage_definition_for_policy_and_capacity(registries, policy, Mass::ZERO)
 }
 
 pub(in super::super) fn preservation_storage_definition_for_policy_and_capacity(

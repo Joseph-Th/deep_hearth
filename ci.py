@@ -223,13 +223,30 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
     summaries: list[str] = []
     if survival:
         count = lambda marker: sum(marker in line for line in survival)
+        reserve_masses = [
+            int(match.group(1))
+            for line in survival
+            if (match := re.search(r"\bprotected-reserve:(\d+)mg", line)) is not None
+        ]
+        reserve_span = (
+            f"{min(reserve_masses)}..{max(reserve_masses)}mg"
+            if reserve_masses
+            else "n/a"
+        )
+        preservation_candidate_counts = [
+            int(match.group(1))
+            for line in survival
+            if (match := re.search(r"\bcandidates:(\d+)", line)) is not None
+        ]
         summaries.append(
             "SURVIVAL DIVERSITY "
             f"samples={len(survival)} "
             f"pressure=[hydration:{count('pressure=hydration')} energy:{count('pressure=energy')}] "
             f"choice-state=[supply-constrained:{count('state:supply-constrained')} policy-sensitive:{count('state:policy-sensitive')}] "
             f"diet=[balanced-recovery:{count('diet:balanced-recovery')} compact-calories:{count('diet:compact-calories')}] "
-            f"preservation=[attention-efficient:{count('storage-policy:attention-efficient')} balanced-frontier:{count('storage-policy:balanced-frontier')} maximum-protection:{count('storage-policy:maximum-protection')}]"
+            f"preservation=[attention-efficient:{count('storage-policy:attention-efficient')} balanced-frontier:{count('storage-policy:balanced-frontier')} maximum-protection:{count('storage-policy:maximum-protection')}] "
+            f"reserve={reserve_span} "
+            f"capacity-singleton:{sum(candidate_count == 1 for candidate_count in preservation_candidate_counts)}"
         )
     if progression:
         count = lambda marker: sum(marker in line for line in progression)
@@ -258,7 +275,9 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             "WOODWORKING DIVERSITY "
             f"samples={len(woodworking)} "
             f"choice=[adze:{count('choice=stone-adze')} saw:{count('choice=frame-saw')}] "
-            f"reason=[small-project:{count('reason=project-too-small-for-saw-policy')} copper-limited:{count('reason=copper-supply-limited')} saw-investment:{count('reason=large-project+copper-available')}]"
+            f"policy=[copper:{count('preference=conserve-scarce-copper')} timber:{count('preference=conserve-timber')}] "
+            f"saw=[fundable:{count('saw-fundable:true')} timber-saving:{count('saw-saves-timber:true')}] "
+            f"decision=[copper-blocked:{count('reason=copper-supply-limited')} no-timber-savings:{count('reason=current-board-demand-no-timber-savings')} copper-conserved:{count('reason=policy-conserves-scarce-copper')}]"
         )
     if fieldwork:
         count = lambda marker: sum(marker in line for line in fieldwork)
@@ -282,12 +301,24 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             if retained_copper
             else "n/a"
         )
+        hardness_bands = [
+            (int(match.group(1)), int(match.group(2)))
+            for line in fieldwork
+            if (match := re.search(r"\bobserved-hardness=(\d+)\.\.(\d+)Pa", line)) is not None
+        ]
+        hardness_span = (
+            f"{min(lower for lower, _upper in hardness_bands)}..{max(upper for _lower, upper in hardness_bands)}Pa"
+            if hardness_bands
+            else "n/a"
+        )
         summaries.append(
             "FIELDWORK DIVERSITY "
             f"samples={len(fieldwork)} field-inspections={inspection_span} "
             f"targeted-detail:{count('detailed-surveys=1')} "
-            f"quarry=[stone:{count('quarry=stone-quarry')} reinforced:{count('quarry=copper-reinforced-quarry')}] "
-            f"adaptation=[none:{count('adaptation=none')} hardness:{count('adaptation=hardness-blocker')}] "
+            f"observed-hardness={hardness_span} "
+            f"geology=[soft:{count('geology=quarry-soft')} quarry-upgrade:{count('geology=quarry-reinforcement')} hard-pick:{count('geology=hard-pick-specialist')}] "
+            f"tool=[stone-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} hard-pick:{count('tool=copper-reinforced-hard-pick')}] "
+            f"selection=[base:{count('adaptation=sampled-hardness-base-quarry')} quarry-upgrade:{count('adaptation=sampled-hardness-quarry-upgrade')} hard-pick:{count('adaptation=sampled-hardness-hard-pick')} batch-limit:{count('adaptation=sampled-hardness-hard-pick+batch-limit')}] "
             f"retained-copper={retained_span}"
         )
     return summaries
@@ -398,9 +429,16 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
             (
                 ("choice=stone-adze", "choice=frame-saw"),
                 (
-                    "reason=project-too-small-for-saw-policy",
+                    "preference=conserve-scarce-copper",
+                    "preference=conserve-timber",
+                ),
+                ("saw-fundable:true", "saw-fundable:false"),
+                ("saw-saves-timber:true", "saw-saves-timber:false"),
+                (
+                    "reason=policy-conserves-scarce-copper",
                     "reason=copper-supply-limited",
-                    "reason=large-project+copper-available",
+                    "reason=current-board-demand-no-timber-savings",
+                    "reason=timber-demand-justifies-saw",
                 ),
             ),
         ),
@@ -408,8 +446,22 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
             ordinary_probe_inputs.get("fieldwork", []),
             fieldwork_experiences,
             (
-                ("adaptation=none", "adaptation=hardness-blocker"),
-                ("quarry=stone-quarry", "quarry=copper-reinforced-quarry"),
+                (
+                    "geology=quarry-soft",
+                    "geology=quarry-reinforcement",
+                    "geology=hard-pick-specialist",
+                ),
+                (
+                    "tool=stone-quarry",
+                    "tool=copper-reinforced-quarry",
+                    "tool=copper-reinforced-hard-pick",
+                ),
+                (
+                    "adaptation=sampled-hardness-base-quarry",
+                    "adaptation=sampled-hardness-quarry-upgrade",
+                    "adaptation=sampled-hardness-hard-pick",
+                    "adaptation=sampled-hardness-hard-pick+batch-limit",
+                ),
             ),
         ),
     }

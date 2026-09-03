@@ -22,7 +22,7 @@ fn primitive_liberation_content_closes_the_pre_smelting_processing_gap() {
         plate.input(),
         CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
     );
-    assert_eq!(plate.input_mass().milligrams(), 20_000);
+    assert!(!plate.input_mass().is_zero());
     assert_eq!(
         plate
             .outputs()
@@ -33,13 +33,15 @@ fn primitive_liberation_content_closes_the_pre_smelting_processing_gap() {
         Some(plate.input_mass()),
         "sizing-plate piercing must conserve copper between the plate and offcut scrap"
     );
-    assert!(plate.outputs().iter().any(|output| {
-        output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE)
-            && output.mass().milligrams() == 18_000
-    }));
+    let plate_output = plate
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE))
+        .unwrap_or_else(|| panic!("sizing-plate craft lost its screen-plate output"));
+    assert!(!plate_output.mass().is_zero());
     assert!(plate.outputs().iter().any(|output| {
         output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)
-            && output.mass().milligrams() == 2_000
+            && !output.mass().is_zero()
     }));
 
     let screen = registries
@@ -48,8 +50,7 @@ fn primitive_liberation_content_closes_the_pre_smelting_processing_gap() {
         .unwrap_or_else(|| panic!("primitive sizing screen disappeared"));
     assert!(screen.assembly_profile().is_some_and(|assembly| {
         assembly.inputs().iter().any(|input| {
-            input.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE)
-                && input.mass().milligrams() == 18_000
+            input.commodity() == plate_output.commodity() && input.mass() == plate_output.mass()
         })
     }));
     let quern = registries

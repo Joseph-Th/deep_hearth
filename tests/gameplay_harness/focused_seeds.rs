@@ -7,7 +7,7 @@ pub(super) const GATE_VARIATION_COUNT: usize = 1;
 pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
 pub(super) fn probe_uses_actor_behavior(name: &str) -> bool {
-    matches!(name, "survival-provisioning")
+    matches!(name, "survival-provisioning" | "woodworking")
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

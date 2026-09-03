@@ -262,7 +262,7 @@ fn report_maintained_manual_fallback(
         captured,
         "maintained manual-processing regression must still prove the complete no-machine reinforcement route"
     );
-    std::println!(
+    reviewln!(
         "PROGRESSION FALLBACK seed=0x{seed:016X} evidence=maintained-route-regression route=owned-ore->hand-break->hand-sort->cold-work captured:true input=[ore:{}mg copper:{}ppm gangue-clay-share:{}ppm] attention=[break:{}t sort:{}t cold-work:{}t total:{}t] matter=[native:{}mg residue:{}mg reinforcement:{}mg remainder:{}mg] recovery=[manual:{}ppm powered:{}ppm] survival-cost=[{}nJ {}uL] machinery=none stored-work=none matter=conserved",
         manual_fallback.ore_mass_mg,
         manual_fallback.ore_copper_ppm,
@@ -814,7 +814,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
     );
 
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
-        std::println!(
+        reviewln!(
             "PROGRESSION SEQUENCING seed=0x{seed:016X} first-investment=[extraction:pick@{}t hard-access@{}t hard-before-convergence:{}mg; mechanization:crank@{}t machine@{}t output@{}t] convergence=[extraction:{}t mechanization:{}t lead:{:+}t mechanization-pick:{}t hard-access:{}t] post-maturity-throughput=[hard-ore:{}vs{}mg total-ore:{}vs{}mg direct-second-upgrade-blocked:{}]",
             extraction.first_upgrade_at,
             extraction_hard_at,
@@ -833,7 +833,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
             mechanization.total_ore_mined.milligrams(),
             extraction.direct_second_upgrade_blocked,
         );
-        std::println!(
+        reviewln!(
             "PROGRESSION AGENCY seed=0x{seed:016X} matched-world branches=[pick-first,crank-first-counterfactual] milestones=[machine-start:{}vs{}t first-output:{}vs{}t second-upgrade:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm episode-charge:{}vs{}t full-accumulator:stone:{}t reinforced:{}t reduction:{}ppm] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free:{}vs{}t] durability=[pick:{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t]",
             extraction.machine_started_at,
             mechanization.machine_started_at,
@@ -1081,7 +1081,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
         .saturating_sub(natural.machine_useful_overlap_ticks);
     let reinvestment_summary = concise_reinvestment_summary(review.reinvestment);
     report_maintained_manual_fallback(seed, manual_fallback);
-    std::println!(
+    reviewln!(
         "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} local-copper-sequence=pick-first counterfactual=[crank-first-dominated hard-access-lead:{}t autonomous-output-window:{}t] portfolio-scope=pick-vs-crank-only pick-first=[pick:{}t hard-sample:{}t exclusive-hard-window:{}t/{}:{}mg machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t eventual-convergence:{:+}t] bridge-tradeoff=[manual-second:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; powered-line:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] manual-second-counterfactual=[pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} trade=[hard-info-lead-vs-crank-first:{}t automation-delay:+{}t]] post-upgrade-feed={} delegation=[productive:{}t utilization:{}ppm setup-recovery:{}ppm gap:{}t payback:{productive_payback} post-payback:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] next-reinvestment=[{reinvestment_summary}] obligations=[maintenance-material-prep:{}t maintenance-service:{}t survival:{}ppm/{}ppm]",
         if review.information_refinement_required {
             "deferred-refinement"
@@ -1144,7 +1144,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
         natural_hydration_spent_ppm,
     );
     let reinvestment_review = detailed_reinvestment_summary(review.reinvestment);
-    std::println!(
+    reviewln!(
         "PROGRESSION REVIEW seed=0x{seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] local-copper=[policy:pick-first scope:pick-vs-crank-sequencing global-portfolio:not-claimed owned-bulk:{}ppm hard-evidence:{}..{}ppm counterfactual:crank-first] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[pick-feed:{} pick-grade:{}ppm crank-first-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} hard-access-lead:{}t hard-window:{}t/{}mg crank-output-window:{}t autonomy-lead:{}t eventual-convergence:{:+}t converged:{}] strategy-timing=[pick-first=[pick:{}t hard-sample:{}t machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t]] manual-second-counterfactual=[isolated:{}t pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} hard-info-lead-vs-crank-first:{}t automation-delay:+{}t manual-recovery:{}ppm powered-recovery:{}ppm] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm setup-recovery:{}ppm gap:{}t post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] next-reinvestment-counterfactual=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t service:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
@@ -1242,7 +1242,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
         natural.elapsed_ticks,
     );
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
-        std::println!(
+        reviewln!(
             "PROGRESSION TRADEOFF seed=0x{seed:016X} evidence=matched-counterfactual same-decision-state:true authorship=distinct-physical-consequences pick-first=[unlock:hard-seam grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t hard-window:{}t] crank-first-counterfactual=[feed-grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t autonomy-lead:{}t first-output-delta:{:+}t crank:{}uW flywheel-input:{}uW unclipped:true full-charge-attention-reduction:{}ppm pre-pick-output-window:{}t] counterfactual-distinct:{} convergence=[both-upgrades:{} delta:{:+}t final-hard-ore:{}vs{}mg]",
             review.extraction_feed_copper_ppm,
             review.extraction_separation_feed_mg,
@@ -1265,7 +1265,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
             extraction.hard_ore_mined.milligrams(),
             mechanization.hard_ore_mined.milligrams(),
         );
-        std::println!(
+        reviewln!(
             "PROGRESSION AUTONOMY seed=0x{seed:016X} setup=[automation:{}t separator:{}t line:{}t] productive-setup-equivalent=[{productive_payback} post-equivalent:{}cycles observational-not-required:true] delegated-work=[machine:{}t productive-overlap:{}t reserve-overlap:{}t unfilled:{}t utilization:{}ppm primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[unfilled:{:+}t elapsed:{:+}t]",
             review.automation_preparation_ticks,
             review.separator_preparation_ticks,

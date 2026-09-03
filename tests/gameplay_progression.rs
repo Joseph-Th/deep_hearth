@@ -1,5 +1,9 @@
 //! Focused primitive-progression gameplay target for the fast edit/test loop.
 
+#[macro_use]
+#[path = "gameplay_harness/output.rs"]
+mod output;
+
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
@@ -14,6 +18,8 @@ mod fresh_seed;
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
+#[path = "gameplay_harness/manual_craft_planning.rs"]
+mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]

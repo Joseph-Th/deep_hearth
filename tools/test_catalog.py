@@ -15,7 +15,7 @@ EXTERNAL_MODULE = re.compile(
 )
 PATH_ATTRIBUTE = re.compile(r'^#\[path\s*=\s*"(?P<path>[^"]+)"\]$')
 FEATURE_PREDICATE = re.compile(r'^feature\s*=\s*"(?P<name>[^"]+)"$')
-TOP_LEVEL_USE = re.compile(r"^use\s+(?P<body>.*?);", re.MULTILINE | re.DOTALL)
+TOP_LEVEL_USE = re.compile(r"^use\s+(?P<body>.*?);$", re.DOTALL)
 
 
 def split_cfg_arguments(expression: str) -> list[str]:
@@ -210,12 +210,46 @@ def reachable_modules(
     return modules
 
 
-def root_sibling_imports(source: str, module_depth: int) -> set[str]:
-    """Return crate-root sibling modules referenced by ancestor-relative top-level imports."""
+def root_sibling_imports(
+    source: str,
+    module_depth: int,
+    features: set[str] | None = None,
+) -> set[str]:
+    """Return enabled crate-root sibling modules referenced by ancestor-relative imports."""
 
     required: set[str] = set()
     prefix = "super::" * module_depth
-    for match in TOP_LEVEL_USE.finditer(source):
+    pending_attributes: list[str] = []
+    lines = source.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if line == stripped and ATTRIBUTE.match(line):
+            pending_attributes.append(stripped)
+            index += 1
+            continue
+        if not line.startswith("use "):
+            if stripped and not stripped.startswith(("//", "//!", "///")):
+                pending_attributes.clear()
+            index += 1
+            continue
+
+        parts = [line]
+        while not parts[-1].rstrip().endswith(";"):
+            index += 1
+            if index >= len(lines):
+                raise ValueError("unterminated top-level use statement")
+            parts.append(lines[index])
+        index += 1
+        attributes = pending_attributes
+        pending_attributes = []
+        if not attributes_enabled(attributes, features or set()):
+            continue
+        statement = "\n".join(parts)
+        match = TOP_LEVEL_USE.fullmatch(statement)
+        if match is None:
+            raise ValueError(f"source catalog cannot parse top-level use: {statement}")
         body = " ".join(match.group("body").split())
         if not body.startswith(prefix):
             continue
@@ -249,7 +283,7 @@ def missing_root_modules(
         if not prefix:
             continue
         required.update(
-            root_sibling_imports(path.read_text(encoding="utf-8"), len(prefix)) & available
+            root_sibling_imports(path.read_text(encoding="utf-8"), len(prefix), features) & available
         )
     return sorted(required - declared)
 

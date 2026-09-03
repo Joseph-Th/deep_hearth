@@ -438,6 +438,18 @@ fn hand_sorting_is_a_conserved_survival_costed_fallback_that_powered_sorting_mat
         .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
         .unwrap_or_else(|| panic!("powered native-copper sorting definition disappeared"));
 
+    assert_eq!(
+        manual_definition.minimum_feed_mass_for_target_recovery(resolved.target_mass(), 400_000,),
+        Some(mass),
+        "manual planning projection must agree with the exact resolved recovery boundary"
+    );
+    assert_eq!(
+        powered_definition
+            .minimum_feed_mass_for_target_recovery(powered_resolved.target_mass(), 400_000,),
+        Some(mass),
+        "powered planning projection must agree with the exact resolved recovery boundary"
+    );
+
     assert_eq!(manual_definition.target_recovery_ppm(), 650_000);
     assert_eq!(powered_definition.target_recovery_ppm(), 900_000);
     assert_eq!(resolved.target_mass(), Mass::from_milligrams(26_000));

@@ -26,8 +26,10 @@ use super::{
     ProspectingResolution, RecordProspectingError, ValidatedGeologicalObservation,
 };
 use abundance::resolve_region_abundance_bounds;
+use hardness::resolve_region_excavation_hardness;
 
 mod abundance;
+mod hardness;
 
 /// One player-selected geological prospecting action over an authored-bounded region.
 #[must_use]
@@ -605,7 +607,23 @@ pub(crate) fn decide_field_prospecting_tick(
                 .unwrap_or_else(|error| {
                     panic!("runtime invariant broken: field prospecting derived invalid abundance: {error}")
                 });
-            ProspectingResolution::new_runtime(region, method.evidence(), vec![finding])
+            let excavation_hardness = method
+                .excavation_hardness_resolution()
+                .filter(|_| finding.lower_ppm() > 0)
+                .and_then(|resolution| {
+                    resolve_region_excavation_hardness(
+                        state,
+                        region,
+                        work.material(),
+                        resolution,
+                    )
+                });
+            ProspectingResolution::new_runtime(
+                region,
+                method.evidence(),
+                vec![finding],
+                excavation_hardness,
+            )
         })
         .collect();
     let observations = validate_record_prospecting_batch_at(

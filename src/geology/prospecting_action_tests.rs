@@ -10,7 +10,7 @@ use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
-use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::geology::{ExcavationHardnessEstimate, GeneratedDepositSpec, insert_generated_deposit};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
@@ -609,13 +609,20 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
             }
         )
     );
-    let surface = state
+    let surface_record = state
         .geological_knowledge()
         .observations()
         .last()
-        .and_then(|record| record.finding(MATERIAL_COPPER))
+        .unwrap_or_else(|| panic!("surface refinement observation disappeared"));
+    let surface = surface_record
+        .finding(MATERIAL_COPPER)
         .unwrap_or_else(|| panic!("surface refinement finding disappeared"));
     assert_eq!((surface.lower_ppm(), surface.upper_ppm()), (0, 175_000));
+    assert_eq!(
+        surface_record.excavation_hardness(),
+        None,
+        "equipment-free surface inspection must not reveal excavation resistance"
+    );
 
     validate_start_field_prospecting(
         &registries,
@@ -636,15 +643,31 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
         let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("detailed refinement prospecting tick failed: {error}"));
     }
-    let detailed = state
+    let detailed_record = state
         .geological_knowledge()
         .observations()
         .last()
-        .and_then(|record| record.finding(MATERIAL_COPPER))
+        .unwrap_or_else(|| panic!("detailed refinement observation disappeared"));
+    assert_eq!(
+        detailed_record.evidence(),
+        GeologicalEvidenceKind::ExcavationSample
+    );
+    let detailed = detailed_record
+        .finding(MATERIAL_COPPER)
         .unwrap_or_else(|| panic!("detailed refinement finding disappeared"));
     assert_eq!(
         (detailed.lower_ppm(), detailed.upper_ppm()),
         (50_000, 100_000)
+    );
+    assert_eq!(
+        detailed_record.excavation_hardness(),
+        Some(
+            ExcavationHardnessEstimate::new(
+                Pressure::from_pascals(300_000_000),
+                Pressure::from_pascals(350_000_000),
+            )
+            .unwrap_or_else(|error| panic!("detailed hardness expectation failed: {error}"))
+        )
     );
     let target = resolve_mining_target(&state, request).unwrap_or_else(|error| {
         panic!("detailed surface evidence did not resolve target: {error}")
@@ -653,6 +676,23 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     assert_eq!(target.material(), MATERIAL_COPPER);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("refined prospecting final audit failed: {error}"));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("refined prospecting serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("refined prospecting decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("refined prospecting load failed: {error}"));
+    assert_eq!(loaded, state);
+    assert_eq!(
+        loaded
+            .geological_knowledge()
+            .observations()
+            .last()
+            .and_then(|record| record.excavation_hardness()),
+        detailed_record.excavation_hardness(),
+        "completed physical-sample hardness knowledge must round-trip exactly"
+    );
 }
 
 #[test]

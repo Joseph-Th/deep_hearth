@@ -2,15 +2,6 @@
 
 use super::*;
 
-fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left
-}
-
 pub(crate) fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
     let crusher = registries
         .ore_processing()
@@ -29,24 +20,6 @@ pub(crate) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
         .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
         .unwrap_or_else(|| panic!("canonical fine-grind definition disappeared"));
     let distribution = grinder.output_particle_size_distribution();
-    let aperture = screening.aperture();
-    let mut undersize_weight = 0_u64;
-    for class in distribution.classes() {
-        let range = class.range();
-        if range.maximum_diameter() <= aperture {
-            undersize_weight += u64::from(class.weight());
-        } else if range.minimum_diameter() <= aperture {
-            panic!(
-                "authored grinder particle class {}..={}um crosses screen aperture {}um",
-                range.minimum_diameter().micrometers(),
-                range.maximum_diameter().micrometers(),
-                aperture.micrometers()
-            );
-        }
-    }
-    let total_weight = distribution.total_weight();
-    let representable_unit = total_weight / greatest_common_divisor(total_weight, undersize_weight);
-
     let mut batch_limits = vec![
         nominal_equipment_mass_capability(
             registries,
@@ -64,7 +37,11 @@ pub(crate) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
             screening.max_batch_mass_capability(),
         ),
     ];
-    if undersize_weight < total_weight {
+    if distribution
+        .classes()
+        .iter()
+        .any(|class| class.range().minimum_diameter() > screening.aperture())
+    {
         batch_limits.push(nominal_equipment_mass_capability(
             registries,
             EQUIPMENT_GRINDING_MILL,
@@ -76,15 +53,18 @@ pub(crate) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
         .map(Mass::milligrams)
         .min()
         .unwrap_or_else(|| panic!("ore preparation probe has no authored batch constraints"));
-    let maximum_units = maximum_batch / representable_unit;
-    assert!(
-        maximum_units > 0,
-        "authored screen partition cannot be represented within the equipment batch limits"
+    let minimum_batch = maximum_batch.div_ceil(2).max(1);
+    let requested_batch = Mass::from_milligrams(
+        minimum_batch + mix64(seed ^ 0x0AE5_1A5E) % (maximum_batch - minimum_batch + 1),
     );
-    let minimum_units = maximum_units.div_ceil(2);
-    let unit_count =
-        minimum_units + mix64(seed ^ 0x0AE5_1A5E) % (maximum_units - minimum_units + 1);
-    let batch_mass = Mass::from_milligrams(representable_unit * unit_count);
+    let batch_mass = resolve_representable_screening_mass(screening, distribution, requested_batch)
+        .unwrap_or_else(|error| {
+            panic!("ore preparation canonical screening batch projection failed: {error}")
+        });
+    assert!(
+        !batch_mass.is_zero(),
+        "authored screen partition has no representable nonzero batch within generated equipment limits"
+    );
     let copper_ppm = 300_000 + (mix64(seed ^ 0xC0FF_EE11) % 400_001) as u32;
     let clay_share_ppm = 100_000 + (mix64(seed ^ 0x4741_4E47_5545_4D49) % 500_001) as u32;
     let drive_capacity = registries
@@ -92,14 +72,19 @@ pub(crate) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
         .get_store(ENERGY_MECHANICAL_LARGE_DRIVE)
         .map(|definition| definition.capacity())
         .unwrap_or_else(|| panic!("ore preparation drive definition disappeared"));
-    // Stored work is scenario pressure, not a forecast of future process requirements. The probe
-    // attempts the generated batch unchanged and lets each canonical resolver expose the first
-    // real finite-work blocker. This keeps capability evaluation from duplicating chain physics.
-    let varied_budget = Energy::from_nanojoules(
-        20_000_000_000_000_u128
-            + u128::from(mix64(seed ^ 0x454E_4552_4759_4845) % 160_000_000_000_001),
-    );
-    let drive_energy = std::cmp::min(varied_budget, drive_capacity);
+    // Stored work is scenario pressure, not a forecast of future process requirements. Vary it as
+    // a fraction of the authored store capacity so content rebalance does not silently collapse the
+    // organic range into always-full or always-empty cases. Canonical resolvers still expose the
+    // first real finite-work blocker for the unchanged generated batch.
+    let fill_ppm = 150_000_u32
+        + u32::try_from(mix64(seed ^ 0x454E_4552_4759_4845) % 800_001)
+            .unwrap_or_else(|_| unreachable!("bounded ore drive fill ratio fits u32"));
+    let varied_budget_nj = drive_capacity
+        .nanojoules()
+        .checked_mul(u128::from(fill_ppm))
+        .map(|value| value / 1_000_000)
+        .unwrap_or_else(|| panic!("ore preparation drive-fill projection overflowed"));
+    let drive_energy = Energy::from_nanojoules(varied_budget_nj.max(1));
     OrePreparationSetup {
         batch_mass,
         copper_ppm,

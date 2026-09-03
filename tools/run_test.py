@@ -262,7 +262,7 @@ def cargo_command(args: argparse.Namespace) -> list[str]:
         test_args.append("--exact")
     if args.ignored:
         test_args.append("--ignored")
-    if args.nocapture:
+    if args.nocapture or getattr(args, "verbose", False):
         test_args.append("--nocapture")
     if test_args:
         command.append("--")
@@ -341,6 +341,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ignored", action="store_true", help="select an ignored exact test")
     parser.add_argument("--nocapture", action="store_true", help="show selected-test output")
     parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "show selected-test output and enable concise gameplay review diagnostics; "
+            "use DEEP_HEARTH_GAMEPLAY_TRACE=1 for low-level trace output"
+        ),
+    )
+    parser.add_argument(
         "--variation-seed",
         help="replay DEEP_HEARTH_GAMEPLAY_VARIATION_SEED for this test execution",
     )
@@ -366,8 +374,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--check validates the whole integration target; omit the test selector")
     if args.suite and args.ignored:
         parser.error("--ignored requires exact execution; use an exact ignored-test selector")
-    if (args.list or args.check) and (args.ignored or args.nocapture):
-        parser.error("--ignored and --nocapture apply only to execution modes")
+    if (args.list or args.check) and (args.ignored or args.nocapture or args.verbose):
+        parser.error("--ignored, --nocapture, and --verbose apply only to execution modes")
     if (args.list or args.check) and (args.variation_seed or args.behavior_seed):
         parser.error("gameplay replay seeds are execution-only options")
     return args
@@ -440,6 +448,8 @@ def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
         replay["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"] = args.variation_seed
     if args.behavior_seed:
         replay["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"] = args.behavior_seed
+    if getattr(args, "verbose", False):
+        replay["DEEP_HEARTH_GAMEPLAY_VERBOSE"] = "1"
     return replay
 
 
@@ -513,7 +523,7 @@ def report_cargo_success(
     if args.check:
         print(f"PASS check {args.target} ({elapsed:.1f}s)")
         return
-    if not args.check and args.nocapture and result.stdout.strip():
+    if not args.check and (args.nocapture or getattr(args, "verbose", False)) and result.stdout.strip():
         print(result.stdout.rstrip())
     if args.suite:
         print(

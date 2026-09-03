@@ -8,7 +8,7 @@ use deep_hearth::content::{ENERGY_THERMAL_SINK, MATERIAL_COPPER};
 use deep_hearth::core::quantity::{AggregateMass, Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::TickSpan;
-use deep_hearth::energy::{PowerRemainder, integrate_power};
+use deep_hearth::energy::passive_dissipation_ticks_until_empty;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::MaterialComposition;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -262,27 +262,9 @@ pub(super) fn cool_thermal_sink(
         .energy()
         .get_store(ENERGY_THERMAL_SINK)
         .unwrap_or_else(|| panic!("foundry thermal-sink definition disappeared"));
-    let passive_dissipation = integrate_power(
-        thermal_sink.passive_dissipation_power(),
-        TickSpan::new(1),
-        registries.core().physical_tick_duration(),
-        PowerRemainder::ZERO,
-    )
-    .unwrap_or_else(|error| panic!("foundry passive thermal dissipation failed: {error}"));
-    assert_eq!(
-        passive_dissipation.remainder(),
-        PowerRemainder::ZERO,
-        "foundry thermal sink must dissipate exact whole nanojoules per tick"
-    );
-    assert!(
-        !passive_dissipation.energy().is_zero(),
-        "foundry thermal sink must have a nonzero passive cooling route"
-    );
-    let ticks = stored
-        .nanojoules()
-        .div_ceil(passive_dissipation.energy().nanojoules());
-    let ticks = u64::try_from(ticks)
-        .unwrap_or_else(|_| panic!("foundry thermal cooling duration exceeded tick range"));
+    let ticks = passive_dissipation_ticks_until_empty(registries, thermal_sink, stored)
+        .unwrap_or_else(|| panic!("foundry thermal sink has no finite passive recovery horizon"))
+        .value();
     advance_idle_ticks(registries, state, ticks, "foundry thermal cooldown");
     let cooled_thermal = state
         .energy()

@@ -22,9 +22,10 @@ use super::output::has_verbose_output;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,
     ScenarioMaintenanceReport, ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport,
-    ScenarioResourceReport, ScenarioStructureReport, StructuralPreference, print_content_summary,
-    print_harness_summary,
+    ScenarioResourceReport, ScenarioStructureReport, StructuralPreference,
 };
+#[cfg(not(test))]
+use super::report::{print_content_summary, print_harness_summary};
 use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation, WORKSHOP_SUPPORT_LENGTH};
 use super::seed::mix64;
 use super::temporal::advance_idle_ticks;
@@ -651,18 +652,9 @@ fn manual_recovery_option(
     mass: Mass,
     name: &'static str,
     store: EnergyStoreId,
+    envelope: PoweredOreMassEnvelope,
 ) -> Result<Option<ManualRecoveryOption>, ManualPowerError> {
-    let comminution = registries
-        .ore_processing()
-        .get_comminution(PROCESS_CRUSH_ORE)
-        .unwrap_or_else(|| panic!("canonical crusher process definition disappeared"));
-    let required = calculate_mass_specific_energy(mass, comminution.specific_energy());
-    let stored = state
-        .energy()
-        .get_store(store)
-        .map(|record| record.stored())
-        .unwrap_or_else(|| panic!("gameplay harness {name} drive disappeared"));
-    let Some(energy) = required.checked_sub(stored) else {
+    let Some(energy) = envelope.additional_energy_required_for(mass) else {
         return Ok(None);
     };
     if energy.is_zero() {
@@ -808,7 +800,21 @@ fn probe_manual_recovery_option(
     let mut equipment_limited = false;
     let mut storage_limited = false;
     for (name, store) in [("small", ids.small_drive), ("large", ids.large_drive)] {
-        match manual_recovery_option(registries, state, ids, mass, name, store) {
+        let envelope = assess_powered_ore_mass_envelope(
+            registries,
+            state,
+            PROCESS_CRUSH_ORE,
+            ids.crusher,
+            store,
+        )
+        .unwrap_or_else(|error| {
+            panic!("workshop {name} drive replenishment projection failed: {error}")
+        });
+        if mass > envelope.maximum_mass_with_replenished_energy() {
+            equipment_limited = true;
+            continue;
+        }
+        match manual_recovery_option(registries, state, ids, mass, name, store, envelope) {
             Ok(Some(option)) => options.push(option),
             Ok(None) => {}
             Err(ManualPowerError::Work(

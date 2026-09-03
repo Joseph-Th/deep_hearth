@@ -10,8 +10,9 @@ use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
 
 use super::knowledge::{
-    GeologicalEvidenceKind, GeologicalObservationId, GeologicalObservationRecord,
-    MaterialAbundanceEstimate, PARTS_PER_MILLION, total_lower_bound_ppm,
+    ExcavationHardnessEstimate, GeologicalEvidenceKind, GeologicalObservationId,
+    GeologicalObservationRecord, MaterialAbundanceEstimate, PARTS_PER_MILLION,
+    total_lower_bound_ppm,
 };
 
 /// Immutable evidence result produced by an authorized prospecting or analytical resolver.
@@ -26,6 +27,7 @@ pub(crate) struct ProspectingResolution {
     region: VoxelBounds,
     evidence: GeologicalEvidenceKind,
     findings: Vec<MaterialAbundanceEstimate>,
+    excavation_hardness: Option<ExcavationHardnessEstimate>,
 }
 
 impl ProspectingResolution {
@@ -33,12 +35,14 @@ impl ProspectingResolution {
         region: VoxelBounds,
         evidence: GeologicalEvidenceKind,
         mut findings: Vec<MaterialAbundanceEstimate>,
+        excavation_hardness: Option<ExcavationHardnessEstimate>,
     ) -> Self {
         findings.sort_by_key(|finding| finding.material());
         Self {
             region,
             evidence,
             findings,
+            excavation_hardness,
         }
     }
 
@@ -54,6 +58,7 @@ impl ProspectingResolution {
             region,
             evidence,
             findings,
+            excavation_hardness: None,
         }
     }
 }
@@ -142,6 +147,7 @@ pub struct ValidatedGeologicalObservation {
     region: VoxelBounds,
     evidence: GeologicalEvidenceKind,
     findings: Vec<MaterialAbundanceEstimate>,
+    excavation_hardness: Option<ExcavationHardnessEstimate>,
     observed_at: SimulationTick,
 }
 
@@ -159,6 +165,7 @@ impl ValidatedGeologicalObservation {
             region,
             evidence,
             findings,
+            excavation_hardness,
             observed_at,
         } = self;
         let knowledge = state.geological_knowledge_state_mut();
@@ -175,6 +182,7 @@ impl ValidatedGeologicalObservation {
                 region,
                 evidence,
                 findings,
+                excavation_hardness,
                 observed_at,
             },
             next_observation_id,
@@ -192,6 +200,7 @@ impl ValidatedGeologicalObservation {
             region,
             evidence,
             findings,
+            excavation_hardness,
             observed_at,
         } = self;
         let knowledge = state.geological_knowledge_state_mut();
@@ -206,6 +215,7 @@ impl ValidatedGeologicalObservation {
                 region,
                 evidence,
                 findings,
+                excavation_hardness,
                 observed_at,
             },
             next_observation_id,
@@ -253,6 +263,7 @@ pub(super) fn validate_record_prospecting_batch_at(
             region,
             evidence,
             findings,
+            excavation_hardness,
         } = resolution;
         validated.push(ValidatedGeologicalObservation {
             expected_revision,
@@ -262,6 +273,7 @@ pub(super) fn validate_record_prospecting_batch_at(
             region,
             evidence,
             findings,
+            excavation_hardness,
             observed_at,
         });
         expected_revision = next_revision;

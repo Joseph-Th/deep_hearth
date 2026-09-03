@@ -7,6 +7,23 @@ const fn twentieth_second_tick() -> PhysicalTickDuration {
 }
 
 #[test]
+fn mass_specific_energy_capacity_is_the_canonical_whole_mass_inverse() {
+    let specific = MassSpecificEnergy::from_nanojoules_per_milligram(40);
+    let exact = Energy::from_nanojoules(1_000);
+    assert_eq!(
+        calculate_mass_specific_energy_capacity(exact, specific),
+        Mass::from_milligrams(25)
+    );
+    let floored = calculate_mass_specific_energy_capacity(Energy::from_nanojoules(999), specific);
+    assert_eq!(floored, Mass::from_milligrams(24));
+    assert!(calculate_mass_specific_energy(floored, specific) <= Energy::from_nanojoules(999));
+    assert!(
+        calculate_mass_specific_energy(Mass::from_milligrams(floored.milligrams() + 1), specific)
+            > Energy::from_nanojoules(999)
+    );
+}
+
+#[test]
 fn power_remainder_deserialization_enforces_fractional_range() {
     let valid: PowerRemainder = serde_json::from_str("999999999")
         .unwrap_or_else(|error| panic!("valid power remainder failed deserialization: {error}"));

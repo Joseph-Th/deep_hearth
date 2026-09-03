@@ -72,6 +72,27 @@ pub(crate) fn project_stored_energy_after_passive_dissipation(
     )
 }
 
+/// Exact number of authoritative passive-loss ticks required to empty `stored` energy.
+///
+/// Returns zero ticks for an empty store. Returns `None` when the definition has no passive-loss
+/// route or when the required duration exceeds the represented [`TickSpan`] range.
+#[must_use]
+pub fn passive_dissipation_ticks_until_empty(
+    registries: &Registries,
+    definition: &EnergyStoreDefinition,
+    stored: Energy,
+) -> Option<TickSpan> {
+    if stored.is_zero() {
+        return Some(TickSpan::new(0));
+    }
+    let per_tick = passive_dissipation_per_tick(registries, definition);
+    if per_tick.is_zero() {
+        return None;
+    }
+    let ticks = stored.nanojoules().div_ceil(per_tick.nanojoules());
+    u64::try_from(ticks).ok().map(TickSpan::new)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PassiveEnergyDissipationEntry {
     store: EnergyStoreId,

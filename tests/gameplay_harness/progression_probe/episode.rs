@@ -791,20 +791,18 @@ pub(super) fn run_primitive_progression_case(
         },
     );
     let natural_priority = observed_primitive_priority();
-    let primitive_sorting_recovery_ppm = registries
+    let primitive_sorting = registries
         .ore_processing()
         .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
-        .map(ConstituentSeparationProcessDefinition::target_recovery_ppm)
         .unwrap_or_else(|| panic!("primitive native-copper sorting definition disappeared"));
+    let primitive_sorting_recovery_ppm = primitive_sorting.target_recovery_ppm();
     assert!(
         primitive_sorting_recovery_ppm < COMPOSITION_PARTS_PER_MILLION,
         "primitive separator must leave some recoverable copper in its physical residue"
     );
-    let soft_separation_feed_mass = feed_mass_for_exact_recovered_constituent(
-        crank_upgrade_native,
-        bulk_sample.copper_ppm,
-        primitive_sorting_recovery_ppm,
-    );
+    let soft_separation_feed_mass = primitive_sorting
+        .minimum_feed_mass_for_target_recovery(crank_upgrade_native, bulk_sample.copper_ppm)
+        .unwrap_or_else(|| panic!("bulk ore cannot physically recover one crank reinforcement"));
     assert!(
         soft_separation_feed_mass <= mined_mass,
         "inventory-visible bulk ore must contain enough represented copper for the second upgrade"
@@ -884,11 +882,11 @@ pub(super) fn run_primitive_progression_case(
     } else {
         bulk_sample.copper_ppm
     };
-    let manual_bootstrap_separation_feed_mass = feed_mass_for_exact_recovered_constituent(
-        crank_upgrade_native,
-        manual_bootstrap_feed_ppm,
-        primitive_sorting_recovery_ppm,
-    );
+    let manual_bootstrap_separation_feed_mass = primitive_sorting
+        .minimum_feed_mass_for_target_recovery(crank_upgrade_native, manual_bootstrap_feed_ppm)
+        .unwrap_or_else(|| {
+            panic!("manual bootstrap feed cannot physically recover one crank reinforcement")
+        });
     let manual_bootstrap_bridge = run_owned_ore_manual_bridge(
         registries,
         &mut manual_bootstrap_state,
@@ -993,11 +991,16 @@ pub(super) fn run_primitive_progression_case(
                     hard_ore_storage,
                     hard_sample.copper_ppm,
                     true,
-                    feed_mass_for_exact_recovered_constituent(
-                        crank_upgrade_native,
-                        hard_sample.copper_ppm,
-                        primitive_sorting_recovery_ppm,
-                    ),
+                    primitive_sorting
+                        .minimum_feed_mass_for_target_recovery(
+                            crank_upgrade_native,
+                            hard_sample.copper_ppm,
+                        )
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "observed hard-seam feed cannot physically recover one crank reinforcement"
+                            )
+                        }),
                 )
             } else {
                 (

@@ -1,5 +1,9 @@
 //! Focused survival gameplay target for the fast edit/test loop.
 
+#[macro_use]
+#[path = "gameplay_harness/output.rs"]
+mod output;
+
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/focused_runner.rs"]

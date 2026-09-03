@@ -29,6 +29,29 @@ enum ConstituentSeparationMode {
     Concentration,
 }
 
+fn minimum_feed_mass_for_target_recovery(
+    target: Mass,
+    constituent_ppm: u32,
+    recovery_ppm: u32,
+) -> Option<Mass> {
+    if target.is_zero() {
+        return Some(Mass::ZERO);
+    }
+    if constituent_ppm == 0
+        || constituent_ppm > 1_000_000
+        || recovery_ppm == 0
+        || recovery_ppm > 1_000_000
+    {
+        return None;
+    }
+    let denominator = u128::from(constituent_ppm) * u128::from(recovery_ppm);
+    let numerator = u128::from(target.milligrams()) * 1_000_000_000_000_u128;
+    let feed_milligrams = numerator.div_ceil(denominator);
+    u64::try_from(feed_milligrams)
+        .ok()
+        .map(Mass::from_milligrams)
+}
+
 /// Material-side physics shared by powered and direct-labor separation routes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::ore_processing) struct ConstituentSeparationPhysics {
@@ -251,6 +274,21 @@ impl ConstituentSeparationProcessDefinition {
         self.physics.target_recovery_ppm()
     }
 
+    /// Minimum selected feed mass whose exact target-constituent share can recover `target` whole
+    /// milligrams under this process's authored target recovery.
+    ///
+    /// `constituent_ppm` is the observed target-material share of the candidate feed. The result
+    /// owns the same conservative whole-milligram recovery boundary as runtime separation and is
+    /// suitable for actor planning before exact selection resolution.
+    #[must_use]
+    pub fn minimum_feed_mass_for_target_recovery(
+        self,
+        target: Mass,
+        constituent_ppm: u32,
+    ) -> Option<Mass> {
+        minimum_feed_mass_for_target_recovery(target, constituent_ppm, self.target_recovery_ppm())
+    }
+
     /// Returns the fraction of each non-target constituent carried into a concentration target
     /// stream. Sorting always returns zero here.
     #[must_use]
@@ -359,6 +397,17 @@ impl ManualConstituentSeparationProcessDefinition {
     #[must_use]
     pub const fn target_recovery_ppm(self) -> u32 {
         self.physics.target_recovery_ppm()
+    }
+
+    /// Minimum selected feed mass whose exact target-constituent share can recover `target` whole
+    /// milligrams under this manual process's authored recovery.
+    #[must_use]
+    pub fn minimum_feed_mass_for_target_recovery(
+        self,
+        target: Mass,
+        constituent_ppm: u32,
+    ) -> Option<Mass> {
+        minimum_feed_mass_for_target_recovery(target, constituent_ppm, self.target_recovery_ppm())
     }
 
     #[must_use]

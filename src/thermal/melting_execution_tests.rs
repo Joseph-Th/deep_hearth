@@ -547,6 +547,72 @@ fn melting_mass_envelope_agrees_with_canonical_equipment_and_energy_boundaries()
     ));
 }
 
+#[test]
+fn melting_mass_envelope_rejects_busy_equipment_with_independent_feed_and_energy() {
+    let mut fixture = make_fixture(
+        Temperature::from_millikelvin(1_500_000),
+        EnergyCarrier::Electrical,
+        Mass::from_milligrams(20),
+    );
+    let alternate_source =
+        add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(20))
+            .unwrap_or_else(|error| panic!("alternate melting source fixture failed: {error}"));
+    let alternate_lot = deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        alternate_source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        Mass::from_milligrams(10),
+        INPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("alternate melting lot fixture failed: {error}"));
+    let resolved = resolve_selected(
+        &fixture.registries,
+        &fixture.state,
+        fixture.ids,
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("busy melting equipment setup resolution failed: {error}"));
+    let job = validate_start_process(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.ids.source,
+        fixture.ids.destination,
+    )
+    .unwrap_or_else(|error| panic!("busy melting equipment start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("busy melting equipment commit failed: {error}"));
+    let idle_store = add_energy_store_with_initial_for_fixture(
+        &fixture.registries,
+        &mut fixture.state,
+        ENERGY_STORE,
+        Energy::from_nanojoules(1_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("alternate melting energy fixture failed: {error}"));
+
+    assert!(matches!(
+        crate::thermal::assess_melting_lot_mass_envelope(
+            &fixture.registries,
+            &fixture.state,
+            crate::thermal::MeltingLotMassRequest::new(
+                PROCESS,
+                alternate_source,
+                MaterialLotSelection::new(alternate_lot, Mass::from_milligrams(10)),
+                fixture.ids.equipment,
+                idle_store,
+            ),
+        ),
+        Err(MeltingResolutionError::Equipment(
+            crate::equipment::EquipmentProviderError::ProductionInProgress {
+                equipment,
+                job: occupied_by,
+                ..
+            }
+        )) if equipment == fixture.ids.equipment && occupied_by == job
+    ));
+}
+
 fn resolve_selected(
     registries: &Registries,
     state: &AppState,

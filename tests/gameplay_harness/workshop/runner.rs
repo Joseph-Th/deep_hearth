@@ -1006,27 +1006,30 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         plan.behavior_label(),
         plan.replay_label(),
     );
-    print_content_summary(&registries, verbose || mode == ScenarioPlanMode::Explore);
-    std::println!(
-        "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression,woodworking,fieldwork] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] setup-shortcuts=disclosed-and-fixture-guarded actor-observation=runtime-public-state-only catalog=registry-derived authored-edges=not-end-to-end-proof global-reachability-authority=STATUS.md"
-    );
-    if verbose {
+    #[cfg(not(test))]
+    {
+        print_content_summary(&registries, verbose || mode == ScenarioPlanMode::Explore);
         std::println!(
-            "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-regressions+one-fresh-replayable-organic exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+LIBERATION-EXPERIENCE+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+            "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression,woodworking,fieldwork] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] setup-shortcuts=disclosed-and-fixture-guarded actor-observation=runtime-public-state-only catalog=registry-derived authored-edges=not-end-to-end-proof global-reachability-authority=STATUS.md"
         );
+        if verbose {
+            std::println!(
+                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-regressions+one-fresh-replayable-organic exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+LIBERATION-EXPERIENCE+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+            );
+        }
     }
-    println!(
+    reviewln!(
         "\n=== DEEP HEARTH INDUSTRIAL WORKSHOP CAPABILITY MATRIX: {} scenario(s), registry schema {} ===",
         plan.cases().len(),
         registries.schema_version().value(),
     );
-    println!(
+    reviewln!(
         "CAPABILITY SETUP: industrial machines and industrial energy stores with no current ordinary acquisition path, plus starting matter, structural bays, background cargo, and one single-use delivery authorization, are arranged before the actor starts. Fixture guards fail if any injected machine/store later gains a direct authored acquisition/assembly edge. The controlled event consumes its authorization through canonical inventory validation/commit; the actor receives no future event tick or target."
     );
-    println!(
+    reviewln!(
         "CAPABILITY FANTASY: given an already-acquired industrial workshop, operate it by reading structural margin, uneven stored work, machine condition, material state, and personal survival reserve. Use residual work instead of discarding it, fall back to direct labor when worth the bodily cost, and recover when the world changes."
     );
-    println!(
+    reviewln!(
         "CAPABILITY LOOP: each workshop has a total ore work order rather than a required fixed batch count. Bounded cases vary uneven finite stored work, replacement stock, condition, support state, and player priorities. The actor uses canonical projections to resize operations, choose power, decide whether manual generation is survivable, and react after one hidden preauthorized supported-stockpile event changes the world. This does not imply industrial acquisition, generation, or logistics. Separate probes exercise runtime survival/progression actions after controlled bootstrap and bootstrapped ore-preparation/foundry capabilities."
     );
 
@@ -1054,10 +1057,39 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     if !anchor_reports.is_empty() {
         assert_anchor_diversity(&anchor_reports);
     }
-    let evidence_mode = match mode {
-        #[cfg(test)]
-        ScenarioPlanMode::Gate => "gate-maintained+organic",
-        ScenarioPlanMode::Explore => "exploratory",
+    #[cfg(not(test))]
+    print_harness_summary("exploratory", &reports, verbose);
+    #[cfg(test)]
+    let mode_label = if mode == ScenarioPlanMode::Explore {
+        "explore"
+    } else {
+        "gate"
     };
-    print_harness_summary(evidence_mode, &reports, verbose);
+    #[cfg(test)]
+    let output_label = if verbose { "verbose" } else { "concise" };
+    #[cfg(test)]
+    std::println!(
+        "HARNESS RESULT mode={mode_label} output={output_label} scenarios={} complete={} productive={} terminal=[structure:{} maintenance:{} energy:{}]",
+        reports.len(),
+        reports
+            .iter()
+            .filter(|report| report.progress.processed_mass == report.progress.target_mass)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| !report.progress.processed_mass.is_zero())
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.structure.structural_stop)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.limits.maintenance_stop)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.limits.energy_stop)
+            .count(),
+    );
 }

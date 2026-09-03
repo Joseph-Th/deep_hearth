@@ -10,6 +10,8 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::maintenance::{Condition, MaintenanceBand, MaintenanceThresholds};
+use crate::mining::MiningJobId;
+use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::{StructuralElementId, StructuralLifecycle};
 
@@ -170,7 +172,7 @@ pub(crate) fn resolve_equipment_capability(
     )
 }
 
-/// Failure to resolve a runtime equipment record into its immutable provider definition.
+/// Failure to resolve a runtime equipment provider or establish its current availability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EquipmentProviderError {
     UnknownEquipment {
@@ -197,6 +199,19 @@ pub enum EquipmentProviderError {
         completes_at: SimulationTick,
     },
     ProspectingInProgress {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
+    ProductionInProgress {
+        equipment: EquipmentId,
+        job: ProductionJobId,
+        release: ProductionOccupancyRelease,
+    },
+    MiningInProgress {
+        equipment: EquipmentId,
+        job: MiningJobId,
+    },
+    ManualPowerInProgress {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
@@ -246,6 +261,31 @@ impl Display for EquipmentProviderError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::ProductionInProgress {
+                equipment,
+                job,
+                release,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by production job {} {release} and cannot authorize a new operation",
+                equipment.value(),
+                job.value()
+            ),
+            Self::MiningInProgress { equipment, job } => write!(
+                formatter,
+                "equipment {} is occupied by mining job {} and cannot authorize a new operation",
+                equipment.value(),
+                job.value()
+            ),
+            Self::ManualPowerInProgress {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by direct player-powered generation until tick {} and cannot authorize a new operation",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::StructuralSupportNotActive {
                 equipment,
                 element,
@@ -262,7 +302,12 @@ impl Display for EquipmentProviderError {
 
 impl Error for EquipmentProviderError {}
 
-/// Resolves static capability data and current condition without duplicating either source of truth.
+/// Resolves static capability data and current condition while rejecting direct maintenance and
+/// prospecting work that already owns the equipment.
+///
+/// This is the base provider boundary used by exact operation resolvers. Call
+/// `resolve_available_equipment_provider` for disposable current-opportunity projections that must
+/// also reject production, mining, and manual-power occupancy before reporting usable capacity.
 pub fn resolve_equipment_provider<'state>(
     registries: &'state Registries,
     state: &'state AppState,
@@ -319,6 +364,40 @@ pub fn resolve_equipment_provider<'state>(
         expected_equipment_revision: state.equipment().revision(),
         expected_structure_revision,
     })
+}
+
+/// Resolves one equipment provider only when no canonical operation currently occupies it.
+///
+/// Current-opportunity projections use this stricter boundary so capability planning cannot report
+/// work that is physically blocked by any in-flight canonical equipment owner. Exact operation
+/// admission remains responsible for its domain-specific occupancy errors and commit-time race
+/// checks.
+pub(crate) fn resolve_available_equipment_provider<'state>(
+    registries: &'state Registries,
+    state: &'state AppState,
+    equipment: EquipmentId,
+) -> Result<ResolvedEquipmentProvider<'state>, EquipmentProviderError> {
+    let provider = resolve_equipment_provider(registries, state, equipment)?;
+    if let Some(job) = state.production().get_equipment_occupant(equipment) {
+        return Err(EquipmentProviderError::ProductionInProgress {
+            equipment,
+            job: job.id(),
+            release: job.occupancy_release(),
+        });
+    }
+    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
+        return Err(EquipmentProviderError::MiningInProgress { equipment, job });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_manual_power_equipment_occupant(equipment)
+    {
+        return Err(EquipmentProviderError::ManualPowerInProgress {
+            equipment,
+            completes_at: work.completes_at(),
+        });
+    }
+    Ok(provider)
 }
 
 #[cfg(test)]

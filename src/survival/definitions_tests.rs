@@ -1,7 +1,8 @@
 //! Contract tests for survival definitions and intake limits.
 
 use super::*;
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Mass, MassSpecificEnergy, Temperature};
+use crate::material::FormId;
 
 fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
     PhysiologyDefinition::new(
@@ -148,10 +149,48 @@ fn drink_hydration_multiplier_cannot_create_hydration_volume() {
         Volume::ZERO,
         "sub-microliter physiological hydration remains unrepresented rather than rounded up"
     );
+    assert_eq!(
+        diluted.minimum_volume_for_hydration(Volume::from_microliters(625)),
+        Some(Volume::from_microliters(1_000))
+    );
+    let minimum = diluted
+        .minimum_volume_for_hydration(Volume::from_microliters(1))
+        .unwrap_or_else(|| {
+            panic!("bounded hydration target must have a represented source volume")
+        });
+    assert_eq!(minimum, Volume::from_microliters(2));
+    assert!(diluted.hydration_offer(minimum) >= Volume::from_microliters(1));
+    assert!(
+        diluted.hydration_offer(Volume::from_microliters(minimum.microliters() - 1))
+            < Volume::from_microliters(1)
+    );
 
     assert!(std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 0, temperature)).is_err());
     assert!(
         std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 1_000_001, temperature)).is_err()
+    );
+}
+
+#[test]
+fn food_definition_projects_minimum_mass_for_dietary_energy() {
+    let food = FoodDefinition::new(
+        CommodityKey::new(MaterialId::new(1), FormId::new(1)),
+        FoodCategory::Grain,
+        MassSpecificEnergy::from_nanojoules_per_milligram(40),
+        0,
+        TickSpan::new(10),
+        ConsumptionTemperatureRange::new(
+            Temperature::from_millikelvin(273_150),
+            Temperature::from_millikelvin(333_150),
+        ),
+    );
+    assert_eq!(
+        food.minimum_mass_for_dietary_energy(Energy::from_nanojoules(81)),
+        Some(Mass::from_milligrams(3))
+    );
+    assert_eq!(
+        food.minimum_mass_for_dietary_energy(Energy::ZERO),
+        Some(Mass::ZERO)
     );
 }
 

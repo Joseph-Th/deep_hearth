@@ -201,6 +201,24 @@ pub fn calculate_mass_specific_energy(mass: Mass, specific: MassSpecificEnergy) 
     )
 }
 
+/// Greatest whole material mass whose authored mass-specific energy does not exceed `available`.
+///
+/// Zero specific energy means energy places no finite mass bound, so the result is the largest
+/// representable [`Mass`]. This is the canonical whole-milligram inverse of
+/// [`calculate_mass_specific_energy`].
+#[must_use]
+pub fn calculate_mass_specific_energy_capacity(
+    available: Energy,
+    specific: MassSpecificEnergy,
+) -> Mass {
+    let per_milligram = u128::from(specific.nanojoules_per_milligram());
+    if per_milligram == 0 {
+        return Mass::from_milligrams(u64::MAX);
+    }
+    let milligrams = available.nanojoules() / per_milligram;
+    Mass::from_milligrams(u64::try_from(milligrams).unwrap_or(u64::MAX))
+}
+
 #[cfg(test)]
 #[path = "integration_tests.rs"]
 mod tests;

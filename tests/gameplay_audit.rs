@@ -38,6 +38,8 @@ mod inventory_support;
 mod maintenance_timing;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
+#[path = "gameplay_harness/manual_craft_planning.rs"]
+mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]

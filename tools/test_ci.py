@@ -162,6 +162,21 @@ class LocalCiPlanTests(unittest.TestCase):
                 f"focused gameplay target {scope!r} is missing a root-level harness module",
             )
 
+    def test_focused_gameplay_targets_exclude_report_only_catalog_code(self) -> None:
+        report_only = ROOT / "tests" / "gameplay_harness" / "catalog.rs"
+        for scope, target in ci.GAMEPLAY_TARGETS.items():
+            features = run_test.cargo_feature_set(target, None)
+            root = run_test.cargo_test_target_path(target)
+            reachable = {
+                path
+                for path, _prefix in run_test.test_catalog.reachable_modules(ROOT, root, features)
+            }
+            self.assertNotIn(
+                report_only,
+                reachable,
+                f"focused gameplay target {scope!r} must not compile report-only catalog code",
+            )
+
     def test_root_sibling_import_parser_handles_nested_and_grouped_modules(self) -> None:
         self.assertEqual(
             run_test.root_sibling_imports("use super::super::{seed, temporal};", 2),
@@ -174,6 +189,20 @@ class LocalCiPlanTests(unittest.TestCase):
             {"focused_seeds"},
         )
         self.assertEqual(run_test.root_sibling_imports("use super::local_item;", 2), set())
+        self.assertEqual(
+            run_test.root_sibling_imports(
+                '#[cfg(not(test))]\nuse super::catalog::process_catalog_entries;', 1
+            ),
+            set(),
+        )
+        self.assertEqual(
+            run_test.root_sibling_imports(
+                '#[cfg(feature = "test-gameplay")]\nuse super::catalog::process_catalog_entries;',
+                1,
+                {"test-gameplay"},
+            ),
+            {"catalog"},
+        )
 
     def test_bca_preset_reuses_the_pinned_changed_source_review(self) -> None:
         plan = ci.bca_review_plan("HEAD~1", ["src/inventory", "src/production"])
@@ -1009,6 +1038,21 @@ class LocalCiPlanTests(unittest.TestCase):
             },
         )
 
+    def test_run_test_verbose_is_one_flag_for_output_and_gameplay_review_detail(self) -> None:
+        args = run_test.parse_args(
+            [
+                "--target",
+                ci.GAMEPLAY_TARGETS["foundry"],
+                "--verbose",
+                ci.GAMEPLAY_TESTS["foundry"],
+            ]
+        )
+        self.assertIn("--nocapture", run_test.cargo_command(args))
+        self.assertEqual(
+            run_test.gameplay_replay_environment(args),
+            {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"},
+        )
+
     def test_unknown_gameplay_failure_falls_back_to_the_broad_gameplay_audit(self) -> None:
         output = "failures:\n    future_contracts::new_global_check\n"
         self.assertEqual(
@@ -1169,18 +1213,18 @@ class LocalCiPlanTests(unittest.TestCase):
                 "PROGRESSION EXPERIENCE seed=0x00000000000000AA sample=organic information=surface-resolved local-copper-sequence=pick-first counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
                 "LIBERATION EXPERIENCE seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] matter=conserved",
                 "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
-                "SURVIVAL EXPERIENCE seed=0x0000000000000001 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[storage-policy:maximum-protection]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000AA sample=organic pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[storage-policy:attention-efficient]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000CC sample=organic pressure=hydration choice=[state:policy-sensitive diet:compact-calories] current-investment=[storage-policy:maximum-protection]",
+                "SURVIVAL EXPERIENCE seed=0x0000000000000001 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[protected-reserve:6500000mg storage-policy:maximum-protection candidates:5]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000AA sample=organic pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[protected-reserve:18000000mg storage-policy:attention-efficient candidates:3]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000CC sample=organic pressure=hydration choice=[state:policy-sensitive diet:compact-calories] current-investment=[protected-reserve:50000000mg storage-policy:maximum-protection candidates:1]",
                 "SURVIVAL REVIEW seed=0x00000000000000AA accounting-detail",
-                "PROBE INPUT name=woodworking mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,coverage:0x0000000000000003,organic:0x00000000000000AA",
-                "WOODWORKING EXPERIENCE seed=0x0000000000000001 sample=anchor choice=stone-adze reason=project-too-small-for-saw-policy",
-                "WOODWORKING EXPERIENCE seed=0x0000000000000003 sample=coverage choice=frame-saw reason=large-project+copper-available",
-                "WOODWORKING EXPERIENCE seed=0x00000000000000AA sample=organic choice=stone-adze reason=copper-supply-limited",
+                "PROBE INPUT name=woodworking mode=explore samples=3 organic=1 world_root=0x111 behavior_root=0x222 replay=anchor:0x0000000000000001@0x1,coverage:0x0000000000000003@0x2,organic:0x00000000000000AA@0x3",
+                "WOODWORKING EXPERIENCE seed=0x0000000000000001 behavior=0x1 sample=anchor preference=conserve-timber routes=[adze:12logs saw:11logs saw-fundable:true saw-saves-timber:true] choice=frame-saw reason=timber-demand-justifies-saw",
+                "WOODWORKING EXPERIENCE seed=0x0000000000000003 behavior=0x2 sample=coverage preference=conserve-scarce-copper routes=[adze:9logs saw:8logs saw-fundable:true saw-saves-timber:true] choice=stone-adze reason=policy-conserves-scarce-copper",
+                "WOODWORKING EXPERIENCE seed=0x00000000000000AA behavior=0x3 sample=organic preference=conserve-timber routes=[adze:9logs saw:8logs saw-fundable:false saw-saves-timber:true] choice=stone-adze reason=copper-supply-limited",
                 "PROBE INPUT name=fieldwork mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,coverage:0x0000000000000004,organic:0x00000000000000AA",
-                "FIELDWORK EXPERIENCE seed=0x0000000000000001 sample=anchor transects=2 selected-channel=observed-strongest field-inspections=3 detailed-surveys=1 quarry=stone-quarry adaptation=none retained-native-copper=40000mg",
-                "FIELDWORK EXPERIENCE seed=0x0000000000000004 sample=coverage transects=2 selected-channel=observed-strongest field-inspections=1 detailed-surveys=1 quarry=copper-reinforced-quarry adaptation=hardness-blocker retained-native-copper=20000mg",
-                "FIELDWORK EXPERIENCE seed=0x00000000000000AA sample=organic transects=2 selected-channel=observed-strongest field-inspections=2 detailed-surveys=1 quarry=stone-quarry adaptation=none retained-native-copper=40000mg",
+                "FIELDWORK EXPERIENCE seed=0x0000000000000001 sample=anchor transects=2 selected-channel=observed-strongest field-inspections=3 detailed-surveys=1 observed-hardness=450000000..500000000Pa geology=quarry-soft tool=stone-quarry adaptation=sampled-hardness-base-quarry retained-native-copper=40000mg requested=450000mg mining=450000mg",
+                "FIELDWORK EXPERIENCE seed=0x0000000000000004 sample=coverage transects=2 selected-channel=observed-strongest field-inspections=1 detailed-surveys=1 observed-hardness=550000000..600000000Pa geology=quarry-reinforcement tool=copper-reinforced-quarry adaptation=sampled-hardness-quarry-upgrade retained-native-copper=20000mg requested=450000mg mining=450000mg",
+                "FIELDWORK EXPERIENCE seed=0x00000000000000AA sample=organic transects=2 selected-channel=observed-strongest field-inspections=2 detailed-surveys=1 observed-hardness=600000000..650000000Pa geology=hard-pick-specialist tool=copper-reinforced-hard-pick adaptation=sampled-hardness-hard-pick+batch-limit retained-native-copper=20000mg requested=450000mg mining=300000mg",
                 "CAPABILITY FOUNDRY seed=0x1 outcome=full-order-complete melt-limit=offered-batch cast-limit=offered-batch",
                 "CAPABILITY FOUNDRY seed=0x2 outcome=partial-order-melt-limited melt-limit=finite-energy cast-limit=thermal-sink-capacity",
                 "AGENCY PATHS focus=noisy-detail",
@@ -1192,13 +1236,13 @@ class LocalCiPlanTests(unittest.TestCase):
             "PLAYER FANTASY ",
             "EVALUATION SCOPE kind=ordinary-play ",
             "EVALUATION SCOPE kind=controlled-capability ",
-            "WOODWORKING EXPERIENCE seed=0x0000000000000003",
-            "FIELDWORK EXPERIENCE seed=0x0000000000000004",
-            "SURVIVAL DIVERSITY samples=3",
+            "WOODWORKING EXPERIENCE seed=0x00000000000000AA",
+            "FIELDWORK EXPERIENCE seed=0x00000000000000AA",
+            "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[attention-efficient:1 balanced-frontier:0 maximum-protection:2] reserve=6500000..50000000mg capacity-singleton:1",
             "PROGRESSION DIVERSITY samples=2 local-copper=[pick-first:2 crank-counterfactual:2]",
             "LIBERATION DIVERSITY samples=2 varied-inputs=2 completed=2",
-            "WOODWORKING DIVERSITY samples=3 choice=[adze:2 saw:1]",
-            "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 quarry=[stone:2 reinforced:1] adaptation=[none:2 hardness:1] retained-copper=20000..40000mg",
+            "WOODWORKING DIVERSITY samples=3 choice=[adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 timber-saving:3] decision=[copper-blocked:1 no-timber-savings:0 copper-conserved:1]",
+            "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 observed-hardness=450000000..650000000Pa geology=[soft:1 quarry-upgrade:1 hard-pick:1] tool=[stone-quarry:1 reinforced-quarry:1 hard-pick:1] selection=[base:1 quarry-upgrade:1 hard-pick:1 batch-limit:1] retained-copper=20000..40000mg",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt",
             "AGENCY SUMMARY worlds=3",

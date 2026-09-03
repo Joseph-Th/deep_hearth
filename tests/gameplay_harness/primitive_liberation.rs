@@ -4,12 +4,11 @@ use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
     ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_BOARD, FORM_REINFORCEMENT, FORM_SCRAP,
-    MANUAL_POWER_FOOT_TREADLE, MATERIAL_COPPER, MATERIAL_WOOD, PROCESS_CONCENTRATE_COPPER,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE,
-    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SCREEN_CRUSHED_ORE,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_SCRAP, FORM_SCREEN_PLATE, MANUAL_POWER_FOOT_TREADLE,
+    MATERIAL_COPPER, PROCESS_CONCENTRATE_COPPER, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SCREEN_CRUSHED_ORE,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -163,22 +162,56 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         &mut state,
         EQUIPMENT_STONE_ROTARY_QUERN,
     );
-    let screen_assembly = add_solid_stockpile(&mut state, Mass::from_milligrams(1_620_000));
-    seed_lot(
-        registries,
-        &mut state,
-        screen_assembly,
-        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-        Mass::from_milligrams(1_600_000),
-        ROOM_TEMPERATURE,
-    );
-    let screen_plate_source = add_solid_stockpile(&mut state, Mass::from_milligrams(20_000));
+    let plate_craft = registries
+        .crafting()
+        .get_manual(PROCESS_PIERCE_COPPER_SCREEN_PLATE)
+        .unwrap_or_else(|| panic!("primitive sizing-plate craft definition disappeared"));
+    let screen_assembly_profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_PLATE_SIZING_SCREEN)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("primitive sizing screen lost authored assembly"));
+    let screen_plate = plate_craft
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE))
+        .unwrap_or_else(|| panic!("primitive sizing-plate craft lost its screen-plate output"));
+    let byproduct_mass = plate_craft
+        .outputs()
+        .iter()
+        .filter(|output| output.commodity() != screen_plate.commodity())
+        .try_fold(Mass::ZERO, |total, output| total.checked_add(output.mass()))
+        .unwrap_or_else(|| panic!("primitive sizing-plate byproduct mass overflowed"));
+    let screen_assembly_capacity = screen_assembly_profile
+        .input_mass()
+        .checked_add(byproduct_mass)
+        .unwrap_or_else(|| panic!("primitive sizing-screen assembly capacity overflowed"));
+    let screen_assembly = add_solid_stockpile(&mut state, screen_assembly_capacity);
+    for input in screen_assembly_profile.inputs() {
+        if input.commodity() == screen_plate.commodity() {
+            assert_eq!(
+                input.mass(),
+                screen_plate.mass(),
+                "screen assembly must consume the authored sizing-plate craft output"
+            );
+            continue;
+        }
+        seed_lot(
+            registries,
+            &mut state,
+            screen_assembly,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let screen_plate_source = add_solid_stockpile(&mut state, plate_craft.input_mass());
     let screen_plate_input = seed_lot(
         registries,
         &mut state,
         screen_plate_source,
-        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-        Mass::from_milligrams(20_000),
+        plate_craft.input(),
+        plate_craft.input_mass(),
         ROOM_TEMPERATURE,
     );
     let separator =
@@ -209,7 +242,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         ManualCraftStartRequest::single(
             PROCESS_PIERCE_COPPER_SCREEN_PLATE,
             screen_plate_source,
-            MaterialLotSelection::new(screen_plate_input, Mass::from_milligrams(20_000)),
+            MaterialLotSelection::new(screen_plate_input, plate_craft.input_mass()),
             screen_assembly,
         ),
     )
@@ -228,6 +261,12 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         plate_duration,
         "primitive copper sizing plate",
     );
+    let authored_scrap = plate_craft
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
+        .map(|output| output.mass())
+        .unwrap_or(Mass::ZERO);
     assert_eq!(
         state
             .inventory()
@@ -235,8 +274,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             .map(|stockpile| {
                 stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
             }),
-        Some(Mass::from_milligrams(2_000)),
-        "piercing the sizing plate must retain its copper offcut as reworkable scrap"
+        Some(authored_scrap),
+        "piercing the sizing plate must retain its authored reworkable byproduct"
     );
     let screen = validate_assemble_equipment(
         registries,
@@ -264,12 +303,13 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         charge_work,
         "primitive liberation treadle charge",
     );
-    assert!(
+    assert_eq!(
         state
             .energy()
             .get_store(drive)
-            .is_some_and(|record| record.stored() >= Energy::from_nanojoules(700_000_000_000)),
-        "ordinary primitive charging must fund the bounded liberation batch"
+            .map(|record| record.stored()),
+        Some(drive_capacity),
+        "primitive treadle charge must deliver the requested full-drive work before processing"
     );
     let crush = resolve_comminution_process(
         registries,
@@ -411,6 +451,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         ),
     )
     .unwrap_or_else(|error| panic!("primitive concentration failed: {error}"));
+    let resolved_concentrate_mass = separated.target_mass();
+    let resolved_tailings_mass = separated.residue_mass();
     let separation_job = validate_start_process_routed(
         registries,
         &state,
@@ -438,24 +480,42 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         "primitive concentration",
     );
 
-    let concentrate_record = state
+    let concentrate_mass = state
+        .inventory()
+        .get_stockpile(concentrate)
+        .map(|record| record.stored_mass())
+        .unwrap_or_else(|| panic!("primitive concentrate stockpile disappeared"));
+    let tailings_mass = state
+        .inventory()
+        .get_stockpile(tailings)
+        .map(|record| record.stored_mass())
+        .unwrap_or_else(|| panic!("primitive tailings stockpile disappeared"));
+    assert_eq!(
+        concentrate_mass, resolved_concentrate_mass,
+        "primitive concentrate custody must match the canonical separation result"
+    );
+    assert_eq!(
+        tailings_mass, resolved_tailings_mass,
+        "primitive tailings custody must match the canonical separation result"
+    );
+    assert!(!concentrate_mass.is_zero());
+    assert!(!tailings_mass.is_zero());
+    let concentrate_copper_ppm_mg = state
         .inventory()
         .lot_ids(concentrate)
-        .next()
-        .and_then(|lot| state.inventory().get_lot(lot))
-        .unwrap_or_else(|| panic!("primitive concentration produced no concentrate"));
-    assert!(
-        concentrate_record
-            .composition()
-            .parts_per_million(MATERIAL_COPPER)
-            > copper_ppm
-    );
-    assert!(
-        state
-            .inventory()
-            .get_stockpile(tailings)
-            .is_some_and(|record| !record.stored_mass().is_zero())
-    );
+        .map(|lot| {
+            let record = state
+                .inventory()
+                .get_lot(lot)
+                .unwrap_or_else(|| panic!("primitive concentrate lot disappeared"));
+            u128::from(record.mass().milligrams())
+                * u128::from(record.composition().parts_per_million(MATERIAL_COPPER))
+        })
+        .sum::<u128>();
+    let concentrate_grade_ppm =
+        u32::try_from(concentrate_copper_ppm_mg / u128::from(concentrate_mass.milligrams()))
+            .unwrap_or_else(|_| panic!("primitive concentrate grade exceeded normalized range"));
+    assert!(concentrate_grade_ppm > copper_ppm);
     assert!(
         state
             .energy()
@@ -484,10 +544,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .get_store(drive)
         .map(|record| record.stored())
         .unwrap_or_else(|| panic!("primitive liberation drive disappeared after completion"));
-    let concentrate_grade_ppm = concentrate_record
-        .composition()
-        .parts_per_million(MATERIAL_COPPER);
-    std::println!(
+    reviewln!(
         "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} route=treadle+paired-flywheel->crusher->quern->copper-screen->regrind->separator input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate-grade={}ppm stored-work-remaining={}nJ machinery-worn=true matter=conserved",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),

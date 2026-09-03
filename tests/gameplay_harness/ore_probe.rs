@@ -28,7 +28,8 @@ use deep_hearth::ore_processing::{
     ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
     ConstituentSeparationResolutionError, ScreeningBatchError, ScreeningProcessDefinition,
     ScreeningRequest, ScreeningResolutionError, resolve_comminution_process,
-    resolve_constituent_separation_process, resolve_screening_process,
+    resolve_constituent_separation_process, resolve_representable_screening_mass,
+    resolve_screening_process,
 };
 use deep_hearth::production::{
     ProcessId, ProcessOutputRoute, validate_start_process, validate_start_process_routed,
@@ -102,7 +103,7 @@ fn report_ore_energy_stop(
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("ore preparation drive disappeared at energy-limited stop"));
     assert_eq!(stored, available);
-    std::println!(
+    reviewln!(
         "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=stopped stage={stage} blocker=finite-energy available={}nJ requested={}nJ tick={} matter=conserved",
         case.seed(),
         focused_probe_role_label(case.role()),
@@ -135,7 +136,7 @@ fn report_ore_runtime_stop(
         initial_matter,
         "runtime-limited ore preparation must conserve represented matter before stopping"
     );
-    std::println!(
+    reviewln!(
         "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=stopped stage={stage} blocker={} tick={} matter=conserved",
         case.seed(),
         focused_probe_role_label(case.role()),
@@ -148,9 +149,10 @@ fn report_ore_runtime_stop(
 #[path = "ore_probe_stages.rs"]
 mod stages;
 use stages::{
-    ComminutionStageRequest, PoweredStageResult, RegrindStageResult, ScreeningStageRequest,
-    ScreeningStageResult, assert_anchor_route_boundaries, execute_comminution_stage,
-    execute_concentration_stage, execute_regrind_stage, execute_screening_stage,
+    ComminutionStageRequest, ConcentrationStageResult, PoweredStageResult, RegrindStageResult,
+    ScreeningStageRequest, ScreeningStageResult, assert_anchor_route_boundaries,
+    execute_comminution_stage, execute_concentration_stage, execute_regrind_stage,
+    execute_screening_stage,
 };
 
 #[path = "ore_completion.rs"]
