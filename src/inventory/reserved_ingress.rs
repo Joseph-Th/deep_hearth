@@ -97,6 +97,11 @@ impl ReservedDepositPlan {
         self.expected_revision
     }
 
+    #[must_use]
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Fails closed if an internally produced deposit plan no longer has one identity and merge
     /// policy for every material output. Cross-owner transactions call this before any mutation.
     pub(crate) fn assert_well_formed(&self) {

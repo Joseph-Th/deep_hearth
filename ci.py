@@ -70,17 +70,6 @@ ORDINARY_GAMEPLAY_REPORT_PREFIXES = (
     "CONTENT ACQUISITION EDGES ",
     "EVIDENCE CONTRACT ",
 )
-ORDINARY_PROBE_REVIEW_PREFIXES = (
-    ("survival-provisioning", "SURVIVAL EXPERIENCE "),
-    ("primitive-progression", "PROGRESSION FALLBACK "),
-    ("primitive-progression", "PROGRESSION EXPERIENCE "),
-    ("primitive-progression", "LIBERATION EXPERIENCE "),
-    ("woodworking", "WOODWORKING EXPERIENCE "),
-    ("fieldwork", "FIELDWORK EXPERIENCE "),
-)
-FOCUSED_REPLAY_CASE = re.compile(
-    r"\b(?P<role>anchor|coverage|organic|replay):(?P<seed>0x[0-9A-Fa-f]+)"
-)
 GAMEPLAY_REPLAY_ROOTS = re.compile(
     r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
 )
@@ -160,58 +149,6 @@ def combined_test_summary(stdout: str) -> str | None:
     return detail
 
 
-def representative_probe_seeds(probe_lines: list[str]) -> set[str]:
-    """Choose one maintained and one organic case for concise exploratory output."""
-
-    cases = [
-        (match.group("role"), match.group("seed").upper())
-        for line in probe_lines
-        for match in FOCUSED_REPLAY_CASE.finditer(line)
-    ]
-    selected: list[str] = []
-    for role in ("anchor", "organic"):
-        if seed := next((seed for candidate, seed in cases if candidate == role), None):
-            selected.append(seed)
-    if not selected and cases:
-        selected.append(cases[0][1])
-    return set(selected)
-
-
-def contrasting_probe_seeds(
-    probe_lines: list[str], experience_lines: list[str], dimensions: tuple[tuple[str, ...], ...]
-) -> set[str]:
-    """Choose the anchor and the most informative contrasting bounded episode."""
-
-    fallback = representative_probe_seeds(probe_lines)
-    anchor = next((line for line in experience_lines if " sample=anchor " in line), None)
-    alternatives = [line for line in experience_lines if line is not anchor]
-    if anchor is None or not alternatives:
-        return fallback
-
-    def signature(line: str) -> tuple[int, ...]:
-        return tuple(
-            next((index for index, marker in enumerate(options) if marker in line), -1)
-            for options in dimensions
-        )
-
-    anchor_signature = signature(anchor)
-    contrast = max(
-        alternatives,
-        key=lambda line: (
-            sum(
-                candidate != baseline
-                for candidate, baseline in zip(signature(line), anchor_signature, strict=True)
-                if candidate >= 0 and baseline >= 0
-            ),
-            " sample=organic " in line,
-        ),
-    )
-    return {
-        anchor.split(" seed=", 1)[1].split(maxsplit=1)[0].upper(),
-        contrast.split(" seed=", 1)[1].split(maxsplit=1)[0].upper(),
-    }
-
-
 def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
     """Summarize all bounded ordinary-play samples without dumping every episode."""
 
@@ -238,6 +175,22 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             for line in survival
             if (match := re.search(r"\bcandidates:(\d+)", line)) is not None
         ]
+        preservation_opportunity_origins = {
+            int(match.group(1))
+            for line in survival
+            if (match := re.search(r"\braw-opportunity=\[origin:(\d+)", line)) is not None
+        }
+        physical_frontier_counts = [
+            int(match.group(1))
+            for line in survival
+            if (match := re.search(r"\bfrontier=\[physical:(\d+)/(\d+)", line)) is not None
+        ]
+        policy_reachable_counts = [
+            int(match.group(1))
+            for line in survival
+            if (match := re.search(r"\bpolicy-reachable:(\d+)/(\d+)", line)) is not None
+        ]
+        count_span = lambda values: f"{min(values)}..{max(values)}" if values else "n/a"
         summaries.append(
             "SURVIVAL DIVERSITY "
             f"samples={len(survival)} "
@@ -246,7 +199,13 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             f"diet=[balanced-recovery:{count('diet:balanced-recovery')} compact-calories:{count('diet:compact-calories')}] "
             f"preservation=[attention-efficient:{count('storage-policy:attention-efficient')} balanced-frontier:{count('storage-policy:balanced-frontier')} maximum-protection:{count('storage-policy:maximum-protection')}] "
             f"reserve={reserve_span} "
-            f"capacity-singleton:{sum(candidate_count == 1 for candidate_count in preservation_candidate_counts)}"
+            f"raw-opportunities:{len(preservation_opportunity_origins)} "
+            f"raw-material=[timber:{count('wood/log')} stone:{count('stone/lump')}] "
+            f"raw-mode=[choice-rich:{count('mode:choice-rich-timber')} scarce:{count('mode:scarce-timber')} alternate:{count('mode:alternate-material')}] "
+            f"candidates={count_span(preservation_candidate_counts)} "
+            f"physical-frontier={count_span(physical_frontier_counts)} "
+            f"policy-reachable={count_span(policy_reachable_counts)} "
+            f"capacity-or-material-singleton:{sum(candidate_count == 1 for candidate_count in preservation_candidate_counts)}"
         )
     if progression:
         count = lambda marker: sum(marker in line for line in progression)
@@ -276,8 +235,9 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             f"samples={len(woodworking)} "
             f"choice=[adze:{count('choice=stone-adze')} saw:{count('choice=frame-saw')}] "
             f"policy=[copper:{count('preference=conserve-scarce-copper')} timber:{count('preference=conserve-timber')}] "
-            f"saw=[fundable:{count('saw-fundable:true')} timber-saving:{count('saw-saves-timber:true')}] "
-            f"decision=[copper-blocked:{count('reason=copper-supply-limited')} no-timber-savings:{count('reason=current-board-demand-no-timber-savings')} copper-conserved:{count('reason=policy-conserves-scarce-copper')}]"
+            f"saw=[fundable:{count(' fundable:true ')} attention-payback:{count('attention-payback:true')} net-timber-payback:{count('net-timber-payback:true')}] "
+            f"lifecycle=[copper-fallback:{count('fallback-copper:true')} saw-service:{sum(bool(re.search(r'saw-services:[1-9][0-9]*', line)) for line in woodworking)}] "
+            f"decision=[copper-blocked:{count('reason=copper-supply-limited')} reserve-protected:{count('reason=copper-reserve-protected')} timber-horizon:{count('reason=pipeline-too-short-for-net-timber-payback')} attention-horizon:{count('reason=pipeline-too-short-for-attention-payback')} attention-invest:{count('reason=surplus-copper-attention-payback')} timber-invest:{count('reason=pipeline-net-timber-payback')}]"
         )
     if fieldwork:
         count = lambda marker: sum(marker in line for line in fieldwork)
@@ -359,6 +319,11 @@ def controlled_gameplay_summary(lines: list[str]) -> list[str]:
         if line.startswith("CAPABILITY FOUNDRY ") or line.startswith("FOUNDRY REVIEW ")
     ]
     if foundry:
+        recovery_casts = sum(
+            (match := re.search(r"\brecovery-cast=(\d+)mg", line)) is not None
+            and int(match.group(1)) > 0
+            for line in foundry
+        )
         summaries.append(
             "FOUNDRY CAPABILITY SUMMARY "
             f"samples={len(foundry)} "
@@ -366,13 +331,14 @@ def controlled_gameplay_summary(lines: list[str]) -> list[str]:
             f"partial={sum(' outcome=partial-order-' in line for line in foundry)} "
             f"melt-limited={sum('melt-limit=finite-energy' in line for line in foundry)} "
             f"cast-capacity-limited={sum('cast-limit=thermal-sink-capacity' in line for line in foundry)} "
-            f"cooldown-recovery={sum('outcome=full-order-recovered-after-cooldown' in line for line in foundry)}"
+            f"cooldown-recovery={recovery_casts} "
+            f"full-after-cooldown={sum('outcome=full-order-recovered-after-cooldown' in line for line in foundry)}"
         )
     return summaries
 
 
 def concise_gameplay_report(stdout: str, environ=None) -> str:
-    """Keep player experience and compact capability evidence; verbose retains full diagnostics."""
+    """Keep aggregate player/capability evidence; verbose retains the per-case transcript."""
 
     environment = os.environ if environ is None else environ
     if environment.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is not None or environment.get(
@@ -380,111 +346,12 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ) is not None:
         return stdout.rstrip()
     lines = stdout.splitlines()
-    ordinary_probe_inputs = {
-        probe: [
-            line
-            for line in lines
-            if line.startswith(f"PROBE INPUT name={probe} ")
-        ]
-        for probe, _prefix in ORDINARY_PROBE_REVIEW_PREFIXES
-    }
-    survival_experiences = [
-        line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")
-    ]
-    progression_experiences = [
-        line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")
-    ]
-    woodworking_experiences = [
-        line for line in lines if line.startswith("WOODWORKING EXPERIENCE ")
-    ]
-    fieldwork_experiences = [
-        line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")
-    ]
-    visible_seeds = {
-        "survival-provisioning": contrasting_probe_seeds(
-            ordinary_probe_inputs.get("survival-provisioning", []),
-            survival_experiences,
-            (
-                ("pressure=hydration", "pressure=energy"),
-                ("state:supply-constrained", "state:policy-sensitive"),
-                ("diet:balanced-recovery", "diet:compact-calories"),
-                ("storage-policy:attention-efficient", "storage-policy:maximum-protection"),
-            ),
-        ),
-        "primitive-progression": contrasting_probe_seeds(
-            ordinary_probe_inputs.get("primitive-progression", []),
-            progression_experiences,
-            (
-                ("information=surface-resolved", "information=deferred-refinement"),
-                ("economics:setup-repaid", "economics:opportunity-ended-before-payback"),
-                (
-                    "next-reinvestment=[available",
-                    "next-reinvestment=[blocked:known-target-supply]",
-                ),
-            ),
-        ),
-        "woodworking": contrasting_probe_seeds(
-            ordinary_probe_inputs.get("woodworking", []),
-            woodworking_experiences,
-            (
-                ("choice=stone-adze", "choice=frame-saw"),
-                (
-                    "preference=conserve-scarce-copper",
-                    "preference=conserve-timber",
-                ),
-                ("saw-fundable:true", "saw-fundable:false"),
-                ("saw-saves-timber:true", "saw-saves-timber:false"),
-                (
-                    "reason=policy-conserves-scarce-copper",
-                    "reason=copper-supply-limited",
-                    "reason=current-board-demand-no-timber-savings",
-                    "reason=timber-demand-justifies-saw",
-                ),
-            ),
-        ),
-        "fieldwork": contrasting_probe_seeds(
-            ordinary_probe_inputs.get("fieldwork", []),
-            fieldwork_experiences,
-            (
-                (
-                    "geology=quarry-soft",
-                    "geology=quarry-reinforcement",
-                    "geology=hard-pick-specialist",
-                ),
-                (
-                    "tool=stone-quarry",
-                    "tool=copper-reinforced-quarry",
-                    "tool=copper-reinforced-hard-pick",
-                ),
-                (
-                    "adaptation=sampled-hardness-base-quarry",
-                    "adaptation=sampled-hardness-quarry-upgrade",
-                    "adaptation=sampled-hardness-hard-pick",
-                    "adaptation=sampled-hardness-hard-pick+batch-limit",
-                ),
-            ),
-        ),
-    }
-    ordinary_input_lines = {
-        line for probe_lines in ordinary_probe_inputs.values() for line in probe_lines
-    }
     selected = [
         line
         for line in lines
         if line.startswith(ORDINARY_GAMEPLAY_REPORT_PREFIXES)
         or line.startswith("EVALUATION SCOPE kind=ordinary-play ")
         or line.startswith("EVALUATION SCOPE kind=controlled-capability ")
-        or line in ordinary_input_lines
-        or (
-            any(
-                line.startswith(prefix)
-                and any(
-                    f"SEED={seed}" in line.upper()
-                    for seed in visible_seeds.get(probe, set())
-                )
-                for probe, prefix in ORDINARY_PROBE_REVIEW_PREFIXES
-            )
-        )
     ]
     selected.extend(ordinary_gameplay_diversity(lines))
     selected.extend(controlled_gameplay_summary(lines))
@@ -504,7 +371,10 @@ def quick_plan() -> list[tuple[str, list[str]]]:
             "repository contracts",
             [sys.executable, "tools/check_authority_docs.py"],
         ),
-        ("local CI contracts", [sys.executable, "tools/test_ci.py"]),
+        (
+            "local CI contracts",
+            [sys.executable, "-m", "unittest", "tools.test_ci", "-q"],
+        ),
     ]
 
 

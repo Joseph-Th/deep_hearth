@@ -959,9 +959,21 @@ pub(crate) fn run_scenario(
     finalize_episode(registries, episode)
 }
 
+fn exploratory_root(seed: u64) -> u64 {
+    #[cfg(test)]
+    {
+        seed
+    }
+    #[cfg(not(test))]
+    {
+        fresh_root(seed)
+    }
+}
+
 /// Runs the bootstrapped industrial workshop capability matrix.
 pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let registries = build_registries();
+    #[cfg(not(test))]
     let verbose = has_verbose_output();
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
@@ -971,17 +983,15 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         ScenarioPlanMode::Gate => {
             let mode_salt = 0x4741_5445_5EED_2026_u64;
             (
-                fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt),
-                fresh_root(
-                    MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
-                ),
+                MAINTAINED_VARIATION_ROOT ^ mode_salt,
+                MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
             )
         }
         ScenarioPlanMode::Explore => {
             let mode_salt = 0x4558_504C_5EED_2026_u64;
             (
-                fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt),
-                fresh_root(
+                exploratory_root(MAINTAINED_VARIATION_ROOT ^ mode_salt),
+                exploratory_root(
                     MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
                 ),
             )
@@ -1014,7 +1024,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         );
         if verbose {
             std::println!(
-                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-regressions+one-fresh-replayable-organic exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+LIBERATION-EXPERIENCE+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-deterministic-regressions explicit-replay=optional-bounded-variation exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+LIBERATION-EXPERIENCE+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
             );
         }
     }
@@ -1066,10 +1076,8 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         "gate"
     };
     #[cfg(test)]
-    let output_label = if verbose { "verbose" } else { "concise" };
-    #[cfg(test)]
     std::println!(
-        "HARNESS RESULT mode={mode_label} output={output_label} scenarios={} complete={} productive={} terminal=[structure:{} maintenance:{} energy:{}]",
+        "HARNESS RESULT mode={mode_label} scenarios={} complete={} productive={} terminal=[structure:{} maintenance:{} energy:{}]",
         reports.len(),
         reports
             .iter()

@@ -4,13 +4,16 @@ use std::collections::BTreeSet;
 use std::env;
 
 use super::configuration::MaintainedAnchor;
+#[cfg(not(test))]
 use super::fresh_seed::fresh_root;
+#[cfg(not(test))]
 use super::output::has_verbose_output;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
     ScenarioReport, StructuralPreference,
 };
 use super::scenario::ScenarioVariation;
+#[cfg(not(test))]
 use super::seed::MAINTAINED_VARIATION_ROOT;
 use super::seed::mix64;
 use super::seed_input::parse_seed;
@@ -89,6 +92,7 @@ enum AgencyFocus {
 }
 
 impl AgencyFocus {
+    #[cfg(not(test))]
     const fn label(self) -> &'static str {
         match self {
             Self::PowerAndStructure => "power+structure",
@@ -225,6 +229,7 @@ enum AgencyEvidence {
 }
 
 impl AgencyEvidence {
+    #[cfg(not(test))]
     const fn label(self) -> &'static str {
         match self {
             Self::Actionable => "actionable",
@@ -300,6 +305,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     let mut organic_terminal_worlds = 0_usize;
     let mut organic_dormant_worlds = 0_usize;
     for world in worlds {
+        #[cfg(not(test))]
         let focus = world.focus.label();
         let world_seed = world.world_seed;
         let behavior_seed = mix64(world_seed ^ 0xA63E_4E43_5900_0001);
@@ -367,11 +373,13 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             .map(|(_, report)| report.progress.processed_mass.milligrams())
             .min()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let episode_end_min = reports
             .iter()
             .map(|(_, report)| report.resources.episode_end_tick)
             .min()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let episode_end_max = reports
             .iter()
             .map(|(_, report)| report.resources.episode_end_tick)
@@ -382,60 +390,72 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             .map(|(_, report)| report.progress.processed_mass.milligrams())
             .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let high_power_min = reports
             .iter()
             .map(|(_, report)| report.choices.large_drive_batches)
             .min()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let high_power_max = reports
             .iter()
             .map(|(_, report)| report.choices.large_drive_batches)
             .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let service_min = reports
             .iter()
             .map(|(_, report)| report.maintenance.services)
             .min()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let service_max = reports
             .iter()
             .map(|(_, report)| report.maintenance.services)
             .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let condition_min = reports
             .iter()
             .map(|(_, report)| report.resources.final_condition_ppm)
             .min()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let condition_max = reports
             .iter()
             .map(|(_, report)| report.resources.final_condition_ppm)
             .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let manual_min = reports
             .iter()
             .map(|(_, report)| report.choices.manual_recharges)
             .min()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let manual_max = reports
             .iter()
             .map(|(_, report)| report.choices.manual_recharges)
             .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let adaptive_min = reports
             .iter()
             .map(|(_, report)| report.progress.adaptive_batch_operations)
             .min()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let adaptive_max = reports
             .iter()
             .map(|(_, report)| report.progress.adaptive_batch_operations)
             .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let relocations = reports
             .iter()
             .filter(|(_, report)| report.structure.support_relocation)
             .count();
+        #[cfg(not(test))]
         let suspensions = reports
             .iter()
             .filter(|(_, report)| report.structure.production_suspension)
@@ -452,11 +472,13 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
         assert_eq!(elapsed_min, comparison_horizon);
         assert_eq!(elapsed_max, comparison_horizon);
+        #[cfg(not(test))]
         let survival_energy_min = reports
             .iter()
             .map(|(_, report)| report.resources.metabolic_energy_spent.nanojoules())
             .min()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        #[cfg(not(test))]
         let survival_energy_max = reports
             .iter()
             .map(|(_, report)| report.resources.metabolic_energy_spent.nanojoules())
@@ -527,7 +549,9 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                 AgencyEvidence::DormantPolicyPressure => organic_dormant_worlds += 1,
             }
         }
+        #[cfg(not(test))]
         let evidence = evidence.label();
+        #[cfg(not(test))]
         if has_verbose_output() {
             std::println!(
                 "AGENCY focus={focus} world=0x{world_seed:016X} variants={} physical-paths={} evidence={evidence} horizon={}t actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} episode-end:{}..{}t survival-energy:{}..{}nJ]",
@@ -636,13 +660,18 @@ fn organic_agency_worlds(variation_root: u64, count: usize) -> Vec<AgencyWorld> 
     worlds
 }
 
-fn replayable_agency_root() -> u64 {
+fn configured_agency_root() -> Option<u64> {
     env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
         .ok()
         .map(|raw| {
             parse_seed(&raw)
                 .unwrap_or_else(|| panic!("agency gameplay variation seed is invalid: {raw:?}"))
         })
+}
+
+#[cfg(not(test))]
+fn exploratory_agency_root() -> u64 {
+    configured_agency_root()
         .unwrap_or_else(|| fresh_root(MAINTAINED_VARIATION_ROOT ^ 0xA63E_4E43_595F_4652))
 }
 
@@ -669,17 +698,25 @@ fn maintained_agency_worlds() -> Vec<AgencyWorld> {
 #[cfg(test)]
 pub(super) fn run_gameplay_agency_counterfactuals() {
     let registries = build_registries();
-    let variation_root = replayable_agency_root();
-    std::println!("AGENCY INPUT mode=gate organic=1 variation_root=0x{variation_root:016X}");
+    let variation_root = configured_agency_root();
     let mut worlds = maintained_agency_worlds();
-    worlds.extend(organic_agency_worlds(variation_root, 1));
+    if let Some(root) = variation_root {
+        worlds.extend(organic_agency_worlds(root, 1));
+    }
+    let variation_label = variation_root
+        .map(|root| format!("0x{root:016X}"))
+        .unwrap_or_else(|| "n/a".to_owned());
+    std::println!(
+        "AGENCY INPUT mode=gate organic={} variation_root={variation_label}",
+        usize::from(variation_root.is_some())
+    );
     run_agency_probe(&registries, &worlds);
 }
 
 #[cfg(not(test))]
 pub(super) fn run_exploratory_agency_counterfactuals() {
     let registries = build_registries();
-    let variation_root = replayable_agency_root();
+    let variation_root = exploratory_agency_root();
     std::println!("AGENCY INPUT mode=explore organic=3 variation_root=0x{variation_root:016X}");
     let organic = organic_agency_worlds(variation_root, 3);
     let mut worlds = maintained_agency_worlds();

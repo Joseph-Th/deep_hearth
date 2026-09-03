@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::core::arithmetic::greatest_common_divisor_u64;
 use crate::core::quantity::{Mass, Temperature};
 use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{
@@ -213,15 +214,6 @@ fn split_group_mass(
     Ok((undersize, oversize))
 }
 
-fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left
-}
-
 pub(super) fn representable_screening_mass_floor(
     definition: ScreeningProcessDefinition,
     distribution: &ParticleSizeDistribution,
@@ -239,7 +231,8 @@ pub(super) fn representable_screening_mass_floor(
             aperture: definition.aperture(),
         });
     }
-    let quantum = total_weight / greatest_common_divisor(classified.undersize_weight, total_weight);
+    let quantum =
+        total_weight / greatest_common_divisor_u64(classified.undersize_weight, total_weight);
     let representable = requested.milligrams() - requested.milligrams() % quantum;
     Ok(Mass::from_milligrams(representable))
 }

@@ -50,7 +50,7 @@ fn validate_output_stream(
     let mut previous_output = None;
     for output in &stream.outputs {
         validate_output_spec(id, output)?;
-        if !seen_outputs.insert(output.clone()) {
+        if !seen_outputs.insert(output) {
             return Err(ProductionValidationError::DuplicateOutputSpecification { job: id });
         }
         if previous_output.is_some_and(|previous: &MaterialLotSpec| previous > output) {

@@ -16,7 +16,7 @@ Use the smallest lane that completely proves the changed contract.
 | List tests without building | `python tools/run_test.py --list [substring]` |
 | Type-check an integration target without linking | `python tools/run_test.py --check --target <integration-target>` |
 | Run one exact unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
-| Show one selected test's review output | `python tools/run_test.py --verbose <qualified-name-or-unique-substring>` |
+| Show one selected test's captured stdout | `python tools/run_test.py --verbose <qualified-name-or-unique-substring>` |
 | Run one owner/subsystem test group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Focused gameplay | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
 | Core audit | `python ci.py audit --core` |
@@ -35,13 +35,13 @@ default compile. `audit` checkpoints add `quick` to the selected runtime surface
 
 While code is unstable, use `cargo check-fast` or `run_test.py --check`, then one exact/suite or focused proof.
 Reuse warm artifacts; never prebuild all targets. Broad gameplay builds one `gameplay_audit` crate. Routine gates
-keep maintained regression/coverage cases plus one fresh replayable organic case; `report` expands that bounded
-sample for exploration.
+run only maintained deterministic regression/coverage cases. Explicit replay roots may add one bounded variation
+case when needed; `report` owns fresh organic exploration.
 
 Without `--target`, `run_test.py` resolves tests from source without Cargo and chooses the smallest complete
 explicit target. Pin `--target` only to reuse a warm failed binary or force an integration boundary. `--check`
-always requires an explicit integration target. Exact tests are quiet by default; `--verbose` implies
-`--nocapture` and enables gameplay review lines without changing the Cargo feature shape or forcing a rebuild.
+always requires an explicit integration target. Exact tests are quiet by default; `--verbose` implies `--nocapture`. Detailed gameplay narration is report-only,
+so focused test binaries do not code-generate review/trace formatting that the repair loop normally discards.
 
 ## Evidence ladder
 
@@ -132,9 +132,14 @@ Automated-player boundaries/evidence semantics live in [`GAMEPLAY_EVALUATION.md`
 it only for gameplay-harness behavior or interpretation.
 
 Focused gameplay targets are compile surfaces, not contract collections. Each focused target exposes exactly one
-gate/probe and imports only support needed by that episode. Cheap cross-cutting contracts belong in
-`gameplay_contracts`; broad gameplay contracts belong in the consolidated `gameplay_audit` target. This prevents
-Cargo from code-generating unrelated tests when one gameplay loop is under repair.
+gate/probe and imports only support needed by that episode. Default gates are deterministic and do not generate
+fresh worlds; use explicit replay roots for one additional bounded case or `report` for organic exploration. Cheap
+cross-cutting contracts belong in `gameplay_contracts`; broad gameplay contracts belong in the consolidated
+`gameplay_audit` target. This prevents Cargo from code-generating unrelated tests when one gameplay loop is under
+repair. The default report is an aggregate experience summary; use `DEEP_HEARTH_GAMEPLAY_VERBOSE=1 python ci.py
+report` when judging individual preservation frontiers, woodworking lifecycle/payback, or fieldwork decisions.
+Verbose ordinary traces pair exact ticks with physical durations where attention cost is part of the player
+tradeoff.
 
 ## Completion
 

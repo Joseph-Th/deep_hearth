@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
+use crate::energy::{EnergyStoreOccupancy, energy_store_occupancy};
 use crate::registry::Registries;
 
-use super::get_energy_store_occupant;
 use crate::energy::definitions::{EnergyCarrier, EnergyStoreDefinitionId};
 use crate::energy::state::{EnergyState, EnergyStoreId};
 
@@ -145,19 +145,18 @@ pub(crate) fn validate_energy_sink_access(
     if definition.max_input_power().is_zero() {
         return Err(EnergySinkError::NoInputPower { store });
     }
-    if let Some((job, release)) = get_energy_store_occupant(state, store) {
-        return Err(EnergySinkError::StoreBusy {
-            store,
-            job,
-            release,
-        });
-    }
-    if state
-        .player_work()
-        .get_manual_power_energy_occupant(store)
-        .is_some()
-    {
-        return Err(EnergySinkError::StoreBusyManualPower { store });
+    match energy_store_occupancy(state, store) {
+        Some(EnergyStoreOccupancy::Production { job, release }) => {
+            return Err(EnergySinkError::StoreBusy {
+                store,
+                job,
+                release,
+            });
+        }
+        Some(EnergyStoreOccupancy::ManualPower) => {
+            return Err(EnergySinkError::StoreBusyManualPower { store });
+        }
+        None => {}
     }
     Ok(ValidatedEnergySinkAccess {
         expected_revision: state.energy().revision(),

@@ -12,7 +12,7 @@ use crate::inventory::{
 };
 use crate::registry::Registries;
 
-use super::EnergyStoreId;
+use super::{EnergyStoreId, EnergyStoreOccupancy, energy_store_occupancy};
 
 mod errors;
 
@@ -109,20 +109,19 @@ impl ValidatedEnergyStoreDisassembly {
         {
             return Err(EnergyStoreDisassemblyCommitError::StoreChanged { store: self.store });
         }
-        if let Some(job) = state.production().get_energy_occupant(self.store) {
-            return Err(EnergyStoreDisassemblyCommitError::StoreBusyProduction {
-                store: self.store,
-                job,
-            });
-        }
-        if state
-            .player_work()
-            .get_manual_power_energy_occupant(self.store)
-            .is_some()
-        {
-            return Err(EnergyStoreDisassemblyCommitError::StoreBusyManualPower {
-                store: self.store,
-            });
+        match energy_store_occupancy(state, self.store) {
+            Some(EnergyStoreOccupancy::Production { job, .. }) => {
+                return Err(EnergyStoreDisassemblyCommitError::StoreBusyProduction {
+                    store: self.store,
+                    job,
+                });
+            }
+            Some(EnergyStoreOccupancy::ManualPower) => {
+                return Err(EnergyStoreDisassemblyCommitError::StoreBusyManualPower {
+                    store: self.store,
+                });
+            }
+            None => {}
         }
         self.ingress.assert_matches_state(state.inventory());
         state.energy().assert_removal_available(
@@ -164,29 +163,18 @@ pub fn validate_disassemble_energy_store(
             stored: record.stored(),
         });
     }
-    if let Some(job) = state.production().get_energy_occupant(store) {
-        let release = state
-            .production()
-            .get_job(job)
-            .unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: energy occupancy references missing production job {}",
-                    job.value()
-                )
-            })
-            .occupancy_release();
-        return Err(EnergyStoreDisassemblyError::StoreBusyProduction {
-            store,
-            job,
-            release,
-        });
-    }
-    if state
-        .player_work()
-        .get_manual_power_energy_occupant(store)
-        .is_some()
-    {
-        return Err(EnergyStoreDisassemblyError::StoreBusyManualPower { store });
+    match energy_store_occupancy(state, store) {
+        Some(EnergyStoreOccupancy::Production { job, release }) => {
+            return Err(EnergyStoreDisassemblyError::StoreBusyProduction {
+                store,
+                job,
+                release,
+            });
+        }
+        Some(EnergyStoreOccupancy::ManualPower) => {
+            return Err(EnergyStoreDisassemblyError::StoreBusyManualPower { store });
+        }
+        None => {}
     }
 
     let ingress = validate_material_ingress(

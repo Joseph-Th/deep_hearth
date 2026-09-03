@@ -10,6 +10,26 @@ pub(crate) const fn greatest_common_divisor_u32(mut left: u32, mut right: u32) -
     left
 }
 
+/// Greatest common divisor for canonical `u64` ratio normalization.
+pub(crate) const fn greatest_common_divisor_u64(mut left: u64, mut right: u64) -> u64 {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    left
+}
+
+/// Greatest common divisor for canonical `u128` ratio normalization.
+pub(crate) const fn greatest_common_divisor_u128(mut left: u128, mut right: u128) -> u128 {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    left
+}
+
 /// Calculates `value * multiplier / divisor` plus the exact carried remainder without requiring
 /// the full-width product to fit in `u128`.
 ///

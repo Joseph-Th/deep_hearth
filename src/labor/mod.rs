@@ -7,6 +7,7 @@ mod power_execution;
 mod power_physics;
 mod state;
 mod validation;
+mod work;
 mod work_resources;
 
 pub use definitions::{
@@ -18,11 +19,12 @@ pub use power_execution::{
     ManualPowerCommitError, ManualPowerError, ManualPowerOutcome, ManualPowerRequest,
     ValidatedManualPowerStart, validate_start_manual_power,
 };
-pub use state::{
-    DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerWork,
-    PlayerWorkState, ProspectingWork, StorageEnclosureDismantlingWork,
-};
+pub use state::PlayerWorkState;
 pub use validation::PlayerWorkValidationError;
+pub use work::{
+    DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerWork,
+    ProspectingWork, StorageEnclosureDismantlingWork,
+};
 pub use work_resources::PlayerWorkResourceBudget;
 
 pub(crate) use attention::{

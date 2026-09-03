@@ -3,11 +3,51 @@
 use crate::capability::CapabilityId;
 use crate::core::quantity::{Mass, MassFlow, MassSpecificEnergy};
 use crate::energy::EnergyCarrier;
-use crate::material::{CommodityKey, FormId, MaterialId, ParticleSizeRange};
+use crate::material::{
+    COMPOSITION_PARTS_PER_MILLION, CommodityKey, FormId, MaterialId, ParticleSizeRange,
+};
 use crate::production::ProcessId;
 use crate::survival::SurvivalExertion;
 
-use super::{ConstituentRecoveryProfile, ManualOreProcessProfile, PoweredOreProcessProfile};
+use super::{ManualOreProcessProfile, PoweredOreProcessProfile};
+
+/// Authored selectivity of one constituent-separation pass.
+///
+/// Target recovery must be nonzero and strictly exceed non-target recovery so the operation always
+/// enriches target content rather than merely relabeling an arbitrary split of the feed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConstituentRecoveryProfile {
+    target_ppm: u32,
+    non_target_ppm: u32,
+}
+
+impl ConstituentRecoveryProfile {
+    #[must_use]
+    pub const fn new(target_ppm: u32, non_target_ppm: u32) -> Self {
+        assert!(
+            target_ppm != 0 && target_ppm <= COMPOSITION_PARTS_PER_MILLION,
+            "constituent separation target recovery must be within 1..=1,000,000 ppm"
+        );
+        assert!(
+            non_target_ppm < target_ppm,
+            "constituent separation non-target recovery must be below target recovery"
+        );
+        Self {
+            target_ppm,
+            non_target_ppm,
+        }
+    }
+
+    #[must_use]
+    pub const fn target_ppm(self) -> u32 {
+        self.target_ppm
+    }
+
+    #[must_use]
+    pub const fn non_target_ppm(self) -> u32 {
+        self.non_target_ppm
+    }
+}
 
 /// Immutable declaration that one selected-batch process separates an authored target constituent
 /// from physically liberated particulate feed.

@@ -15,6 +15,7 @@ use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::{StructuralElementId, StructuralLifecycle};
 
+use super::availability::{EquipmentOccupancy, equipment_occupancy};
 use super::definitions::{CapabilityConditionCurve, EquipmentDefinition, EquipmentDefinitionId};
 use super::state::{EquipmentId, EquipmentOperationTrace, EquipmentRecord};
 
@@ -316,23 +317,25 @@ pub fn resolve_equipment_provider<'state>(
     let Some(record) = state.equipment().get_equipment(equipment) else {
         return Err(EquipmentProviderError::UnknownEquipment { equipment });
     };
-    if let Some(work) = state
-        .player_work()
-        .get_equipment_maintenance_occupant(equipment)
-    {
-        return Err(EquipmentProviderError::MaintenanceInProgress {
-            equipment,
-            completes_at: work.completes_at(),
-        });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_prospecting_equipment_occupant(equipment)
-    {
-        return Err(EquipmentProviderError::ProspectingInProgress {
-            equipment,
-            completes_at: work.completes_at(),
-        });
+    match equipment_occupancy(state, equipment) {
+        Some(EquipmentOccupancy::Maintenance { completes_at }) => {
+            return Err(EquipmentProviderError::MaintenanceInProgress {
+                equipment,
+                completes_at,
+            });
+        }
+        Some(EquipmentOccupancy::Prospecting { completes_at }) => {
+            return Err(EquipmentProviderError::ProspectingInProgress {
+                equipment,
+                completes_at,
+            });
+        }
+        Some(
+            EquipmentOccupancy::Production { .. }
+            | EquipmentOccupancy::Mining { .. }
+            | EquipmentOccupancy::ManualPower { .. },
+        )
+        | None => {}
     }
     let Some(definition) = registries.equipment().get_equipment(record.definition()) else {
         return Err(EquipmentProviderError::UnknownDefinition {
@@ -378,24 +381,27 @@ pub(crate) fn resolve_available_equipment_provider<'state>(
     equipment: EquipmentId,
 ) -> Result<ResolvedEquipmentProvider<'state>, EquipmentProviderError> {
     let provider = resolve_equipment_provider(registries, state, equipment)?;
-    if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(EquipmentProviderError::ProductionInProgress {
-            equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(EquipmentProviderError::MiningInProgress { equipment, job });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_manual_power_equipment_occupant(equipment)
-    {
-        return Err(EquipmentProviderError::ManualPowerInProgress {
-            equipment,
-            completes_at: work.completes_at(),
-        });
+    match equipment_occupancy(state, equipment) {
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            return Err(EquipmentProviderError::ProductionInProgress {
+                equipment,
+                job,
+                release,
+            });
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            return Err(EquipmentProviderError::MiningInProgress { equipment, job });
+        }
+        Some(EquipmentOccupancy::ManualPower { completes_at }) => {
+            return Err(EquipmentProviderError::ManualPowerInProgress {
+                equipment,
+                completes_at,
+            });
+        }
+        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. }) => {
+            unreachable!("base equipment provider rejects direct equipment custody")
+        }
+        None => {}
     }
     Ok(provider)
 }

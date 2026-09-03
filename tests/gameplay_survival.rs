@@ -10,8 +10,6 @@ mod environment;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
-#[path = "gameplay_harness/fresh_seed.rs"]
-mod fresh_seed;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]

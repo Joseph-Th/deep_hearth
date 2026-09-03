@@ -11,8 +11,6 @@ use super::focused_seeds::{
     GATE_VARIATION_COUNT, focused_probe_cases_from, probe_uses_actor_behavior,
 };
 #[cfg(test)]
-use super::fresh_seed::fresh_root;
-#[cfg(test)]
 use super::seed::MAINTAINED_VARIATION_ROOT;
 
 pub(super) const fn focused_probe_role_label(role: FocusedProbeRole) -> &'static str {
@@ -26,14 +24,18 @@ pub(super) const fn focused_probe_role_label(role: FocusedProbeRole) -> &'static
 
 fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
     match name {
-        // Stable coverage cases protect known behavior. One supplemental organic case keeps the
-        // routine gameplay client from proving only the same authored story every run.
-        "survival-provisioning" => (0xD33F_C01D_5A70, &[1, 2, 5], 0x5355_5256_5052_4F42),
+        // Stable survival coverage protects pressure response plus preservation choice shape:
+        // cheapest/strongest endpoints, one true intermediate value-frontier choice, and the
+        // distinct stone-only crock opportunity. Organic variation still owns broad exploration.
+        "survival-provisioning" => (
+            0xD33F_C01D_5A70,
+            &[1, 2, 5, 0x043C_561D_398D_32BA, 0xF495_6470_1464_3BC2],
+            0x5355_5256_5052_4F42,
+        ),
         "primitive-progression" => (0xD33F_C01D_5052, &[3, 4], 0x5052_4F47_5052_4F42),
-        // Coverage spans: no batch-boundary timber gain, rational copper conservation, a one-unit
-        // copper shortfall, and a fundable timber-saving order where the timber-priority actor
-        // actually builds and uses the saw. Organic cases remain unconstrained.
-        "woodworking" => (1, &[3, 4, 12], 0x574F_4F44_5052_4F42),
+        // Coverage spans short-horizon net-timber rejection, scarce-copper blocking, a long
+        // saw-to-adze fallback, and a copper-rich pipeline that actually replaces a worn blade.
+        "woodworking" => (1, &[3, 4, 12, 0x36F7_E3A2_7870_3A8A], 0x574F_4F44_5052_4F42),
         // Anchor exercises quarry reinforcement; coverage adds ordinary soft rock and the distinct
         // 750 MPa hard-pick specialist path. Organic worlds remain free to land in any tier.
         "fieldwork" => (1, &[2, 3], 0x4649_454C_4450_5242),
@@ -47,9 +49,8 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
 pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
     let registries = build_registries();
     let (_maintained_seed, _coverage, salt) = probe_seed_spec(name);
-    let variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4741_5445_5F57_4F52);
-    let behavior_root =
-        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x4741_5445_5F42_4856);
+    let variation_root = MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4741_5445_5F57_4F52;
+    let behavior_root = MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x4741_5445_5F42_4856;
     run_focused_probe_with_registries(
         &registries,
         name,
@@ -82,7 +83,7 @@ pub(super) fn run_focused_probe_with_registries(
         .flatten();
     let variation_count = if explore {
         EXPLORATORY_VARIATION_COUNT
-    } else if variation_raw.is_some() {
+    } else if variation_raw.is_some() || behavior_raw.is_some() {
         1
     } else {
         GATE_VARIATION_COUNT

@@ -3,7 +3,7 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::equipment::EquipmentOperationTrace;
+use crate::equipment::{EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy};
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::registry::Registries;
 
@@ -36,12 +36,10 @@ fn validate_equipment_trace(
     if record.supported_by().is_some() {
         return Err(PlayerWorkValidationError::ProspectingEquipmentMounted { equipment });
     }
-    if state
-        .production()
-        .get_equipment_occupant(equipment)
-        .is_some()
-        || state.mining().get_equipment_occupant(equipment).is_some()
-    {
+    if matches!(
+        equipment_occupancy(state, equipment),
+        Some(EquipmentOccupancy::Production { .. } | EquipmentOccupancy::Mining { .. })
+    ) {
         return Err(
             PlayerWorkValidationError::ProspectingEquipmentResourceDoubleBooked { equipment },
         );

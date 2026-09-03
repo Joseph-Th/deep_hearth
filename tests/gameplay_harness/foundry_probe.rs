@@ -39,7 +39,7 @@ use deep_hearth::thermal::{
 };
 use execution::{
     assert_preheat_partitions_melting_energy, audit_primary_cycle, audit_recovery,
-    capture_initial_accounting, classify_foundry_outcome, cool_thermal_sink, execute_melt,
+    capture_initial_accounting, classify_foundry_outcome, cool_thermal_sink_until, execute_melt,
     execute_primary_cast, remaining_feed_mass,
 };
 use reporting::FoundryReport;
@@ -490,6 +490,8 @@ struct RecoveryCast {
     limit: CastBatchLimit,
     duration: TickSpan,
     released_heat: Energy,
+    thermal_without_cast: Energy,
+    thermal_after: Energy,
 }
 
 fn execute_recovery_cast(
@@ -502,6 +504,18 @@ fn execute_recovery_cast(
         resolve_largest_feasible_cast(registries, state, ids, offered)?;
     let duration = casting.process_resolution().duration();
     let released_heat = casting.released_energy();
+    let mut no_cast_baseline = state.clone();
+    super::temporal::advance_idle_ticks(
+        registries,
+        &mut no_cast_baseline,
+        duration.value(),
+        "foundry recovery no-cast thermal baseline",
+    );
+    let thermal_without_cast = no_cast_baseline
+        .energy()
+        .get_store(ids.heat_sink)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("foundry heat sink disappeared from recovery baseline"));
     let job = validate_start_process(
         registries,
         state,
@@ -522,12 +536,19 @@ fn execute_recovery_cast(
     let remaining_mass = offered
         .checked_sub(cast_mass)
         .unwrap_or_else(|| unreachable!("recovery cast cannot exceed its offered molten mass"));
+    let thermal_after = state
+        .energy()
+        .get_store(ids.heat_sink)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("foundry heat sink disappeared after recovery cast"));
     Some(RecoveryCast {
         cast_mass,
         remaining_mass,
         limit,
         duration,
         released_heat,
+        thermal_without_cast,
+        thermal_after,
     })
 }
 
@@ -672,12 +693,29 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         thermal_before_cast,
         primary_cast,
     );
-    let cooldown = cool_thermal_sink(registries, &mut state, ids, cycle.final_thermal);
+    let recovery_target = primary_cast.molten_remaining;
+    let cooldown = cool_thermal_sink_until(
+        registries,
+        &mut state,
+        ids,
+        cycle.final_thermal,
+        |candidate_state| {
+            !recovery_target.is_zero()
+                && resolve_largest_feasible_cast(registries, candidate_state, ids, recovery_target)
+                    .is_some_and(|(_, feasible_mass, _)| feasible_mass == recovery_target)
+        },
+    );
     let recovery = if primary_cast.molten_remaining.is_zero() {
         None
     } else {
         execute_recovery_cast(registries, &mut state, ids, primary_cast.molten_remaining)
     };
+    if let Some(recovery) = recovery {
+        assert_eq!(
+            recovery.cast_mass, primary_cast.molten_remaining,
+            "foundry cooldown must stop at the first tick where the complete retained molten batch is castable"
+        );
+    }
     let recovered_cast_mass = recovery.map_or(Mass::ZERO, |recovery| recovery.cast_mass);
     let final_molten_remaining = recovery.map_or(primary_cast.molten_remaining, |recovery| {
         recovery.remaining_mass

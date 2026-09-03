@@ -4,8 +4,10 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
-use crate::energy::apply_prechecked_energy_consumption_reservation;
-use crate::equipment::EquipmentId;
+use crate::energy::{
+    EnergyStoreOccupancy, apply_prechecked_energy_consumption_reservation, energy_store_occupancy,
+};
+use crate::equipment::{EquipmentId, EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::apply_prechecked_consumption_reservation;
 use crate::mining::MiningJobId;
 use crate::structural::StructuralCommitError;
@@ -228,11 +230,10 @@ fn validate_commit_occupancy(
         .into_iter()
         .chain(job.released_energy().map(|trace| trace.destination()))
     {
-        if state
-            .player_work()
-            .get_manual_power_energy_occupant(store)
-            .is_some()
-        {
+        if matches!(
+            energy_store_occupancy(state, store),
+            Some(EnergyStoreOccupancy::ManualPower)
+        ) {
             return Err(StartProcessCommitError::EnergyStoreBusyManualPower { store });
         }
     }
@@ -240,27 +241,21 @@ fn validate_commit_occupancy(
         return Ok(());
     };
     let equipment = provider.equipment();
-    if let Some(mining_job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(StartProcessCommitError::EquipmentBusyMining {
-            equipment,
-            job: mining_job,
-        });
-    }
-    if state
-        .player_work()
-        .get_manual_power_equipment_occupant(equipment)
-        .is_some()
-    {
-        return Err(StartProcessCommitError::EquipmentBusyManualPower { equipment });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_prospecting_equipment_occupant(equipment)
-    {
-        return Err(StartProcessCommitError::EquipmentBusyProspecting {
-            equipment,
-            completes_at: work.completes_at(),
-        });
+    match equipment_occupancy(state, equipment) {
+        Some(EquipmentOccupancy::Mining { job }) => {
+            return Err(StartProcessCommitError::EquipmentBusyMining { equipment, job });
+        }
+        Some(EquipmentOccupancy::ManualPower { .. }) => {
+            return Err(StartProcessCommitError::EquipmentBusyManualPower { equipment });
+        }
+        Some(EquipmentOccupancy::Prospecting { completes_at }) => {
+            return Err(StartProcessCommitError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            });
+        }
+        Some(EquipmentOccupancy::Production { .. } | EquipmentOccupancy::Maintenance { .. })
+        | None => {}
     }
     Ok(())
 }

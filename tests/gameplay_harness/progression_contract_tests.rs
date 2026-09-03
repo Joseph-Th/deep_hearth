@@ -8,15 +8,18 @@ use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
     EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
-    FORM_CHIP, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
-    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
-    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL,
-    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
+    FORM_BOARD, FORM_CHIP, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_HAND_BREAK_ORE,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL,
+    PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::material::CommodityKey;
 
 use super::catalog::{ProcessResolverKind, process_catalog_entries};
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::manual_craft_planning::manual_craft_plan_for_output;
 use super::progression_probe::{
     DEEP_OPPORTUNITY_MIN_BATCHES, MARGINAL_OPPORTUNITY_MAX_BATCHES,
     MARGINAL_OPPORTUNITY_MIN_BATCHES, PrimitivePriority, PrimitiveReinvestmentOutcome,
@@ -24,6 +27,36 @@ use super::progression_probe::{
     manual_processing::manual_processing_setup, ore_opportunity,
     review::evaluate_primitive_progression_probe, varied_four_way_order,
 };
+
+#[test]
+fn bootstrap_planning_excludes_faster_required_equipment_producers() {
+    let registries = build_registries();
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    assert!(
+        registries
+            .crafting()
+            .manual_producers(boards)
+            .any(|definition| definition
+                .equipment_profile()
+                .is_some_and(|profile| profile.requires_equipment())),
+        "bootstrap-planning regression requires a competing required-equipment board route"
+    );
+
+    let (selected, batches) = manual_craft_plan_for_output(
+        &registries,
+        boards,
+        Mass::from_milligrams(800_000),
+        "bootstrap-planning regression",
+    );
+
+    assert_eq!(selected.process(), PROCESS_SHAPE_WOOD_BOARDS);
+    assert_eq!(batches, 1);
+    assert!(
+        !selected
+            .equipment_profile()
+            .is_some_and(|profile| profile.requires_equipment())
+    );
+}
 
 #[test]
 fn primitive_recovery_and_reinforcement_routes_remain_connected() {
@@ -114,26 +147,37 @@ fn primitive_recovery_and_reinforcement_routes_remain_connected() {
     assert!(scrap_rework.duration() > native_work.duration());
 
     let reinforcement = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
-    let canonical = registries
+    let canonical_inputs = registries
         .equipment()
         .get_equipment(EQUIPMENT_COPPER_REINFORCED_PICK)
         .and_then(|definition| definition.upgrade_profile())
         .unwrap_or_else(|| panic!("reinforced pick lost its additive upgrade route"))
         .additions()
         .inputs();
-    assert_eq!(canonical.len(), 1);
-    assert_eq!(canonical[0].commodity(), reinforcement);
-    let canonical = &canonical[0];
+    let canonical = canonical_inputs
+        .iter()
+        .find(|input| input.commodity() == reinforcement)
+        .unwrap_or_else(|| panic!("reinforced pick lost its canonical copper reinforcement input"));
+    assert_eq!(
+        canonical_inputs
+            .iter()
+            .filter(|input| input.commodity() == reinforcement)
+            .count(),
+        1,
+        "reinforced pick must identify one unambiguous canonical copper reinforcement input"
+    );
 
     let compatible_targets = registries
         .equipment()
         .definitions()
         .filter_map(|definition| {
             let inputs = definition.upgrade_profile()?.additions().inputs();
-            (inputs.len() == 1
-                && inputs[0].commodity() == canonical.commodity()
-                && inputs[0].mass() == canonical.mass())
-            .then_some(definition.id())
+            inputs
+                .iter()
+                .any(|input| {
+                    input.commodity() == canonical.commodity() && input.mass() == canonical.mass()
+                })
+                .then_some(definition.id())
         })
         .collect::<BTreeSet<_>>();
     let required_targets = BTreeSet::from([

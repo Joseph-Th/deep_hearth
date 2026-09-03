@@ -4,11 +4,6 @@
 //! reservation machinery separate so discharge and deferred-ingress semantics cannot drift into
 //! one large mixed transaction owner.
 
-use crate::core::state::AppState;
-use crate::production::{ProductionJobId, ProductionOccupancyRelease};
-
-use super::state::EnergyStoreId;
-
 mod sink;
 mod supply;
 
@@ -34,21 +29,6 @@ pub(crate) use supply::{
 use sink::project_energy_sink_stored_at_release;
 #[cfg(test)]
 pub(crate) use supply::apply_energy_consumption_reservation;
-
-fn get_energy_store_occupant(
-    state: &AppState,
-    store: EnergyStoreId,
-) -> Option<(ProductionJobId, ProductionOccupancyRelease)> {
-    let job_id = state.production().get_energy_occupant(store)?;
-    let job = match state.production().get_job(job_id) {
-        Some(job) => job,
-        None => panic!(
-            "runtime invariant broken: energy occupancy index references missing production job {}",
-            job_id.value()
-        ),
-    };
-    Some((job_id, job.occupancy_release()))
-}
 
 #[cfg(test)]
 #[path = "storage_execution_tests.rs"]

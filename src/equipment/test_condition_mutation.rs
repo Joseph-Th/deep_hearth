@@ -9,7 +9,7 @@ use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 
-use super::EquipmentId;
+use super::{EquipmentId, EquipmentOccupancy, equipment_occupancy};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct EquipmentConditionPlan {
@@ -100,22 +100,22 @@ fn decide_condition_change(
     let Some(record) = equipment_state.get_equipment(equipment) else {
         return Err(EquipmentConditionPlanError::UnknownEquipment { equipment });
     };
-    if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(EquipmentConditionPlanError::EquipmentBusy {
-            equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(EquipmentConditionPlanError::EquipmentBusyMining { equipment, job });
-    }
-    if state
-        .player_work()
-        .get_manual_power_equipment_occupant(equipment)
-        .is_some()
-    {
-        return Err(EquipmentConditionPlanError::EquipmentBusyManualPower { equipment });
+    match equipment_occupancy(state, equipment) {
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            return Err(EquipmentConditionPlanError::EquipmentBusy {
+                equipment,
+                job,
+                release,
+            });
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            return Err(EquipmentConditionPlanError::EquipmentBusyMining { equipment, job });
+        }
+        Some(EquipmentOccupancy::ManualPower { .. }) => {
+            return Err(EquipmentConditionPlanError::EquipmentBusyManualPower { equipment });
+        }
+        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. })
+        | None => {}
     }
     let next_revision = equipment_state
         .revision()
@@ -228,27 +228,27 @@ pub(crate) fn apply_equipment_condition_plan(
             actual: actual_revision,
         });
     }
-    if let Some(job) = state.production().get_equipment_occupant(plan.equipment) {
-        return Err(EquipmentConditionCommitError::EquipmentBusy {
-            equipment: plan.equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(plan.equipment) {
-        return Err(EquipmentConditionCommitError::EquipmentBusyMining {
-            equipment: plan.equipment,
-            job,
-        });
-    }
-    if state
-        .player_work()
-        .get_manual_power_equipment_occupant(plan.equipment)
-        .is_some()
-    {
-        return Err(EquipmentConditionCommitError::EquipmentBusyManualPower {
-            equipment: plan.equipment,
-        });
+    match equipment_occupancy(state, plan.equipment) {
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            return Err(EquipmentConditionCommitError::EquipmentBusy {
+                equipment: plan.equipment,
+                job,
+                release,
+            });
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            return Err(EquipmentConditionCommitError::EquipmentBusyMining {
+                equipment: plan.equipment,
+                job,
+            });
+        }
+        Some(EquipmentOccupancy::ManualPower { .. }) => {
+            return Err(EquipmentConditionCommitError::EquipmentBusyManualPower {
+                equipment: plan.equipment,
+            });
+        }
+        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. })
+        | None => {}
     }
 
     let Some(record) = state.equipment().get_equipment(plan.equipment) else {

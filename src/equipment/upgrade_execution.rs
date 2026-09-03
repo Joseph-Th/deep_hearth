@@ -10,11 +10,73 @@ use crate::inventory::{
 use crate::registry::Registries;
 
 use super::state::EquipmentUpgradeMutation;
-use super::{EquipmentDefinitionId, EquipmentId};
+use super::{EquipmentDefinitionId, EquipmentId, EquipmentOccupancy, equipment_occupancy};
 
 mod errors;
 
 pub use errors::{EquipmentUpgradeCommitError, EquipmentUpgradeError};
+
+fn validation_occupancy_error(
+    state: &AppState,
+    equipment: EquipmentId,
+) -> Option<EquipmentUpgradeError> {
+    equipment_occupancy(state, equipment).map(|occupancy| match occupancy {
+        EquipmentOccupancy::Production { job, release } => {
+            EquipmentUpgradeError::EquipmentBusyProduction {
+                equipment,
+                job,
+                release,
+            }
+        }
+        EquipmentOccupancy::Mining { job } => {
+            EquipmentUpgradeError::EquipmentBusyMining { equipment, job }
+        }
+        EquipmentOccupancy::ManualPower { .. } => {
+            EquipmentUpgradeError::EquipmentBusyManualPower { equipment }
+        }
+        EquipmentOccupancy::Prospecting { completes_at } => {
+            EquipmentUpgradeError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentOccupancy::Maintenance { completes_at } => {
+            EquipmentUpgradeError::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            }
+        }
+    })
+}
+
+fn commit_occupancy_error(
+    state: &AppState,
+    equipment: EquipmentId,
+) -> Option<EquipmentUpgradeCommitError> {
+    equipment_occupancy(state, equipment).map(|occupancy| match occupancy {
+        EquipmentOccupancy::Production { job, .. } => {
+            EquipmentUpgradeCommitError::EquipmentBusyProduction { equipment, job }
+        }
+        EquipmentOccupancy::Mining { job } => {
+            EquipmentUpgradeCommitError::EquipmentBusyMining { equipment, job }
+        }
+        EquipmentOccupancy::ManualPower { .. } => {
+            EquipmentUpgradeCommitError::EquipmentBusyManualPower { equipment }
+        }
+        EquipmentOccupancy::Prospecting { completes_at } => {
+            EquipmentUpgradeCommitError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentOccupancy::Maintenance { completes_at } => {
+            EquipmentUpgradeCommitError::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            }
+        }
+    })
+}
 
 #[must_use]
 pub struct ValidatedEquipmentUpgrade {
@@ -62,44 +124,8 @@ impl ValidatedEquipmentUpgrade {
                 element,
             });
         }
-        if let Some(job) = state.production().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentUpgradeCommitError::EquipmentBusyProduction {
-                equipment: self.equipment,
-                job: job.id(),
-            });
-        }
-        if let Some(job) = state.mining().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentUpgradeCommitError::EquipmentBusyMining {
-                equipment: self.equipment,
-                job,
-            });
-        }
-        if state
-            .player_work()
-            .get_manual_power_equipment_occupant(self.equipment)
-            .is_some()
-        {
-            return Err(EquipmentUpgradeCommitError::EquipmentBusyManualPower {
-                equipment: self.equipment,
-            });
-        }
-        if let Some(work) = state
-            .player_work()
-            .get_prospecting_equipment_occupant(self.equipment)
-        {
-            return Err(EquipmentUpgradeCommitError::EquipmentBusyProspecting {
-                equipment: self.equipment,
-                completes_at: work.completes_at(),
-            });
-        }
-        if let Some(work) = state
-            .player_work()
-            .get_equipment_maintenance_occupant(self.equipment)
-        {
-            return Err(EquipmentUpgradeCommitError::EquipmentUnderMaintenance {
-                equipment: self.equipment,
-                completes_at: work.completes_at(),
-            });
+        if let Some(error) = commit_occupancy_error(state, self.equipment) {
+            return Err(error);
         }
         self.egress.assert_matches_state(state.inventory());
         let mutation = EquipmentUpgradeMutation {
@@ -158,40 +184,8 @@ pub fn validate_upgrade_equipment(
     if let Some(element) = record.supported_by() {
         return Err(EquipmentUpgradeError::EquipmentMounted { equipment, element });
     }
-    if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(EquipmentUpgradeError::EquipmentBusyProduction {
-            equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(EquipmentUpgradeError::EquipmentBusyMining { equipment, job });
-    }
-    if state
-        .player_work()
-        .get_manual_power_equipment_occupant(equipment)
-        .is_some()
-    {
-        return Err(EquipmentUpgradeError::EquipmentBusyManualPower { equipment });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_prospecting_equipment_occupant(equipment)
-    {
-        return Err(EquipmentUpgradeError::EquipmentBusyProspecting {
-            equipment,
-            completes_at: work.completes_at(),
-        });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_equipment_maintenance_occupant(equipment)
-    {
-        return Err(EquipmentUpgradeError::EquipmentUnderMaintenance {
-            equipment,
-            completes_at: work.completes_at(),
-        });
+    if let Some(error) = validation_occupancy_error(state, equipment) {
+        return Err(error);
     }
 
     let selection =

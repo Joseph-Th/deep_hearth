@@ -4,10 +4,10 @@ use crate::capability::CapabilityValue;
 use crate::core::quantity::Power;
 use crate::core::state::AppState;
 use crate::energy::{
-    EnergySinkError, calculate_power_duration_ceiling, validate_energy_sink_access,
-    validate_energy_sink_release,
+    EnergySinkError, EnergyStoreOccupancy, calculate_power_duration_ceiling,
+    energy_store_occupancy, validate_energy_sink_access, validate_energy_sink_release,
 };
-use crate::equipment::resolve_equipment_provider;
+use crate::equipment::{EquipmentOccupancy, equipment_occupancy, resolve_equipment_provider};
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::registry::Registries;
 
@@ -59,24 +59,23 @@ impl ValidatedManualPowerStart {
                 actual: state.energy().revision(),
             });
         }
-        if let Some(job) = state
-            .production()
-            .get_equipment_occupant(self.work.equipment())
-        {
-            return Err(ManualPowerCommitError::EquipmentBusyProduction {
-                equipment: self.work.equipment(),
-                job: job.id(),
-            });
+        let equipment = self.work.equipment();
+        match equipment_occupancy(state, equipment) {
+            Some(EquipmentOccupancy::Production { job, .. }) => {
+                return Err(ManualPowerCommitError::EquipmentBusyProduction { equipment, job });
+            }
+            Some(EquipmentOccupancy::Mining { job }) => {
+                return Err(ManualPowerCommitError::EquipmentBusyMining { equipment, job });
+            }
+            Some(
+                EquipmentOccupancy::ManualPower { .. }
+                | EquipmentOccupancy::Prospecting { .. }
+                | EquipmentOccupancy::Maintenance { .. },
+            )
+            | None => {}
         }
-        if let Some(job) = state.mining().get_equipment_occupant(self.work.equipment()) {
-            return Err(ManualPowerCommitError::EquipmentBusyMining {
-                equipment: self.work.equipment(),
-                job,
-            });
-        }
-        if let Some(job) = state
-            .production()
-            .get_energy_occupant(self.work.destination())
+        if let Some(EnergyStoreOccupancy::Production { job, .. }) =
+            energy_store_occupancy(state, self.work.destination())
         {
             return Err(ManualPowerCommitError::EnergyBusyProduction {
                 store: self.work.destination(),
@@ -112,18 +111,26 @@ pub fn validate_start_manual_power(
     }
     let provider = resolve_equipment_provider(registries, state, request.equipment)
         .map_err(ManualPowerError::Equipment)?;
-    if let Some(job) = state.production().get_equipment_occupant(request.equipment) {
-        return Err(ManualPowerError::EquipmentBusyProduction {
-            equipment: request.equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(request.equipment) {
-        return Err(ManualPowerError::EquipmentBusyMining {
-            equipment: request.equipment,
-            job,
-        });
+    match equipment_occupancy(state, request.equipment) {
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            return Err(ManualPowerError::EquipmentBusyProduction {
+                equipment: request.equipment,
+                job,
+                release,
+            });
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            return Err(ManualPowerError::EquipmentBusyMining {
+                equipment: request.equipment,
+                job,
+            });
+        }
+        Some(
+            EquipmentOccupancy::ManualPower { .. }
+            | EquipmentOccupancy::Prospecting { .. }
+            | EquipmentOccupancy::Maintenance { .. },
+        )
+        | None => {}
     }
     let power_value = provider
         .get_capability(definition.power_capability())

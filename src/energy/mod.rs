@@ -1,6 +1,7 @@
 //! Owns finite energy stores, construction, accounting, and exact power integration.
 
 mod accounting;
+mod availability;
 mod construction_execution;
 mod definitions;
 mod disassembly_execution;
@@ -50,6 +51,7 @@ pub(crate) use fixture_execution::add_energy_store_with_initial_for_fixture;
 #[cfg(test)]
 pub(crate) use fixture_execution::{AddEnergyStoreError, add_energy_store};
 
+pub(crate) use availability::{EnergyStoreOccupancy, energy_store_occupancy};
 pub(crate) use passive_dissipation::{
     apply_passive_energy_dissipation, decide_passive_energy_dissipation,
 };

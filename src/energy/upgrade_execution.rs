@@ -10,7 +10,7 @@ use crate::inventory::{
 use crate::registry::Registries;
 
 use super::state::EnergyStoreUpgradeMutation;
-use super::{EnergyStoreDefinitionId, EnergyStoreId};
+use super::{EnergyStoreDefinitionId, EnergyStoreId, EnergyStoreOccupancy, energy_store_occupancy};
 
 mod errors;
 
@@ -57,18 +57,19 @@ impl ValidatedEnergyStoreUpgrade {
         {
             return Err(EnergyStoreUpgradeCommitError::StoreChanged { store: self.store });
         }
-        if let Some(job) = state.production().get_energy_occupant(self.store) {
-            return Err(EnergyStoreUpgradeCommitError::StoreBusyProduction {
-                store: self.store,
-                job,
-            });
-        }
-        if state
-            .player_work()
-            .get_manual_power_energy_occupant(self.store)
-            .is_some()
-        {
-            return Err(EnergyStoreUpgradeCommitError::StoreBusyManualPower { store: self.store });
+        match energy_store_occupancy(state, self.store) {
+            Some(EnergyStoreOccupancy::Production { job, .. }) => {
+                return Err(EnergyStoreUpgradeCommitError::StoreBusyProduction {
+                    store: self.store,
+                    job,
+                });
+            }
+            Some(EnergyStoreOccupancy::ManualPower) => {
+                return Err(EnergyStoreUpgradeCommitError::StoreBusyManualPower {
+                    store: self.store,
+                });
+            }
+            None => {}
         }
         let mutation = EnergyStoreUpgradeMutation {
             store: self.store,
@@ -128,29 +129,18 @@ pub fn validate_upgrade_energy_store(
             stored: record.stored(),
         });
     }
-    if let Some(job) = state.production().get_energy_occupant(store) {
-        let release = state
-            .production()
-            .get_job(job)
-            .unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: energy occupancy references missing production job {}",
-                    job.value()
-                )
-            })
-            .occupancy_release();
-        return Err(EnergyStoreUpgradeError::StoreBusyProduction {
-            store,
-            job,
-            release,
-        });
-    }
-    if state
-        .player_work()
-        .get_manual_power_energy_occupant(store)
-        .is_some()
-    {
-        return Err(EnergyStoreUpgradeError::StoreBusyManualPower { store });
+    match energy_store_occupancy(state, store) {
+        Some(EnergyStoreOccupancy::Production { job, release }) => {
+            return Err(EnergyStoreUpgradeError::StoreBusyProduction {
+                store,
+                job,
+                release,
+            });
+        }
+        Some(EnergyStoreOccupancy::ManualPower) => {
+            return Err(EnergyStoreUpgradeError::StoreBusyManualPower { store });
+        }
+        None => {}
     }
     let selection =
         validate_consumption_selection(state.inventory(), source, upgrade.additions().inputs())

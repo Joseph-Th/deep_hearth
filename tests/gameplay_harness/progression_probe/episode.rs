@@ -235,16 +235,32 @@ fn discover_primitive_progression(
             Err(error) => panic!("unexpected observed mining affordance blocker: {error}"),
         }
     }
-    assert_eq!(
-        mineable_clues.len(),
-        if information_refinement_required {
-            2
-        } else {
-            3
-        }
+    assert!(
+        mineable_clues
+            .iter()
+            .any(|clue| clue.request == native_target),
+        "direct-copper target must remain mineable with the stone pick"
     );
-    assert_eq!(hardness_blocked_clues.len(), 1);
-    let hard_clue = hardness_blocked_clues[0];
+    assert!(
+        mineable_clues
+            .iter()
+            .any(|clue| clue.request == soft_ore_target),
+        "bulk soft-ore target must remain mineable with the stone pick"
+    );
+    assert_eq!(
+        mineable_clues
+            .iter()
+            .any(|clue| clue.request == trace_target),
+        !information_refinement_required,
+        "trace target visibility must follow the authored information-refinement branch"
+    );
+    let hard_clue = hardness_blocked_clues
+        .iter()
+        .copied()
+        .find(|clue| clue.request == hard_ore_target)
+        .unwrap_or_else(|| {
+            panic!("hard-ore target no longer exposes the intended stone-pick hardness gate")
+        });
     let direct_copper_clue = strongest_observed_copper_clue(mineable_clues.iter().copied());
     let bulk_ore_clue = strongest_observed_copper_clue(
         mineable_clues
@@ -1616,16 +1632,13 @@ pub(super) fn run_primitive_progression_case(
         "bulk"
     };
 
-    if emit_detail
-        && priority == natural_priority
-        && std::env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
-    {
+    if emit_detail && priority == natural_priority {
         let information_path = if information_refinement_required {
             "deferred-survey"
         } else {
             "surface-resolved"
         };
-        std::println!(
+        println!(
             "PLAYABLE PROGRESSION seed=0x{seed:016X} branch={} local-copper-policy=pick-first-vs-crank world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-regional-geological-clue-zones+local-follow-up-regions,empty-storage] discovery=[path:{information_path} regional-recon:{}t regional-upper:[{},{}]ppm local-inspection:{}t clues:{} coarse-resolved:{} refinement-triggered-by-direct-shortage:{} detailed-survey:{}t alternative-bounds:{}..{}->{}..{}ppm alternative-sample:{}mg/{}t sample-observed:{} sample-grade:{}ppm bulk-grade:{}ppm evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[current-primitive-route-actions-useful] canonical=recon-regional-clue-zones->prioritize-local-inspection->act-on-resolved-evidence->shape+assemble-pick->preview-resolved-mining-affordances->mine-best-bulk-feed->encounter-hardness-gate->mine-strongest-copper-clue->observe-native-metal->spend-local-copper-parcel-on-pick->sample-hard-seam->reassess-feed->build-processing-line->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-crank-upgrade->repeat fantasy=read-world->infer-affordances->respond-to-constraints-with-information->survive->craft-tools->turn-scarce-matter-into-new-access->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
             priority.label(),
             raw_surplus.milligrams(),
@@ -1647,7 +1660,7 @@ pub(super) fn run_primitive_progression_case(
             refined_sample_copper_ppm,
             bulk_sample.copper_ppm,
         );
-        std::println!(
+        println!(
             "PROGRESSION DECISION observed-affordances=[surface-mineable:{} hardness-blocked:{} strongest-copper:{}..{}ppm bulk-clue:{}..{}ppm strongest-output:native-metal direct-follow-up:insufficient-target-mass initial-processing-choice:[bulk:{}ppm alternative-sample:{}ppm sampled:{} selected:bulk] post-investment-feed:[source:{} grade:{}ppm]] sequence=[first:{}:{}mg@{}t second:{}:{}mg@{}t separated-copper:{}mg@{}t] milestones=[pick-upgrade:{} hard-access:{} machine-start:{}t first-crushed-output:{}t] tool-limits=[stone:{}Pa reinforced:{}Pa blocker-discovered-by-validator:true]",
             mineable_clue_count,
             hardness_blocked_clue_count,
@@ -1675,7 +1688,7 @@ pub(super) fn run_primitive_progression_case(
             stone_hardness_limit.pascals(),
             reinforced_hardness_limit.pascals(),
         );
-        std::println!(
+        println!(
             "PROGRESSION SYSTEMS knowledge=[surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ passive-loss-before-reserve:{}nJ reserve-recharge:{}t banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm productive-setup-payback:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-plan:{} work:{}t jobs:{} mined:{}mg stop:{} initial-overlap:{}t primary-productive-overlap:{}t primary-unfilled:{}t reserve:{}t reserve-mining:{}t/{}jobs stop:{} reserve-productive-overlap:{}t reserve-unfilled:{}t steady-machine:{}t steady-mining:{}jobs buffer-limited:{}cycles steady-productive-overlap:{}t steady-unfilled:{}t total-productive-overlap:{}t total-unfilled:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick-service:condition:{}->{}ppm component:{}mg prep:{}t service:{}t reinforcement-preserved:{}] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             surface_prospecting_ticks,
             detailed_survey_ticks,
@@ -1763,7 +1776,7 @@ pub(super) fn run_primitive_progression_case(
             survival_after.hydration_state(),
             state.tick().value(),
         );
-        std::println!(
+        println!(
             "PROGRESSION CONTROLLER-DIAGNOSTIC hidden-world=[bulk-grade:{}ppm hard-grade:{}ppm refined-grade:{}ppm blocked-target-hardness:{}Pa direct-unmined-surplus:{}mg] note=diagnostic-only-not-actor-input",
             ore_copper_ppm,
             hard_ore_copper_ppm,

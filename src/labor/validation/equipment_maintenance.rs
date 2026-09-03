@@ -3,6 +3,7 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
+use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::labor::EquipmentMaintenanceWork;
 use crate::registry::Registries;
 
@@ -50,15 +51,10 @@ pub(super) fn validate_equipment_maintenance_work(
     if actual_duration != required_duration.value() {
         return Err(PlayerWorkValidationError::EquipmentMaintenanceDurationMismatch);
     }
-    if state
-        .production()
-        .get_equipment_occupant(work.equipment())
-        .is_some()
-        || state
-            .mining()
-            .get_equipment_occupant(work.equipment())
-            .is_some()
-    {
+    if matches!(
+        equipment_occupancy(state, work.equipment()),
+        Some(EquipmentOccupancy::Production { .. } | EquipmentOccupancy::Mining { .. })
+    ) {
         return Err(PlayerWorkValidationError::EquipmentMaintenanceResourceDoubleBooked);
     }
     validate_remaining_resources(

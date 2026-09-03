@@ -245,7 +245,9 @@ pub(super) fn scenario_seeds_from(
 
     let variation_count = match mode {
         #[cfg(test)]
-        ScenarioPlanMode::Gate => 1,
+        ScenarioPlanMode::Gate if variation_raw.is_some() || behavior_raw.is_some() => 1,
+        #[cfg(test)]
+        ScenarioPlanMode::Gate => 0,
         ScenarioPlanMode::Explore => EXPLORATORY_VARIATION_SCENARIO_COUNT,
     };
     let behavior_seed_root = if variation_count == 0 {

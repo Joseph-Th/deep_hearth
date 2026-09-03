@@ -1,5 +1,6 @@
 //! Owns persistent equipment, condition-adjusted capability, lifecycle operations, and support integration.
 
+mod availability;
 mod construction_execution;
 mod definitions;
 mod disassembly_execution;
@@ -58,6 +59,7 @@ pub use upgrade_execution::{
     validate_upgrade_equipment,
 };
 
+pub(crate) use availability::{EquipmentOccupancy, equipment_occupancy};
 pub(crate) use equipment_integration::{
     ValidatedEquipmentUse, resolve_available_equipment_provider, resolve_equipment_capability,
 };

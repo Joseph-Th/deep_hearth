@@ -3,7 +3,7 @@
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::equipment::EquipmentDefinition;
+use crate::equipment::{EquipmentDefinition, EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::{StockpileRecord, validate_stockpile_storage};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::registry::Registries;
@@ -194,10 +194,10 @@ fn validate_mining_equipment_exclusivity(
     job: &MiningJobRecord,
 ) -> Result<(), MiningJobValidationError> {
     if job.is_working()
-        && state
-            .production()
-            .get_equipment_occupant(job.equipment())
-            .is_some()
+        && matches!(
+            equipment_occupancy(state, job.equipment()),
+            Some(EquipmentOccupancy::Production { .. })
+        )
     {
         return Err(MiningJobValidationError::EquipmentAlsoUsedByProduction { job: job.id() });
     }

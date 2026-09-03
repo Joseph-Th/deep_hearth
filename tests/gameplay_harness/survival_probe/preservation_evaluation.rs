@@ -1,8 +1,12 @@
 //! Canonical preservation-infrastructure gameplay subepisode.
 
 use std::cmp::Reverse;
+use std::collections::BTreeSet;
 
-use super::preservation::PreservationCandidate;
+use super::preservation::{
+    PreservationCandidate, preservation_buildable_definitions, preservation_candidate_for_policy,
+    preservation_candidates,
+};
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,15 +115,23 @@ fn preservation_scenario_spec(
     }
 }
 
-pub(in super::super) fn project_preservation_candidates(
+pub(in super::super) fn project_preservation_candidates_with_raw_opportunity(
     registries: &Registries,
     seed: u64,
     food: FoodDefinition,
     food_mass: Mass,
+    available_raw_materials: Option<&[(CommodityKey, Mass)]>,
 ) -> Vec<PreservationCandidateProjection> {
+    let buildable = available_raw_materials
+        .map(|available| preservation_buildable_definitions(registries, food_mass, available));
     let candidates = preservation_candidates(registries)
         .into_iter()
         .filter(|candidate| candidate.capacity >= food_mass)
+        .filter(|candidate| {
+            buildable
+                .as_ref()
+                .is_none_or(|definitions| definitions.contains(&candidate.definition))
+        })
         .collect::<Vec<_>>();
     assert!(
         !candidates.is_empty(),
@@ -230,32 +242,103 @@ pub(in super::super) fn select_preservation_projection_for_attention_value(
     selected[0]
 }
 
-pub(super) fn evaluate_preservation_infrastructure_probe(
-    registries: &Registries,
-    seed: u64,
-    food: FoodDefinition,
-    food_mass: Mass,
-    policy: PreservationInvestmentPolicy,
-) -> PreservationInfrastructureReview {
-    evaluate_preservation_infrastructure_definition(
-        registries,
-        seed,
-        food,
-        food_mass,
-        preservation_storage_definition_for_policy_and_capacity(registries, policy, food_mass),
-    )
+fn projection_physically_dominates(
+    candidate: PreservationCandidateProjection,
+    other: PreservationCandidateProjection,
+) -> bool {
+    candidate.production_ticks <= other.production_ticks
+        && candidate.raw_material_mass_mg <= other.raw_material_mass_mg
+        && candidate.remaining_fresh_ticks >= other.remaining_fresh_ticks
+        && (candidate.production_ticks < other.production_ticks
+            || candidate.raw_material_mass_mg < other.raw_material_mass_mg
+            || candidate.remaining_fresh_ticks > other.remaining_fresh_ticks)
 }
 
-pub(super) fn evaluate_preservation_infrastructure_definition(
+/// Returns candidate definitions that are not strictly worse in construction attention, raw mass,
+/// and matched remaining freshness than another feasible preservation option.
+pub(in super::super) fn preservation_physical_frontier(
+    projections: &[PreservationCandidateProjection],
+) -> BTreeSet<StorageDefinitionId> {
+    projections
+        .iter()
+        .copied()
+        .filter(|projection| {
+            !projections.iter().copied().any(|candidate| {
+                candidate.definition != projection.definition
+                    && projection_physically_dominates(candidate, *projection)
+            })
+        })
+        .map(|projection| projection.definition)
+        .collect()
+}
+
+fn attention_value_probe_points(projections: &[PreservationCandidateProjection]) -> BTreeSet<u32> {
+    const MINIMUM: u32 = 1_000_000;
+    const MAXIMUM: u32 = 4_000_000;
+    let mut values = BTreeSet::from([MINIMUM, MAXIMUM]);
+    for (index, left) in projections.iter().enumerate() {
+        for right in &projections[index + 1..] {
+            if left.production_ticks == right.production_ticks {
+                continue;
+            }
+            let freshness_delta = i128::from(left.remaining_fresh_ticks)
+                .checked_sub(i128::from(right.remaining_fresh_ticks))
+                .and_then(|delta| delta.checked_mul(1_000_000))
+                .unwrap_or_else(|| panic!("preservation policy crossover freshness overflowed"));
+            let attention_delta = i128::from(left.production_ticks)
+                .checked_sub(i128::from(right.production_ticks))
+                .unwrap_or_else(|| panic!("preservation policy crossover attention overflowed"));
+            if freshness_delta == 0 || freshness_delta.signum() != attention_delta.signum() {
+                continue;
+            }
+            let crossover = freshness_delta.unsigned_abs() / attention_delta.unsigned_abs();
+            let crossover = u32::try_from(crossover).unwrap_or(u32::MAX);
+            for offset in -2_i64..=2 {
+                let value = i64::from(crossover).saturating_add(offset);
+                if (i64::from(MINIMUM)..=i64::from(MAXIMUM)).contains(&value) {
+                    values.insert(u32::try_from(value).unwrap_or_else(|_| {
+                        unreachable!("bounded preservation attention value fits u32")
+                    }));
+                }
+            }
+        }
+    }
+    values
+}
+
+/// Returns every preservation definition that can win the actor's exact linear value rule anywhere
+/// in the authored 1.0x..4.0x attention-value interval. Pairwise crossover neighborhoods make the
+/// probe exact for integer-valued policy changes without scanning millions of redundant values.
+pub(in super::super) fn preservation_policy_reachable_definitions(
+    projections: &[PreservationCandidateProjection],
+) -> BTreeSet<StorageDefinitionId> {
+    attention_value_probe_points(projections)
+        .into_iter()
+        .map(|attention_value| {
+            select_preservation_projection_for_attention_value(attention_value, projections)
+                .definition
+        })
+        .collect()
+}
+
+pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportunity(
     registries: &Registries,
     seed: u64,
     food: FoodDefinition,
     food_mass: Mass,
     storage_definition: StorageDefinitionId,
+    available_raw_materials: Option<&[(CommodityKey, Mass)]>,
 ) -> PreservationInfrastructureReview {
+    let buildable = available_raw_materials
+        .map(|available| preservation_buildable_definitions(registries, food_mass, available));
     let candidates = preservation_candidates(registries)
         .into_iter()
         .filter(|candidate| candidate.capacity >= food_mass)
+        .filter(|candidate| {
+            buildable
+                .as_ref()
+                .is_none_or(|definitions| definitions.contains(&candidate.definition))
+        })
         .collect::<Vec<_>>();
     let selected_index = candidates
         .iter()
@@ -345,22 +428,35 @@ pub(super) fn evaluate_preservation_infrastructure_definition(
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let mut maximum_raw_requirements = BTreeMap::<CommodityKey, Mass>::new();
-    for candidate in &candidates {
-        let mut candidate_requirements = BTreeMap::<CommodityKey, Mass>::new();
-        for route in &candidate.construction_plan.routes {
-            let total = candidate_requirements
-                .get(&route.raw_commodity)
-                .copied()
-                .unwrap_or(Mass::ZERO)
-                .checked_add(route.raw_mass)
-                .unwrap_or_else(|| panic!("preservation candidate raw requirement overflowed"));
-            candidate_requirements.insert(route.raw_commodity, total);
-        }
-        for (commodity, mass) in candidate_requirements {
+    if let Some(available) = available_raw_materials {
+        for (commodity, mass) in available {
             maximum_raw_requirements
-                .entry(commodity)
-                .and_modify(|current| *current = (*current).max(mass))
-                .or_insert(mass);
+                .entry(*commodity)
+                .and_modify(|current| {
+                    *current = current
+                        .checked_add(*mass)
+                        .unwrap_or_else(|| panic!("preservation raw opportunity overflowed"));
+                })
+                .or_insert(*mass);
+        }
+    } else {
+        for candidate in &candidates {
+            let mut candidate_requirements = BTreeMap::<CommodityKey, Mass>::new();
+            for route in &candidate.construction_plan.routes {
+                let total = candidate_requirements
+                    .get(&route.raw_commodity)
+                    .copied()
+                    .unwrap_or(Mass::ZERO)
+                    .checked_add(route.raw_mass)
+                    .unwrap_or_else(|| panic!("preservation candidate raw requirement overflowed"));
+                candidate_requirements.insert(route.raw_commodity, total);
+            }
+            for (commodity, mass) in candidate_requirements {
+                maximum_raw_requirements
+                    .entry(commodity)
+                    .and_modify(|current| *current = (*current).max(mass))
+                    .or_insert(mass);
+            }
         }
     }
     let mut raw_sources = BTreeMap::<CommodityKey, StockpileId>::new();
@@ -390,7 +486,11 @@ pub(super) fn evaluate_preservation_infrastructure_definition(
             );
             *raw_sources
                 .get(&route.raw_commodity)
-                .unwrap_or_else(|| unreachable!("shared raw opportunity includes every selected route"))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "selected preservation route is not funded by the disclosed raw opportunity"
+                    )
+                })
         })
         .collect::<Vec<_>>();
     let route_destinations = construction_plan

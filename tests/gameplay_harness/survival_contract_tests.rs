@@ -3,10 +3,10 @@
 use std::collections::BTreeSet;
 
 use deep_hearth::content::{
-    FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
-    STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
-    STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_ROUGH_TIMBER_FIELD_BOX,
-    STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
+    FORM_INGOT, FORM_LOG, FORM_LUMP, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    STORAGE_BULK_TIMBER_PROVISIONS_CRATE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
+    STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST, STORAGE_INSULATED_TIMBER_PANTRY,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::StockpileStorageProfile;
@@ -15,15 +15,30 @@ use deep_hearth::material::CommodityKey;
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeRole, FocusedProbeSeedPlan, focused_probe_cases_from,
 };
-use super::preservation_route::preservation_construction_plan;
-use super::survival_probe::preservation::{
-    preservation_storage_definition_for_policy_and_capacity,
-    preservation_storage_definition_for_policy_with_constraints,
+use super::preservation_route::{
+    is_disclosed_preservation_raw_material, preservation_construction_plan,
 };
+use super::survival_probe::preservation::preservation_storage_definition_for_policy_with_constraints;
 use super::survival_probe::preservation_evaluation::{
-    project_preservation_candidates, select_preservation_projection,
+    project_preservation_candidates_with_raw_opportunity, select_preservation_projection,
     select_preservation_projection_for_attention_value,
 };
+
+#[test]
+fn preservation_raw_bootstrap_is_explicit_not_inferred_from_missing_producers() {
+    assert!(is_disclosed_preservation_raw_material(CommodityKey::new(
+        MATERIAL_WOOD,
+        FORM_LOG,
+    )));
+    assert!(is_disclosed_preservation_raw_material(CommodityKey::new(
+        MATERIAL_STONE,
+        FORM_LUMP,
+    )));
+    assert!(!is_disclosed_preservation_raw_material(CommodityKey::new(
+        MATERIAL_COPPER,
+        FORM_INGOT,
+    )));
+}
 use super::survival_probe::{
     DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
     diet_provisioning_policy_for_behavior_seed, preservation_freshness_return_threshold_ppm,
@@ -295,11 +310,12 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
             .all(|threshold| (1_000_000..=4_000_000).contains(threshold))
     );
     let projection_world = provisioning_world(&registries, 0x51A2_0001);
-    let projected = project_preservation_candidates(
+    let projected = project_preservation_candidates_with_raw_opportunity(
         &registries,
         0x51A2_0001,
         projection_world.foods[projection_world.witness_index],
         projection_world.preserved_reserve_mass,
+        None,
     );
     let low_threshold_choice =
         select_preservation_projection_for_attention_value(1_000_000, &projected);
@@ -314,28 +330,31 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         "higher attention valuation must not select a slower construction from the same physical frontier"
     );
     assert_eq!(
-        preservation_storage_definition_for_policy_and_capacity(
+        preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::AttentionEfficient,
             Mass::from_milligrams(15_000_000),
+            None,
         ),
         STORAGE_TIMBER_PROVISIONS_CHEST,
         "a medium reserve should reject the cheap field box before ranking construction attention"
     );
     assert_eq!(
-        preservation_storage_definition_for_policy_and_capacity(
+        preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::AttentionEfficient,
             Mass::from_milligrams(30_000_000),
+            None,
         ),
         STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
         "bulk reserve feasibility must make the bulk crate the ordinary attention-efficient choice"
     );
     assert_eq!(
-        preservation_storage_definition_for_policy_and_capacity(
+        preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::MaximumProtection,
             Mass::from_milligrams(9_000_000),
+            None,
         ),
         STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
         "maximum-protection ranking must reject the pantry and crock when the reserve exceeds their capacity"
@@ -413,11 +432,12 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
     );
 
     let original = provisioning_world(&registries, 0x51A2_0001);
-    let projected = project_preservation_candidates(
+    let projected = project_preservation_candidates_with_raw_opportunity(
         &registries,
         0x51A2_0001,
         original.foods[original.witness_index],
         original.preserved_reserve_mass,
+        None,
     );
     for behavior_seed in 1_u64..=4 {
         let _selected = select_preservation_projection(behavior_seed, &projected);

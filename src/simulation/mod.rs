@@ -149,7 +149,7 @@ pub fn advance_tick(
     let storage_enclosure_dismantling_plan = decide_storage_enclosure_dismantling_tick(
         registries,
         state,
-        &projected_inventory,
+        projected_inventory.as_ref(),
         next_tick,
     )?;
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);

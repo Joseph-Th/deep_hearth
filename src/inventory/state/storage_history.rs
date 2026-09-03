@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::arithmetic::greatest_common_divisor_u128;
 use crate::core::time::{SimulationTick, TickSpan};
 
 pub(crate) const STORAGE_AGE_PARTS_PER_TICK: u128 = 1_000_000;
@@ -95,7 +96,8 @@ impl MaterialStorageHistory {
 
         let preservation = u128::from(preservation_multiplier_ppm);
         let age_numerator_per_tick = STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK;
-        let period = preservation / greatest_common_divisor(preservation, age_numerator_per_tick);
+        let period =
+            preservation / greatest_common_divisor_u128(preservation, age_numerator_per_tick);
         if period == 1 {
             return Some(true);
         }
@@ -143,15 +145,6 @@ impl MaterialStorageHistory {
             last_transition_at: at,
         }
     }
-}
-
-fn greatest_common_divisor(mut left: u128, mut right: u128) -> u128 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left
 }
 
 #[cfg(test)]

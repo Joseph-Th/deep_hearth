@@ -3,7 +3,10 @@
 use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::equipment::{EquipmentId, EquipmentOperationTrace, resolve_equipment_provider};
+use crate::equipment::{
+    EquipmentId, EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy,
+    resolve_equipment_provider,
+};
 use crate::geology::GeologicalDepositId;
 use crate::inventory::{
     InboundReservationError, StockpileId, ValidatedInboundReservation,
@@ -80,15 +83,23 @@ fn resolve_mining_equipment_plan(
     {
         return Err(MiningStartError::EquipmentMounted { equipment });
     }
-    if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(MiningStartError::EquipmentBusyProduction {
-            equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(MiningStartError::EquipmentBusyMining { equipment, job });
+    match equipment_occupancy(state, equipment) {
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            return Err(MiningStartError::EquipmentBusyProduction {
+                equipment,
+                job,
+                release,
+            });
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            return Err(MiningStartError::EquipmentBusyMining { equipment, job });
+        }
+        Some(
+            EquipmentOccupancy::ManualPower { .. }
+            | EquipmentOccupancy::Prospecting { .. }
+            | EquipmentOccupancy::Maintenance { .. },
+        )
+        | None => {}
     }
     let physics = resolve_mining_physics(
         registries,
@@ -261,23 +272,20 @@ impl ValidatedMiningStart {
     }
 
     fn precheck_equipment_occupancy(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
-        if let Some(job) = state
-            .production()
-            .get_equipment_occupant(self.record.equipment())
-        {
-            return Err(MiningStartCommitError::EquipmentBusyProduction {
-                equipment: self.record.equipment(),
-                job: job.id(),
-            });
-        }
-        if let Some(job) = state
-            .mining()
-            .get_equipment_occupant(self.record.equipment())
-        {
-            return Err(MiningStartCommitError::EquipmentBusyMining {
-                equipment: self.record.equipment(),
-                job,
-            });
+        let equipment = self.record.equipment();
+        match equipment_occupancy(state, equipment) {
+            Some(EquipmentOccupancy::Production { job, .. }) => {
+                return Err(MiningStartCommitError::EquipmentBusyProduction { equipment, job });
+            }
+            Some(EquipmentOccupancy::Mining { job }) => {
+                return Err(MiningStartCommitError::EquipmentBusyMining { equipment, job });
+            }
+            Some(
+                EquipmentOccupancy::ManualPower { .. }
+                | EquipmentOccupancy::Prospecting { .. }
+                | EquipmentOccupancy::Maintenance { .. },
+            )
+            | None => {}
         }
         Ok(())
     }

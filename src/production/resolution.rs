@@ -457,7 +457,7 @@ fn validate_outputs(outputs: &[MaterialLotSpec]) -> Result<(), ProcessResolution
         if output.composition().parts_per_million(host) == 0 {
             return Err(ProcessResolutionError::OutputCompositionMissingHost { commodity, host });
         }
-        if !seen.insert(output.clone()) {
+        if !seen.insert(output) {
             return Err(ProcessResolutionError::DuplicateOutputSpecification { commodity });
         }
     }

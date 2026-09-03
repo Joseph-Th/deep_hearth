@@ -196,18 +196,19 @@ code-generate every `#[test]` reachable from that focused crate.
 
 | Scope | Contract |
 | --- | --- |
-| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, world-seeded inherited reserve history independent of actor behavior, value-sensitive storage investment from one shared raw-material opportunity using projected edible-horizon return versus actor attention tolerance, survival-owned prospective freshness across a future authored enclosure transition, ordinary raw-timber -> manual-board -> manual-enclosure-body -> preservation construction, timed player-work enclosure dismantling with exact matter recovery and ambient-storage restoration, matched storage counterfactuals at one wall-clock endpoint, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, varied prospecting-work cost, reserve recovery, an integrated hydration-warning -> provision -> prospect -> stored-work sequence, and actual diet-supported vitality recovery. |
+| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, world-seeded inherited reserve history independent of actor behavior, value-sensitive storage investment from one finite disclosed raw-material opportunity using projected edible-horizon return versus actor attention tolerance, physical-frontier and actor-policy-reachability diagnostics over the same feasible candidates, survival-owned prospective freshness across a future authored enclosure transition, ordinary raw-material -> manual-shaping -> enclosure-body -> preservation construction, timed player-work enclosure dismantling with exact matter recovery and ambient-storage restoration, matched storage counterfactuals at one wall-clock endpoint, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, varied prospecting-work cost, reserve recovery, an integrated hydration-warning -> provision -> prospect -> stored-work sequence, and actual diet-supported vitality recovery. |
 | `progression` | Coarse-to-fine evidence and information-value decisions; material-backed sampling; primitive crafting/mining/power/processing; a local scarce-copper pick-vs-crank sequencing counterfactual; direct-labor fallback versus mechanization; delegated work; finite recovery, stored-work loss/recharge, maintenance, and later reinvestment; ordinary quern/sizing-screen liberation through concentration; and finite organic opportunity. Separate contracts verify the reinforced sampling hammer and ordinary woodworking investments. The adze must improve attention without changing its canonical recovery stream. The dedicated frame saw must remain a copper-bearing investment with better timber recovery, real wear, typed capability gating, conservation, and deterministic mid-job save/load continuation; exact timing and yield values remain owned by production/content tests rather than duplicated here. |
-| report `woodworking` | Replayable project size and owned-copper pressure across the ordinary adze/frame-saw decision. The episode executes the selected route and reports its attention and recovered-board consequence against a canonical adze counterfactual, so a material-efficiency trade does not masquerade as a simple upgrade. |
+| report `woodworking` | Replayable visible board-demand pipelines and owned-copper pressure across the ordinary adze/frame-saw decision. The episode amortizes the saw's timber frame and copper blade over queued work, executes real wear and maintenance, falls back to the maintained stone adze when replacement copper is unavailable, and reports both attention payback and net timber payback against a canonical all-adze counterfactual. A fast saw route that has not yet repaid its embodied timber therefore remains a real tradeoff rather than masquerading as a simple upgrade. |
 | report `fieldwork` | Replayable hidden channel, within-channel location, grade, gangue, hardness, and extraction mass. The actor compares only acquired transect evidence, uses cheap inspections before one detailed physical sample, then selects the least-capable ordinary extraction tool whose authored hardness limit covers the acquired 50 MPa hardness band. Mining admission remains the canonical legality proof and the hard-rock specialist may still adapt to its smaller typed batch limit. Hidden geological truth is diagnostic-only and never feeds policy. The reinforced indexed survey separately proves a real four-cell per-voxel information payoff, including hardness only on cells whose acquired abundance evidence establishes definite material presence. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, independently varied finite stored work, canonical per-stage stopping behavior, and terminal current-tier tailings. Capability-only industrial benchmark. |
-| `foundry` | Installed room-temperature pure-copper heating/melting/casting with a same-furnace/same-electrical-source sensible-preheat energy-partition counterfactual, currently dominated rather than claimed as an active strategy, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
+| `foundry` | Installed room-temperature pure-copper heating/melting/casting with a same-furnace/same-electrical-source sensible-preheat energy-partition counterfactual, currently dominated rather than claimed as an active strategy, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. A thermal-capacity-limited retry waits only until the complete retained molten batch is canonically castable again, rather than requiring an unnecessarily empty sink. Capability-only. |
 
-Routine focused gates keep maintained regression/coverage cases and add one fresh replayable organic case.
-`python ci.py report` expands that sample for broader exploration without turning the ordinary repair loop into
-a soak. Full episodes are reserved for behavior that requires executed cross-system consequences. A world may
-succeed, adapt, or stop at a canonical constraint; every partial or blocked outcome must preserve trusted-load
+Routine focused gates run only maintained deterministic regression/coverage cases. An explicit variation or
+behavior root may add one bounded replay case when deliberately reproducing or extending a gate.
+`python ci.py report` owns fresh organic sampling for broader exploration without turning the ordinary repair loop
+into a soak. Full episodes are reserved for behavior that requires executed cross-system consequences. A world
+may succeed, adapt, or stop at a canonical constraint; every partial or blocked outcome must preserve trusted-load
 validity and relevant conservation.
 
 ### Catalog continuity contract
@@ -225,13 +226,22 @@ Woodworking continuity keeps the hewing and sawing routes physically distinct. T
 ordinary hewing process without changing that process's canonical recovery stream, but it cannot satisfy the
 dedicated sawing capability. The frame-saw process has no equipment-free fallback and must remain reachable only
 after its authored copper blade and timber frame are assembled. Its better board recovery therefore spends scarce
-copper and a replaceable wear component rather than becoming a hidden free efficiency multiplier. Exact current
-input masses, yields, and timings remain content/production facts rather than gameplay-evaluation policy.
+copper and a replaceable wear component rather than becoming a hidden free efficiency multiplier. Gameplay
+evaluation must include the frame's embodied timber, blade lifecycle copper, and maintenance attention when
+claiming payback. A finite-copper route may rationally use the saw until its blade becomes unproductive and then
+finish the visible pipeline with the still-maintainable stone adze. Exact current input masses, yields, and timings
+remain content/production facts rather than gameplay-evaluation policy.
 
 Preservation coverage requires every authored enclosure to remain ordinarily producible and recoverable while
 retaining a distinct practical tradeoff in capacity, preservation, raw material, or construction attention.
 Candidate ranking first respects physical feasibility: an enclosure that cannot hold the protected reserve or
-cannot be produced from the disclosed raw-material opportunity is not an actor option. Inherited reserve history
+cannot be produced from the disclosed raw-material opportunity is not an actor option. The actor's candidate
+projection, fastest/strongest references, selected branch, and executed construction must all use that same finite
+world-seeded opportunity; evaluation must not silently fund a route the decision frame said was unavailable.
+Report diagnostics distinguish the physical Pareto frontier from definitions that can actually win the actor's
+authored attention-value rule, so a situational capacity option is not mislabeled as dead content merely because
+it is dominated for the current reserve. Maintained coverage includes a true intermediate timber-frontier choice
+and a stone-only crock opportunity in addition to endpoint cases. Inherited reserve history
 is generated only from the world seed; actor policy must never rewrite which enclosure existed before admission
 or how old retained food already is. The matched freshness-return experiment intentionally compares the fastest
 and strongest feasible construction branches at one wall-clock endpoint. Its signed effective-age result is
@@ -297,13 +307,14 @@ aggregate observable contract rather than incidental internal identity.
 
 `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` controls physical-world variation;
 `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` controls actor-policy variation where applicable; and
-`DEEP_HEARTH_GAMEPLAY_SEEDS` selects explicit focused worlds for deliberate replay. Routine gates generate one
-fresh organic case by default; supplying the roots replays that organic case exactly while maintained anchors stay
-fixed. Failure output must retain replay input.
+`DEEP_HEARTH_GAMEPLAY_SEEDS` selects explicit focused worlds for deliberate replay. Routine gates are maintained
+and deterministic. Supplying a variation or behavior root explicitly opts a gate into one bounded generated case
+while maintained anchors stay fixed. Failure output must retain replay input.
 
-`python ci.py report` is the bounded exploration surface. Its default concise view includes ordinary survival,
-primitive progression, woodworking, fieldwork, live content counts, the ordinary acquisition frontier, and
-compact summaries of the controlled workshop/ore/foundry evidence. Controlled summaries stay explicitly labeled
+`python ci.py report` is the bounded exploration surface. Its default concise view includes aggregate ordinary
+survival, primitive progression, woodworking, and fieldwork diversity, including preservation material/frontier
+breadth and woodworking attention/timber/lifecycle payback, live content counts, the ordinary
+acquisition frontier, and compact summaries of the controlled workshop/ore/foundry evidence. Controlled summaries stay explicitly labeled
 and do not imply ordinary reachability; hiding them entirely would make a cold reader miss important interaction,
 recovery, and finite-capacity behavior that already exists in the simulation. `DEEP_HEARTH_GAMEPLAY_VERBOSE`
 restores full capability diagnostics, blockers, tradeoffs, and counterfactual detail;

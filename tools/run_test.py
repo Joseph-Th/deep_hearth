@@ -14,7 +14,10 @@ import sys
 import time
 import tomllib
 
-import test_catalog
+if __package__:
+    from . import test_catalog
+else:
+    import test_catalog
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -344,8 +347,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--verbose",
         action="store_true",
         help=(
-            "show selected-test output and enable concise gameplay review diagnostics; "
-            "use DEEP_HEARTH_GAMEPLAY_TRACE=1 for low-level trace output"
+            "show selected-test output; full gameplay review/trace diagnostics belong to "
+            "`python ci.py report`"
         ),
     )
     parser.add_argument(
@@ -448,8 +451,6 @@ def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
         replay["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"] = args.variation_seed
     if args.behavior_seed:
         replay["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"] = args.behavior_seed
-    if getattr(args, "verbose", False):
-        replay["DEEP_HEARTH_GAMEPLAY_VERBOSE"] = "1"
     return replay
 
 

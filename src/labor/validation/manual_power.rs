@@ -3,8 +3,11 @@
 use crate::core::quantity::{Energy, Power, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::energy::{calculate_power_duration_ceiling, validate_energy_sink_capacity_at_release};
-use crate::equipment::resolve_equipment_capability;
+use crate::energy::{
+    EnergyStoreOccupancy, calculate_power_duration_ceiling, energy_store_occupancy,
+    validate_energy_sink_capacity_at_release,
+};
+use crate::equipment::{EquipmentOccupancy, equipment_occupancy, resolve_equipment_capability};
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
@@ -95,19 +98,13 @@ fn validate_manual_power_resource_availability(
     state: &AppState,
     work: ManualPowerWork,
 ) -> Result<(), PlayerWorkValidationError> {
-    if state
-        .production()
-        .get_equipment_occupant(work.equipment())
-        .is_some()
-        || state
-            .mining()
-            .get_equipment_occupant(work.equipment())
-            .is_some()
-        || state
-            .production()
-            .get_energy_occupant(work.destination())
-            .is_some()
-    {
+    if matches!(
+        equipment_occupancy(state, work.equipment()),
+        Some(EquipmentOccupancy::Production { .. } | EquipmentOccupancy::Mining { .. })
+    ) || matches!(
+        energy_store_occupancy(state, work.destination()),
+        Some(EnergyStoreOccupancy::Production { .. })
+    ) {
         return Err(PlayerWorkValidationError::ManualPowerResourceDoubleBooked);
     }
     Ok(())

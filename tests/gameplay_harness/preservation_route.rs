@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use deep_hearth::content::{FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD};
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::production::ProcessId;
@@ -34,6 +35,11 @@ pub(super) struct PreservationConstructionPlan {
     pub(super) attention_ticks: u64,
 }
 
+pub(super) fn is_disclosed_preservation_raw_material(commodity: CommodityKey) -> bool {
+    commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+        || commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+}
+
 fn discover_manual_construction_route(
     registries: &Registries,
     output: CommodityKey,
@@ -49,6 +55,9 @@ fn discover_manual_construction_route(
         .collect::<Vec<_>>();
     if authored_producers.is_empty() {
         assert!(visiting.remove(&output));
+        if !is_disclosed_preservation_raw_material(output) {
+            return None;
+        }
         return Some(ManualConstructionRoute {
             raw_commodity: output,
             raw_mass: required_mass,

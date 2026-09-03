@@ -1,5 +1,6 @@
 //! Behavioral coverage for player-performed field prospecting.
 
+use super::abundance::resolve_region_abundance_bounds;
 use super::*;
 use crate::content::{
     EQUIPMENT_STONE_GEOLOGICAL_HAMMER, FORM_HANDLE, FORM_ORE, FORM_TOOL, MATERIAL_COPPER,
@@ -10,7 +11,10 @@ use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
-use crate::geology::{ExcavationHardnessEstimate, GeneratedDepositSpec, insert_generated_deposit};
+use crate::geology::{
+    ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
+    insert_generated_deposit,
+};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};

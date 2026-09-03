@@ -5,12 +5,14 @@ use deep_hearth::crafting::ManualCraftDefinition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 
-/// Selects the most attention-efficient observable manual production route to one required
-/// commodity quantity.
+/// Selects the most attention-efficient observable bootstrap-capable manual production route to
+/// one required commodity quantity.
 ///
 /// This is actor policy over registry-derived topology, not simulation authority. Canonical craft
 /// resolution still owns the actual operation once the actor has selected a process and current
-/// lots. Ties are rejected because process identity is not a player-visible preference.
+/// lots. Required-equipment recipes are excluded because callers of this helper execute the chosen
+/// route without an already-owned provider. Ties are rejected because process identity is not a
+/// player-visible preference.
 pub(super) fn manual_craft_plan_for_output<'a>(
     registries: &'a Registries,
     commodity: CommodityKey,
@@ -24,6 +26,11 @@ pub(super) fn manual_craft_plan_for_output<'a>(
     let candidates = registries
         .crafting()
         .manual_producers(commodity)
+        .filter(|definition| {
+            !definition
+                .equipment_profile()
+                .is_some_and(|profile| profile.requires_equipment())
+        })
         .map(|definition| {
             let per_batch = definition
                 .outputs()

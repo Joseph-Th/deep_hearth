@@ -14,11 +14,73 @@ use crate::inventory::{
 use crate::maintenance::Condition;
 use crate::registry::Registries;
 
-use super::EquipmentId;
+use super::{EquipmentId, EquipmentOccupancy, equipment_occupancy};
 
 mod errors;
 
 pub use errors::{EquipmentDisassemblyCommitError, EquipmentDisassemblyError};
+
+fn validation_occupancy_error(
+    state: &AppState,
+    equipment: EquipmentId,
+) -> Option<EquipmentDisassemblyError> {
+    equipment_occupancy(state, equipment).map(|occupancy| match occupancy {
+        EquipmentOccupancy::Production { job, release } => {
+            EquipmentDisassemblyError::EquipmentBusyProduction {
+                equipment,
+                job,
+                release,
+            }
+        }
+        EquipmentOccupancy::Mining { job } => {
+            EquipmentDisassemblyError::EquipmentBusyMining { equipment, job }
+        }
+        EquipmentOccupancy::ManualPower { .. } => {
+            EquipmentDisassemblyError::EquipmentBusyManualPower { equipment }
+        }
+        EquipmentOccupancy::Prospecting { completes_at } => {
+            EquipmentDisassemblyError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentOccupancy::Maintenance { completes_at } => {
+            EquipmentDisassemblyError::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            }
+        }
+    })
+}
+
+fn commit_occupancy_error(
+    equipment: EquipmentId,
+    occupancy: EquipmentOccupancy,
+) -> EquipmentDisassemblyCommitError {
+    match occupancy {
+        EquipmentOccupancy::Production { job, .. } => {
+            EquipmentDisassemblyCommitError::EquipmentBusyProduction { equipment, job }
+        }
+        EquipmentOccupancy::Mining { job } => {
+            EquipmentDisassemblyCommitError::EquipmentBusyMining { equipment, job }
+        }
+        EquipmentOccupancy::ManualPower { .. } => {
+            EquipmentDisassemblyCommitError::EquipmentBusyManualPower { equipment }
+        }
+        EquipmentOccupancy::Prospecting { completes_at } => {
+            EquipmentDisassemblyCommitError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentOccupancy::Maintenance { completes_at } => {
+            EquipmentDisassemblyCommitError::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            }
+        }
+    }
+}
 
 fn map_ingress_error(
     equipment: EquipmentId,
@@ -116,23 +178,13 @@ impl ValidatedEquipmentDisassembly {
                 equipment: self.equipment,
             });
         }
-        if let Some(work) = state
-            .player_work()
-            .get_prospecting_equipment_occupant(self.equipment)
+        let occupancy = equipment_occupancy(state, self.equipment);
+        if let Some(
+            occupancy @ (EquipmentOccupancy::Prospecting { .. }
+            | EquipmentOccupancy::Maintenance { .. }),
+        ) = occupancy
         {
-            return Err(EquipmentDisassemblyCommitError::EquipmentBusyProspecting {
-                equipment: self.equipment,
-                completes_at: work.completes_at(),
-            });
-        }
-        if let Some(work) = state
-            .player_work()
-            .get_equipment_maintenance_occupant(self.equipment)
-        {
-            return Err(EquipmentDisassemblyCommitError::EquipmentUnderMaintenance {
-                equipment: self.equipment,
-                completes_at: work.completes_at(),
-            });
+            return Err(commit_occupancy_error(self.equipment, occupancy));
         }
         if let Some(element) = record.supported_by() {
             return Err(EquipmentDisassemblyCommitError::EquipmentMounted {
@@ -140,26 +192,8 @@ impl ValidatedEquipmentDisassembly {
                 element,
             });
         }
-        if let Some(job) = state.production().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentDisassemblyCommitError::EquipmentBusyProduction {
-                equipment: self.equipment,
-                job: job.id(),
-            });
-        }
-        if let Some(job) = state.mining().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentDisassemblyCommitError::EquipmentBusyMining {
-                equipment: self.equipment,
-                job,
-            });
-        }
-        if state
-            .player_work()
-            .get_manual_power_equipment_occupant(self.equipment)
-            .is_some()
-        {
-            return Err(EquipmentDisassemblyCommitError::EquipmentBusyManualPower {
-                equipment: self.equipment,
-            });
+        if let Some(occupancy) = occupancy {
+            return Err(commit_occupancy_error(self.equipment, occupancy));
         }
         self.ingress.assert_matches_state(state.inventory());
         state.equipment().assert_removal_available(
@@ -212,40 +246,8 @@ pub fn validate_disassemble_equipment(
     if let Some(element) = record.supported_by() {
         return Err(EquipmentDisassemblyError::EquipmentMounted { equipment, element });
     }
-    if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(EquipmentDisassemblyError::EquipmentBusyProduction {
-            equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(EquipmentDisassemblyError::EquipmentBusyMining { equipment, job });
-    }
-    if state
-        .player_work()
-        .get_manual_power_equipment_occupant(equipment)
-        .is_some()
-    {
-        return Err(EquipmentDisassemblyError::EquipmentBusyManualPower { equipment });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_prospecting_equipment_occupant(equipment)
-    {
-        return Err(EquipmentDisassemblyError::EquipmentBusyProspecting {
-            equipment,
-            completes_at: work.completes_at(),
-        });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_equipment_maintenance_occupant(equipment)
-    {
-        return Err(EquipmentDisassemblyError::EquipmentUnderMaintenance {
-            equipment,
-            completes_at: work.completes_at(),
-        });
+    if let Some(error) = validation_occupancy_error(state, equipment) {
+        return Err(error);
     }
 
     let entries = record

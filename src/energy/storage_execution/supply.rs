@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
+use crate::energy::{EnergyStoreOccupancy, energy_store_occupancy};
 use crate::registry::Registries;
 
-use super::get_energy_store_occupant;
 use crate::energy::definitions::{EnergyCarrier, EnergyStoreDefinitionId};
 use crate::energy::state::{EnergyState, EnergyStoreId};
 
@@ -135,19 +135,18 @@ pub(crate) fn assess_energy_supply_access(
     if definition.max_output_power().is_zero() {
         return Err(EnergySupplyError::NoOutputPower { store });
     }
-    if let Some((job, release)) = get_energy_store_occupant(state, store) {
-        return Err(EnergySupplyError::StoreBusy {
-            store,
-            job,
-            release,
-        });
-    }
-    if state
-        .player_work()
-        .get_manual_power_energy_occupant(store)
-        .is_some()
-    {
-        return Err(EnergySupplyError::StoreBusyManualPower { store });
+    match energy_store_occupancy(state, store) {
+        Some(EnergyStoreOccupancy::Production { job, release }) => {
+            return Err(EnergySupplyError::StoreBusy {
+                store,
+                job,
+                release,
+            });
+        }
+        Some(EnergyStoreOccupancy::ManualPower) => {
+            return Err(EnergySupplyError::StoreBusyManualPower { store });
+        }
+        None => {}
     }
     Ok(EnergySupplyAccess {
         store,

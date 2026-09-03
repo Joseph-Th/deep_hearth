@@ -7,10 +7,13 @@ use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::energy::{
     ConsumedEnergyTrace, EnergyConsumptionReservation, EnergyIngressReservation,
-    EnergyIngressReservationError, EnergyReservationError, ReleasedEnergyTrace,
-    validate_energy_consumption_reservation, validate_energy_ingress_reservation,
+    EnergyIngressReservationError, EnergyReservationError, EnergyStoreOccupancy,
+    ReleasedEnergyTrace, energy_store_occupancy, validate_energy_consumption_reservation,
+    validate_energy_ingress_reservation,
 };
-use crate::equipment::{EquipmentOperationTrace, ValidatedEquipmentUse};
+use crate::equipment::{
+    EquipmentOccupancy, EquipmentOperationTrace, ValidatedEquipmentUse, equipment_occupancy,
+};
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, ConsumptionReservation, MaterialStorageHistory,
     ReservationError, StockpileId, StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
@@ -151,25 +154,18 @@ fn validate_energy_store_available(
     state: &AppState,
     store: crate::energy::EnergyStoreId,
 ) -> Result<(), StartProcessError> {
-    if let Some(job_id) = state.production().get_energy_occupant(store) {
-        let job = state.production().get_job(job_id).unwrap_or_else(|| {
-            panic!(
-                "runtime invariant broken: energy occupancy index references missing production job {}",
-                job_id.value()
-            )
-        });
-        return Err(StartProcessError::EnergyStoreBusy {
-            store,
-            job: job_id,
-            release: job.occupancy_release(),
-        });
-    }
-    if state
-        .player_work()
-        .get_manual_power_energy_occupant(store)
-        .is_some()
-    {
-        return Err(StartProcessError::EnergyStoreBusyManualPower { store });
+    match energy_store_occupancy(state, store) {
+        Some(EnergyStoreOccupancy::Production { job, release }) => {
+            return Err(StartProcessError::EnergyStoreBusy {
+                store,
+                job,
+                release,
+            });
+        }
+        Some(EnergyStoreOccupancy::ManualPower) => {
+            return Err(StartProcessError::EnergyStoreBusyManualPower { store });
+        }
+        None => {}
     }
     Ok(())
 }
@@ -266,31 +262,27 @@ fn validate_equipment_available(
     state: &AppState,
     equipment: crate::equipment::EquipmentId,
 ) -> Result<(), StartProcessError> {
-    if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(StartProcessError::EquipmentBusy {
-            equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(StartProcessError::EquipmentBusyMining { equipment, job });
-    }
-    if state
-        .player_work()
-        .get_manual_power_equipment_occupant(equipment)
-        .is_some()
-    {
-        return Err(StartProcessError::EquipmentBusyManualPower { equipment });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_prospecting_equipment_occupant(equipment)
-    {
-        return Err(StartProcessError::EquipmentBusyProspecting {
-            equipment,
-            completes_at: work.completes_at(),
-        });
+    match equipment_occupancy(state, equipment) {
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            return Err(StartProcessError::EquipmentBusy {
+                equipment,
+                job,
+                release,
+            });
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            return Err(StartProcessError::EquipmentBusyMining { equipment, job });
+        }
+        Some(EquipmentOccupancy::ManualPower { .. }) => {
+            return Err(StartProcessError::EquipmentBusyManualPower { equipment });
+        }
+        Some(EquipmentOccupancy::Prospecting { completes_at }) => {
+            return Err(StartProcessError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            });
+        }
+        Some(EquipmentOccupancy::Maintenance { .. }) | None => {}
     }
     Ok(())
 }

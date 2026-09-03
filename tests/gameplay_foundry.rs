@@ -18,8 +18,6 @@ mod focused_seeds;
 mod foundry_probe;
 #[path = "gameplay_harness/foundry_setup.rs"]
 mod foundry_setup;
-#[path = "gameplay_harness/fresh_seed.rs"]
-mod fresh_seed;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]

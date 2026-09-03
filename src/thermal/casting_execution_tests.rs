@@ -60,6 +60,23 @@ fn condition(parts_per_million: u32) -> Condition {
     }
 }
 
+fn exact_power_for_minimum_tick_energy(registries: &Registries, minimum: Energy) -> Power {
+    let tick_microseconds = u128::from(registries.core().physical_tick_duration().microseconds());
+    let denominator = 1_000_000_000_u128;
+    let energy_quantum = tick_microseconds
+        / crate::core::arithmetic::greatest_common_divisor_u128(tick_microseconds, denominator);
+    let exact_energy = minimum
+        .nanojoules()
+        .div_ceil(energy_quantum)
+        .checked_mul(energy_quantum)
+        .unwrap_or_else(|| panic!("casting exact test power energy overflowed"));
+    let numerator = exact_energy
+        .checked_mul(denominator)
+        .unwrap_or_else(|| panic!("casting exact test power numerator overflowed"));
+    assert_eq!(numerator % tick_microseconds, 0);
+    Power::from_picowatts(numerator / tick_microseconds)
+}
+
 #[test]
 fn casting_mass_envelope_handles_non_monotonic_deferred_sink_capacity_exactly() {
     let baseline = make_fixture(Mass::from_milligrams(1), MELTING_POINT);
@@ -170,6 +187,97 @@ fn casting_mass_envelope_handles_non_monotonic_deferred_sink_capacity_exactly() 
         envelope.limiting_constraint(),
         Some(crate::thermal::CastingLotMassConstraint::ThermalSinkCapacity)
     );
+}
+
+#[test]
+fn casting_mass_envelope_matches_brute_force_across_deferred_sink_profiles() {
+    const OFFERED_MASS_MG: u64 = 20;
+
+    let baseline = make_fixture(Mass::from_milligrams(1), MELTING_POINT);
+    let unit_energy = resolve_selected(
+        &baseline.registries,
+        &baseline.state,
+        baseline.ids,
+        Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("casting planner matrix unit baseline failed: {error}"))
+    .released_energy();
+    let unit_nj = unit_energy.nanojoules();
+    let configurations = [
+        (unit_nj / 4, 0, 8_u128, 5_u128),
+        (unit_nj / 4, unit_nj / 8, 8, 7),
+        (unit_nj / 4, unit_nj / 3, 8, 7),
+        (unit_nj + unit_nj / 3, unit_nj, 5, 3),
+        (unit_nj / 7, unit_nj / 2, 10, 10),
+    ];
+
+    for (case, (transfer_nj, passive_nj, capacity_units, stored_units)) in
+        configurations.into_iter().enumerate()
+    {
+        let transfer_power = exact_power_for_minimum_tick_energy(
+            &baseline.registries,
+            Energy::from_nanojoules(transfer_nj.max(1)),
+        );
+        let passive_power = if passive_nj == 0 {
+            Power::ZERO
+        } else {
+            exact_power_for_minimum_tick_energy(
+                &baseline.registries,
+                Energy::from_nanojoules(passive_nj),
+            )
+        };
+        let sink_capacity = Energy::from_nanojoules(
+            unit_nj
+                .checked_mul(capacity_units)
+                .unwrap_or_else(|| panic!("casting planner matrix capacity overflowed")),
+        );
+        let initial_sink_energy = Energy::from_nanojoules(
+            unit_nj
+                .checked_mul(stored_units)
+                .unwrap_or_else(|| panic!("casting planner matrix stored energy overflowed")),
+        );
+        let fixture = make_fixture_with_sink_configuration(
+            Mass::from_milligrams(OFFERED_MASS_MG),
+            MELTING_POINT,
+            sink_capacity,
+            transfer_power,
+            passive_power,
+            initial_sink_energy,
+        );
+        let envelope = crate::thermal::assess_casting_lot_mass_envelope(
+            &fixture.registries,
+            &fixture.state,
+            crate::thermal::CastingLotMassRequest::new(
+                PROCESS,
+                fixture.ids.source,
+                MaterialLotSelection::new(
+                    fixture.ids.source_lot,
+                    Mass::from_milligrams(OFFERED_MASS_MG),
+                ),
+                fixture.ids.equipment,
+                fixture.ids.heat_sink,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("casting planner matrix case {case} failed: {error}"));
+        let brute_force = (1..=OFFERED_MASS_MG)
+            .rev()
+            .find(|mass| {
+                resolve_selected(
+                    &fixture.registries,
+                    &fixture.state,
+                    fixture.ids,
+                    Mass::from_milligrams(*mass),
+                )
+                .is_ok()
+            })
+            .map_or(Mass::ZERO, Mass::from_milligrams);
+
+        assert_eq!(
+            envelope.maximum_mass(),
+            brute_force,
+            "casting planner matrix case {case} diverged from canonical resolution"
+        );
+    }
 }
 
 fn make_registries(

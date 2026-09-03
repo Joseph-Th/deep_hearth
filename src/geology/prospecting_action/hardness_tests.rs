@@ -51,7 +51,7 @@ fn hardness_buckets_preserve_equipment_limit_boundaries_without_exact_truth() {
             Pressure::from_pascals(450_000_000),
             Pressure::from_pascals(500_000_000),
         )
-        .unwrap()
+        .unwrap_or_else(|error| panic!("500 MPa hardness estimate fixture failed: {error}"))
     );
     assert_eq!(
         observed_hardness(500_000_001),
@@ -59,7 +59,7 @@ fn hardness_buckets_preserve_equipment_limit_boundaries_without_exact_truth() {
             Pressure::from_pascals(500_000_000),
             Pressure::from_pascals(550_000_000),
         )
-        .unwrap()
+        .unwrap_or_else(|error| panic!("above-500 MPa hardness estimate fixture failed: {error}"))
     );
     assert_eq!(
         observed_hardness(600_000_001),
@@ -67,6 +67,6 @@ fn hardness_buckets_preserve_equipment_limit_boundaries_without_exact_truth() {
             Pressure::from_pascals(600_000_000),
             Pressure::from_pascals(650_000_000),
         )
-        .unwrap()
+        .unwrap_or_else(|error| panic!("above-600 MPa hardness estimate fixture failed: {error}"))
     );
 }

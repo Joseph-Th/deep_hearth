@@ -279,19 +279,24 @@ fn maximum_sink_feasible_mass(
         upper_energy,
         registries.core().physical_tick_duration(),
     )?;
-    let mut best = Mass::ZERO;
-    let mut previous_transfer_capacity = Energy::ZERO;
-    for ticks in 1..=maximum_duration.value() {
-        let duration = TickSpan::new(ticks);
+    let mut duration = maximum_duration;
+    loop {
         let transfer_capacity = integrated_energy(transfer_power, duration, registries);
+        let previous_transfer_capacity = integrated_energy(
+            transfer_power,
+            TickSpan::new(duration.value() - 1),
+            registries,
+        );
         let minimum_mass = Mass::from_milligrams(
             mass_capacity_from_energy(previous_transfer_capacity, unit_energy)
                 .milligrams()
-                .saturating_add(1),
+                .checked_add(1)
+                .unwrap_or_else(|| {
+                    unreachable!(
+                        "minimum transfer duration cannot begin above maximum represented mass"
+                    )
+                }),
         );
-        if minimum_mass > upper_mass {
-            break;
-        }
         let transfer_mass = mass_capacity_from_energy(transfer_capacity, unit_energy);
         let sink_mass = mass_capacity_from_energy(
             sink.available_capacity_at_release(registries, duration),
@@ -302,11 +307,25 @@ fn maximum_sink_feasible_mass(
             .min()
             .unwrap_or(Mass::ZERO);
         if candidate >= minimum_mass {
-            best = best.max(candidate);
+            return Ok(candidate);
         }
-        previous_transfer_capacity = transfer_capacity;
+        if candidate.is_zero() {
+            return Ok(Mass::ZERO);
+        }
+
+        // Every component of `candidate` is nondecreasing with duration. Because this duration's
+        // bucket starts above `candidate`, no skipped later-than-candidate duration can contain a
+        // feasible mass: its transfer bucket also starts above `candidate` while its sink-limited
+        // candidate cannot exceed the one just observed. Jump directly to the least duration that
+        // can transfer this candidate and continue the exact backward search there.
+        let candidate_duration = calculate_power_duration_ceiling(
+            transfer_power,
+            energy_for_mass(unit_energy, candidate),
+            registries.core().physical_tick_duration(),
+        )?;
+        debug_assert!(candidate_duration < duration);
+        duration = candidate_duration;
     }
-    Ok(best)
 }
 
 fn energy_for_mass(unit_energy: Energy, mass: Mass) -> Energy {

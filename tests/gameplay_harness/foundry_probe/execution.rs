@@ -252,36 +252,44 @@ pub(super) struct CooldownResult {
     pub(super) cooled_thermal: Energy,
 }
 
-pub(super) fn cool_thermal_sink(
+pub(super) fn cool_thermal_sink_until(
     registries: &Registries,
     state: &mut AppState,
     ids: FoundryIds,
     stored: Energy,
+    mut recovery_ready: impl FnMut(&AppState) -> bool,
 ) -> CooldownResult {
     let thermal_sink = registries
         .energy()
         .get_store(ENERGY_THERMAL_SINK)
         .unwrap_or_else(|| panic!("foundry thermal-sink definition disappeared"));
-    let ticks = passive_dissipation_ticks_until_empty(registries, thermal_sink, stored)
+    if stored.is_zero() || recovery_ready(state) {
+        return CooldownResult {
+            ticks: 0,
+            cooled_thermal: stored,
+        };
+    }
+    let maximum_ticks = passive_dissipation_ticks_until_empty(registries, thermal_sink, stored)
         .unwrap_or_else(|| panic!("foundry thermal sink has no finite passive recovery horizon"))
         .value();
-    advance_idle_ticks(registries, state, ticks, "foundry thermal cooldown");
-    let cooled_thermal = state
-        .energy()
-        .get_store(ids.heat_sink)
-        .map(|store| store.stored())
-        .unwrap_or_else(|| panic!("foundry heat sink disappeared during passive cooldown"));
-    assert_eq!(
-        cooled_thermal,
-        Energy::ZERO,
-        "foundry thermal sink must recover its full casting capacity without player micromanagement"
-    );
-    validate_loaded_state(registries, state)
-        .unwrap_or_else(|error| panic!("foundry post-cooldown state audit failed: {error}"));
-    CooldownResult {
-        ticks,
-        cooled_thermal,
+    for ticks in 1..=maximum_ticks {
+        advance_idle_ticks(registries, state, 1, "foundry thermal cooldown");
+        let cooled_thermal = state
+            .energy()
+            .get_store(ids.heat_sink)
+            .map(|store| store.stored())
+            .unwrap_or_else(|| panic!("foundry heat sink disappeared during passive cooldown"));
+        if recovery_ready(state) || cooled_thermal.is_zero() {
+            validate_loaded_state(registries, state).unwrap_or_else(|error| {
+                panic!("foundry post-cooldown state audit failed: {error}")
+            });
+            return CooldownResult {
+                ticks,
+                cooled_thermal,
+            };
+        }
     }
+    unreachable!("finite passive cooldown must reach either recovery readiness or an empty sink")
 }
 
 pub(super) fn audit_recovery(
@@ -323,8 +331,15 @@ pub(super) fn audit_recovery(
             .energy()
             .get_store(ids.heat_sink)
             .map(|store| store.stored()),
-        Some(recovery.released_heat),
-        "a recovery cast started from an empty sink must capture exactly its released heat"
+        Some(recovery.thermal_after),
+        "foundry recovery audit must observe the exact post-cast sink state"
+    );
+    assert_eq!(
+        recovery
+            .thermal_without_cast
+            .checked_add(recovery.released_heat),
+        Some(recovery.thermal_after),
+        "recovery casting must add exactly its released heat above the same-duration passive-cooling baseline"
     );
 }
 

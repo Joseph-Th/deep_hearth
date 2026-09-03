@@ -1,7 +1,9 @@
 //! Authorization-stage validation for one already-resolved equipment maintenance operation.
 
 use crate::core::state::AppState;
-use crate::equipment::{EquipmentOperationTrace, EquipmentRecord};
+use crate::equipment::{
+    EquipmentOccupancy, EquipmentOperationTrace, EquipmentRecord, equipment_occupancy,
+};
 use crate::labor::{EquipmentMaintenanceWork, PlayerWork, validate_player_work_start};
 use crate::registry::Registries;
 
@@ -15,31 +17,27 @@ fn validate_equipment_availability(
     state: &AppState,
     equipment: crate::equipment::EquipmentId,
 ) -> Result<(), EquipmentMaintenanceError> {
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(EquipmentMaintenanceError::EquipmentBusyMining { equipment, job });
-    }
-    if state
-        .player_work()
-        .get_manual_power_equipment_occupant(equipment)
-        .is_some()
-    {
-        return Err(EquipmentMaintenanceError::EquipmentBusyManualPower { equipment });
-    }
-    if let Some(work) = state
-        .player_work()
-        .get_prospecting_equipment_occupant(equipment)
-    {
-        return Err(EquipmentMaintenanceError::EquipmentBusyProspecting {
-            equipment,
-            completes_at: work.completes_at(),
-        });
-    }
-    if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(EquipmentMaintenanceError::EquipmentBusy {
-            equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
+    match equipment_occupancy(state, equipment) {
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            return Err(EquipmentMaintenanceError::EquipmentBusy {
+                equipment,
+                job,
+                release,
+            });
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            return Err(EquipmentMaintenanceError::EquipmentBusyMining { equipment, job });
+        }
+        Some(EquipmentOccupancy::ManualPower { .. }) => {
+            return Err(EquipmentMaintenanceError::EquipmentBusyManualPower { equipment });
+        }
+        Some(EquipmentOccupancy::Prospecting { completes_at }) => {
+            return Err(EquipmentMaintenanceError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            });
+        }
+        Some(EquipmentOccupancy::Maintenance { .. }) | None => {}
     }
     Ok(())
 }

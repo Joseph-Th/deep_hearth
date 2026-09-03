@@ -10,6 +10,7 @@ use super::configuration::{
 };
 use super::contracts::{assert_anchor_diversity, assert_scenario_contracts};
 use super::environment::ROOM_TEMPERATURE;
+#[cfg(not(test))]
 use super::fresh_seed::fresh_root;
 use super::industrial_support::install_equipment_on_grounded_support;
 use super::inventory_support::add_solid_stockpile;
@@ -18,6 +19,7 @@ use super::maintenance_timing::{
 };
 use super::manual_power_timing::{advance_manual_power_to, finish_manual_power_work};
 use super::ore_fixture::copper_ore_composition;
+#[cfg(not(test))]
 use super::output::has_verbose_output;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,

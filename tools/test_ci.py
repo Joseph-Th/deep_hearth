@@ -145,6 +145,15 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_quick_lane_is_build_free(self) -> None:
         self.assertEqual(cargo_build_commands(ci.quick_plan()), [])
 
+    def test_quick_lane_runs_python_contracts_as_an_importable_module(self) -> None:
+        self.assertIn(
+            (
+                "local CI contracts",
+                [sys.executable, "-m", "unittest", "tools.test_ci", "-q"],
+            ),
+            ci.quick_plan(),
+        )
+
     def test_quick_lane_includes_bca_complexity_ratchet(self) -> None:
         self.assertIn(
             (
@@ -800,6 +809,22 @@ class LocalCiPlanTests(unittest.TestCase):
                     f"focused gameplay target {scope} must not pull unrelated harness family {module}",
                 )
 
+    def test_routine_gameplay_targets_do_not_compile_fresh_seed_generation(self) -> None:
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        target_paths = {
+            definition["name"]: ROOT / definition["path"]
+            for definition in manifest.get("test", [])
+        }
+        for target in (*ci.GAMEPLAY_TARGETS.values(), ci.GAMEPLAY_AUDIT_TARGET):
+            source = target_paths[target].read_text(encoding="utf-8")
+            self.assertNotIn(
+                "gameplay_harness/fresh_seed.rs",
+                source,
+                f"routine gameplay target {target} must leave fresh organic sampling to the report",
+            )
+        report = ROOT / "tests" / "gameplay_report.rs"
+        self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
+
     def test_each_focused_gameplay_target_compiles_only_its_gate(self) -> None:
         for scope, target in ci.GAMEPLAY_TARGETS.items():
             self.assertEqual(
@@ -1038,7 +1063,7 @@ class LocalCiPlanTests(unittest.TestCase):
             },
         )
 
-    def test_run_test_verbose_is_one_flag_for_output_and_gameplay_review_detail(self) -> None:
+    def test_run_test_verbose_only_controls_selected_test_output(self) -> None:
         args = run_test.parse_args(
             [
                 "--target",
@@ -1048,10 +1073,7 @@ class LocalCiPlanTests(unittest.TestCase):
             ]
         )
         self.assertIn("--nocapture", run_test.cargo_command(args))
-        self.assertEqual(
-            run_test.gameplay_replay_environment(args),
-            {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"},
-        )
+        self.assertEqual(run_test.gameplay_replay_environment(args), {})
 
     def test_unknown_gameplay_failure_falls_back_to_the_broad_gameplay_audit(self) -> None:
         output = "failures:\n    future_contracts::new_global_check\n"
@@ -1213,20 +1235,20 @@ class LocalCiPlanTests(unittest.TestCase):
                 "PROGRESSION EXPERIENCE seed=0x00000000000000AA sample=organic information=surface-resolved local-copper-sequence=pick-first counterfactual=[crank-first-dominated hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
                 "LIBERATION EXPERIENCE seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] matter=conserved",
                 "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
-                "SURVIVAL EXPERIENCE seed=0x0000000000000001 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[protected-reserve:6500000mg storage-policy:maximum-protection candidates:5]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000AA sample=organic pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[protected-reserve:18000000mg storage-policy:attention-efficient candidates:3]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000CC sample=organic pressure=hydration choice=[state:policy-sensitive diet:compact-calories] current-investment=[protected-reserve:50000000mg storage-policy:maximum-protection candidates:1]",
+                "SURVIVAL EXPERIENCE seed=0x0000000000000001 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] current-investment=[protected-reserve:6500000mg raw-opportunity=[origin:4:compact-insulated-timber-pantry mode:choice-rich-timber inputs:65537:wood/log:6000000mg] storage-policy:maximum-protection candidates:5 frontier=[physical:4/5 policy-reachable:1/5 selected-physical:true selected-policy:true]]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000AA sample=organic pressure=energy choice=[state:supply-constrained diet:compact-calories] current-investment=[protected-reserve:18000000mg raw-opportunity=[origin:2:double-wall-timber-provisions-chest mode:scarce-timber inputs:65537:wood/log:5000000mg] storage-policy:attention-efficient candidates:3 frontier=[physical:2/3 policy-reachable:2/3 selected-physical:true selected-policy:true]]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000CC sample=organic pressure=hydration choice=[state:policy-sensitive diet:compact-calories] current-investment=[protected-reserve:50000000mg raw-opportunity=[origin:6:carved-stone-provisions-crock mode:alternate-material inputs:589826:stone/lump:3000000mg] storage-policy:maximum-protection candidates:1 frontier=[physical:1/1 policy-reachable:1/1 selected-physical:true selected-policy:true]]",
                 "SURVIVAL REVIEW seed=0x00000000000000AA accounting-detail",
                 "PROBE INPUT name=woodworking mode=explore samples=3 organic=1 world_root=0x111 behavior_root=0x222 replay=anchor:0x0000000000000001@0x1,coverage:0x0000000000000003@0x2,organic:0x00000000000000AA@0x3",
-                "WOODWORKING EXPERIENCE seed=0x0000000000000001 behavior=0x1 sample=anchor preference=conserve-timber routes=[adze:12logs saw:11logs saw-fundable:true saw-saves-timber:true] choice=frame-saw reason=timber-demand-justifies-saw",
-                "WOODWORKING EXPERIENCE seed=0x0000000000000003 behavior=0x2 sample=coverage preference=conserve-scarce-copper routes=[adze:9logs saw:8logs saw-fundable:true saw-saves-timber:true] choice=stone-adze reason=policy-conserves-scarce-copper",
-                "WOODWORKING EXPERIENCE seed=0x00000000000000AA behavior=0x3 sample=organic preference=conserve-timber routes=[adze:9logs saw:8logs saw-fundable:false saw-saves-timber:true] choice=stone-adze reason=copper-supply-limited",
+                "WOODWORKING EXPERIENCE seed=0x0000000000000001 behavior=0x1 sample=anchor preference=conserve-timber routes=[adze:12logs; saw-assisted:min-saw-logs:11 fundable:true actual=[saw:11 adze-fallback:0 fallback-copper:true saw-services:1 adze-services:0] attention-payback:true net-timber-payback:true] choice=frame-saw reason=pipeline-net-timber-payback",
+                "WOODWORKING EXPERIENCE seed=0x0000000000000003 behavior=0x2 sample=coverage preference=conserve-scarce-copper routes=[adze:9logs; saw-assisted:min-saw-logs:8 fundable:true actual=[saw:8 adze-fallback:0 fallback-copper:false saw-services:0 adze-services:0] attention-payback:true net-timber-payback:false] choice=stone-adze reason=copper-reserve-protected",
+                "WOODWORKING EXPERIENCE seed=0x00000000000000AA behavior=0x3 sample=organic preference=conserve-timber routes=[adze:9logs; saw-assisted:min-saw-logs:8 fundable:false actual=[saw:0 adze-fallback:0 fallback-copper:false saw-services:0 adze-services:0] attention-payback:false net-timber-payback:false] choice=stone-adze reason=copper-supply-limited",
                 "PROBE INPUT name=fieldwork mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,coverage:0x0000000000000004,organic:0x00000000000000AA",
                 "FIELDWORK EXPERIENCE seed=0x0000000000000001 sample=anchor transects=2 selected-channel=observed-strongest field-inspections=3 detailed-surveys=1 observed-hardness=450000000..500000000Pa geology=quarry-soft tool=stone-quarry adaptation=sampled-hardness-base-quarry retained-native-copper=40000mg requested=450000mg mining=450000mg",
                 "FIELDWORK EXPERIENCE seed=0x0000000000000004 sample=coverage transects=2 selected-channel=observed-strongest field-inspections=1 detailed-surveys=1 observed-hardness=550000000..600000000Pa geology=quarry-reinforcement tool=copper-reinforced-quarry adaptation=sampled-hardness-quarry-upgrade retained-native-copper=20000mg requested=450000mg mining=450000mg",
                 "FIELDWORK EXPERIENCE seed=0x00000000000000AA sample=organic transects=2 selected-channel=observed-strongest field-inspections=2 detailed-surveys=1 observed-hardness=600000000..650000000Pa geology=hard-pick-specialist tool=copper-reinforced-hard-pick adaptation=sampled-hardness-hard-pick+batch-limit retained-native-copper=20000mg requested=450000mg mining=300000mg",
-                "CAPABILITY FOUNDRY seed=0x1 outcome=full-order-complete melt-limit=offered-batch cast-limit=offered-batch",
-                "CAPABILITY FOUNDRY seed=0x2 outcome=partial-order-melt-limited melt-limit=finite-energy cast-limit=thermal-sink-capacity",
+                "CAPABILITY FOUNDRY seed=0x1 outcome=full-order-complete melt-limit=offered-batch cast-limit=offered-batch recovery-cast=0mg",
+                "CAPABILITY FOUNDRY seed=0x2 outcome=partial-order-melt-limited melt-limit=finite-energy cast-limit=thermal-sink-capacity recovery-cast=500mg",
                 "AGENCY PATHS focus=noisy-detail",
                 "test result: ok. 1 passed",
             ]
@@ -1236,18 +1258,16 @@ class LocalCiPlanTests(unittest.TestCase):
             "PLAYER FANTASY ",
             "EVALUATION SCOPE kind=ordinary-play ",
             "EVALUATION SCOPE kind=controlled-capability ",
-            "WOODWORKING EXPERIENCE seed=0x00000000000000AA",
-            "FIELDWORK EXPERIENCE seed=0x00000000000000AA",
-            "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[attention-efficient:1 balanced-frontier:0 maximum-protection:2] reserve=6500000..50000000mg capacity-singleton:1",
+            "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[attention-efficient:1 balanced-frontier:0 maximum-protection:2] reserve=6500000..50000000mg raw-opportunities:3 raw-material=[timber:2 stone:1] raw-mode=[choice-rich:1 scarce:1 alternate:1] candidates=1..5 physical-frontier=1..4 policy-reachable=1..2 capacity-or-material-singleton:1",
             "PROGRESSION DIVERSITY samples=2 local-copper=[pick-first:2 crank-counterfactual:2]",
             "LIBERATION DIVERSITY samples=2 varied-inputs=2 completed=2",
-            "WOODWORKING DIVERSITY samples=3 choice=[adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 timber-saving:3] decision=[copper-blocked:1 no-timber-savings:0 copper-conserved:1]",
+            "WOODWORKING DIVERSITY samples=3 choice=[adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 attention-payback:2 net-timber-payback:1] lifecycle=[copper-fallback:1 saw-service:1] decision=[copper-blocked:1 reserve-protected:1 timber-horizon:0 attention-horizon:0 attention-invest:0 timber-invest:1]",
             "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 observed-hardness=450000000..650000000Pa geology=[soft:1 quarry-upgrade:1 hard-pick:1] tool=[stone-quarry:1 reinforced-quarry:1 hard-pick:1] selection=[base:1 quarry-upgrade:1 hard-pick:1 batch-limit:1] retained-copper=20000..40000mg",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt",
             "AGENCY SUMMARY worlds=3",
             "ORE CAPABILITY SUMMARY samples=3 completed=2 stopped=1 finite-energy-stops=1 variable-feed=2",
-            "FOUNDRY CAPABILITY SUMMARY samples=2 full=1 partial=1 melt-limited=1 cast-capacity-limited=1 cooldown-recovery=0",
+            "FOUNDRY CAPABILITY SUMMARY samples=2 full=1 partial=1 melt-limited=1 cast-capacity-limited=1 cooldown-recovery=1 full-after-cooldown=0",
         ):
             self.assertIn(expected, concise)
         for noisy in (
@@ -1258,6 +1278,13 @@ class LocalCiPlanTests(unittest.TestCase):
             "AGENCY PATHS ",
             "PROGRESSION REVIEW ",
             "SURVIVAL REVIEW ",
+            "PROBE INPUT ",
+            "SURVIVAL EXPERIENCE ",
+            "PROGRESSION FALLBACK ",
+            "PROGRESSION EXPERIENCE ",
+            "LIBERATION EXPERIENCE ",
+            "WOODWORKING EXPERIENCE ",
+            "FIELDWORK EXPERIENCE ",
         ):
             self.assertNotIn(noisy, concise)
         self.assertEqual(

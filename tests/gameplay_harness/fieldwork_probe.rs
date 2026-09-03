@@ -40,6 +40,7 @@ use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft_batches;
 use super::manual_craft_planning::manual_craft_plan_for_output;
 use super::ore_fixture::copper_ore_composition;
+use super::physical_time::format_physical_duration;
 use super::seed::mix64;
 
 const CHANNEL_START_X: i64 = 20;
@@ -898,9 +899,12 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         .get_stockpile(raw)
         .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)))
         .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared"));
+    let sampling_setup_time = format_physical_duration(registries, sampling_setup_ticks);
+    let tool_prep_time = format_physical_duration(registries, tool_prep_ticks);
+    let mining_time = format_physical_duration(registries, mining_ticks);
 
     reviewln!(
-        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t tool-prep={}t retained-native-copper={}mg requested={}mg mining={}mg duration={}t condition={}ppm->{}ppm output-grade={}ppm matter=conserved",
+        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={}ppm matter=conserved",
         focused_probe_role_label(case.role()),
         CHANNEL_COUNT,
         transects,

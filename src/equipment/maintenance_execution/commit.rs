@@ -1,6 +1,7 @@
 //! Commit-stage stale-state checks and atomic equipment-maintenance mutation.
 
 use crate::core::state::AppState;
+use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 
 use super::{
     EquipmentMaintenanceCommitError, EquipmentMaintenanceStartOutcome,
@@ -19,29 +20,32 @@ impl ValidatedEquipmentMaintenance {
                 actual: actual_revision,
             });
         }
-        if let Some(job) = state.mining().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentMaintenanceCommitError::EquipmentBusyMining {
-                equipment: self.equipment,
-                job,
-            });
-        }
-        if state
-            .player_work()
-            .get_manual_power_equipment_occupant(self.equipment)
-            .is_some()
-        {
-            return Err(EquipmentMaintenanceCommitError::EquipmentBusyManualPower {
-                equipment: self.equipment,
-            });
-        }
-        if let Some(work) = state
-            .player_work()
-            .get_prospecting_equipment_occupant(self.equipment)
-        {
-            return Err(EquipmentMaintenanceCommitError::EquipmentBusyProspecting {
-                equipment: self.equipment,
-                completes_at: work.completes_at(),
-            });
+        match equipment_occupancy(state, self.equipment) {
+            Some(EquipmentOccupancy::Production { job, release }) => {
+                return Err(EquipmentMaintenanceCommitError::EquipmentBusy {
+                    equipment: self.equipment,
+                    job,
+                    release,
+                });
+            }
+            Some(EquipmentOccupancy::Mining { job }) => {
+                return Err(EquipmentMaintenanceCommitError::EquipmentBusyMining {
+                    equipment: self.equipment,
+                    job,
+                });
+            }
+            Some(EquipmentOccupancy::ManualPower { .. }) => {
+                return Err(EquipmentMaintenanceCommitError::EquipmentBusyManualPower {
+                    equipment: self.equipment,
+                });
+            }
+            Some(EquipmentOccupancy::Prospecting { completes_at }) => {
+                return Err(EquipmentMaintenanceCommitError::EquipmentBusyProspecting {
+                    equipment: self.equipment,
+                    completes_at,
+                });
+            }
+            Some(EquipmentOccupancy::Maintenance { .. }) | None => {}
         }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
             return Err(EquipmentMaintenanceCommitError::UnknownEquipment {
@@ -53,13 +57,6 @@ impl ValidatedEquipmentMaintenance {
                 equipment: self.equipment,
                 expected: self.condition_before,
                 actual: record.condition(),
-            });
-        }
-        if let Some(job) = state.production().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentMaintenanceCommitError::EquipmentBusy {
-                equipment: self.equipment,
-                job: job.id(),
-                release: job.occupancy_release(),
             });
         }
         self.player_work

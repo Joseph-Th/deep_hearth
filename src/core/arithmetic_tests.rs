@@ -8,6 +8,10 @@ fn greatest_common_divisor_handles_zero_and_coprime_inputs() {
     assert_eq!(greatest_common_divisor_u32(0, 42), 42);
     assert_eq!(greatest_common_divisor_u32(84, 30), 6);
     assert_eq!(greatest_common_divisor_u32(u32::MAX, u32::MAX - 1), 1);
+    assert_eq!(greatest_common_divisor_u64(84, 30), 6);
+    assert_eq!(greatest_common_divisor_u64(u64::MAX, u64::MAX - 1), 1);
+    assert_eq!(greatest_common_divisor_u128(84, 30), 6);
+    assert_eq!(greatest_common_divisor_u128(u128::MAX, u128::MAX - 1), 1);
 }
 
 #[test]
