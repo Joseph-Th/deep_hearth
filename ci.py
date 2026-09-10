@@ -157,6 +157,7 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
     liberation = [line for line in lines if line.startswith("LIBERATION EXPERIENCE ")]
     woodworking = [line for line in lines if line.startswith("WOODWORKING EXPERIENCE ")]
     fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
+    power = [line for line in lines if line.startswith("POWER PROVIDER EXPERIENCE ")]
     summaries: list[str] = []
     if survival:
         count = lambda marker: sum(marker in line for line in survival)
@@ -280,6 +281,40 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             f"tool=[stone-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} hard-pick:{count('tool=copper-reinforced-hard-pick')}] "
             f"selection=[base:{count('adaptation=sampled-hardness-base-quarry')} quarry-upgrade:{count('adaptation=sampled-hardness-quarry-upgrade')} hard-pick:{count('adaptation=sampled-hardness-hard-pick')} batch-limit:{count('adaptation=sampled-hardness-hard-pick+batch-limit')}] "
             f"retained-copper={retained_span}"
+        )
+    if power:
+        reductions = [
+            int(match.group(1))
+            for line in power
+            if (match := re.search(r"charge-attention-reduction:(\d+)ppm", line)) is not None
+        ]
+        crank_builds = [
+            int(match.group(1))
+            for line in power
+            if (match := re.search(r"build-mass-crank:(\d+)mg", line)) is not None
+        ]
+        treadle_builds = [
+            int(match.group(1))
+            for line in power
+            if (match := re.search(r"build-mass-treadle:(\d+)mg", line)) is not None
+        ]
+        metabolic_wins = 0
+        for line in power:
+            crank_cost = re.search(r"metabolic-crank:(\d+)nJ", line)
+            treadle_cost = re.search(r"metabolic-treadle:(\d+)nJ", line)
+            if (
+                crank_cost is not None
+                and treadle_cost is not None
+                and int(treadle_cost.group(1)) < int(crank_cost.group(1))
+            ):
+                metabolic_wins += 1
+        reduction_span = f"{min(reductions)}..{max(reductions)}ppm" if reductions else "n/a"
+        summaries.append(
+            "POWER DIVERSITY "
+            f"samples={len(power)} "
+            f"charge-attention-reduction={reduction_span} "
+            f"build=[crank:{min(crank_builds, default=0)}mg treadle:{min(treadle_builds, default=0)}mg] "
+            f"metabolic-lower-treadle:{metabolic_wins}"
         )
     return summaries
 

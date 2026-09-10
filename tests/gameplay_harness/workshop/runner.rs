@@ -1020,11 +1020,11 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     {
         print_content_summary(&registries, verbose || mode == ScenarioPlanMode::Explore);
         std::println!(
-            "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression,woodworking,fieldwork] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] setup-shortcuts=disclosed-and-fixture-guarded actor-observation=runtime-public-state-only catalog=registry-derived authored-edges=not-end-to-end-proof global-reachability-authority=STATUS.md"
+            "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression,woodworking,fieldwork,power-provider] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] setup-shortcuts=disclosed-and-fixture-guarded actor-observation=runtime-public-state-only catalog=registry-derived authored-edges=not-end-to-end-proof global-reachability-authority=STATUS.md"
         );
         if verbose {
             std::println!(
-                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-deterministic-regressions explicit-replay=optional-bounded-variation exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+LIBERATION-EXPERIENCE+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-deterministic-regressions explicit-replay=optional-bounded-variation exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+LIBERATION-EXPERIENCE+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+POWER-PROVIDER-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
             );
         }
     }

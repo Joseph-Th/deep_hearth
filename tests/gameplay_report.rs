@@ -54,6 +54,8 @@ mod ore_probe;
 mod ore_setup;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
+#[path = "gameplay_harness/power_provider_probe.rs"]
+mod power_provider_probe;
 #[path = "gameplay_harness/preservation_route.rs"]
 mod preservation_route;
 #[path = "gameplay_harness/primitive_liberation.rs"]
@@ -100,7 +102,7 @@ fn main() {
         "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] constraints=[matter,energy,condition,survival]"
     );
     std::println!(
-        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap probes=[survival-provisioning,primitive-progression,woodworking,fieldwork] reachability-authority=STATUS.md"
+        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap probes=[survival-provisioning,primitive-progression,woodworking,fieldwork,power-provider] reachability-authority=STATUS.md"
     );
     run_focused_probe_with_registries(
         &registries,
@@ -122,6 +124,14 @@ fn main() {
         &registries,
         "fieldwork",
         fieldwork_probe::run_fieldwork_probe,
+        true,
+        fallback_variation_root,
+        fallback_behavior_root,
+    );
+    run_focused_probe_with_registries(
+        &registries,
+        "power-provider",
+        power_provider_probe::run_power_provider_probe,
         true,
         fallback_variation_root,
         fallback_behavior_root,

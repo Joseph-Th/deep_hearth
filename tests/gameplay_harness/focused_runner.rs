@@ -39,6 +39,9 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
         // Anchor exercises quarry reinforcement; coverage adds ordinary soft rock and the distinct
         // 750 MPa hard-pick specialist path. Organic worlds remain free to land in any tier.
         "fieldwork" => (1, &[2, 3], 0x4649_454C_4450_5242),
+        // Report-only crank-vs-treadle charging comparison needs no gate: the probe asserts its
+        // own comparative contracts inline and organic variation owns broad exploration.
+        "power-provider" => (0xD33F_C01D_907E, &[7, 11], 0x504F_5752_5052_4F42),
         "ore-preparation" => (0xD33F_C01D_0A11, &[2], 0x0AE5_1A5E_5052_4F42),
         "foundry" => (0xD33F_C01D_F001, &[2], 0xF0A1_DA7A_5052_4F42),
         unknown => panic!("unknown focused gameplay probe {unknown:?}"),
