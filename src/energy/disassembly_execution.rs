@@ -55,6 +55,7 @@ fn map_ingress_error(
         | MaterialIngressError::InvalidComposition { .. }
         | MaterialIngressError::CompositionMissingHost { .. }
         | MaterialIngressError::InvalidProvenance
+        | MaterialIngressError::ReservationMismatch { .. }
         | MaterialIngressError::ProvenanceInFuture { .. } => {
             EnergyStoreDisassemblyError::InvalidEmbodiedMatter { store }
         }

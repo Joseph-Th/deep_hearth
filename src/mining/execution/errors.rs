@@ -39,6 +39,9 @@ pub enum MiningStartError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
+    },
     MissingCapability {
         capability: CapabilityId,
     },
@@ -118,6 +121,11 @@ impl Display for MiningStartError {
                 "mining equipment {} is occupied by mining job {}",
                 equipment.value(),
                 job.value()
+            ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "mining equipment {} is occupied by manual power generation",
+                equipment.value()
             ),
             Self::MissingCapability { capability } => write!(
                 formatter,
@@ -219,6 +227,7 @@ impl Error for MiningStartError {
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
+            | Self::EquipmentBusyManualPower { .. }
             | Self::MissingCapability { .. }
             | Self::CapabilityKindMismatch { .. }
             | Self::BatchTooLarge { .. }
@@ -293,6 +302,9 @@ pub enum MiningStartCommitError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
+    },
     Work(PlayerWorkCommitError),
 }
 
@@ -336,6 +348,11 @@ impl Display for MiningStartCommitError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "validated mining start equipment {} became occupied by manual power generation",
+                equipment.value()
+            ),
             Self::Work(error) => write!(
                 formatter,
                 "validated mining start player-work state changed: {error}"
@@ -355,7 +372,8 @@ impl Error for MiningStartCommitError {
             | Self::StaleMining { .. }
             | Self::StaleStructure { .. }
             | Self::EquipmentBusyProduction { .. }
-            | Self::EquipmentBusyMining { .. } => None,
+            | Self::EquipmentBusyMining { .. }
+            | Self::EquipmentBusyManualPower { .. } => None,
         }
     }
 }

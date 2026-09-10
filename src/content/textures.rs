@@ -213,6 +213,9 @@ fn ramp(
 }
 
 fn build_textures() -> Vec<TextureDefinition> {
+    // Shared texel patterns bake to one shared GPU layer and differ only by palette row, which is
+    // intentional: hammered copper and workshop panel share panel geometry, refractory and worked
+    // stone share masonry geometry.
     let panel_pattern = panel_pattern();
     vec![
         texture(

@@ -38,7 +38,15 @@ impl PlayerWorkState {
             Some(PlayerWork::Prospecting { work }) if work.equipment() == Some(equipment) => {
                 Some(work)
             }
-            _ => None,
+            Some(PlayerWork::Prospecting { .. })
+            | Some(PlayerWork::ManualProduction { .. })
+            | Some(PlayerWork::Mining { .. })
+            | Some(PlayerWork::ManualPower { .. })
+            | Some(PlayerWork::Eating { .. })
+            | Some(PlayerWork::Drinking { .. })
+            | Some(PlayerWork::EquipmentMaintenance { .. })
+            | Some(PlayerWork::StorageEnclosureDismantling { .. })
+            | None => None,
         }
     }
 
@@ -86,7 +94,15 @@ impl PlayerWorkState {
     ) -> Option<ManualPowerWork> {
         match self.active {
             Some(PlayerWork::ManualPower { work }) if work.equipment() == equipment => Some(work),
-            _ => None,
+            Some(PlayerWork::ManualPower { .. })
+            | Some(PlayerWork::ManualProduction { .. })
+            | Some(PlayerWork::Mining { .. })
+            | Some(PlayerWork::Prospecting { .. })
+            | Some(PlayerWork::Eating { .. })
+            | Some(PlayerWork::Drinking { .. })
+            | Some(PlayerWork::EquipmentMaintenance { .. })
+            | Some(PlayerWork::StorageEnclosureDismantling { .. })
+            | None => None,
         }
     }
 
@@ -97,7 +113,15 @@ impl PlayerWorkState {
     ) -> Option<ManualPowerWork> {
         match self.active {
             Some(PlayerWork::ManualPower { work }) if work.destination() == store => Some(work),
-            _ => None,
+            Some(PlayerWork::ManualPower { .. })
+            | Some(PlayerWork::ManualProduction { .. })
+            | Some(PlayerWork::Mining { .. })
+            | Some(PlayerWork::Prospecting { .. })
+            | Some(PlayerWork::Eating { .. })
+            | Some(PlayerWork::Drinking { .. })
+            | Some(PlayerWork::EquipmentMaintenance { .. })
+            | Some(PlayerWork::StorageEnclosureDismantling { .. })
+            | None => None,
         }
     }
 
@@ -110,7 +134,15 @@ impl PlayerWorkState {
             Some(PlayerWork::EquipmentMaintenance { work }) if work.equipment() == equipment => {
                 Some(work)
             }
-            _ => None,
+            Some(PlayerWork::EquipmentMaintenance { .. })
+            | Some(PlayerWork::ManualProduction { .. })
+            | Some(PlayerWork::Mining { .. })
+            | Some(PlayerWork::ManualPower { .. })
+            | Some(PlayerWork::Prospecting { .. })
+            | Some(PlayerWork::Eating { .. })
+            | Some(PlayerWork::Drinking { .. })
+            | Some(PlayerWork::StorageEnclosureDismantling { .. })
+            | None => None,
         }
     }
 
@@ -125,7 +157,15 @@ impl PlayerWorkState {
             {
                 Some(work)
             }
-            _ => None,
+            Some(PlayerWork::StorageEnclosureDismantling { .. })
+            | Some(PlayerWork::ManualProduction { .. })
+            | Some(PlayerWork::Mining { .. })
+            | Some(PlayerWork::ManualPower { .. })
+            | Some(PlayerWork::Prospecting { .. })
+            | Some(PlayerWork::Eating { .. })
+            | Some(PlayerWork::Drinking { .. })
+            | Some(PlayerWork::EquipmentMaintenance { .. })
+            | None => None,
         }
     }
 

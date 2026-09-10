@@ -60,6 +60,8 @@ const SHADOW_CUTOUT_SOURCE: &str = include_str!("../../assets/shaders/shadow_cut
 const SHADOW_OPAQUE_SOURCE: &str = include_str!("../../assets/shaders/shadow_opaque.wgsl");
 
 fn build_common_source() -> String {
+    // Texture geometry is injected into the shared shader prelude. Changing TEXTURE_SIDE or the
+    // mip chain requires revalidating built-in shader programs via validate_builtin_shader_programs.
     format!(
         "const DH_INDEXED_TEXTURE_SIDE: u32 = {TEXTURE_SIDE}u;\n\
          const DH_INDEXED_TEXTURE_MAX_MIP: u32 = {}u;\n\n{COMMON_SOURCE}",

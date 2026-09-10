@@ -16,7 +16,7 @@ use crate::capability::{CapabilityEvaluationError, CapabilityId, evaluate_capabi
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::energy::{PowerIntegrationError, PowerRemainder, integrate_power};
+use crate::energy::integrate_power_or_saturate;
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
@@ -169,16 +169,5 @@ fn mass_capacity_from_integrated_power(
 }
 
 fn integrated_energy(power: Power, duration: TickSpan, registries: &Registries) -> Energy {
-    match integrate_power(
-        power,
-        duration,
-        registries.core().physical_tick_duration(),
-        PowerRemainder::ZERO,
-    ) {
-        Ok(integration) => integration.energy(),
-        Err(PowerIntegrationError::ArithmeticOverflow) => Energy::from_nanojoules(u128::MAX),
-        Err(PowerIntegrationError::InvalidRemainder { .. }) => {
-            unreachable!("zero thermal planning remainder is always valid")
-        }
-    }
+    integrate_power_or_saturate(power, duration, registries.core().physical_tick_duration())
 }

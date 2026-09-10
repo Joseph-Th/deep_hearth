@@ -270,6 +270,14 @@ pub fn resolve_melting_process(
 
     let batch = resolve_melting_batch(registries.materials(), definition, inputs.consumed_inputs())
         .map_err(MeltingResolutionError::Batch)?;
+    if batch.hottest_input > limits.maximum_temperature() {
+        return Err(
+            MeltingResolutionError::InputTemperatureExceedsEquipmentMaximum {
+                input: batch.hottest_input,
+                maximum: limits.maximum_temperature(),
+            },
+        );
+    }
     if batch.melting_point > limits.maximum_temperature() {
         return Err(
             MeltingResolutionError::MeltingPointExceedsEquipmentMaximum {

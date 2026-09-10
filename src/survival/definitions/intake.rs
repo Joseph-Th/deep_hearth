@@ -79,6 +79,14 @@ impl FoodDefinition {
             !dietary_energy.is_zero(),
             "food dietary energy must be nonzero"
         );
+        assert!(
+            dietary_energy.nanojoules_per_milligram() <= 100_000_000_000,
+            "food dietary energy must not exceed 100,000,000,000 nJ/mg"
+        );
+        assert!(
+            hydration_microliters_per_milligram <= 1_000,
+            "food hydration must not exceed 1,000 uL/mg"
+        );
         assert!(!shelf_life.is_zero(), "food shelf life must be nonzero");
         Self {
             commodity,

@@ -1,14 +1,12 @@
 //! Manual shaping operations that reuse canonical timed production ownership.
 
 use crate::capability::CapabilityValue;
-use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
-use crate::material::{MaterialComposition, MaterialLotSpec};
 use crate::ore_processing::calculate_mass_flow_duration_ceiling;
 use crate::production::{
     ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess,
@@ -148,28 +146,17 @@ pub fn resolve_manual_craft(
     .map_err(|error| ManualCraftError::from_batch_error(error, definition))?;
     let batches = batch.batches();
     let temperature = batch.temperature();
-    let outputs = definition
-        .outputs()
-        .iter()
-        .map(|output| {
-            let mass = output
-                .mass()
-                .milligrams()
-                .checked_mul(batches.get())
-                .map(Mass::from_milligrams)
-                .ok_or(ManualCraftError::OutputMassOverflow {
-                    commodity: output.commodity(),
-                    batches,
-                })?;
-            MaterialLotSpec::with_composition(
-                output.commodity(),
-                mass,
-                temperature,
-                MaterialComposition::pure(output.commodity().material()),
-            )
-            .map_err(ManualCraftError::Output)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let outputs =
+        batch::build_manual_craft_outputs(definition, batches, temperature).map_err(|error| {
+            match error {
+                batch::ManualCraftOutputError::MassOverflow { commodity, batches } => {
+                    ManualCraftError::OutputMassOverflow { commodity, batches }
+                }
+                batch::ManualCraftOutputError::Construction { error, .. } => {
+                    ManualCraftError::Output(error)
+                }
+            }
+        })?;
     match request.equipment() {
         None => {
             if definition

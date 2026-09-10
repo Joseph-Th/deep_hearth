@@ -94,11 +94,10 @@ fn resolve_mining_equipment_plan(
         Some(EquipmentOccupancy::Mining { job }) => {
             return Err(MiningStartError::EquipmentBusyMining { equipment, job });
         }
-        Some(
-            EquipmentOccupancy::ManualPower { .. }
-            | EquipmentOccupancy::Prospecting { .. }
-            | EquipmentOccupancy::Maintenance { .. },
-        )
+        Some(EquipmentOccupancy::ManualPower { .. }) => {
+            return Err(MiningStartError::EquipmentBusyManualPower { equipment });
+        }
+        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. })
         | None => {}
     }
     let physics = resolve_mining_physics(
@@ -280,10 +279,11 @@ impl ValidatedMiningStart {
             Some(EquipmentOccupancy::Mining { job }) => {
                 return Err(MiningStartCommitError::EquipmentBusyMining { equipment, job });
             }
+            Some(EquipmentOccupancy::ManualPower { .. }) => {
+                return Err(MiningStartCommitError::EquipmentBusyManualPower { equipment });
+            }
             Some(
-                EquipmentOccupancy::ManualPower { .. }
-                | EquipmentOccupancy::Prospecting { .. }
-                | EquipmentOccupancy::Maintenance { .. },
+                EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. },
             )
             | None => {}
         }

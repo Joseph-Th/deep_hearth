@@ -44,12 +44,24 @@ pub(super) fn resolve_thermal_power_temperature_limits(
     let transfer_power =
         match resolve_equipment_capability(equipment, condition, transfer_power_capability) {
             Some(CapabilityValue::Power(power)) => power,
-            Some(_) | None => return Err(ThermalPowerTemperatureError::MissingTransferPower),
+            Some(
+                CapabilityValue::Mass(_)
+                | CapabilityValue::Temperature(_)
+                | CapabilityValue::Pressure(_)
+                | CapabilityValue::MassFlow(_),
+            )
+            | None => return Err(ThermalPowerTemperatureError::MissingTransferPower),
         };
     let maximum_temperature =
         match resolve_equipment_capability(equipment, condition, maximum_temperature_capability) {
             Some(CapabilityValue::Temperature(temperature)) => temperature,
-            Some(_) | None => return Err(ThermalPowerTemperatureError::MissingMaximumTemperature),
+            Some(
+                CapabilityValue::Mass(_)
+                | CapabilityValue::Power(_)
+                | CapabilityValue::Pressure(_)
+                | CapabilityValue::MassFlow(_),
+            )
+            | None => return Err(ThermalPowerTemperatureError::MissingMaximumTemperature),
         };
     Ok(ThermalPowerTemperatureLimits {
         transfer_power,

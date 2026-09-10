@@ -149,7 +149,13 @@ pub(super) fn resolve_powered_ore_equipment_limits(
     let processing_rate =
         match resolve_equipment_capability(equipment, condition_before, mass_flow_capability) {
             Some(CapabilityValue::MassFlow(rate)) => rate,
-            Some(_) | None => return Err(PoweredOreEquipmentError::MissingMassFlowCapability),
+            Some(
+                CapabilityValue::Mass(_)
+                | CapabilityValue::Temperature(_)
+                | CapabilityValue::Pressure(_)
+                | CapabilityValue::Power(_),
+            )
+            | None => return Err(PoweredOreEquipmentError::MissingMassFlowCapability),
         };
     let maximum_batch_mass = match resolve_equipment_capability(
         equipment,
@@ -157,7 +163,13 @@ pub(super) fn resolve_powered_ore_equipment_limits(
         maximum_batch_mass_capability,
     ) {
         Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
+        Some(
+            CapabilityValue::Temperature(_)
+            | CapabilityValue::Pressure(_)
+            | CapabilityValue::Power(_)
+            | CapabilityValue::MassFlow(_),
+        )
+        | None => {
             return Err(PoweredOreEquipmentError::MissingMaximumBatchMassCapability);
         }
     };

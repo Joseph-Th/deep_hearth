@@ -29,6 +29,7 @@ pub(super) fn resolve_region_excavation_hardness(
     }
     let (minimum, maximum) = (minimum?, maximum?);
     let resolution_pa = resolution.pascals();
+    // Under-approximate the lower edge of the conservative hardness band.
     let lower_pa = minimum
         .pascals()
         .saturating_sub(1)
@@ -46,15 +47,15 @@ pub(super) fn resolve_region_excavation_hardness(
             .and_then(|bucket| bucket.checked_mul(resolution_pa))
             .unwrap_or(u64::MAX)
     };
-    Some(
-        ExcavationHardnessEstimate::new(
-            Pressure::from_pascals(lower_pa),
-            Pressure::from_pascals(upper_pa),
-        )
-        .unwrap_or_else(|error| {
-            unreachable!("resolved excavation-hardness bucket must be valid: {error}")
-        }),
-    )
+    // Zero-hardness deposits carry no measurable excavation resistance; trusted load must not panic.
+    let estimate = match ExcavationHardnessEstimate::new(
+        Pressure::from_pascals(lower_pa),
+        Pressure::from_pascals(upper_pa),
+    ) {
+        Ok(estimate) => estimate,
+        Err(_) => return None,
+    };
+    Some(estimate)
 }
 
 #[cfg(test)]

@@ -115,6 +115,7 @@ pub(crate) fn decide_storage_enclosure_dismantling_tick(
         | MaterialIngressError::CompositionMissingHost { .. }
         | MaterialIngressError::Storage(_)
         | MaterialIngressError::InvalidProvenance
+        | MaterialIngressError::ReservationMismatch { .. }
         | MaterialIngressError::ProvenanceInFuture { .. }
         | MaterialIngressError::MassOverflow { .. }
         | MaterialIngressError::CapacityExceeded { .. }) => panic!(

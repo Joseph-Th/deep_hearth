@@ -92,6 +92,15 @@ fn resolve_loaded_melting_batch(
             job: job.id(),
             error,
         })?;
+    if batch.hottest_input > context.limits.maximum_temperature() {
+        return Err(
+            MeltingJobValidationError::InputTemperatureExceedsEquipmentMaximum {
+                job: job.id(),
+                input: batch.hottest_input,
+                maximum: context.limits.maximum_temperature(),
+            },
+        );
+    }
     if batch.melting_point > context.limits.maximum_temperature() {
         return Err(
             MeltingJobValidationError::MeltingPointExceedsEquipmentMaximum {

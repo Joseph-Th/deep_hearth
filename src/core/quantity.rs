@@ -74,8 +74,21 @@ impl AggregateVolume {
     }
 
     #[must_use]
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    #[must_use]
     pub const fn checked_add(self, other: Self) -> Option<Self> {
         match self.0.checked_add(other.0) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn checked_sub(self, other: Self) -> Option<Self> {
+        match self.0.checked_sub(other.0) {
             Some(value) => Some(Self(value)),
             None => None,
         }
@@ -111,8 +124,21 @@ impl AggregateMass {
     }
 
     #[must_use]
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    #[must_use]
     pub const fn checked_add(self, other: Self) -> Option<Self> {
         match self.0.checked_add(other.0) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn checked_sub(self, other: Self) -> Option<Self> {
+        match self.0.checked_sub(other.0) {
             Some(value) => Some(Self(value)),
             None => None,
         }

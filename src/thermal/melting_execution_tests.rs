@@ -948,6 +948,77 @@ fn melting_rejects_impure_input_and_insufficient_furnace_temperature() {
 }
 
 #[test]
+fn melting_rejects_feed_hotter_than_equipment_maximum() {
+    // Solid feed warmed past the furnace maximum but still below the melting point must be
+    // rejected on feed temperature, symmetric with casting.
+    let maximum = Temperature::from_millikelvin(1_300_000);
+    let feed = Temperature::from_millikelvin(1_320_000);
+    assert!(feed < COPPER_MELTING_POINT);
+    assert!(feed > maximum);
+    let registries = make_registries(maximum, EnergyCarrier::Electrical);
+    let mut state = AppState::new(WorldSeed::new(0x9500_0007));
+    let source_profile =
+        match StockpileStorageProfile::new(true, false, Temperature::from_millikelvin(1_500_000)) {
+            Ok(profile) => profile,
+            Err(error) => panic!("hot-feed source profile failed: {error}"),
+        };
+    let vessel_profile =
+        match StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_500_000)) {
+            Ok(profile) => profile,
+            Err(error) => panic!("hot-feed vessel profile failed: {error}"),
+        };
+    let source = match add_stockpile(&mut state, Mass::from_milligrams(1_000), source_profile) {
+        Ok(source) => source,
+        Err(error) => panic!("hot-feed source fixture failed: {error}"),
+    };
+    let destination = match add_stockpile(&mut state, Mass::from_milligrams(1_000), vessel_profile)
+    {
+        Ok(destination) => destination,
+        Err(error) => panic!("hot-feed destination fixture failed: {error}"),
+    };
+    let source_lot = match deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        Mass::from_milligrams(10),
+        feed,
+    ) {
+        Ok(lot) => lot,
+        Err(error) => panic!("hot-feed copper fixture failed: {error}"),
+    };
+    let equipment = match add_equipment(&registries, &mut state, FURNACE, Condition::PRISTINE) {
+        Ok(equipment) => equipment,
+        Err(error) => panic!("hot-feed equipment fixture failed: {error}"),
+    };
+    let energy_store = match add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_STORE,
+        Energy::from_nanojoules(1_000_000_000_000),
+    ) {
+        Ok(store) => store,
+        Err(error) => panic!("hot-feed energy fixture failed: {error}"),
+    };
+    let ids = FixtureIds {
+        source,
+        destination,
+        equipment,
+        energy_store,
+        source_lot,
+    };
+    assert_eq!(
+        resolve_selected(&registries, &state, ids, Mass::from_milligrams(10)),
+        Err(
+            MeltingResolutionError::InputTemperatureExceedsEquipmentMaximum {
+                input: feed,
+                maximum,
+            }
+        )
+    );
+}
+
+#[test]
 fn melting_job_tampering_is_rejected_by_physics_and_destination_audits() {
     let mut fixture = make_fixture(
         Temperature::from_millikelvin(1_500_000),

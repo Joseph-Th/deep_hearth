@@ -8,7 +8,7 @@ use crate::core::state::AppState;
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection};
 use crate::material::MaterialId;
 use crate::registry::Registries;
-use crate::survival::{FoodCategory, NUTRITION_PARTS_PER_MILLION};
+use crate::survival::{FoodCategory, FoodDefinition, NUTRITION_PARTS_PER_MILLION};
 
 use super::super::{FoodFreshness, FoodFreshnessError, assess_food_freshness};
 use super::{EatError, EatPortionOutcome, NutritionGain};
@@ -90,6 +90,36 @@ pub(super) fn meal_absorption_offer(
     })
 }
 
+fn offer_for_mass(mass_mg: u64, food: FoodDefinition) -> Result<(u128, u128), EatError> {
+    let energy_nj = u128::from(mass_mg)
+        .checked_mul(u128::from(food.dietary_energy().nanojoules_per_milligram()))
+        .ok_or(EatError::MetabolicEnergyOverflow)?;
+    let hydration_ul = u128::from(mass_mg)
+        .checked_mul(u128::from(food.hydration_microliters_per_milligram()))
+        .ok_or(EatError::HydrationOverflow)?;
+    Ok((energy_nj, hydration_ul))
+}
+
+fn accumulate_offer_energy(
+    offered_energy_nj: &mut u128,
+    offered_hydration_ul: &mut u128,
+    category_energy: &mut NutritionEnergy,
+    mass_mg: u64,
+    food: FoodDefinition,
+) -> Result<(), EatError> {
+    let (energy_nj, hydration_ul) = offer_for_mass(mass_mg, food)?;
+    *offered_energy_nj = offered_energy_nj
+        .checked_add(energy_nj)
+        .ok_or(EatError::MetabolicEnergyOverflow)?;
+    *offered_hydration_ul = offered_hydration_ul
+        .checked_add(hydration_ul)
+        .ok_or(EatError::HydrationOverflow)?;
+    category_energy
+        .checked_add(food.category(), energy_nj)
+        .ok_or(EatError::NutritionOverflow)?;
+    Ok(())
+}
+
 pub(crate) fn trace_absorption_offer(
     registries: &Registries,
     traces: &[ConsumedMaterialTrace],
@@ -105,20 +135,14 @@ pub(crate) fn trace_absorption_offer(
                 commodity.value()
             )
         });
-        let energy_nj = u128::from(trace.mass().milligrams())
-            * u128::from(food.dietary_energy().nanojoules_per_milligram());
-        offered_energy_nj = offered_energy_nj
-            .checked_add(energy_nj)
-            .unwrap_or_else(|| panic!("validated pending meal energy overflowed at runtime"));
-        offered_hydration_ul = offered_hydration_ul
-            .checked_add(
-                u128::from(trace.mass().milligrams())
-                    * u128::from(food.hydration_microliters_per_milligram()),
-            )
-            .unwrap_or_else(|| panic!("validated pending meal hydration overflowed at runtime"));
-        category_energy
-            .checked_add(food.category(), energy_nj)
-            .unwrap_or_else(|| panic!("validated pending meal nutrition overflowed at runtime"));
+        accumulate_offer_energy(
+            &mut offered_energy_nj,
+            &mut offered_hydration_ul,
+            &mut category_energy,
+            trace.mass().milligrams(),
+            *food,
+        )
+        .unwrap_or_else(|error| panic!("validated pending meal offer failed at runtime: {error}"));
     }
     let energy = Energy::from_nanojoules(offered_energy_nj);
     let nutrition = resolve_nutrition_offer(
@@ -259,12 +283,7 @@ fn resolve_food_portion(
             age,
         });
     }
-    let energy_nj = u128::from(selection.mass().milligrams())
-        .checked_mul(u128::from(food.dietary_energy().nanojoules_per_milligram()))
-        .ok_or(EatError::MetabolicEnergyOverflow)?;
-    let hydration_ul = u128::from(selection.mass().milligrams())
-        .checked_mul(u128::from(food.hydration_microliters_per_milligram()))
-        .ok_or(EatError::HydrationOverflow)?;
+    let (energy_nj, hydration_ul) = offer_for_mass(selection.mass().milligrams(), food)?;
     Ok(ResolvedFoodPortion {
         outcome: EatPortionOutcome {
             lot: selection.lot(),
@@ -295,12 +314,12 @@ pub(super) fn resolve_meal_offer(
         offered_energy_nj = offered_energy_nj
             .checked_add(resolved.energy_nj)
             .ok_or(EatError::MetabolicEnergyOverflow)?;
-        category_energy
-            .checked_add(resolved.outcome.category, resolved.energy_nj)
-            .ok_or(EatError::NutritionOverflow)?;
         offered_hydration_ul = offered_hydration_ul
             .checked_add(resolved.hydration_ul)
             .ok_or(EatError::HydrationOverflow)?;
+        category_energy
+            .checked_add(resolved.outcome.category, resolved.energy_nj)
+            .ok_or(EatError::NutritionOverflow)?;
         let current = consumed_additions
             .get(&resolved.material)
             .copied()

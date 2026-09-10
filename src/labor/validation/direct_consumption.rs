@@ -50,8 +50,28 @@ pub(super) fn validate_direct_consumption_binding(
     match active {
         Some(PlayerWork::Eating { work }) => validate_eating_binding(work, pending),
         Some(PlayerWork::Drinking { work }) => validate_drinking_binding(work, pending),
-        Some(_) | None if pending.is_none() => Ok(()),
-        Some(_) | None => Err(PlayerWorkValidationError::PendingDirectConsumptionWithoutWork),
+        Some(
+            PlayerWork::ManualProduction { .. }
+            | PlayerWork::Mining { .. }
+            | PlayerWork::ManualPower { .. }
+            | PlayerWork::Prospecting { .. }
+            | PlayerWork::EquipmentMaintenance { .. }
+            | PlayerWork::StorageEnclosureDismantling { .. },
+        )
+        | None
+            if pending.is_none() =>
+        {
+            Ok(())
+        }
+        Some(
+            PlayerWork::ManualProduction { .. }
+            | PlayerWork::Mining { .. }
+            | PlayerWork::ManualPower { .. }
+            | PlayerWork::Prospecting { .. }
+            | PlayerWork::EquipmentMaintenance { .. }
+            | PlayerWork::StorageEnclosureDismantling { .. },
+        )
+        | None => Err(PlayerWorkValidationError::PendingDirectConsumptionWithoutWork),
     }
 }
 

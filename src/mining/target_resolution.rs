@@ -152,6 +152,8 @@ impl Error for MiningTargetResolutionError {}
 /// bound, or a remaining multi-voxel acquired footprint cannot authorize extraction. Once acquired
 /// evidence genuinely localizes to one voxel, hidden geology is consulted only to bind the opaque
 /// authorization; zero or multiple compatible live deposits use the same non-oracular failure.
+/// The returned resolution binds the acquired locality itself, so re-resolution against the stored
+/// region neither gains precision from a narrower query nor drifts from the authorized locality.
 pub fn resolve_mining_target(
     state: &AppState,
     request: MiningTargetRequest,
@@ -161,7 +163,7 @@ pub fn resolve_mining_target(
         request.region,
         request.material,
     );
-    let (evidence_region, lower_ppm, upper_ppm) = match assessment.consistency() {
+    let (_, lower_ppm, upper_ppm) = match assessment.consistency() {
         GeologicalEvidenceConsistency::NoEvidence => {
             return Err(MiningTargetResolutionError::NoEvidence {
                 material: request.material,
@@ -232,7 +234,7 @@ pub fn resolve_mining_target(
     let mut matching = state.geology().deposits().filter(|deposit| {
         let abundance = deposit.composition().parts_per_million(request.material);
         deposit.lifecycle() == GeologicalDepositLifecycle::Available
-            && deposit.bounds().has_intersection(evidence_region)
+            && deposit.bounds().has_intersection(acquired_region)
             && abundance != 0
             && abundance >= lower_ppm
             && abundance <= upper_ppm
@@ -241,7 +243,7 @@ pub fn resolve_mining_target(
         return Err(
             MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
                 material: request.material,
-                region: evidence_region,
+                region: acquired_region,
             },
         );
     };
@@ -249,14 +251,14 @@ pub fn resolve_mining_target(
         return Err(
             MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
                 material: request.material,
-                region: evidence_region,
+                region: acquired_region,
             },
         );
     }
 
     Ok(MiningTargetResolution {
         deposit: deposit.id(),
-        region: evidence_region,
+        region: acquired_region,
         material: request.material,
     })
 }

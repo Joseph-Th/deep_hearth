@@ -10,7 +10,7 @@ use crate::content::{
     PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SHAPE_WOOD_BOARDS,
     PROSPECTING_FIELD_INSPECTION, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Area, Energy, Force, Length, Temperature, Volume};
+use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::equipment::validate_assemble_equipment;

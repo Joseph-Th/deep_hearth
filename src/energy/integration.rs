@@ -219,6 +219,26 @@ pub fn calculate_mass_specific_energy_capacity(
     Mass::from_milligrams(u64::try_from(milligrams).unwrap_or(u64::MAX))
 }
 
+/// Integrates constant power over a tick span for disposable planning, saturating on overflow.
+///
+/// Canonical planning projections in ore processing and thermal operations share this exact
+/// overflow contract: arithmetic overflow saturates to the largest representable [`Energy`]
+/// rather than rejecting the plan. A zero remainder is always valid by construction.
+#[must_use]
+pub fn integrate_power_or_saturate(
+    power: Power,
+    span: TickSpan,
+    physical_tick_duration: PhysicalTickDuration,
+) -> Energy {
+    match integrate_power(power, span, physical_tick_duration, PowerRemainder::ZERO) {
+        Ok(integration) => integration.energy(),
+        Err(PowerIntegrationError::ArithmeticOverflow) => Energy::from_nanojoules(u128::MAX),
+        Err(PowerIntegrationError::InvalidRemainder { .. }) => {
+            unreachable!("zero planning power remainder is always valid")
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "integration_tests.rs"]
 mod tests;

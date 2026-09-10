@@ -33,7 +33,7 @@ pub use disassembly_execution::{
 pub use integration::{
     PowerDurationError, PowerIntegration, PowerIntegrationError, PowerRemainder,
     calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
-    calculate_power_duration_ceiling, integrate_power,
+    calculate_power_duration_ceiling, integrate_power, integrate_power_or_saturate,
 };
 pub use passive_dissipation::passive_dissipation_ticks_until_empty;
 pub use state::{EnergyState, EnergyStoreId, EnergyStoreRecord, EnergyValidationError};

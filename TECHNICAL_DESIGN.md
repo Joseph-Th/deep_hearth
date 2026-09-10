@@ -570,7 +570,9 @@ Implemented resolver contracts:
   binds one exact authored material rather than inferring material identity from the first selected lot. Melting
   owns a canonical nonempty set of accepted solid feed forms for that material and one liquid output form, so
   physically equivalent recovery feeds can share one fusion resolver without recipe aliases. Casting binds one
-  liquid-to-solid form pair for its exact material and also owns the completed-solid temperature. Persisted jobs
+  liquid-to-solid form pair for its exact material and also owns the completed-solid temperature. Melting and
+  casting both reject feed hotter than the equipment maximum temperature, so a warm solid below its melting
+  point but above the furnace limit cannot be admitted. Persisted jobs
   replay the same material, accepted forms, and physical resolution used at admission.
 
 ## Equipment, labor, survival, energy, and fluids

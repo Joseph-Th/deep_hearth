@@ -200,11 +200,10 @@ pub(crate) fn validate_reserved_material_ingress(
         current_tick,
     )?;
     if mass_summary.total != reserved_mass {
-        return Err(MaterialIngressError::CapacityExceeded {
+        return Err(MaterialIngressError::ReservationMismatch {
             stockpile: destination,
-            capacity: destination_record.capacity(),
-            committed: destination_record.stored_mass(),
-            requested: mass_summary.total,
+            expected: reserved_mass,
+            actual: mass_summary.total,
         });
     }
     validate_ingress_capacity_with_reserved_credit(

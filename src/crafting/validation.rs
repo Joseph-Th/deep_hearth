@@ -11,7 +11,7 @@ use crate::equipment::{EquipmentDefinitionId, resolve_equipment_capability};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
-use crate::material::{MaterialComposition, MaterialLotSpec, MaterialLotSpecError};
+use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::ore_processing::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::production::{ProcessOutputStreamId, ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
@@ -60,6 +60,9 @@ pub enum ManualCraftJobValidationError {
         required: Condition,
     },
     InputCommodityMismatch {
+        job: ProductionJobId,
+    },
+    EmptyInput {
         job: ProductionJobId,
     },
     InputCompositionMismatch {
@@ -161,6 +164,11 @@ impl Display for ManualCraftJobValidationError {
                 "manual craft job {} consumed a commodity outside its authored hand recipe",
                 job.value()
             ),
+            Self::EmptyInput { job } => write!(
+                formatter,
+                "manual craft job {} has no consumed material",
+                job.value()
+            ),
             Self::InputCompositionMismatch { job } => write!(
                 formatter,
                 "manual craft job {} consumed non-pure material that its hand-shaping resolver cannot transform",
@@ -233,6 +241,7 @@ impl Error for ManualCraftJobValidationError {
             | Self::EquipmentCapabilityKindMismatch { .. }
             | Self::EquipmentConditionMismatch { .. }
             | Self::InputCommodityMismatch { job: _ }
+            | Self::EmptyInput { job: _ }
             | Self::InputCompositionMismatch { job: _ }
             | Self::MixedInputTemperature { job: _ }
             | Self::InputMassNotWholeBatches { .. }
@@ -334,31 +343,23 @@ fn reconstruct_manual_craft_outputs(
     batches: NonZeroU64,
     temperature: Temperature,
 ) -> Result<Vec<MaterialLotSpec>, ManualCraftJobValidationError> {
-    let mut expected_outputs = definition
-        .outputs()
-        .iter()
-        .map(|output| {
-            let mass = output
-                .mass()
-                .milligrams()
-                .checked_mul(batches.get())
-                .map(Mass::from_milligrams)
-                .ok_or(ManualCraftJobValidationError::OutputMassOverflow {
-                    job: job.id(),
-                    batches,
-                })?;
-            MaterialLotSpec::with_composition(
-                output.commodity(),
-                mass,
-                temperature,
-                MaterialComposition::pure(output.commodity().material()),
-            )
-            .map_err(|error| ManualCraftJobValidationError::OutputConstruction {
-                job: job.id(),
-                error,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut expected_outputs =
+        super::batch::build_manual_craft_outputs(definition, batches, temperature).map_err(
+            |error| match error {
+                super::batch::ManualCraftOutputError::MassOverflow { batches, .. } => {
+                    ManualCraftJobValidationError::OutputMassOverflow {
+                        job: job.id(),
+                        batches,
+                    }
+                }
+                super::batch::ManualCraftOutputError::Construction { error, .. } => {
+                    ManualCraftJobValidationError::OutputConstruction {
+                        job: job.id(),
+                        error,
+                    }
+                }
+            },
+        )?;
     expected_outputs.sort();
     Ok(expected_outputs)
 }
@@ -386,6 +387,9 @@ pub(crate) fn validate_loaded_manual_craft_job(
     };
     let batch = validate_manual_craft_batch(definition, job.consumed_mass(), job.consumed_inputs())
         .map_err(|error| match error {
+            ManualCraftBatchError::EmptyInput => {
+                ManualCraftJobValidationError::EmptyInput { job: job.id() }
+            }
             ManualCraftBatchError::InputCommodityMismatch => {
                 ManualCraftJobValidationError::InputCommodityMismatch { job: job.id() }
             }

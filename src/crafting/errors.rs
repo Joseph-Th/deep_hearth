@@ -27,6 +27,7 @@ pub enum ManualCraftError {
         process: ProcessId,
     },
     Input(ProcessInputError),
+    EmptyInput,
     InputCommodityMismatch {
         expected: CommodityKey,
     },
@@ -81,6 +82,7 @@ impl Display for ManualCraftError {
                 process.value()
             ),
             Self::Input(error) => write!(formatter, "manual craft input is invalid: {error}"),
+            Self::EmptyInput => formatter.write_str("manual craft selection is empty"),
             Self::InputCommodityMismatch { expected } => write!(
                 formatter,
                 "manual craft selection contains matter other than authored material {} form {}",
@@ -174,6 +176,7 @@ impl Error for ManualCraftError {
             Self::EquipmentCondition(error) => Some(error),
             Self::SurvivalNotInitialized
             | Self::PlayerDead
+            | Self::EmptyInput
             | Self::UnknownManualProcess { process: _ }
             | Self::InputCommodityMismatch { .. }
             | Self::InputCompositionMismatch { .. }
@@ -195,6 +198,7 @@ impl ManualCraftError {
         definition: &super::ManualCraftDefinition,
     ) -> Self {
         match error {
+            ManualCraftBatchError::EmptyInput => Self::EmptyInput,
             ManualCraftBatchError::InputCommodityMismatch => Self::InputCommodityMismatch {
                 expected: definition.input(),
             },

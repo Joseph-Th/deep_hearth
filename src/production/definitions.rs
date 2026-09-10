@@ -15,6 +15,7 @@ pub struct ProcessId(u32);
 impl ProcessId {
     #[must_use]
     pub const fn new(value: u32) -> Self {
+        assert!(value != 0, "process id must be nonzero");
         Self(value)
     }
 

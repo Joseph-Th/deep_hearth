@@ -67,6 +67,7 @@ fn map_recovery_ingress_error(error: MaterialIngressError) -> StorageEnclosureDi
         | MaterialIngressError::InvalidComposition { .. }
         | MaterialIngressError::CompositionMissingHost { .. }
         | MaterialIngressError::InvalidProvenance
+        | MaterialIngressError::ReservationMismatch { .. }
         | MaterialIngressError::ProvenanceInFuture { .. } => {
             unreachable!("validated enclosure embodiment must remain valid material ingress")
         }

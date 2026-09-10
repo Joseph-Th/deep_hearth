@@ -156,6 +156,7 @@ pub fn validate_drink(
     if hydration_gain.is_zero() {
         return Err(DrinkError::NoHydrationGain { volume });
     }
+    let egress_volume = egress.volume();
     let expected_survival_revision = state.survival().revision();
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
@@ -163,7 +164,7 @@ pub fn validate_drink(
     let next_consumed_volume = state
         .survival()
         .consumed_fluid_volume(contents.fluid())
-        .checked_add(AggregateVolume::from_volume(volume))
+        .checked_add(AggregateVolume::from_volume(egress_volume))
         .ok_or(DrinkError::ConsumedFluidOverflow)?;
     Ok(ValidatedDrink {
         attention,
@@ -172,7 +173,7 @@ pub fn validate_drink(
         egress,
         pending: PendingDrinking::new(
             contents.fluid(),
-            volume,
+            egress_volume,
             contents.temperature(),
             state.tick(),
             completes_at,
@@ -181,7 +182,7 @@ pub fn validate_drink(
         next_consumed_volume,
         outcome: DrinkOutcome {
             store,
-            volume,
+            volume: egress_volume,
             hydration_offered: hydration_gain,
             completes_at,
         },

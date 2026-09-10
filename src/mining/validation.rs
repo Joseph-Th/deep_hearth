@@ -193,13 +193,22 @@ fn validate_mining_equipment_exclusivity(
     state: &AppState,
     job: &MiningJobRecord,
 ) -> Result<(), MiningJobValidationError> {
-    if job.is_working()
-        && matches!(
-            equipment_occupancy(state, job.equipment()),
-            Some(EquipmentOccupancy::Production { .. })
+    if !job.is_working() {
+        return Ok(());
+    }
+    match equipment_occupancy(state, job.equipment()) {
+        Some(EquipmentOccupancy::Production { .. }) => {
+            return Err(MiningJobValidationError::EquipmentAlsoUsedByProduction { job: job.id() });
+        }
+        Some(EquipmentOccupancy::ManualPower { .. }) => {
+            return Err(MiningJobValidationError::EquipmentAlsoUsedByManualPower { job: job.id() });
+        }
+        Some(
+            EquipmentOccupancy::Mining { .. }
+            | EquipmentOccupancy::Prospecting { .. }
+            | EquipmentOccupancy::Maintenance { .. },
         )
-    {
-        return Err(MiningJobValidationError::EquipmentAlsoUsedByProduction { job: job.id() });
+        | None => {}
     }
     Ok(())
 }

@@ -55,6 +55,28 @@ fn bounds_intersection_respects_half_open_faces() {
 }
 
 #[test]
+fn face_contact_requires_positive_area_shared_face() {
+    let left = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(4, 4, 4))
+        .unwrap_or_else(|error| panic!("face-contact fixture failed: {error}"));
+    let face_touching = VoxelBounds::new(VoxelCoord::new(4, 0, 0), VoxelCoord::new(8, 4, 4))
+        .unwrap_or_else(|error| panic!("face-touching fixture failed: {error}"));
+    let overlapping = VoxelBounds::new(VoxelCoord::new(3, 1, 1), VoxelCoord::new(6, 2, 2))
+        .unwrap_or_else(|error| panic!("overlap face-contact fixture failed: {error}"));
+    let corner_touching = VoxelBounds::new(VoxelCoord::new(4, 4, 4), VoxelCoord::new(5, 5, 5))
+        .unwrap_or_else(|error| panic!("corner face-contact fixture failed: {error}"));
+    let edge_touching = VoxelBounds::new(VoxelCoord::new(4, 4, 0), VoxelCoord::new(5, 5, 4))
+        .unwrap_or_else(|error| panic!("edge face-contact fixture failed: {error}"));
+    let separated = VoxelBounds::new(VoxelCoord::new(5, 0, 0), VoxelCoord::new(8, 4, 4))
+        .unwrap_or_else(|error| panic!("separated face-contact fixture failed: {error}"));
+
+    assert!(left.has_face_contact(face_touching));
+    assert!(left.has_face_contact(overlapping));
+    assert!(!left.has_face_contact(corner_touching));
+    assert!(!left.has_face_contact(edge_touching));
+    assert!(!left.has_face_contact(separated));
+}
+
+#[test]
 fn bounds_reject_zero_or_negative_extent_per_axis() {
     assert_eq!(
         VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(0, 1, 1)),

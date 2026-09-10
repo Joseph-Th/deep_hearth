@@ -449,6 +449,21 @@ pub enum CubeFace {
     West,
 }
 
+impl CubeFace {
+    /// Deterministic face-to-slot index shared by definition and baking views.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Top => 0,
+            Self::Bottom => 1,
+            Self::North => 2,
+            Self::South => 3,
+            Self::East => 4,
+            Self::West => 5,
+        }
+    }
+}
+
 /// Immutable face-to-texture mapping for one block appearance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockAppearanceDefinition {
@@ -463,6 +478,10 @@ impl BlockAppearanceDefinition {
         Self::new(id, name, [texture; BLOCK_FACE_COUNT])
     }
 
+    /// Builds a block with one top, one bottom, and four identical sides.
+    ///
+    /// Parameter order is top/side/bottom for caller readability; storage follows
+    /// [`CubeFace::index`] order (top, bottom, then four sides).
     #[must_use]
     pub fn top_side_bottom(
         id: BlockAppearanceId,
@@ -500,14 +519,7 @@ impl BlockAppearanceDefinition {
 
     #[must_use]
     pub const fn texture(&self, face: CubeFace) -> TextureId {
-        match face {
-            CubeFace::Top => self.textures[0],
-            CubeFace::Bottom => self.textures[1],
-            CubeFace::North => self.textures[2],
-            CubeFace::South => self.textures[3],
-            CubeFace::East => self.textures[4],
-            CubeFace::West => self.textures[5],
-        }
+        self.textures[face.index()]
     }
 
     pub(super) fn textures(&self) -> &[TextureId; BLOCK_FACE_COUNT] {

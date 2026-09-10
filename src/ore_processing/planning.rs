@@ -8,9 +8,9 @@ use crate::core::quantity::{Energy, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::{
-    EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerIntegrationError, PowerRemainder,
-    assess_energy_supply_access, calculate_mass_specific_energy,
-    calculate_mass_specific_energy_capacity, integrate_power,
+    EnergyCarrier, EnergyStoreId, EnergySupplyError, assess_energy_supply_access,
+    calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
+    integrate_power_or_saturate,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::maintenance::{
@@ -340,14 +340,7 @@ fn mass_capacity_from_integrated_power(
     if ticks.is_zero() || power.is_zero() {
         return Mass::ZERO;
     }
-    let integrated =
-        match integrate_power(power, ticks, physical_tick_duration, PowerRemainder::ZERO) {
-            Ok(integrated) => integrated.energy(),
-            Err(PowerIntegrationError::ArithmeticOverflow) => Energy::from_nanojoules(u128::MAX),
-            Err(PowerIntegrationError::InvalidRemainder { .. }) => {
-                unreachable!("zero planning power remainder is always valid")
-            }
-        };
+    let integrated = integrate_power_or_saturate(power, ticks, physical_tick_duration);
     mass_capacity_from_energy(integrated, specific)
 }
 

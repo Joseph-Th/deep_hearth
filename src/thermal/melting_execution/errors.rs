@@ -40,6 +40,10 @@ pub enum MeltingResolutionError {
         melting_point: Temperature,
         maximum: Temperature,
     },
+    InputTemperatureExceedsEquipmentMaximum {
+        input: Temperature,
+        maximum: Temperature,
+    },
     Energy(EnergySupplyError),
     WrongEnergyCarrier {
         required: EnergyCarrier,
@@ -94,6 +98,12 @@ impl Display for MeltingResolutionError {
                 melting_point.millikelvin(),
                 maximum.millikelvin()
             ),
+            Self::InputTemperatureExceedsEquipmentMaximum { input, maximum } => write!(
+                formatter,
+                "melting feed temperature {} mK exceeds equipment maximum {} mK",
+                input.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::Energy(error) => write!(formatter, "finite energy supply failed: {error}"),
             Self::WrongEnergyCarrier { required, provided } => write!(
                 formatter,
@@ -128,6 +138,7 @@ impl Error for MeltingResolutionError {
             | Self::MissingMaximumBatchMass { .. }
             | Self::BatchMassExceedsEquipmentCapacity { .. }
             | Self::MeltingPointExceedsEquipmentMaximum { .. }
+            | Self::InputTemperatureExceedsEquipmentMaximum { .. }
             | Self::WrongEnergyCarrier { .. } => None,
         }
     }
@@ -169,6 +180,11 @@ pub enum MeltingJobValidationError {
     MeltingPointExceedsEquipmentMaximum {
         job: ProductionJobId,
         melting_point: Temperature,
+        maximum: Temperature,
+    },
+    InputTemperatureExceedsEquipmentMaximum {
+        job: ProductionJobId,
+        input: Temperature,
         maximum: Temperature,
     },
     WrongEnergyCarrier {
@@ -272,6 +288,17 @@ impl Display for MeltingJobValidationError {
                 melting_point.millikelvin(),
                 maximum.millikelvin()
             ),
+            Self::InputTemperatureExceedsEquipmentMaximum {
+                job,
+                input,
+                maximum,
+            } => write!(
+                formatter,
+                "melting job {} feed temperature {} mK exceeds provider maximum {} mK",
+                job.value(),
+                input.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::WrongEnergyCarrier {
                 job,
                 required,
@@ -353,6 +380,7 @@ impl Error for MeltingJobValidationError {
             | Self::MissingMaximumBatchMassCapability { .. }
             | Self::BatchMassExceedsEquipmentCapacity { .. }
             | Self::MeltingPointExceedsEquipmentMaximum { .. }
+            | Self::InputTemperatureExceedsEquipmentMaximum { .. }
             | Self::WrongEnergyCarrier { .. }
             | Self::EnergyMismatch { .. }
             | Self::DurationMismatch { .. }

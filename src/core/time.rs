@@ -242,10 +242,6 @@ impl TickSpan {
     }
 }
 
-#[cfg(test)]
-#[path = "time_tests.rs"]
-mod tests;
-
 /// Monotonic authoritative simulation tick.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
@@ -277,3 +273,7 @@ impl SimulationTick {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "time_tests.rs"]
+mod tests;

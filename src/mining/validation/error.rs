@@ -65,6 +65,9 @@ pub enum MiningJobValidationError {
     EquipmentAlsoUsedByProduction {
         job: MiningJobId,
     },
+    EquipmentAlsoUsedByManualPower {
+        job: MiningJobId,
+    },
     MissingCapability {
         job: MiningJobId,
         capability: CapabilityId,
@@ -215,6 +218,11 @@ impl Display for MiningJobValidationError {
                 "mining job {} equipment is also occupied by production",
                 job.value()
             ),
+            Self::EquipmentAlsoUsedByManualPower { job } => write!(
+                formatter,
+                "mining job {} equipment is also occupied by manual power generation",
+                job.value()
+            ),
             Self::MissingCapability { job, capability } => write!(
                 formatter,
                 "mining job {} equipment lacks required capability {}",
@@ -325,6 +333,7 @@ impl Error for MiningJobValidationError {
             | Self::ReadyDepositMassAbovePostExtraction { .. }
             | Self::OutputStorageInvalid { .. }
             | Self::EquipmentAlsoUsedByProduction { .. }
+            | Self::EquipmentAlsoUsedByManualPower { .. }
             | Self::MissingCapability { .. }
             | Self::CapabilityKindMismatch { .. }
             | Self::BatchTooLarge { .. }

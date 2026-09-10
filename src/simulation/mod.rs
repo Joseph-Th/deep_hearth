@@ -106,21 +106,20 @@ impl TickOutcome {
 
 fn checked_revision_steps(
     steps: impl IntoIterator<Item = u64>,
-    overflow_message: &'static str,
-) -> u64 {
+    exhausted: TickError,
+) -> Result<u64, TickError> {
     steps
         .into_iter()
         .try_fold(0_u64, u64::checked_add)
-        .unwrap_or_else(|| panic!("{overflow_message}"))
+        .ok_or(exhausted)
 }
 
 fn require_revision_capacity(
     current: u64,
     steps: impl IntoIterator<Item = u64>,
-    overflow_message: &'static str,
     exhausted: TickError,
 ) -> Result<(), TickError> {
-    let steps = checked_revision_steps(steps, overflow_message);
+    let steps = checked_revision_steps(steps, exhausted.clone())?;
     if current.checked_add(steps).is_none() {
         return Err(exhausted);
     }
@@ -185,7 +184,6 @@ pub fn advance_tick(
                 .as_ref()
                 .map_or(0, |plan| plan.equipment_revision_steps()),
         ],
-        "fixed per-tick equipment revision budget overflowed",
         TickError::EquipmentRevisionExhausted,
     )?;
     let passive_energy_plan = decide_passive_energy_dissipation(registries, state);
@@ -198,7 +196,6 @@ pub fn advance_tick(
                 .map_or(0, |plan| plan.energy_revision_steps()),
             passive_energy_plan.energy_revision_steps(),
         ],
-        "fixed per-tick energy revision budget overflowed",
         TickError::EnergyRevisionExhausted,
     )?;
     let exertion = player_work_exertion(registries, state, completion_plan.availability_changes());

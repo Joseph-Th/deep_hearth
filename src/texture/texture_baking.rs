@@ -70,14 +70,7 @@ pub struct BakedBlockAppearance {
 impl BakedBlockAppearance {
     #[must_use]
     pub const fn texture(self, face: CubeFace) -> BakedTextureDescriptor {
-        match face {
-            CubeFace::Top => self.textures[0],
-            CubeFace::Bottom => self.textures[1],
-            CubeFace::North => self.textures[2],
-            CubeFace::South => self.textures[3],
-            CubeFace::East => self.textures[4],
-            CubeFace::West => self.textures[5],
-        }
+        self.textures[face.index()]
     }
 }
 
@@ -173,7 +166,9 @@ impl TextureRegistry {
             let layer = match pattern_layers.get(&pattern) {
                 Some(layer) => *layer,
                 None => {
-                    let layer = TextureLayer(patterns.len() as u16);
+                    let layer = TextureLayer(u16::try_from(patterns.len()).unwrap_or_else(|_| {
+                        panic!("baked texture layer count exceeds lookup limit")
+                    }));
                     patterns.push(pattern.clone());
                     pattern_layers.insert(pattern, layer);
                     layer
@@ -187,7 +182,10 @@ impl TextureRegistry {
             let palette_row_id = match palette_row_ids.get(&palette_row) {
                 Some(row) => *row,
                 None => {
-                    let row = TexturePaletteRow(palette_rows.len() as u16);
+                    let row =
+                        TexturePaletteRow(u16::try_from(palette_rows.len()).unwrap_or_else(|_| {
+                            panic!("baked palette row count exceeds lookup limit")
+                        }));
                     palette_rows.push(palette_row);
                     palette_row_ids.insert(palette_row, row);
                     row
@@ -229,8 +227,10 @@ impl TextureRegistry {
             mip_levels,
             palette_rows: palette_rows.into_iter().flatten().collect(),
             palette_color_bytes,
-            pattern_layer_count: pattern_layers.len() as u16,
-            palette_row_count: palette_row_ids.len() as u16,
+            pattern_layer_count: u16::try_from(pattern_layers.len())
+                .unwrap_or_else(|_| panic!("baked texture layer count exceeds lookup limit")),
+            palette_row_count: u16::try_from(palette_row_ids.len())
+                .unwrap_or_else(|_| panic!("baked palette row count exceeds lookup limit")),
         }
     }
 }
@@ -409,7 +409,8 @@ fn build_mip_levels(mut layers: Vec<Vec<PackedTexel>>) -> Vec<IndexedMipLevel> {
     let mut side = TEXTURE_SIDE;
     loop {
         mip_levels.push(IndexedMipLevel {
-            side: side as u8,
+            side: u8::try_from(side)
+                .unwrap_or_else(|_| panic!("texture side exceeds mip descriptor range")),
             texels: layers
                 .iter()
                 .flatten()
@@ -469,8 +470,13 @@ fn resolve_mip_texel(samples: [PackedTexel; 4]) -> PackedTexel {
     }
     let rounded_shade = (shade_sum + shade_count / 2) / shade_count;
     PackedTexel::new(
-        PaletteSlot::new(selected_slot as u8),
-        ShadeIndex::new(rounded_shade as u8),
+        PaletteSlot::new(
+            u8::try_from(selected_slot)
+                .unwrap_or_else(|_| panic!("palette slot exceeds texel range")),
+        ),
+        ShadeIndex::new(
+            u8::try_from(rounded_shade).unwrap_or_else(|_| panic!("shade exceeds texel range")),
+        ),
     )
 }
 

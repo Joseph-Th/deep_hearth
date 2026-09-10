@@ -373,6 +373,10 @@ impl ShaderDefinition {
         let name = name.into();
         let source = source.into();
         assert!(!name.trim().is_empty(), "shader name must not be empty");
+        assert!(
+            !name.contains(['\n', '\r']),
+            "shader name must be a single line for WGSL header injection"
+        );
         assert!(!source.trim().is_empty(), "shader source must not be empty");
         dependencies.sort_unstable();
         for pair in dependencies.windows(2) {

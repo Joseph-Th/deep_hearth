@@ -48,6 +48,11 @@ pub(crate) enum MaterialIngressError {
         committed: Mass,
         requested: Mass,
     },
+    ReservationMismatch {
+        stockpile: StockpileId,
+        expected: Mass,
+        actual: Mass,
+    },
     LotIdExhausted,
     RevisionExhausted,
 }
@@ -110,6 +115,17 @@ impl Display for MaterialIngressError {
                 committed.milligrams(),
                 requested.milligrams()
             ),
+            Self::ReservationMismatch {
+                stockpile,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "stockpile {} reserved ingress expects {} mg but {} mg was supplied",
+                stockpile.value(),
+                expected.milligrams(),
+                actual.milligrams()
+            ),
             Self::LotIdExhausted => {
                 formatter.write_str("material lot identifier space is exhausted")
             }
@@ -134,6 +150,7 @@ impl Error for MaterialIngressError {
             | Self::ProvenanceInFuture { .. }
             | Self::MassOverflow { .. }
             | Self::CapacityExceeded { .. }
+            | Self::ReservationMismatch { .. }
             | Self::LotIdExhausted
             | Self::RevisionExhausted => None,
         }
