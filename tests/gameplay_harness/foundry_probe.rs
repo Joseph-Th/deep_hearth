@@ -143,13 +143,18 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         .get_store(ENERGY_THERMAL_SINK)
         .map(|definition| definition.capacity())
         .unwrap_or_else(|| panic!("foundry probe thermal-sink definition disappeared"));
-    // Existing heat competes with casting for finite sink capacity. A bimodal cool/saturated
-    // distribution covers both unconstrained throughput and meaningful thermal-recovery pressure.
+    // Existing heat competes with casting for finite sink capacity. A trimodal
+    // cool/representative/saturated distribution covers unconstrained throughput, ordinary
+    // partial-fit casting where a normal haul may or may not fit the remaining sink, and
+    // meaningful thermal-recovery pressure. The saturated branch preserves the maintained
+    // coverage world's thermal-limited first cast plus full recovery.
     let thermal_roll = mix64(seed ^ 0x5448_4552_4D53_494F);
     let thermal_pressure_ppm = if thermal_roll.is_multiple_of(5) {
         (thermal_roll % 250_001) as u32
-    } else {
+    } else if thermal_roll % 5 == 1 {
         900_000 + ((thermal_roll >> 8) % 100_001) as u32
+    } else {
+        500_000 + ((thermal_roll >> 8) % 350_001) as u32
     };
     let thermal_sink_energy = Energy::from_nanojoules(
         thermal_capacity

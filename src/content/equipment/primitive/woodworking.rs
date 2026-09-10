@@ -95,11 +95,14 @@ pub(super) fn copper_reinforced_woodworking_adze() -> EquipmentDefinition {
 /// A low bench carrying a tensioned cold-worked copper blade. It is a settlement-scale timber
 /// investment rather than an adze replacement: the dedicated ripping process improves both board
 /// recovery and attention cost, while blade wear creates a recurring copper-service obligation.
+/// The open frame is deliberately light: two adze-shaped board batches plus a handle member keep
+/// setup timber near three logs so long board pipelines can repay the frame in timber as well as
+/// attention, while short jobs still correctly favor the adze.
 pub(super) fn timber_frame_saw_bench() -> EquipmentDefinition {
     EquipmentDefinition::new_with_capability_condition_curves(
         EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
         "timber frame saw bench",
-        Mass::from_milligrams(2_654_000),
+        Mass::from_milligrams(1_854_000),
         profile([(
             CAPABILITY_SAWING_FLOW,
             CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(40_000)),
@@ -114,7 +117,7 @@ pub(super) fn timber_frame_saw_bench() -> EquipmentDefinition {
     .with_assembly_profile(MaterialAssemblyProfile::new(vec![
         MaterialInputSpec::pure(
             CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            Mass::from_milligrams(2_400_000),
+            Mass::from_milligrams(1_600_000),
         ),
         MaterialInputSpec::pure(
             CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),

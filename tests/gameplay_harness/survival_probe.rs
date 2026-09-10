@@ -155,6 +155,68 @@ fn execute_provisioning_actions(
     }
 }
 
+struct LivedWaitOutcome {
+    drinks: u64,
+    drink_volume_ul: u64,
+}
+
+/// Advances the provisioning wait as lived time instead of idle depletion.
+///
+/// Full-reserve starts live long enough for canonical thirst to reach the authored warning
+/// boundary mid-wait. The actor observes reserves on bounded legs and drinks through the same
+/// canonical direct-consumption path as decision-point provisioning when that boundary is
+/// reached, so the wait demonstrates reprovisioning under real pressure. Warning-boundary
+/// starts are admitted at their decision point by construction and keep the single
+/// uninterrupted wait.
+fn advance_lived_wait(
+    registries: &Registries,
+    state: &mut AppState,
+    world: &ProvisioningWorld,
+    drink_store: FluidStoreId,
+    wait_ticks: u64,
+) -> LivedWaitOutcome {
+    const OBSERVATION_LEG_TICKS: u64 = 2_000;
+    let mut drinks = 0_u64;
+    let mut drink_volume_ul = 0_u64;
+    let mut remaining = wait_ticks;
+    while remaining > 0 {
+        let leg = remaining.min(OBSERVATION_LEG_TICKS);
+        advance_idle_ticks(registries, state, leg, "provisioning lived wait");
+        remaining -= leg;
+        if world.start_profile != SurvivalStartProfile::FullReserve {
+            continue;
+        }
+        let physiology = registries.survival().physiology();
+        let assessment = assess_survival(registries, state)
+            .unwrap_or_else(|| panic!("survival lived wait lost the player"));
+        if assessment.hydration() > physiology.thirsty_below() {
+            continue;
+        }
+        let deficit = physiology
+            .maximum_hydration()
+            .checked_sub(assessment.hydration())
+            .unwrap_or_else(|| panic!("survival lived-wait hydration exceeded authored maximum"));
+        let drink_volume = deficit.min(physiology.direct_consumption().maximum_drink_volume());
+        if drink_volume.is_zero() {
+            continue;
+        }
+        let (drank, _) = execute_planned_drink(registries, state, drink_store, drink_volume);
+        drinks = drinks
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("survival lived-wait drink count overflowed"));
+        drink_volume_ul = drink_volume_ul
+            .checked_add(
+                u64::try_from(drank.volume().microliters())
+                    .unwrap_or_else(|_| panic!("survival lived-wait drink volume exceeds u64")),
+            )
+            .unwrap_or_else(|| panic!("survival lived-wait drink volume overflowed"));
+    }
+    LivedWaitOutcome {
+        drinks,
+        drink_volume_ul,
+    }
+}
+
 fn finish_direct_consumption(
     registries: &Registries,
     state: &mut AppState,
@@ -296,8 +358,9 @@ fn normalized_deficit_priority(
 
 fn provisioning_drink_supply(registries: &Registries, world: &ProvisioningWorld) -> Volume {
     // Provision the world with enough finite drink to recover from any legal player reserve state.
-    // The acting plan below sizes the actual drink from the authoritative decision-point assessment,
-    // so setup does not need to predict passive or exertion losses.
+    // One maximum-hydration supply covers both a full-volume lived-wait top-up and a
+    // full-volume decision-point drink, so setup does not need to predict passive losses.
+    // The acting plans below size each actual drink from authoritative assessments.
     world
         .drink
         .minimum_volume_for_hydration(registries.survival().physiology().maximum_hydration())
@@ -408,6 +471,8 @@ struct DietComparisonReview {
     available_category_count: usize,
     policy_sensitive: bool,
     comparison_horizon_ticks: u64,
+    midwait_drink_count: u64,
+    midwait_drink_volume_ul: u64,
     meal_mass_delta_mg: i128,
     water_saved_delta_ul: i128,
     diet_quality_delta_ppm: i64,
@@ -964,10 +1029,11 @@ pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> Provisio
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     let provisioning_wait_ticks = match start_profile {
         SurvivalStartProfile::FullReserve => {
-            let base = ticks_per_day
-                .checked_mul(2)
-                .map(|ticks| ticks / 3)
-                .unwrap_or_else(|| panic!("survival probe provisioning horizon overflowed"));
+            // Full-reserve starts live a full day so canonical thirst reaches the authored
+            // warning boundary mid-wait. The actor must then reprovision during lived time
+            // (see the lived-wait checkpoint below) instead of idling through a short wait
+            // that never produces real pressure.
+            let base = ticks_per_day;
             let jitter = (ticks_per_day / 12).max(1);
             base.checked_add(mix64(seed ^ 0x4441_5946_5241_4354) % jitter)
                 .unwrap_or_else(|| panic!("survival probe provisioning wait overflowed"))
@@ -1118,6 +1184,8 @@ struct PreparedProvisioningWorld {
     ambient_age: u64,
     preserved_age: u64,
     preservation_age_saved_ticks: u64,
+    midwait_drink_count: u64,
+    midwait_drink_volume_ul: u64,
     matter_total: AggregateMass,
     fluid_total: AggregateVolume,
 }
@@ -1256,11 +1324,12 @@ fn prepare_provisioning_world(
         "authored preservation must slow future food spoilage relative to ambient storage"
     );
     let preservation_age_saved_ticks = ambient_age - preserved_age;
-    advance_idle_ticks(
+    let lived_wait = advance_lived_wait(
         registries,
         &mut state,
+        world,
+        drink_store,
         world.provisioning_wait_ticks - world.age_ticks,
-        "provisioning decision wait",
     );
     validate_loaded_state(registries, &state).unwrap_or_else(|error| {
         panic!("survival probe decision-point state audit failed: {error}")
@@ -1281,6 +1350,8 @@ fn prepare_provisioning_world(
         ambient_age,
         preserved_age,
         preservation_age_saved_ticks,
+        midwait_drink_count: lived_wait.drinks,
+        midwait_drink_volume_ul: lived_wait.drink_volume_ul,
         matter_total,
         fluid_total,
     }
@@ -1466,11 +1537,13 @@ fn run_provisioning_case(
             .collect::<Vec<_>>()
             .join("+");
         reviewln!(
-            "PLAYABLE SURVIVAL behavior=0x{behavior_seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] wait={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy-offered:{}nJ nutrition-offered:{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration-offered:{}uL] reserves=improved matter=conserved fluid=conserved tick={}",
+            "PLAYABLE SURVIVAL behavior=0x{behavior_seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] wait={provisioning_wait_ticks}t lived-wait=[drinks:{} volume:{}uL] provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy-offered:{}nJ nutrition-offered:{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration-offered:{}uL] reserves=improved matter=conserved fluid=conserved tick={}",
             policy.label(),
             world.start_profile.label(),
             witness_food.commodity().value(),
             witness_mass.milligrams(),
+            prepared.midwait_drink_count,
+            prepared.midwait_drink_volume_ul,
             provisioning_priority.label(),
             meal.total_mass().milligrams(),
             meal.energy_offered().nanojoules(),
@@ -1611,6 +1684,8 @@ fn evaluate_provisioning_comparison(
         available_category_count,
         policy_sensitive: available_category_count == authored_category_count,
         comparison_horizon_ticks,
+        midwait_drink_count: prepared.midwait_drink_count,
+        midwait_drink_volume_ul: prepared.midwait_drink_volume_ul,
         meal_mass_delta_mg: i128::from(balanced.meal_mass_mg) - i128::from(compact.meal_mass_mg),
         water_saved_delta_ul: i128::from(compact.drink_volume_ul)
             - i128::from(balanced.drink_volume_ul),
@@ -2476,7 +2551,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     };
     let food_options = food_option_summary(registries, foods);
     reviewln!(
-        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{inherited_preservation_label} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] current-investment=[protected-reserve:{}mg raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] storage-policy:{} value=[strongest-return:{}ppm attention-value:{}ppm] selected:{selected_preservation_label} preservation:{}ppm candidates:{} frontier=[physical:{}/{} policy-reachable:{}/{} selected-physical:{} selected-policy:{}] fastest:{fastest_preservation_label}:{}t/{}:{}ppm strongest:{strongest_preservation_label}:{}t/{}:{}ppm build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg utilization:{}ppm dismantle=[{}t body:{}nJ/{}uL returned:{}mg] stronger-tradeoff=[attention:+{}t/+{} raw:+{}mg body:+{}nJ/+{}uL matched-age:{:+}t/{} remaining-edible:{:+}t/{}]] consequence=[reserve-improved:{} diet-delta:{:+}ppm recovery-delta:{:+}ppm/t horizon:{}t] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}t prospect:{}t reprovision:{}:{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
+        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{inherited_preservation_label} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] current-investment=[protected-reserve:{}mg raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] storage-policy:{} value=[strongest-return:{}ppm attention-value:{}ppm] selected:{selected_preservation_label} preservation:{}ppm candidates:{} frontier=[physical:{}/{} policy-reachable:{}/{} selected-physical:{} selected-policy:{}] fastest:{fastest_preservation_label}:{}t/{}:{}ppm strongest:{strongest_preservation_label}:{}t/{}:{}ppm build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg utilization:{}ppm dismantle=[{}t body:{}nJ/{}uL returned:{}mg] stronger-tradeoff=[attention:+{}t/+{} raw:+{}mg body:+{}nJ/+{}uL matched-age:{:+}t/{} remaining-edible:{:+}t/{}]] consequence=[reserve-improved:{} diet-delta:{:+}ppm recovery-delta:{:+}ppm/t horizon:{}t] lived-wait=[drinks:{} volume:{}uL] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}t prospect:{}t reprovision:{}:{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
         world.start_profile.label(),
         foods.len(),
         available_category_count,
@@ -2528,6 +2603,8 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         diet_quality_delta_ppm,
         recovery_rate_delta_ppm_per_tick,
         comparison_horizon_ticks,
+        diet_comparison.midwait_drink_count,
+        diet_comparison.midwait_drink_volume_ul,
         work_pressure.prospecting_ticks,
         work_pressure.prospecting_energy_deficit_ppm,
         work_pressure.prospecting_hydration_deficit_ppm,
@@ -2547,8 +2624,10 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         integrated_work.hydration_warning_safe,
     );
     reviewln!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available:[foods:{} categories:{} options:{food_options}]] preservation-choice=[policy:{} value=[strongest-return:{}ppm attention-value:{}ppm] candidates:{} raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] frontier=[{preservation_frontier_summary}] legend=P:physical-frontier,d:dominated,R:policy-reachable,u:policy-unreachable selected=[storage:{selected_preservation_label} physical:{} policy-reachable:{}] fastest=[storage:{fastest_preservation_label} attention:{}t multiplier:{}ppm remaining:{}t] strongest=[storage:{strongest_preservation_label} attention:{}t multiplier:{}ppm remaining:{}t] stronger-tradeoff=[attention:+{}t raw:+{}mg metabolic:+{}nJ hydration:+{}uL matched-age:{:+}t remaining-edible:{:+}t]] preservation-infrastructure=[food:{protected_food_label} stages:{} route=finite-disclosed-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning provision:{}t prospect:{}t reprovision:{}:{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] matched-counterfactual=[horizon:{}t compact-calories:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:{:+}mg water-saved-delta:{:+}uL diet-quality-delta:{:+}ppm recovery-delta:{:+}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{inherited_preservation_label} age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t lived-wait=[drinks:{} volume:{}uL] available:[foods:{} categories:{} options:{food_options}]] preservation-choice=[policy:{} value=[strongest-return:{}ppm attention-value:{}ppm] candidates:{} raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] frontier=[{preservation_frontier_summary}] legend=P:physical-frontier,d:dominated,R:policy-reachable,u:policy-unreachable selected=[storage:{selected_preservation_label} physical:{} policy-reachable:{}] fastest=[storage:{fastest_preservation_label} attention:{}t multiplier:{}ppm remaining:{}t] strongest=[storage:{strongest_preservation_label} attention:{}t multiplier:{}ppm remaining:{}t] stronger-tradeoff=[attention:+{}t raw:+{}mg metabolic:+{}nJ hydration:+{}uL matched-age:{:+}t remaining-edible:{:+}t]] preservation-infrastructure=[food:{protected_food_label} stages:{} route=finite-disclosed-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning provision:{}t prospect:{}t reprovision:{}:{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] matched-counterfactual=[horizon:{}t compact-calories:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[action:{}t selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:{:+}mg water-saved-delta:{:+}uL diet-quality-delta:{:+}ppm recovery-delta:{:+}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{inherited_preservation_label} age-saved:{}t retained:{}mg] reserve-recovered:{}",
         world.start_profile.label(),
+        diet_comparison.midwait_drink_count,
+        diet_comparison.midwait_drink_volume_ul,
         foods.len(),
         available_category_count,
         preservation_infrastructure.selection_kind.label(),
