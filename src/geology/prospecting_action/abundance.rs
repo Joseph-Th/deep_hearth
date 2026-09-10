@@ -12,6 +12,10 @@ pub(super) fn resolve_region_abundance_bounds(
     material: MaterialId,
     uncertainty_ppm: u32,
 ) -> (u32, u32) {
+    // Live-truth projection: only available deposits hold extractable matter, so depleted bodies
+    // are excluded and their former footprint reads as uncovered (zero lower bound). A collapsing
+    // re-survey after the player's own extraction is intended observable feedback, not a hidden
+    // lifecycle side channel.
     let mut minimum = None::<u32>;
     let mut maximum = None::<u32>;
     let mut uncovered = vec![region];

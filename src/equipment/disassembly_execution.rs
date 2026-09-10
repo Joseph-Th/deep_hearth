@@ -179,13 +179,6 @@ impl ValidatedEquipmentDisassembly {
             });
         }
         let occupancy = equipment_occupancy(state, self.equipment);
-        if let Some(
-            occupancy @ (EquipmentOccupancy::Prospecting { .. }
-            | EquipmentOccupancy::Maintenance { .. }),
-        ) = occupancy
-        {
-            return Err(commit_occupancy_error(self.equipment, occupancy));
-        }
         if let Some(element) = record.supported_by() {
             return Err(EquipmentDisassemblyCommitError::EquipmentMounted {
                 equipment: self.equipment,

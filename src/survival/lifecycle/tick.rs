@@ -152,7 +152,12 @@ fn resolve_tick_resources(
             energy_shortfall,
             hydration_shortfall,
         ),
-        energy_deficit: installment.energy() < energy_shortfall,
+        energy_deficit: {
+            // Strict less-than is intentional: an installment covering the basal plus exertion
+            // cost exactly leaves reserves at zero with no vitality penalty, a deterministic
+            // one-tick grace at the exact-cover boundary.
+            installment.energy() < energy_shortfall
+        },
         hydration_deficit: installment.hydration().microliters()
             < u128::from(hydration_shortfall.microliters()),
     })
@@ -242,6 +247,9 @@ pub(crate) fn decide_survival_tick(
         let Some(_pending) = pending_before else {
             return Ok(None);
         };
+        // Death discards the in-progress meal or drink with no physiological credit by design.
+        // Its matter already crossed the terminal consumption boundary at admission, so there is
+        // no refund and no duplication: the intake is wasted, matching death during a meal.
         return build_tick_plan(registries, state, before, None).map(Some);
     }
     let physiology = registries.survival().physiology();

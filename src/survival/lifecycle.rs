@@ -283,14 +283,20 @@ fn assess_record(registries: &Registries, player: PlayerSurvivalRecord) -> Survi
     }
 }
 
+fn diet_recovery_numerator(
+    physiology: super::PhysiologyDefinition,
+    nutrition: NutritionReserves,
+) -> u64 {
+    u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
+        * u64::from(nutrition.quality_ppm())
+}
+
 fn diet_supported_vitality_recovery_ppm_per_tick(
     physiology: super::PhysiologyDefinition,
     nutrition: NutritionReserves,
 ) -> u32 {
     let scale = u64::from(NUTRITION_PARTS_PER_MILLION);
-    let numerator = u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
-        * u64::from(nutrition.quality_ppm());
-    let recovery = (numerator + scale / 2) / scale;
+    let recovery = (diet_recovery_numerator(physiology, nutrition) + scale / 2) / scale;
     u32::try_from(recovery)
         .unwrap_or_else(|_| unreachable!("normalized vitality recovery always fits u32"))
 }
@@ -302,9 +308,7 @@ fn accumulate_diet_supported_vitality_recovery(
 ) -> (u32, u32) {
     debug_assert!(remainder < NUTRITION_PARTS_PER_MILLION);
     let scale = u64::from(NUTRITION_PARTS_PER_MILLION);
-    let numerator = u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
-        * u64::from(nutrition.quality_ppm())
-        + u64::from(remainder);
+    let numerator = diet_recovery_numerator(physiology, nutrition) + u64::from(remainder);
     let recovery = u32::try_from(numerator / scale)
         .unwrap_or_else(|_| unreachable!("normalized vitality recovery always fits u32"));
     let next_remainder = u32::try_from(numerator % scale)

@@ -14,6 +14,8 @@ pub(super) fn resolve_region_excavation_hardness(
     resolution: Pressure,
 ) -> Option<ExcavationHardnessEstimate> {
     debug_assert!(!resolution.is_zero());
+    // Live-truth projection matching abundance: depleted bodies hold no extractable matter and are
+    // excluded, so a vanishing hardness band after the player's own extraction is intended feedback.
     let mut minimum = None::<Pressure>;
     let mut maximum = None::<Pressure>;
     for deposit in state.geology().deposits().filter(|deposit| {

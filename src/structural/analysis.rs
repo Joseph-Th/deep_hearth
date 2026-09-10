@@ -182,6 +182,9 @@ pub enum StructuralAnalysisError {
         element: StructuralElementId,
         material: MaterialId,
     },
+    UnknownElement {
+        element: StructuralElementId,
+    },
     NonStructuralMaterial {
         element: StructuralElementId,
         material: MaterialId,
@@ -219,6 +222,11 @@ impl Display for StructuralAnalysisError {
                 element.value(),
                 material.value()
             ),
+            Self::UnknownElement { element } => write!(
+                formatter,
+                "structural analysis reached unknown element {}",
+                element.value()
+            ),
             Self::LoadOverflow { support } => write!(
                 formatter,
                 "structural load accumulation overflowed support {}",
@@ -249,7 +257,10 @@ fn pristine_capacity(
     state: &StructureState,
     element: StructuralElementId,
 ) -> Result<Force, StructuralAnalysisError> {
-    let record = &state.element_map()[&element];
+    let record = state
+        .element_map()
+        .get(&element)
+        .ok_or(StructuralAnalysisError::UnknownElement { element })?;
     let Some(profile) = profiles.get_profile(record.profile()) else {
         return Err(StructuralAnalysisError::UnknownProfile {
             element,

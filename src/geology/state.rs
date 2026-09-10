@@ -208,6 +208,10 @@ impl GeologicalDepositRecord {
     /// This geological property is intentionally independent of both the coarse commodity label and
     /// the assay composition. Material hardness describes constituents; excavation hardness describes
     /// the physical geological body that contains them.
+    ///
+    /// Excavation hardness is immutable for a deposit's lifetime: `apply_extraction` mutates only
+    /// remaining mass and lifecycle, so mining start/commit prechecks that pin mass need no separate
+    /// hardness re-assertion.
     #[must_use]
     pub const fn excavation_hardness(&self) -> Pressure {
         self.excavation_hardness

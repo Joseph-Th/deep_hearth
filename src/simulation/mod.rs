@@ -144,6 +144,11 @@ pub fn advance_tick(
 
     // Due jobs are indexed by exact authoritative tick. Downstream enclosure dismantling uses the
     // projected inventory after those deposits because the completion phase commits first.
+    //
+    // Snapshot isolation is intentional: every other phase decides against the pre-tick snapshot
+    // and defers same-tick completion effects by one tick. Revision-budget prechecks make that
+    // deferral fail-closed (a newly freed store, tool, or calorie is denied this tick rather than
+    // admitted against stale facts), so no additional projection is needed for those phases.
     let completion_plan = decide_due_completions(registries, state, next_tick)?;
     let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
     let storage_enclosure_dismantling_plan = decide_storage_enclosure_dismantling_tick(

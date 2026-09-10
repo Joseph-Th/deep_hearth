@@ -1,4 +1,9 @@
 //! Timed player dismantling of material-backed storage enclosures.
+//!
+//! Dismantling is careful uninstallation: completion returns the exact embodied body to a distinct
+//! recovery stockpile, so a build/dismantle cycle preserves matter by design and charges only
+//! authored labor time plus survival exertion. Destructive reconfiguration is the separate manual
+//! salvage route, which conserves mass as boards plus represented chips instead.
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -306,6 +311,9 @@ fn validate_dismantling_inventory_capacity(
         .iter()
         .map(MaterialIngressEntry::from_consumed_trace)
         .collect::<Vec<_>>();
+    // Admission precheck only: the returned ingress plan is intentionally discarded. Full
+    // ingress legality (containment, capacity, lot-ID space) must hold before reserving, while
+    // the reservation below owns the capacity the completion stage re-validates against.
     let _ = validate_material_ingress(
         registries,
         state.inventory(),

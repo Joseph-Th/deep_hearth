@@ -148,6 +148,20 @@ fn build_production_registry(process: ProcessDefinition) -> ProductionRegistry {
     registry
 }
 
+fn test_domains_with_provider(
+    capability_definitions: Vec<CapabilityDefinition>,
+    equipment_definition: EquipmentDefinition,
+    energy_definition: EnergyStoreDefinition,
+    process: ProcessDefinition,
+) -> TestRegistryDomains {
+    let mut domains = TestRegistryDomains::empty();
+    domains.capabilities = build_capability_registry(capability_definitions);
+    domains.equipment = EquipmentRegistry::new([equipment_definition]);
+    domains.energy = EnergyRegistry::new([energy_definition]);
+    domains.production = build_production_registry(process);
+    domains
+}
+
 pub(crate) fn make_test_registries_with_screening(
     capability_definitions: Vec<CapabilityDefinition>,
     equipment_definition: EquipmentDefinition,
@@ -155,11 +169,12 @@ pub(crate) fn make_test_registries_with_screening(
     process: ProcessDefinition,
     screening_definition: ScreeningProcessDefinition,
 ) -> Registries {
-    let mut domains = TestRegistryDomains::empty();
-    domains.capabilities = build_capability_registry(capability_definitions);
-    domains.equipment = EquipmentRegistry::new([equipment_definition]);
-    domains.energy = EnergyRegistry::new([energy_definition]);
-    domains.production = build_production_registry(process);
+    let mut domains = test_domains_with_provider(
+        capability_definitions,
+        equipment_definition,
+        energy_definition,
+        process,
+    );
     domains.ore_processing = OreProcessingRegistry::new_with_processes(
         std::iter::empty(),
         [screening_definition],
@@ -213,11 +228,12 @@ pub(crate) fn make_test_registries_with_sensible_heating(
     process: ProcessDefinition,
     thermal_definition: SensibleHeatingProcessDefinition,
 ) -> Registries {
-    let mut domains = TestRegistryDomains::empty();
-    domains.capabilities = build_capability_registry(capability_definitions);
-    domains.equipment = EquipmentRegistry::new([equipment_definition]);
-    domains.energy = EnergyRegistry::new([energy_definition]);
-    domains.production = build_production_registry(process);
+    let mut domains = test_domains_with_provider(
+        capability_definitions,
+        equipment_definition,
+        energy_definition,
+        process,
+    );
     domains.thermal =
         ThermalRegistry::new([thermal_definition], std::iter::empty(), std::iter::empty());
     domains.build()
@@ -230,11 +246,12 @@ pub(crate) fn make_test_registries_with_melting(
     process: ProcessDefinition,
     thermal_definition: MeltingProcessDefinition,
 ) -> Registries {
-    let mut domains = TestRegistryDomains::empty();
-    domains.capabilities = build_capability_registry(capability_definitions);
-    domains.equipment = EquipmentRegistry::new([equipment_definition]);
-    domains.energy = EnergyRegistry::new([energy_definition]);
-    domains.production = build_production_registry(process);
+    let mut domains = test_domains_with_provider(
+        capability_definitions,
+        equipment_definition,
+        energy_definition,
+        process,
+    );
     domains.thermal =
         ThermalRegistry::new(std::iter::empty(), [thermal_definition], std::iter::empty());
     domains.build()
@@ -247,11 +264,12 @@ pub(crate) fn make_test_registries_with_casting(
     process: ProcessDefinition,
     thermal_definition: CastingProcessDefinition,
 ) -> Registries {
-    let mut domains = TestRegistryDomains::empty();
-    domains.capabilities = build_capability_registry(capability_definitions);
-    domains.equipment = EquipmentRegistry::new([equipment_definition]);
-    domains.energy = EnergyRegistry::new([energy_definition]);
-    domains.production = build_production_registry(process);
+    let mut domains = test_domains_with_provider(
+        capability_definitions,
+        equipment_definition,
+        energy_definition,
+        process,
+    );
     domains.thermal =
         ThermalRegistry::new(std::iter::empty(), std::iter::empty(), [thermal_definition]);
     domains.build()
@@ -270,11 +288,12 @@ pub(crate) fn make_test_registries_with_comminution(
     process: ProcessDefinition,
     comminution_definition: ComminutionProcessDefinition,
 ) -> Registries {
-    let mut domains = TestRegistryDomains::empty();
-    domains.capabilities = build_capability_registry(capability_definitions);
-    domains.equipment = EquipmentRegistry::new([equipment_definition]);
-    domains.energy = EnergyRegistry::new([energy_definition]);
-    domains.production = build_production_registry(process);
+    let mut domains = test_domains_with_provider(
+        capability_definitions,
+        equipment_definition,
+        energy_definition,
+        process,
+    );
     domains.ore_processing = OreProcessingRegistry::new([comminution_definition]);
     domains.build()
 }
