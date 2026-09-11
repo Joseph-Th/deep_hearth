@@ -105,7 +105,7 @@ pub enum InventoryValidationError {
         transition: SimulationTick,
         current: SimulationTick,
     },
-    LotStorageAgeOverflow {
+    LotStorageHistoryUnreachable {
         lot: MaterialLotId,
     },
     MissingLotOwner {
@@ -309,9 +309,9 @@ impl Display for InventoryValidationError {
                 transition.value(),
                 current.value()
             ),
-            Self::LotStorageAgeOverflow { lot } => write!(
+            Self::LotStorageHistoryUnreachable { lot } => write!(
                 formatter,
-                "material lot {} storage-age projection exceeds authoritative range",
+                "material lot {} claims more checkpointed storage exposure than could physically accumulate by its transition tick",
                 lot.value()
             ),
             Self::MissingLotOwner { lot, stockpile } => write!(

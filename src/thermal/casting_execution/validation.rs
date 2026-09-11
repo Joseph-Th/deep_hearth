@@ -187,7 +187,7 @@ fn validate_casting_replay_outcome(
     let Some(output_stream) = job.single_output_stream() else {
         return Err(CastingJobValidationError::OutputMismatch { job: job.id() });
     };
-    if output_stream.outputs() != [batch.output.clone()] {
+    if output_stream.outputs() != std::slice::from_ref(&batch.output) {
         return Err(CastingJobValidationError::OutputMismatch { job: job.id() });
     }
     Ok(())

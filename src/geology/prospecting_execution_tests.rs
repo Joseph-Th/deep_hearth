@@ -447,18 +447,17 @@ fn run_prospecting_soak(seed: WorldSeed) -> AppState {
         }
     }
     assert_eq!(state.geological_knowledge().observations().count(), 2_000);
+    let full_region = bounds(0, 65);
     assert_eq!(
-        state
-            .geological_knowledge()
-            .observation_ids_for_material(MATERIAL_COPPER)
-            .count(),
+        assess_geological_knowledge(state.geological_knowledge(), full_region, MATERIAL_COPPER,)
+            .observations()
+            .len(),
         1_000
     );
     assert_eq!(
-        state
-            .geological_knowledge()
-            .observation_ids_for_material(MATERIAL_SLAG)
-            .count(),
+        assess_geological_knowledge(state.geological_knowledge(), full_region, MATERIAL_SLAG)
+            .observations()
+            .len(),
         1_000
     );
     state

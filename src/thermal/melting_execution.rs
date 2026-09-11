@@ -159,7 +159,7 @@ impl<'selection> MeltingRequest<'selection> {
 
 /// Observable physically resolved melting operation before production start.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ResolvedMelting {
     resolution: ProcessResolution,
     equipment: EquipmentId,

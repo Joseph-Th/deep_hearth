@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 use super::{
     BLOCK_FACE_COUNT, BlockAppearanceId, ColorRgba8, CubeFace, ObjectAppearanceId,
     ObjectTextureSlot, PALETTE_RAMP_COLOR_COUNT, PackedTexel, PaletteSlot, ShadeIndex,
-    TEXTURE_PALETTE_SLOT_COUNT, TEXTURE_SIDE, TextureAlphaMode, TextureId, TextureRegistry,
+    TEXTURE_PALETTE_SLOT_COUNT, TEXTURE_SIDE, TEXTURE_TEXEL_COUNT, TextureAlphaMode, TextureId,
+    TextureRegistry,
 };
 
 /// Dense GPU array layer containing one unique indexed pattern and all of its mip levels.
@@ -149,7 +150,8 @@ impl TextureRegistry {
     #[must_use]
     pub fn bake_texture_array(&self) -> BakedTextureArray {
         let mut patterns = Vec::<Vec<PackedTexel>>::new();
-        let mut pattern_layers = BTreeMap::<Vec<PackedTexel>, TextureLayer>::new();
+        let mut pattern_layers =
+            BTreeMap::<&[PackedTexel; TEXTURE_TEXEL_COUNT], TextureLayer>::new();
         let mut palette_rows = Vec::<[u16; TEXTURE_PALETTE_SLOT_COUNT]>::new();
         let mut palette_row_ids =
             BTreeMap::<[u16; TEXTURE_PALETTE_SLOT_COUNT], TexturePaletteRow>::new();
@@ -162,14 +164,14 @@ impl TextureRegistry {
         let mut descriptors_by_texture = vec![None; maximum_texture_id + 1];
 
         for definition in self.textures_in_id_order() {
-            let pattern = definition.texels().to_vec();
-            let layer = match pattern_layers.get(&pattern) {
+            let pattern = definition.texels();
+            let layer = match pattern_layers.get(pattern) {
                 Some(layer) => *layer,
                 None => {
                     let layer = TextureLayer(u16::try_from(patterns.len()).unwrap_or_else(|_| {
                         panic!("baked texture layer count exceeds lookup limit")
                     }));
-                    patterns.push(pattern.clone());
+                    patterns.push(pattern.to_vec());
                     pattern_layers.insert(pattern, layer);
                     layer
                 }

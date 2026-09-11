@@ -11,9 +11,9 @@ use crate::inventory::{ReservedDepositPlan, ReservedDepositReceipt, apply_reserv
 
 use super::super::start::ProcessOutputRoute;
 use super::{
-    CompletionApplication, CompletionCommitError, CompletionPlan, CompletionPlanEntry,
-    CompletionRevisionPlan, PlayerLaborRevisionDependencies, ProcessCompletion,
-    ProcessOutputLanding, ProcessParcelLanding, ProductionAvailabilityChange,
+    CompletionApplication, CompletionCommitError, CompletionPlan, CompletionRevisionPlan,
+    PlayerLaborRevisionDependencies, ProcessCompletion, ProcessOutputLanding, ProcessParcelLanding,
+    ProductionAvailabilityChange,
 };
 
 /// Applies a decided due-job plan in stable job-ID order.
@@ -25,7 +25,7 @@ pub(crate) fn apply_completion_plan(
         revisions,
         inventory_deposits,
         availability_changes,
-        entries,
+        jobs,
         equipment_outcomes,
         released_energy_outcomes,
         structural_load,
@@ -51,7 +51,7 @@ pub(crate) fn apply_completion_plan(
     )?;
     inventory_deposits.assert_matches_state(state.inventory());
     assert_availability_changes_match_state(state, &availability_changes);
-    assert_completion_entries_match_state(state, &entries);
+    assert_completion_jobs_match_state(state, &jobs);
     if !equipment_outcomes.is_empty() {
         state
             .equipment()
@@ -82,7 +82,7 @@ pub(crate) fn apply_completion_plan(
 
     apply_availability_changes(state, &availability_changes);
     let landing_receipts = apply_reserved_deposits(state.inventory_state_mut(), inventory_deposits);
-    let completions = apply_completion_entries(state, entries, landing_receipts);
+    let completions = apply_completion_jobs(state, jobs, landing_receipts);
     apply_completion_resource_outcomes(
         state,
         !completions.is_empty(),
@@ -101,48 +101,22 @@ pub(crate) fn apply_completion_plan(
     })
 }
 
-fn assert_completion_entries_match_state(state: &AppState, entries: &[CompletionPlanEntry]) {
+fn assert_completion_jobs_match_state(
+    state: &AppState,
+    jobs: &[crate::production::ProductionJobId],
+) {
     let mut seen_jobs = BTreeSet::new();
-    for entry in entries {
+    for job in jobs {
         assert!(
-            seen_jobs.insert(entry.job),
+            seen_jobs.insert(*job),
             "completion plan contains duplicate production job {}",
-            entry.job.value()
+            job.value()
         );
-        let stored = state
+        state
             .production()
-            .get_job(entry.job)
+            .get_job(*job)
             .unwrap_or_else(|| panic!("validated completion references missing production job"));
-        assert_eq!(
-            stored.process(),
-            entry.process,
-            "validated completion process must match its persistent production job"
-        );
-        assert_eq!(
-            stored.output_streams().len(),
-            entry.output_streams.len(),
-            "validated completion must preserve persistent output-stream cardinality"
-        );
-        for (stored_stream, planned_stream) in
-            stored.output_streams().iter().zip(&entry.output_streams)
-        {
-            assert_eq!(
-                stored_stream.id(),
-                planned_stream.id,
-                "validated completion output stream identity changed before commit"
-            );
-            assert_eq!(
-                stored_stream.destination(),
-                planned_stream.destination,
-                "validated completion output destination changed before commit"
-            );
-            assert_eq!(
-                stored_stream.outputs(),
-                planned_stream.outputs,
-                "validated completion output parcels changed before commit"
-            );
-        }
-        state.production().assert_job_removable(entry.job);
+        state.production().assert_job_removable(*job);
     }
 }
 
@@ -326,14 +300,21 @@ fn apply_availability_changes(state: &mut AppState, changes: &[ProductionAvailab
     }
 }
 
-fn apply_completion_entries(
+fn apply_completion_jobs(
     state: &mut AppState,
-    entries: Vec<CompletionPlanEntry>,
+    jobs: Vec<crate::production::ProductionJobId>,
     landing_receipts: Vec<ReservedDepositReceipt>,
 ) -> Vec<ProcessCompletion> {
-    let expected_landings = entries
+    let expected_landings = jobs
         .iter()
-        .map(|entry| entry.output_streams.len())
+        .map(|job| {
+            state
+                .production()
+                .get_job(*job)
+                .unwrap_or_else(|| unreachable!("validated completion job remains available"))
+                .output_streams()
+                .len()
+        })
         .sum::<usize>();
     assert_eq!(
         landing_receipts.len(),
@@ -341,13 +322,11 @@ fn apply_completion_entries(
         "production completion must receive one inventory landing receipt per output stream"
     );
     let mut landing_receipts = landing_receipts.into_iter();
-    let mut completions = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let CompletionPlanEntry {
-            job,
-            process,
-            output_streams,
-        } = entry;
+    let mut completions = Vec::with_capacity(jobs.len());
+    for job in jobs {
+        let removed = state.production_state_mut().remove_job(job);
+        let process = removed.process();
+        let output_streams = removed.output_streams;
         let routes = output_streams
             .iter()
             .map(|stream| ProcessOutputRoute::new(stream.id, stream.destination))
@@ -383,8 +362,6 @@ fn apply_completion_entries(
                 }
             })
             .collect::<Vec<_>>();
-        let removed = state.production_state_mut().remove_job(job);
-        assert_eq!(removed.process(), process);
         completions.push(ProcessCompletion {
             job,
             process,

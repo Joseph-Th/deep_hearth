@@ -65,7 +65,7 @@ The implemented definition set forms typed authored topology. `CraftingRegistry`
 indexes for direct manual producers and consumers, while `Registries::new` derives the cross-registry
 `ProcessTopology` projection after validating all domain references. That projection also enforces that one
 `ProcessId` cannot own more than one crafting/ore/thermal execution family and records each process's execution
-family, typed energy role, nominal provider definitions, and compatible energy-store definitions. Equipment and
+family, typed equipment role, typed energy role, nominal provider definitions, and compatible energy-store definitions. Equipment and
 energy-store assembly/upgrade ancestry plus maintenance/recovery material relationships remain with their
 domain definitions. Runtime `resolve_equipment_provider` remains separate because a known equipment instance
 adds mutable condition and structural-support facts that immutable topology cannot prove.

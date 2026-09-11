@@ -225,7 +225,7 @@ pub fn calculate_mass_specific_energy_capacity(
 /// overflow contract: arithmetic overflow saturates to the largest representable [`Energy`]
 /// rather than rejecting the plan. A zero remainder is always valid by construction.
 #[must_use]
-pub fn integrate_power_or_saturate(
+pub(crate) fn integrate_power_or_saturate(
     power: Power,
     span: TickSpan,
     physical_tick_duration: PhysicalTickDuration,

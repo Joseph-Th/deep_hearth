@@ -7,6 +7,22 @@ const fn twentieth_second_tick() -> PhysicalTickDuration {
 }
 
 #[test]
+fn disposable_planning_integration_saturates_authoritative_overflow() {
+    let power = Power::from_picowatts(u128::MAX);
+    let span = TickSpan::new(u64::MAX);
+    let tick_duration = PhysicalTickDuration::from_microseconds(1_000_000);
+
+    assert_eq!(
+        integrate_power(power, span, tick_duration, PowerRemainder::ZERO),
+        Err(PowerIntegrationError::ArithmeticOverflow)
+    );
+    assert_eq!(
+        integrate_power_or_saturate(power, span, tick_duration),
+        Energy::from_nanojoules(u128::MAX)
+    );
+}
+
+#[test]
 fn mass_specific_energy_capacity_is_the_canonical_whole_mass_inverse() {
     let specific = MassSpecificEnergy::from_nanojoules_per_milligram(40);
     let exact = Energy::from_nanojoules(1_000);

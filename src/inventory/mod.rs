@@ -25,8 +25,9 @@ pub use enclosure_dismantling::{
     ValidatedStorageEnclosureDismantlingStart, validate_start_storage_enclosure_dismantling,
 };
 pub(crate) use enclosure_dismantling::{
-    StorageEnclosureDismantlingTickError, apply_storage_enclosure_dismantling_tick,
-    decide_storage_enclosure_dismantling_tick, validate_storage_dismantling_target_for_completion,
+    StorageEnclosureDismantlingTickError, StorageEnclosureDismantlingTickPlan,
+    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_tick,
+    validate_storage_dismantling_target_for_completion,
 };
 pub use enclosure_execution::{
     StorageEnclosureCommitError, StorageEnclosureConstructionError,

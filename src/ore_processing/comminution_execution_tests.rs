@@ -43,6 +43,8 @@ const MASS_FLOW_CAPABILITY: CapabilityId = CapabilityId::new(970_001);
 const MAX_BATCH_MASS_CAPABILITY: CapabilityId = CapabilityId::new(970_002);
 const CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(970_001);
 const ENERGY_STORE_DEFINITION: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(970_001);
+const COMPATIBLE_ENERGY_STORE_DEFINITION: EnergyStoreDefinitionId =
+    EnergyStoreDefinitionId::new(970_002);
 const PROCESS: ProcessId = ProcessId::new(970_001);
 const INPUT_TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
 const SPECIFIC_WORK: MassSpecificEnergy = MassSpecificEnergy::from_nanojoules_per_milligram(100);
@@ -380,6 +382,24 @@ fn make_registries_with_definition(
             ),
         ],
     );
+    let mut energy_definitions = vec![EnergyStoreDefinition::new_with_transfer_limits(
+        ENERGY_STORE_DEFINITION,
+        "test crusher work buffer",
+        carrier,
+        Energy::from_nanojoules(1_000_000),
+        Power::ZERO,
+        max_output_power,
+    )];
+    if carrier != EnergyCarrier::Mechanical {
+        energy_definitions.push(EnergyStoreDefinition::new_with_transfer_limits(
+            COMPATIBLE_ENERGY_STORE_DEFINITION,
+            "test compatible mechanical crusher work buffer",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(1_000_000),
+            Power::ZERO,
+            max_output_power,
+        ));
+    }
     make_test_registries_with_comminution(
         vec![
             CapabilityDefinition::new(
@@ -394,14 +414,7 @@ fn make_registries_with_definition(
             ),
         ],
         equipment,
-        EnergyStoreDefinition::new_with_transfer_limits(
-            ENERGY_STORE_DEFINITION,
-            "test crusher work buffer",
-            carrier,
-            Energy::from_nanojoules(1_000_000),
-            Power::ZERO,
-            max_output_power,
-        ),
+        energy_definitions,
         process,
         comminution_definition,
     )

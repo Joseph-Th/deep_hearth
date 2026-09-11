@@ -34,20 +34,9 @@ impl PlayerWorkState {
         &self,
         equipment: EquipmentId,
     ) -> Option<ProspectingWork> {
-        match self.active {
-            Some(PlayerWork::Prospecting { work }) if work.equipment() == Some(equipment) => {
-                Some(work)
-            }
-            Some(PlayerWork::Prospecting { .. })
-            | Some(PlayerWork::ManualProduction { .. })
-            | Some(PlayerWork::Mining { .. })
-            | Some(PlayerWork::ManualPower { .. })
-            | Some(PlayerWork::Eating { .. })
-            | Some(PlayerWork::Drinking { .. })
-            | Some(PlayerWork::EquipmentMaintenance { .. })
-            | Some(PlayerWork::StorageEnclosureDismantling { .. })
-            | None => None,
-        }
+        self.active
+            .and_then(PlayerWork::prospecting)
+            .filter(|work| work.equipment() == Some(equipment))
     }
 
     #[must_use]
@@ -60,31 +49,35 @@ impl PlayerWorkState {
         self.active
     }
 
+    /// Returns the admitted enclosure-dismantling work that completes on `tick`, if any.
+    #[must_use]
+    pub(crate) fn storage_dismantling_due_at(
+        &self,
+        tick: SimulationTick,
+    ) -> Option<StorageEnclosureDismantlingWork> {
+        self.active
+            .and_then(PlayerWork::storage_dismantling)
+            .filter(|work| work.completes_at() == tick)
+    }
+
+    /// Returns admitted equipment-maintenance work that completes on `tick`, if any.
+    #[must_use]
+    pub(crate) fn equipment_maintenance_due_at(
+        &self,
+        tick: SimulationTick,
+    ) -> Option<EquipmentMaintenanceWork> {
+        self.active
+            .and_then(PlayerWork::equipment_maintenance)
+            .filter(|work| work.completes_at() == tick)
+    }
+
     #[must_use]
     pub(crate) fn has_valid_inline_schedule(&self, current: SimulationTick) -> bool {
-        match self.active {
-            Some(PlayerWork::ManualPower { work }) => {
-                work.started_at() <= current && work.completes_at() > current
-            }
-            Some(PlayerWork::Prospecting { work }) => {
-                work.started_at() <= current && work.completes_at() > current
-            }
-            Some(PlayerWork::Eating { work }) => {
-                work.started_at() <= current && work.completes_at() > current
-            }
-            Some(PlayerWork::Drinking { work }) => {
-                work.started_at() <= current && work.completes_at() > current
-            }
-            Some(PlayerWork::EquipmentMaintenance { work }) => {
-                work.started_at() <= current && work.completes_at() > current
-            }
-            Some(PlayerWork::StorageEnclosureDismantling { work }) => {
-                work.started_at() <= current && work.completes_at() > current
-            }
-            Some(PlayerWork::ManualProduction { job: _ })
-            | Some(PlayerWork::Mining { job: _ })
-            | None => true,
-        }
+        self.active
+            .and_then(PlayerWork::inline_schedule)
+            .is_none_or(|(started_at, completes_at)| {
+                started_at <= current && completes_at > current
+            })
     }
 
     #[must_use]
@@ -92,18 +85,9 @@ impl PlayerWorkState {
         &self,
         equipment: EquipmentId,
     ) -> Option<ManualPowerWork> {
-        match self.active {
-            Some(PlayerWork::ManualPower { work }) if work.equipment() == equipment => Some(work),
-            Some(PlayerWork::ManualPower { .. })
-            | Some(PlayerWork::ManualProduction { .. })
-            | Some(PlayerWork::Mining { .. })
-            | Some(PlayerWork::Prospecting { .. })
-            | Some(PlayerWork::Eating { .. })
-            | Some(PlayerWork::Drinking { .. })
-            | Some(PlayerWork::EquipmentMaintenance { .. })
-            | Some(PlayerWork::StorageEnclosureDismantling { .. })
-            | None => None,
-        }
+        self.active
+            .and_then(PlayerWork::manual_power)
+            .filter(|work| work.equipment() == equipment)
     }
 
     #[must_use]
@@ -111,18 +95,9 @@ impl PlayerWorkState {
         &self,
         store: EnergyStoreId,
     ) -> Option<ManualPowerWork> {
-        match self.active {
-            Some(PlayerWork::ManualPower { work }) if work.destination() == store => Some(work),
-            Some(PlayerWork::ManualPower { .. })
-            | Some(PlayerWork::ManualProduction { .. })
-            | Some(PlayerWork::Mining { .. })
-            | Some(PlayerWork::Prospecting { .. })
-            | Some(PlayerWork::Eating { .. })
-            | Some(PlayerWork::Drinking { .. })
-            | Some(PlayerWork::EquipmentMaintenance { .. })
-            | Some(PlayerWork::StorageEnclosureDismantling { .. })
-            | None => None,
-        }
+        self.active
+            .and_then(PlayerWork::manual_power)
+            .filter(|work| work.destination() == store)
     }
 
     #[must_use]
@@ -130,20 +105,9 @@ impl PlayerWorkState {
         &self,
         equipment: EquipmentId,
     ) -> Option<EquipmentMaintenanceWork> {
-        match self.active {
-            Some(PlayerWork::EquipmentMaintenance { work }) if work.equipment() == equipment => {
-                Some(work)
-            }
-            Some(PlayerWork::EquipmentMaintenance { .. })
-            | Some(PlayerWork::ManualProduction { .. })
-            | Some(PlayerWork::Mining { .. })
-            | Some(PlayerWork::ManualPower { .. })
-            | Some(PlayerWork::Prospecting { .. })
-            | Some(PlayerWork::Eating { .. })
-            | Some(PlayerWork::Drinking { .. })
-            | Some(PlayerWork::StorageEnclosureDismantling { .. })
-            | None => None,
-        }
+        self.active
+            .and_then(PlayerWork::equipment_maintenance)
+            .filter(|work| work.equipment() == equipment)
     }
 
     #[must_use]
@@ -151,22 +115,9 @@ impl PlayerWorkState {
         &self,
         stockpile: StockpileId,
     ) -> Option<StorageEnclosureDismantlingWork> {
-        match self.active {
-            Some(PlayerWork::StorageEnclosureDismantling { work })
-                if work.occupies_stockpile(stockpile) =>
-            {
-                Some(work)
-            }
-            Some(PlayerWork::StorageEnclosureDismantling { .. })
-            | Some(PlayerWork::ManualProduction { .. })
-            | Some(PlayerWork::Mining { .. })
-            | Some(PlayerWork::ManualPower { .. })
-            | Some(PlayerWork::Prospecting { .. })
-            | Some(PlayerWork::Eating { .. })
-            | Some(PlayerWork::Drinking { .. })
-            | Some(PlayerWork::EquipmentMaintenance { .. })
-            | None => None,
-        }
+        self.active
+            .and_then(PlayerWork::storage_dismantling)
+            .filter(|work| work.occupies_stockpile(stockpile))
     }
 
     pub(crate) fn apply_start(

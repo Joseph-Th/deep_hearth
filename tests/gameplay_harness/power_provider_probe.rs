@@ -2,11 +2,12 @@
 //!
 //! The stone hand crank and the timber foot-treadle drive are both copper-free ordinary
 //! builds, yet no maintained episode ever decides between them: progression hard-wires the
-//! crank and liberation hard-wires the treadle. This episode builds both providers plus one
-//! stone flywheel each through canonical manual craft, charges each flywheel to full capacity
-//! with its provider under survival pressure, and reports the build/attention/bodily-cost
-//! tradeoff the same physical job exposes. The copper-reinforced crank stays catalog context:
-//! it needs mined native copper, so it cannot join this copper-free comparison.
+//! crank and liberation hard-wires the treadle. This episode branches from one actor-visible raw
+//! starting state, builds one provider plus one stone flywheel per arm through canonical manual
+//! craft, charges each flywheel to full capacity under survival pressure, and reports the
+//! build/attention/bodily-cost tradeoff the same physical job exposes. The copper-reinforced
+//! crank stays catalog context: it needs mined native copper, so it cannot join this copper-free
+//! comparison.
 
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
@@ -303,36 +304,56 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("power provider initial matter audit failed: {error}"))
         .total();
+    let capacity_nj = registries
+        .energy()
+        .get_store(store_definition)
+        .map(|definition| definition.capacity().nanojoules())
+        .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
+
+    // Comparative evidence must not let one provider arm consume survival reserve or material
+    // before the other starts. Both arms therefore inherit the exact same actor-visible state.
+    let mut crank_state = state.clone();
+    let mut treadle_state = state;
+
+    let (crank, crank_build) = build_provider(
+        registries,
+        &mut crank_state,
+        raw,
+        shaped,
+        None,
+        EQUIPMENT_STONE_HAND_CRANK,
+        "power provider crank build",
+    );
+    let (crank_drive, crank_drive_build) = build_flywheel(
+        registries,
+        &mut crank_state,
+        raw,
+        shaped,
+        store_definition,
+        "power provider crank flywheel",
+    );
+    let crank_charge = charge_to_full(
+        registries,
+        &mut crank_state,
+        MANUAL_POWER_HAND_CRANK,
+        crank,
+        crank_drive,
+        capacity_nj,
+        "power provider crank charge",
+    );
 
     let (adze, adze_build) = build_provider(
         registries,
-        &mut state,
+        &mut treadle_state,
         raw,
         shaped,
         None,
         EQUIPMENT_STONE_WOODWORKING_ADZE,
         "power provider adze bootstrap",
     );
-    let (crank, crank_build) = build_provider(
-        registries,
-        &mut state,
-        raw,
-        shaped,
-        Some(adze),
-        EQUIPMENT_STONE_HAND_CRANK,
-        "power provider crank build",
-    );
-    let (crank_drive, crank_drive_build) = build_flywheel(
-        registries,
-        &mut state,
-        raw,
-        shaped,
-        store_definition,
-        "power provider crank flywheel",
-    );
     let (treadle, treadle_build) = build_provider(
         registries,
-        &mut state,
+        &mut treadle_state,
         raw,
         shaped,
         Some(adze),
@@ -341,30 +362,15 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     let (treadle_drive, treadle_drive_build) = build_flywheel(
         registries,
-        &mut state,
+        &mut treadle_state,
         raw,
         shaped,
         store_definition,
         "power provider treadle flywheel",
     );
-    let capacity_nj = registries
-        .energy()
-        .get_store(store_definition)
-        .map(|definition| definition.capacity().nanojoules())
-        .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
-
-    let crank_charge = charge_to_full(
-        registries,
-        &mut state,
-        MANUAL_POWER_HAND_CRANK,
-        crank,
-        crank_drive,
-        capacity_nj,
-        "power provider crank charge",
-    );
     let treadle_charge = charge_to_full(
         registries,
-        &mut state,
+        &mut treadle_state,
         MANUAL_POWER_FOOT_TREADLE,
         treadle,
         treadle_drive,
@@ -376,19 +382,24 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         treadle_charge.attention_ticks < crank_charge.attention_ticks,
         "the treadle's higher charging throughput must repay attention on the same flywheel job"
     );
-    assert!(
-        treadle_build.input_mass_mg > crank_build.input_mass_mg,
-        "the treadle frame must remain a heavier material investment than the compact crank"
-    );
     assert_eq!(
-        calculate_matter_accounting(&state)
-            .unwrap_or_else(|error| panic!("power provider final matter audit failed: {error}"))
+        calculate_matter_accounting(&crank_state)
+            .unwrap_or_else(|error| panic!("power provider crank matter audit failed: {error}"))
             .total(),
         matter_before,
-        "provider comparison must conserve matter across builds and charges"
+        "crank comparison arm must conserve matter across build and charge"
     );
-    validate_loaded_state(registries, &state)
-        .unwrap_or_else(|error| panic!("power provider final state invalid: {error}"));
+    assert_eq!(
+        calculate_matter_accounting(&treadle_state)
+            .unwrap_or_else(|error| panic!("power provider treadle matter audit failed: {error}"))
+            .total(),
+        matter_before,
+        "treadle comparison arm must conserve matter across build and charge"
+    );
+    validate_loaded_state(registries, &crank_state)
+        .unwrap_or_else(|error| panic!("power provider crank state invalid: {error}"));
+    validate_loaded_state(registries, &treadle_state)
+        .unwrap_or_else(|error| panic!("power provider treadle state invalid: {error}"));
 
     let charge_attention_reduction_ppm = u64::try_from(
         u128::from(crank_charge.attention_ticks - treadle_charge.attention_ticks)
@@ -401,6 +412,10 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .attention_ticks
         .checked_add(crank_drive_build.attention_ticks)
         .unwrap_or_else(|| panic!("power provider crank build attention overflowed"));
+    let crank_build_mass_mg = crank_build
+        .input_mass_mg
+        .checked_add(crank_drive_build.input_mass_mg)
+        .unwrap_or_else(|| panic!("power provider crank build mass overflowed"));
     // The adze bootstrap exists only to shape treadle boards (the crank needs none), so its
     // attention and material join the treadle side of the comparison.
     let treadle_build_attention = treadle_build
@@ -410,13 +425,18 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .unwrap_or_else(|| panic!("power provider treadle build attention overflowed"));
     let treadle_build_mass_mg = treadle_build
         .input_mass_mg
-        .checked_add(adze_build.input_mass_mg)
+        .checked_add(treadle_drive_build.input_mass_mg)
+        .and_then(|total| total.checked_add(adze_build.input_mass_mg))
         .unwrap_or_else(|| panic!("power provider treadle build mass overflowed"));
+    assert!(
+        treadle_build_mass_mg > crank_build_mass_mg,
+        "the treadle route must remain a heavier material investment than the crank route"
+    );
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] crank=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] crank=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ] matter=conserved",
         focused_probe_role_label(case.role()),
         capacity_nj,
-        crank_build.input_mass_mg,
+        crank_build_mass_mg,
         crank_build_attention,
         crank_charge.attention_ticks,
         crank_charge.metabolic_nj,
@@ -429,7 +449,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         treadle_charge.hydration_ul,
         treadle_charge.condition_after_ppm,
         charge_attention_reduction_ppm,
-        crank_build.input_mass_mg,
+        crank_build_mass_mg,
         treadle_build_mass_mg,
         crank_charge.metabolic_nj,
         treadle_charge.metabolic_nj,

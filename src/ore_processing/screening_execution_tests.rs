@@ -131,14 +131,14 @@ fn registries_with_power(aperture: Length, max_output_power: Power) -> Registrie
             ),
         ],
         equipment,
-        EnergyStoreDefinition::new_with_transfer_limits(
+        vec![EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_STORE,
             "test screen mechanical buffer",
             EnergyCarrier::Mechanical,
             Energy::from_nanojoules(1_000_000),
             Power::ZERO,
             max_output_power,
-        ),
+        )],
         process,
         ScreeningProcessDefinition::new(
             PROCESS,

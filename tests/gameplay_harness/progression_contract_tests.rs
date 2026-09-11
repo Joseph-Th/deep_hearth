@@ -16,6 +16,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::material::CommodityKey;
+use deep_hearth::registry::ProcessEquipmentRole;
 
 use super::catalog::{ProcessResolverKind, process_catalog_entries};
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
@@ -36,9 +37,11 @@ fn bootstrap_planning_excludes_faster_required_equipment_producers() {
         registries
             .crafting()
             .manual_producers(boards)
-            .any(|definition| definition
-                .equipment_profile()
-                .is_some_and(|profile| profile.requires_equipment())),
+            .any(|definition| registries
+                .process_topology(definition.process())
+                .is_some_and(
+                    |topology| topology.equipment_role() == ProcessEquipmentRole::Required
+                )),
         "bootstrap-planning regression requires a competing required-equipment board route"
     );
 
@@ -51,10 +54,12 @@ fn bootstrap_planning_excludes_faster_required_equipment_producers() {
 
     assert_eq!(selected.process(), PROCESS_SHAPE_WOOD_BOARDS);
     assert_eq!(batches, 1);
-    assert!(
-        !selected
-            .equipment_profile()
-            .is_some_and(|profile| profile.requires_equipment())
+    assert_ne!(
+        registries
+            .process_topology(selected.process())
+            .unwrap_or_else(|| panic!("selected bootstrap route lost process topology"))
+            .equipment_role(),
+        ProcessEquipmentRole::Required
     );
 }
 

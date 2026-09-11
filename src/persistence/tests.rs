@@ -302,14 +302,14 @@ fn make_test_heating_registries() -> Registries {
             profile,
             thresholds,
         ),
-        EnergyStoreDefinition::new_with_transfer_limits(
+        vec![EnergyStoreDefinition::new_with_transfer_limits(
             TEST_HEAT_ENERGY_DEFINITION,
             "persistence electrical buffer",
             EnergyCarrier::Electrical,
             Energy::from_nanojoules(1_000_000_000),
             Power::ZERO,
             Power::from_microwatts(500_000),
-        ),
+        )],
         process,
         SensibleHeatingProcessDefinition::new(
             TEST_HEAT_PROCESS,

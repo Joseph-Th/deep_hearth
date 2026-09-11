@@ -8,7 +8,7 @@ use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::energy::EnergyCarrier;
 use deep_hearth::maintenance::MaintenanceBand;
 #[cfg(not(test))]
-use deep_hearth::registry::{ProcessEnergyRole, Registries};
+use deep_hearth::registry::{ProcessEnergyRole, ProcessEquipmentRole, Registries};
 
 #[cfg(not(test))]
 use super::catalog::{ProcessResolverKind, process_catalog_entries};
@@ -26,6 +26,15 @@ fn process_resolver_label(resolver: ProcessResolverKind) -> &'static str {
         ProcessResolverKind::SensibleHeating => "sensible-heating",
         ProcessResolverKind::Melting => "melting",
         ProcessResolverKind::Casting => "casting",
+    }
+}
+
+#[cfg(not(test))]
+fn process_equipment_role_label(role: ProcessEquipmentRole) -> &'static str {
+    match role {
+        ProcessEquipmentRole::None => "none",
+        ProcessEquipmentRole::Optional => "optional",
+        ProcessEquipmentRole::Required => "required",
     }
 }
 
@@ -303,9 +312,10 @@ mod exploratory_output {
             .definitions()
             .filter(|definition| definition.assembly_profile().is_some())
             .count();
-        let process_count = registries.production().definitions().count();
-        let manual_process_count = process_catalog_entries(registries)
-            .into_iter()
+        let process_catalog = process_catalog_entries(registries);
+        let process_count = process_catalog.len();
+        let manual_process_count = process_catalog
+            .iter()
             .filter(|entry| {
                 matches!(
                     entry.resolver,
@@ -315,7 +325,13 @@ mod exploratory_output {
                 )
             })
             .count();
-        let machine_process_count = process_count.saturating_sub(manual_process_count);
+        let machine_process_count = process_count
+            .checked_sub(manual_process_count)
+            .unwrap_or_else(|| {
+                unreachable!(
+                    "manual process classification cannot exceed the complete process catalog"
+                )
+            });
         let storage_count = registries.storage().definitions().count();
         let mining_method_count = registries.mining().definitions().count();
         let prospecting_method_count = registries.labor().prospecting_definitions().count();
@@ -525,14 +541,15 @@ mod exploratory_output {
             .join(",");
         std::println!("CONTENT PROSPECTING [{prospecting}]");
         std::println!("CONTENT SURVIVAL foods=[{foods}] drinks=[{drinks}]");
-        let process_routes = process_catalog_entries(registries)
+        let process_routes = process_catalog
         .into_iter()
         .map(|entry| {
             format!(
-                "{}:{}:resolver={}:capability-providers={}/{}authored-acquisition:energy={}:compatible-stores={}/{}authored-assembly",
+                "{}:{}:resolver={}:equipment={}:capability-providers={}/{}authored-acquisition:energy={}:compatible-stores={}/{}authored-assembly",
                 entry.process.value(),
                 entry.name,
                 process_resolver_label(entry.resolver),
+                process_equipment_role_label(entry.equipment_role),
                 entry.nominal_provider_count,
                 entry.authored_acquisition_provider_count,
                 process_energy_role_label(entry.energy_role),

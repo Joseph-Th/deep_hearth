@@ -2,7 +2,6 @@
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::labor::PlayerWork;
 use crate::registry::Registries;
 
 use super::validate_storage_dismantling_target_for_completion;
@@ -60,13 +59,9 @@ pub(crate) fn decide_storage_enclosure_dismantling_tick(
     projected_inventory: &InventoryState,
     next_tick: SimulationTick,
 ) -> Result<Option<StorageEnclosureDismantlingTickPlan>, StorageEnclosureDismantlingTickError> {
-    let Some(PlayerWork::StorageEnclosureDismantling { work }) = state.player_work().active()
-    else {
+    let Some(work) = state.player_work().storage_dismantling_due_at(next_tick) else {
         return Ok(None);
     };
-    if work.completes_at() != next_tick {
-        return Ok(None);
-    }
     let target = projected_inventory
         .get_stockpile(work.target())
         .unwrap_or_else(|| panic!("runtime invariant broken: dismantling target disappeared"));

@@ -326,7 +326,7 @@ impl GeologicalKnowledgeState {
         self.observations.values()
     }
 
-    pub fn observation_ids_for_material(
+    fn observation_ids_for_material(
         &self,
         material: MaterialId,
     ) -> impl Iterator<Item = GeologicalObservationId> + '_ {
@@ -337,7 +337,7 @@ impl GeologicalKnowledgeState {
     }
 
     /// Iterates materials for which at least one observation has been acquired.
-    pub fn known_materials(&self) -> impl Iterator<Item = MaterialId> + '_ {
+    fn known_materials(&self) -> impl Iterator<Item = MaterialId> + '_ {
         self.observations_by_material.keys().copied()
     }
 

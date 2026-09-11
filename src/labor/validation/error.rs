@@ -102,9 +102,6 @@ pub enum PlayerWorkValidationError {
     StorageDismantlingTargetContentsIncompatible {
         lot: MaterialLotId,
     },
-    StorageDismantlingStorageHistoryOverflow {
-        lot: MaterialLotId,
-    },
     StorageDismantlingScheduleInvalid,
     StorageDismantlingDurationMismatch,
     StorageDismantlingResourceDoubleBooked,
@@ -343,11 +340,6 @@ impl Display for PlayerWorkValidationError {
                 "storage dismantling target lot {} cannot remain in ambient storage at completion",
                 lot.value()
             ),
-            Self::StorageDismantlingStorageHistoryOverflow { lot } => write!(
-                formatter,
-                "storage dismantling target lot {} cannot checkpoint preservation history at completion",
-                lot.value()
-            ),
             Self::StorageDismantlingScheduleInvalid => {
                 formatter.write_str("storage dismantling work has an invalid persisted schedule")
             }
@@ -474,7 +466,6 @@ impl Error for PlayerWorkValidationError {
             | Self::StorageDismantlingRecoveryMounted
             | Self::StorageDismantlingStorageProfileMismatch
             | Self::StorageDismantlingTargetContentsIncompatible { .. }
-            | Self::StorageDismantlingStorageHistoryOverflow { .. }
             | Self::StorageDismantlingScheduleInvalid
             | Self::StorageDismantlingDurationMismatch
             | Self::StorageDismantlingResourceDoubleBooked

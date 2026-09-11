@@ -126,16 +126,18 @@ fn validate_lot_storage_history(
             current: current_tick,
         });
     }
-    if lot
-        .storage_history()
-        .project(
-            current_tick,
-            owner.storage_profile().preservation_multiplier_ppm(),
-        )
-        .is_none()
-    {
-        return Err(InventoryValidationError::LotStorageAgeOverflow { lot: key });
+    if !lot.storage_history().has_reachable_accumulated_age() {
+        return Err(InventoryValidationError::LotStorageHistoryUnreachable { lot: key });
     }
+    debug_assert!(
+        lot.storage_history()
+            .project(
+                current_tick,
+                owner.storage_profile().preservation_multiplier_ppm(),
+            )
+            .is_some(),
+        "physically reachable storage history must project through the u64 world clock"
+    );
     Ok(())
 }
 

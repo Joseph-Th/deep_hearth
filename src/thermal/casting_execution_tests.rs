@@ -34,6 +34,7 @@ const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(960_002);
 const MAX_BATCH_MASS: CapabilityId = CapabilityId::new(960_003);
 const MOLD: EquipmentDefinitionId = EquipmentDefinitionId::new(960_001);
 const HEAT_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(960_001);
+const COMPATIBLE_HEAT_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(960_002);
 const PROCESS: ProcessId = ProcessId::new(960_001);
 const MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 const OUTPUT_TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
@@ -340,6 +341,17 @@ fn make_registries_with_sink_dissipation(
     } else {
         sink.with_passive_dissipation_power(sink_passive_dissipation)
     };
+    let mut energy_definitions = vec![sink];
+    if sink_carrier != EnergyCarrier::Thermal {
+        energy_definitions.push(EnergyStoreDefinition::new_with_transfer_limits(
+            COMPATIBLE_HEAT_SINK,
+            "test compatible thermal sink",
+            EnergyCarrier::Thermal,
+            sink_capacity,
+            sink_input_power,
+            Power::ZERO,
+        ));
+    }
     let process = ProcessDefinition::new_selected_batch(
         PROCESS,
         "pure material casting",
@@ -380,7 +392,7 @@ fn make_registries_with_sink_dissipation(
             ),
         ],
         equipment,
-        sink,
+        energy_definitions,
         process,
         CastingProcessDefinition::new(
             PROCESS,

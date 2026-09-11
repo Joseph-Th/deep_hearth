@@ -357,7 +357,7 @@ pub(crate) fn make_test_process_resolution_with_streams(
 /// There is no public arbitrary constructor. Physical subsystem resolvers consume
 /// `ValidatedProcessInputs` and create this value through the crate-private resolution boundary.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ProcessResolution {
     process: ProcessId,
     selection: ConsumptionSelection,

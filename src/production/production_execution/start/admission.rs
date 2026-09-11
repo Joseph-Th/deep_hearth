@@ -83,16 +83,17 @@ pub(super) fn validate_material_reservation(
         inbound_by_destination,
     )
     .map_err(map_reservation_error)?;
-    let source = resolution.source();
     let storage_history = reservation
         .oldest_storage_history_at(state.inventory(), state.tick())
-        .ok_or(StartProcessError::InputStorageAgeOverflow { stockpile: source })?;
-    if storage_history
-        .project(completes_at, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
-        .is_none()
-    {
-        return Err(StartProcessError::InputStorageAgeOverflow { stockpile: source });
-    }
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: validated production inputs have unprojectable storage history")
+        });
+    assert!(
+        storage_history
+            .project(completes_at, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
+            .is_some(),
+        "runtime invariant broken: physically reachable production input history must project through scheduled completion"
+    );
     Ok(ValidatedMaterialReservation {
         reservation,
         storage_history,

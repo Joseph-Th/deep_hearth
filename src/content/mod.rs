@@ -12,6 +12,9 @@ mod labor;
 mod materials;
 mod mining;
 mod ore_processing;
+#[cfg(test)]
+#[path = "player_work_tests.rs"]
+mod player_work_tests;
 mod processes;
 mod shaders;
 mod storage;

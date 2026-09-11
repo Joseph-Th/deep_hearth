@@ -248,13 +248,17 @@ fn validate_enclosure_contents(
         .map_err(|error| {
             StorageEnclosureConstructionError::TargetContentsIncompatible { lot, error }
         })?;
-        if record
-            .storage_history()
-            .transition_preservation(state.tick(), source_preservation, destination_preservation)
-            .is_none()
-        {
-            return Err(StorageEnclosureConstructionError::StorageHistoryOverflow { lot });
-        }
+        assert!(
+            record
+                .storage_history()
+                .transition_preservation(
+                    state.tick(),
+                    source_preservation,
+                    destination_preservation
+                )
+                .is_some(),
+            "runtime invariant broken: physically reachable storage history must checkpoint during enclosure construction"
+        );
     }
     Ok(())
 }

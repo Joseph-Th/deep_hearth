@@ -59,6 +59,45 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
 }
 
 #[test]
+fn reserved_deposit_projection_matches_consuming_commit_without_mutating_source() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_3007));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("reserved projection stockpile fixture failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(4),
+        Temperature::from_millikelvin(500_000),
+    )
+    .unwrap_or_else(|error| panic!("reserved projection seed lot failed: {error}"));
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(6);
+    let output = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(6),
+        Temperature::from_millikelvin(500_000),
+    );
+    let plan = decide_reserved_deposits(
+        &registries,
+        state.inventory(),
+        state.tick(),
+        state.tick(),
+        vec![ReservedDepositRequest::new(destination, vec![output], 0)],
+    )
+    .unwrap_or_else(|error| panic!("reserved projection planning failed: {error:?}"));
+    let source = state.inventory().clone();
+
+    let projected = plan.project(state.inventory());
+
+    assert_eq!(state.inventory(), &source);
+    let _ = apply_reserved_deposits(state.inventory_state_mut(), plan);
+    assert_eq!(state.inventory(), &projected);
+}
+
+#[test]
 fn empty_reserved_deposit_plan_is_a_true_noop() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x1A70_3002));

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::capability::evaluate_capabilities;
+use crate::capability::{CapabilityValue, evaluate_capabilities};
 use crate::energy::{EnergyCarrier, EnergyStoreDefinitionId};
 use crate::equipment::EquipmentDefinitionId;
 use crate::production::ProcessId;
@@ -23,14 +23,12 @@ pub enum ProcessExecutionFamily {
     Casting,
 }
 
-impl ProcessExecutionFamily {
-    #[must_use]
-    pub const fn is_manual(self) -> bool {
-        matches!(
-            self,
-            Self::ManualCraft | Self::ManualComminution | Self::ManualSeparation
-        )
-    }
+/// Static equipment relationship required by one authored process execution family.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessEquipmentRole {
+    None,
+    Optional,
+    Required,
 }
 
 /// Static energy relationship required by one authored process execution family.
@@ -48,6 +46,7 @@ pub enum ProcessEnergyRole {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessTopology {
     execution_family: ProcessExecutionFamily,
+    equipment_role: ProcessEquipmentRole,
     energy_role: ProcessEnergyRole,
     nominal_providers: Vec<EquipmentDefinitionId>,
     compatible_energy_stores: Vec<EnergyStoreDefinitionId>,
@@ -60,11 +59,17 @@ impl ProcessTopology {
     }
 
     #[must_use]
+    pub const fn equipment_role(&self) -> ProcessEquipmentRole {
+        self.equipment_role
+    }
+
+    #[must_use]
     pub const fn energy_role(&self) -> ProcessEnergyRole {
         self.energy_role
     }
 
-    /// Equipment definitions whose nominal capability profile satisfies the process definition.
+    /// Equipment definitions whose nominal capability profile can satisfy this authored
+    /// execution family's equipment relationship.
     #[must_use]
     pub fn nominal_providers(&self) -> &[EquipmentDefinitionId] {
         &self.nominal_providers
@@ -110,22 +115,20 @@ fn derive_process_topology(
     process: &crate::production::ProcessDefinition,
 ) -> Option<(ProcessId, ProcessTopology)> {
     let (execution_family, energy_role) = process_execution_semantics(domains, process.id())?;
-    let nominal_providers = if execution_family.is_manual() {
-        Vec::new()
-    } else {
-        domains
-            .equipment
-            .definitions()
-            .filter(|equipment| {
-                evaluate_capabilities(
-                    &domains.capabilities,
-                    equipment.capabilities(),
-                    process.capability_requirements(),
-                )
-                .is_ok()
-            })
-            .map(|equipment| equipment.id())
-            .collect()
+    let equipment_role = process_equipment_role(domains, process.id(), execution_family);
+    let nominal_providers = match execution_family {
+        ProcessExecutionFamily::ManualCraft => {
+            nominal_manual_craft_providers(domains, process.id())
+        }
+        ProcessExecutionFamily::ManualComminution | ProcessExecutionFamily::ManualSeparation => {
+            Vec::new()
+        }
+        ProcessExecutionFamily::Comminution
+        | ProcessExecutionFamily::Screening
+        | ProcessExecutionFamily::ConstituentSeparation
+        | ProcessExecutionFamily::SensibleHeating
+        | ProcessExecutionFamily::Melting
+        | ProcessExecutionFamily::Casting => nominal_machine_providers(domains, process),
     };
     let compatible_energy_stores = domains
         .energy
@@ -133,15 +136,117 @@ fn derive_process_topology(
         .filter(|store| energy_store_matches_role(store, energy_role))
         .map(|store| store.id())
         .collect();
-    Some((
-        process.id(),
-        ProcessTopology {
-            execution_family,
-            energy_role,
-            nominal_providers,
-            compatible_energy_stores,
-        },
-    ))
+    let topology = ProcessTopology {
+        execution_family,
+        equipment_role,
+        energy_role,
+        nominal_providers,
+        compatible_energy_stores,
+    };
+    assert_process_topology_is_operable(process.id(), &topology);
+    Some((process.id(), topology))
+}
+
+fn process_equipment_role(
+    domains: &RegistryDomains,
+    process: ProcessId,
+    execution_family: ProcessExecutionFamily,
+) -> ProcessEquipmentRole {
+    match execution_family {
+        ProcessExecutionFamily::ManualCraft => domains
+            .crafting
+            .get_manual(process)
+            .unwrap_or_else(|| unreachable!("manual-craft topology has a crafting definition"))
+            .equipment_profile()
+            .map_or(ProcessEquipmentRole::None, |profile| {
+                if profile.requires_equipment() {
+                    ProcessEquipmentRole::Required
+                } else {
+                    ProcessEquipmentRole::Optional
+                }
+            }),
+        ProcessExecutionFamily::ManualComminution | ProcessExecutionFamily::ManualSeparation => {
+            ProcessEquipmentRole::None
+        }
+        ProcessExecutionFamily::Comminution
+        | ProcessExecutionFamily::Screening
+        | ProcessExecutionFamily::ConstituentSeparation
+        | ProcessExecutionFamily::SensibleHeating
+        | ProcessExecutionFamily::Melting
+        | ProcessExecutionFamily::Casting => ProcessEquipmentRole::Required,
+    }
+}
+
+fn nominal_manual_craft_providers(
+    domains: &RegistryDomains,
+    process: ProcessId,
+) -> Vec<EquipmentDefinitionId> {
+    let Some(profile) = domains
+        .crafting
+        .get_manual(process)
+        .and_then(|definition| definition.equipment_profile())
+    else {
+        return Vec::new();
+    };
+    let capability = profile.mass_flow_capability();
+    domains
+        .equipment
+        .definitions()
+        .filter(|equipment| {
+            matches!(
+                equipment.capabilities().get_capability(capability),
+                Some(CapabilityValue::MassFlow(rate)) if !rate.is_zero()
+            )
+        })
+        .map(|equipment| equipment.id())
+        .collect()
+}
+
+fn nominal_machine_providers(
+    domains: &RegistryDomains,
+    process: &crate::production::ProcessDefinition,
+) -> Vec<EquipmentDefinitionId> {
+    domains
+        .equipment
+        .definitions()
+        .filter(|equipment| {
+            evaluate_capabilities(
+                &domains.capabilities,
+                equipment.capabilities(),
+                process.capability_requirements(),
+            )
+            .is_ok()
+        })
+        .map(|equipment| equipment.id())
+        .collect()
+}
+
+fn assert_process_topology_is_operable(process: ProcessId, topology: &ProcessTopology) {
+    match topology.equipment_role {
+        ProcessEquipmentRole::None => assert!(
+            topology.nominal_providers.is_empty(),
+            "equipment-free process {} cannot expose equipment providers",
+            process.value()
+        ),
+        ProcessEquipmentRole::Optional | ProcessEquipmentRole::Required => assert!(
+            !topology.nominal_providers.is_empty(),
+            "equipment-bearing process {} has no nominal equipment provider",
+            process.value()
+        ),
+    }
+
+    match topology.energy_role {
+        ProcessEnergyRole::None => assert!(
+            topology.compatible_energy_stores.is_empty(),
+            "energy-free process {} cannot expose compatible energy stores",
+            process.value()
+        ),
+        ProcessEnergyRole::Supply(_) | ProcessEnergyRole::Sink(_) => assert!(
+            !topology.compatible_energy_stores.is_empty(),
+            "energy-bearing process {} has no compatible energy store",
+            process.value()
+        ),
+    }
 }
 
 fn claim_execution_semantics(

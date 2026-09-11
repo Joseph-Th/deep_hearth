@@ -412,46 +412,6 @@ fn production_preserves_input_storage_exposure_and_ages_work_in_process() {
 }
 
 #[test]
-fn production_rejects_storage_exposure_that_would_overflow_before_completion() {
-    let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_0006));
-    let source = add_test_stockpile(&mut state, 20);
-    let destination = add_test_stockpile(&mut state, 20);
-    let lot = deposit_lot_for_test(
-        &registries,
-        &mut state,
-        source,
-        wood_log(),
-        Mass::from_milligrams(10),
-        Temperature::from_millikelvin(293_150),
-    )
-    .unwrap_or_else(|error| panic!("storage-overflow input deposit failed: {error}"));
-
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("storage-overflow fixture serialization failed: {error}"));
-    encoded["state"]["systems"]["inventory"]["lots"][lot.value().to_string()]["storage_history"]
-        ["ambient_age_parts"] = serde_json::json!(u64::MAX);
-    let serialized = serde_json::to_string(&encoded)
-        .unwrap_or_else(|error| panic!("storage-overflow fixture encoding failed: {error}"));
-    let sentinel = format!("\"ambient_age_parts\":{}", u64::MAX);
-    let near_limit = u128::MAX - 2_000_000;
-    let replacement = format!("\"ambient_age_parts\":{near_limit}");
-    assert_eq!(serialized.matches(&sentinel).count(), 1);
-    let encoded = serialized.replacen(&sentinel, &replacement, 1);
-    let loaded: LoadedSaveEnvelope = serde_json::from_str(&encoded)
-        .unwrap_or_else(|error| panic!("storage-overflow fixture decode failed: {error}"));
-    let loaded = loaded.into_state(&registries).unwrap_or_else(|error| {
-        panic!("near-limit storage age should be valid at tick zero: {error}")
-    });
-    let resolution = make_test_resolution(&registries, &loaded, source, 3);
-
-    assert_eq!(
-        validate_start_process(&registries, &loaded, &resolution, source, destination),
-        Err(StartProcessError::InputStorageAgeOverflow { stockpile: source })
-    );
-}
-
-#[test]
 fn persisted_production_storage_history_must_be_rebased_to_job_start() {
     let registries = make_test_registries();
     let mut state = AppState::new(WorldSeed::new(0x9000_0004));
@@ -498,10 +458,7 @@ fn persisted_production_storage_history_must_be_rebased_to_job_start() {
     assert_eq!(
         tampered.into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Production(
-            ProductionValidationError::StorageHistoryOverflow {
-                job,
-                at: SimulationTick::new(1),
-            }
+            ProductionValidationError::StorageHistoryUnreachable { job }
         )))
     );
 }

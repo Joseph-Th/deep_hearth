@@ -217,7 +217,7 @@ impl<'selection> CastingRequest<'selection> {
 
 /// Observable physically resolved casting operation before production start.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ResolvedCasting {
     resolution: ProcessResolution,
     equipment: EquipmentId,

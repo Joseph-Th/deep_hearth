@@ -70,23 +70,28 @@ pub(super) fn validate_material_storage_history(
             },
         );
     }
-    job.resources
+    if !job
+        .resources
         .material_storage_history
-        .project(current, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
-        .ok_or(ProductionValidationError::StorageHistoryOverflow {
-            job: id,
-            at: current,
-        })?;
-    job.resources
-        .material_storage_history
-        .project(
-            job.schedule.completes_at,
-            AMBIENT_PRESERVATION_MULTIPLIER_PPM,
-        )
-        .ok_or(ProductionValidationError::StorageHistoryOverflow {
-            job: id,
-            at: job.schedule.completes_at,
-        })?;
+        .has_reachable_accumulated_age()
+    {
+        return Err(ProductionValidationError::StorageHistoryUnreachable { job: id });
+    }
+    debug_assert!(
+        job.resources
+            .material_storage_history
+            .project(current, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
+            .is_some()
+            && job
+                .resources
+                .material_storage_history
+                .project(
+                    job.schedule.completes_at,
+                    AMBIENT_PRESERVATION_MULTIPLIER_PPM,
+                )
+                .is_some(),
+        "physically reachable production storage history must project through the u64 world clock"
+    );
     Ok(())
 }
 

@@ -41,6 +41,18 @@ fn calendar_projects_four_equal_seasons_without_state() {
 }
 
 #[test]
+fn calendar_projects_maximum_authoritative_tick_without_overflow() {
+    let calendar = CalendarDefinition::new(1, 1, 1, 4);
+    let date = calendar.date_at(SimulationTick::new(u64::MAX));
+
+    assert_eq!(date.year(), u64::MAX / 4 + 1);
+    assert_eq!(date.month(), 4);
+    assert_eq!(date.day(), 1);
+    assert_eq!(date.day_tick(), 0);
+    assert_eq!(date.season(), Season::Winter);
+}
+
+#[test]
 fn calendar_exposes_exact_physical_world_time_per_tick() {
     let calendar = CalendarDefinition::new(24_000, 86_400, 8, 12);
 

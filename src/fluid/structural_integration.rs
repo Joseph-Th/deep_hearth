@@ -204,7 +204,7 @@ pub(crate) fn validate_fluid_contents_changes(
 
 /// Successful fluid-store support change plus any resulting structural damage.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FluidSupportOutcome {
     structural: Option<StructuralMutationOutcome>,
 }

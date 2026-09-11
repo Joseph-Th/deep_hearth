@@ -25,7 +25,7 @@ pub use errors::SensibleHeatingResolutionError;
 
 /// Observable physically resolved sensible-heating operation before production start.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ResolvedSensibleHeating {
     resolution: ProcessResolution,
     equipment: EquipmentId,

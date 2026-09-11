@@ -63,9 +63,6 @@ pub enum StartProcessError {
     MassOverflow {
         stockpile: StockpileId,
     },
-    InputStorageAgeOverflow {
-        stockpile: StockpileId,
-    },
     CompletionTickOverflow {
         current: SimulationTick,
         duration_ticks: u64,
@@ -221,11 +218,6 @@ impl Display for StartProcessError {
             Self::MassOverflow { stockpile } => write!(
                 formatter,
                 "mass accounting overflow while scheduling against stockpile {}",
-                stockpile.value()
-            ),
-            Self::InputStorageAgeOverflow { stockpile } => write!(
-                formatter,
-                "process input storage exposure from stockpile {} exceeds authoritative range",
                 stockpile.value()
             ),
             Self::CompletionTickOverflow {
@@ -405,7 +397,6 @@ impl Error for StartProcessError {
             | Self::MissingOutputRoute { .. }
             | Self::CapacityExceeded { .. }
             | Self::MassOverflow { .. }
-            | Self::InputStorageAgeOverflow { .. }
             | Self::CompletionTickOverflow { .. }
             | Self::JobIdExhausted
             | Self::InventoryRevisionExhausted

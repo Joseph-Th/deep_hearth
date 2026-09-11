@@ -53,8 +53,6 @@ pub enum TickError {
     },
     /// Due output mass cannot be aggregated in its destination stockpile.
     DestinationMassOverflow { stockpile: StockpileId },
-    /// In-flight material perishability exposure cannot be represented at completion.
-    ProductionStorageAgeOverflow { job: ProductionJobId },
     /// Due output weight cannot be resolved against its structural support.
     StructuralLoad(StockpileStructuralLoadError),
     /// Inventory changed after completion planning and before commit.
@@ -143,11 +141,6 @@ impl Display for TickError {
                 "due production output mass overflows stockpile {}",
                 stockpile.value()
             ),
-            Self::ProductionStorageAgeOverflow { job } => write!(
-                formatter,
-                "production job {} material storage exposure overflows at completion",
-                job.value()
-            ),
             Self::StructuralLoad(error) => {
                 write!(
                     formatter,
@@ -200,7 +193,6 @@ impl Error for TickError {
             Self::ClockExhausted { .. }
             | Self::ProductionResumeTickOverflow { .. }
             | Self::DestinationMassOverflow { .. }
-            | Self::ProductionStorageAgeOverflow { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleProductionRevision { .. }
             | Self::StaleEquipmentRevision { .. }

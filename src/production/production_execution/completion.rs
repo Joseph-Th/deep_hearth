@@ -7,7 +7,6 @@ use crate::energy::ReleasedEnergyTrace;
 use crate::equipment::EquipmentOperationConditionOutcome;
 use crate::inventory::{
     MaterialLotId, ReservedDepositPlan, StockpileId, ValidatedStockpileStructuralLoad,
-    apply_reserved_deposits,
 };
 use crate::material::MaterialLotSpec;
 
@@ -158,7 +157,7 @@ pub(crate) struct CompletionPlan {
     revisions: CompletionRevisionPlan,
     inventory_deposits: ReservedDepositPlan,
     availability_changes: Vec<ProductionAvailabilityChange>,
-    entries: Vec<CompletionPlanEntry>,
+    jobs: Vec<ProductionJobId>,
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
     released_energy_outcomes: Vec<ReleasedEnergyTrace>,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
@@ -178,9 +177,7 @@ impl CompletionPlan {
         if self.inventory_deposits.is_empty() {
             return Cow::Borrowed(inventory);
         }
-        let mut projected = inventory.clone();
-        apply_reserved_deposits(&mut projected, self.inventory_deposits.clone());
-        Cow::Owned(projected)
+        Cow::Owned(self.inventory_deposits.project(inventory))
     }
 
     pub(crate) fn equipment_revision_steps(&self) -> u64 {
@@ -208,20 +205,6 @@ struct CompletionRevisionPlan {
 struct PlayerLaborRevisionDependencies {
     expected_player_work_revision: u64,
     expected_survival_revision: Option<u64>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CompletionPlanEntry {
-    job: ProductionJobId,
-    process: ProcessId,
-    output_streams: Vec<CompletionOutputStreamPlan>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CompletionOutputStreamPlan {
-    id: ProcessOutputStreamId,
-    destination: StockpileId,
-    outputs: Vec<MaterialLotSpec>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

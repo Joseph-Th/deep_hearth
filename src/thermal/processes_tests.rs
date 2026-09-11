@@ -56,6 +56,7 @@ const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(920_002);
 const MAX_BATCH_MASS: CapabilityId = CapabilityId::new(920_003);
 const HEATER: EquipmentDefinitionId = EquipmentDefinitionId::new(920_001);
 const BATTERY: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(920_001);
+const COMPATIBLE_BATTERY: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(920_002);
 const PROCESS: ProcessId = ProcessId::new(920_001);
 
 fn condition(parts_per_million: u32) -> Condition {
@@ -422,6 +423,17 @@ fn make_registries_with_energy_output_power_condition_curves_and_support(
         Power::ZERO,
         energy_output_power,
     );
+    let mut energy_definitions = vec![energy];
+    if carrier != EnergyCarrier::Electrical {
+        energy_definitions.push(EnergyStoreDefinition::new_with_transfer_limits(
+            COMPATIBLE_BATTERY,
+            "test compatible electrical battery",
+            EnergyCarrier::Electrical,
+            Energy::from_nanojoules(1_000_000_000),
+            Power::ZERO,
+            energy_output_power,
+        ));
+    }
     let process = ProcessDefinition::new_selected_batch(
         PROCESS,
         "test sensible heating",
@@ -462,7 +474,7 @@ fn make_registries_with_energy_output_power_condition_curves_and_support(
             ),
         ],
         equipment,
-        energy,
+        energy_definitions,
         process,
         SensibleHeatingProcessDefinition::new(
             PROCESS,

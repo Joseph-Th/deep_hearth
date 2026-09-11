@@ -12,8 +12,8 @@ pub use start::{
 };
 
 pub(crate) use completion::{
-    CompletionApplication, CompletionCommitError, CompletionPlanError, apply_completion_plan,
-    decide_due_completions,
+    CompletionApplication, CompletionCommitError, CompletionPlan, CompletionPlanError,
+    apply_completion_plan, decide_due_completions,
 };
 pub(crate) use start::{validate_start_manual_process, validate_start_manual_process_routed};
 

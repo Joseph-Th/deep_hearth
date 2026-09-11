@@ -3,6 +3,43 @@
 use super::*;
 
 #[test]
+fn checkpointed_storage_age_cannot_exceed_physical_world_time() {
+    assert!(MaterialStorageHistory::new(SimulationTick::ZERO).has_reachable_accumulated_age());
+    assert!(
+        MaterialStorageHistory::with_ambient_age_parts(
+            MAX_STORAGE_AGE_PARTS_PER_TICK,
+            SimulationTick::new(1),
+        )
+        .has_reachable_accumulated_age()
+    );
+    assert!(
+        !MaterialStorageHistory::with_ambient_age_parts(
+            MAX_STORAGE_AGE_PARTS_PER_TICK + 1,
+            SimulationTick::new(1),
+        )
+        .has_reachable_accumulated_age()
+    );
+    assert!(
+        !MaterialStorageHistory::with_ambient_age_parts(1, SimulationTick::ZERO)
+            .has_reachable_accumulated_age()
+    );
+}
+
+#[test]
+fn maximally_reachable_history_projects_through_the_full_world_clock() {
+    let transition = SimulationTick::new(u64::MAX / 2);
+    let checkpointed_age = u128::from(transition.value()) * MAX_STORAGE_AGE_PARTS_PER_TICK;
+    let history = MaterialStorageHistory::with_ambient_age_parts(checkpointed_age, transition);
+    assert!(history.has_reachable_accumulated_age());
+
+    assert_eq!(
+        history.project(SimulationTick::new(u64::MAX), 1),
+        Some(u128::from(u64::MAX) * MAX_STORAGE_AGE_PARTS_PER_TICK),
+        "a physically reachable checkpoint must remain projectable through the maximum world tick"
+    );
+}
+
+#[test]
 fn equal_current_age_with_different_projection_phase_is_not_equivalent() {
     let preservation_multiplier_ppm = 3_000_000;
     let at = SimulationTick::new(1);

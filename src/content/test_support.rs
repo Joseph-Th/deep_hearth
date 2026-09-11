@@ -148,16 +148,16 @@ fn build_production_registry(process: ProcessDefinition) -> ProductionRegistry {
     registry
 }
 
-fn test_domains_with_provider(
+fn test_domains_with_providers(
     capability_definitions: Vec<CapabilityDefinition>,
     equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
+    energy_definitions: Vec<EnergyStoreDefinition>,
     process: ProcessDefinition,
 ) -> TestRegistryDomains {
     let mut domains = TestRegistryDomains::empty();
     domains.capabilities = build_capability_registry(capability_definitions);
     domains.equipment = EquipmentRegistry::new([equipment_definition]);
-    domains.energy = EnergyRegistry::new([energy_definition]);
+    domains.energy = EnergyRegistry::new(energy_definitions);
     domains.production = build_production_registry(process);
     domains
 }
@@ -165,14 +165,14 @@ fn test_domains_with_provider(
 pub(crate) fn make_test_registries_with_screening(
     capability_definitions: Vec<CapabilityDefinition>,
     equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
+    energy_definitions: Vec<EnergyStoreDefinition>,
     process: ProcessDefinition,
     screening_definition: ScreeningProcessDefinition,
 ) -> Registries {
-    let mut domains = test_domains_with_provider(
+    let mut domains = test_domains_with_providers(
         capability_definitions,
         equipment_definition,
-        energy_definition,
+        energy_definitions,
         process,
     );
     domains.ore_processing = OreProcessingRegistry::new_with_processes(
@@ -224,14 +224,14 @@ fn make_test_registries_with_energy_stores(definitions: Vec<EnergyStoreDefinitio
 pub(crate) fn make_test_registries_with_sensible_heating(
     capability_definitions: Vec<CapabilityDefinition>,
     equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
+    energy_definitions: Vec<EnergyStoreDefinition>,
     process: ProcessDefinition,
     thermal_definition: SensibleHeatingProcessDefinition,
 ) -> Registries {
-    let mut domains = test_domains_with_provider(
+    let mut domains = test_domains_with_providers(
         capability_definitions,
         equipment_definition,
-        energy_definition,
+        energy_definitions,
         process,
     );
     domains.thermal =
@@ -242,14 +242,14 @@ pub(crate) fn make_test_registries_with_sensible_heating(
 pub(crate) fn make_test_registries_with_melting(
     capability_definitions: Vec<CapabilityDefinition>,
     equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
+    energy_definitions: Vec<EnergyStoreDefinition>,
     process: ProcessDefinition,
     thermal_definition: MeltingProcessDefinition,
 ) -> Registries {
-    let mut domains = test_domains_with_provider(
+    let mut domains = test_domains_with_providers(
         capability_definitions,
         equipment_definition,
-        energy_definition,
+        energy_definitions,
         process,
     );
     domains.thermal =
@@ -260,14 +260,14 @@ pub(crate) fn make_test_registries_with_melting(
 pub(crate) fn make_test_registries_with_casting(
     capability_definitions: Vec<CapabilityDefinition>,
     equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
+    energy_definitions: Vec<EnergyStoreDefinition>,
     process: ProcessDefinition,
     thermal_definition: CastingProcessDefinition,
 ) -> Registries {
-    let mut domains = test_domains_with_provider(
+    let mut domains = test_domains_with_providers(
         capability_definitions,
         equipment_definition,
-        energy_definition,
+        energy_definitions,
         process,
     );
     domains.thermal =
@@ -284,14 +284,14 @@ pub(crate) fn make_test_registries_with_fluids(definitions: Vec<FluidDefinition>
 pub(crate) fn make_test_registries_with_comminution(
     capability_definitions: Vec<CapabilityDefinition>,
     equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
+    energy_definitions: Vec<EnergyStoreDefinition>,
     process: ProcessDefinition,
     comminution_definition: ComminutionProcessDefinition,
 ) -> Registries {
-    let mut domains = test_domains_with_provider(
+    let mut domains = test_domains_with_providers(
         capability_definitions,
         equipment_definition,
-        energy_definition,
+        energy_definitions,
         process,
     );
     domains.ore_processing = OreProcessingRegistry::new([comminution_definition]);

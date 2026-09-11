@@ -42,9 +42,6 @@ pub enum StorageEnclosureDismantlingError {
         lot: MaterialLotId,
         error: StockpileStorageError,
     },
-    StorageHistoryOverflow {
-        lot: MaterialLotId,
-    },
     RecoveryDestinationStorage(StockpileStorageError),
     RecoveryCapacityExceeded {
         stockpile: StockpileId,
@@ -118,11 +115,6 @@ impl Display for StorageEnclosureDismantlingError {
                 "material lot {} cannot remain in ambient storage after enclosure dismantling: {error}",
                 lot.value()
             ),
-            Self::StorageHistoryOverflow { lot } => write!(
-                formatter,
-                "material lot {} cannot checkpoint its preserved storage exposure at dismantling completion",
-                lot.value()
-            ),
             Self::RecoveryDestinationStorage(error) => write!(
                 formatter,
                 "recovery destination rejects enclosure matter: {error}"
@@ -177,7 +169,6 @@ impl Error for StorageEnclosureDismantlingError {
             | Self::UnknownRecoveryDestination { .. }
             | Self::RecoveryDestinationIsTarget { .. }
             | Self::RecoveryDestinationMounted { .. }
-            | Self::StorageHistoryOverflow { .. }
             | Self::RecoveryCapacityExceeded { .. }
             | Self::RecoveryMassOverflow { .. }
             | Self::RecoveryLotIdExhausted

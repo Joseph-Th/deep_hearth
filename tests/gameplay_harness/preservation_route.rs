@@ -6,7 +6,7 @@ use deep_hearth::content::{FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD};
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::production::ProcessId;
-use deep_hearth::registry::Registries;
+use deep_hearth::registry::{ProcessEquipmentRole, Registries};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ManualConstructionStep {
@@ -74,9 +74,11 @@ fn discover_manual_construction_route(
     let producers = authored_producers
         .into_iter()
         .filter(|producer| {
-            !producer
-                .equipment_profile()
-                .is_some_and(|profile| profile.requires_equipment())
+            registries
+                .process_topology(producer.process())
+                .unwrap_or_else(|| panic!("manual preservation producer lost process topology"))
+                .equipment_role()
+                != ProcessEquipmentRole::Required
         })
         .collect::<Vec<_>>();
     if producers.is_empty() {

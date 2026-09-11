@@ -72,7 +72,7 @@ impl ReservedDepositRequest {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct ReservedDepositPlanEntry {
     destination: StockpileId,
     outputs: Vec<MaterialLotSpec>,
@@ -82,7 +82,7 @@ struct ReservedDepositPlanEntry {
 }
 
 /// Inventory-owned allocation and revision plan for already-reserved material outputs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ReservedDepositPlan {
     expected_revision: u64,
     next_revision: u64,
@@ -100,6 +100,14 @@ impl ReservedDepositPlan {
     #[must_use]
     pub(crate) const fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// Projects this already-validated ingress against a disposable inventory copy without
+    /// duplicating the authorization plan itself. Authoritative commit still consumes the plan.
+    pub(crate) fn project(&self, state: &InventoryState) -> InventoryState {
+        let mut projected = state.clone();
+        let _ = apply_reserved_deposits_ref(&mut projected, self);
+        projected
     }
 
     /// Fails closed if an internally produced deposit plan no longer has one identity and merge
@@ -331,73 +339,71 @@ pub(crate) fn apply_reserved_deposits(
     state: &mut InventoryState,
     plan: ReservedDepositPlan,
 ) -> Vec<ReservedDepositReceipt> {
+    apply_reserved_deposits_ref(state, &plan)
+}
+
+fn apply_reserved_deposits_ref(
+    state: &mut InventoryState,
+    plan: &ReservedDepositPlan,
+) -> Vec<ReservedDepositReceipt> {
     plan.assert_matches_state(state);
-    let ReservedDepositPlan {
-        expected_revision,
-        next_revision,
-        next_lot_id,
-        provenance_created_at,
-        admitted_at,
-        entries,
-    } = plan;
     assert_eq!(
         state.revision(),
-        expected_revision,
+        plan.expected_revision,
         "reserved deposit application requires its planned inventory revision"
     );
-    if entries.is_empty() {
+    if plan.entries.is_empty() {
         assert_eq!(
-            next_lot_id,
+            plan.next_lot_id,
             state.next_lot_id(),
             "empty reserved deposit plan cannot advance material lot identity"
         );
         return Vec::new();
     }
 
-    let mut receipts = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let ReservedDepositPlanEntry {
-            destination,
-            outputs,
-            lot_ids,
-            merge_policies,
-            storage_age_parts,
-        } = entry;
-        let reserved_mass = outputs.iter().fold(Mass::ZERO, |total, output| {
+    let mut receipts = Vec::with_capacity(plan.entries.len());
+    for entry in &plan.entries {
+        let reserved_mass = entry.outputs.iter().fold(Mass::ZERO, |total, output| {
             total.checked_add(output.mass()).unwrap_or_else(|| {
                 panic!(
                     "validated reserved output mass overflowed for stockpile {}",
-                    destination.value()
+                    entry.destination.value()
                 )
             })
         });
         {
-            let record = get_stockpile_mut_or_panic(state, destination);
+            let record = get_stockpile_mut_or_panic(state, entry.destination);
             record.reserved_inbound = match record.reserved_inbound.checked_sub(reserved_mass) {
                 Some(value) => value,
                 None => panic!(
                     "reserved output mass underflow in stockpile {}",
-                    destination.value()
+                    entry.destination.value()
                 ),
             };
         }
 
         let preservation_multiplier_ppm = state
-            .get_stockpile(destination)
+            .get_stockpile(entry.destination)
             .unwrap_or_else(|| panic!("reserved output destination disappeared"))
             .storage_profile()
             .preservation_multiplier_ppm();
-        let storage_history =
-            MaterialStorageHistory::with_ambient_age_parts(storage_age_parts, admitted_at);
+        let storage_history = MaterialStorageHistory::with_ambient_age_parts(
+            entry.storage_age_parts,
+            plan.admitted_at,
+        );
 
-        let mut resulting_lots = Vec::with_capacity(outputs.len());
-        for ((output, lot_id), merge_policy) in outputs.into_iter().zip(lot_ids).zip(merge_policies)
+        let mut resulting_lots = Vec::with_capacity(entry.outputs.len());
+        for ((output, lot_id), merge_policy) in entry
+            .outputs
+            .iter()
+            .zip(&entry.lot_ids)
+            .zip(&entry.merge_policies)
         {
             let resulting = apply_insert_or_merge_new_lot(
                 state,
                 MaterialLotRecord {
-                    id: lot_id,
-                    stockpile: destination,
+                    id: *lot_id,
+                    stockpile: entry.destination,
                     mass: output.mass(),
                     profile: MaterialLotProfile {
                         commodity: output.commodity(),
@@ -406,23 +412,23 @@ pub(crate) fn apply_reserved_deposits(
                         particle_size: output.particle_size_distribution().cloned(),
                     },
                     provenance: MaterialLotProvenance {
-                        earliest_created_at: provenance_created_at,
-                        latest_created_at: provenance_created_at,
+                        earliest_created_at: plan.provenance_created_at,
+                        latest_created_at: plan.provenance_created_at,
                     },
                     storage_history,
                 },
-                merge_policy,
-                admitted_at,
+                *merge_policy,
+                plan.admitted_at,
                 preservation_multiplier_ppm,
             );
             resulting_lots.push(resulting);
         }
         receipts.push(ReservedDepositReceipt {
-            destination,
+            destination: entry.destination,
             lot_ids: resulting_lots,
         });
     }
-    state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
+    state.apply_lot_cursor_and_revision(plan.next_lot_id, plan.next_revision);
     receipts
 }
 

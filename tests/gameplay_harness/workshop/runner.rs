@@ -932,9 +932,16 @@ pub(crate) fn run_scenario(
             break;
         }
         if episode.report.limits.maintenance_stop {
-            println!(
-                "  decision: stop crushing; the crusher is critical and replacement stock is unavailable"
-            );
+            let blocker = if episode.report.maintenance.labor_unavailable
+                && !episode.report.maintenance.supply_exhausted
+            {
+                "required service labor exceeds current body reserves"
+            } else if episode.report.maintenance.supply_exhausted {
+                "replacement stock is unavailable"
+            } else {
+                "required maintenance cannot proceed"
+            };
+            println!("  decision: stop crushing; the crusher is critical and {blocker}");
             break;
         }
         if apply_due_delivery(registries, &mut episode) {

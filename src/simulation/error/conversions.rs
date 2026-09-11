@@ -30,9 +30,6 @@ impl From<CompletionPlanError> for TickError {
             CompletionPlanError::DestinationMassOverflow { stockpile } => {
                 Self::DestinationMassOverflow { stockpile }
             }
-            CompletionPlanError::StorageAgeOverflow { job } => {
-                Self::ProductionStorageAgeOverflow { job }
-            }
             CompletionPlanError::StructuralLoad(error) => Self::StructuralLoad(error),
         }
     }

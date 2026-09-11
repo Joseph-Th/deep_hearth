@@ -162,7 +162,7 @@ pub(crate) fn validate_stockpile_stored_mass_changes(
 
 /// Successful support assignment change plus any resulting structural damage.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StockpileSupportOutcome {
     structural: Option<StructuralMutationOutcome>,
 }

@@ -52,9 +52,6 @@ pub enum StorageEnclosureConstructionError {
         lot: MaterialLotId,
         error: StockpileStorageError,
     },
-    StorageHistoryOverflow {
-        lot: MaterialLotId,
-    },
     InsufficientMaterial {
         stockpile: StockpileId,
         commodity: CommodityKey,
@@ -136,11 +133,6 @@ impl Display for StorageEnclosureConstructionError {
                 "material lot {} is incompatible with the completed storage enclosure: {error}",
                 lot.value()
             ),
-            Self::StorageHistoryOverflow { lot } => write!(
-                formatter,
-                "material lot {} cannot checkpoint its existing storage exposure at construction time",
-                lot.value()
-            ),
             Self::InsufficientMaterial {
                 stockpile,
                 commodity,
@@ -184,7 +176,6 @@ impl Error for StorageEnclosureConstructionError {
             | Self::TargetCapacityTooLarge { .. }
             | Self::TargetStorageProfileMismatch { .. }
             | Self::TargetHasReservedInbound { .. }
-            | Self::StorageHistoryOverflow { .. }
             | Self::InsufficientMaterial { .. }
             | Self::SourceMassOverflow { .. }
             | Self::InventoryRevisionExhausted => None,

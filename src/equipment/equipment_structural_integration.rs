@@ -21,7 +21,7 @@ pub use errors::{EquipmentSupportCommitError, EquipmentSupportError};
 
 /// Successful support change including any structural damage caused by the equipment load change.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct EquipmentSupportOutcome {
     structural: StructuralAnalysis,
 }
@@ -49,17 +49,30 @@ pub struct ValidatedEquipmentSupportChange {
 #[derive(Debug, PartialEq, Eq)]
 struct ValidatedEquipmentStructuralChange {
     structural: ValidatedStructuralLoadChange,
-    analysis: StructuralAnalysis,
+    fallback_analysis: Option<StructuralAnalysis>,
 }
 
 impl ValidatedEquipmentStructuralChange {
     fn analysis(&self) -> &StructuralAnalysis {
-        &self.analysis
+        self.structural
+            .analysis()
+            .or(self.fallback_analysis.as_ref())
+            .unwrap_or_else(|| {
+                unreachable!("validated equipment structural change must retain one analysis")
+            })
     }
 
     fn commit(self, state: &mut AppState) -> Result<StructuralAnalysis, StructuralCommitError> {
-        let _ = self.structural.commit(state)?;
-        Ok(self.analysis)
+        let Self {
+            structural,
+            fallback_analysis,
+        } = self;
+        match structural.commit(state)? {
+            Some(outcome) => Ok(outcome.into_analysis()),
+            None => Ok(fallback_analysis.unwrap_or_else(|| {
+                unreachable!("rounded equipment structural no-op must retain fallback analysis")
+            })),
+        }
     }
 }
 
@@ -75,20 +88,22 @@ fn validate_equipment_structural_change(
         loads,
     )
     .map_err(EquipmentSupportError::Structure)?;
-    let analysis = match structural.analysis() {
-        Some(analysis) => analysis.clone(),
-        None => analyze_structure(
-            registries.structural(),
-            registries.materials(),
-            state.structures(),
-        )
-        .map_err(|error| {
-            EquipmentSupportError::Structure(StructuralMutationError::Analysis(error))
-        })?,
+    let fallback_analysis = match structural.analysis() {
+        Some(_) => None,
+        None => Some(
+            analyze_structure(
+                registries.structural(),
+                registries.materials(),
+                state.structures(),
+            )
+            .map_err(|error| {
+                EquipmentSupportError::Structure(StructuralMutationError::Analysis(error))
+            })?,
+        ),
     };
     Ok(ValidatedEquipmentStructuralChange {
         structural,
-        analysis,
+        fallback_analysis,
     })
 }
 

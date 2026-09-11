@@ -66,9 +66,8 @@ pub enum ProductionValidationError {
         transition: SimulationTick,
         started_at: SimulationTick,
     },
-    StorageHistoryOverflow {
+    StorageHistoryUnreachable {
         job: ProductionJobId,
-        at: SimulationTick,
     },
     RequiredSupportWithoutEquipment {
         job: ProductionJobId,
@@ -322,11 +321,10 @@ impl Display for ProductionValidationError {
                 transition.value(),
                 started_at.value()
             ),
-            Self::StorageHistoryOverflow { job, at } => write!(
+            Self::StorageHistoryUnreachable { job } => write!(
                 formatter,
-                "production job {} material storage exposure cannot be represented at tick {}",
-                job.value(),
-                at.value()
+                "production job {} claims more checkpointed material storage exposure than could physically accumulate by its start tick",
+                job.value()
             ),
             Self::RequiredSupportWithoutEquipment { job } => write!(
                 formatter,

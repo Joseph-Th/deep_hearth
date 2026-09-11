@@ -23,7 +23,6 @@ pub enum MiningClaimError {
     LotIdExhausted,
     InventoryRevisionExhausted,
     MiningRevisionExhausted,
-    StorageAgeOverflow,
     DestinationMassOverflow { stockpile: StockpileId },
     StructuralLoad(StockpileStructuralLoadError),
 }
@@ -81,9 +80,6 @@ impl Display for MiningClaimError {
             Self::MiningRevisionExhausted => {
                 formatter.write_str("mining revision space is exhausted")
             }
-            Self::StorageAgeOverflow => {
-                formatter.write_str("unclaimed mining output storage age overflowed")
-            }
             Self::DestinationMassOverflow { stockpile } => write!(
                 formatter,
                 "claimed mining output overflows destination stockpile {} mass",
@@ -108,7 +104,6 @@ impl Error for MiningClaimError {
             | Self::LotIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::MiningRevisionExhausted
-            | Self::StorageAgeOverflow
             | Self::DestinationMassOverflow { .. } => None,
         }
     }
@@ -244,7 +239,7 @@ pub fn validate_claim_mining_output(
         });
     let storage_age_parts = u128::from(unclaimed_ticks)
         .checked_mul(STORAGE_AGE_PARTS_PER_TICK)
-        .ok_or(MiningClaimError::StorageAgeOverflow)?;
+        .unwrap_or_else(|| unreachable!("u64 unclaimed ticks times storage age parts fits u128"));
     let inventory = decide_reserved_deposits(
         registries,
         state.inventory(),

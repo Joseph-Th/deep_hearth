@@ -1,15 +1,21 @@
 //! Contract tests for canonical simulation-tick orchestration.
 
 use super::*;
-use crate::content::{build_registries, make_test_registries_with_energy_store};
-use crate::core::quantity::{Energy, Power};
-use crate::core::state::apply_clock_advance;
+use crate::content::{
+    FORM_LOG, MATERIAL_WOOD, build_registries, make_test_registries_with_energy_store,
+};
+use crate::core::quantity::{Energy, Mass, Power, Temperature};
+use crate::core::state::{StateValidationError, apply_clock_advance};
 use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture,
 };
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::inventory::{
+    InventoryValidationError, add_solid_stockpile_for_test, deposit_lot_for_test,
+};
+use crate::material::CommodityKey;
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
 use crate::survival::{Vitality, initialize_player_survival, player_record};
 
@@ -27,6 +33,41 @@ fn passive_dissipation_registries() -> Registries {
         )
         .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
     )
+}
+
+#[test]
+fn unreachable_inventory_storage_history_is_rejected_at_trusted_load() {
+    let registries = build_registries();
+    let mut source = AppState::new(WorldSeed::new(0x5100_000C));
+    let stockpile = add_solid_stockpile_for_test(&mut source, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("storage-age stockpile fixture failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut source,
+        stockpile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(1),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("storage-age lot fixture failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &source))
+        .unwrap_or_else(|error| panic!("storage-age fixture serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["lots"][lot.value().to_string()]["storage_history"]
+        ["ambient_age_parts"] = serde_json::json!(u64::MAX);
+    let serialized = serde_json::to_string(&encoded)
+        .unwrap_or_else(|error| panic!("storage-age fixture encoding failed: {error}"));
+    let sentinel = format!("\"ambient_age_parts\":{}", u64::MAX);
+    assert_eq!(serialized.matches(&sentinel).count(), 1);
+    let replacement = "\"ambient_age_parts\":1";
+    let encoded = serialized.replacen(&sentinel, replacement, 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_str(&encoded)
+        .unwrap_or_else(|error| panic!("storage-age fixture decode failed: {error}"));
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Inventory(
+            InventoryValidationError::LotStorageHistoryUnreachable { lot }
+        )))
+    );
 }
 
 #[test]

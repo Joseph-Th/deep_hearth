@@ -1,10 +1,8 @@
 //! Completion-stage equipment condition recovery for admitted maintenance work.
 
+use super::EquipmentMaintenanceOutcome;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::labor::PlayerWork;
-
-use super::EquipmentMaintenanceOutcome;
 
 #[must_use]
 pub(crate) struct EquipmentMaintenanceTickPlan {
@@ -23,12 +21,9 @@ pub(crate) fn decide_equipment_maintenance_tick(
     state: &AppState,
     next_tick: SimulationTick,
 ) -> Option<EquipmentMaintenanceTickPlan> {
-    let Some(PlayerWork::EquipmentMaintenance { work }) = state.player_work().active() else {
-        return None;
-    };
-    if work.completes_at() != next_tick {
-        return None;
-    }
+    let work = state
+        .player_work()
+        .equipment_maintenance_due_at(next_tick)?;
     let record = state
         .equipment()
         .get_equipment(work.equipment())

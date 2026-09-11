@@ -639,6 +639,10 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
 }
 
 fn registries() -> Registries {
+    registries_with_service_duration(TickSpan::new(1))
+}
+
+fn registries_with_service_duration(full_service_duration: TickSpan) -> Registries {
     let profile = match CapabilityProfile::new([(
         TEST_CAPABILITY,
         CapabilityValue::Mass(Mass::from_milligrams(50_000)),
@@ -668,7 +672,7 @@ fn registries() -> Registries {
             Mass::from_milligrams(7),
             CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
             condition(700_000),
-            TickSpan::new(1),
+            full_service_duration,
             active_test_exertion(),
         )),
     )
@@ -729,14 +733,14 @@ fn occupied_registries() -> Registries {
             TickSpan::new(1),
             active_test_exertion(),
         )),
-        EnergyStoreDefinition::new_with_transfer_limits(
+        vec![EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_DEFINITION,
             "maintenance occupancy battery",
             EnergyCarrier::Electrical,
             Energy::from_nanojoules(1_000_000_000),
             Power::ZERO,
             Power::from_microwatts(500_000),
-        ),
+        )],
         ProcessDefinition::new_selected_batch(
             HEATING_PROCESS,
             "maintenance occupancy sensible heating",
@@ -943,6 +947,93 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
     );
     let completion = finish_service(&registries, &mut state, outcome.completes_at());
     assert_eq!(completion.condition_after(), condition(700_000));
+}
+
+#[test]
+fn in_progress_maintenance_round_trip_preserves_material_payment_and_continuation() {
+    let registries = registries_with_service_duration(TickSpan::new(6));
+    let mut state = AppState::new(WorldSeed::new(0x8120_0010));
+    initialize_service_player(&registries, &mut state);
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, Condition::FAILED)
+        .unwrap_or_else(|error| panic!("maintenance continuation equipment failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("maintenance continuation source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("maintenance continuation spent failed: {error}"));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("maintenance continuation matter audit failed: {error}"))
+        .total();
+
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("maintenance continuation resolution failed: {error}"));
+    assert_eq!(resolution.duration(), TickSpan::new(6));
+    assert_eq!(resolution.material_mass(), Mass::from_milligrams(7));
+    let start = validate_equipment_maintenance(&registries, &state, resolution)
+        .unwrap_or_else(|error| panic!("maintenance continuation validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("maintenance continuation commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|record| record.stored_mass()),
+        Some(Mass::ZERO),
+        "replacement stock must leave reusable inventory at maintenance admission"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spent)
+            .map(|record| record.stored_mass()),
+        Some(Mass::from_milligrams(7)),
+        "admitted maintenance must persist paid replacement matter in its spent form"
+    );
+
+    for _ in 0..2 {
+        let outcome = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("maintenance continuation pre-save tick failed: {error}")
+        });
+        assert_eq!(outcome.equipment_maintenance(), None);
+    }
+    assert!(state.tick() < start.completes_at());
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("maintenance continuation serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("maintenance continuation decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("maintenance continuation trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    while state.tick() < start.completes_at() {
+        let expected = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("maintenance continuation source tick failed: {error}"));
+        let actual = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("maintenance continuation loaded tick failed: {error}"));
+        assert_eq!(actual, expected);
+    }
+    assert_eq!(loaded, state);
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(equipment)
+            .map(|record| record.condition()),
+        Some(condition(700_000))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!(
+                "maintenance continuation final matter audit failed: {error}"
+            ))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

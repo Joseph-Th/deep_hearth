@@ -109,9 +109,6 @@ fn validate_completion_replay(
         StorageEnclosureDismantlingError::TargetContentsIncompatible { lot, .. } => {
             PlayerWorkValidationError::StorageDismantlingTargetContentsIncompatible { lot }
         }
-        StorageEnclosureDismantlingError::StorageHistoryOverflow { lot } => {
-            PlayerWorkValidationError::StorageDismantlingStorageHistoryOverflow { lot }
-        }
         StorageEnclosureDismantlingError::UnknownTarget { .. }
         | StorageEnclosureDismantlingError::NotEnclosed { .. }
         | StorageEnclosureDismantlingError::UnknownDefinition { .. }

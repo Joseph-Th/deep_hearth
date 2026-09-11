@@ -15,8 +15,8 @@ use crate::geology::{
     FieldProspectingOutcome, apply_field_prospecting_tick, decide_field_prospecting_tick,
 };
 use crate::inventory::{
-    StorageEnclosureDismantlingOutcome, apply_storage_enclosure_dismantling_tick,
-    decide_storage_enclosure_dismantling_tick,
+    StorageEnclosureDismantlingOutcome, StorageEnclosureDismantlingTickPlan,
+    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_tick,
 };
 use crate::labor::{
     ManualPowerOutcome, apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
@@ -24,8 +24,8 @@ use crate::labor::{
 };
 use crate::mining::{MiningJobId, apply_mining_tick, decide_mining_tick};
 use crate::production::{
-    CompletionApplication, ProcessCompletion, ProductionAvailabilityChange, apply_completion_plan,
-    decide_due_completions,
+    CompletionApplication, CompletionPlan, ProcessCompletion, ProductionAvailabilityChange,
+    apply_completion_plan, decide_due_completions,
 };
 use crate::registry::Registries;
 use crate::survival::{
@@ -126,6 +126,29 @@ fn require_revision_capacity(
     Ok(())
 }
 
+fn decide_storage_dismantling_after_completions(
+    registries: &Registries,
+    state: &AppState,
+    completion_plan: &CompletionPlan,
+    next_tick: SimulationTick,
+) -> Result<Option<StorageEnclosureDismantlingTickPlan>, TickError> {
+    if state
+        .player_work()
+        .storage_dismantling_due_at(next_tick)
+        .is_none()
+    {
+        return Ok(None);
+    }
+    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
+    decide_storage_enclosure_dismantling_tick(
+        registries,
+        state,
+        projected_inventory.as_ref(),
+        next_tick,
+    )
+    .map_err(Into::into)
+}
+
 /// Advances the full authoritative simulation by exactly one base tick.
 ///
 /// Every authoritative subsystem phase is sequenced here. Decisions read the pre-tick state or an
@@ -149,11 +172,10 @@ pub fn advance_tick(
     // deferral fail-closed (a newly freed store, tool, or calorie is denied this tick rather than
     // admitted against stale facts), so no additional projection is needed for those phases.
     let completion_plan = decide_due_completions(registries, state, next_tick)?;
-    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
-    let storage_enclosure_dismantling_plan = decide_storage_enclosure_dismantling_tick(
+    let storage_enclosure_dismantling_plan = decide_storage_dismantling_after_completions(
         registries,
         state,
-        projected_inventory.as_ref(),
+        &completion_plan,
         next_tick,
     )?;
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);

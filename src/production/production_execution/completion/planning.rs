@@ -18,12 +18,12 @@ use super::super::super::resolution::sum_lot_spec_mass;
 use super::super::super::state::{ProductionJobId, ProductionJobRecord};
 use super::availability::decide_availability_changes;
 use super::{
-    CompletionOutputStreamPlan, CompletionPlan, CompletionPlanEntry, CompletionPlanError,
-    CompletionRevisionPlan, PlayerLaborRevisionDependencies, ProductionAvailabilityChange,
+    CompletionPlan, CompletionPlanError, CompletionRevisionPlan, PlayerLaborRevisionDependencies,
+    ProductionAvailabilityChange,
 };
 
 struct DueCompletionPlanning {
-    entries: Vec<CompletionPlanEntry>,
+    jobs: Vec<ProductionJobId>,
     deposit_requests: Vec<ReservedDepositRequest>,
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
     released_energy_outcomes: Vec<ReleasedEnergyTrace>,
@@ -33,7 +33,7 @@ struct DueCompletionPlanning {
 impl DueCompletionPlanning {
     fn new(job_count: usize) -> Self {
         Self {
-            entries: Vec::with_capacity(job_count),
+            jobs: Vec::with_capacity(job_count),
             deposit_requests: Vec::new(),
             equipment_outcomes: Vec::new(),
             released_energy_outcomes: Vec::new(),
@@ -152,7 +152,7 @@ pub(crate) fn decide_due_completions(
         revisions,
         inventory_deposits,
         availability_changes,
-        entries: planning.entries,
+        jobs: planning.jobs,
         equipment_outcomes: planning.equipment_outcomes,
         released_energy_outcomes: planning.released_energy_outcomes,
         structural_load,
@@ -191,13 +191,14 @@ fn plan_due_job(
     let storage_age_parts = job
         .material_storage_history()
         .project(tick, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
-        .ok_or(CompletionPlanError::StorageAgeOverflow { job: job.id() })?;
-    let output_streams = plan_due_job_outputs(job, storage_age_parts, planning)?;
-    planning.entries.push(CompletionPlanEntry {
-        job: job.id(),
-        process: job.process(),
-        output_streams,
-    });
+        .unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: physically reachable production storage history failed to project for job {}",
+                job.id().value()
+            )
+        });
+    plan_due_job_outputs(job, storage_age_parts, planning)?;
+    planning.jobs.push(job.id());
     plan_due_job_equipment(state, job, &mut planning.equipment_outcomes);
     if let Some(released) = job.released_energy() {
         planning.released_energy_outcomes.push(released);
@@ -209,19 +210,13 @@ fn plan_due_job_outputs(
     job: &ProductionJobRecord,
     storage_age_parts: u128,
     planning: &mut DueCompletionPlanning,
-) -> Result<Vec<CompletionOutputStreamPlan>, CompletionPlanError> {
-    let mut output_streams = Vec::with_capacity(job.output_streams().len());
+) -> Result<(), CompletionPlanError> {
     for stream in job.output_streams() {
         let reserved_mass = sum_lot_spec_mass(stream.outputs()).unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: production job {} output stream mass overflows",
                 job.id().value()
             )
-        });
-        output_streams.push(CompletionOutputStreamPlan {
-            id: stream.id(),
-            destination: stream.destination(),
-            outputs: stream.outputs().to_vec(),
         });
         planning.deposit_requests.push(ReservedDepositRequest::new(
             stream.destination(),
@@ -230,7 +225,7 @@ fn plan_due_job_outputs(
         ));
         planning.add_deposited_mass(stream.destination(), reserved_mass)?;
     }
-    Ok(output_streams)
+    Ok(())
 }
 
 fn plan_due_job_equipment(

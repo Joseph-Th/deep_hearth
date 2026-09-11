@@ -124,7 +124,7 @@ impl ProcessDefinition {
 
     /// Returns static material requirements only for fixed-feed processes.
     #[must_use]
-    pub fn fixed_inputs(&self) -> Option<&[MaterialInputSpec]> {
+    fn fixed_inputs(&self) -> Option<&[MaterialInputSpec]> {
         match &self.input_policy {
             ProcessInputPolicy::Fixed { inputs, .. } => Some(inputs),
             ProcessInputPolicy::SelectedBatch => None,

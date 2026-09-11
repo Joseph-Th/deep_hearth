@@ -153,7 +153,7 @@ impl StructuralAssessment {
 }
 
 /// Complete deterministic structural projection plus irreversible damage that must be committed.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StructuralAnalysis {
     assessments: Vec<StructuralAssessment>,
     damage_events: Vec<StructuralDamageEvent>,

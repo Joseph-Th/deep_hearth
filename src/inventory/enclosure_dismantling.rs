@@ -27,8 +27,8 @@ mod tick;
 pub use errors::{StorageEnclosureDismantlingCommitError, StorageEnclosureDismantlingError};
 pub use tick::StorageEnclosureDismantlingOutcome;
 pub(crate) use tick::{
-    StorageEnclosureDismantlingTickError, apply_storage_enclosure_dismantling_tick,
-    decide_storage_enclosure_dismantling_tick,
+    StorageEnclosureDismantlingTickError, StorageEnclosureDismantlingTickPlan,
+    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_tick,
 };
 
 fn map_recovery_ingress_error(error: MaterialIngressError) -> StorageEnclosureDismantlingError {
@@ -232,13 +232,13 @@ pub(crate) fn validate_storage_dismantling_target_for_completion(
         .map_err(
             |error| StorageEnclosureDismantlingError::TargetContentsIncompatible { lot, error },
         )?;
-        if record
-            .storage_history()
-            .transition_preservation(at, source_preservation, destination_preservation)
-            .is_none()
-        {
-            return Err(StorageEnclosureDismantlingError::StorageHistoryOverflow { lot });
-        }
+        assert!(
+            record
+                .storage_history()
+                .transition_preservation(at, source_preservation, destination_preservation)
+                .is_some(),
+            "runtime invariant broken: physically reachable storage history must checkpoint during enclosure dismantling"
+        );
     }
     Ok(())
 }

@@ -6,6 +6,8 @@ use crate::core::arithmetic::greatest_common_divisor_u128;
 use crate::core::time::{SimulationTick, TickSpan};
 
 pub(crate) const STORAGE_AGE_PARTS_PER_TICK: u128 = 1_000_000;
+const MAX_STORAGE_AGE_PARTS_PER_TICK: u128 =
+    STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK;
 
 /// Ambient-equivalent storage age retained across stockpile moves.
 ///
@@ -35,14 +37,28 @@ impl MaterialStorageHistory {
         self.last_transition_at
     }
 
+    /// Returns whether the checkpointed exposure could have accumulated within elapsed world time.
+    ///
+    /// The smallest legal preservation multiplier is one part per million, so no physical storage
+    /// history can accumulate more than `MAX_STORAGE_AGE_PARTS_PER_TICK` ambient-age parts per
+    /// world tick. Enforcing this at trusted load proves every later projection through the `u64`
+    /// simulation clock fits in `u128`.
+    pub(crate) fn has_reachable_accumulated_age(self) -> bool {
+        let maximum = u128::from(self.last_transition_at.value())
+            .checked_mul(MAX_STORAGE_AGE_PARTS_PER_TICK)
+            .unwrap_or_else(|| {
+                unreachable!("u64 simulation ticks times maximum storage exposure fits u128")
+            });
+        self.ambient_age_parts <= maximum
+    }
+
     pub(crate) fn project(
         self,
         at: SimulationTick,
         preservation_multiplier_ppm: u32,
     ) -> Option<u128> {
         let elapsed = at.value().checked_sub(self.last_transition_at.value())?;
-        let numerator =
-            u128::from(elapsed) * STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK;
+        let numerator = u128::from(elapsed) * MAX_STORAGE_AGE_PARTS_PER_TICK;
         let increment = numerator.div_ceil(u128::from(preservation_multiplier_ppm));
         self.ambient_age_parts.checked_add(increment)
     }
@@ -95,7 +111,7 @@ impl MaterialStorageHistory {
         }
 
         let preservation = u128::from(preservation_multiplier_ppm);
-        let age_numerator_per_tick = STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK;
+        let age_numerator_per_tick = MAX_STORAGE_AGE_PARTS_PER_TICK;
         let period =
             preservation / greatest_common_divisor_u128(preservation, age_numerator_per_tick);
         if period == 1 {
@@ -125,7 +141,7 @@ impl MaterialStorageHistory {
         debug_assert!(target_age_parts > self.ambient_age_parts);
         let required_increment = target_age_parts.checked_sub(self.ambient_age_parts)?;
         let preservation = u128::from(preservation_multiplier_ppm);
-        let age_numerator_per_tick = STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK;
+        let age_numerator_per_tick = MAX_STORAGE_AGE_PARTS_PER_TICK;
         let threshold_numerator = required_increment
             .checked_sub(1)?
             .checked_mul(preservation)?;

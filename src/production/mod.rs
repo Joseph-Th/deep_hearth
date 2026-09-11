@@ -24,8 +24,9 @@ pub use state::{
 };
 
 pub(crate) use production_execution::{
-    CompletionApplication, CompletionCommitError, CompletionPlanError, apply_completion_plan,
-    decide_due_completions, validate_start_manual_process, validate_start_manual_process_routed,
+    CompletionApplication, CompletionCommitError, CompletionPlan, CompletionPlanError,
+    apply_completion_plan, decide_due_completions, validate_start_manual_process,
+    validate_start_manual_process_routed,
 };
 pub(crate) use resolution::sum_lot_spec_mass;
 pub(crate) use state::{validate_loaded_production, validate_loaded_production_schedule_history};

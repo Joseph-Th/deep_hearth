@@ -32,7 +32,9 @@ mod process_topology_tests;
 #[cfg(test)]
 use process_topology::build_partial_process_topology_for_owner_tests;
 use process_topology::build_process_topology;
-pub use process_topology::{ProcessEnergyRole, ProcessExecutionFamily, ProcessTopology};
+pub use process_topology::{
+    ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily, ProcessTopology,
+};
 
 /// Schema version for stable authored registry identities and cross-reference semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

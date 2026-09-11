@@ -1,5 +1,9 @@
 //! Durable records for work that exclusively occupies the local player's attention.
 
+mod player;
+
+pub use player::PlayerWork;
+
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Mass, Volume};
@@ -9,8 +13,6 @@ use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::inventory::{StockpileId, StorageDefinitionId};
 use crate::maintenance::Condition;
 use crate::material::MaterialId;
-use crate::mining::MiningJobId;
-use crate::production::ProductionJobId;
 use crate::spatial::VoxelBounds;
 
 use super::{ManualPowerMethodId, ProspectingMethodId};
@@ -370,34 +372,4 @@ impl ProspectingWork {
     pub const fn completes_at(self) -> SimulationTick {
         self.completes_at
     }
-}
-
-/// Durable activity currently monopolizing the local player's labor.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub enum PlayerWork {
-    ManualProduction {
-        job: ProductionJobId,
-    },
-    Mining {
-        job: MiningJobId,
-    },
-    ManualPower {
-        work: ManualPowerWork,
-    },
-    Prospecting {
-        work: ProspectingWork,
-    },
-    Eating {
-        work: EatingWork,
-    },
-    Drinking {
-        work: DrinkingWork,
-    },
-    EquipmentMaintenance {
-        work: EquipmentMaintenanceWork,
-    },
-    StorageEnclosureDismantling {
-        work: StorageEnclosureDismantlingWork,
-    },
 }

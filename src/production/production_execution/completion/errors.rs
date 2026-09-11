@@ -21,9 +21,6 @@ pub(crate) enum CompletionPlanError {
     DestinationMassOverflow {
         stockpile: StockpileId,
     },
-    StorageAgeOverflow {
-        job: ProductionJobId,
-    },
     StructuralLoad(StockpileStructuralLoadError),
 }
 

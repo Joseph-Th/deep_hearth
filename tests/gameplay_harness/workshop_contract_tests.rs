@@ -35,6 +35,28 @@ fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hid
 }
 
 #[test]
+fn prework_labor_stop_does_not_misclassify_available_maintenance_stock() {
+    let registries = build_registries();
+    let mut variation = scenario::ScenarioVariation::from_seeds(&registries, 4, 1, None);
+    variation.crusher.initial_crusher_condition = condition(41_036);
+    variation.crusher.maintenance_replacement_units = 2;
+    variation.delivery.delivery_at_tick = 64;
+
+    let report = workshop::runner::run_scenario(&registries, variation, None);
+
+    assert!(report.limits.maintenance_stop);
+    assert!(report.maintenance.labor_unavailable);
+    assert!(!report.maintenance.supply_exhausted);
+    assert_eq!(report.maintenance.services, 0);
+    assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
+    assert!(
+        !report.resources.maintenance_stock_remaining.is_zero(),
+        "labor-limited maintenance must not consume or relabel available replacement stock"
+    );
+    assert_eq!(report.progress.operations_completed, 0);
+}
+
+#[test]
 fn initial_service_rebases_hidden_event_timing_after_elapsed_work() {
     let registries = build_registries();
     let variation = scenario::ScenarioVariation::from_seeds(

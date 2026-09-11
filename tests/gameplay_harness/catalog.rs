@@ -2,13 +2,14 @@
 
 use deep_hearth::production::ProcessId;
 pub(super) use deep_hearth::registry::ProcessExecutionFamily as ProcessResolverKind;
-use deep_hearth::registry::{ProcessEnergyRole, Registries};
+use deep_hearth::registry::{ProcessEnergyRole, ProcessEquipmentRole, Registries};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ProcessCatalogEntry {
     pub(super) process: ProcessId,
     pub(super) name: String,
     pub(super) resolver: ProcessResolverKind,
+    pub(super) equipment_role: ProcessEquipmentRole,
     pub(super) nominal_provider_count: usize,
     pub(super) authored_acquisition_provider_count: usize,
     pub(super) compatible_energy_store_count: usize,
@@ -55,6 +56,7 @@ pub(super) fn process_catalog_entries(registries: &Registries) -> Vec<ProcessCat
                 process: process.id(),
                 name: process.name().to_owned(),
                 resolver: topology.execution_family(),
+                equipment_role: topology.equipment_role(),
                 nominal_provider_count,
                 authored_acquisition_provider_count,
                 compatible_energy_store_count,

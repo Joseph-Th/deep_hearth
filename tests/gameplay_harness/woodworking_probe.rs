@@ -807,18 +807,22 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
     };
     let reason = if !saw_fundable {
         "copper-supply-limited"
-    } else if preference == WoodworkingInvestmentPreference::ConserveScarceCopper && !reserve_safe {
-        "copper-reserve-protected"
-    } else if preference == WoodworkingInvestmentPreference::ConserveTimber
-        && !saw_net_timber_payback
-    {
-        "pipeline-too-short-for-net-timber-payback"
-    } else if !saw_attention_payback {
-        "pipeline-too-short-for-attention-payback"
-    } else if preference == WoodworkingInvestmentPreference::ConserveTimber {
-        "pipeline-net-timber-payback"
     } else {
-        "surplus-copper-attention-payback"
+        match preference {
+            WoodworkingInvestmentPreference::ConserveScarceCopper if !reserve_safe => {
+                "copper-reserve-protected"
+            }
+            WoodworkingInvestmentPreference::ConserveScarceCopper if !saw_attention_payback => {
+                "pipeline-too-short-for-attention-payback"
+            }
+            WoodworkingInvestmentPreference::ConserveScarceCopper => {
+                "surplus-copper-attention-payback"
+            }
+            WoodworkingInvestmentPreference::ConserveTimber if !saw_net_timber_payback => {
+                "pipeline-too-short-for-net-timber-payback"
+            }
+            WoodworkingInvestmentPreference::ConserveTimber => "pipeline-net-timber-payback",
+        }
     };
     let (choice, state, selected_route, selected_setup_ticks, selected_total_timber) =
         if invest_in_saw {

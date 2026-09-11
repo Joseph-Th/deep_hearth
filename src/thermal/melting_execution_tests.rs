@@ -141,7 +141,7 @@ fn make_registries(maximum_temperature: Temperature, carrier: EnergyCarrier) -> 
             ),
         ],
         equipment,
-        energy,
+        vec![energy],
         process,
         MeltingProcessDefinition::new(
             PROCESS,

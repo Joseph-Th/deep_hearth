@@ -32,6 +32,7 @@ const FLOW: CapabilityId = CapabilityId::new(976_001);
 const MAX_BATCH: CapabilityId = CapabilityId::new(976_002);
 const EQUIPMENT: EquipmentDefinitionId = EquipmentDefinitionId::new(976_001);
 const STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(976_001);
+const COMPATIBLE_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(976_002);
 const PROCESS: ProcessId = ProcessId::new(976_001);
 
 #[derive(Clone, Copy)]
@@ -135,20 +136,32 @@ fn make_registries(config: PlanningConfig) -> Registries {
             config.wear_ppm_per_tick,
         ),
     );
+    let capacity = Energy::from_nanojoules(config.stored_nj.max(10_000_000));
+    let mut energy_definitions = vec![EnergyStoreDefinition::new_with_transfer_limits(
+        STORE,
+        "planning work store",
+        config.store_carrier,
+        capacity,
+        Power::ZERO,
+        config.output_power,
+    )];
+    if config.store_carrier != EnergyCarrier::Mechanical {
+        energy_definitions.push(EnergyStoreDefinition::new_with_transfer_limits(
+            COMPATIBLE_STORE,
+            "planning compatible mechanical work store",
+            EnergyCarrier::Mechanical,
+            capacity,
+            Power::ZERO,
+            config.output_power,
+        ));
+    }
     make_test_registries_with_comminution(
         vec![
             CapabilityDefinition::new(FLOW, "planning mass flow", CapabilityValueKind::MassFlow),
             CapabilityDefinition::new(MAX_BATCH, "planning max batch", CapabilityValueKind::Mass),
         ],
         equipment,
-        EnergyStoreDefinition::new_with_transfer_limits(
-            STORE,
-            "planning work store",
-            config.store_carrier,
-            Energy::from_nanojoules(config.stored_nj.max(10_000_000)),
-            Power::ZERO,
-            config.output_power,
-        ),
+        energy_definitions,
         process,
         ore,
     )
