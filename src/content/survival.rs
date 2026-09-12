@@ -1,5 +1,6 @@
 //! Built-in physiology and primitive edible/drinkable content.
 
+use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volume};
 use crate::core::time::TickSpan;
 use crate::material::CommodityKey;
@@ -91,7 +92,7 @@ pub(crate) fn build_survival_registry() -> SurvivalRegistry {
         foods(),
         [DrinkDefinition::new(
             FLUID_WATER,
-            1_000_000,
+            NORMALIZED_PARTS_PER_MILLION,
             direct_consumption_temperature(),
         )],
     )

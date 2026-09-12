@@ -165,3 +165,7 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
         ),
     ])
 }
+
+#[cfg(test)]
+#[path = "storage_tests.rs"]
+mod tests;

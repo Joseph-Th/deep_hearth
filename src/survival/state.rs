@@ -16,14 +16,14 @@ pub(crate) use direct_consumption::{
     DirectConsumptionState, PendingDirectConsumption, PendingDrinking, PendingEating,
 };
 
-pub const NUTRITION_PARTS_PER_MILLION: u32 = 1_000_000;
+pub const NUTRITION_PARTS_PER_MILLION: u32 = crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
 /// Player vitality in normalized parts per million.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Vitality(u32);
 
 impl Vitality {
-    pub const MAXIMUM: Self = Self(1_000_000);
+    pub const MAXIMUM: Self = Self(crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION);
     pub const ZERO: Self = Self(0);
 
     #[must_use]

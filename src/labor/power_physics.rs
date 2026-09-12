@@ -1,12 +1,12 @@
 //! Pure direct-labor power calculations shared by admission and persistence replay.
 
-use crate::core::arithmetic::{checked_mul_div_ceil, scale_u128_fraction_floor};
+use crate::core::arithmetic::{
+    NORMALIZED_PARTS_PER_MILLION, checked_mul_div_ceil, scale_u128_fraction_floor,
+};
 use crate::core::quantity::{Energy, Power, Volume};
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::{PowerDurationError, calculate_power_duration_ceiling};
 use crate::survival::SurvivalExertion;
-
-const PARTS_PER_MILLION: u32 = 1_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ManualPowerMetabolicDurationError {
@@ -49,7 +49,7 @@ pub(crate) fn metabolic_output_per_tick(energy_cost: Energy, efficiency_ppm: u32
     Energy::from_nanojoules(scale_u128_fraction_floor(
         energy_cost.nanojoules(),
         efficiency_ppm,
-        PARTS_PER_MILLION,
+        NORMALIZED_PARTS_PER_MILLION,
     ))
 }
 
@@ -85,7 +85,7 @@ pub(crate) fn resolve_manual_power_exertion(
 
     let total_metabolic = checked_mul_div_ceil(
         required_output.nanojoules(),
-        u128::from(PARTS_PER_MILLION),
+        u128::from(NORMALIZED_PARTS_PER_MILLION),
         u128::from(efficiency_ppm),
     )
     .ok_or(ManualPowerExertionError::EnergyOverflow)?;

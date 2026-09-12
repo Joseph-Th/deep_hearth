@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::core::time::TickSpan;
 
-pub const CONDITION_PARTS_PER_MILLION: u32 = 1_000_000;
+pub const CONDITION_PARTS_PER_MILLION: u32 = crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
 /// Enforces the normalized per-tick wear range shared by all authored equipment work.
 pub(crate) const fn assert_valid_condition_wear_ppm_per_tick(wear_ppm_per_tick: u32) {

@@ -78,14 +78,15 @@ fn minimum_feed_mass_for_target_recovery(
         return Some(Mass::ZERO);
     }
     if constituent_ppm == 0
-        || constituent_ppm > 1_000_000
+        || constituent_ppm > COMPOSITION_PARTS_PER_MILLION
         || recovery_ppm == 0
-        || recovery_ppm > 1_000_000
+        || recovery_ppm > COMPOSITION_PARTS_PER_MILLION
     {
         return None;
     }
     let denominator = u128::from(constituent_ppm) * u128::from(recovery_ppm);
-    let numerator = u128::from(target.milligrams()) * 1_000_000_000_000_u128;
+    let composition_scale = u128::from(COMPOSITION_PARTS_PER_MILLION);
+    let numerator = u128::from(target.milligrams()) * composition_scale * composition_scale;
     let feed_milligrams = numerator.div_ceil(denominator);
     u64::try_from(feed_milligrams)
         .ok()

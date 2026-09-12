@@ -35,7 +35,8 @@ pub use properties::{
 pub use registry::MaterialRegistry;
 
 /// Normalization scale used by runtime material compositions.
-pub const COMPOSITION_PARTS_PER_MILLION: u32 = 1_000_000;
+pub const COMPOSITION_PARTS_PER_MILLION: u32 =
+    crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

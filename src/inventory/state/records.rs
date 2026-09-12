@@ -131,7 +131,8 @@ impl StockpileStorageProfile {
     }
 }
 
-pub(crate) const AMBIENT_PRESERVATION_MULTIPLIER_PPM: u32 = 1_000_000;
+pub(crate) const AMBIENT_PRESERVATION_MULTIPLIER_PPM: u32 =
+    crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
 /// Invalid stockpile containment envelope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

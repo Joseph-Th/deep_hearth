@@ -1,5 +1,8 @@
 //! Owns overflow-safe integer scaling and ratio operations used by physical integrations.
 
+/// Canonical whole-scale denominator for normalized parts-per-million quantities.
+pub(crate) const NORMALIZED_PARTS_PER_MILLION: u32 = 1_000_000;
+
 /// Greatest common divisor for canonical `u32` ratio normalization.
 pub(crate) const fn greatest_common_divisor_u32(mut left: u32, mut right: u32) -> u32 {
     while right != 0 {

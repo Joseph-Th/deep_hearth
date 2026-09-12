@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::time::TickSpan;
 use crate::fluid::{FluidDefinitionId, FluidRegistry};
@@ -23,7 +24,7 @@ impl NutritionDefinition {
     pub fn new(decay_ppm_per_tick: u32, vitality_recovery_ppm_per_tick: u32) -> Self {
         assert!(decay_ppm_per_tick > 0, "nutrition decay must be nonzero");
         assert!(
-            decay_ppm_per_tick <= 1_000_000,
+            decay_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
             "nutrition decay cannot exceed the normalized reserve range"
         );
         assert!(
@@ -31,7 +32,7 @@ impl NutritionDefinition {
             "nutrition-supported vitality recovery must be nonzero"
         );
         assert!(
-            vitality_recovery_ppm_per_tick <= 1_000_000,
+            vitality_recovery_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
             "nutrition-supported vitality recovery cannot exceed normalized vitality"
         );
         Self {
@@ -230,7 +231,7 @@ impl PhysiologyDefinition {
             "starvation vitality loss must be nonzero"
         );
         assert!(
-            starvation_vitality_loss_ppm_per_tick <= 1_000_000,
+            starvation_vitality_loss_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
             "starvation vitality loss cannot exceed normalized vitality"
         );
         assert!(
@@ -238,7 +239,7 @@ impl PhysiologyDefinition {
             "dehydration vitality loss must be nonzero"
         );
         assert!(
-            dehydration_vitality_loss_ppm_per_tick <= 1_000_000,
+            dehydration_vitality_loss_ppm_per_tick <= NORMALIZED_PARTS_PER_MILLION,
             "dehydration vitality loss cannot exceed normalized vitality"
         );
         Self {

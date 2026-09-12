@@ -2,10 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::arithmetic::greatest_common_divisor_u128;
+use crate::core::arithmetic::{NORMALIZED_PARTS_PER_MILLION, greatest_common_divisor_u128};
 use crate::core::time::{SimulationTick, TickSpan};
 
-pub(crate) const STORAGE_AGE_PARTS_PER_TICK: u128 = 1_000_000;
+pub(crate) const STORAGE_AGE_PARTS_PER_TICK: u128 = NORMALIZED_PARTS_PER_MILLION as u128;
 const MAX_STORAGE_AGE_PARTS_PER_TICK: u128 =
     STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK;
 

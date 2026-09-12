@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 use crate::core::quantity::Pressure;
 use crate::core::time::TickSpan;
 use crate::equipment::EquipmentDefinitionId;
@@ -121,7 +122,7 @@ impl ProspectingDefinition {
             "prospecting maximum region must contain at least one voxel"
         );
         assert!(
-            abundance_uncertainty_ppm <= 1_000_000,
+            abundance_uncertainty_ppm <= NORMALIZED_PARTS_PER_MILLION,
             "prospecting abundance uncertainty must not exceed one million ppm"
         );
         exertion.assert_active_player_work();

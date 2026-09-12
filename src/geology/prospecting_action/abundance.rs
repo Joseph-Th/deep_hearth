@@ -1,5 +1,6 @@
 //! Regional abundance projection and exact voxel-coverage geometry for field prospecting.
 
+use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 use crate::core::state::AppState;
 use crate::material::MaterialId;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -41,7 +42,9 @@ pub(super) fn resolve_region_abundance_bounds(
     let maximum = maximum.unwrap_or(0);
     (
         minimum.saturating_sub(uncertainty_ppm),
-        maximum.saturating_add(uncertainty_ppm).min(1_000_000),
+        maximum
+            .saturating_add(uncertainty_ppm)
+            .min(NORMALIZED_PARTS_PER_MILLION),
     )
 }
 

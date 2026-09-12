@@ -10,7 +10,8 @@ use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
-pub(in crate::geology) const PARTS_PER_MILLION: u32 = 1_000_000;
+pub(in crate::geology) const PARTS_PER_MILLION: u32 =
+    crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
 /// Persistent identity of one acquired geological observation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

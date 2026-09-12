@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::capability::CapabilityId;
+use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::survival::SurvivalExertion;
@@ -46,7 +47,7 @@ impl ManualPowerDefinition {
         maximum_exertion: SurvivalExertion,
     ) -> Self {
         assert!(
-            (1..=1_000_000).contains(&metabolic_efficiency_ppm),
+            (1..=NORMALIZED_PARTS_PER_MILLION).contains(&metabolic_efficiency_ppm),
             "manual power metabolic efficiency must be inside 1..=1,000,000 ppm"
         );
         assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);

@@ -7,13 +7,10 @@ use crate::capability::{
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
-    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    EQUIPMENT_STONE_SEPARATOR, FORM_CHIP, FORM_HANDLE, FORM_LOG, FORM_REINFORCEMENT, FORM_SCRAP,
-    FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_REKNAP_STONE_SCRAP_TOOL,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_equipment,
-    make_test_registries_with_sensible_heating,
+    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_PICK, FORM_CHIP, FORM_HANDLE, FORM_LOG,
+    FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_REKNAP_STONE_SCRAP_TOOL, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    make_test_registries_with_equipment, make_test_registries_with_sensible_heating,
 };
 use crate::core::quantity::{
     AggregateMass, Area, Energy, Force, Length, Power, Temperature, Volume,
@@ -95,39 +92,29 @@ fn finish_service(
 }
 
 #[test]
-fn every_builtin_primitive_component_service_executes_from_its_real_assembly_traces() {
+fn every_builtin_material_backed_component_service_executes_from_its_real_assembly_traces() {
     let registries = build_registries();
-    for (case, definition_id) in [
-        EQUIPMENT_STONE_PICK,
-        EQUIPMENT_STONE_HAND_CRANK,
-        EQUIPMENT_COPPER_REINFORCED_PICK,
-        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-        EQUIPMENT_STONE_CRUSHER,
-        EQUIPMENT_STONE_SEPARATOR,
-        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-    ]
-    .into_iter()
-    .enumerate()
+    for (case, definition) in registries
+        .equipment()
+        .definitions()
+        .filter(|definition| {
+            definition.assembly_profile().is_some()
+                && definition
+                    .maintenance_profile()
+                    .is_some_and(|maintenance| maintenance.is_component_replacement())
+        })
+        .enumerate()
     {
-        let definition = registries
-            .equipment()
-            .get_equipment(definition_id)
-            .unwrap_or_else(|| {
-                panic!(
-                    "primitive service definition {} disappeared",
-                    definition_id.value()
-                )
-            });
+        let definition_id = definition.id();
         let assembly_profile = definition.assembly_profile().unwrap_or_else(|| {
             panic!(
-                "primitive service definition {} lost assembly profile",
+                "component service definition {} lost assembly profile",
                 definition_id.value()
             )
         });
         let maintenance = definition.maintenance_profile().unwrap_or_else(|| {
             panic!(
-                "primitive service definition {} lost maintenance profile",
+                "component service definition {} lost maintenance profile",
                 definition_id.value()
             )
         });
@@ -138,11 +125,11 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
                 .checked_add(
                     u64::try_from(case).unwrap_or_else(|_| unreachable!("bounded case fits u64")),
                 )
-                .unwrap_or_else(|| unreachable!("bounded primitive service seed cannot overflow")),
+                .unwrap_or_else(|| unreachable!("bounded component service seed cannot overflow")),
         ));
         initialize_service_player(&registries, &mut state);
         let assembly = add_solid_stockpile_for_test(&mut state, definition.mass())
-            .unwrap_or_else(|error| panic!("primitive service assembly stockpile failed: {error}"));
+            .unwrap_or_else(|error| panic!("component service assembly stockpile failed: {error}"));
         for input in assembly_profile.inputs() {
             deposit_lot_for_test(
                 &registries,
@@ -152,21 +139,30 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
                 input.mass(),
                 Temperature::from_millikelvin(300_000),
             )
-            .unwrap_or_else(|error| panic!("primitive service assembly input failed: {error}"));
+            .unwrap_or_else(|error| panic!("component service assembly input failed: {error}"));
         }
         let equipment = validate_assemble_equipment(&registries, &state, definition_id, assembly)
-            .unwrap_or_else(|error| panic!("primitive service assembly failed: {error}"))
+            .unwrap_or_else(|error| panic!("component service assembly failed: {error}"))
             .commit(&mut state)
-            .unwrap_or_else(|error| panic!("primitive service assembly commit failed: {error}"));
+            .unwrap_or_else(|error| panic!("component service assembly commit failed: {error}"));
         let wear = decide_equipment_wear(&state, equipment, 100_000)
-            .unwrap_or_else(|error| panic!("primitive service wear plan failed: {error}"));
+            .unwrap_or_else(|error| panic!("component service wear plan failed: {error}"));
         apply_equipment_condition_plan(&mut state, wear)
-            .unwrap_or_else(|error| panic!("primitive service wear commit failed: {error}"));
+            .unwrap_or_else(|error| panic!("component service wear commit failed: {error}"));
+        let unrelated_embodied_before = state
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("component service equipment disappeared before service"))
+            .embodied_material()
+            .iter()
+            .filter(|trace| trace.profile().commodity() != maintenance.replacement())
+            .cloned()
+            .collect::<Vec<_>>();
 
         let replacement_mass = maintenance.full_service_replacement_mass();
         let replacement = add_solid_stockpile_for_test(&mut state, replacement_mass)
             .unwrap_or_else(|error| {
-                panic!("primitive service replacement stockpile failed: {error}")
+                panic!("component service replacement stockpile failed: {error}")
             });
         deposit_lot_for_test(
             &registries,
@@ -176,11 +172,11 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
             replacement_mass,
             Temperature::from_millikelvin(310_000),
         )
-        .unwrap_or_else(|error| panic!("primitive service replacement input failed: {error}"));
+        .unwrap_or_else(|error| panic!("component service replacement input failed: {error}"));
         let spent = add_solid_stockpile_for_test(&mut state, replacement_mass)
-            .unwrap_or_else(|error| panic!("primitive service spent stockpile failed: {error}"));
+            .unwrap_or_else(|error| panic!("component service spent stockpile failed: {error}"));
         let matter_before = calculate_matter_accounting(&state)
-            .unwrap_or_else(|error| panic!("primitive service matter audit failed: {error}"))
+            .unwrap_or_else(|error| panic!("component service matter audit failed: {error}"))
             .total();
         let energy_before = explicit_energy(&registries, &state);
 
@@ -189,13 +185,13 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
             &state,
             EquipmentMaintenanceRequest::new(equipment, replacement, spent),
         )
-        .unwrap_or_else(|error| panic!("primitive service resolution failed: {error}"));
+        .unwrap_or_else(|error| panic!("component service resolution failed: {error}"));
         assert!(resolution.replaces_embodied_component());
         assert_eq!(resolution.material_mass(), replacement_mass);
         let outcome = validate_equipment_maintenance(&registries, &state, resolution)
-            .unwrap_or_else(|error| panic!("primitive service validation failed: {error}"))
+            .unwrap_or_else(|error| panic!("component service validation failed: {error}"))
             .commit(&mut state)
-            .unwrap_or_else(|error| panic!("primitive service commit failed: {error}"));
+            .unwrap_or_else(|error| panic!("component service commit failed: {error}"));
         assert_eq!(outcome.equipment(), equipment);
         assert_eq!(outcome.target_condition(), maintenance.restored_condition());
         assert_eq!(
@@ -210,29 +206,40 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
         let record = state
             .equipment()
             .get_equipment(equipment)
-            .unwrap_or_else(|| panic!("primitive serviced equipment disappeared"));
+            .unwrap_or_else(|| panic!("component serviced equipment disappeared"));
         assert_eq!(record.definition(), definition_id);
         assert_eq!(record.embodied_mass(), definition.mass());
         assert_eq!(record.condition(), outcome.condition_before());
-        if definition.upgrade_profile().is_some() {
-            assert!(record.embodied_material().iter().any(|trace| {
-                trace.profile().commodity()
-                    == CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
-                    && trace.mass() == Mass::from_milligrams(20_000)
-            }));
-        }
+        let unrelated_embodied_after = record
+            .embodied_material()
+            .iter()
+            .filter(|trace| trace.profile().commodity() != maintenance.replacement())
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unrelated_embodied_after, unrelated_embodied_before,
+            "component service must preserve every unrelated embodied trace exactly"
+        );
+        let fresh_component_mass = record
+            .embodied_material()
+            .iter()
+            .filter(|trace| trace.profile().commodity() == maintenance.replacement())
+            .map(|trace| trace.mass())
+            .try_fold(Mass::ZERO, |total, mass| total.checked_add(mass))
+            .unwrap_or_else(|| panic!("component service replacement trace mass overflowed"));
+        assert_eq!(fresh_component_mass, replacement_mass);
         assert_eq!(
             state
                 .inventory()
                 .get_stockpile(spent)
                 .map(|stockpile| stockpile.get_mass(maintenance.spent())),
             Some(replacement_mass),
-            "primitive service must emit exactly the replaced component mass as spent material"
+            "component service must emit exactly the replaced component mass as spent material"
         );
         assert_eq!(
             calculate_matter_accounting(&state)
                 .unwrap_or_else(|error| panic!(
-                    "primitive service final matter audit failed: {error}"
+                    "component service final matter audit failed: {error}"
                 ))
                 .total(),
             matter_before
@@ -253,7 +260,7 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
             Some(maintenance.restored_condition())
         );
         validate_loaded_state(&registries, &state)
-            .unwrap_or_else(|error| panic!("primitive service state audit failed: {error}"));
+            .unwrap_or_else(|error| panic!("component service state audit failed: {error}"));
     }
 }
 

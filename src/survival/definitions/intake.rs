@@ -1,5 +1,6 @@
 //! Immutable food, drink, and direct-consumption temperature definitions.
 
+use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volume};
 use crate::core::time::TickSpan;
 use crate::fluid::FluidDefinitionId;
@@ -162,7 +163,7 @@ impl DrinkDefinition {
         consumption_temperature: ConsumptionTemperatureRange,
     ) -> Self {
         assert!(
-            (1..=1_000_000).contains(&hydration_multiplier_ppm),
+            (1..=NORMALIZED_PARTS_PER_MILLION).contains(&hydration_multiplier_ppm),
             "drink hydration multiplier must be inside 1..=1,000,000 ppm"
         );
         Self {
@@ -191,7 +192,7 @@ impl DrinkDefinition {
         if target.is_zero() {
             return Some(Volume::ZERO);
         }
-        let numerator = u128::from(target.microliters()) * 1_000_000_u128;
+        let numerator = u128::from(target.microliters()) * u128::from(NORMALIZED_PARTS_PER_MILLION);
         let microliters = numerator.div_ceil(u128::from(self.hydration_multiplier_ppm));
         u64::try_from(microliters)
             .ok()
@@ -206,7 +207,7 @@ impl DrinkDefinition {
     pub(crate) fn hydration_offer(self, volume: Volume) -> Volume {
         let numerator =
             u128::from(volume.microliters()) * u128::from(self.hydration_multiplier_ppm);
-        let microliters = numerator / 1_000_000;
+        let microliters = numerator / u128::from(NORMALIZED_PARTS_PER_MILLION);
         Volume::from_microliters(
             u64::try_from(microliters)
                 .unwrap_or_else(|_| unreachable!("drink hydration cannot exceed source volume")),

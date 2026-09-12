@@ -1,6 +1,7 @@
 //! Contract tests for direct-labor power physics.
 
 use super::*;
+use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
 #[test]
 fn zero_required_output_has_zero_metabolic_duration() {
@@ -18,7 +19,7 @@ fn full_width_manual_power_scaling_does_not_reject_representable_effort() {
     );
 
     assert_eq!(
-        metabolic_output_per_tick(maximum.energy_cost_per_tick(), PARTS_PER_MILLION),
+        metabolic_output_per_tick(maximum.energy_cost_per_tick(), NORMALIZED_PARTS_PER_MILLION),
         Energy::from_nanojoules(u128::MAX)
     );
     assert_eq!(
@@ -26,7 +27,7 @@ fn full_width_manual_power_scaling_does_not_reject_representable_effort() {
             Energy::from_nanojoules(u128::MAX),
             TickSpan::new(1),
             maximum,
-            PARTS_PER_MILLION,
+            NORMALIZED_PARTS_PER_MILLION,
         ),
         Ok(maximum)
     );

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 /// Normalization scale for structural utilization and retained-capacity fractions.
-pub const STRUCTURAL_PARTS_PER_MILLION: u32 = 1_000_000;
+pub const STRUCTURAL_PARTS_PER_MILLION: u32 = crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
 /// Stable authored identifier for one structural response profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
