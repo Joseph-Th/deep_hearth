@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
+use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValue, CapabilityValueKind};
+use crate::equipment::EquipmentRegistry;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::survival::SurvivalExertion;
 
@@ -122,7 +123,11 @@ impl MiningRegistry {
     pub fn definitions(&self) -> impl Iterator<Item = &MiningMethodDefinition> {
         self.methods.values()
     }
-    pub(crate) fn validate_references(&self, capabilities: &CapabilityRegistry) {
+    pub(crate) fn validate_references(
+        &self,
+        capabilities: &CapabilityRegistry,
+        equipment: &EquipmentRegistry,
+    ) {
         for method in self.methods.values() {
             for (capability, kind) in [
                 (method.mass_flow_capability(), CapabilityValueKind::MassFlow),
@@ -150,6 +155,29 @@ impl MiningRegistry {
                     capability.value()
                 );
             }
+            assert!(
+                equipment.definitions().any(|provider| {
+                    !provider.requires_structural_support()
+                        && matches!(
+                            provider.capabilities().get_capability(method.mass_flow_capability()),
+                            Some(CapabilityValue::MassFlow(value)) if !value.is_zero()
+                        )
+                        && matches!(
+                            provider
+                                .capabilities()
+                                .get_capability(method.max_batch_mass_capability()),
+                            Some(CapabilityValue::Mass(value)) if !value.is_zero()
+                        )
+                        && matches!(
+                            provider
+                                .capabilities()
+                                .get_capability(method.max_hardness_capability()),
+                            Some(CapabilityValue::Pressure(value)) if !value.is_zero()
+                        )
+                }),
+                "mining method {} has no portable equipment provider with usable flow, batch, and hardness capabilities",
+                method.id().value()
+            );
         }
     }
 }

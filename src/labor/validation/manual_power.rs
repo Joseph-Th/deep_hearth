@@ -4,18 +4,20 @@ use crate::core::quantity::{Energy, Power, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
-    EnergyStoreOccupancy, calculate_power_duration_ceiling, energy_store_occupancy,
-    validate_energy_sink_capacity_at_release,
+    EnergyStoreOccupancy, energy_store_occupancy, validate_energy_sink_capacity_at_release,
 };
-use crate::equipment::{EquipmentOccupancy, equipment_occupancy, resolve_equipment_capability};
+use crate::equipment::{
+    EquipmentDefinition, EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy,
+    resolve_equipment_capability,
+};
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::registry::Registries;
-use crate::survival::SurvivalExertion;
 
-use super::{ActivePlayerJobs, PlayerWorkValidationError, validate_remaining_resources};
-use crate::labor::power_physics::{
-    calculate_metabolic_duration, metabolic_output_per_tick, resolve_manual_power_exertion,
+use super::{
+    ActivePlayerJobs, PlayerWorkValidationError, project_active_work_schedule,
+    validate_remaining_resources,
 };
+use crate::labor::power_physics::{ManualPowerScheduleError, resolve_manual_power_schedule};
 use crate::labor::{ManualPowerDefinition, ManualPowerWork};
 
 pub(super) fn validate_manual_power_work(
@@ -35,9 +37,9 @@ pub(super) fn validate_manual_power_work(
         .copied()
         .ok_or(PlayerWorkValidationError::ManualPowerMethodMissing)?;
     let transfer_power = validate_manual_power_bindings(registries, state, work, method)?;
-    let (required_duration, exertion) =
+    let (required_duration, remaining_duration, exertion) =
         validate_manual_power_schedule(registries, state, work, method, transfer_power)?;
-    validate_manual_power_destination_capacity(registries, state, work)?;
+    validate_manual_power_destination_capacity(registries, state, work, remaining_duration)?;
     let required_condition = calculate_usable_condition_after_active_ticks(
         method.condition_wear_ppm_per_active_tick(),
         work.equipment_trace().condition(),
@@ -47,13 +49,12 @@ pub(super) fn validate_manual_power_work(
     if work.condition_after() != required_condition {
         return Err(PlayerWorkValidationError::ManualPowerConditionMismatch);
     }
-    let remaining_ticks = work.completes_at().value() - state.tick().value();
     validate_remaining_resources(
         registries,
         available_energy,
         available_hydration,
         exertion,
-        TickSpan::new(remaining_ticks),
+        remaining_duration,
     )
 }
 
@@ -63,10 +64,15 @@ fn validate_manual_power_bindings(
     work: ManualPowerWork,
     method: ManualPowerDefinition,
 ) -> Result<Power, PlayerWorkValidationError> {
-    validate_manual_power_equipment_record(state, work)?;
+    let equipment_definition =
+        validate_manual_power_equipment_record(registries, state, work.equipment_trace())?;
     validate_manual_power_resource_availability(state, work)?;
     let destination_power = validate_manual_power_destination(registries, state, work, method)?;
-    let equipment_power = resolve_manual_power_equipment_output(registries, state, work, method)?;
+    let equipment_power = resolve_manual_power_equipment_output(
+        equipment_definition,
+        work.equipment_trace(),
+        method,
+    )?;
     let transfer_power = std::cmp::min(equipment_power, destination_power);
     if transfer_power.is_zero() {
         return Err(PlayerWorkValidationError::ManualPowerZeroPower);
@@ -74,24 +80,32 @@ fn validate_manual_power_bindings(
     Ok(transfer_power)
 }
 
-fn validate_manual_power_equipment_record(
+fn validate_manual_power_equipment_record<'registry>(
+    registries: &'registry Registries,
     state: &AppState,
-    work: ManualPowerWork,
-) -> Result<(), PlayerWorkValidationError> {
+    trace: EquipmentOperationTrace,
+) -> Result<&'registry EquipmentDefinition, PlayerWorkValidationError> {
     let equipment = state
         .equipment()
-        .get_equipment(work.equipment())
+        .get_equipment(trace.equipment())
         .ok_or(PlayerWorkValidationError::ManualPowerEquipmentMissing)?;
-    if equipment.definition() != work.equipment_trace().definition() {
+    if equipment.definition() != trace.definition() {
         return Err(PlayerWorkValidationError::ManualPowerEquipmentDefinitionMismatch);
     }
-    if equipment.condition() != work.equipment_trace().condition() {
+    let definition = registries
+        .equipment()
+        .get_equipment(equipment.definition())
+        .ok_or(PlayerWorkValidationError::ManualPowerEquipmentDefinitionMismatch)?;
+    if definition.requires_structural_support() {
+        return Err(PlayerWorkValidationError::ManualPowerEquipmentRequiresStructuralSupport);
+    }
+    if equipment.condition() != trace.condition() {
         return Err(PlayerWorkValidationError::ManualPowerEquipmentConditionMismatch);
     }
     if equipment.supported_by().is_some() {
         return Err(PlayerWorkValidationError::ManualPowerEquipmentMounted);
     }
-    Ok(())
+    Ok(definition)
 }
 
 fn validate_manual_power_resource_availability(
@@ -139,22 +153,13 @@ fn validate_manual_power_destination(
 }
 
 fn resolve_manual_power_equipment_output(
-    registries: &Registries,
-    state: &AppState,
-    work: ManualPowerWork,
+    equipment_definition: &EquipmentDefinition,
+    trace: EquipmentOperationTrace,
     method: ManualPowerDefinition,
 ) -> Result<Power, PlayerWorkValidationError> {
-    let equipment = state
-        .equipment()
-        .get_equipment(work.equipment())
-        .unwrap_or_else(|| unreachable!("manual power equipment was validated before capability"));
-    let equipment_definition = registries
-        .equipment()
-        .get_equipment(equipment.definition())
-        .ok_or(PlayerWorkValidationError::ManualPowerEquipmentDefinitionMismatch)?;
     let capability = resolve_equipment_capability(
         equipment_definition,
-        equipment.condition(),
+        trace.condition(),
         method.power_capability(),
     )
     .ok_or(PlayerWorkValidationError::ManualPowerEquipmentCapabilityMissing)?;
@@ -168,12 +173,12 @@ fn validate_manual_power_destination_capacity(
     registries: &Registries,
     state: &AppState,
     work: ManualPowerWork,
+    remaining: TickSpan,
 ) -> Result<(), PlayerWorkValidationError> {
     let destination = state
         .energy()
         .get_store(work.destination())
         .unwrap_or_else(|| unreachable!("manual power destination was validated before capacity"));
-    let remaining = TickSpan::new(work.completes_at().value() - state.tick().value());
     validate_energy_sink_capacity_at_release(
         registries,
         destination.definition(),
@@ -191,36 +196,28 @@ fn validate_manual_power_schedule(
     work: ManualPowerWork,
     method: ManualPowerDefinition,
     transfer_power: Power,
-) -> Result<(TickSpan, SurvivalExertion), PlayerWorkValidationError> {
-    if work.started_at() > state.tick()
-        || work.completes_at() <= state.tick()
-        || work.completes_at() <= work.started_at()
-    {
-        return Err(PlayerWorkValidationError::ManualPowerScheduleInvalid);
-    }
-    let stored_duration = TickSpan::new(work.completes_at().value() - work.started_at().value());
-    let power_duration = calculate_power_duration_ceiling(
+) -> Result<(TickSpan, TickSpan, crate::survival::SurvivalExertion), PlayerWorkValidationError> {
+    let schedule =
+        project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
+            .ok_or(PlayerWorkValidationError::ManualPowerScheduleInvalid)?;
+    let stored_duration = schedule.duration;
+    let required = resolve_manual_power_schedule(
+        work.output().energy(),
         transfer_power,
-        work.output().energy(),
         registries.core().physical_tick_duration(),
-    )
-    .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
-    let metabolic_output = metabolic_output_per_tick(
-        method.maximum_exertion().energy_cost_per_tick(),
-        method.metabolic_efficiency_ppm(),
-    );
-    let metabolic_duration = calculate_metabolic_duration(work.output().energy(), metabolic_output)
-        .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
-    let required_duration = std::cmp::max(power_duration, metabolic_duration);
-    if stored_duration != required_duration {
-        return Err(PlayerWorkValidationError::ManualPowerDurationMismatch);
-    }
-    let exertion = resolve_manual_power_exertion(
-        work.output().energy(),
-        stored_duration,
         method.maximum_exertion(),
         method.metabolic_efficiency_ppm(),
     )
-    .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
-    Ok((required_duration, exertion))
+    .map_err(|_error: ManualPowerScheduleError| {
+        PlayerWorkValidationError::ManualPowerDurationMismatch
+    })?;
+    let required_duration = required.duration();
+    if stored_duration != required_duration {
+        return Err(PlayerWorkValidationError::ManualPowerDurationMismatch);
+    }
+    Ok((required_duration, schedule.remaining, required.exertion()))
 }
+
+#[cfg(test)]
+#[path = "manual_power_tests.rs"]
+mod tests;

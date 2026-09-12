@@ -26,9 +26,9 @@ use crate::energy::{
     add_energy_store_with_initial_for_fixture, calculate_explicit_energy_accounting,
 };
 use crate::equipment::{
-    EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, add_equipment,
-    apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
-    validate_upgrade_equipment,
+    EquipmentConditionPlanError, EquipmentDefinition, EquipmentDefinitionId,
+    EquipmentMaintenanceProfile, add_equipment, apply_equipment_condition_plan,
+    decide_equipment_wear, validate_assemble_equipment, validate_upgrade_equipment,
 };
 
 use crate::inventory::{
@@ -198,6 +198,14 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
             .unwrap_or_else(|error| panic!("primitive service commit failed: {error}"));
         assert_eq!(outcome.equipment(), equipment);
         assert_eq!(outcome.target_condition(), maintenance.restored_condition());
+        assert_eq!(
+            decide_equipment_wear(&state, equipment, 1),
+            Err(EquipmentConditionPlanError::EquipmentUnderMaintenance {
+                equipment,
+                completes_at: outcome.completes_at(),
+            }),
+            "test-only condition mutation must respect maintenance occupancy"
+        );
 
         let record = state
             .equipment()

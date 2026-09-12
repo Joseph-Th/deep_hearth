@@ -1,8 +1,9 @@
 //! Pure direct-labor power calculations shared by admission and persistence replay.
 
 use crate::core::arithmetic::{checked_mul_div_ceil, scale_u128_fraction_floor};
-use crate::core::quantity::{Energy, Volume};
-use crate::core::time::TickSpan;
+use crate::core::quantity::{Energy, Power, Volume};
+use crate::core::time::{PhysicalTickDuration, TickSpan};
+use crate::energy::{PowerDurationError, calculate_power_duration_ceiling};
 use crate::survival::SurvivalExertion;
 
 const PARTS_PER_MILLION: u32 = 1_000_000;
@@ -17,6 +18,31 @@ pub(crate) enum ManualPowerMetabolicDurationError {
 pub(crate) enum ManualPowerExertionError {
     EnergyOverflow,
     ExceedsAuthoredMaximum,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ManualPowerScheduleError {
+    PowerDuration(PowerDurationError),
+    MetabolicDuration(ManualPowerMetabolicDurationError),
+    Exertion(ManualPowerExertionError),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ManualPowerSchedule {
+    duration: TickSpan,
+    exertion: SurvivalExertion,
+}
+
+impl ManualPowerSchedule {
+    #[must_use]
+    pub(crate) const fn duration(self) -> TickSpan {
+        self.duration
+    }
+
+    #[must_use]
+    pub(crate) const fn exertion(self) -> SurvivalExertion {
+        self.exertion
+    }
 }
 
 pub(crate) fn metabolic_output_per_tick(energy_cost: Energy, efficiency_ppm: u32) -> Energy {
@@ -84,6 +110,32 @@ pub(crate) fn resolve_manual_power_exertion(
         Energy::from_nanojoules(metabolic_per_tick),
         Volume::from_microliters(hydration_per_tick),
     ))
+}
+
+/// Resolves the one authoritative active duration and physiological effort for manual generation.
+///
+/// Mechanical transfer and sustainable metabolic conversion independently constrain throughput.
+/// The slower constraint owns elapsed work time; effort is then scaled to the exact requested
+/// mechanical output across that resolved interval.
+pub(crate) fn resolve_manual_power_schedule(
+    required_output: Energy,
+    transfer_power: Power,
+    physical_tick_duration: PhysicalTickDuration,
+    maximum_exertion: SurvivalExertion,
+    efficiency_ppm: u32,
+) -> Result<ManualPowerSchedule, ManualPowerScheduleError> {
+    let power_duration =
+        calculate_power_duration_ceiling(transfer_power, required_output, physical_tick_duration)
+            .map_err(ManualPowerScheduleError::PowerDuration)?;
+    let metabolic_output =
+        metabolic_output_per_tick(maximum_exertion.energy_cost_per_tick(), efficiency_ppm);
+    let metabolic_duration = calculate_metabolic_duration(required_output, metabolic_output)
+        .map_err(ManualPowerScheduleError::MetabolicDuration)?;
+    let duration = std::cmp::max(power_duration, metabolic_duration);
+    let exertion =
+        resolve_manual_power_exertion(required_output, duration, maximum_exertion, efficiency_ppm)
+            .map_err(ManualPowerScheduleError::Exertion)?;
+    Ok(ManualPowerSchedule { duration, exertion })
 }
 
 #[cfg(test)]

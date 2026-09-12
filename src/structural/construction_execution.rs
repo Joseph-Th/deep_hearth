@@ -11,10 +11,10 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{AggregateMass, Force, Mass, Volume};
 use crate::core::state::AppState;
 use crate::inventory::{
-    ConsumedMaterialTrace, MaterialEgressError, StockpileId, StockpileStoredMassChange,
-    StockpileStructuralLoadError, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
-    apply_material_egress, validate_material_egress_from_selection,
-    validate_stockpile_stored_mass_changes,
+    ConsumedMaterialTrace, ConsumptionSelection, MaterialEgressError, StockpileId,
+    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
+    ValidatedStockpileStructuralLoad, apply_material_egress,
+    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 use crate::inventory::{
@@ -31,7 +31,7 @@ use super::geometry::{
 use super::load::calculate_aggregate_weight_force_ceiling;
 #[cfg(test)]
 use super::state::StructuralLoadKind;
-use super::state::{StructuralElementId, StructuralLifecycle};
+use super::state::{StructuralElementId, StructuralElementRecord, StructuralLifecycle};
 
 /// Read-only physical material requirement for one prismatic structural member.
 #[must_use]
@@ -245,17 +245,11 @@ impl ValidatedStructuralConstruction {
     }
 }
 
-/// Validates a physically resolved material batch for one still-planned member.
-pub fn validate_structural_construction(
+fn validate_structural_construction_target(
     registries: &Registries,
-    state: &AppState,
-    resolution: StructuralConstructionResolution,
-) -> Result<ValidatedStructuralConstruction, StructuralConstructionError> {
-    let element = resolution.element;
-    let record = state
-        .structures()
-        .get_element(element)
-        .ok_or(StructuralConstructionError::UnknownElement { element })?;
+    element: StructuralElementId,
+    record: &StructuralElementRecord,
+) -> Result<(), StructuralConstructionError> {
     if record.lifecycle() != StructuralLifecycle::Planned {
         return Err(StructuralConstructionError::ElementNotPlanned {
             element,
@@ -272,7 +266,16 @@ pub fn validate_structural_construction(
             element,
             profile: record.profile(),
         })?;
-    for trace in resolution.selection.consumed_inputs() {
+    Ok(())
+}
+
+fn validate_structural_construction_material(
+    registries: &Registries,
+    element: StructuralElementId,
+    expected_material: MaterialId,
+    traces: &[ConsumedMaterialTrace],
+) -> Result<(), StructuralConstructionError> {
+    for trace in traces {
         let form_id = trace.profile().commodity().form();
         let Some(form) = registries.materials().get_form(form_id) else {
             return Err(StructuralConstructionError::UnknownMaterialForm {
@@ -287,46 +290,48 @@ pub fn validate_structural_construction(
             });
         }
         let found = trace.profile().commodity().material();
-        if found != record.material() {
+        if found != expected_material {
             return Err(StructuralConstructionError::MaterialMismatch {
                 element,
-                expected: record.material(),
+                expected: expected_material,
                 found,
             });
         }
-        if trace.profile().composition().pure_material() != Some(record.material()) {
+        if trace.profile().composition().pure_material() != Some(expected_material) {
             return Err(StructuralConstructionError::UnsupportedComposition {
                 element,
-                material: record.material(),
+                material: expected_material,
             });
         }
     }
+    Ok(())
+}
 
-    let required_mass = calculate_prismatic_material_mass_ceiling(
-        registries.materials(),
-        record.material(),
-        record.cross_section(),
-        record.length(),
-    )
-    .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
-    if resolution.mass() != required_mass {
-        return Err(StructuralConstructionError::MaterialQuantityMismatch {
-            element,
-            required: required_mass,
-            selected: resolution.mass(),
-        });
-    }
-
-    let source = resolution.selection.source();
-    let egress = validate_material_egress_from_selection(state.inventory(), resolution.selection)
-        .map_err(|error| match error {
-        MaterialEgressError::StaleSelection { expected, actual } => {
-            StructuralConstructionError::InventorySelectionStale { expected, actual }
-        }
-        MaterialEgressError::RevisionExhausted => {
-            StructuralConstructionError::InventoryRevisionExhausted
-        }
-    })?;
+fn validate_structural_construction_egress(
+    registries: &Registries,
+    state: &AppState,
+    element: StructuralElementId,
+    required_mass: Mass,
+    selection: ConsumptionSelection,
+) -> Result<
+    (
+        ValidatedMaterialEgress,
+        Option<ValidatedStockpileStructuralLoad>,
+    ),
+    StructuralConstructionError,
+> {
+    let source = selection.source();
+    let egress =
+        validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
+            match error {
+                MaterialEgressError::StaleSelection { expected, actual } => {
+                    StructuralConstructionError::InventorySelectionStale { expected, actual }
+                }
+                MaterialEgressError::RevisionExhausted => {
+                    StructuralConstructionError::InventoryRevisionExhausted
+                }
+            }
+        })?;
     assert_eq!(
         egress.total_consumed(),
         required_mass,
@@ -351,14 +356,65 @@ pub fn validate_structural_construction(
         [StockpileStoredMassChange::new(source, source_after)],
     )
     .map_err(StructuralConstructionError::StructuralLoad)?;
-    let expected_structure_revision = state.structures().revision();
-    let revision_steps = 1_u64
-        + stockpile_load
-            .as_ref()
-            .map_or(0, ValidatedStockpileStructuralLoad::revision_delta);
-    let next_structure_revision = expected_structure_revision
+    Ok((egress, stockpile_load))
+}
+
+fn resolve_structural_construction_revision(
+    state: &AppState,
+    stockpile_load: Option<&ValidatedStockpileStructuralLoad>,
+) -> Result<(u64, u64), StructuralConstructionError> {
+    let expected = state.structures().revision();
+    let revision_steps =
+        1_u64 + stockpile_load.map_or(0, ValidatedStockpileStructuralLoad::revision_delta);
+    let next = expected
         .checked_add(revision_steps)
         .ok_or(StructuralConstructionError::StructureRevisionExhausted)?;
+    Ok((expected, next))
+}
+
+/// Validates a physically resolved material batch for one still-planned member.
+pub fn validate_structural_construction(
+    registries: &Registries,
+    state: &AppState,
+    resolution: StructuralConstructionResolution,
+) -> Result<ValidatedStructuralConstruction, StructuralConstructionError> {
+    let element = resolution.element;
+    let record = state
+        .structures()
+        .get_element(element)
+        .ok_or(StructuralConstructionError::UnknownElement { element })?;
+    validate_structural_construction_target(registries, element, record)?;
+    validate_structural_construction_material(
+        registries,
+        element,
+        record.material(),
+        resolution.selection.consumed_inputs(),
+    )?;
+
+    let required_mass = calculate_prismatic_material_mass_ceiling(
+        registries.materials(),
+        record.material(),
+        record.cross_section(),
+        record.length(),
+    )
+    .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
+    if resolution.mass() != required_mass {
+        return Err(StructuralConstructionError::MaterialQuantityMismatch {
+            element,
+            required: required_mass,
+            selected: resolution.mass(),
+        });
+    }
+
+    let (egress, stockpile_load) = validate_structural_construction_egress(
+        registries,
+        state,
+        element,
+        required_mass,
+        resolution.selection,
+    )?;
+    let (expected_structure_revision, next_structure_revision) =
+        resolve_structural_construction_revision(state, stockpile_load.as_ref())?;
     let self_weight = calculate_aggregate_weight_force_ceiling(
         AggregateMass::from_mass(required_mass),
         registries.core().gravity(),

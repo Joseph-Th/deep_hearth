@@ -2,12 +2,14 @@
 
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::labor::EquipmentMaintenanceWork;
 use crate::registry::Registries;
 
-use super::{ActivePlayerJobs, PlayerWorkValidationError, validate_remaining_resources};
+use super::{
+    ActivePlayerJobs, PlayerWorkValidationError, project_active_work_schedule,
+    validate_remaining_resources,
+};
 
 pub(super) fn validate_equipment_maintenance_work(
     registries: &Registries,
@@ -40,15 +42,11 @@ pub(super) fn validate_equipment_maintenance_work(
     {
         return Err(PlayerWorkValidationError::EquipmentMaintenanceTargetMismatch);
     }
-    if work.started_at() > state.tick()
-        || work.completes_at() <= state.tick()
-        || work.completes_at() <= work.started_at()
-    {
-        return Err(PlayerWorkValidationError::EquipmentMaintenanceScheduleInvalid);
-    }
+    let schedule =
+        project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
+            .ok_or(PlayerWorkValidationError::EquipmentMaintenanceScheduleInvalid)?;
     let required_duration = profile.required_service_duration(work.condition_before());
-    let actual_duration = work.completes_at().value() - work.started_at().value();
-    if actual_duration != required_duration.value() {
+    if schedule.duration != required_duration {
         return Err(PlayerWorkValidationError::EquipmentMaintenanceDurationMismatch);
     }
     if matches!(
@@ -62,6 +60,6 @@ pub(super) fn validate_equipment_maintenance_work(
         available_energy,
         available_hydration,
         profile.exertion(),
-        TickSpan::new(work.completes_at().value() - state.tick().value()),
+        schedule.remaining,
     )
 }

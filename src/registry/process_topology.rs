@@ -143,7 +143,7 @@ fn derive_process_topology(
         nominal_providers,
         compatible_energy_stores,
     };
-    assert_process_topology_is_operable(process.id(), &topology);
+    assert_process_topology_has_required_edges(process.id(), &topology);
     Some((process.id(), topology))
 }
 
@@ -221,7 +221,7 @@ fn nominal_machine_providers(
         .collect()
 }
 
-fn assert_process_topology_is_operable(process: ProcessId, topology: &ProcessTopology) {
+fn assert_process_topology_has_required_edges(process: ProcessId, topology: &ProcessTopology) {
     match topology.equipment_role {
         ProcessEquipmentRole::None => assert!(
             topology.nominal_providers.is_empty(),

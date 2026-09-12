@@ -60,3 +60,35 @@ fn bottlenecked_manual_power_scales_effort_to_actual_output() {
         fast.energy_cost_per_tick().nanojoules() * 5
     );
 }
+
+#[test]
+fn shared_manual_power_schedule_uses_the_slower_physical_constraint() {
+    let maximum = SurvivalExertion::new(Energy::from_nanojoules(100), Volume::from_microliters(10));
+    let required = Energy::from_nanojoules(100);
+    let tick = PhysicalTickDuration::from_microseconds(1_000_000);
+
+    let metabolic_limited = resolve_manual_power_schedule(
+        required,
+        Power::from_picowatts(100_000),
+        tick,
+        maximum,
+        500_000,
+    )
+    .unwrap_or_else(|error| panic!("metabolic-limited schedule failed: {error:?}"));
+    assert_eq!(metabolic_limited.duration(), TickSpan::new(2));
+    assert_eq!(metabolic_limited.exertion(), maximum);
+
+    let transfer_limited = resolve_manual_power_schedule(
+        required,
+        Power::from_picowatts(25_000),
+        tick,
+        maximum,
+        500_000,
+    )
+    .unwrap_or_else(|error| panic!("transfer-limited schedule failed: {error:?}"));
+    assert_eq!(transfer_limited.duration(), TickSpan::new(4));
+    assert_eq!(
+        transfer_limited.exertion().energy_cost_per_tick(),
+        Energy::from_nanojoules(50)
+    );
+}

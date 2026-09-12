@@ -2,7 +2,7 @@
 
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
@@ -36,6 +36,26 @@ impl ActivePlayerJobs {
     fn has_any(&self) -> bool {
         !self.manual_production.is_empty() || !self.mining.is_empty()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ActiveWorkSchedule {
+    duration: TickSpan,
+    remaining: TickSpan,
+}
+
+fn project_active_work_schedule(
+    current: SimulationTick,
+    started_at: SimulationTick,
+    completes_at: SimulationTick,
+) -> Option<ActiveWorkSchedule> {
+    if started_at > current || completes_at <= current {
+        return None;
+    }
+    Some(ActiveWorkSchedule {
+        duration: TickSpan::new(completes_at.value().checked_sub(started_at.value())?),
+        remaining: TickSpan::new(completes_at.value().checked_sub(current.value())?),
+    })
 }
 
 pub(crate) fn validate_loaded_player_work(
@@ -171,22 +191,14 @@ fn validate_manual_production_work(
     if active_jobs.manual_production.as_slice() != [job] {
         return Err(PlayerWorkValidationError::ManualProductionMissingWork);
     }
-    let remaining = record
-        .suspension()
-        .map(|suspension| suspension.remaining_active_time())
-        .unwrap_or_else(|| {
-            TickSpan::new(
-                record
-                    .completes_at()
-                    .value()
-                    .checked_sub(state.tick().value())
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "runtime invariant broken: running manual production job is already due"
-                        )
-                    }),
-            )
-        });
+    let remaining = match record.suspension() {
+        Some(suspension) => suspension.remaining_active_time(),
+        None => {
+            project_active_work_schedule(state.tick(), record.started_at(), record.completes_at())
+                .ok_or(PlayerWorkValidationError::ManualProductionScheduleInvalid)?
+                .remaining
+        }
+    };
     validate_remaining_resources(
         registries,
         available_energy,
@@ -217,12 +229,16 @@ fn validate_mining_work(
         .mining()
         .get_method(record.method())
         .ok_or(PlayerWorkValidationError::MiningMethodMissing)?;
+    let remaining =
+        project_active_work_schedule(state.tick(), record.started_at(), record.completes_at())
+            .ok_or(PlayerWorkValidationError::MiningScheduleInvalid)?
+            .remaining;
     validate_remaining_resources(
         registries,
         available_energy,
         available_hydration,
         method.exertion(),
-        TickSpan::new(record.completes_at().value() - state.tick().value()),
+        remaining,
     )
 }
 
@@ -260,3 +276,7 @@ pub(super) fn validate_remaining_resources(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "validation_tests.rs"]
+mod tests;

@@ -102,6 +102,7 @@ fn resolve_mining_job_references<'state>(
 fn validate_working_mining_equipment(
     state: &AppState,
     job: &MiningJobRecord,
+    references: &MiningJobReferences<'_>,
 ) -> Result<(), MiningJobValidationError> {
     if !job.is_working() {
         return Ok(());
@@ -119,11 +120,26 @@ fn validate_working_mining_equipment(
             },
         );
     }
+    validate_mining_equipment_portability(job.id(), references.equipment_definition)?;
     if equipment.supported_by().is_some() {
         return Err(MiningJobValidationError::WorkingEquipmentMounted { job: job.id() });
     }
     if equipment.condition() != job.equipment_condition_before() {
         return Err(MiningJobValidationError::EquipmentConditionMismatch { job: job.id() });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "validation_tests.rs"]
+mod tests;
+
+fn validate_mining_equipment_portability(
+    job: MiningJobId,
+    definition: &EquipmentDefinition,
+) -> Result<(), MiningJobValidationError> {
+    if definition.requires_structural_support() {
+        return Err(MiningJobValidationError::WorkingEquipmentRequiresStructuralSupport { job });
     }
     Ok(())
 }
@@ -257,7 +273,7 @@ fn validate_loaded_mining_job(
     job: &MiningJobRecord,
 ) -> Result<(), MiningJobValidationError> {
     let references = resolve_mining_job_references(registries, state, job)?;
-    validate_working_mining_equipment(state, job)?;
+    validate_working_mining_equipment(state, job, &references)?;
     validate_mining_source_ownership(job, &references)?;
     validate_mining_output(registries, job, &references)?;
     validate_mining_equipment_exclusivity(state, job)?;

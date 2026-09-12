@@ -1,9 +1,13 @@
 //! Contract tests for acquired geological knowledge.
 
+use std::collections::BTreeSet;
+
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
 use crate::core::quantity::Pressure;
-use crate::spatial::VoxelCoord;
+use crate::core::time::SimulationTick;
+use crate::material::MaterialId;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
 fn bounds() -> VoxelBounds {
     match VoxelBounds::new(VoxelCoord::new(0, -8, 0), VoxelCoord::new(4, -4, 4)) {

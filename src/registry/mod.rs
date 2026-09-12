@@ -13,7 +13,7 @@ use crate::equipment::EquipmentRegistry;
 use crate::fluid::FluidRegistry;
 use crate::inventory::StorageRegistry;
 use crate::labor::LaborRegistry;
-use crate::material::{MaterialAssemblyProfile, MaterialRegistry};
+use crate::material::MaterialRegistry;
 use crate::mining::MiningRegistry;
 use crate::ore_processing::OreProcessingRegistry;
 use crate::production::{ProcessId, ProductionRegistry};
@@ -24,6 +24,7 @@ use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
 
 mod process_topology;
+mod validation;
 
 #[cfg(test)]
 #[path = "process_topology_tests.rs"]
@@ -35,6 +36,7 @@ use process_topology::build_process_topology;
 pub use process_topology::{
     ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily, ProcessTopology,
 };
+use validation::validate_registry_domains;
 
 /// Schema version for stable authored registry identities and cross-reference semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -117,120 +119,6 @@ pub(crate) struct RegistryDomains {
 pub(crate) struct RegistryPresentation {
     pub(crate) textures: TextureRegistry,
     pub(crate) shaders: ShaderRegistry,
-}
-
-fn assert_nonperishable_infrastructure_assembly(
-    owner: &str,
-    assembly: &MaterialAssemblyProfile,
-    survival: &SurvivalRegistry,
-) {
-    for input in assembly.inputs() {
-        assert!(
-            !survival.has_food_material(input.commodity().material()),
-            "{owner} cannot embody material {} because that material has an authored edible form and embodied infrastructure does not track storage age",
-            input.commodity().material().value()
-        );
-    }
-}
-
-fn validate_energy_infrastructure_perishability(
-    energy: &EnergyRegistry,
-    survival: &SurvivalRegistry,
-) {
-    for definition in energy.definitions() {
-        if let Some(assembly) = definition.assembly_profile() {
-            assert_nonperishable_infrastructure_assembly(
-                "energy-store assembly",
-                assembly,
-                survival,
-            );
-        }
-        if let Some(upgrade) = definition.upgrade_profile() {
-            assert_nonperishable_infrastructure_assembly(
-                "energy-store upgrade",
-                upgrade.additions(),
-                survival,
-            );
-        }
-    }
-}
-
-fn validate_equipment_infrastructure_perishability(
-    equipment: &EquipmentRegistry,
-    survival: &SurvivalRegistry,
-) {
-    for definition in equipment.definitions() {
-        if let Some(assembly) = definition.assembly_profile() {
-            assert_nonperishable_infrastructure_assembly("equipment assembly", assembly, survival);
-        }
-        if let Some(upgrade) = definition.upgrade_profile() {
-            assert_nonperishable_infrastructure_assembly(
-                "equipment upgrade",
-                upgrade.additions(),
-                survival,
-            );
-        }
-    }
-}
-
-fn validate_storage_infrastructure_perishability(
-    storage: &StorageRegistry,
-    survival: &SurvivalRegistry,
-) {
-    for definition in storage.definitions() {
-        assert_nonperishable_infrastructure_assembly(
-            "storage-enclosure assembly",
-            definition.assembly_profile(),
-            survival,
-        );
-    }
-}
-
-fn validate_infrastructure_perishability(domains: &RegistryDomains) {
-    validate_energy_infrastructure_perishability(&domains.energy, &domains.survival);
-    validate_equipment_infrastructure_perishability(&domains.equipment, &domains.survival);
-    validate_storage_infrastructure_perishability(&domains.storage, &domains.survival);
-}
-
-fn validate_registry_domains(core: &CoreDefinitions, domains: &RegistryDomains) {
-    domains
-        .energy
-        .validate_references(&domains.materials, core.physical_tick_duration());
-    domains.fluid.validate_references(&domains.materials);
-    domains.crafting.validate_references(
-        &domains.production,
-        &domains.materials,
-        &domains.capabilities,
-    );
-    domains
-        .labor
-        .validate_references(&domains.capabilities, &domains.equipment);
-    domains
-        .equipment
-        .validate_references(&domains.capabilities, &domains.materials);
-    domains.storage.validate_references(&domains.materials);
-    domains
-        .production
-        .validate_references(&domains.materials, &domains.capabilities);
-    domains.mining.validate_references(&domains.capabilities);
-    domains.ore_processing.validate_references(
-        &domains.production,
-        &domains.capabilities,
-        &domains.materials,
-    );
-    domains
-        .survival
-        .validate_references(&domains.materials, &domains.fluid);
-    validate_infrastructure_perishability(domains);
-    domains.thermal.validate_references(
-        &domains.production,
-        &domains.capabilities,
-        &domains.materials,
-    );
-    domains
-        .presentation
-        .textures
-        .validate_references(&domains.materials, &domains.equipment);
 }
 
 impl Registries {

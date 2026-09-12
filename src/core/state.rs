@@ -64,7 +64,10 @@ impl Debug for AppState {
             .debug_struct("AppState")
             .field("world_seed", &self.world_seed)
             .field("tick", &self.clock.tick)
-            .field("rng_algorithm", &self.rng_algorithm())
+            .field(
+                "rng_algorithm",
+                &self.random.stream_algorithm(RngStreamId::CORE),
+            )
             .field("energy", &self.systems.energy)
             .field("fluid", &self.systems.fluid)
             .field("equipment", &self.systems.equipment)

@@ -10,7 +10,9 @@ use crate::content::{
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
-use crate::equipment::{EquipmentId, validate_assemble_equipment};
+use crate::equipment::{
+    EquipmentConditionPlanError, EquipmentId, decide_equipment_wear, validate_assemble_equipment,
+};
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
     insert_generated_deposit,
@@ -20,6 +22,7 @@ use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::mining::{MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::registry::Registries;
 use crate::simulation::{TickError, advance_tick};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::survival::{assess_survival, initialize_player_survival};
@@ -641,6 +644,18 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     .unwrap_or_else(|error| panic!("detailed refinement prospecting start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("detailed refinement prospecting commit failed: {error}"));
+    let prospecting_completes_at = match state.player_work().active() {
+        Some(PlayerWork::Prospecting { work }) => work.completes_at(),
+        other => panic!("detailed prospecting work disappeared after start: {other:?}"),
+    };
+    assert_eq!(
+        decide_equipment_wear(&state, hammer, 1),
+        Err(EquipmentConditionPlanError::EquipmentBusyProspecting {
+            equipment: hammer,
+            completes_at: prospecting_completes_at,
+        }),
+        "test-only condition mutation must respect prospecting occupancy"
+    );
     let detailed_duration = prospecting_duration(&registries, PROSPECTING_DETAILED_FIELD_SURVEY);
     assert!(detailed_duration > field_duration);
     for _ in 0..detailed_duration {

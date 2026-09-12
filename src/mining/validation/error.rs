@@ -35,6 +35,9 @@ pub enum MiningJobValidationError {
         expected: EquipmentDefinitionId,
         actual: EquipmentDefinitionId,
     },
+    WorkingEquipmentRequiresStructuralSupport {
+        job: MiningJobId,
+    },
     WorkingEquipmentMounted {
         job: MiningJobId,
     },
@@ -159,6 +162,11 @@ impl Display for MiningJobValidationError {
                 job.value(),
                 actual.value(),
                 expected.value()
+            ),
+            Self::WorkingEquipmentRequiresStructuralSupport { job } => write!(
+                formatter,
+                "active mining job {} uses equipment that requires structural installation and cannot be a portable extraction tool",
+                job.value()
             ),
             Self::WorkingEquipmentMounted { job } => write!(
                 formatter,
@@ -325,6 +333,7 @@ impl Error for MiningJobValidationError {
             | Self::WorkingEquipmentMissing { .. }
             | Self::UnknownEquipmentDefinition { .. }
             | Self::WorkingEquipmentDefinitionMismatch { .. }
+            | Self::WorkingEquipmentRequiresStructuralSupport { .. }
             | Self::WorkingEquipmentMounted { .. }
             | Self::EquipmentConditionMismatch { .. }
             | Self::OutputProfileMismatch { .. }

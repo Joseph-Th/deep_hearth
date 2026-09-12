@@ -1,19 +1,21 @@
 //! Admission and commit for direct player-powered generation.
 
-use crate::capability::CapabilityValue;
+use crate::capability::{CapabilityId, CapabilityValue};
 use crate::core::quantity::Power;
 use crate::core::state::AppState;
 use crate::energy::{
-    EnergySinkError, EnergyStoreOccupancy, calculate_power_duration_ceiling,
-    energy_store_occupancy, validate_energy_sink_access, validate_energy_sink_release,
+    EnergySinkError, EnergyStoreOccupancy, energy_store_occupancy, validate_energy_sink_access,
+    validate_energy_sink_release,
 };
-use crate::equipment::{EquipmentOccupancy, equipment_occupancy, resolve_equipment_provider};
+use crate::equipment::{
+    EquipmentId, EquipmentOccupancy, ResolvedEquipmentProvider, equipment_occupancy,
+    resolve_equipment_provider,
+};
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::registry::Registries;
 
 use super::super::power_physics::{
-    ManualPowerExertionError, ManualPowerMetabolicDurationError, calculate_metabolic_duration,
-    metabolic_output_per_tick, resolve_manual_power_exertion,
+    ManualPowerMetabolicDurationError, ManualPowerScheduleError, resolve_manual_power_schedule,
 };
 use super::super::{
     ManualPowerWork, PlayerWork, PlayerWorkResourceBudget, ValidatedPlayerWorkStart,
@@ -87,6 +89,87 @@ impl ValidatedManualPowerStart {
     }
 }
 
+fn validate_manual_power_equipment_occupancy(
+    state: &AppState,
+    equipment: EquipmentId,
+) -> Result<(), ManualPowerError> {
+    match equipment_occupancy(state, equipment) {
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            Err(ManualPowerError::EquipmentBusyProduction {
+                equipment,
+                job,
+                release,
+            })
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            Err(ManualPowerError::EquipmentBusyMining { equipment, job })
+        }
+        Some(
+            EquipmentOccupancy::ManualPower { .. }
+            | EquipmentOccupancy::Prospecting { .. }
+            | EquipmentOccupancy::Maintenance { .. },
+        )
+        | None => Ok(()),
+    }
+}
+
+fn resolve_manual_power_equipment_power(
+    provider: ResolvedEquipmentProvider<'_>,
+    equipment: EquipmentId,
+    capability: CapabilityId,
+) -> Result<Power, ManualPowerError> {
+    let value =
+        provider
+            .get_capability(capability)
+            .ok_or(ManualPowerError::MissingPowerCapability {
+                equipment,
+                capability,
+            })?;
+    let CapabilityValue::Power(power) = value else {
+        return Err(ManualPowerError::PowerCapabilityKindMismatch {
+            equipment,
+            capability,
+            found: value.kind(),
+        });
+    };
+    if power.is_zero() {
+        return Err(ManualPowerError::ZeroEquipmentPower {
+            equipment,
+            capability,
+        });
+    }
+    Ok(power)
+}
+
+fn map_manual_power_schedule_error(
+    request: ManualPowerRequest,
+    transfer_power: Power,
+    error: ManualPowerScheduleError,
+) -> ManualPowerError {
+    match error {
+        ManualPowerScheduleError::PowerDuration(_error) => ManualPowerError::PowerDuration {
+            energy: request.energy,
+            power: transfer_power,
+        },
+        ManualPowerScheduleError::MetabolicDuration(error) => match error {
+            ManualPowerMetabolicDurationError::ZeroOutput => {
+                ManualPowerError::MetabolicConversionTooSmall {
+                    method: request.method,
+                }
+            }
+            ManualPowerMetabolicDurationError::DurationOverflow => {
+                ManualPowerError::MetabolicDurationOverflow {
+                    method: request.method,
+                    energy: request.energy,
+                }
+            }
+        },
+        ManualPowerScheduleError::Exertion(_error) => ManualPowerError::ExertionResolution {
+            method: request.method,
+        },
+    }
+}
+
 /// Resolves and admits a direct player-power work order without creating energy before work finishes.
 pub fn validate_start_manual_power(
     registries: &Registries,
@@ -111,46 +194,12 @@ pub fn validate_start_manual_power(
     }
     let provider = resolve_equipment_provider(registries, state, request.equipment)
         .map_err(ManualPowerError::Equipment)?;
-    match equipment_occupancy(state, request.equipment) {
-        Some(EquipmentOccupancy::Production { job, release }) => {
-            return Err(ManualPowerError::EquipmentBusyProduction {
-                equipment: request.equipment,
-                job,
-                release,
-            });
-        }
-        Some(EquipmentOccupancy::Mining { job }) => {
-            return Err(ManualPowerError::EquipmentBusyMining {
-                equipment: request.equipment,
-                job,
-            });
-        }
-        Some(
-            EquipmentOccupancy::ManualPower { .. }
-            | EquipmentOccupancy::Prospecting { .. }
-            | EquipmentOccupancy::Maintenance { .. },
-        )
-        | None => {}
-    }
-    let power_value = provider
-        .get_capability(definition.power_capability())
-        .ok_or(ManualPowerError::MissingPowerCapability {
-            equipment: request.equipment,
-            capability: definition.power_capability(),
-        })?;
-    let CapabilityValue::Power(equipment_power) = power_value else {
-        return Err(ManualPowerError::PowerCapabilityKindMismatch {
-            equipment: request.equipment,
-            capability: definition.power_capability(),
-            found: power_value.kind(),
-        });
-    };
-    if equipment_power.is_zero() {
-        return Err(ManualPowerError::ZeroEquipmentPower {
-            equipment: request.equipment,
-            capability: definition.power_capability(),
-        });
-    }
+    validate_manual_power_equipment_occupancy(state, request.equipment)?;
+    let equipment_power = resolve_manual_power_equipment_power(
+        provider,
+        request.equipment,
+        definition.power_capability(),
+    )?;
     if request.energy.is_zero() {
         return Err(ManualPowerError::EnergySink(EnergySinkError::ZeroEnergy));
     }
@@ -163,56 +212,23 @@ pub fn validate_start_manual_power(
         });
     }
     let transfer_power = std::cmp::min(equipment_power, sink_access.max_input_power());
-    if transfer_power == Power::ZERO {
+    if transfer_power.is_zero() {
         return Err(ManualPowerError::ZeroTransferPower {
             equipment: request.equipment,
             destination: request.destination,
         });
     }
-    let power_duration = calculate_power_duration_ceiling(
+    let schedule = resolve_manual_power_schedule(
+        request.energy,
         transfer_power,
-        request.energy,
         registries.core().physical_tick_duration(),
-    )
-    .map_err(|_error| ManualPowerError::PowerDuration {
-        energy: request.energy,
-        power: transfer_power,
-    })?;
-    let metabolic_output = metabolic_output_per_tick(
-        definition.maximum_exertion().energy_cost_per_tick(),
-        definition.metabolic_efficiency_ppm(),
-    );
-    let metabolic_duration = calculate_metabolic_duration(request.energy, metabolic_output)
-        .map_err(|error| match error {
-            ManualPowerMetabolicDurationError::ZeroOutput => {
-                ManualPowerError::MetabolicConversionTooSmall {
-                    method: request.method,
-                }
-            }
-            ManualPowerMetabolicDurationError::DurationOverflow => {
-                ManualPowerError::MetabolicDurationOverflow {
-                    method: request.method,
-                    energy: request.energy,
-                }
-            }
-        })?;
-    let duration = std::cmp::max(power_duration, metabolic_duration);
-    let sink = validate_energy_sink_release(registries, sink_access, request.energy, duration)
-        .map_err(ManualPowerError::EnergySink)?;
-    let exertion = resolve_manual_power_exertion(
-        request.energy,
-        duration,
         definition.maximum_exertion(),
         definition.metabolic_efficiency_ppm(),
     )
-    .map_err(|error| match error {
-        ManualPowerExertionError::EnergyOverflow
-        | ManualPowerExertionError::ExceedsAuthoredMaximum => {
-            ManualPowerError::ExertionResolution {
-                method: request.method,
-            }
-        }
-    })?;
+    .map_err(|error| map_manual_power_schedule_error(request, transfer_power, error))?;
+    let duration = schedule.duration();
+    let sink = validate_energy_sink_release(registries, sink_access, request.energy, duration)
+        .map_err(ManualPowerError::EnergySink)?;
     let completes_at = state.tick().checked_add_span(duration).ok_or(
         ManualPowerError::CompletionTickOverflow {
             method: request.method,
@@ -238,7 +254,7 @@ pub fn validate_start_manual_power(
         state,
         PlayerWork::ManualPower { work },
         duration,
-        exertion,
+        schedule.exertion(),
     )
     .map_err(ManualPowerError::Work)?;
     let resource_budget = work_start.resource_budget();

@@ -381,6 +381,8 @@ fn trusted_load_rejects_missing_core_random_stream() {
         .remove(&RngStreamId::CORE.value().to_string());
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("missing random stream decode failed: {error}"));
+    let debug = format!("{decoded:?}");
+    assert!(debug.contains("rng_algorithm: None"));
 
     assert_eq!(
         decoded.into_state(&registries),

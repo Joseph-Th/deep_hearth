@@ -14,9 +14,11 @@ pub enum PlayerWorkValidationError {
     WorkWithoutPlayer,
     ManualProductionJobMissing,
     ManualProductionProcessMismatch,
+    ManualProductionScheduleInvalid,
     MiningJobMissing,
     MiningJobNotWorking,
     MiningMethodMissing,
+    MiningScheduleInvalid,
     ManualProductionMissingWork,
     MultiplePlayerJobs,
     MiningMissingWork,
@@ -24,6 +26,7 @@ pub enum PlayerWorkValidationError {
     ManualPowerEquipmentMissing,
     ManualPowerEquipmentDefinitionMismatch,
     ManualPowerEquipmentConditionMismatch,
+    ManualPowerEquipmentRequiresStructuralSupport,
     ManualPowerEquipmentMounted,
     ManualPowerDestinationMissing,
     ManualPowerDestinationDefinitionMismatch,
@@ -133,6 +136,8 @@ impl Display for PlayerWorkValidationError {
             Self::ManualProductionProcessMismatch => formatter.write_str(
                 "player work references a production job that is not direct player labor",
             ),
+            Self::ManualProductionScheduleInvalid => formatter
+                .write_str("player manual-production work has an invalid persisted schedule"),
             Self::MiningJobMissing => {
                 formatter.write_str("player work references missing mining job")
             }
@@ -141,6 +146,9 @@ impl Display for PlayerWorkValidationError {
             }
             Self::MiningMethodMissing => {
                 formatter.write_str("player mining work references a missing authored method")
+            }
+            Self::MiningScheduleInvalid => {
+                formatter.write_str("player mining work has an invalid persisted schedule")
             }
             Self::ManualProductionMissingWork => {
                 formatter.write_str("active manual production job does not own player labor")
@@ -161,6 +169,9 @@ impl Display for PlayerWorkValidationError {
                 .write_str("manual power equipment definition disagrees with its persisted trace"),
             Self::ManualPowerEquipmentConditionMismatch => formatter
                 .write_str("manual power equipment condition disagrees with its persisted trace"),
+            Self::ManualPowerEquipmentRequiresStructuralSupport => formatter.write_str(
+                "manual power work cannot use equipment that requires structural installation",
+            ),
             Self::ManualPowerEquipmentMounted => {
                 formatter.write_str("manual power work requires portable unmounted equipment")
             }
@@ -402,9 +413,11 @@ impl Error for PlayerWorkValidationError {
             Self::WorkWithoutPlayer
             | Self::ManualProductionJobMissing
             | Self::ManualProductionProcessMismatch
+            | Self::ManualProductionScheduleInvalid
             | Self::MiningJobMissing
             | Self::MiningJobNotWorking
             | Self::MiningMethodMissing
+            | Self::MiningScheduleInvalid
             | Self::ManualProductionMissingWork
             | Self::MultiplePlayerJobs
             | Self::MiningMissingWork
@@ -412,6 +425,7 @@ impl Error for PlayerWorkValidationError {
             | Self::ManualPowerEquipmentMissing
             | Self::ManualPowerEquipmentDefinitionMismatch
             | Self::ManualPowerEquipmentConditionMismatch
+            | Self::ManualPowerEquipmentRequiresStructuralSupport
             | Self::ManualPowerEquipmentMounted
             | Self::ManualPowerDestinationMissing
             | Self::ManualPowerDestinationDefinitionMismatch

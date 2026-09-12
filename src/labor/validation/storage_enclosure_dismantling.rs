@@ -10,7 +10,10 @@ use crate::inventory::{
 use crate::labor::StorageEnclosureDismantlingWork;
 use crate::registry::Registries;
 
-use super::{ActivePlayerJobs, PlayerWorkValidationError, validate_remaining_resources};
+use super::{
+    ActivePlayerJobs, PlayerWorkValidationError, project_active_work_schedule,
+    validate_remaining_resources,
+};
 
 fn validate_work_identity(
     active_jobs: &ActivePlayerJobs,
@@ -73,7 +76,7 @@ fn validate_definition_and_schedule<'a>(
     state: &AppState,
     target: &StockpileRecord,
     work: &StorageEnclosureDismantlingWork,
-) -> Result<&'a StorageDefinition, PlayerWorkValidationError> {
+) -> Result<(&'a StorageDefinition, TickSpan), PlayerWorkValidationError> {
     let definition = registries
         .storage()
         .get(work.definition())
@@ -81,17 +84,13 @@ fn validate_definition_and_schedule<'a>(
     if target.storage_profile() != definition.storage_profile() {
         return Err(PlayerWorkValidationError::StorageDismantlingStorageProfileMismatch);
     }
-    if work.started_at() > state.tick()
-        || work.completes_at() <= state.tick()
-        || work.completes_at() <= work.started_at()
-    {
-        return Err(PlayerWorkValidationError::StorageDismantlingScheduleInvalid);
-    }
-    let actual_duration = TickSpan::new(work.completes_at().value() - work.started_at().value());
-    if actual_duration != definition.dismantle_duration() {
+    let schedule =
+        project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
+            .ok_or(PlayerWorkValidationError::StorageDismantlingScheduleInvalid)?;
+    if schedule.duration != definition.dismantle_duration() {
         return Err(PlayerWorkValidationError::StorageDismantlingDurationMismatch);
     }
-    Ok(definition)
+    Ok((definition, schedule.remaining))
 }
 
 fn validate_completion_replay(
@@ -140,13 +139,14 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
     validate_work_identity(active_jobs, &work)?;
     let target = validate_target(state, &work)?;
     validate_recovery_destination(state, &work)?;
-    let definition = validate_definition_and_schedule(registries, state, target, &work)?;
+    let (definition, remaining) =
+        validate_definition_and_schedule(registries, state, target, &work)?;
     validate_completion_replay(registries, state, &work)?;
     validate_remaining_resources(
         registries,
         available_energy,
         available_hydration,
         definition.dismantle_exertion(),
-        TickSpan::new(work.completes_at().value() - state.tick().value()),
+        remaining,
     )
 }

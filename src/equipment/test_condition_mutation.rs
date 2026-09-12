@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
@@ -54,6 +54,14 @@ pub(crate) enum EquipmentConditionPlanError {
     EquipmentBusyManualPower {
         equipment: EquipmentId,
     },
+    EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     RevisionExhausted,
 }
 
@@ -83,6 +91,24 @@ impl Display for EquipmentConditionPlanError {
                 formatter,
                 "equipment {} is occupied by direct player-powered generation",
                 equipment.value()
+            ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by field prospecting until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is under maintenance until tick {}",
+                equipment.value(),
+                completes_at.value()
             ),
             Self::RevisionExhausted => formatter.write_str("equipment revision space is exhausted"),
         }
@@ -114,8 +140,19 @@ fn decide_condition_change(
         Some(EquipmentOccupancy::ManualPower { .. }) => {
             return Err(EquipmentConditionPlanError::EquipmentBusyManualPower { equipment });
         }
-        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. })
-        | None => {}
+        Some(EquipmentOccupancy::Prospecting { completes_at }) => {
+            return Err(EquipmentConditionPlanError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            });
+        }
+        Some(EquipmentOccupancy::Maintenance { completes_at }) => {
+            return Err(EquipmentConditionPlanError::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            });
+        }
+        None => {}
     }
     let next_revision = equipment_state
         .revision()
@@ -167,6 +204,14 @@ pub(crate) enum EquipmentConditionCommitError {
     EquipmentBusyManualPower {
         equipment: EquipmentId,
     },
+    EquipmentBusyProspecting {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
 }
 
 impl Display for EquipmentConditionCommitError {
@@ -211,6 +256,24 @@ impl Display for EquipmentConditionCommitError {
                 "equipment {} became occupied by direct player-powered generation before condition commit",
                 equipment.value()
             ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} became occupied by field prospecting until tick {} before condition commit",
+                equipment.value(),
+                completes_at.value()
+            ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} entered maintenance until tick {} before condition commit",
+                equipment.value(),
+                completes_at.value()
+            ),
         }
     }
 }
@@ -247,8 +310,19 @@ pub(crate) fn apply_equipment_condition_plan(
                 equipment: plan.equipment,
             });
         }
-        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. })
-        | None => {}
+        Some(EquipmentOccupancy::Prospecting { completes_at }) => {
+            return Err(EquipmentConditionCommitError::EquipmentBusyProspecting {
+                equipment: plan.equipment,
+                completes_at,
+            });
+        }
+        Some(EquipmentOccupancy::Maintenance { completes_at }) => {
+            return Err(EquipmentConditionCommitError::EquipmentUnderMaintenance {
+                equipment: plan.equipment,
+                completes_at,
+            });
+        }
+        None => {}
     }
 
     let Some(record) = state.equipment().get_equipment(plan.equipment) else {

@@ -7,7 +7,10 @@ use crate::equipment::{EquipmentOccupancy, EquipmentOperationTrace, equipment_oc
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::registry::Registries;
 
-use super::{ActivePlayerJobs, PlayerWorkValidationError, validate_remaining_resources};
+use super::{
+    ActivePlayerJobs, PlayerWorkValidationError, project_active_work_schedule,
+    validate_remaining_resources,
+};
 use crate::labor::{ProspectingDefinition, ProspectingEquipmentProfile, ProspectingWork};
 
 fn validate_equipment_trace(
@@ -116,19 +119,13 @@ fn validate_schedule_replay(
     method: ProspectingDefinition,
     work: ProspectingWork,
 ) -> Result<TickSpan, PlayerWorkValidationError> {
-    if work.started_at() > state.tick()
-        || work.completes_at() <= state.tick()
-        || work.completes_at() <= work.started_at()
-    {
-        return Err(PlayerWorkValidationError::ProspectingScheduleInvalid);
-    }
-    let stored_duration = TickSpan::new(work.completes_at().value() - work.started_at().value());
-    if stored_duration != method.duration() {
+    let schedule =
+        project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
+            .ok_or(PlayerWorkValidationError::ProspectingScheduleInvalid)?;
+    if schedule.duration != method.duration() {
         return Err(PlayerWorkValidationError::ProspectingDurationMismatch);
     }
-    Ok(TickSpan::new(
-        work.completes_at().value() - state.tick().value(),
-    ))
+    Ok(schedule.remaining)
 }
 
 pub(super) fn validate_prospecting_work(
