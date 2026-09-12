@@ -191,9 +191,6 @@ fn validate_embodied_trace_provenance(
     current_tick: SimulationTick,
 ) -> Result<(), StructureValidationError> {
     let provenance = trace.provenance();
-    if provenance.latest_created_at() < provenance.earliest_created_at() {
-        return Err(StructureValidationError::InvalidEmbodiedProvenanceRange { element });
-    }
     if provenance.latest_created_at() > current_tick {
         return Err(StructureValidationError::EmbodiedProvenanceInFuture {
             element,

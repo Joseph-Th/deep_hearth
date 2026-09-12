@@ -26,6 +26,27 @@ fn checkpointed_storage_age_cannot_exceed_physical_world_time() {
 }
 
 #[test]
+fn storage_history_deserialization_rejects_unreachable_accumulated_age() {
+    let valid = MaterialStorageHistory::with_ambient_age_parts(
+        MAX_STORAGE_AGE_PARTS_PER_TICK,
+        SimulationTick::new(1),
+    );
+    let encoded = serde_json::to_value(valid)
+        .unwrap_or_else(|error| panic!("storage history serialization failed: {error}"));
+    let decoded: MaterialStorageHistory = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("storage history deserialization failed: {error}"));
+    assert_eq!(decoded, valid);
+
+    assert!(
+        serde_json::from_value::<MaterialStorageHistory>(serde_json::json!({
+            "ambient_age_parts": 1,
+            "last_transition_at": 0,
+        }))
+        .is_err()
+    );
+}
+
+#[test]
 fn maximally_reachable_history_projects_through_the_full_world_clock() {
     let transition = SimulationTick::new(u64::MAX / 2);
     let checkpointed_age = u128::from(transition.value()) * MAX_STORAGE_AGE_PARTS_PER_TICK;

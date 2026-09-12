@@ -113,32 +113,27 @@ fn loaded_validation_rejects_ambiguous_multi_material_hardness() {
 }
 
 #[test]
-fn loaded_validation_rejects_invalid_excavation_hardness_band() {
-    let registries = build_registries();
-    let id = GeologicalObservationId::new(1);
-    let mut state = GeologicalKnowledgeState::new();
-    state.next_observation_id = 2;
-    state.observations.insert(
-        id,
-        GeologicalObservationRecord {
-            id,
-            region: bounds(),
-            evidence: GeologicalEvidenceKind::ExcavationSample,
-            findings: vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
-            excavation_hardness: Some(ExcavationHardnessEstimate {
-                lower: Pressure::from_pascals(600_000_000),
-                upper: Pressure::from_pascals(550_000_000),
-            }),
-            observed_at: SimulationTick::ZERO,
-        },
-    );
-    state
-        .observations_by_material
-        .insert(MATERIAL_COPPER, BTreeSet::from([id]));
+fn excavation_hardness_deserialization_enforces_canonical_bounds() {
+    let valid = valid_hardness();
+    let encoded = serde_json::to_value(valid)
+        .unwrap_or_else(|error| panic!("hardness estimate serialization failed: {error}"));
+    let decoded: ExcavationHardnessEstimate = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("hardness estimate deserialization failed: {error}"));
+    assert_eq!(decoded, valid);
 
-    assert_eq!(
-        validate_loaded_geological_knowledge(registries.materials(), &state, SimulationTick::ZERO),
-        Err(GeologicalKnowledgeValidationError::InvalidExcavationHardness { observation: id })
+    assert!(
+        serde_json::from_value::<ExcavationHardnessEstimate>(serde_json::json!({
+            "lower": Pressure::from_pascals(600_000_000).pascals(),
+            "upper": Pressure::from_pascals(550_000_000).pascals(),
+        }))
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<ExcavationHardnessEstimate>(serde_json::json!({
+            "lower": 0,
+            "upper": 0,
+        }))
+        .is_err()
     );
 }
 

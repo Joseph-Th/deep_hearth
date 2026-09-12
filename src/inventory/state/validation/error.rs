@@ -11,7 +11,7 @@ use crate::material::{
 };
 use crate::structural::StructuralElementId;
 
-use super::super::{MaterialLotId, StockpileId, StockpileStorageProfileError};
+use super::super::{MaterialLotId, StockpileId};
 
 /// Persistent-state validation failure for the inventory owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,10 +34,6 @@ pub enum InventoryValidationError {
     },
     ZeroCapacity {
         stockpile: StockpileId,
-    },
-    InvalidStorageProfile {
-        stockpile: StockpileId,
-        error: StockpileStorageProfileError,
     },
     ZeroCommodityMass {
         stockpile: StockpileId,
@@ -85,11 +81,6 @@ pub enum InventoryValidationError {
         lot: MaterialLotId,
         error: ParticleSizeStateError,
     },
-    InvalidLotProvenanceRange {
-        lot: MaterialLotId,
-        earliest: SimulationTick,
-        latest: SimulationTick,
-    },
     LotProvenanceInFuture {
         lot: MaterialLotId,
         latest: SimulationTick,
@@ -104,9 +95,6 @@ pub enum InventoryValidationError {
         lot: MaterialLotId,
         transition: SimulationTick,
         current: SimulationTick,
-    },
-    LotStorageHistoryUnreachable {
-        lot: MaterialLotId,
     },
     MissingLotOwner {
         lot: MaterialLotId,
@@ -184,11 +172,6 @@ impl Display for InventoryValidationError {
                     stockpile.value()
                 )
             }
-            Self::InvalidStorageProfile { stockpile, error } => write!(
-                formatter,
-                "stockpile {} has invalid storage profile: {error}",
-                stockpile.value()
-            ),
             Self::ZeroCommodityMass {
                 stockpile,
                 commodity,
@@ -265,17 +248,6 @@ impl Display for InventoryValidationError {
                 "material lot {} has invalid particle-size state: {error}",
                 lot.value()
             ),
-            Self::InvalidLotProvenanceRange {
-                lot,
-                earliest,
-                latest,
-            } => write!(
-                formatter,
-                "material lot {} provenance range {}..={} is invalid",
-                lot.value(),
-                earliest.value(),
-                latest.value()
-            ),
             Self::LotProvenanceInFuture {
                 lot,
                 latest,
@@ -308,11 +280,6 @@ impl Display for InventoryValidationError {
                 lot.value(),
                 transition.value(),
                 current.value()
-            ),
-            Self::LotStorageHistoryUnreachable { lot } => write!(
-                formatter,
-                "material lot {} claims more checkpointed storage exposure than could physically accumulate by its transition tick",
-                lot.value()
             ),
             Self::MissingLotOwner { lot, stockpile } => write!(
                 formatter,

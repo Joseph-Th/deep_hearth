@@ -249,11 +249,6 @@ fn validate_embodied_trace(
         },
     )?;
     let provenance = trace.provenance();
-    if provenance.latest_created_at() < provenance.earliest_created_at() {
-        return Err(EquipmentValidationError::InvalidEmbodiedProvenanceRange {
-            equipment: record.id,
-        });
-    }
     if provenance.latest_created_at() > current_tick {
         return Err(EquipmentValidationError::EmbodiedProvenanceInFuture {
             equipment: record.id,

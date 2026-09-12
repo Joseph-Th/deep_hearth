@@ -1,6 +1,6 @@
 //! Persistent material-lot identity, physical profile, provenance, and in-flight trace values.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
@@ -112,14 +112,54 @@ impl MaterialLotProfile {
 }
 
 /// Provenance range retained when compatible matter coalesces into an existing lot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct MaterialLotProvenance {
     pub(in crate::inventory) earliest_created_at: SimulationTick,
     pub(in crate::inventory) latest_created_at: SimulationTick,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MaterialLotProvenanceRepresentation {
+    earliest_created_at: SimulationTick,
+    latest_created_at: SimulationTick,
+}
+
+impl<'de> Deserialize<'de> for MaterialLotProvenance {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let representation = MaterialLotProvenanceRepresentation::deserialize(deserializer)?;
+        if representation.latest_created_at < representation.earliest_created_at {
+            return Err(serde::de::Error::custom(
+                "material provenance latest creation tick precedes its earliest creation tick",
+            ));
+        }
+        Ok(Self {
+            earliest_created_at: representation.earliest_created_at,
+            latest_created_at: representation.latest_created_at,
+        })
+    }
+}
+
 impl MaterialLotProvenance {
+    #[must_use]
+    pub(in crate::inventory) const fn single(created_at: SimulationTick) -> Self {
+        Self {
+            earliest_created_at: created_at,
+            latest_created_at: created_at,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::inventory) fn merged(self, other: Self) -> Self {
+        Self {
+            earliest_created_at: self.earliest_created_at.min(other.earliest_created_at),
+            latest_created_at: self.latest_created_at.max(other.latest_created_at),
+        }
+    }
+
     #[must_use]
     pub const fn earliest_created_at(self) -> SimulationTick {
         self.earliest_created_at
@@ -130,6 +170,10 @@ impl MaterialLotProvenance {
         self.latest_created_at
     }
 }
+
+#[cfg(test)]
+#[path = "material_lot_tests.rs"]
+mod tests;
 
 /// One homogeneous batch of matter whose local runtime properties must remain distinguishable.
 ///

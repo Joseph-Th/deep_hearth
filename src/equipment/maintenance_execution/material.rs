@@ -172,7 +172,6 @@ fn map_ingress_error(
         | MaterialIngressError::ZeroMass
         | MaterialIngressError::InvalidComposition { .. }
         | MaterialIngressError::CompositionMissingHost { .. }
-        | MaterialIngressError::InvalidProvenance
         | MaterialIngressError::ReservationMismatch { .. }
         | MaterialIngressError::ProvenanceInFuture { .. } => {
             EquipmentMaintenanceMaterialError::InvalidEmbodiedComponent { equipment }

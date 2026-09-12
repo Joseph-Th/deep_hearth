@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, CompositionError, MaterialId};
+use crate::material::CommodityKey;
 
 use super::ProcessOutputStreamId;
 
@@ -15,33 +15,12 @@ pub enum ProcessResolutionError {
     ZeroDuration,
     NoOutputs,
     ZeroOutputStreamId,
-    DuplicateOutputStreamId {
-        stream: ProcessOutputStreamId,
-    },
+    DuplicateOutputStreamId { stream: ProcessOutputStreamId },
     EmptyOutputStream,
-    ZeroOutputMass {
-        commodity: CommodityKey,
-    },
-    InvalidOutputComposition {
-        commodity: CommodityKey,
-        error: CompositionError,
-    },
-    OutputCompositionMissingHost {
-        commodity: CommodityKey,
-        host: MaterialId,
-    },
-    DuplicateOutputSpecification {
-        commodity: CommodityKey,
-    },
+    DuplicateOutputSpecification { commodity: CommodityKey },
     OutputMassOverflow,
-    MatterBalanceMismatch {
-        input_mass: Mass,
-        output_mass: Mass,
-    },
-    EquipmentConditionImproved {
-        before: Condition,
-        after: Condition,
-    },
+    MatterBalanceMismatch { input_mass: Mass, output_mass: Mass },
+    EquipmentConditionImproved { before: Condition, after: Condition },
 }
 
 impl Display for ProcessResolutionError {
@@ -60,25 +39,6 @@ impl Display for ProcessResolutionError {
             Self::EmptyOutputStream => {
                 formatter.write_str("resolved process output stream must own material")
             }
-            Self::ZeroOutputMass { commodity } => write!(
-                formatter,
-                "resolved output material {} form {} has zero mass",
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::InvalidOutputComposition { commodity, error } => write!(
-                formatter,
-                "resolved output material {} form {} has invalid composition: {error}",
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::OutputCompositionMissingHost { commodity, host } => write!(
-                formatter,
-                "resolved output material {} form {} composition omits host material {}",
-                commodity.material().value(),
-                commodity.form().value(),
-                host.value()
-            ),
             Self::DuplicateOutputSpecification { commodity } => write!(
                 formatter,
                 "resolved output repeats material {} form {} with identical physical state",
@@ -110,14 +70,11 @@ impl Display for ProcessResolutionError {
 impl Error for ProcessResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidOutputComposition { error, .. } => Some(error),
             Self::ZeroDuration
             | Self::NoOutputs
             | Self::ZeroOutputStreamId
             | Self::DuplicateOutputStreamId { .. }
             | Self::EmptyOutputStream
-            | Self::ZeroOutputMass { .. }
-            | Self::OutputCompositionMissingHost { .. }
             | Self::DuplicateOutputSpecification { .. }
             | Self::OutputMassOverflow
             | Self::MatterBalanceMismatch { .. }

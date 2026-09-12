@@ -41,9 +41,6 @@ pub enum MiningValidationError {
     JobIdBeyondCursor {
         job: MiningJobId,
     },
-    ZeroOutputMass {
-        job: MiningJobId,
-    },
     JobStartedInFuture {
         job: MiningJobId,
         started: SimulationTick,
@@ -87,9 +84,6 @@ impl Display for MiningValidationError {
                 "mining job {} is not below the next identifier cursor",
                 job.value()
             ),
-            Self::ZeroOutputMass { job } => {
-                write!(formatter, "mining job {} has zero output mass", job.value())
-            }
             Self::JobStartedInFuture {
                 job,
                 started,
@@ -189,9 +183,6 @@ fn validate_mining_job_identity(
     job: &MiningJobRecord,
 ) -> Result<(), MiningValidationError> {
     validate_mining_job_id(state.next_job_id, key, job.id())?;
-    if job.output().mass().is_zero() {
-        return Err(MiningValidationError::ZeroOutputMass { job: job.id() });
-    }
     Ok(())
 }
 

@@ -39,6 +39,42 @@ fn input_spec_rejects_duplicate_material_constraints() {
 }
 
 #[test]
+fn lot_spec_deserialization_enforces_intrinsic_matter_invariants() {
+    let host = MaterialId::new(3);
+    let form = FormId::new(1);
+    let valid = MaterialLotSpec::new(
+        CommodityKey::new(host, form),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    );
+    let encoded = serde_json::to_value(&valid)
+        .unwrap_or_else(|error| panic!("lot specification serialization failed: {error}"));
+    let decoded: MaterialLotSpec = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("lot specification deserialization failed: {error}"));
+    assert_eq!(decoded, valid);
+
+    let other = MaterialId::new(4);
+    for invalid in [
+        serde_json::json!({
+            "commodity": CommodityKey::new(host, form).value(),
+            "mass": 0,
+            "temperature": 300_000,
+            "composition": [{"material": host.value(), "parts_per_million": 1_000_000}],
+            "particle_size": null,
+        }),
+        serde_json::json!({
+            "commodity": CommodityKey::new(host, form).value(),
+            "mass": 10,
+            "temperature": 300_000,
+            "composition": [{"material": other.value(), "parts_per_million": 1_000_000}],
+            "particle_size": null,
+        }),
+    ] {
+        assert!(serde_json::from_value::<MaterialLotSpec>(invalid).is_err());
+    }
+}
+
+#[test]
 fn input_spec_requires_room_for_its_commodity_host() {
     let host = MaterialId::new(3);
     let other = MaterialId::new(4);

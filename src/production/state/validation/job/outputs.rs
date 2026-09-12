@@ -8,36 +8,6 @@ use crate::material::MaterialLotSpec;
 use super::super::super::{ProductionJobId, ProductionJobRecord, ProductionOutputStream};
 use super::super::ProductionValidationError;
 
-fn validate_output_spec(
-    id: ProductionJobId,
-    output: &MaterialLotSpec,
-) -> Result<(), ProductionValidationError> {
-    if output.mass().is_zero() {
-        return Err(ProductionValidationError::ZeroOutputMass {
-            job: id,
-            commodity: output.commodity(),
-        });
-    }
-    output.composition().validate().map_err(|error| {
-        ProductionValidationError::InvalidOutputComposition {
-            job: id,
-            commodity: output.commodity(),
-            error,
-        }
-    })?;
-    if output
-        .composition()
-        .parts_per_million(output.commodity().material())
-        == 0
-    {
-        return Err(ProductionValidationError::OutputCompositionMissingHost {
-            job: id,
-            host: output.commodity().material(),
-        });
-    }
-    Ok(())
-}
-
 fn validate_output_stream(
     id: ProductionJobId,
     stream: &ProductionOutputStream,
@@ -49,7 +19,6 @@ fn validate_output_stream(
     let mut seen_outputs = BTreeSet::new();
     let mut previous_output = None;
     for output in &stream.outputs {
-        validate_output_spec(id, output)?;
         if !seen_outputs.insert(output) {
             return Err(ProductionValidationError::DuplicateOutputSpecification { job: id });
         }

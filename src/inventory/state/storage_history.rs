@@ -1,6 +1,6 @@
 //! Persistent storage-exposure value semantics for material lots and in-flight matter.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::core::arithmetic::{NORMALIZED_PARTS_PER_MILLION, greatest_common_divisor_u128};
 use crate::core::time::{SimulationTick, TickSpan};
@@ -16,11 +16,36 @@ const MAX_STORAGE_AGE_PARTS_PER_TICK: u128 =
 /// `STORAGE_AGE_PARTS_PER_TICK` parts. This keeps preservation history independent from any one food
 /// definition while preventing later movement into better storage from retroactively improving prior
 /// exposure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct MaterialStorageHistory {
     ambient_age_parts: u128,
     last_transition_at: SimulationTick,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MaterialStorageHistoryRepresentation {
+    ambient_age_parts: u128,
+    last_transition_at: SimulationTick,
+}
+
+impl<'de> Deserialize<'de> for MaterialStorageHistory {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let representation = MaterialStorageHistoryRepresentation::deserialize(deserializer)?;
+        let history = Self {
+            ambient_age_parts: representation.ambient_age_parts,
+            last_transition_at: representation.last_transition_at,
+        };
+        if !history.has_reachable_accumulated_age() {
+            return Err(serde::de::Error::custom(
+                "material storage history exceeds physically reachable accumulated exposure",
+            ));
+        }
+        Ok(history)
+    }
 }
 
 impl MaterialStorageHistory {
@@ -41,7 +66,7 @@ impl MaterialStorageHistory {
     ///
     /// The smallest legal preservation multiplier is one part per million, so no physical storage
     /// history can accumulate more than `MAX_STORAGE_AGE_PARTS_PER_TICK` ambient-age parts per
-    /// world tick. Enforcing this at trusted load proves every later projection through the `u64`
+    /// world tick. Enforcing this at decode proves every later projection through the `u64`
     /// simulation clock fits in `u128`.
     pub(crate) fn has_reachable_accumulated_age(self) -> bool {
         let maximum = u128::from(self.last_transition_at.value())

@@ -89,9 +89,6 @@ pub enum StructureValidationError {
         element: StructuralElementId,
         material: MaterialId,
     },
-    InvalidEmbodiedProvenanceRange {
-        element: StructuralElementId,
-    },
     EmbodiedProvenanceInFuture {
         element: StructuralElementId,
         latest_created_at: SimulationTick,
@@ -275,11 +272,6 @@ impl Display for StructureValidationError {
                 element.value(),
                 material.value()
             ),
-            Self::InvalidEmbodiedProvenanceRange { element } => write!(
-                formatter,
-                "structural element {} embodied material has an inverted provenance range",
-                element.value()
-            ),
             Self::EmbodiedProvenanceInFuture {
                 element,
                 latest_created_at,
@@ -423,7 +415,6 @@ impl Error for StructureValidationError {
             | Self::EmbodiedMassOverflow { element: _element }
             | Self::ZeroEmbodiedTrace { element: _element }
             | Self::UnknownEmbodiedCommodity { element: _element }
-            | Self::InvalidEmbodiedProvenanceRange { element: _element }
             | Self::SelfWeightOverflow { element: _element }
             | Self::PlannedElementCracked { element: _element }
             | Self::FailedElementNotCracked { element: _element }

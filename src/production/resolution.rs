@@ -447,16 +447,6 @@ fn validate_outputs(outputs: &[MaterialLotSpec]) -> Result<(), ProcessResolution
     let mut seen = BTreeSet::new();
     for output in outputs {
         let commodity = output.commodity();
-        if output.mass().is_zero() {
-            return Err(ProcessResolutionError::ZeroOutputMass { commodity });
-        }
-        output.composition().validate().map_err(|error| {
-            ProcessResolutionError::InvalidOutputComposition { commodity, error }
-        })?;
-        let host = commodity.material();
-        if output.composition().parts_per_million(host) == 0 {
-            return Err(ProcessResolutionError::OutputCompositionMissingHost { commodity, host });
-        }
         if !seen.insert(output) {
             return Err(ProcessResolutionError::DuplicateOutputSpecification { commodity });
         }

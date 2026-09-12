@@ -70,13 +70,6 @@ pub(super) fn validate_material_storage_history(
             },
         );
     }
-    if !job
-        .resources
-        .material_storage_history
-        .has_reachable_accumulated_age()
-    {
-        return Err(ProductionValidationError::StorageHistoryUnreachable { job: id });
-    }
     debug_assert!(
         job.resources
             .material_storage_history

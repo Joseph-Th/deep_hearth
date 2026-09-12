@@ -59,10 +59,7 @@ impl MaterialIngressEntry {
                 composition: specification.composition().clone(),
                 particle_size: specification.particle_size_distribution().cloned(),
             },
-            provenance: MaterialLotProvenance {
-                earliest_created_at: created_at,
-                latest_created_at: created_at,
-            },
+            provenance: MaterialLotProvenance::single(created_at),
         }
     }
 

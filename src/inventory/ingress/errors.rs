@@ -34,7 +34,6 @@ pub(crate) enum MaterialIngressError {
         host: MaterialId,
     },
     Storage(StockpileStorageError),
-    InvalidProvenance,
     ProvenanceInFuture {
         latest: SimulationTick,
         current: SimulationTick,
@@ -88,9 +87,6 @@ impl Display for MaterialIngressError {
             Self::Storage(error) => {
                 write!(formatter, "stockpile rejects material ingress: {error}")
             }
-            Self::InvalidProvenance => formatter.write_str(
-                "material ingress provenance ends before its earliest represented creation tick",
-            ),
             Self::ProvenanceInFuture { latest, current } => write!(
                 formatter,
                 "material ingress provenance reaches tick {} after current tick {}",
@@ -146,7 +142,6 @@ impl Error for MaterialIngressError {
             | Self::UnknownCompositionMaterial { .. }
             | Self::ZeroMass
             | Self::CompositionMissingHost { .. }
-            | Self::InvalidProvenance
             | Self::ProvenanceInFuture { .. }
             | Self::MassOverflow { .. }
             | Self::CapacityExceeded { .. }

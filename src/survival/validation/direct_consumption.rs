@@ -87,9 +87,7 @@ fn validate_pending_food_trace(
         return Err(SurvivalValidationError::PendingEatingTraceInvalid);
     }
     let provenance = trace.provenance();
-    if provenance.earliest_created_at() > provenance.latest_created_at()
-        || provenance.latest_created_at() > pending.started_at()
-    {
+    if provenance.latest_created_at() > pending.started_at() {
         return Err(SurvivalValidationError::PendingEatingTraceInvalid);
     }
     Ok(commodity.material())

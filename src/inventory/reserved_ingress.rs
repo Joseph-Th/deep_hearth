@@ -411,10 +411,7 @@ fn apply_reserved_deposits_ref(
                         composition: output.composition().clone(),
                         particle_size: output.particle_size_distribution().cloned(),
                     },
-                    provenance: MaterialLotProvenance {
-                        earliest_created_at: plan.provenance_created_at,
-                        latest_created_at: plan.provenance_created_at,
-                    },
+                    provenance: MaterialLotProvenance::single(plan.provenance_created_at),
                     storage_history,
                 },
                 *merge_policy,

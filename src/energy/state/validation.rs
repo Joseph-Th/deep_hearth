@@ -67,9 +67,6 @@ pub enum EnergyValidationError {
         store: EnergyStoreId,
         error: ParticleSizeStateError,
     },
-    InvalidEmbodiedProvenanceRange {
-        store: EnergyStoreId,
-    },
     EmbodiedProvenanceInFuture {
         store: EnergyStoreId,
         latest_created_at: SimulationTick,
@@ -172,11 +169,6 @@ impl Display for EnergyValidationError {
             Self::InvalidEmbodiedParticleSizeState { store, error } => write!(
                 formatter,
                 "energy store {} contains embodied matter with invalid particle-size state: {error}",
-                store.value()
-            ),
-            Self::InvalidEmbodiedProvenanceRange { store } => write!(
-                formatter,
-                "energy store {} embodied material has an invalid provenance range",
                 store.value()
             ),
             Self::EmbodiedProvenanceInFuture {

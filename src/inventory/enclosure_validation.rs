@@ -97,9 +97,6 @@ fn validate_enclosure_trace(
         },
     )?;
     let provenance = trace.provenance();
-    if provenance.latest_created_at() < provenance.earliest_created_at() {
-        return Err(StorageEnclosureValidationError::InvalidEmbodiedProvenanceRange { stockpile });
-    }
     if provenance.latest_created_at() > state.tick() {
         return Err(
             StorageEnclosureValidationError::EmbodiedProvenanceInFuture {

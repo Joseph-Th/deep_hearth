@@ -5,20 +5,6 @@ use crate::core::quantity::Mass;
 use super::super::{InventoryState, StockpileId, StockpileRecord};
 use super::{InventoryValidationError, StockpileLotTotals};
 
-pub(super) fn validate_storage_profiles(
-    state: &InventoryState,
-) -> Result<(), InventoryValidationError> {
-    for (stockpile, record) in &state.stockpiles {
-        record.storage_profile.validate().map_err(|error| {
-            InventoryValidationError::InvalidStorageProfile {
-                stockpile: *stockpile,
-                error,
-            }
-        })?;
-    }
-    Ok(())
-}
-
 pub(super) fn validate_stockpile_record(
     state: &InventoryState,
     key: StockpileId,

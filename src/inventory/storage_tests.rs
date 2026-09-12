@@ -20,6 +20,39 @@ fn preservation_profile() -> StockpileStorageProfile {
     .unwrap_or_else(|error| panic!("storage definition test profile failed: {error}"))
 }
 
+#[test]
+fn storage_profile_deserialization_enforces_intrinsic_invariants() {
+    let valid = preservation_profile();
+    let encoded = serde_json::to_value(valid)
+        .unwrap_or_else(|error| panic!("storage profile serialization failed: {error}"));
+    let decoded: StockpileStorageProfile = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("storage profile deserialization failed: {error}"));
+    assert_eq!(decoded, valid);
+
+    for invalid in [
+        serde_json::json!({
+            "can_store_solid": false,
+            "can_store_liquid": false,
+            "maximum_temperature": 333_150,
+            "preservation_multiplier_ppm": 2_000_000,
+        }),
+        serde_json::json!({
+            "can_store_solid": true,
+            "can_store_liquid": false,
+            "maximum_temperature": 0,
+            "preservation_multiplier_ppm": 2_000_000,
+        }),
+        serde_json::json!({
+            "can_store_solid": true,
+            "can_store_liquid": false,
+            "maximum_temperature": 333_150,
+            "preservation_multiplier_ppm": 0,
+        }),
+    ] {
+        assert!(serde_json::from_value::<StockpileStorageProfile>(invalid).is_err());
+    }
+}
+
 fn active_exertion() -> SurvivalExertion {
     SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO)
 }

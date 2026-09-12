@@ -41,9 +41,6 @@ pub enum GeologicalKnowledgeValidationError {
         observation: GeologicalObservationId,
         material: MaterialId,
     },
-    InvalidExcavationHardness {
-        observation: GeologicalObservationId,
-    },
     ExcavationHardnessUnsupportedEvidence {
         observation: GeologicalObservationId,
         evidence: GeologicalEvidenceKind,
@@ -133,11 +130,6 @@ impl Display for GeologicalKnowledgeValidationError {
                 "geological observation {} references unknown material {}",
                 observation.value(),
                 material.value()
-            ),
-            Self::InvalidExcavationHardness { observation } => write!(
-                formatter,
-                "geological observation {} contains an invalid excavation-hardness estimate",
-                observation.value()
             ),
             Self::ExcavationHardnessUnsupportedEvidence {
                 observation,
@@ -286,13 +278,6 @@ fn validate_observation(
             }
         }
     })?;
-    if record.excavation_hardness.is_some_and(|estimate| {
-        super::ExcavationHardnessEstimate::new(estimate.lower(), estimate.upper()).is_err()
-    }) {
-        return Err(
-            GeologicalKnowledgeValidationError::InvalidExcavationHardness { observation: id },
-        );
-    }
     if record.observed_at > current {
         return Err(GeologicalKnowledgeValidationError::ObservedInFuture {
             observation: id,

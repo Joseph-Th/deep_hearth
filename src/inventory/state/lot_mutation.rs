@@ -370,14 +370,7 @@ fn apply_merge_lot_record(
         Some(value) => value,
         None => panic!("validated compatible lot merge overflowed authoritative mass"),
     };
-    existing.provenance.earliest_created_at = std::cmp::min(
-        existing.provenance.earliest_created_at,
-        lot.provenance.earliest_created_at,
-    );
-    existing.provenance.latest_created_at = std::cmp::max(
-        existing.provenance.latest_created_at,
-        lot.provenance.latest_created_at,
-    );
+    existing.provenance = existing.provenance.merged(lot.provenance);
     let existing_age = existing
         .storage_history
         .project(at, destination_preservation_multiplier_ppm)

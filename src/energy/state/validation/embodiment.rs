@@ -148,9 +148,6 @@ fn validate_embodied_trace(
     )?;
 
     let provenance = trace.provenance();
-    if provenance.latest_created_at() < provenance.earliest_created_at() {
-        return Err(EnergyValidationError::InvalidEmbodiedProvenanceRange { store: record.id });
-    }
     if provenance.latest_created_at() > current {
         return Err(EnergyValidationError::EmbodiedProvenanceInFuture {
             store: record.id,

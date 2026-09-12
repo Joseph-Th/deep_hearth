@@ -24,9 +24,6 @@ fn validate_consumed_input_trace(
             ProductionValidationError::ConsumedInputCompositionMissingHost { job: id, host },
         );
     }
-    if trace.provenance().latest_created_at() < trace.provenance().earliest_created_at() {
-        return Err(ProductionValidationError::InvalidConsumedInputProvenance { job: id });
-    }
     if trace.provenance().latest_created_at() > started_at {
         return Err(ProductionValidationError::ConsumedInputCreatedAfterStart {
             job: id,

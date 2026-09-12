@@ -113,10 +113,6 @@ pub(super) fn summarize_planned_ingress_mass(
             "validated material ingress composition lost its commodity host"
         );
         assert!(
-            entry.provenance.earliest_created_at() <= entry.provenance.latest_created_at(),
-            "validated material ingress provenance became invalid"
-        );
-        assert!(
             entry.provenance.latest_created_at() <= current_tick,
             "validated material ingress provenance moved into the future"
         );

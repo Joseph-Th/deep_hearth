@@ -5,17 +5,15 @@ use crate::content::{
     FORM_LOG, MATERIAL_WOOD, build_registries, make_test_registries_with_energy_store,
 };
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
-use crate::core::state::{StateValidationError, apply_clock_advance};
+use crate::core::state::apply_clock_advance;
 use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture,
 };
-use crate::inventory::{
-    InventoryValidationError, add_solid_stockpile_for_test, deposit_lot_for_test,
-};
+use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::material::CommodityKey;
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
 use crate::survival::{Vitality, initialize_player_survival, player_record};
 
@@ -36,7 +34,7 @@ fn passive_dissipation_registries() -> Registries {
 }
 
 #[test]
-fn unreachable_inventory_storage_history_is_rejected_at_trusted_load() {
+fn unreachable_inventory_storage_history_is_rejected_during_decode() {
     let registries = build_registries();
     let mut source = AppState::new(WorldSeed::new(0x5100_000C));
     let stockpile = add_solid_stockpile_for_test(&mut source, Mass::from_milligrams(1))
@@ -60,14 +58,7 @@ fn unreachable_inventory_storage_history_is_rejected_at_trusted_load() {
     assert_eq!(serialized.matches(&sentinel).count(), 1);
     let replacement = "\"ambient_age_parts\":1";
     let encoded = serialized.replacen(&sentinel, replacement, 1);
-    let decoded: LoadedSaveEnvelope = serde_json::from_str(&encoded)
-        .unwrap_or_else(|error| panic!("storage-age fixture decode failed: {error}"));
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Inventory(
-            InventoryValidationError::LotStorageHistoryUnreachable { lot }
-        )))
-    );
+    assert!(serde_json::from_str::<LoadedSaveEnvelope>(&encoded).is_err());
 }
 
 #[test]

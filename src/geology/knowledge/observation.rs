@@ -182,11 +182,27 @@ impl Error for MaterialAbundanceEstimateError {}
 /// The interval deliberately contains no geological owner identity. Physical sampling may narrow
 /// this band enough to choose suitable extraction tooling without exposing exact hidden deposit
 /// state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct ExcavationHardnessEstimate {
     pub(super) lower: Pressure,
     pub(super) upper: Pressure,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExcavationHardnessEstimateRepresentation {
+    lower: Pressure,
+    upper: Pressure,
+}
+
+impl<'de> Deserialize<'de> for ExcavationHardnessEstimate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let representation = ExcavationHardnessEstimateRepresentation::deserialize(deserializer)?;
+        Self::new(representation.lower, representation.upper).map_err(serde::de::Error::custom)
+    }
 }
 
 impl ExcavationHardnessEstimate {

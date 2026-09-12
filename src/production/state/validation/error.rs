@@ -9,7 +9,7 @@ use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, CompositionError, MaterialId};
+use crate::material::{CompositionError, MaterialId};
 
 use super::super::super::resolution::ProcessOutputStreamId;
 use super::super::ProductionJobId;
@@ -65,9 +65,6 @@ pub enum ProductionValidationError {
         job: ProductionJobId,
         transition: SimulationTick,
         started_at: SimulationTick,
-    },
-    StorageHistoryUnreachable {
-        job: ProductionJobId,
     },
     RequiredSupportWithoutEquipment {
         job: ProductionJobId,
@@ -140,9 +137,6 @@ pub enum ProductionValidationError {
         job: ProductionJobId,
         host: MaterialId,
     },
-    InvalidConsumedInputProvenance {
-        job: ProductionJobId,
-    },
     ConsumedInputMassOverflow {
         job: ProductionJobId,
     },
@@ -174,19 +168,6 @@ pub enum ProductionValidationError {
         job: ProductionJobId,
         before: Condition,
         after: Condition,
-    },
-    ZeroOutputMass {
-        job: ProductionJobId,
-        commodity: CommodityKey,
-    },
-    InvalidOutputComposition {
-        job: ProductionJobId,
-        commodity: CommodityKey,
-        error: CompositionError,
-    },
-    OutputCompositionMissingHost {
-        job: ProductionJobId,
-        host: MaterialId,
     },
     DuplicateOutputSpecification {
         job: ProductionJobId,
@@ -321,11 +302,6 @@ impl Display for ProductionValidationError {
                 transition.value(),
                 started_at.value()
             ),
-            Self::StorageHistoryUnreachable { job } => write!(
-                formatter,
-                "production job {} claims more checkpointed material storage exposure than could physically accumulate by its start tick",
-                job.value()
-            ),
             Self::RequiredSupportWithoutEquipment { job } => write!(
                 formatter,
                 "production job {} requires active equipment support but has no equipment provider",
@@ -454,11 +430,6 @@ impl Display for ProductionValidationError {
                 job.value(),
                 host.value()
             ),
-            Self::InvalidConsumedInputProvenance { job } => write!(
-                formatter,
-                "production job {} contains an invalid consumed input provenance range",
-                job.value()
-            ),
             Self::ConsumedInputMassOverflow { job } => write!(
                 formatter,
                 "production job {} consumed input trace mass overflows authoritative quantity storage",
@@ -521,30 +492,6 @@ impl Display for ProductionValidationError {
                 job.value(),
                 before.parts_per_million(),
                 after.parts_per_million()
-            ),
-            Self::ZeroOutputMass { job, commodity } => write!(
-                formatter,
-                "production job {} promises zero mass for material {} form {}",
-                job.value(),
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::InvalidOutputComposition {
-                job,
-                commodity,
-                error,
-            } => write!(
-                formatter,
-                "production job {} output material {} form {} has invalid composition: {error}",
-                job.value(),
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::OutputCompositionMissingHost { job, host } => write!(
-                formatter,
-                "production job {} output composition omits host material {}",
-                job.value(),
-                host.value()
             ),
             Self::DuplicateOutputSpecification { job } => write!(
                 formatter,

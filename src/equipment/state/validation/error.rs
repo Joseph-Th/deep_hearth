@@ -92,9 +92,6 @@ pub enum EquipmentValidationError {
         equipment: EquipmentId,
         error: ParticleSizeStateError,
     },
-    InvalidEmbodiedProvenanceRange {
-        equipment: EquipmentId,
-    },
     EmbodiedProvenanceInFuture {
         equipment: EquipmentId,
         latest_created_at: SimulationTick,
@@ -258,11 +255,6 @@ impl Display for EquipmentValidationError {
             Self::InvalidEmbodiedParticleSizeState { equipment, error } => write!(
                 formatter,
                 "equipment {} contains embodied matter with invalid particle-size state: {error}",
-                equipment.value()
-            ),
-            Self::InvalidEmbodiedProvenanceRange { equipment } => write!(
-                formatter,
-                "equipment {} embodied material has an invalid provenance range",
                 equipment.value()
             ),
             Self::EmbodiedProvenanceInFuture {

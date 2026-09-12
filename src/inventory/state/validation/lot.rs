@@ -86,13 +86,6 @@ fn validate_lot_provenance(
     lot: &MaterialLotRecord,
     current_tick: SimulationTick,
 ) -> Result<(), InventoryValidationError> {
-    if lot.latest_created_at() < lot.created_at() {
-        return Err(InventoryValidationError::InvalidLotProvenanceRange {
-            lot: key,
-            earliest: lot.created_at(),
-            latest: lot.latest_created_at(),
-        });
-    }
     if lot.latest_created_at() > current_tick {
         return Err(InventoryValidationError::LotProvenanceInFuture {
             lot: key,
@@ -125,9 +118,6 @@ fn validate_lot_storage_history(
             transition,
             current: current_tick,
         });
-    }
-    if !lot.storage_history().has_reachable_accumulated_age() {
-        return Err(InventoryValidationError::LotStorageHistoryUnreachable { lot: key });
     }
     debug_assert!(
         lot.storage_history()

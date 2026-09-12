@@ -53,9 +53,6 @@ pub enum StorageEnclosureValidationError {
         stockpile: StockpileId,
         error: ParticleSizeStateError,
     },
-    InvalidEmbodiedProvenanceRange {
-        stockpile: StockpileId,
-    },
     EmbodiedProvenanceInFuture {
         stockpile: StockpileId,
         latest_created_at: SimulationTick,
@@ -159,11 +156,6 @@ impl Display for StorageEnclosureValidationError {
                 "stockpile {} enclosure has invalid construction particle state: {error}",
                 stockpile.value()
             ),
-            Self::InvalidEmbodiedProvenanceRange { stockpile } => write!(
-                formatter,
-                "stockpile {} enclosure construction provenance range is reversed",
-                stockpile.value()
-            ),
             Self::EmbodiedProvenanceInFuture {
                 stockpile,
                 latest_created_at,
@@ -232,7 +224,6 @@ impl Error for StorageEnclosureValidationError {
             | Self::ZeroEmbodiedTrace { .. }
             | Self::UnknownEmbodiedCommodity { .. }
             | Self::ImpureEmbodiedMaterial { .. }
-            | Self::InvalidEmbodiedProvenanceRange { .. }
             | Self::EmbodiedProvenanceInFuture { .. }
             | Self::EmbodiedProvenanceAfterConstruction { .. }
             | Self::EmbodiedTraceMassOverflow { .. }

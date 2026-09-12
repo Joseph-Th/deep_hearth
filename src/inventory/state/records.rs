@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
@@ -43,13 +43,37 @@ impl StockpileId {
 /// This is intentionally explicit runtime state rather than an implicit property of the UI label
 /// "stockpile". A dry pile may hold hot or cold solids, while a crucible-like store can explicitly
 /// admit liquid matter up to an authored thermal limit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct StockpileStorageProfile {
     can_store_solid: bool,
     can_store_liquid: bool,
     maximum_temperature: Temperature,
     preservation_multiplier_ppm: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StockpileStorageProfileRepresentation {
+    can_store_solid: bool,
+    can_store_liquid: bool,
+    maximum_temperature: Temperature,
+    preservation_multiplier_ppm: u32,
+}
+
+impl<'de> Deserialize<'de> for StockpileStorageProfile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let representation = StockpileStorageProfileRepresentation::deserialize(deserializer)?;
+        Self::with_preservation(
+            representation.can_store_solid,
+            representation.can_store_liquid,
+            representation.maximum_temperature,
+            representation.preservation_multiplier_ppm,
+        )
+        .map_err(serde::de::Error::custom)
+    }
 }
 
 impl StockpileStorageProfile {

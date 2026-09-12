@@ -16,7 +16,7 @@ mod stockpile;
 pub use error::InventoryValidationError;
 use indexes::{validate_inventory_cursors, validate_lot_indexes, validate_stockpile_support_index};
 use lot::validate_material_lot;
-use stockpile::{validate_stockpile_record, validate_storage_profiles};
+use stockpile::validate_stockpile_record;
 
 #[derive(Default)]
 struct StockpileLotTotals {
@@ -54,7 +54,6 @@ pub(crate) fn validate_loaded_inventory(
     current_tick: SimulationTick,
 ) -> Result<(), InventoryValidationError> {
     validate_inventory_cursors(state)?;
-    validate_storage_profiles(state)?;
 
     let mut expected_lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();
     let mut calculated_by_stockpile = BTreeMap::<StockpileId, StockpileLotTotals>::new();

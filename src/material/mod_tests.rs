@@ -187,6 +187,21 @@ fn commodity_requires_explicit_material_form_authoring() {
 }
 
 #[test]
+fn commodity_deserialization_rejects_noncanonical_packed_identity() {
+    let canonical = CommodityKey::new(MaterialId::new(u32::MAX), FormId::new(u16::MAX));
+    let encoded = serde_json::to_string(&canonical)
+        .unwrap_or_else(|error| panic!("canonical commodity serialization failed: {error}"));
+    let decoded: CommodityKey = serde_json::from_str(&encoded)
+        .unwrap_or_else(|error| panic!("canonical commodity deserialization failed: {error}"));
+    assert_eq!(decoded, canonical);
+
+    let noncanonical = canonical.value().checked_add(1).unwrap_or_else(|| {
+        unreachable!("canonical commodity packing leaves upper u64 bits unused")
+    });
+    assert!(serde_json::from_value::<CommodityKey>(serde_json::json!(noncanonical)).is_err());
+}
+
+#[test]
 fn particle_size_range_and_form_policy_reject_ambiguous_runtime_state() {
     assert_eq!(
         ParticleSizeRange::new(Length::ZERO, Length::from_micrometers(10)),

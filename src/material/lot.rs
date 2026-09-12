@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::{
     COMPOSITION_PARTS_PER_MILLION, CommodityKey, CompositionConstraint, CompositionError,
@@ -194,14 +194,48 @@ impl Error for MaterialInputSpecError {}
 /// This is a boundary value shared by systems that produce matter. It is not a runtime record and
 /// carries no owner or persistent lot ID; the inventory owner binds persistent identity during
 /// canonical transaction planning and realizes it during commit.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct MaterialLotSpec {
     commodity: CommodityKey,
     mass: Mass,
     temperature: Temperature,
     composition: MaterialComposition,
     particle_size: Option<ParticleSizeDistribution>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MaterialLotSpecRepresentation {
+    commodity: CommodityKey,
+    mass: Mass,
+    temperature: Temperature,
+    composition: MaterialComposition,
+    particle_size: Option<ParticleSizeDistribution>,
+}
+
+impl<'de> Deserialize<'de> for MaterialLotSpec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let representation = MaterialLotSpecRepresentation::deserialize(deserializer)?;
+        match representation.particle_size {
+            Some(particle_size) => Self::with_composition_and_particle_size(
+                representation.commodity,
+                representation.mass,
+                representation.temperature,
+                representation.composition,
+                particle_size,
+            ),
+            None => Self::with_composition(
+                representation.commodity,
+                representation.mass,
+                representation.temperature,
+                representation.composition,
+            ),
+        }
+        .map_err(serde::de::Error::custom)
+    }
 }
 
 impl MaterialLotSpec {

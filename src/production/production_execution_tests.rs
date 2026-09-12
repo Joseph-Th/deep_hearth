@@ -453,14 +453,7 @@ fn persisted_production_storage_history_must_be_rebased_to_job_start() {
     let overflow = format!("\"ambient_age_parts\":{}", u128::MAX);
     assert_eq!(serialized.matches(&sentinel).count(), 1);
     let overflowed = serialized.replacen(&sentinel, &overflow, 1);
-    let tampered: LoadedSaveEnvelope = serde_json::from_str(&overflowed)
-        .unwrap_or_else(|error| panic!("storage-age overflow failed structural decode: {error}"));
-    assert_eq!(
-        tampered.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Production(
-            ProductionValidationError::StorageHistoryUnreachable { job }
-        )))
-    );
+    assert!(serde_json::from_str::<LoadedSaveEnvelope>(&overflowed).is_err());
 }
 
 #[test]

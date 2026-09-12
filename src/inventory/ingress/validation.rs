@@ -79,9 +79,6 @@ fn validate_ingress_entry(
         profile.particle_size_distribution(),
     )
     .map_err(MaterialIngressError::Storage)?;
-    if entry.provenance.latest_created_at() < entry.provenance.earliest_created_at() {
-        return Err(MaterialIngressError::InvalidProvenance);
-    }
     if entry.provenance.latest_created_at() > current_tick {
         return Err(MaterialIngressError::ProvenanceInFuture {
             latest: entry.provenance.latest_created_at(),
