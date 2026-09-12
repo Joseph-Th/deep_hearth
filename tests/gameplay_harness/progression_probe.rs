@@ -9,7 +9,9 @@ use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
-use super::manual_craft_planning::manual_craft_plan_for_output;
+use super::manual_craft_planning::{
+    manual_craft_plan_for_available_output, manual_craft_topology_plan_for_output,
+};
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
@@ -469,7 +471,7 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
 
     let mut process_batches: BTreeMap<deep_hearth::production::ProcessId, u64> = BTreeMap::new();
     for (commodity, required) in requirements {
-        let (craft, batches) = manual_craft_plan_for_output(
+        let (craft, batches) = manual_craft_topology_plan_for_output(
             registries,
             commodity,
             required,
@@ -536,29 +538,14 @@ fn craft_requirement(
     let missing = required
         .checked_sub(available)
         .unwrap_or_else(|| unreachable!("available component mass was already checked"));
-    let (craft, batches) = manual_craft_plan_for_output(
+    let (craft, batches, source) = manual_craft_plan_for_available_output(
         registries,
+        state,
+        &[raw_source, native_source],
         commodity,
         missing,
         "primitive just-in-time component planning",
     );
-    let required_input = multiply_mass(craft.input_mass(), batches, "just-in-time craft input");
-    let source = [raw_source, native_source]
-        .into_iter()
-        .find(|source| {
-            state
-                .inventory()
-                .get_stockpile(*source)
-                .is_some_and(|stockpile| stockpile.get_mass(craft.input()) >= required_input)
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "primitive progression lacks {}mg of manual-process input {} for component {}",
-                required_input.milligrams(),
-                craft.input().value(),
-                commodity.value()
-            )
-        });
     craft_batches(
         registries,
         state,
@@ -1247,7 +1234,7 @@ fn native_input_for_upgrade(
         .iter()
         .try_fold(Mass::ZERO, |total, input| {
             let (craft, batches) =
-                manual_craft_plan_for_output(
+                manual_craft_topology_plan_for_output(
                     registries,
                     input.commodity(),
                     input.mass(),

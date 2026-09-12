@@ -29,7 +29,7 @@ use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
 use super::manual_craft_execution::{execute_manual_craft, execute_manual_craft_batches};
-use super::manual_craft_planning::manual_craft_plan_for_output;
+use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::physical_time::format_physical_duration;
 use super::seed::mix64;
@@ -57,8 +57,10 @@ fn assemble_adze(
         .unwrap_or_else(|| panic!("woodworking adze lost its authored assembly"));
     let mut attention = 0_u64;
     for input in assembly.inputs() {
-        let (craft, batches) = manual_craft_plan_for_output(
+        let (craft, batches, source) = manual_craft_plan_for_available_output(
             registries,
+            state,
+            &[raw],
             input.commodity(),
             input.mass(),
             "woodworking adze component planning",
@@ -67,7 +69,7 @@ fn assemble_adze(
             registries,
             state,
             craft.process(),
-            raw,
+            source,
             parts,
             batches,
             "woodworking adze component",
@@ -144,8 +146,10 @@ fn assemble_saw(
                     checked_mass_times(board_craft.input_mass(), batches, "saw-frame timber"),
                 )
             } else {
-                let (craft, batches) = manual_craft_plan_for_output(
+                let (craft, batches, source) = manual_craft_plan_for_available_output(
                     registries,
+                    state,
+                    &[raw],
                     input.commodity(),
                     input.mass(),
                     "woodworking saw component planning",
@@ -160,7 +164,7 @@ fn assemble_saw(
                         registries,
                         state,
                         craft.process(),
-                        raw,
+                        source,
                         parts,
                         batches,
                         "woodworking saw component",

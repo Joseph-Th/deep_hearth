@@ -1,23 +1,20 @@
 //! Registry-derived actor planning for manual production routes.
 
 use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::state::AppState;
 use deep_hearth::crafting::ManualCraftDefinition;
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::{ProcessEquipmentRole, Registries};
 
-/// Selects the most attention-efficient observable bootstrap-capable manual production route to
-/// one required commodity quantity.
-///
-/// This is actor policy over registry-derived topology, not simulation authority. Canonical craft
-/// resolution still owns the actual operation once the actor has selected a process and current
-/// lots. Required-equipment recipes are excluded because callers of this helper execute the chosen
-/// route without an already-owned provider. Ties are rejected because process identity is not a
-/// player-visible preference.
-pub(super) fn manual_craft_plan_for_output<'a>(
+use super::manual_craft_selection::has_selectable_manual_craft_input;
+
+fn manual_craft_plan_for_output_matching<'a>(
     registries: &'a Registries,
     commodity: CommodityKey,
     required: Mass,
     context: &'static str,
+    mut input_is_available: impl FnMut(&ManualCraftDefinition, u64) -> bool,
 ) -> (&'a ManualCraftDefinition, u64) {
     assert!(
         !required.is_zero(),
@@ -33,7 +30,7 @@ pub(super) fn manual_craft_plan_for_output<'a>(
                 .equipment_role()
                 != ProcessEquipmentRole::Required
         })
-        .map(|definition| {
+        .filter_map(|definition| {
             let per_batch = definition
                 .outputs()
                 .iter()
@@ -52,6 +49,9 @@ pub(super) fn manual_craft_plan_for_output<'a>(
                 definition.process().value()
             );
             let batches = required.milligrams().div_ceil(per_batch.milligrams());
+            if !input_is_available(definition, batches) {
+                return None;
+            }
             let total_ticks = definition
                 .duration()
                 .value()
@@ -69,7 +69,7 @@ pub(super) fn manual_craft_plan_for_output<'a>(
                 exertion.energy_cost_per_tick().nanojoules(),
                 exertion.hydration_loss_per_tick().microliters(),
             );
-            (definition, batches, policy_key)
+            Some((definition, batches, policy_key))
         })
         .collect::<Vec<_>>();
     let best_key = candidates
@@ -78,7 +78,7 @@ pub(super) fn manual_craft_plan_for_output<'a>(
         .min()
         .unwrap_or_else(|| {
             panic!(
-                "gameplay harness {context} has no manual route to commodity {}",
+                "gameplay harness {context} has no eligible manual route to commodity {}",
                 commodity.value()
             )
         });
@@ -94,4 +94,63 @@ pub(super) fn manual_craft_plan_for_output<'a>(
         commodity.value()
     );
     (definition, batches)
+}
+
+/// Selects the most attention-efficient equipment-free authored route without considering current
+/// inventory. Use this only for pre-episode requirement topology where current inventory
+/// deliberately does not exist yet.
+pub(super) fn manual_craft_topology_plan_for_output<'a>(
+    registries: &'a Registries,
+    commodity: CommodityKey,
+    required: Mass,
+    context: &'static str,
+) -> (&'a ManualCraftDefinition, u64) {
+    manual_craft_plan_for_output_matching(
+        registries,
+        commodity,
+        required,
+        context,
+        |_definition, _batches| true,
+    )
+}
+
+/// Selects the most attention-efficient equipment-free route whose exact pure homogeneous input is
+/// currently present in at least one declared actor-visible source.
+///
+/// This prevents nominally attractive salvage or conversion recipes from masquerading as available
+/// actions merely because their output topology is authored. Canonical craft resolution remains the
+/// legality proof after actor policy chooses the route. Source order is the explicit actor preference
+/// when more than one source can satisfy the selected route exactly.
+pub(super) fn manual_craft_plan_for_available_output<'a>(
+    registries: &'a Registries,
+    state: &AppState,
+    sources: &[StockpileId],
+    commodity: CommodityKey,
+    required: Mass,
+    context: &'static str,
+) -> (&'a ManualCraftDefinition, u64, StockpileId) {
+    assert!(
+        !sources.is_empty(),
+        "gameplay harness {context} requires at least one actor-visible craft source"
+    );
+    let (definition, batches) = manual_craft_plan_for_output_matching(
+        registries,
+        commodity,
+        required,
+        context,
+        |definition, batches| {
+            sources
+                .iter()
+                .copied()
+                .any(|source| has_selectable_manual_craft_input(state, source, definition, batches))
+        },
+    );
+    let source = sources
+        .iter()
+        .copied()
+        .find(|source| has_selectable_manual_craft_input(state, *source, definition, batches))
+        .unwrap_or_else(|| {
+            unreachable!("available manual-craft route must retain a proven source")
+        });
+    (definition, batches, source)
 }

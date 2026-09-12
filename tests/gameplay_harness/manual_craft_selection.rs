@@ -14,7 +14,7 @@ fn first_sufficient_pure_temperature(
     commodity: CommodityKey,
     required_mass: Mass,
     context: &'static str,
-) -> Temperature {
+) -> Option<Temperature> {
     let expected_composition = MaterialComposition::pure(commodity.material());
     let mut temperatures = Vec::<(Temperature, Mass)>::new();
     for lot in state.inventory().lot_ids(stockpile) {
@@ -40,13 +40,27 @@ fn first_sufficient_pure_temperature(
         .into_iter()
         .find(|(_, mass)| *mass >= required_mass)
         .map(|(temperature, _)| temperature)
-        .unwrap_or_else(|| {
-            panic!(
-                "gameplay harness {context} has no homogeneous pure {} batch of {}mg",
-                commodity.value(),
-                required_mass.milligrams()
-            )
-        })
+}
+
+/// Returns whether one source currently contains a selectable pure homogeneous input batch for the
+/// requested manual craft. This is actor-visible inventory filtering, not production authorization.
+pub(super) fn has_selectable_manual_craft_input(
+    state: &AppState,
+    source: StockpileId,
+    definition: &deep_hearth::crafting::ManualCraftDefinition,
+    batches: u64,
+) -> bool {
+    let Some(required_mg) = definition.input_mass().milligrams().checked_mul(batches) else {
+        return false;
+    };
+    first_sufficient_pure_temperature(
+        state,
+        source,
+        definition.input(),
+        Mass::from_milligrams(required_mg),
+        "manual-craft availability",
+    )
+    .is_some()
 }
 
 fn select_pure_mass_at_temperature(
@@ -120,7 +134,14 @@ pub(super) fn select_manual_craft_request(
         definition.input(),
         required_mass,
         context,
-    );
+    )
+    .unwrap_or_else(|| {
+        panic!(
+            "gameplay harness {context} has no homogeneous pure {} batch of {}mg",
+            definition.input().value(),
+            required_mass.milligrams()
+        )
+    });
     let selections = select_pure_mass_at_temperature(
         state,
         source,

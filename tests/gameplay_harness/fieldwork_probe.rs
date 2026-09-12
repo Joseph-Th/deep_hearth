@@ -38,7 +38,9 @@ use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft_batches;
-use super::manual_craft_planning::manual_craft_plan_for_output;
+use super::manual_craft_planning::{
+    manual_craft_plan_for_available_output, manual_craft_topology_plan_for_output,
+};
 use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::seed::mix64;
@@ -108,7 +110,7 @@ fn fieldwork_raw_opportunity(registries: &Registries) -> (BTreeMap<CommodityKey,
             EQUIPMENT_STONE_PICK,
         ],
     ) {
-        let (craft, batches) = manual_craft_plan_for_output(
+        let (craft, batches) = manual_craft_topology_plan_for_output(
             registries,
             commodity,
             required,
@@ -145,7 +147,7 @@ fn fieldwork_raw_opportunity(registries: &Registries) -> (BTreeMap<CommodityKey,
             });
         assert_eq!(upgrade.from(), expected_base);
         for input in upgrade.additions().inputs() {
-            let (craft, batches) = manual_craft_plan_for_output(
+            let (craft, batches) = manual_craft_topology_plan_for_output(
                 registries,
                 input.commodity(),
                 input.mass(),
@@ -293,13 +295,19 @@ fn craft_equipment_components(
     let mut ticks = 0_u64;
     for (commodity, required) in equipment_component_requirements(registries, equipment_definitions)
     {
-        let (craft, batches) =
-            manual_craft_plan_for_output(registries, commodity, required, context);
+        let (craft, batches, source) = manual_craft_plan_for_available_output(
+            registries,
+            state,
+            &[raw],
+            commodity,
+            required,
+            context,
+        );
         let duration = execute_manual_craft_batches(
             registries,
             state,
             craft.process(),
-            raw,
+            source,
             parts,
             batches,
             context,
@@ -421,13 +429,19 @@ fn craft_upgrade_additions(
         });
     let mut ticks = 0_u64;
     for input in upgrade.additions().inputs() {
-        let (craft, batches) =
-            manual_craft_plan_for_output(registries, input.commodity(), input.mass(), context);
+        let (craft, batches, source) = manual_craft_plan_for_available_output(
+            registries,
+            state,
+            &[raw],
+            input.commodity(),
+            input.mass(),
+            context,
+        );
         let duration = execute_manual_craft_batches(
             registries,
             state,
             craft.process(),
-            raw,
+            source,
             parts,
             batches,
             context,
@@ -678,6 +692,11 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
 
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x4649_454C_4457_524C));
     let (raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
+    let native_copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
+    let starting_native_copper = raw_opportunity
+        .get(&native_copper)
+        .copied()
+        .unwrap_or(Mass::ZERO);
     let raw_capacity = raw_opportunity
         .values()
         .copied()
@@ -897,14 +916,14 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     let retained_native_copper = state
         .inventory()
         .get_stockpile(raw)
-        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)))
+        .map(|stockpile| stockpile.get_mass(native_copper))
         .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared"));
     let sampling_setup_time = format_physical_duration(registries, sampling_setup_ticks);
     let tool_prep_time = format_physical_duration(registries, tool_prep_ticks);
     let mining_time = format_physical_duration(registries, mining_ticks);
 
     reviewln!(
-        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={}ppm matter=conserved",
+        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={}ppm matter=conserved",
         focused_probe_role_label(case.role()),
         CHANNEL_COUNT,
         transects,
@@ -914,6 +933,7 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         observed_hardness.upper().pascals(),
         sampling_setup_ticks,
         tool_prep_ticks,
+        starting_native_copper.milligrams(),
         retained_native_copper.milligrams(),
         requested_mine_mass.milligrams(),
         extracted_mass.milligrams(),

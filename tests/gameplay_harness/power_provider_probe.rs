@@ -12,9 +12,8 @@
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
     ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_BOARD, FORM_LOG,
-    FORM_LUMP, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_SHAPE_WOOD_BOARDS,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_LOG, FORM_LUMP, MANUAL_POWER_FOOT_TREADLE,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -32,9 +31,8 @@ use super::environment::ROOM_TEMPERATURE;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
-use super::manual_craft_execution::{execute_manual_craft, execute_manual_craft_batches};
-use super::manual_craft_planning::manual_craft_plan_for_output;
-use super::manual_craft_selection::select_manual_craft_request;
+use super::manual_craft_execution::execute_manual_craft_batches;
+use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_power_timing::finish_manual_power_work;
 use super::seed::mix64;
 
@@ -48,38 +46,26 @@ fn shape_assembly_inputs(
     state: &mut AppState,
     raw: StockpileId,
     shaped: StockpileId,
-    adze: Option<EquipmentId>,
     inputs: Vec<(CommodityKey, Mass)>,
     context: &'static str,
 ) -> u64 {
     let mut attention_ticks = 0_u64;
     for (commodity, required) in inputs {
-        // Boards are the one treadle input whose cheapest equipment-free plan is salvaging an
-        // enclosure the actor does not own. Real play knaps the ordinary woodworking adze first
-        // and shapes boards with it, so the episode does exactly that once the adze exists.
-        if commodity.form() == FORM_BOARD && adze.is_some() {
-            attention_ticks = attention_ticks
-                .checked_add(shape_boards_with_adze(
-                    registries,
-                    state,
-                    raw,
-                    shaped,
-                    adze.unwrap_or_else(|| unreachable!("adze presence was already checked")),
-                    required,
-                    context,
-                ))
-                .unwrap_or_else(|| panic!("power provider {context} attention overflowed"));
-            continue;
-        }
-        let (craft, batches) =
-            manual_craft_plan_for_output(registries, commodity, required, context);
+        let (craft, batches, source) = manual_craft_plan_for_available_output(
+            registries,
+            state,
+            &[raw],
+            commodity,
+            required,
+            context,
+        );
         attention_ticks = attention_ticks
             .checked_add(
                 execute_manual_craft_batches(
                     registries,
                     state,
                     craft.process(),
-                    raw,
+                    source,
                     shaped,
                     batches,
                     context,
@@ -91,47 +77,11 @@ fn shape_assembly_inputs(
     attention_ticks
 }
 
-fn shape_boards_with_adze(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
-    adze: EquipmentId,
-    required: Mass,
-    context: &'static str,
-) -> u64 {
-    let per_batch = registries
-        .crafting()
-        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
-        .and_then(|definition| {
-            definition
-                .outputs()
-                .iter()
-                .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
-                .map(|output| output.mass())
-        })
-        .unwrap_or_else(|| panic!("power provider board shaping lost its authored recovery"));
-    let batches = required
-        .milligrams()
-        .div_ceil(per_batch.milligrams().max(1));
-    let request = select_manual_craft_request(
-        registries,
-        state,
-        PROCESS_SHAPE_WOOD_BOARDS,
-        raw,
-        batches,
-        context,
-    )
-    .with_equipment(adze);
-    execute_manual_craft(registries, state, request, shaped, context).value()
-}
-
 fn build_provider(
     registries: &Registries,
     state: &mut AppState,
     raw: StockpileId,
     shaped: StockpileId,
-    adze: Option<EquipmentId>,
     definition: deep_hearth::equipment::EquipmentDefinitionId,
     context: &'static str,
 ) -> (EquipmentId, ShapedBuild) {
@@ -155,8 +105,7 @@ fn build_provider(
                 definition.value()
             )
         });
-    let attention_ticks =
-        shape_assembly_inputs(registries, state, raw, shaped, adze, inputs.1, context);
+    let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
     let equipment = validate_assemble_equipment(registries, state, definition, shaped)
         .unwrap_or_else(|error| panic!("power provider equipment assembly failed: {error}"))
         .commit(state)
@@ -193,8 +142,7 @@ fn build_flywheel(
             )
         })
         .unwrap_or_else(|| panic!("power provider flywheel lost authored assembly"));
-    let attention_ticks =
-        shape_assembly_inputs(registries, state, raw, shaped, None, inputs.1, context);
+    let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
     let store = validate_assemble_energy_store(registries, state, definition, shaped)
         .unwrap_or_else(|error| panic!("power provider flywheel assembly failed: {error}"))
         .commit(state)
@@ -320,7 +268,6 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &mut crank_state,
         raw,
         shaped,
-        None,
         EQUIPMENT_STONE_HAND_CRANK,
         "power provider crank build",
     );
@@ -342,21 +289,11 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         "power provider crank charge",
     );
 
-    let (adze, adze_build) = build_provider(
-        registries,
-        &mut treadle_state,
-        raw,
-        shaped,
-        None,
-        EQUIPMENT_STONE_WOODWORKING_ADZE,
-        "power provider adze bootstrap",
-    );
     let (treadle, treadle_build) = build_provider(
         registries,
         &mut treadle_state,
         raw,
         shaped,
-        Some(adze),
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
         "power provider treadle build",
     );
@@ -416,17 +353,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .input_mass_mg
         .checked_add(crank_drive_build.input_mass_mg)
         .unwrap_or_else(|| panic!("power provider crank build mass overflowed"));
-    // The adze bootstrap exists only to shape treadle boards (the crank needs none), so its
-    // attention and material join the treadle side of the comparison.
     let treadle_build_attention = treadle_build
         .attention_ticks
         .checked_add(treadle_drive_build.attention_ticks)
-        .and_then(|total| total.checked_add(adze_build.attention_ticks))
         .unwrap_or_else(|| panic!("power provider treadle build attention overflowed"));
     let treadle_build_mass_mg = treadle_build
         .input_mass_mg
         .checked_add(treadle_drive_build.input_mass_mg)
-        .and_then(|total| total.checked_add(adze_build.input_mass_mg))
         .unwrap_or_else(|| panic!("power provider treadle build mass overflowed"));
     assert!(
         treadle_build_mass_mg > crank_build_mass_mg,

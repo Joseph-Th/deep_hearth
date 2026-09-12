@@ -52,6 +52,10 @@ pub enum StartProcessCommitError {
         equipment: EquipmentId,
         completes_at: crate::core::time::SimulationTick,
     },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: crate::core::time::SimulationTick,
+    },
     Structure(StructuralCommitError),
 }
 
@@ -103,6 +107,15 @@ impl Display for StartProcessCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "validated process start equipment {} is under maintenance until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::Structure(error) => write!(
                 formatter,
                 "validated process start could not commit stored-matter structural load: {error}"
@@ -144,6 +157,10 @@ impl Error for StartProcessCommitError {
                 equipment: _equipment,
             } => None,
             Self::EquipmentBusyProspecting {
+                equipment: _equipment,
+                completes_at: _completes_at,
+            } => None,
+            Self::EquipmentUnderMaintenance {
                 equipment: _equipment,
                 completes_at: _completes_at,
             } => None,
@@ -254,8 +271,13 @@ fn validate_commit_occupancy(
                 completes_at,
             });
         }
-        Some(EquipmentOccupancy::Production { .. } | EquipmentOccupancy::Maintenance { .. })
-        | None => {}
+        Some(EquipmentOccupancy::Maintenance { completes_at }) => {
+            return Err(StartProcessCommitError::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            });
+        }
+        Some(EquipmentOccupancy::Production { .. }) | None => {}
     }
     Ok(())
 }

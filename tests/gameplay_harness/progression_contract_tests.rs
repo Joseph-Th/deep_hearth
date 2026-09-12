@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE,
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
@@ -15,12 +16,18 @@ use deep_hearth::content::{
     PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::state::AppState;
+use deep_hearth::core::time::WorldSeed;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::ProcessEquipmentRole;
 
 use super::catalog::{ProcessResolverKind, process_catalog_entries};
+use super::environment::ROOM_TEMPERATURE;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
-use super::manual_craft_planning::manual_craft_plan_for_output;
+use super::inventory_support::add_solid_stockpile;
+use super::manual_craft_planning::{
+    manual_craft_plan_for_available_output, manual_craft_topology_plan_for_output,
+};
 use super::progression_probe::{
     DEEP_OPPORTUNITY_MIN_BATCHES, MARGINAL_OPPORTUNITY_MAX_BATCHES,
     MARGINAL_OPPORTUNITY_MIN_BATCHES, PrimitivePriority, PrimitiveReinvestmentOutcome,
@@ -45,7 +52,7 @@ fn bootstrap_planning_excludes_faster_required_equipment_producers() {
         "bootstrap-planning regression requires a competing required-equipment board route"
     );
 
-    let (selected, batches) = manual_craft_plan_for_output(
+    let (selected, batches) = manual_craft_topology_plan_for_output(
         &registries,
         boards,
         Mass::from_milligrams(800_000),
@@ -61,6 +68,35 @@ fn bootstrap_planning_excludes_faster_required_equipment_producers() {
             .equipment_role(),
         ProcessEquipmentRole::Required
     );
+}
+
+#[test]
+fn current_manual_craft_planning_ignores_unowned_salvage_inputs() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x504C_414E_0001));
+    let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(10_000_000));
+    seed_lot(
+        &registries,
+        &mut state,
+        raw,
+        CommodityKey::new(MATERIAL_WOOD, deep_hearth::content::FORM_LOG),
+        Mass::from_milligrams(10_000_000),
+        ROOM_TEMPERATURE,
+    );
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+
+    let (selected, batches, selected_source) = manual_craft_plan_for_available_output(
+        &registries,
+        &state,
+        &[raw],
+        boards,
+        Mass::from_milligrams(1_600_000),
+        "available board-route regression",
+    );
+
+    assert_eq!(selected.process(), PROCESS_SHAPE_WOOD_BOARDS);
+    assert_eq!(batches, 2);
+    assert_eq!(selected_source, raw);
 }
 
 #[test]
