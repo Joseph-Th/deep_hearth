@@ -244,11 +244,6 @@ impl StructuralMutationOutcome {
     pub(crate) const fn analysis(&self) -> &StructuralAnalysis {
         &self.analysis
     }
-
-    #[must_use]
-    pub(crate) fn into_analysis(self) -> StructuralAnalysis {
-        self.analysis
-    }
 }
 
 #[cfg(any(test, feature = "test-gameplay"))]

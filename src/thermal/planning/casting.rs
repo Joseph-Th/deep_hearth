@@ -242,15 +242,11 @@ pub fn assess_casting_lot_mass_envelope(
         registries,
         unit_energy,
     );
-    let upper_mass = [
-        offer.mass,
-        equipment.batch_mass_capacity,
-        transfer_energy_capacity,
-        condition_lifetime_capacity,
-    ]
-    .into_iter()
-    .min()
-    .unwrap_or(Mass::ZERO);
+    let upper_mass = offer
+        .mass
+        .min(equipment.batch_mass_capacity)
+        .min(transfer_energy_capacity)
+        .min(condition_lifetime_capacity);
     let maximum_mass =
         maximum_sink_feasible_mass(registries, sink, transfer_power, unit_energy, upper_mass)
             .map_err(CastingResolutionError::Duration)?;
@@ -308,10 +304,7 @@ fn maximum_sink_feasible_mass(
             sink.available_capacity_at_release(registries, duration),
             unit_energy,
         );
-        let candidate = [upper_mass, transfer_mass, sink_mass]
-            .into_iter()
-            .min()
-            .unwrap_or(Mass::ZERO);
+        let candidate = upper_mass.min(transfer_mass).min(sink_mass);
         if candidate >= minimum_mass {
             return Ok(candidate);
         }

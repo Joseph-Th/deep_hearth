@@ -88,10 +88,16 @@ fn prepare_episode(registries: &Registries, variation: ScenarioVariation) -> Wor
     let reinforced_mount =
         validate_mount_equipment(registries, &state, ids.crusher, ids.reinforced_support)
             .unwrap_or_else(|error| panic!("reinforced bay mount prediction failed: {error}"));
-    let compact_assessment =
-        structural_assessment(compact_mount.structural_analysis(), ids.compact_support);
+    let compact_assessment = structural_assessment(
+        compact_mount
+            .structural_analysis()
+            .unwrap_or_else(|| panic!("compact bay mount produced no structural load change")),
+        ids.compact_support,
+    );
     let reinforced_assessment = structural_assessment(
-        reinforced_mount.structural_analysis(),
+        reinforced_mount
+            .structural_analysis()
+            .unwrap_or_else(|| panic!("reinforced bay mount produced no structural load change")),
         ids.reinforced_support,
     );
     println!(

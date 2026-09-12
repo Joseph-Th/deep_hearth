@@ -102,14 +102,9 @@ impl PoweredOreMassEnvelope {
     /// Greatest mass admitted by all shared powered-ore scale constraints.
     #[must_use]
     pub fn maximum_mass(self) -> Mass {
-        [
-            self.equipment_capacity,
-            self.stored_energy_capacity,
-            self.condition_lifetime_capacity,
-        ]
-        .into_iter()
-        .min()
-        .unwrap_or(Mass::ZERO)
+        self.equipment_capacity
+            .min(self.stored_energy_capacity)
+            .min(self.condition_lifetime_capacity)
     }
 
     /// Returns the first shared canonical scale constraint that rejects `requested`.
@@ -149,15 +144,10 @@ impl PoweredOreMassEnvelope {
             self.physical_tick_duration,
             self.specific_energy,
         );
-        [
-            self.equipment_capacity,
-            self.stored_energy_capacity,
-            throughput_capacity,
-            power_capacity,
-        ]
-        .into_iter()
-        .min()
-        .unwrap_or(Mass::ZERO)
+        self.equipment_capacity
+            .min(self.stored_energy_capacity)
+            .min(throughput_capacity)
+            .min(power_capacity)
     }
 }
 

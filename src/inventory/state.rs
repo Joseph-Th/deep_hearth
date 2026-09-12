@@ -126,20 +126,12 @@ impl InventoryState {
             Some(next_revision),
             "validated storage dismantling must advance inventory revision exactly once after recovered material ingress"
         );
-        let source_preservation = expected_profile.preservation_multiplier_ppm();
-        let destination_preservation = next_profile.preservation_multiplier_ppm();
-        for lot in self
-            .lots
-            .values_mut()
-            .filter(|lot| lot.stockpile == stockpile)
-        {
-            lot.storage_history = lot
-                .storage_history
-                .transition_preservation(at, source_preservation, destination_preservation)
-                .unwrap_or_else(|| {
-                    panic!("validated storage dismantling overflowed lot storage history")
-                });
-        }
+        self.transition_stockpile_preservation(
+            stockpile,
+            expected_profile.preservation_multiplier_ppm(),
+            next_profile.preservation_multiplier_ppm(),
+            at,
+        );
         let record = self.stockpiles.get_mut(&stockpile).unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: stockpile {} disappeared during enclosure dismantling",
@@ -200,20 +192,12 @@ impl InventoryState {
             Some(next_revision),
             "validated storage construction must advance inventory revision exactly once after material egress"
         );
-        let source_preservation = expected_profile.preservation_multiplier_ppm();
-        let destination_preservation = next_profile.preservation_multiplier_ppm();
-        for lot in self
-            .lots
-            .values_mut()
-            .filter(|lot| lot.stockpile == stockpile)
-        {
-            lot.storage_history = lot
-                .storage_history
-                .transition_preservation(at, source_preservation, destination_preservation)
-                .unwrap_or_else(|| {
-                    panic!("validated storage construction overflowed lot storage history")
-                });
-        }
+        self.transition_stockpile_preservation(
+            stockpile,
+            expected_profile.preservation_multiplier_ppm(),
+            next_profile.preservation_multiplier_ppm(),
+            at,
+        );
         let record = self.stockpiles.get_mut(&stockpile).unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: stockpile {} disappeared during enclosure construction",
@@ -231,6 +215,51 @@ impl InventoryState {
         record.storage_profile = next_profile;
         record.enclosure = Some(enclosure);
         self.revision = next_revision;
+    }
+
+    fn transition_stockpile_preservation(
+        &mut self,
+        stockpile: StockpileId,
+        source_preservation_multiplier_ppm: u32,
+        destination_preservation_multiplier_ppm: u32,
+        at: SimulationTick,
+    ) {
+        let Some(index) = self.lot_indexes.get(&stockpile) else {
+            let record = self.stockpiles.get(&stockpile).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: stockpile {} disappeared during storage profile transition",
+                    stockpile.value()
+                )
+            });
+            assert!(
+                record.stored_mass().is_zero(),
+                "runtime invariant broken: nonempty stockpile is missing its lot index"
+            );
+            return;
+        };
+        for lot_id in index.lot_ids() {
+            let lot = self.lots.get_mut(&lot_id).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: stockpile {} lot index references missing lot {}",
+                    stockpile.value(),
+                    lot_id.value()
+                )
+            });
+            assert_eq!(
+                lot.stockpile, stockpile,
+                "runtime invariant broken: stockpile lot index references a lot owned elsewhere"
+            );
+            lot.storage_history = lot
+                .storage_history
+                .transition_preservation(
+                    at,
+                    source_preservation_multiplier_ppm,
+                    destination_preservation_multiplier_ppm,
+                )
+                .unwrap_or_else(|| {
+                    panic!("validated storage profile transition overflowed lot age")
+                });
+        }
     }
 
     pub(crate) fn has_valid_id_cursors(&self) -> bool {

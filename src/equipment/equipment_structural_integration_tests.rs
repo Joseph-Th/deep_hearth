@@ -15,7 +15,7 @@ use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructuralDamageEvent, StructuralMutationError, add_structural_element,
+    StructuralCommitError, StructuralDamageEvent, StructuralMutationError, add_structural_element,
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_remove_structural_element, validate_set_structural_load,
 };
@@ -138,8 +138,13 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
         Ok(token) => token,
         Err(error) => panic!("second equipment mount validation failed: {error}"),
     };
+    assert!(
+        second_mount.structural_analysis().is_none(),
+        "force-rounded equipment no-op must not synthesize a structural analysis"
+    );
     let revision_before_second_mount = state.structures().revision();
-    let _ = commit_support(second_mount, &mut state);
+    let second_mount = commit_support(second_mount, &mut state);
+    assert!(second_mount.structural_analysis().is_none());
     assert_eq!(state.structures().revision(), revision_before_second_mount);
     assert_eq!(
         state
@@ -154,8 +159,13 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
         Ok(token) => token,
         Err(error) => panic!("first equipment unmount validation failed: {error}"),
     };
+    assert!(
+        first_unmount.structural_analysis().is_none(),
+        "force-rounded equipment no-op must not synthesize a structural analysis"
+    );
     let revision_before_first_unmount = state.structures().revision();
-    let _ = commit_support(first_unmount, &mut state);
+    let first_unmount = commit_support(first_unmount, &mut state);
+    assert!(first_unmount.structural_analysis().is_none());
     assert_eq!(state.structures().revision(), revision_before_first_unmount);
     assert_eq!(
         state
@@ -216,7 +226,12 @@ fn relocation_remains_revision_bound_when_force_rounding_hides_both_load_deltas(
 
     let relocation = validate_relocate_equipment(&registries, &state, moved, target)
         .unwrap_or_else(|error| panic!("rounding relocation validation failed: {error}"));
-    let _ = commit_support(relocation, &mut state);
+    assert!(
+        relocation.structural_analysis().is_none(),
+        "force-rounded relocation must remain revision-bound without redundant structural analysis"
+    );
+    let relocation = commit_support(relocation, &mut state);
+    assert!(relocation.structural_analysis().is_none());
 
     assert_eq!(state.structures().revision(), structural_revision);
     assert_eq!(
@@ -320,6 +335,7 @@ fn relocation_moves_equipment_and_structural_load_as_one_transaction() {
     assert!(
         relocation
             .structural_analysis()
+            .unwrap_or_else(|| panic!("equipment relocation structural analysis disappeared"))
             .assessments()
             .iter()
             .any(|assessment| assessment.element() == target)
@@ -409,12 +425,18 @@ fn heavy_equipment_cracks_support_and_unloading_does_not_repair_damage() {
         Err(error) => panic!("heavy equipment mount validation failed: {error}"),
     };
     assert!(matches!(
-        mount.structural_analysis().damage_events(),
+        mount
+            .structural_analysis()
+            .unwrap_or_else(|| panic!("heavy mount structural analysis disappeared"))
+            .damage_events(),
         [StructuralDamageEvent::Cracked { element, .. }] if *element == member
     ));
     let outcome = commit_support(mount, &mut state);
     assert!(matches!(
-        outcome.structural_analysis().damage_events(),
+        outcome
+            .structural_analysis()
+            .unwrap_or_else(|| panic!("heavy mount outcome analysis disappeared"))
+            .damage_events(),
         [StructuralDamageEvent::Cracked { element, .. }] if *element == member
     ));
     assert_eq!(
@@ -444,7 +466,13 @@ fn heavy_equipment_cracks_support_and_unloading_does_not_repair_damage() {
         Err(error) => panic!("heavy equipment unmount validation failed: {error}"),
     };
     let outcome = commit_support(unmount, &mut state);
-    assert!(outcome.structural_analysis().damage_events().is_empty());
+    assert!(
+        outcome
+            .structural_analysis()
+            .unwrap_or_else(|| panic!("heavy unmount structural analysis disappeared"))
+            .damage_events()
+            .is_empty()
+    );
     let member_record = match state.structures().get_element(member) {
         Some(record) => record,
         None => panic!("unloaded cracked support disappeared"),

@@ -68,6 +68,9 @@ pub(super) fn install_equipment_on_grounded_support(
         .unwrap_or_else(|error| panic!("gameplay harness machine installation failed: {error}"));
     let assessment = mounting
         .structural_analysis()
+        .unwrap_or_else(|| {
+            panic!("gameplay harness machine installation produced no structural load change")
+        })
         .assessments()
         .iter()
         .find(|assessment| assessment.element() == support)

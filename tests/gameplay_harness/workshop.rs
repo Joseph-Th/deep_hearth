@@ -1257,8 +1257,10 @@ fn try_relocate_crusher(
         }
         Err(error) => panic!("crusher recovery relocation validation failed: {error}"),
     };
-    let preview_assessment =
-        structural_assessment(relocation.structural_analysis(), *alternate_support);
+    let preview_analysis = relocation
+        .structural_analysis()
+        .unwrap_or_else(|| panic!("crusher relocation produced no structural load change"));
+    let preview_assessment = structural_assessment(preview_analysis, *alternate_support);
     if preview_assessment.stage() == StructuralStage::Failed {
         println!(
             "  recovery blocked: mounting the crusher on the alternate bay would fail it at {}ppm utilization",
@@ -1268,7 +1270,7 @@ fn try_relocate_crusher(
     }
 
     let abandoned_support = *current_support;
-    let assessment = structural_assessment(relocation.structural_analysis(), *alternate_support);
+    let assessment = structural_assessment(preview_analysis, *alternate_support);
     debug_assert_ne!(assessment.stage(), StructuralStage::Failed);
     let _ = relocation
         .commit(state)
@@ -1426,8 +1428,12 @@ fn adapt_after_delivery(
             }
             Err(error) => panic!("crusher relocation prediction failed: {error}"),
         };
-        let alternate_assessment =
-            structural_assessment(alternate.structural_analysis(), *actor.alternate_support);
+        let alternate_assessment = structural_assessment(
+            alternate
+                .structural_analysis()
+                .unwrap_or_else(|| panic!("crusher relocation produced no structural load change")),
+            *actor.alternate_support,
+        );
         if (
             stage_rank(alternate_assessment.stage()),
             alternate_assessment.utilization_ppm(),

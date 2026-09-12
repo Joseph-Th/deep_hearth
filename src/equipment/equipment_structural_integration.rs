@@ -6,8 +6,8 @@ use crate::core::quantity::{AggregateMass, Force};
 use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::structural::{
-    StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
-    StructuralLoadKind, StructuralMutationError, ValidatedStructuralLoadChange, analyze_structure,
+    StructuralAnalysis, StructuralElementId, StructuralLifecycle, StructuralLoadKind,
+    StructuralMutationError, StructuralMutationOutcome, ValidatedStructuralLoadChange,
     calculate_aggregate_weight_force_ceiling, validate_owned_structural_load_change,
 };
 
@@ -23,13 +23,15 @@ pub use errors::{EquipmentSupportCommitError, EquipmentSupportError};
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct EquipmentSupportOutcome {
-    structural: StructuralAnalysis,
+    structural: Option<StructuralMutationOutcome>,
 }
 
 impl EquipmentSupportOutcome {
     #[must_use]
-    pub const fn structural_analysis(&self) -> &StructuralAnalysis {
-        &self.structural
+    pub fn structural_analysis(&self) -> Option<&StructuralAnalysis> {
+        self.structural
+            .as_ref()
+            .map(StructuralMutationOutcome::analysis)
     }
 }
 
@@ -42,74 +44,22 @@ pub struct ValidatedEquipmentSupportChange {
     after: Option<StructuralElementId>,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
-    structural: ValidatedEquipmentStructuralChange,
-}
-
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-struct ValidatedEquipmentStructuralChange {
     structural: ValidatedStructuralLoadChange,
-    fallback_analysis: Option<StructuralAnalysis>,
-}
-
-impl ValidatedEquipmentStructuralChange {
-    fn analysis(&self) -> &StructuralAnalysis {
-        self.structural
-            .analysis()
-            .or(self.fallback_analysis.as_ref())
-            .unwrap_or_else(|| {
-                unreachable!("validated equipment structural change must retain one analysis")
-            })
-    }
-
-    fn commit(self, state: &mut AppState) -> Result<StructuralAnalysis, StructuralCommitError> {
-        let Self {
-            structural,
-            fallback_analysis,
-        } = self;
-        match structural.commit(state)? {
-            Some(outcome) => Ok(outcome.into_analysis()),
-            None => Ok(fallback_analysis.unwrap_or_else(|| {
-                unreachable!("rounded equipment structural no-op must retain fallback analysis")
-            })),
-        }
-    }
 }
 
 fn validate_equipment_structural_change(
     registries: &Registries,
     state: &AppState,
     loads: BTreeMap<StructuralElementId, Force>,
-) -> Result<ValidatedEquipmentStructuralChange, EquipmentSupportError> {
-    let structural = validate_owned_structural_load_change(
-        registries,
-        state,
-        StructuralLoadKind::Equipment,
-        loads,
-    )
-    .map_err(EquipmentSupportError::Structure)?;
-    let fallback_analysis = match structural.analysis() {
-        Some(_) => None,
-        None => Some(
-            analyze_structure(
-                registries.structural(),
-                registries.materials(),
-                state.structures(),
-            )
-            .map_err(|error| {
-                EquipmentSupportError::Structure(StructuralMutationError::Analysis(error))
-            })?,
-        ),
-    };
-    Ok(ValidatedEquipmentStructuralChange {
-        structural,
-        fallback_analysis,
-    })
+) -> Result<ValidatedStructuralLoadChange, EquipmentSupportError> {
+    validate_owned_structural_load_change(registries, state, StructuralLoadKind::Equipment, loads)
+        .map_err(EquipmentSupportError::Structure)
 }
 
 impl ValidatedEquipmentSupportChange {
+    /// Returns the precomputed structural consequence when the represented equipment load changes.
     #[must_use]
-    pub fn structural_analysis(&self) -> &StructuralAnalysis {
+    pub fn structural_analysis(&self) -> Option<&StructuralAnalysis> {
         self.structural.analysis()
     }
 

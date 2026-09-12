@@ -102,16 +102,11 @@ impl MeltingLotMassEnvelope {
     /// Greatest mass at or below the offer admitted by all monotonic melting scale constraints.
     #[must_use]
     pub fn maximum_mass(self) -> Mass {
-        [
-            self.offered_mass,
-            self.equipment_capacity,
-            self.transfer_energy_capacity,
-            self.finite_energy_capacity,
-            self.condition_lifetime_capacity,
-        ]
-        .into_iter()
-        .min()
-        .unwrap_or(Mass::ZERO)
+        self.offered_mass
+            .min(self.equipment_capacity)
+            .min(self.transfer_energy_capacity)
+            .min(self.finite_energy_capacity)
+            .min(self.condition_lifetime_capacity)
     }
 
     /// First canonical scale constraint that prevents melting the full offered mass.
