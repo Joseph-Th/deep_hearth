@@ -29,6 +29,13 @@ pub(crate) struct SurvivalTickPlan {
     assessment: SurvivalAssessment,
 }
 
+impl SurvivalTickPlan {
+    #[must_use]
+    pub(crate) fn player_dead_after_tick(&self) -> bool {
+        self.after.vitality() == Vitality::ZERO
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TickResourceResolution {
     after_intake: PlayerSurvivalRecord,
@@ -256,6 +263,11 @@ pub(crate) fn decide_survival_tick(
     let (installment, pending_after) = resolve_pending_installment(registries, state, next_tick);
     let resources = resolve_tick_resources(physiology, before, exertion, installment)?;
     let (vitality_after, recovery_remainder) = resolve_vitality(physiology, before, resources);
+    let pending_after = if vitality_after == Vitality::ZERO {
+        None
+    } else {
+        pending_after
+    };
     let nutrition_after = resources
         .after_intake
         .nutrition()

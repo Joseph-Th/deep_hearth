@@ -1,14 +1,129 @@
 //! Contract tests for equipment definitions.
 
 use super::*;
+use crate::capability::{
+    CapabilityDefinition, CapabilityImprovement, CapabilityRegistry, CapabilityValue,
+    CapabilityValueKind,
+};
 use crate::content::{FORM_SCRAP, FORM_TOOL, MATERIAL_STONE};
 use crate::core::quantity::{Energy, Volume};
 use crate::core::time::TickSpan;
-use crate::material::MaterialInputSpec;
+use crate::maintenance::Condition;
+use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::survival::SurvivalExertion;
 
 fn active_exertion() -> SurvivalExertion {
     SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO)
+}
+
+fn definition_with_condition_curve(
+    id: EquipmentDefinitionId,
+    capability: CapabilityId,
+    nominal: u64,
+    failed: u64,
+) -> EquipmentDefinition {
+    EquipmentDefinition::new_with_capability_condition_curves(
+        id,
+        "condition curve validation fixture",
+        Mass::from_milligrams(1),
+        CapabilityProfile::new([(
+            capability,
+            CapabilityValue::Mass(Mass::from_milligrams(nominal)),
+        )])
+        .unwrap_or_else(|error| panic!("condition curve profile fixture failed: {error}")),
+        MaintenanceThresholds::new(
+            Condition::new(600_000)
+                .unwrap_or_else(|error| panic!("warning condition fixture failed: {error}")),
+            Condition::new(250_000)
+                .unwrap_or_else(|error| panic!("critical condition fixture failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("condition curve threshold fixture failed: {error}")),
+        vec![CapabilityConditionCurve::new(
+            capability,
+            vec![CapabilityConditionPoint::new(
+                Condition::FAILED,
+                CapabilityValue::Mass(Mass::from_milligrams(failed)),
+            )],
+        )],
+    )
+}
+
+fn condition_curve_registry_rejects(
+    capability: CapabilityDefinition,
+    definition: EquipmentDefinition,
+) {
+    let registries = crate::content::build_registries();
+    let mut capabilities = CapabilityRegistry::new();
+    capabilities.register_capability(capability);
+    let registry = EquipmentRegistry::new([definition]);
+    assert!(
+        std::panic::catch_unwind(|| {
+            registry.validate_references(&capabilities, registries.materials());
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn condition_curve_requires_authored_capability_improvement_direction() {
+    let capability = CapabilityId::new(810_030);
+    condition_curve_registry_rejects(
+        CapabilityDefinition::new(
+            capability,
+            "unordered condition-sensitive capability",
+            CapabilityValueKind::Mass,
+        ),
+        definition_with_condition_curve(EquipmentDefinitionId::new(810_031), capability, 100, 50),
+    );
+}
+
+#[test]
+fn condition_curve_cannot_make_higher_is_better_capability_improve_with_damage() {
+    let capability = CapabilityId::new(810_032);
+    condition_curve_registry_rejects(
+        CapabilityDefinition::new_with_improvement(
+            capability,
+            "higher is better condition-sensitive capability",
+            CapabilityValueKind::Mass,
+            CapabilityImprovement::Higher,
+        ),
+        definition_with_condition_curve(EquipmentDefinitionId::new(810_033), capability, 100, 150),
+    );
+}
+
+#[test]
+fn condition_curve_cannot_make_lower_is_better_capability_improve_with_damage() {
+    let capability = CapabilityId::new(810_034);
+    condition_curve_registry_rejects(
+        CapabilityDefinition::new_with_improvement(
+            capability,
+            "lower is better condition-sensitive capability",
+            CapabilityValueKind::Mass,
+            CapabilityImprovement::Lower,
+        ),
+        definition_with_condition_curve(EquipmentDefinitionId::new(810_035), capability, 100, 50),
+    );
+}
+
+#[test]
+fn condition_curve_accepts_lower_is_better_capability_that_worsens_with_damage() {
+    let registries = crate::content::build_registries();
+    let capability = CapabilityId::new(810_036);
+    let mut capabilities = CapabilityRegistry::new();
+    capabilities.register_capability(CapabilityDefinition::new_with_improvement(
+        capability,
+        "lower is better degrading capability",
+        CapabilityValueKind::Mass,
+        CapabilityImprovement::Lower,
+    ));
+    let registry = EquipmentRegistry::new([definition_with_condition_curve(
+        EquipmentDefinitionId::new(810_037),
+        capability,
+        100,
+        150,
+    )]);
+
+    registry.validate_references(&capabilities, registries.materials());
 }
 
 fn assembly_profile() -> MaterialAssemblyProfile {

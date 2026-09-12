@@ -1,6 +1,7 @@
 //! Contract tests for typed capability definition and evaluation.
 
 use super::*;
+use crate::core::quantity::{Mass, MassFlow, Power, Temperature};
 
 const CHAMBER_TEMPERATURE: CapabilityId = CapabilityId::new(1);
 const LOAD_CAPACITY: CapabilityId = CapabilityId::new(2);

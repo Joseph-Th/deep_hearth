@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::capability::{
-    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
-    CapabilityRequirement, CapabilityValue, CapabilityValueKind,
+    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityImprovement,
+    CapabilityProfile, CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
     FORM_LOG, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_WOOD,
@@ -457,10 +457,11 @@ fn make_registries_with_energy_output_power_condition_curves_and_support(
     );
     make_test_registries_with_sensible_heating(
         vec![
-            CapabilityDefinition::new(
+            CapabilityDefinition::new_with_improvement(
                 HEATING_POWER,
                 "heating transfer power",
                 CapabilityValueKind::Power,
+                CapabilityImprovement::Higher,
             ),
             CapabilityDefinition::new(
                 MAX_TEMPERATURE,

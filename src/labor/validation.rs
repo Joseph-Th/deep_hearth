@@ -56,12 +56,7 @@ pub(crate) fn validate_loaded_player_work(
         .player()
         .copied()
         .ok_or(PlayerWorkValidationError::WorkWithoutPlayer)?;
-    if player.vitality() == Vitality::ZERO
-        && !matches!(
-            work,
-            PlayerWork::Eating { .. } | PlayerWork::Drinking { .. }
-        )
-    {
+    if player.vitality() == Vitality::ZERO {
         return Err(PlayerWorkValidationError::PlayerDead);
     }
     let available_energy = player.metabolic_energy();

@@ -28,6 +28,28 @@ fn validate_equipment_capability_references(
             definition.id().value(),
             capability.value()
         );
+        let Some(curve) = definition.get_capability_condition_curve(capability) else {
+            continue;
+        };
+        let improvement = capability_definition.improvement().unwrap_or_else(|| {
+            panic!(
+                "equipment definition {} condition curve for capability {} requires an authored improvement direction",
+                definition.id().value(),
+                capability.value()
+            )
+        });
+        for point in curve.points() {
+            let ordering = point.value().compare(value).unwrap_or_else(|| {
+                unreachable!("validated condition curve and nominal capability kinds match")
+            });
+            assert!(
+                !improvement.is_improvement(ordering),
+                "equipment definition {} condition curve makes capability {} better than its pristine value at {} ppm condition",
+                definition.id().value(),
+                capability.value(),
+                point.condition().parts_per_million()
+            );
+        }
     }
 }
 

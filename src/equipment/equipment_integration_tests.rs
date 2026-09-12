@@ -2,8 +2,9 @@
 
 use super::*;
 use crate::capability::{
-    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
-    CapabilityRequirement, CapabilityValue, CapabilityValueKind, evaluate_capabilities,
+    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityImprovement,
+    CapabilityProfile, CapabilityRequirement, CapabilityValue, CapabilityValueKind,
+    evaluate_capabilities,
 };
 use crate::content::make_test_registries_with_equipment;
 use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
@@ -72,10 +73,11 @@ fn provider_resolution_keeps_static_capability_and_runtime_condition_separate() 
         Err(error) => panic!("maintenance fixture failed: {error}"),
     };
     let registries = make_test_registries_with_equipment(
-        CapabilityDefinition::new(
+        CapabilityDefinition::new_with_improvement(
             TEST_CAPABILITY,
             "test supported mass",
             CapabilityValueKind::Mass,
+            CapabilityImprovement::Higher,
         ),
         EquipmentDefinition::new(
             TEST_DEFINITION,
@@ -132,10 +134,11 @@ fn provider_resolution_derates_authored_capability_from_runtime_condition() {
         ],
     );
     let registries = make_test_registries_with_equipment(
-        CapabilityDefinition::new(
+        CapabilityDefinition::new_with_improvement(
             TEST_CAPABILITY,
             "test supported mass",
             CapabilityValueKind::Mass,
+            CapabilityImprovement::Higher,
         ),
         EquipmentDefinition::new_with_capability_condition_curves(
             TEST_DEFINITION,

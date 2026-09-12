@@ -1,9 +1,8 @@
 //! Validates additive equipment-upgrade ancestry, embodiment, and preserved capability semantics.
 
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::capability::{CapabilityImprovement, CapabilityRegistry};
+use crate::capability::CapabilityRegistry;
 use crate::core::quantity::Mass;
 use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::Condition;
@@ -182,10 +181,7 @@ fn validate_equipment_upgrade_capabilities(
                     capability.value()
                 )
             });
-            let regressed = match improvement {
-                CapabilityImprovement::Higher => ordering == Ordering::Less,
-                CapabilityImprovement::Lower => ordering == Ordering::Greater,
-            };
+            let regressed = improvement.is_regression(ordering);
             assert!(
                 !regressed,
                 "equipment definition {} additive upgrade from {} regresses capability {} at {} ppm condition",

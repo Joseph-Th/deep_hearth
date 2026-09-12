@@ -4,7 +4,7 @@ use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::production::ProductionAvailabilityChange;
 use crate::registry::Registries;
-use crate::survival::{SurvivalExertion, Vitality};
+use crate::survival::SurvivalExertion;
 
 use super::{PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start};
 use crate::labor::PlayerWork;
@@ -257,7 +257,11 @@ fn active_work_releases_now(
     work: PlayerWork,
     next_tick: SimulationTick,
     production_availability: &[ProductionAvailabilityChange],
+    player_dead_after_tick: bool,
 ) -> bool {
+    if player_dead_after_tick {
+        return true;
+    }
     match work {
         PlayerWork::ManualProduction { job } => {
             manual_production_releases_now(state, job, next_tick, production_availability)
@@ -270,20 +274,8 @@ fn active_work_releases_now(
         }
         PlayerWork::ManualPower { work } => work.completes_at() == next_tick,
         PlayerWork::Prospecting { work } => work.completes_at() == next_tick,
-        PlayerWork::Eating { work } => {
-            work.completes_at() == next_tick
-                || state
-                    .survival()
-                    .player()
-                    .is_some_and(|player| player.vitality() == Vitality::ZERO)
-        }
-        PlayerWork::Drinking { work } => {
-            work.completes_at() == next_tick
-                || state
-                    .survival()
-                    .player()
-                    .is_some_and(|player| player.vitality() == Vitality::ZERO)
-        }
+        PlayerWork::Eating { work } => work.completes_at() == next_tick,
+        PlayerWork::Drinking { work } => work.completes_at() == next_tick,
         PlayerWork::EquipmentMaintenance { work } => work.completes_at() == next_tick,
         PlayerWork::StorageEnclosureDismantling { work } => work.completes_at() == next_tick,
     }
@@ -294,6 +286,7 @@ pub(crate) fn decide_player_work_tick(
     state: &AppState,
     next_tick: SimulationTick,
     production_availability: &[ProductionAvailabilityChange],
+    player_dead_after_tick: bool,
 ) -> Result<Option<PlayerWorkTickPlan>, PlayerWorkTickError> {
     let Some(work) = state.player_work().active() else {
         return decide_resumed_manual_production_start(
@@ -303,7 +296,13 @@ pub(crate) fn decide_player_work_tick(
             production_availability,
         );
     };
-    if !active_work_releases_now(state, work, next_tick, production_availability) {
+    if !active_work_releases_now(
+        state,
+        work,
+        next_tick,
+        production_availability,
+        player_dead_after_tick,
+    ) {
         return Ok(None);
     }
     let expected_revision = state.player_work().revision();

@@ -179,13 +179,6 @@ pub fn advance_tick(
         next_tick,
     )?;
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);
-    let player_work_plan = decide_player_work_tick(
-        registries,
-        state,
-        next_tick,
-        completion_plan.availability_changes(),
-    )
-    .map_err(|_error| TickError::PlayerWorkRevisionExhausted)?;
     let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)?;
     let manual_power_plan = decide_manual_power_tick(state, next_tick)?;
     let mining_plan = decide_mining_tick(state, next_tick)?;
@@ -222,6 +215,20 @@ pub fn advance_tick(
     )?;
     let exertion = player_work_exertion(registries, state, completion_plan.availability_changes());
     let survival_plan = decide_survival_tick(registries, state, exertion, next_tick)?;
+    // Player attention uses the projected survival result so fatality, work release, and direct-
+    // consumption cancellation become authoritative on the same tick without reading partially
+    // mutated state.
+    let player_dead_after_tick = survival_plan
+        .as_ref()
+        .is_some_and(|plan| plan.player_dead_after_tick());
+    let player_work_plan = decide_player_work_tick(
+        registries,
+        state,
+        next_tick,
+        completion_plan.availability_changes(),
+        player_dead_after_tick,
+    )
+    .map_err(|_error| TickError::PlayerWorkRevisionExhausted)?;
     let CompletionApplication {
         completions: production_completions,
         availability_changes: production_availability_changes,

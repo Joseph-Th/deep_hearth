@@ -13,7 +13,7 @@ use crate::material::{
 
 use super::SurvivalValidationError;
 use crate::survival::state::{PendingDirectConsumption, PendingDrinking, PendingEating};
-use crate::survival::{SurvivalRegistry, SurvivalState};
+use crate::survival::{SurvivalRegistry, SurvivalState, Vitality};
 
 fn validate_pending_schedule(
     pending: &PendingDirectConsumption,
@@ -186,8 +186,11 @@ pub(super) fn validate_pending_consumption(
     let Some(pending) = state.pending_direct_consumption() else {
         return Ok(());
     };
-    if state.player().is_none() {
-        return Err(SurvivalValidationError::PendingConsumptionWithoutPlayer);
+    let player = state
+        .player()
+        .ok_or(SurvivalValidationError::PendingConsumptionWithoutPlayer)?;
+    if player.vitality() == Vitality::ZERO {
+        return Err(SurvivalValidationError::PendingConsumptionForDeadPlayer);
     }
     let duration = validate_pending_schedule(pending, current)?;
     match pending {

@@ -24,8 +24,8 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::survival::{
-    FoodCategory, NUTRITION_PARTS_PER_MILLION, NutritionReserves, Vitality, assess_survival,
-    initialize_player_survival, player_record,
+    FoodCategory, NUTRITION_PARTS_PER_MILLION, NutritionReserves, SurvivalValidationError,
+    Vitality, assess_survival, initialize_player_survival, player_record,
 };
 
 fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) {
@@ -193,7 +193,7 @@ fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u
 }
 
 #[test]
-fn death_during_drinking_releases_attention_and_discards_unabsorbed_intake_next_tick() {
+fn death_during_drinking_releases_attention_and_discards_unabsorbed_intake_immediately() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0026));
     initialize_player_survival(&registries, &mut state)
@@ -242,11 +242,8 @@ fn death_during_drinking_releases_attention_and_discards_unabsorbed_intake_next_
         state.survival().player().map(|player| player.vitality()),
         Some(Vitality::ZERO)
     );
-    assert!(matches!(
-        state.player_work().active(),
-        Some(PlayerWork::Drinking { .. })
-    ));
-    assert!(state.survival().pending_direct_consumption().is_some());
+    assert_eq!(state.player_work().active(), None);
+    assert!(state.survival().pending_direct_consumption().is_none());
     let hydration_at_death = state
         .survival()
         .player()
@@ -256,7 +253,7 @@ fn death_during_drinking_releases_attention_and_discards_unabsorbed_intake_next_
         .unwrap_or_else(|error| panic!("death-during-drink fatal state failed audit: {error}"));
 
     let _ = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("death-during-drink cleanup tick failed: {error}"));
+        .unwrap_or_else(|error| panic!("death-during-drink post-death tick failed: {error}"));
     assert_eq!(state.player_work().active(), None);
     assert!(state.survival().pending_direct_consumption().is_none());
     assert_eq!(
@@ -268,6 +265,44 @@ fn death_during_drinking_releases_attention_and_discards_unabsorbed_intake_next_
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("death-during-drink cleanup state failed audit: {error}"));
+}
+
+#[test]
+fn load_rejects_dead_player_with_pending_direct_consumption() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0029));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("dead-pending-load survival setup failed: {error}"));
+    let volume = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .maximum_drink_volume();
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        volume,
+        FLUID_WATER,
+        volume,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("dead-pending-load water fixture failed: {error}"));
+    let _ = validate_drink(&registries, &state, store, volume)
+        .unwrap_or_else(|error| panic!("dead-pending-load drink validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dead-pending-load drink commit failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("dead-pending-load serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("dead-pending-load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::PendingConsumptionForDeadPlayer
+        )))
+    );
 }
 
 #[test]

@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::capability::{
-    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
-    CapabilityRequirement, CapabilityValue, CapabilityValueKind,
+    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityImprovement,
+    CapabilityProfile, CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
     ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
@@ -402,10 +402,11 @@ fn make_registries_with_definition(
     }
     make_test_registries_with_comminution(
         vec![
-            CapabilityDefinition::new(
+            CapabilityDefinition::new_with_improvement(
                 MASS_FLOW_CAPABILITY,
                 "material mass throughput",
                 CapabilityValueKind::MassFlow,
+                CapabilityImprovement::Higher,
             ),
             CapabilityDefinition::new(
                 MAX_BATCH_MASS_CAPABILITY,

@@ -6,9 +6,15 @@ use std::fmt::{Display, Formatter};
 use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::{Energy, Mass, PreciseEnergy, Temperature};
 use crate::material::{
-    CommodityKey, CompositionError, FormId, MaterialComposition, MaterialId, MaterialPhase,
-    MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
+    CommodityKey, CompositionError, MaterialComposition, MaterialId, MaterialPhaseStateError,
+    MaterialRegistry, validate_material_phase_state,
 };
+
+mod accounting;
+mod fusion;
+
+pub use accounting::{MaterialThermalEnergyError, calculate_material_thermal_energy};
+pub use fusion::{FusionHeat, FusionHeatError, calculate_fusion_heat};
 
 /// Direction of sensible heat transfer relative to the material lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,7 +108,7 @@ impl Error for SensibleHeatError {
     }
 }
 
-fn calculate_linear_sensible_heat_precise(
+pub(super) fn calculate_linear_sensible_heat_precise(
     materials: &MaterialRegistry,
     mass: Mass,
     composition: &MaterialComposition,
@@ -197,7 +203,7 @@ fn crosses_phase_boundary(
     }
 }
 
-fn validate_sensible_heat_interval(
+pub(super) fn validate_sensible_heat_interval(
     materials: &MaterialRegistry,
     composition: &MaterialComposition,
     current: Temperature,
@@ -323,221 +329,4 @@ pub(in crate::thermal) fn calculate_phase_sensible_heat_precise(
         .map_err(PhaseSensibleHeatError::InvalidTargetState)?;
     calculate_linear_sensible_heat_precise(materials, mass, composition, current, target)
         .map_err(PhaseSensibleHeatError::Heat)
-}
-
-/// Exact latent-energy requirement for melting one pure material mass.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FusionHeat {
-    energy: Energy,
-    melting_point: Temperature,
-}
-
-impl FusionHeat {
-    #[must_use]
-    pub const fn energy(self) -> Energy {
-        self.energy
-    }
-
-    #[must_use]
-    pub const fn melting_point(self) -> Temperature {
-        self.melting_point
-    }
-}
-
-/// Failure to resolve latent heat from authored material properties.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FusionHeatError {
-    UnknownMaterial { material: MaterialId },
-    MissingFusionProperties { material: MaterialId },
-    ArithmeticOverflow,
-}
-
-impl Display for FusionHeatError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownMaterial { material } => {
-                write!(
-                    formatter,
-                    "unknown material {} in fusion calculation",
-                    material.value()
-                )
-            }
-            Self::MissingFusionProperties { material } => write!(
-                formatter,
-                "material {} has no authored solid/liquid fusion properties",
-                material.value()
-            ),
-            Self::ArithmeticOverflow => formatter
-                .write_str("fusion latent-heat calculation overflowed authoritative energy"),
-        }
-    }
-}
-
-impl Error for FusionHeatError {}
-
-/// Calculates exact latent heat for melting a pure material mass at its authored fusion boundary.
-pub fn calculate_fusion_heat(
-    materials: &MaterialRegistry,
-    mass: Mass,
-    material: MaterialId,
-) -> Result<FusionHeat, FusionHeatError> {
-    let Some(definition) = materials.get_material(material) else {
-        return Err(FusionHeatError::UnknownMaterial { material });
-    };
-    let Some(fusion) = definition.properties().thermal().fusion() else {
-        return Err(FusionHeatError::MissingFusionProperties { material });
-    };
-    let nanojoules = u128::from(mass.milligrams())
-        .checked_mul(u128::from(fusion.latent_heat_j_per_kg()))
-        .and_then(|value| value.checked_mul(1_000))
-        .ok_or(FusionHeatError::ArithmeticOverflow)?;
-    Ok(FusionHeat {
-        energy: Energy::from_nanojoules(nanojoules),
-        melting_point: fusion.melting_point(),
-    })
-}
-
-/// Failure to project a material lot's modeled sensible plus latent thermal energy.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MaterialThermalEnergyError {
-    UnknownForm {
-        form: FormId,
-    },
-    ImpureLiquidComposition,
-    LiquidHostMismatch {
-        host: MaterialId,
-        pure: MaterialId,
-    },
-    LiquidBelowMeltingPoint {
-        material: MaterialId,
-        temperature: Temperature,
-        melting_point: Temperature,
-    },
-    SensibleHeat(SensibleHeatError),
-    FusionHeat(FusionHeatError),
-    ArithmeticOverflow,
-}
-
-impl Display for MaterialThermalEnergyError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownForm { form } => {
-                write!(formatter, "unknown material form {} in thermal accounting", form.value())
-            }
-            Self::ImpureLiquidComposition => formatter.write_str(
-                "liquid thermal accounting requires a pure material until mixture phase diagrams exist",
-            ),
-            Self::LiquidHostMismatch { host, pure } => write!(
-                formatter,
-                "liquid commodity host material {} disagrees with pure composition material {}",
-                host.value(),
-                pure.value()
-            ),
-            Self::LiquidBelowMeltingPoint {
-                material,
-                temperature,
-                melting_point,
-            } => write!(
-                formatter,
-                "liquid material {} at {} mK is below its {} mK melting point",
-                material.value(),
-                temperature.millikelvin(),
-                melting_point.millikelvin()
-            ),
-            Self::SensibleHeat(error) => write!(formatter, "sensible heat failed: {error}"),
-            Self::FusionHeat(error) => write!(formatter, "fusion heat failed: {error}"),
-            Self::ArithmeticOverflow => {
-                formatter.write_str("material thermal-energy accounting overflowed")
-            }
-        }
-    }
-}
-
-impl Error for MaterialThermalEnergyError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::SensibleHeat(error) => Some(error),
-            Self::FusionHeat(error) => Some(error),
-            Self::UnknownForm { form: _form } => None,
-            Self::LiquidHostMismatch {
-                host: _host,
-                pure: _pure,
-            } => None,
-            Self::LiquidBelowMeltingPoint {
-                material: _material,
-                temperature: _temperature,
-                melting_point: _melting_point,
-            } => None,
-            Self::ImpureLiquidComposition | Self::ArithmeticOverflow => None,
-        }
-    }
-}
-
-/// Calculates modeled material thermal energy relative to absolute zero.
-///
-/// Solid forms carry sensible heat only and may reach, but not cross, a fusion boundary. Liquid
-/// forms additionally carry authored latent heat and are restricted to pure materials until alloy
-/// phase diagrams are represented explicitly.
-pub fn calculate_material_thermal_energy(
-    materials: &MaterialRegistry,
-    mass: Mass,
-    commodity: CommodityKey,
-    composition: &MaterialComposition,
-    temperature: Temperature,
-) -> Result<PreciseEnergy, MaterialThermalEnergyError> {
-    let Some(form) = materials.get_form(commodity.form()) else {
-        return Err(MaterialThermalEnergyError::UnknownForm {
-            form: commodity.form(),
-        });
-    };
-    match form.phase() {
-        MaterialPhase::Solid => {
-            composition
-                .validate()
-                .map_err(SensibleHeatError::InvalidComposition)
-                .map_err(MaterialThermalEnergyError::SensibleHeat)?;
-            validate_sensible_heat_interval(materials, composition, Temperature::ZERO, temperature)
-                .map_err(MaterialThermalEnergyError::SensibleHeat)?;
-            calculate_linear_sensible_heat_precise(
-                materials,
-                mass,
-                composition,
-                Temperature::ZERO,
-                temperature,
-            )
-            .map(|(energy, _direction)| energy)
-            .map_err(MaterialThermalEnergyError::SensibleHeat)
-        }
-        MaterialPhase::Liquid => {
-            let Some(material) = composition.pure_material() else {
-                return Err(MaterialThermalEnergyError::ImpureLiquidComposition);
-            };
-            if commodity.material() != material {
-                return Err(MaterialThermalEnergyError::LiquidHostMismatch {
-                    host: commodity.material(),
-                    pure: material,
-                });
-            }
-            let fusion = calculate_fusion_heat(materials, mass, material)
-                .map_err(MaterialThermalEnergyError::FusionHeat)?;
-            if temperature < fusion.melting_point() {
-                return Err(MaterialThermalEnergyError::LiquidBelowMeltingPoint {
-                    material,
-                    temperature,
-                    melting_point: fusion.melting_point(),
-                });
-            }
-            let (sensible, _direction) = calculate_linear_sensible_heat_precise(
-                materials,
-                mass,
-                composition,
-                Temperature::ZERO,
-                temperature,
-            )
-            .map_err(MaterialThermalEnergyError::SensibleHeat)?;
-            sensible
-                .checked_add(PreciseEnergy::from_energy(fusion.energy()))
-                .ok_or(MaterialThermalEnergyError::ArithmeticOverflow)
-        }
-    }
 }

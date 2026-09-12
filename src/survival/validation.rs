@@ -28,6 +28,7 @@ pub enum SurvivalValidationError {
     UnknownConsumedFluid { fluid: FluidDefinitionId },
     ZeroConsumedFluidVolume { fluid: FluidDefinitionId },
     PendingConsumptionWithoutPlayer,
+    PendingConsumptionForDeadPlayer,
     PendingConsumptionScheduleInvalid,
     PendingEatingEmpty,
     PendingEatingMassOverflow,
@@ -90,6 +91,9 @@ impl Display for SurvivalValidationError {
             ),
             Self::PendingConsumptionWithoutPlayer => {
                 formatter.write_str("pending direct consumption exists without a player")
+            }
+            Self::PendingConsumptionForDeadPlayer => {
+                formatter.write_str("dead player cannot retain pending direct consumption")
             }
             Self::PendingConsumptionScheduleInvalid => {
                 formatter.write_str("pending direct consumption has an invalid active schedule")
