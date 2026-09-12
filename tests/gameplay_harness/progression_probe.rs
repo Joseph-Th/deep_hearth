@@ -972,7 +972,7 @@ fn observed_primitive_priority() -> PrimitivePriority {
     PrimitivePriority::PickFirst
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct PrimitiveProgressionExperience {
     natural_priority: PrimitivePriority,
     prospecting_ticks: u64,
@@ -1076,9 +1076,9 @@ struct PrimitiveProgressionExperience {
     reinvestment: PrimitiveReinvestmentOutcome,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum PrimitiveReinvestmentOutcome {
-    Completed(PrimitiveReinvestmentExperience),
+    Completed(Box<PrimitiveReinvestmentExperience>),
     TargetSupplyLimited,
 }
 
@@ -2122,16 +2122,29 @@ fn resolve_crush_ticks(
     resolved.process_resolution().duration().value()
 }
 
-fn run_uninterrupted_crush(
-    registries: &Registries,
-    state: &mut AppState,
+#[derive(Clone, Copy)]
+struct UninterruptedCrushPlan {
     source: deep_hearth::inventory::StockpileId,
     destination: deep_hearth::inventory::StockpileId,
     machine: PrimitiveMachine,
     mass: Mass,
     expected_energy: Energy,
     context: &'static str,
+}
+
+fn run_uninterrupted_crush(
+    registries: &Registries,
+    state: &mut AppState,
+    plan: UninterruptedCrushPlan,
 ) -> u64 {
+    let UninterruptedCrushPlan {
+        source,
+        destination,
+        machine,
+        mass,
+        expected_energy,
+        context,
+    } = plan;
     let selection = select_stockpile_mass(state, source, mass, context);
     let resolved = resolve_comminution_process(
         registries,

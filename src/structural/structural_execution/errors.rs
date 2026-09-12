@@ -163,7 +163,7 @@ impl Display for StructuralMutationError {
             ),
             Self::SupportOutOfContact { element, support } => write!(
                 formatter,
-                "structural support edge {} -> {} cannot cross empty space; the member bounds do not touch or overlap",
+                "structural support edge {} -> {} lacks positive-area voxel contact; edge-only and corner-only touches cannot carry support",
                 element.value(),
                 support.value()
             ),

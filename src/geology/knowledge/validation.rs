@@ -7,8 +7,9 @@ use crate::core::time::SimulationTick;
 use crate::material::{MaterialId, MaterialRegistry};
 
 use super::{
-    GeologicalKnowledgeState, GeologicalObservationId, GeologicalObservationRecord,
-    PARTS_PER_MILLION, total_lower_bound_ppm,
+    ExcavationHardnessContextError, GeologicalEvidenceKind, GeologicalKnowledgeState,
+    GeologicalObservationId, GeologicalObservationRecord, PARTS_PER_MILLION, total_lower_bound_ppm,
+    validate_excavation_hardness_context,
 };
 
 /// Persistent invariant failure for acquired geological knowledge.
@@ -42,6 +43,18 @@ pub enum GeologicalKnowledgeValidationError {
     },
     InvalidExcavationHardness {
         observation: GeologicalObservationId,
+    },
+    ExcavationHardnessUnsupportedEvidence {
+        observation: GeologicalObservationId,
+        evidence: GeologicalEvidenceKind,
+    },
+    ExcavationHardnessAmbiguousFindings {
+        observation: GeologicalObservationId,
+        count: usize,
+    },
+    ExcavationHardnessWithoutDefinitePresence {
+        observation: GeologicalObservationId,
+        material: MaterialId,
     },
     ObservedInFuture {
         observation: GeologicalObservationId,
@@ -125,6 +138,28 @@ impl Display for GeologicalKnowledgeValidationError {
                 formatter,
                 "geological observation {} contains an invalid excavation-hardness estimate",
                 observation.value()
+            ),
+            Self::ExcavationHardnessUnsupportedEvidence {
+                observation,
+                evidence,
+            } => write!(
+                formatter,
+                "geological observation {} attaches excavation hardness to unsupported {evidence:?} evidence",
+                observation.value()
+            ),
+            Self::ExcavationHardnessAmbiguousFindings { observation, count } => write!(
+                formatter,
+                "geological observation {} attaches one excavation-hardness band to {count} material findings",
+                observation.value()
+            ),
+            Self::ExcavationHardnessWithoutDefinitePresence {
+                observation,
+                material,
+            } => write!(
+                formatter,
+                "geological observation {} attaches excavation hardness while material {} may be absent",
+                observation.value(),
+                material.value()
             ),
             Self::ObservedInFuture {
                 observation,
@@ -226,6 +261,31 @@ fn validate_observation(
         });
     }
     validate_observation_findings(materials, state, id, record)?;
+    validate_excavation_hardness_context(
+        record.evidence,
+        &record.findings,
+        record.excavation_hardness,
+    )
+    .map_err(|error| match error {
+        ExcavationHardnessContextError::UnsupportedEvidence { evidence } => {
+            GeologicalKnowledgeValidationError::ExcavationHardnessUnsupportedEvidence {
+                observation: id,
+                evidence,
+            }
+        }
+        ExcavationHardnessContextError::AmbiguousFindings { count } => {
+            GeologicalKnowledgeValidationError::ExcavationHardnessAmbiguousFindings {
+                observation: id,
+                count,
+            }
+        }
+        ExcavationHardnessContextError::PresenceNotDefinite { material } => {
+            GeologicalKnowledgeValidationError::ExcavationHardnessWithoutDefinitePresence {
+                observation: id,
+                material,
+            }
+        }
+    })?;
     if record.excavation_hardness.is_some_and(|estimate| {
         super::ExcavationHardnessEstimate::new(estimate.lower(), estimate.upper()).is_err()
     }) {

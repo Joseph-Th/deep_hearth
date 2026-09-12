@@ -6,7 +6,6 @@ mod planning;
 mod powered_physics;
 mod screening_execution;
 mod separation_execution;
-mod throughput;
 mod validation;
 
 use crate::production::ProcessId;
@@ -52,10 +51,6 @@ pub use screening_execution::{
 };
 
 pub(crate) use screening_execution::validate_loaded_screening_job;
-
-pub use throughput::{
-    MassFlowDurationError, calculate_mass_flow_capacity, calculate_mass_flow_duration_ceiling,
-};
 
 /// Immutable lookup table for ore/material-preparation process semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

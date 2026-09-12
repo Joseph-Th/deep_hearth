@@ -25,7 +25,7 @@ use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_runner::focused_probe_role_label;
-use super::focused_seeds::FocusedProbeCase;
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
 use super::manual_craft_execution::{execute_manual_craft, execute_manual_craft_batches};
@@ -198,6 +198,63 @@ enum WoodworkingInvestmentPreference {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WoodworkingInvestmentReason {
+    CopperSupplyLimited,
+    CopperReserveProtected,
+    PipelineTooShortForAttentionPayback,
+    SurplusCopperAttentionPayback,
+    PipelineTooShortForNetTimberPayback,
+    PipelineNetTimberPayback,
+}
+
+impl WoodworkingInvestmentReason {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::CopperSupplyLimited => "copper-supply-limited",
+            Self::CopperReserveProtected => "copper-reserve-protected",
+            Self::PipelineTooShortForAttentionPayback => "pipeline-too-short-for-attention-payback",
+            Self::SurplusCopperAttentionPayback => "surplus-copper-attention-payback",
+            Self::PipelineTooShortForNetTimberPayback => {
+                "pipeline-too-short-for-net-timber-payback"
+            }
+            Self::PipelineNetTimberPayback => "pipeline-net-timber-payback",
+        }
+    }
+}
+
+fn woodworking_investment_decision(
+    preference: WoodworkingInvestmentPreference,
+    saw_fundable: bool,
+    reserve_safe: bool,
+    saw_attention_payback: bool,
+    saw_net_timber_payback: bool,
+) -> (bool, WoodworkingInvestmentReason) {
+    if !saw_fundable {
+        return (false, WoodworkingInvestmentReason::CopperSupplyLimited);
+    }
+    match preference {
+        WoodworkingInvestmentPreference::ConserveScarceCopper if !reserve_safe => {
+            (false, WoodworkingInvestmentReason::CopperReserveProtected)
+        }
+        WoodworkingInvestmentPreference::ConserveScarceCopper if !saw_attention_payback => (
+            false,
+            WoodworkingInvestmentReason::PipelineTooShortForAttentionPayback,
+        ),
+        WoodworkingInvestmentPreference::ConserveScarceCopper => (
+            true,
+            WoodworkingInvestmentReason::SurplusCopperAttentionPayback,
+        ),
+        WoodworkingInvestmentPreference::ConserveTimber if !saw_net_timber_payback => (
+            false,
+            WoodworkingInvestmentReason::PipelineTooShortForNetTimberPayback,
+        ),
+        WoodworkingInvestmentPreference::ConserveTimber => {
+            (true, WoodworkingInvestmentReason::PipelineNetTimberPayback)
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WoodworkingRouteOutcome {
     production_ticks: u64,
     maintenance_ticks: u64,
@@ -273,16 +330,29 @@ fn service_adze_if_critical(
     )
 }
 
-fn execute_adze_pipeline(
-    registries: &Registries,
-    state: &mut AppState,
+#[derive(Clone, Copy)]
+struct AdzePipelinePlan {
     raw: StockpileId,
     output: StockpileId,
     replacement: StockpileId,
     spent: StockpileId,
     adze: EquipmentId,
     batches: u64,
+}
+
+fn execute_adze_pipeline(
+    registries: &Registries,
+    state: &mut AppState,
+    plan: AdzePipelinePlan,
 ) -> WoodworkingRouteOutcome {
+    let AdzePipelinePlan {
+        raw,
+        output,
+        replacement,
+        spent,
+        adze,
+        batches,
+    } = plan;
     let mut production_ticks = 0_u64;
     let mut maintenance_ticks = 0_u64;
     let mut maintenance_services = 0_u64;
@@ -343,9 +413,8 @@ fn execute_adze_pipeline(
     }
 }
 
-fn execute_saw_pipeline(
-    registries: &Registries,
-    state: &mut AppState,
+#[derive(Clone, Copy)]
+struct SawPipelinePlan {
     raw: StockpileId,
     output: StockpileId,
     saw: EquipmentId,
@@ -356,7 +425,25 @@ fn execute_saw_pipeline(
     adze: EquipmentId,
     target_boards: Mass,
     blade_input: Mass,
+}
+
+fn execute_saw_pipeline(
+    registries: &Registries,
+    state: &mut AppState,
+    plan: SawPipelinePlan,
 ) -> WoodworkingRouteOutcome {
+    let SawPipelinePlan {
+        raw,
+        output,
+        saw,
+        saw_replacement,
+        saw_spent,
+        adze_replacement,
+        adze_spent,
+        adze,
+        target_boards,
+        blade_input,
+    } = plan;
     let mut production_ticks = 0_u64;
     let mut maintenance_ticks = 0_u64;
     let mut saw_services = 0_u64;
@@ -477,12 +564,14 @@ fn execute_saw_pipeline(
         execute_adze_pipeline(
             registries,
             state,
-            raw,
-            output,
-            adze_replacement,
-            adze_spent,
-            adze,
-            adze_batches,
+            AdzePipelinePlan {
+                raw,
+                output,
+                replacement: adze_replacement,
+                spent: adze_spent,
+                adze,
+                batches: adze_batches,
+            },
         )
     });
     if let Some(tail) = adze_tail {
@@ -709,12 +798,14 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
     let adze_route = execute_adze_pipeline(
         registries,
         &mut adze_state,
-        raw,
-        output,
-        adze_replacement,
-        adze_spent,
-        adze,
-        adze_batches,
+        AdzePipelinePlan {
+            raw,
+            output,
+            replacement: adze_replacement,
+            spent: adze_spent,
+            adze,
+            batches: adze_batches,
+        },
     );
     assert!(adze_route.boards >= pipeline_board_demand);
     assert_eq!(
@@ -730,16 +821,18 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         let route = execute_saw_pipeline(
             registries,
             &mut saw_state,
-            raw,
-            output,
-            setup.equipment,
-            saw_replacement,
-            saw_spent,
-            adze_replacement,
-            adze_spent,
-            adze,
-            pipeline_board_demand,
-            blade_input,
+            SawPipelinePlan {
+                raw,
+                output,
+                saw: setup.equipment,
+                saw_replacement,
+                saw_spent,
+                adze_replacement,
+                adze_spent,
+                adze,
+                target_boards: pipeline_board_demand,
+                blade_input,
+            },
         );
         assert!(route.boards >= pipeline_board_demand);
         assert_eq!(
@@ -803,31 +896,45 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         .checked_sub(saw_copper_consumed)
         .unwrap_or(Mass::ZERO);
     let reserve_safe = saw_fundable && copper_after_saw >= protected_copper_reserve;
-    let invest_in_saw = match preference {
-        WoodworkingInvestmentPreference::ConserveTimber => saw_fundable && saw_net_timber_payback,
-        WoodworkingInvestmentPreference::ConserveScarceCopper => {
-            saw_fundable && reserve_safe && saw_attention_payback
+    let (invest_in_saw, reason) = woodworking_investment_decision(
+        preference,
+        saw_fundable,
+        reserve_safe,
+        saw_attention_payback,
+        saw_net_timber_payback,
+    );
+    match (case.role(), seed) {
+        (FocusedProbeRole::MaintainedAnchor, 1) => {
+            assert_eq!(
+                reason,
+                WoodworkingInvestmentReason::PipelineNetTimberPayback
+            );
+            assert!(saw_fallback_due_to_copper);
         }
-    };
-    let reason = if !saw_fundable {
-        "copper-supply-limited"
-    } else {
-        match preference {
-            WoodworkingInvestmentPreference::ConserveScarceCopper if !reserve_safe => {
-                "copper-reserve-protected"
-            }
-            WoodworkingInvestmentPreference::ConserveScarceCopper if !saw_attention_payback => {
-                "pipeline-too-short-for-attention-payback"
-            }
-            WoodworkingInvestmentPreference::ConserveScarceCopper => {
-                "surplus-copper-attention-payback"
-            }
-            WoodworkingInvestmentPreference::ConserveTimber if !saw_net_timber_payback => {
-                "pipeline-too-short-for-net-timber-payback"
-            }
-            WoodworkingInvestmentPreference::ConserveTimber => "pipeline-net-timber-payback",
+        (FocusedProbeRole::MaintainedCoverage, 3 | 12) => {
+            assert_eq!(reason, WoodworkingInvestmentReason::CopperSupplyLimited);
         }
-    };
+        (FocusedProbeRole::MaintainedCoverage, 4) => assert_eq!(
+            reason,
+            WoodworkingInvestmentReason::PipelineTooShortForNetTimberPayback
+        ),
+        (FocusedProbeRole::MaintainedCoverage, 6) => {
+            assert_eq!(reason, WoodworkingInvestmentReason::CopperReserveProtected);
+        }
+        (FocusedProbeRole::MaintainedCoverage, 250) => assert_eq!(
+            reason,
+            WoodworkingInvestmentReason::PipelineTooShortForAttentionPayback
+        ),
+        (FocusedProbeRole::MaintainedCoverage, 0x36F7_E3A2_7870_3A8A) => {
+            assert_eq!(
+                reason,
+                WoodworkingInvestmentReason::PipelineNetTimberPayback
+            );
+            assert!(saw_service_count > 0);
+        }
+        _ => {}
+    }
+    let reason = reason.label();
     let (choice, state, selected_route, selected_setup_ticks, selected_total_timber) =
         if invest_in_saw {
             let (saw_state, setup, route) = saw_counterfactual.unwrap_or_else(|| {

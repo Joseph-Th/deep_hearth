@@ -2,12 +2,12 @@
 
 use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::{Mass, MassFlow, Pressure};
+use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentDefinition, resolve_equipment_capability};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
-use crate::ore_processing::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::registry::Registries;
 
 use super::MiningMethodDefinition;

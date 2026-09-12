@@ -850,7 +850,7 @@ fn structural_graph_damage_and_load_round_trip_exactly() {
     let mut state = AppState::new(WorldSeed::new(0x5700_0001));
     let left = make_test_structural_element(&registries, &mut state, 0, 0, true);
     let right = make_test_structural_element(&registries, &mut state, 2, 0, true);
-    let deck = make_test_structural_element(&registries, &mut state, 1, 1, false);
+    let deck = make_test_structural_element(&registries, &mut state, 1, 0, false);
     activate_test_structural_element(&registries, &mut state, left);
     activate_test_structural_element(&registries, &mut state, right);
     link_test_structural_support(&registries, &mut state, deck, left);
@@ -1059,6 +1059,36 @@ fn tampered_structural_support_across_empty_space_is_rejected_on_load() {
             StructureValidationError::SupportOutOfContact {
                 element: member,
                 support: distant_support,
+            }
+        )))
+    );
+}
+
+#[test]
+fn tampered_structural_support_with_only_edge_contact_is_rejected_on_load() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5700_0014));
+    let member = make_test_structural_element(&registries, &mut state, 0, 0, false);
+    let face_support = make_test_structural_element(&registries, &mut state, 1, 0, false);
+    let edge_support = make_test_structural_element(&registries, &mut state, 1, 1, false);
+    link_test_structural_support(&registries, &mut state, member, face_support);
+    let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+        Ok(encoded) => encoded,
+        Err(error) => panic!("structural edge-contact save serialization failed: {error}"),
+    };
+    encoded["state"]["systems"]["structures"]["supports_by_element"][member.value().to_string()] =
+        serde_json::json!([edge_support.value()]);
+    let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+        Ok(decoded) => decoded,
+        Err(error) => panic!("tampered structural edge-contact save failed decode: {error}"),
+    };
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Structure(
+            StructureValidationError::SupportOutOfContact {
+                element: member,
+                support: edge_support,
             }
         )))
     );

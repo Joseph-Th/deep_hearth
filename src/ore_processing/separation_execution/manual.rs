@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Mass, MassFlow};
 use crate::core::state::AppState;
+use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::TickSpan;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{
@@ -19,10 +20,7 @@ use crate::production::{
 use crate::registry::Registries;
 
 use super::{ConstituentSeparationBatchError, resolve_separation_outputs};
-use crate::ore_processing::{
-    ManualConstituentSeparationProcessDefinition, MassFlowDurationError,
-    calculate_mass_flow_duration_ceiling,
-};
+use crate::ore_processing::ManualConstituentSeparationProcessDefinition;
 
 /// Explicit selected-batch request for direct hand sorting.
 #[derive(Clone, Copy, Debug)]

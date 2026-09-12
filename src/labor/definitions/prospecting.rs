@@ -193,6 +193,12 @@ impl ProspectingDefinition {
             "excavation-hardness prospecting requires a physical instrument"
         );
         assert!(
+            self.evidence.supports_excavation_hardness(),
+            "prospecting method {} cannot attach excavation hardness to {:?} evidence",
+            self.id.value(),
+            self.evidence
+        );
+        assert!(
             !resolution.is_zero(),
             "excavation-hardness prospecting resolution must be nonzero"
         );

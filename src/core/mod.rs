@@ -6,4 +6,5 @@ pub mod rng;
 pub mod schedule;
 pub(crate) mod serialization;
 pub mod state;
+pub mod throughput;
 pub mod time;

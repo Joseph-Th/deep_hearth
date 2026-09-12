@@ -1722,9 +1722,9 @@ class ExactTestCommandTests(unittest.TestCase):
             catalog,
         )
 
-    def test_source_catalog_honors_explicit_test_features(self) -> None:
+    def test_source_catalog_does_not_resurrect_shader_binary_validation_as_a_unit_test(self) -> None:
         catalog = run_test.source_test_catalog("lib", "test-shader-validation")
-        self.assertIn(
+        self.assertNotIn(
             "content::shaders::tests::built_in_programs_assemble_and_validate_as_portable_wgsl",
             catalog,
         )

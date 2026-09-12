@@ -12,7 +12,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
+use crate::core::time::{TickSpan, WorldSeed};
 use crate::equipment::validate_assemble_equipment;
 use crate::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use crate::inventory::{

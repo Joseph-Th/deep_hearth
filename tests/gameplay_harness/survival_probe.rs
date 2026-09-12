@@ -205,10 +205,7 @@ fn advance_lived_wait(
             .checked_add(1)
             .unwrap_or_else(|| panic!("survival lived-wait drink count overflowed"));
         drink_volume_ul = drink_volume_ul
-            .checked_add(
-                u64::try_from(drank.volume().microliters())
-                    .unwrap_or_else(|_| panic!("survival lived-wait drink volume exceeds u64")),
-            )
+            .checked_add(drank.volume().microliters())
             .unwrap_or_else(|| panic!("survival lived-wait drink volume overflowed"));
     }
     LivedWaitOutcome {

@@ -5,12 +5,12 @@ use std::fmt::{Display, Formatter};
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Mass, Pressure};
+use crate::core::throughput::MassFlowDurationError;
 use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::MaterialLotSpecError;
-use crate::ore_processing::MassFlowDurationError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 
 use super::super::physics::MiningPhysicsError;

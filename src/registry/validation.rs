@@ -2,12 +2,13 @@
 
 use crate::capability::CapabilityValue;
 use crate::core::time::TickSpan;
-use crate::crafting::{ManualCraftDefinition, ManualCraftEquipmentProfile};
+use crate::crafting::{
+    ManualCraftDefinition, ManualCraftEquipmentProfile, resolve_manual_craft_equipment_schedule,
+};
 use crate::equipment::resolve_equipment_capability;
 use crate::labor::calculate_player_work_resource_budget;
-use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
+use crate::maintenance::Condition;
 use crate::material::MaterialAssemblyProfile;
-use crate::ore_processing::calculate_mass_flow_duration_ceiling;
 use crate::survival::{PhysiologyDefinition, SurvivalExertion, SurvivalRegistry};
 
 use super::{CoreDefinitions, RegistryDomains};
@@ -108,25 +109,16 @@ fn best_operable_manual_craft_equipment_duration(
             ) else {
                 return None;
             };
-            if flow.is_zero() {
-                return None;
-            }
-            let Ok(duration) = calculate_mass_flow_duration_ceiling(
+            let Ok(schedule) = resolve_manual_craft_equipment_schedule(
                 flow,
                 definition.input_mass(),
                 core.physical_tick_duration(),
+                profile.condition_wear_ppm_per_active_tick(),
+                Condition::PRISTINE,
             ) else {
                 return None;
             };
-            if calculate_usable_condition_after_active_ticks(
-                profile.condition_wear_ppm_per_active_tick(),
-                Condition::PRISTINE,
-                duration,
-            )
-            .is_err()
-            {
-                return None;
-            }
+            let duration = schedule.duration();
             let physiology = domains.survival.physiology();
             let Ok(budget) =
                 calculate_player_work_resource_budget(physiology, definition.exertion(), duration)

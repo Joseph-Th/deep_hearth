@@ -7,7 +7,26 @@ use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::{ProcessEquipmentRole, Registries};
 
-use super::manual_craft_selection::has_selectable_manual_craft_input;
+use super::manual_craft_selection::first_sufficient_pure_temperature;
+
+fn has_selectable_manual_craft_input(
+    state: &AppState,
+    source: StockpileId,
+    definition: &ManualCraftDefinition,
+    batches: u64,
+) -> bool {
+    let Some(required_mg) = definition.input_mass().milligrams().checked_mul(batches) else {
+        return false;
+    };
+    first_sufficient_pure_temperature(
+        state,
+        source,
+        definition.input(),
+        Mass::from_milligrams(required_mg),
+        "manual-craft availability",
+    )
+    .is_some()
+}
 
 fn manual_craft_plan_for_output_matching<'a>(
     registries: &'a Registries,

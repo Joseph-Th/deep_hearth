@@ -141,7 +141,7 @@ fn commit_soak_structural_mutation(
 fn build_soak_structure(registries: &Registries, state: &mut AppState) -> StructuralElementId {
     let left = add_soak_structural_element(registries, state, 0, 0, true);
     let right = add_soak_structural_element(registries, state, 2, 0, true);
-    let deck = add_soak_structural_element(registries, state, 1, 1, false);
+    let deck = add_soak_structural_element(registries, state, 1, 0, false);
 
     for element in [left, right] {
         let token = match validate_activate_structural_element(registries, state, element) {

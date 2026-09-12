@@ -5,13 +5,12 @@ use std::fmt::{Display, Formatter};
 
 use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::Mass;
+use crate::core::throughput::MassFlowDurationError;
 use crate::energy::{EnergyCarrier, EnergySupplyError, PowerDurationError};
 use crate::equipment::EquipmentProviderError;
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::{FormId, MaterialId, MaterialLotSpecError, ParticleSizeRange};
 use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError};
-
-use super::super::MassFlowDurationError;
 
 /// Failure while deriving physically conservative constituent streams from selected feed.
 #[derive(Clone, Debug, PartialEq, Eq)]

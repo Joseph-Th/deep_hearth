@@ -2,6 +2,7 @@
 
 use crate::capability::{CapabilityId, CapabilityValue};
 use crate::core::quantity::{Energy, Mass, MassFlow, Power};
+use crate::core::throughput::calculate_mass_flow_duration_ceiling;
 use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, calculate_mass_specific_energy, calculate_power_duration_ceiling,
@@ -11,7 +12,7 @@ use crate::maintenance::{Condition, calculate_usable_condition_after_active_tick
 use crate::production::ProductionJobRecord;
 use crate::registry::Registries;
 
-use super::{PoweredOreProcessProfile, calculate_mass_flow_duration_ceiling};
+use super::PoweredOreProcessProfile;
 
 mod errors;
 

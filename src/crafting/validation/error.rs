@@ -6,11 +6,11 @@ use std::num::NonZeroU64;
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::Mass;
+use crate::core::throughput::MassFlowDurationError;
 use crate::core::time::TickSpan;
 use crate::equipment::EquipmentDefinitionId;
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::MaterialLotSpecError;
-use crate::ore_processing::MassFlowDurationError;
 use crate::production::ProductionJobId;
 
 /// Corruption or semantic drift in an in-flight manual shaping job.

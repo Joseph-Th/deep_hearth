@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Mass, MassFlow};
 use crate::core::state::AppState;
+use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::TickSpan;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{
@@ -19,7 +20,6 @@ use crate::production::{
 use crate::registry::Registries;
 
 use super::{ComminutionBatchError, resolve_manual_comminution_outputs};
-use crate::ore_processing::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 
 /// Explicit selected-batch request for direct hand breaking of coarse material.
 #[derive(Clone, Copy, Debug)]

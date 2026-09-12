@@ -6,15 +6,17 @@ use crate::capability::CapabilityValue;
 use crate::core::quantity::Temperature;
 use crate::core::time::TickSpan;
 use crate::equipment::resolve_equipment_capability;
-use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::material::MaterialLotSpec;
-use crate::ore_processing::calculate_mass_flow_duration_ceiling;
 use crate::production::{ProcessOutputStreamId, ProductionJobRecord};
 use crate::registry::Registries;
 
 use super::{
     ManualCraftDefinition, ManualCraftEquipmentProfile,
     batch::{ManualCraftBatchError, validate_manual_craft_batch},
+    physics::{
+        ManualCraftEquipmentScheduleError, resolve_manual_craft_equipment_schedule,
+        resolve_manual_craft_hand_duration,
+    },
 };
 
 mod error;
@@ -74,35 +76,38 @@ fn validate_manual_craft_resources(
             });
         }
     };
-    let duration = calculate_mass_flow_duration_ceiling(
+    let schedule = resolve_manual_craft_equipment_schedule(
         rate,
         job.consumed_mass(),
         registries.core().physical_tick_duration(),
-    )
-    .map_err(|error| ManualCraftJobValidationError::EquipmentDuration {
-        job: job.id(),
-        error,
-    })?;
-    let required_condition = calculate_usable_condition_after_active_ticks(
         profile.condition_wear_ppm_per_active_tick(),
         provider.condition(),
-        duration,
     )
-    .map_err(|error| ManualCraftJobValidationError::EquipmentCondition {
-        job: job.id(),
-        error,
+    .map_err(|error| match error {
+        ManualCraftEquipmentScheduleError::Duration(error) => {
+            ManualCraftJobValidationError::EquipmentDuration {
+                job: job.id(),
+                error,
+            }
+        }
+        ManualCraftEquipmentScheduleError::Condition(error) => {
+            ManualCraftJobValidationError::EquipmentCondition {
+                job: job.id(),
+                error,
+            }
+        }
     })?;
     let stored_condition = job
         .equipment_condition_after()
         .ok_or(ManualCraftJobValidationError::UnexpectedEquipment { job: job.id() })?;
-    if stored_condition != required_condition {
+    if stored_condition != schedule.condition_after() {
         return Err(ManualCraftJobValidationError::EquipmentConditionMismatch {
             job: job.id(),
             stored: stored_condition,
-            required: required_condition,
+            required: schedule.condition_after(),
         });
     }
-    Ok(Some(duration))
+    Ok(Some(schedule.duration()))
 }
 
 fn reconstruct_manual_craft_outputs(
@@ -179,15 +184,12 @@ pub(crate) fn validate_loaded_manual_craft_job(
     let batches = batch.batches();
     let required_duration = match validate_manual_craft_resources(registries, definition, job)? {
         Some(duration) => duration,
-        None => definition
-            .duration()
-            .value()
-            .checked_mul(batches.get())
-            .map(TickSpan::new)
-            .ok_or(ManualCraftJobValidationError::DurationOverflow {
+        None => resolve_manual_craft_hand_duration(definition.duration(), batches).ok_or(
+            ManualCraftJobValidationError::DurationOverflow {
                 job: job.id(),
                 batches,
-            })?,
+            },
+        )?,
     };
     if job.active_duration() != required_duration {
         return Err(ManualCraftJobValidationError::DurationMismatch {

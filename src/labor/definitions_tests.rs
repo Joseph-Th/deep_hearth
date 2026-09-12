@@ -38,6 +38,25 @@ fn prospecting_definition_rejects_duplicate_hardness_resolution() {
 }
 
 #[test]
+fn prospecting_definition_rejects_hardness_on_nonphysical_evidence() {
+    let definition = ProspectingDefinition::new_with_equipment(
+        ProspectingMethodId::new(55_005),
+        GeologicalEvidenceKind::MagneticSurvey,
+        TickSpan::new(1),
+        1,
+        1,
+        active_exertion(),
+        ProspectingEquipmentProfile::new(EquipmentDefinitionId::new(55_005), None, 1),
+    );
+
+    let result = std::panic::catch_unwind(|| {
+        definition.with_excavation_hardness_resolution(Pressure::from_pascals(1))
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
 fn manual_power_authoring_rejects_methods_without_a_physical_provider() {
     let power_capability = CapabilityId::new(55_002);
     let method = ManualPowerDefinition::new(

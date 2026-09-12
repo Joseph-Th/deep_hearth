@@ -1,4 +1,4 @@
-//! Shared scalar throughput-to-duration physics for ore and material preparation.
+//! Domain-neutral scalar throughput and duration physics.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -48,9 +48,9 @@ pub fn calculate_mass_flow_duration_ceiling(
 
 /// Returns the greatest representable whole-milligram mass processable within an exact tick span.
 ///
-/// This is the monotonic inverse of [`calculate_mass_flow_duration_ceiling`] for planning bounds.
-/// When the physical capacity exceeds the `u64`-backed [`Mass`] range, the result is the largest
-/// representable mass because no authoritative single-batch request can exceed that value.
+/// This is the monotonic inverse of calculate_mass_flow_duration_ceiling for planning bounds.
+/// When the physical capacity exceeds the Mass range, the result is the largest representable
+/// mass because no authoritative single-batch request can exceed that value.
 #[must_use]
 pub fn calculate_mass_flow_capacity(
     rate: MassFlow,
@@ -69,3 +69,7 @@ pub fn calculate_mass_flow_capacity(
     let milligrams = capacity_numerator / 1_000_000;
     Mass::from_milligrams(u64::try_from(milligrams).unwrap_or(u64::MAX))
 }
+
+#[cfg(test)]
+#[path = "throughput_tests.rs"]
+mod tests;

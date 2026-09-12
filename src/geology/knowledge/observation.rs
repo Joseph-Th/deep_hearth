@@ -47,6 +47,13 @@ pub enum GeologicalEvidenceKind {
     SeismicSurvey,
 }
 
+impl GeologicalEvidenceKind {
+    /// Whether this evidence provenance can directly measure host-rock excavation resistance.
+    pub(crate) const fn supports_excavation_hardness(self) -> bool {
+        matches!(self, Self::ExcavationSample | Self::CoreSample)
+    }
+}
+
 /// Bounded estimate of one material's local mass fraction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct MaterialAbundanceEstimate {
@@ -226,6 +233,42 @@ impl Display for ExcavationHardnessEstimateError {
 }
 
 impl Error for ExcavationHardnessEstimateError {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::geology) enum ExcavationHardnessContextError {
+    UnsupportedEvidence { evidence: GeologicalEvidenceKind },
+    AmbiguousFindings { count: usize },
+    PresenceNotDefinite { material: MaterialId },
+}
+
+/// Validates the information context required for an excavation-resistance observation.
+///
+/// One hardness band is meaningful only for one definitely present material acquired by a physical
+/// sample. Runtime admission and trusted-load replay share this rule so hardness metadata cannot
+/// become a hidden-presence side channel.
+pub(in crate::geology) fn validate_excavation_hardness_context(
+    evidence: GeologicalEvidenceKind,
+    findings: &[MaterialAbundanceEstimate],
+    excavation_hardness: Option<ExcavationHardnessEstimate>,
+) -> Result<(), ExcavationHardnessContextError> {
+    if excavation_hardness.is_none() {
+        return Ok(());
+    }
+    if !evidence.supports_excavation_hardness() {
+        return Err(ExcavationHardnessContextError::UnsupportedEvidence { evidence });
+    }
+    let [finding] = findings else {
+        return Err(ExcavationHardnessContextError::AmbiguousFindings {
+            count: findings.len(),
+        });
+    };
+    if finding.lower_ppm() == 0 {
+        return Err(ExcavationHardnessContextError::PresenceNotDefinite {
+            material: finding.material(),
+        });
+    }
+    Ok(())
+}
 
 /// Persisted geological observation acquired at one simulation tick.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

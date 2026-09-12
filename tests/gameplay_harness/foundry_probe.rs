@@ -38,9 +38,9 @@ use deep_hearth::thermal::{
     resolve_sensible_heating_process,
 };
 use execution::{
-    assert_preheat_partitions_melting_energy, audit_primary_cycle, audit_recovery,
-    capture_initial_accounting, classify_foundry_outcome, cool_thermal_sink_until, execute_melt,
-    execute_primary_cast, remaining_feed_mass,
+    PrimaryCycleAudit, assert_preheat_partitions_melting_energy, audit_primary_cycle,
+    audit_recovery, capture_initial_accounting, classify_foundry_outcome, cool_thermal_sink_until,
+    execute_melt, execute_primary_cast, remaining_feed_mass,
 };
 use reporting::FoundryReport;
 
@@ -691,12 +691,14 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     let cycle = audit_primary_cycle(
         registries,
         &state,
-        ids,
-        initial,
-        preheat,
         &melt,
-        thermal_before_cast,
-        primary_cast,
+        PrimaryCycleAudit {
+            ids,
+            initial,
+            preheat,
+            thermal_before_cast,
+            cast: primary_cast,
+        },
     );
     let recovery_target = primary_cast.molten_remaining;
     let cooldown = cool_thermal_sink_until(

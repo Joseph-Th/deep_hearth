@@ -17,7 +17,10 @@ pub use observation::{
 pub use state::GeologicalKnowledgeState;
 pub use validation::GeologicalKnowledgeValidationError;
 
-pub(super) use observation::{PARTS_PER_MILLION, total_lower_bound_ppm};
+pub(super) use observation::{
+    ExcavationHardnessContextError, PARTS_PER_MILLION, total_lower_bound_ppm,
+    validate_excavation_hardness_context,
+};
 pub(crate) use validation::validate_loaded_geological_knowledge;
 
 #[cfg(test)]

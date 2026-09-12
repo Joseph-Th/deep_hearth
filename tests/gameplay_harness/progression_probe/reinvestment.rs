@@ -297,12 +297,14 @@ pub(super) fn evaluate_mature_reinvestment(
     let reinforced_crush_ticks = run_uninterrupted_crush(
         registries,
         &mut state,
-        ore_storage,
-        crushed_storage,
-        machine,
-        primary_batch_mass,
-        primary_energy,
-        "reinforced crusher comparison",
+        UninterruptedCrushPlan {
+            source: ore_storage,
+            destination: crushed_storage,
+            machine,
+            mass: primary_batch_mass,
+            expected_energy: primary_energy,
+            context: "reinforced crusher comparison",
+        },
     );
     assert!(
         reinforced_crush_ticks < base_crush_ticks,
@@ -446,12 +448,14 @@ pub(super) fn evaluate_mature_reinvestment(
             run_uninterrupted_crush(
                 registries,
                 &mut state,
-                ore_storage,
-                crushed_storage,
-                machine,
-                drain_mass,
-                drain_energy,
-                "useful stored-work drain before flywheel upgrade",
+                UninterruptedCrushPlan {
+                    source: ore_storage,
+                    destination: crushed_storage,
+                    machine,
+                    mass: drain_mass,
+                    expected_energy: drain_energy,
+                    context: "useful stored-work drain before flywheel upgrade",
+                },
             );
         }
         let unusable_tail = state
@@ -537,12 +541,14 @@ pub(super) fn evaluate_mature_reinvestment(
     let expanded_crush_ticks = run_uninterrupted_crush(
         registries,
         &mut state,
-        ore_storage,
-        crushed_storage,
-        machine,
-        expanded_batch_mass,
-        expanded_batch_energy,
-        "expanded flywheel-funded crusher batch",
+        UninterruptedCrushPlan {
+            source: ore_storage,
+            destination: crushed_storage,
+            machine,
+            mass: expanded_batch_mass,
+            expected_energy: expanded_batch_energy,
+            context: "expanded flywheel-funded crusher batch",
+        },
     );
     assert!(
         expanded_batch_mass > crush_mass_for_exact_energy(registries, base_drive_capacity),
@@ -583,7 +589,7 @@ pub(super) fn evaluate_mature_reinvestment(
     );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("primitive reinvestment state audit failed: {error}"));
-    PrimitiveReinvestmentOutcome::Completed(PrimitiveReinvestmentExperience {
+    PrimitiveReinvestmentOutcome::Completed(Box::new(PrimitiveReinvestmentExperience {
         invested_copper_mass,
         base_crush_ticks,
         reinforced_crush_ticks,
@@ -608,5 +614,5 @@ pub(super) fn evaluate_mature_reinvestment(
         expanded_separator_target_mass: expanded_separator.target_mass,
         survival_energy_spent_nj,
         survival_hydration_spent_ul,
-    })
+    }))
 }

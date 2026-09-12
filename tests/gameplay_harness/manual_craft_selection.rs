@@ -8,7 +8,7 @@ use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 
-fn first_sufficient_pure_temperature(
+pub(super) fn first_sufficient_pure_temperature(
     state: &AppState,
     stockpile: StockpileId,
     commodity: CommodityKey,
@@ -40,27 +40,6 @@ fn first_sufficient_pure_temperature(
         .into_iter()
         .find(|(_, mass)| *mass >= required_mass)
         .map(|(temperature, _)| temperature)
-}
-
-/// Returns whether one source currently contains a selectable pure homogeneous input batch for the
-/// requested manual craft. This is actor-visible inventory filtering, not production authorization.
-pub(super) fn has_selectable_manual_craft_input(
-    state: &AppState,
-    source: StockpileId,
-    definition: &deep_hearth::crafting::ManualCraftDefinition,
-    batches: u64,
-) -> bool {
-    let Some(required_mg) = definition.input_mass().milligrams().checked_mul(batches) else {
-        return false;
-    };
-    first_sufficient_pure_temperature(
-        state,
-        source,
-        definition.input(),
-        Mass::from_milligrams(required_mg),
-        "manual-craft availability",
-    )
-    .is_some()
 }
 
 fn select_pure_mass_at_temperature(

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
+use crate::core::quantity::Pressure;
 use crate::core::state::validate_loaded_state;
 use crate::core::time::WorldSeed;
 use crate::geology::{
@@ -17,6 +18,65 @@ fn bounds(min_x: i64, max_x: i64) -> VoxelBounds {
         Ok(bounds) => bounds,
         Err(error) => panic!("prospecting bounds fixture failed: {error}"),
     }
+}
+
+fn hardness() -> ExcavationHardnessEstimate {
+    ExcavationHardnessEstimate::new(
+        Pressure::from_pascals(300_000_000),
+        Pressure::from_pascals(350_000_000),
+    )
+    .unwrap_or_else(|error| panic!("prospecting hardness fixture failed: {error}"))
+}
+
+#[test]
+fn record_rejects_hardness_without_definite_physical_sample_context() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(0x6B00_00A1));
+    let region = bounds(0, 1);
+
+    let nonphysical = ProspectingResolution {
+        region,
+        evidence: GeologicalEvidenceKind::MagneticSurvey,
+        findings: vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
+        excavation_hardness: Some(hardness()),
+    };
+    assert_eq!(
+        validate_record_prospecting(&registries, &state, nonphysical),
+        Err(
+            RecordProspectingError::ExcavationHardnessUnsupportedEvidence {
+                evidence: GeologicalEvidenceKind::MagneticSurvey,
+            }
+        )
+    );
+
+    let uncertain = ProspectingResolution {
+        region,
+        evidence: GeologicalEvidenceKind::ExcavationSample,
+        findings: vec![estimate(MATERIAL_COPPER, 0, 800_000)],
+        excavation_hardness: Some(hardness()),
+    };
+    assert_eq!(
+        validate_record_prospecting(&registries, &state, uncertain),
+        Err(
+            RecordProspectingError::ExcavationHardnessWithoutDefinitePresence {
+                material: MATERIAL_COPPER,
+            }
+        )
+    );
+
+    let ambiguous = ProspectingResolution {
+        region,
+        evidence: GeologicalEvidenceKind::CoreSample,
+        findings: vec![
+            estimate(MATERIAL_COPPER, 300_000, 500_000),
+            estimate(MATERIAL_SLAG, 300_000, 500_000),
+        ],
+        excavation_hardness: Some(hardness()),
+    };
+    assert_eq!(
+        validate_record_prospecting(&registries, &state, ambiguous),
+        Err(RecordProspectingError::ExcavationHardnessAmbiguousFindings { count: 2 })
+    );
 }
 
 fn estimate(material: MaterialId, lower: u32, upper: u32) -> MaterialAbundanceEstimate {

@@ -2,12 +2,9 @@
 
 use crate::capability::CapabilityValue;
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
-use crate::maintenance::calculate_usable_condition_after_active_ticks;
-use crate::ore_processing::calculate_mass_flow_duration_ceiling;
 use crate::production::{
     ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess,
     validate_selected_process_inputs, validate_start_manual_process,
@@ -18,11 +15,15 @@ use crate::survival::{Vitality, assess_survival};
 mod batch;
 mod definitions;
 mod errors;
+mod physics;
 mod registry;
 mod validation;
 
+use physics::{ManualCraftEquipmentScheduleError, resolve_manual_craft_hand_duration};
+
 pub use definitions::{ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput};
 pub use errors::{ManualCraftCommitError, ManualCraftError, StartManualCraftError};
+pub(crate) use physics::resolve_manual_craft_equipment_schedule;
 pub use registry::CraftingRegistry;
 pub use validation::ManualCraftJobValidationError;
 pub(crate) use validation::validate_loaded_manual_craft_job;
@@ -165,11 +166,7 @@ pub fn resolve_manual_craft(
             {
                 return Err(ManualCraftError::RequiredEquipmentMissing { process });
             }
-            let duration = definition
-                .duration()
-                .value()
-                .checked_mul(batches.get())
-                .map(TickSpan::new)
+            let duration = resolve_manual_craft_hand_duration(definition.duration(), batches)
                 .ok_or(ManualCraftError::DurationOverflow { batches })?;
             inputs
                 .resolve_without_resources(duration, outputs)
@@ -198,24 +195,27 @@ pub fn resolve_manual_craft(
                     });
                 }
             };
-            let duration = calculate_mass_flow_duration_ceiling(
+            let schedule = resolve_manual_craft_equipment_schedule(
                 rate,
                 inputs.input_mass(),
                 registries.core().physical_tick_duration(),
-            )
-            .map_err(ManualCraftError::EquipmentDuration)?;
-            let condition_after = calculate_usable_condition_after_active_ticks(
                 profile.condition_wear_ppm_per_active_tick(),
                 provider.condition(),
-                duration,
             )
-            .map_err(ManualCraftError::EquipmentCondition)?;
+            .map_err(|error| match error {
+                ManualCraftEquipmentScheduleError::Duration(error) => {
+                    ManualCraftError::EquipmentDuration(error)
+                }
+                ManualCraftEquipmentScheduleError::Condition(error) => {
+                    ManualCraftError::EquipmentCondition(error)
+                }
+            })?;
             inputs
                 .resolve_with_equipment(
-                    duration,
+                    schedule.duration(),
                     outputs,
                     provider.validated_use(),
-                    condition_after,
+                    schedule.condition_after(),
                 )
                 .map_err(ManualCraftError::Resolution)
         }

@@ -221,7 +221,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     // flywheel top-up is tick-quantized nearly flat, while a 1,000 J paired charge lets the
     // treadle's doubled throughput show. Small top-ups genuinely favor the crank; big charges
     // genuinely repay the treadle frame.
-    let store_definition = if mix64(seed ^ 0x504F_5752_4A4F_421).is_multiple_of(2) {
+    let store_definition = if mix64(seed ^ 0x0504_F575_24A4_F421).is_multiple_of(2) {
         ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE
     } else {
         ENERGY_STONE_FLYWHEEL_DRIVE

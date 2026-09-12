@@ -196,9 +196,12 @@ pub(crate) fn decide_field_prospecting_tick(
         RecordProspectingError::NoFindings
         | RecordProspectingError::FindingsNotCanonical { .. }
         | RecordProspectingError::ImpossibleLowerBoundTotal { .. }
-        | RecordProspectingError::UnknownMaterial { .. } => {
+        | RecordProspectingError::UnknownMaterial { .. }
+        | RecordProspectingError::ExcavationHardnessUnsupportedEvidence { .. }
+        | RecordProspectingError::ExcavationHardnessAmbiguousFindings { .. }
+        | RecordProspectingError::ExcavationHardnessWithoutDefinitePresence { .. } => {
             unreachable!(
-                "runtime field prospecting constructs one canonical known-material finding"
+                "runtime field prospecting constructs one canonical known-material finding and only physical positive samples carry hardness"
             )
         }
     })?;

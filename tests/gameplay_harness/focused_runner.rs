@@ -33,9 +33,14 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             0x5355_5256_5052_4F42,
         ),
         "primitive-progression" => (0xD33F_C01D_5052, &[3, 4], 0x5052_4F47_5052_4F42),
-        // Coverage spans short-horizon net-timber rejection, scarce-copper blocking, a long
-        // saw-to-adze fallback, and a copper-rich pipeline that actually replaces a worn blade.
-        "woodworking" => (1, &[3, 4, 12, 0x36F7_E3A2_7870_3A8A], 0x574F_4F44_5052_4F42),
+        // Coverage spans short-horizon net-timber and attention-payback rejection, outright copper
+        // blocking, protected-reserve refusal despite a profitable saw route, a long saw-to-adze
+        // fallback, and a copper-rich pipeline that actually replaces a worn blade.
+        "woodworking" => (
+            1,
+            &[3, 4, 6, 12, 250, 0x36F7_E3A2_7870_3A8A],
+            0x574F_4F44_5052_4F42,
+        ),
         // Anchor exercises quarry reinforcement; coverage adds ordinary soft rock and the distinct
         // 750 MPa hard-pick specialist path. Organic worlds remain free to land in any tier.
         "fieldwork" => (1, &[2, 3], 0x4649_454C_4450_5242),

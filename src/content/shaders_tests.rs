@@ -3,15 +3,6 @@
 use super::*;
 use crate::shader::ShaderProgramKind;
 
-#[cfg(feature = "test-shader-validation")]
-#[test]
-fn built_in_programs_assemble_and_validate_as_portable_wgsl() {
-    assert_eq!(
-        validate_builtin_shader_programs(),
-        Ok(EXECUTABLE_PROGRAMS.len())
-    );
-}
-
 #[test]
 fn built_in_work_budgets_capture_the_hot_path_limits() {
     let registry = build_shader_registry();

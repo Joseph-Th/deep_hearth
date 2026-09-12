@@ -16,6 +16,102 @@ fn bounds() -> VoxelBounds {
     }
 }
 
+fn valid_hardness() -> ExcavationHardnessEstimate {
+    ExcavationHardnessEstimate::new(
+        Pressure::from_pascals(300_000_000),
+        Pressure::from_pascals(350_000_000),
+    )
+    .unwrap_or_else(|error| panic!("geological hardness fixture failed: {error}"))
+}
+
+fn knowledge_with_hardness(
+    evidence: GeologicalEvidenceKind,
+    findings: Vec<MaterialAbundanceEstimate>,
+) -> (GeologicalKnowledgeState, GeologicalObservationId) {
+    let id = GeologicalObservationId::new(1);
+    let mut state = GeologicalKnowledgeState::new();
+    state.next_observation_id = 2;
+    for finding in &findings {
+        state
+            .observations_by_material
+            .entry(finding.material())
+            .or_default()
+            .insert(id);
+    }
+    state.observations.insert(
+        id,
+        GeologicalObservationRecord {
+            id,
+            region: bounds(),
+            evidence,
+            findings,
+            excavation_hardness: Some(valid_hardness()),
+            observed_at: SimulationTick::ZERO,
+        },
+    );
+    (state, id)
+}
+
+#[test]
+fn loaded_validation_rejects_hardness_on_nonphysical_evidence() {
+    let registries = build_registries();
+    let (state, id) = knowledge_with_hardness(
+        GeologicalEvidenceKind::MagneticSurvey,
+        vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
+    );
+
+    assert_eq!(
+        validate_loaded_geological_knowledge(registries.materials(), &state, SimulationTick::ZERO),
+        Err(
+            GeologicalKnowledgeValidationError::ExcavationHardnessUnsupportedEvidence {
+                observation: id,
+                evidence: GeologicalEvidenceKind::MagneticSurvey,
+            }
+        )
+    );
+}
+
+#[test]
+fn loaded_validation_rejects_hardness_when_target_presence_is_uncertain() {
+    let registries = build_registries();
+    let (state, id) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 0, 800_000)],
+    );
+
+    assert_eq!(
+        validate_loaded_geological_knowledge(registries.materials(), &state, SimulationTick::ZERO),
+        Err(
+            GeologicalKnowledgeValidationError::ExcavationHardnessWithoutDefinitePresence {
+                observation: id,
+                material: MATERIAL_COPPER,
+            }
+        )
+    );
+}
+
+#[test]
+fn loaded_validation_rejects_ambiguous_multi_material_hardness() {
+    let registries = build_registries();
+    let (state, id) = knowledge_with_hardness(
+        GeologicalEvidenceKind::CoreSample,
+        vec![
+            estimate(MATERIAL_COPPER, 300_000, 500_000),
+            estimate(MATERIAL_SLAG, 300_000, 500_000),
+        ],
+    );
+
+    assert_eq!(
+        validate_loaded_geological_knowledge(registries.materials(), &state, SimulationTick::ZERO),
+        Err(
+            GeologicalKnowledgeValidationError::ExcavationHardnessAmbiguousFindings {
+                observation: id,
+                count: 2,
+            }
+        )
+    );
+}
+
 #[test]
 fn loaded_validation_rejects_invalid_excavation_hardness_band() {
     let registries = build_registries();

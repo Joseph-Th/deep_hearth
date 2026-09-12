@@ -10,6 +10,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
+use crate::core::throughput::calculate_mass_flow_capacity;
 use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergySupplyError,

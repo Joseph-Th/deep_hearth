@@ -5,13 +5,13 @@ use std::fmt::{Display, Formatter};
 
 use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::Mass;
+use crate::core::throughput::MassFlowDurationError;
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, EnergySupplyError, PowerDurationError};
 use crate::equipment::EquipmentProviderError;
 use crate::maintenance::ActiveConditionDurationError;
 use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError, ProductionJobId};
 
-use crate::ore_processing::MassFlowDurationError;
 use crate::ore_processing::powered_physics::PoweredOreJobValidationError;
 
 use super::outputs::ComminutionBatchError;

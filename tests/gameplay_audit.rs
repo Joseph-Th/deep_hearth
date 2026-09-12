@@ -107,6 +107,8 @@ mod survival_contract_tests;
 mod survival_probe;
 #[path = "gameplay_harness/woodworking_contract_tests.rs"]
 mod woodworking_contract_tests;
+#[path = "gameplay_harness/woodworking_probe.rs"]
+mod woodworking_probe;
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
 #[path = "gameplay_harness/workshop_contract_tests.rs"]
@@ -144,4 +146,9 @@ fn gameplay_ore_preparation_probe() {
 #[test]
 fn gameplay_foundry_probe() {
     focused_runner::run_focused_probe("foundry", foundry_probe::run_foundry_capability_probe);
+}
+
+#[test]
+fn gameplay_woodworking_probe() {
+    focused_runner::run_focused_probe("woodworking", woodworking_probe::run_woodworking_probe);
 }

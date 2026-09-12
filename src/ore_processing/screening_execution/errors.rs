@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::{Length, Mass};
+use crate::core::throughput::MassFlowDurationError;
 use crate::energy::{EnergyCarrier, EnergySupplyError, PowerDurationError};
 use crate::equipment::EquipmentProviderError;
 use crate::maintenance::ActiveConditionDurationError;
@@ -13,7 +14,7 @@ use crate::material::{
 };
 use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError, ProductionJobId};
 
-use super::super::{MassFlowDurationError, powered_physics::PoweredOreJobValidationError};
+use super::super::powered_physics::PoweredOreJobValidationError;
 
 /// Failure while partitioning selected material into exact screen products.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -10,9 +10,9 @@ use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
 
 use super::knowledge::{
-    ExcavationHardnessEstimate, GeologicalEvidenceKind, GeologicalObservationId,
-    GeologicalObservationRecord, MaterialAbundanceEstimate, PARTS_PER_MILLION,
-    total_lower_bound_ppm,
+    ExcavationHardnessContextError, ExcavationHardnessEstimate, GeologicalEvidenceKind,
+    GeologicalObservationId, GeologicalObservationRecord, MaterialAbundanceEstimate,
+    PARTS_PER_MILLION, total_lower_bound_ppm, validate_excavation_hardness_context,
 };
 
 /// Immutable evidence result produced by an authorized prospecting or analytical resolver.
@@ -77,6 +77,15 @@ pub enum RecordProspectingError {
     UnknownMaterial {
         material: MaterialId,
     },
+    ExcavationHardnessUnsupportedEvidence {
+        evidence: GeologicalEvidenceKind,
+    },
+    ExcavationHardnessAmbiguousFindings {
+        count: usize,
+    },
+    ExcavationHardnessWithoutDefinitePresence {
+        material: MaterialId,
+    },
     ObservationIdExhausted,
     RevisionExhausted,
 }
@@ -100,6 +109,19 @@ impl Display for RecordProspectingError {
             Self::UnknownMaterial { material } => write!(
                 formatter,
                 "resolved prospecting evidence references unknown material {}",
+                material.value()
+            ),
+            Self::ExcavationHardnessUnsupportedEvidence { evidence } => write!(
+                formatter,
+                "resolved prospecting evidence attaches excavation hardness to unsupported {evidence:?} evidence"
+            ),
+            Self::ExcavationHardnessAmbiguousFindings { count } => write!(
+                formatter,
+                "resolved prospecting evidence attaches one excavation-hardness band to {count} material findings"
+            ),
+            Self::ExcavationHardnessWithoutDefinitePresence { material } => write!(
+                formatter,
+                "resolved prospecting evidence attaches excavation hardness while material {} may be absent",
                 material.value()
             ),
             Self::ObservationIdExhausted => {
@@ -314,6 +336,22 @@ fn validate_resolution_findings(
             });
         }
     }
+    validate_excavation_hardness_context(
+        resolution.evidence,
+        &resolution.findings,
+        resolution.excavation_hardness,
+    )
+    .map_err(|error| match error {
+        ExcavationHardnessContextError::UnsupportedEvidence { evidence } => {
+            RecordProspectingError::ExcavationHardnessUnsupportedEvidence { evidence }
+        }
+        ExcavationHardnessContextError::AmbiguousFindings { count } => {
+            RecordProspectingError::ExcavationHardnessAmbiguousFindings { count }
+        }
+        ExcavationHardnessContextError::PresenceNotDefinite { material } => {
+            RecordProspectingError::ExcavationHardnessWithoutDefinitePresence { material }
+        }
+    })?;
     Ok(())
 }
 

@@ -3,6 +3,7 @@
 use crate::capability::evaluate_capabilities;
 use crate::core::quantity::{Energy, MassFlow, Power};
 use crate::core::state::AppState;
+use crate::core::throughput::calculate_mass_flow_duration_ceiling;
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyStoreId, calculate_mass_specific_energy, validate_energy_supply};
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
@@ -14,7 +15,6 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::calculate_mass_flow_duration_ceiling;
 use super::powered_physics::{
     PoweredOreBottleneck, PoweredOreEquipmentError, PoweredOreTimingError,
     classify_powered_ore_bottleneck, resolve_powered_ore_equipment, resolve_powered_ore_job_replay,

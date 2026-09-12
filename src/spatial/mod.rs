@@ -66,6 +66,23 @@ pub struct VoxelBounds {
     max_exclusive: VoxelCoord,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AxisContact {
+    Separate,
+    Abut,
+    Overlap,
+}
+
+const fn axis_contact(left_min: i64, left_max: i64, right_min: i64, right_max: i64) -> AxisContact {
+    if left_min < right_max && right_min < left_max {
+        AxisContact::Overlap
+    } else if left_max == right_min || right_max == left_min {
+        AxisContact::Abut
+    } else {
+        AxisContact::Separate
+    }
+}
+
 impl VoxelBounds {
     /// Builds nonempty half-open bounds with strictly increasing extent on every axis.
     pub fn new(min: VoxelCoord, max_exclusive: VoxelCoord) -> Result<Self, VoxelBoundsError> {
@@ -104,50 +121,69 @@ impl VoxelBounds {
     /// Reports whether two nonempty half-open bounds share at least one voxel.
     #[must_use]
     pub const fn has_intersection(self, other: Self) -> bool {
-        self.min.x < other.max_exclusive.x
-            && other.min.x < self.max_exclusive.x
-            && self.min.y < other.max_exclusive.y
-            && other.min.y < self.max_exclusive.y
-            && self.min.z < other.max_exclusive.z
-            && other.min.z < self.max_exclusive.z
+        matches!(
+            (
+                axis_contact(
+                    self.min.x,
+                    self.max_exclusive.x,
+                    other.min.x,
+                    other.max_exclusive.x,
+                ),
+                axis_contact(
+                    self.min.y,
+                    self.max_exclusive.y,
+                    other.min.y,
+                    other.max_exclusive.y,
+                ),
+                axis_contact(
+                    self.min.z,
+                    self.max_exclusive.z,
+                    other.min.z,
+                    other.max_exclusive.z,
+                ),
+            ),
+            (
+                AxisContact::Overlap,
+                AxisContact::Overlap,
+                AxisContact::Overlap
+            )
+        )
     }
 
-    /// Reports whether the closed extents of two voxel regions touch or overlap.
+    /// Reports whether two voxel regions share positive-area contact.
     ///
-    /// Unlike [`Self::has_intersection`], this treats half-open bounds that meet at a face, edge, or
-    /// corner as spatially connected. Structural topology uses this coarse voxel contact boundary;
-    /// [`Self::has_face_contact`] is available for callers that need positive-area face contact.
-    #[must_use]
-    pub const fn has_contact(self, other: Self) -> bool {
-        self.min.x <= other.max_exclusive.x
-            && other.min.x <= self.max_exclusive.x
-            && self.min.y <= other.max_exclusive.y
-            && other.min.y <= self.max_exclusive.y
-            && self.min.z <= other.max_exclusive.z
-            && other.min.z <= self.max_exclusive.z
-    }
-
-    /// Reports whether two voxel regions share a positive-area face contact.
-    ///
-    /// Face contact requires overlap with positive extent on two axes and abutment on the third.
-    /// Edge and corner touches return false. This is a precise query for callers that need it;
-    /// structural support topology deliberately uses the coarse [`Self::has_contact`] boundary.
+    /// Shared volume counts as contact. Otherwise the bounds must overlap with positive extent on
+    /// two axes and abut on the third. Edge-only and corner-only touches return false.
     #[must_use]
     pub const fn has_face_contact(self, other: Self) -> bool {
-        let x_overlap = self.min.x < other.max_exclusive.x && other.min.x < self.max_exclusive.x;
-        let y_overlap = self.min.y < other.max_exclusive.y && other.min.y < self.max_exclusive.y;
-        let z_overlap = self.min.z < other.max_exclusive.z && other.min.z < self.max_exclusive.z;
-        let x_abut = self.max_exclusive.x == other.min.x || other.max_exclusive.x == self.min.x;
-        let y_abut = self.max_exclusive.y == other.min.y || other.max_exclusive.y == self.min.y;
-        let z_abut = self.max_exclusive.z == other.min.z || other.max_exclusive.z == self.min.z;
-        // Shared volume counts as face contact; otherwise exactly one axis must abut while the
-        // other two overlap with positive extent.
-        if x_overlap && y_overlap && z_overlap {
-            return true;
-        }
-        (x_abut && y_overlap && z_overlap)
-            || (y_abut && x_overlap && z_overlap)
-            || (z_abut && x_overlap && y_overlap)
+        use AxisContact::{Abut, Overlap};
+
+        matches!(
+            (
+                axis_contact(
+                    self.min.x,
+                    self.max_exclusive.x,
+                    other.min.x,
+                    other.max_exclusive.x,
+                ),
+                axis_contact(
+                    self.min.y,
+                    self.max_exclusive.y,
+                    other.min.y,
+                    other.max_exclusive.y,
+                ),
+                axis_contact(
+                    self.min.z,
+                    self.max_exclusive.z,
+                    other.min.z,
+                    other.max_exclusive.z,
+                ),
+            ),
+            (Overlap, Overlap, Overlap)
+                | (Abut, Overlap, Overlap)
+                | (Overlap, Abut, Overlap)
+                | (Overlap, Overlap, Abut)
+        )
     }
 
     /// Returns the nonempty half-open overlap of two bounds, if one exists.

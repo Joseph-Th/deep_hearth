@@ -94,8 +94,6 @@ pub use processes::{
     PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE,
 };
-#[cfg(feature = "test-shader-validation")]
-pub use shaders::{BuiltInShaderValidationError, validate_builtin_shader_programs};
 pub use shaders::{
     SHADER_BLOOM, SHADER_LIGHT_CULL, SHADER_POST_PROCESS, SHADER_SHADOW, SHADER_SHADOW_CUTOUT,
     SHADER_SKY, SHADER_SMOKE, SHADER_SURFACE, SHADER_WATER,

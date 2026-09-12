@@ -459,6 +459,11 @@ than disappearing as an abstract efficiency loss. The carved stone crock has a s
 that converts its exact 2.4 kg body into 2.4 kg of stone scrap; that scrap enters the existing slower reknapping
 route. Recovery therefore preserves material ownership without pretending destructive reconfiguration is free.
 
+Structural support links require positive-area voxel contact: overlapping bounds are admissible, as are bounds
+that abut on one axis while overlapping on the other two. Edge-only and corner-only contact cannot carry a load
+path. Trusted-load validation replays the same rule, so persisted topology cannot bypass runtime support
+admission.
+
 Supported stockpiles contribute `StructuralLoadKind::StoredMatter` for stored contents plus enclosure matter.
 Stored-mass mutations and their structural-load consequences commit atomically.
 
@@ -678,8 +683,9 @@ modeled.
 
 Structural members own geometry, topology, embodied material, self-weight, external source-separated
 loads, lifecycle, and damage. Analysis models axial tension/compression and deterministic
-stable/strained/cracked/failed transitions with support-loss cascades. Support edges require touching or
-overlapping voxel bounds; sub-voxel joint geometry is outside the model.
+stable/strained/cracked/failed transitions with support-loss cascades. Support edges require positive-area
+voxel contact: overlapping bounds qualify, as do face-abutting bounds with positive overlap on the other two
+axes. Edge-only and corner-only touches do not carry support; sub-voxel joint geometry is outside the model.
 
 The gameplay-audit fixture may materialize a planned member from exact conserved inventory traces after
 validating geometry-derived mass, consolidated form, composition, source capacity, and self-weight. This is

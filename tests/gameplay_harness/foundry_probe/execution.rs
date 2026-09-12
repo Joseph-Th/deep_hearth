@@ -178,16 +178,28 @@ pub(super) struct PrimaryCycleAccounting {
     pub(super) final_thermal: Energy,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct PrimaryCycleAudit {
+    pub(super) ids: FoundryIds,
+    pub(super) initial: FoundryInitialAccounting,
+    pub(super) preheat: PreheatResult,
+    pub(super) thermal_before_cast: Energy,
+    pub(super) cast: PrimaryCastResult,
+}
+
 pub(super) fn audit_primary_cycle(
     registries: &Registries,
     state: &AppState,
-    ids: FoundryIds,
-    initial: FoundryInitialAccounting,
-    preheat: PreheatResult,
     melt: &ResolvedMelting,
-    thermal_before_cast: Energy,
-    cast: PrimaryCastResult,
+    audit: PrimaryCycleAudit,
 ) -> PrimaryCycleAccounting {
+    let PrimaryCycleAudit {
+        ids,
+        initial,
+        preheat,
+        thermal_before_cast,
+        cast,
+    } = audit;
     validate_loaded_state(registries, state)
         .unwrap_or_else(|error| panic!("foundry probe final state audit failed: {error}"));
     let final_matter = calculate_matter_accounting(state)

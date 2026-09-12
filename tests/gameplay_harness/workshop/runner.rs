@@ -229,7 +229,7 @@ struct SelectedBatch {
 }
 
 enum BatchSelection {
-    Ready(SelectedBatch),
+    Ready(Box<SelectedBatch>),
     MaintenanceActive,
     Stop,
 }
@@ -565,11 +565,11 @@ fn select_next_batch(
             context.thresholds,
         ) {
             CrushBatchSearch::Available(plan) => {
-                return BatchSelection::Ready(choose_powered_batch(
+                return BatchSelection::Ready(Box::new(choose_powered_batch(
                     &mut context,
                     planned_mass,
                     *plan,
-                ));
+                )));
             }
             CrushBatchSearch::MaintenanceBlocked => {
                 match handle_maintenance_blocked_plan(registries, &mut context) {
@@ -955,7 +955,7 @@ pub(crate) fn run_scenario(
         }
 
         let batch = match select_episode_batch(registries, &mut episode) {
-            BatchSelection::Ready(batch) => batch,
+            BatchSelection::Ready(batch) => *batch,
             BatchSelection::MaintenanceActive => {
                 advance_active_maintenance(registries, &mut episode);
                 continue;

@@ -4,9 +4,9 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass};
+use crate::core::throughput::MassFlowDurationError;
 use crate::energy::{EnergyCarrier, PowerDurationError};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
-use crate::ore_processing::MassFlowDurationError;
 
 /// Failure while resolving condition-adjusted equipment limits for one powered ore batch.
 #[derive(Clone, Debug, PartialEq, Eq)]

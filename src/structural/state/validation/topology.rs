@@ -45,7 +45,7 @@ fn validate_support_edge(
     };
     if !state.elements[&element]
         .bounds()
-        .has_contact(support_record.bounds())
+        .has_face_contact(support_record.bounds())
     {
         return Err(StructureValidationError::SupportOutOfContact { element, support });
     }

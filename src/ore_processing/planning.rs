@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::capability::{CapabilityEvaluationError, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
+use crate::core::throughput::calculate_mass_flow_capacity;
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, assess_energy_supply_access,
@@ -19,8 +20,8 @@ use crate::maintenance::{
 use crate::production::ProcessId;
 use crate::registry::Registries;
 
+use super::PoweredOreProcessProfile;
 use super::powered_physics::{PoweredOreEquipmentError, resolve_powered_ore_equipment_limits};
-use super::{PoweredOreProcessProfile, calculate_mass_flow_capacity};
 
 /// First shared scale constraint that rejects a requested powered ore batch.
 ///

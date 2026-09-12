@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
+use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::TickSpan;
 use crate::production::{ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
@@ -14,7 +15,6 @@ use crate::ore_processing::powered_physics::{
 };
 use crate::ore_processing::{
     ConstituentSeparationProcessDefinition, ManualConstituentSeparationProcessDefinition,
-    MassFlowDurationError, calculate_mass_flow_duration_ceiling,
 };
 
 /// Persistent-state failure found while replaying an in-flight constituent-separation job.

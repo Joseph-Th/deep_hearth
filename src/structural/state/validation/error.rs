@@ -356,7 +356,7 @@ impl Display for StructureValidationError {
             ),
             Self::SupportOutOfContact { element, support } => write!(
                 formatter,
-                "structural support edge {} -> {} crosses empty space; member bounds do not touch or overlap",
+                "structural support edge {} -> {} lacks positive-area voxel contact; edge-only and corner-only touches cannot carry support",
                 element.value(),
                 support.value()
             ),

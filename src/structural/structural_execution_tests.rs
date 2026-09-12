@@ -260,7 +260,7 @@ fn load_distribution_preserves_force_and_uses_stable_support_order() {
     let mut state = AppState::new(WorldSeed::new(0x5100_0001));
     let left = make_test_element(&registries, &mut state, 0, 0, true);
     let right = make_test_element(&registries, &mut state, 2, 0, true);
-    let deck = make_test_element(&registries, &mut state, 1, 1, false);
+    let deck = make_test_element(&registries, &mut state, 1, 0, false);
     activate_test_element(&registries, &mut state, left);
     activate_test_element(&registries, &mut state, right);
     link_test_support(&registries, &mut state, deck, left);
@@ -716,6 +716,25 @@ fn support_link_cannot_bridge_empty_space() {
     let mut state = AppState::new(WorldSeed::new(0x5100_0013));
     let support = make_test_element(&registries, &mut state, 0, 0, true);
     let member = make_test_element(&registries, &mut state, 3, 0, false);
+    activate_test_element(&registries, &mut state, support);
+    let before = state.clone();
+
+    assert_eq!(
+        validate_link_support(&registries, &state, member, support),
+        Err(StructuralMutationError::SupportOutOfContact {
+            element: member,
+            support,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn support_link_rejects_zero_area_edge_contact() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5100_0014));
+    let support = make_test_element(&registries, &mut state, 1, 1, true);
+    let member = make_test_element(&registries, &mut state, 0, 0, false);
     activate_test_element(&registries, &mut state, support);
     let before = state.clone();
 

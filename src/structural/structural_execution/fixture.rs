@@ -136,7 +136,10 @@ pub(crate) fn validate_link_support(
     if support_record.lifecycle() == StructuralLifecycle::Failed {
         return Err(StructuralMutationError::SupportFailed { support });
     }
-    if !element_record.bounds().has_contact(support_record.bounds()) {
+    if !element_record
+        .bounds()
+        .has_face_contact(support_record.bounds())
+    {
         return Err(StructuralMutationError::SupportOutOfContact { element, support });
     }
     if state

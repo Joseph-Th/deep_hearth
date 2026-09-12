@@ -5,10 +5,10 @@ use std::fmt::{Display, Formatter};
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Mass, Pressure};
+use crate::core::throughput::MassFlowDurationError;
 use crate::core::time::TickSpan;
 use crate::equipment::EquipmentDefinitionId;
 use crate::maintenance::{ActiveConditionDurationError, Condition};
-use crate::ore_processing::MassFlowDurationError;
 
 use super::super::MiningJobId;
 

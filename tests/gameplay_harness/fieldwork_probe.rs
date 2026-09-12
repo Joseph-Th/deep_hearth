@@ -631,12 +631,18 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     )
     .unwrap_or_else(|_| panic!("fieldwork transect span exceeds coordinate range"));
     assert!(channel_voxels > 0);
-    let hidden_channel =
-        i64::try_from(mix64(seed ^ 0x4649_454C_4443_484E) % u64::try_from(CHANNEL_COUNT).unwrap())
-            .unwrap_or_else(|_| unreachable!("fieldwork channel is bounded"));
-    let hidden_slot =
-        i64::try_from(mix64(seed ^ 0x4649_454C_4453_4C4F) % u64::try_from(channel_voxels).unwrap())
-            .unwrap_or_else(|_| unreachable!("fieldwork slot is bounded"));
+    let hidden_channel = i64::try_from(
+        mix64(seed ^ 0x4649_454C_4443_484E)
+            % u64::try_from(CHANNEL_COUNT)
+                .unwrap_or_else(|_| unreachable!("positive channel count fits u64")),
+    )
+    .unwrap_or_else(|_| unreachable!("fieldwork channel is bounded"));
+    let hidden_slot = i64::try_from(
+        mix64(seed ^ 0x4649_454C_4453_4C4F)
+            % u64::try_from(channel_voxels)
+                .unwrap_or_else(|_| unreachable!("positive channel span fits u64")),
+    )
+    .unwrap_or_else(|_| unreachable!("fieldwork slot is bounded"));
     let mining_limits = fieldwork_mining_limits(registries);
     let hardness_tier = mix64(seed ^ 0x4649_454C_4448_4152) % 3;
     let base_pa = mining_limits.base_quarry_hardness.pascals();

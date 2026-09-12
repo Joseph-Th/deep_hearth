@@ -6,11 +6,11 @@ use std::num::NonZeroU64;
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::Mass;
+use crate::core::throughput::MassFlowDurationError;
 use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::{CommodityKey, MaterialLotSpecError};
-use crate::ore_processing::MassFlowDurationError;
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolutionError, StartProcessCommitError,
     StartProcessError,
