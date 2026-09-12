@@ -1,7 +1,8 @@
 //! Built-in physical capability definitions used by canonical workshop equipment.
 
 use crate::capability::{
-    CapabilityDefinition, CapabilityId, CapabilityRegistry, CapabilityValueKind,
+    CapabilityDefinition, CapabilityId, CapabilityImprovement, CapabilityRegistry,
+    CapabilityValueKind,
 };
 
 pub(crate) const CAPABILITY_CRUSHER_FLOW: CapabilityId = CapabilityId::new(1);
@@ -24,100 +25,108 @@ pub(crate) const CAPABILITY_TREADLE_POWER_OUTPUT: CapabilityId = CapabilityId::n
 pub(crate) const CAPABILITY_WOODWORKING_FLOW: CapabilityId = CapabilityId::new(18);
 pub(crate) const CAPABILITY_SAWING_FLOW: CapabilityId = CapabilityId::new(19);
 
+fn higher_is_better(
+    id: CapabilityId,
+    name: &'static str,
+    kind: CapabilityValueKind,
+) -> CapabilityDefinition {
+    CapabilityDefinition::new_with_improvement(id, name, kind, CapabilityImprovement::Higher)
+}
+
 pub(crate) fn build_capability_registry() -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
     for definition in [
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_CRUSHER_FLOW,
             "crusher material throughput",
             CapabilityValueKind::MassFlow,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_CRUSHER_BATCH,
             "crusher maximum batch mass",
             CapabilityValueKind::Mass,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_HEATING_POWER,
             "furnace heating power",
             CapabilityValueKind::Power,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_COOLING_POWER,
             "casting cooling power",
             CapabilityValueKind::Power,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_THERMAL_MAX_TEMPERATURE,
             "thermal equipment maximum temperature",
             CapabilityValueKind::Temperature,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_THERMAL_BATCH,
             "thermal equipment maximum batch mass",
             CapabilityValueKind::Mass,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_SCREEN_FLOW,
             "screen material throughput",
             CapabilityValueKind::MassFlow,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_SCREEN_BATCH,
             "screen maximum batch mass",
             CapabilityValueKind::Mass,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_GRINDER_FLOW,
             "grinder material throughput",
             CapabilityValueKind::MassFlow,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_GRINDER_BATCH,
             "grinder maximum batch mass",
             CapabilityValueKind::Mass,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_MINING_FLOW,
             "mining material throughput",
             CapabilityValueKind::MassFlow,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_MINING_MAX_BATCH,
             "mining maximum batch mass",
             CapabilityValueKind::Mass,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_MINING_MAX_HARDNESS,
             "mining maximum material hardness",
             CapabilityValueKind::Pressure,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_MANUAL_POWER_OUTPUT,
             "direct manual mechanical power output",
             CapabilityValueKind::Power,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_SEPARATOR_FLOW,
             "separator material throughput",
             CapabilityValueKind::MassFlow,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_SEPARATOR_BATCH,
             "separator maximum batch mass",
             CapabilityValueKind::Mass,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_TREADLE_POWER_OUTPUT,
             "foot treadle mechanical power output",
             CapabilityValueKind::Power,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_WOODWORKING_FLOW,
             "hand-tool timber shaping throughput",
             CapabilityValueKind::MassFlow,
         ),
-        CapabilityDefinition::new(
+        higher_is_better(
             CAPABILITY_SAWING_FLOW,
             "frame-saw timber ripping throughput",
             CapabilityValueKind::MassFlow,

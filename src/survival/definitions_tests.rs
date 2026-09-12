@@ -172,6 +172,70 @@ fn drink_hydration_multiplier_cannot_create_hydration_volume() {
 }
 
 #[test]
+fn food_hydration_cannot_exceed_consumed_mass_water_equivalent() {
+    let commodity = CommodityKey::new(MaterialId::new(1), FormId::new(1));
+    let temperature = ConsumptionTemperatureRange::new(
+        Temperature::from_millikelvin(273_150),
+        Temperature::from_millikelvin(333_150),
+    );
+    let maximally_hydrating_food = FoodDefinition::new(
+        commodity,
+        FoodCategory::Fruit,
+        MassSpecificEnergy::from_nanojoules_per_milligram(1),
+        1,
+        TickSpan::new(10),
+        temperature,
+    );
+    assert_eq!(
+        maximally_hydrating_food.hydration_microliters_per_milligram(),
+        1
+    );
+    assert!(
+        std::panic::catch_unwind(|| FoodDefinition::new(
+            commodity,
+            FoodCategory::Fruit,
+            MassSpecificEnergy::from_nanojoules_per_milligram(1),
+            2,
+            TickSpan::new(10),
+            temperature,
+        ))
+        .is_err()
+    );
+}
+
+#[test]
+fn food_dietary_energy_cannot_exceed_conservative_fat_energy_density() {
+    let commodity = CommodityKey::new(MaterialId::new(1), FormId::new(1));
+    let temperature = ConsumptionTemperatureRange::new(
+        Temperature::from_millikelvin(273_150),
+        Temperature::from_millikelvin(333_150),
+    );
+    let maximum = FoodDefinition::new(
+        commodity,
+        FoodCategory::Protein,
+        MassSpecificEnergy::from_nanojoules_per_milligram(40_000_000_000),
+        0,
+        TickSpan::new(10),
+        temperature,
+    );
+    assert_eq!(
+        maximum.dietary_energy(),
+        MassSpecificEnergy::from_nanojoules_per_milligram(40_000_000_000)
+    );
+    assert!(
+        std::panic::catch_unwind(|| FoodDefinition::new(
+            commodity,
+            FoodCategory::Protein,
+            MassSpecificEnergy::from_nanojoules_per_milligram(40_000_000_001),
+            0,
+            TickSpan::new(10),
+            temperature,
+        ))
+        .is_err()
+    );
+}
+
+#[test]
 fn food_definition_projects_minimum_mass_for_dietary_energy() {
     let food = FoodDefinition::new(
         CommodityKey::new(MaterialId::new(1), FormId::new(1)),

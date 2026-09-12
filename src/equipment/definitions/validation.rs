@@ -1,12 +1,13 @@
 //! Cross-registry validation for authored equipment definitions.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use crate::capability::CapabilityRegistry;
-use crate::core::quantity::Mass;
 use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
 
 use super::{EquipmentDefinition, EquipmentRegistry};
+
+mod upgrade;
+
+use upgrade::{validate_equipment_upgrade_ancestry, validate_equipment_upgrade_references};
 
 fn validate_equipment_capability_references(
     definition: &EquipmentDefinition,
@@ -177,124 +178,6 @@ fn validate_worn_recovery_references(
     );
 }
 
-fn validate_equipment_upgrade_references(
-    registry: &EquipmentRegistry,
-    target: &EquipmentDefinition,
-    materials: &MaterialRegistry,
-) {
-    let Some(upgrade) = target.upgrade_profile() else {
-        return;
-    };
-    let base = registry
-        .definitions
-        .get(&upgrade.from())
-        .unwrap_or_else(|| {
-            panic!(
-                "equipment definition {} upgrade references missing base definition {}",
-                target.id().value(),
-                upgrade.from().value()
-            )
-        });
-    assert!(
-        upgrade
-            .additions()
-            .validate_infrastructure_references(materials)
-            .is_ok(),
-        "equipment definition {} upgrade additions must use existing consolidated solid commodities",
-        target.id().value()
-    );
-    let base_assembly = base.assembly_profile().unwrap_or_else(|| {
-        panic!(
-            "equipment definition {} upgrade base {} has no material assembly profile",
-            target.id().value(),
-            base.id().value()
-        )
-    });
-    let target_assembly = target.assembly_profile().unwrap_or_else(|| {
-        panic!(
-            "equipment definition {} has an upgrade profile but no material assembly profile",
-            target.id().value()
-        )
-    });
-    let expected_mass = base
-        .mass()
-        .checked_add(upgrade.additions().input_mass())
-        .unwrap_or_else(|| {
-            panic!(
-                "equipment definition {} upgrade mass overflows",
-                target.id().value()
-            )
-        });
-    assert_eq!(
-        target.mass(),
-        expected_mass,
-        "equipment definition {} upgrade mass must equal base mass plus additive material",
-        target.id().value()
-    );
-
-    let mut expected_inputs = BTreeMap::new();
-    for input in base_assembly
-        .inputs()
-        .iter()
-        .chain(upgrade.additions().inputs())
-    {
-        let previous = expected_inputs
-            .get(&input.commodity())
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        let combined = previous.checked_add(input.mass()).unwrap_or_else(|| {
-            panic!(
-                "equipment definition {} upgrade material quantity overflows for commodity {}",
-                target.id().value(),
-                input.commodity().value()
-            )
-        });
-        expected_inputs.insert(input.commodity(), combined);
-    }
-    assert_eq!(
-        expected_inputs.len(),
-        target_assembly.inputs().len(),
-        "equipment definition {} upgrade target assembly has extra or missing commodities",
-        target.id().value()
-    );
-    for input in target_assembly.inputs() {
-        assert_eq!(
-            expected_inputs.get(&input.commodity()).copied(),
-            Some(input.mass()),
-            "equipment definition {} upgrade target assembly disagrees with base plus additive material for commodity {}",
-            target.id().value(),
-            input.commodity().value()
-        );
-    }
-}
-
-fn validate_equipment_upgrade_ancestry(registry: &EquipmentRegistry) {
-    for definition in registry.definitions.values() {
-        let mut visited = BTreeSet::new();
-        let mut current = definition;
-        loop {
-            assert!(
-                visited.insert(current.id()),
-                "equipment upgrade ancestry contains a cycle at definition {}",
-                current.id().value()
-            );
-            let Some(upgrade) = current.upgrade_profile() else {
-                break;
-            };
-            current = registry
-                .definitions
-                .get(&upgrade.from())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "equipment definition {} upgrade references missing base definition {}",
-                        current.id().value(),
-                        upgrade.from().value()
-                    )
-                });
-        }
-    }
-}
-
 impl EquipmentRegistry {
     pub(crate) fn validate_references(
         &self,
@@ -310,7 +193,7 @@ impl EquipmentRegistry {
 
         validate_equipment_upgrade_ancestry(self);
         for target in self.definitions.values() {
-            validate_equipment_upgrade_references(self, target, materials);
+            validate_equipment_upgrade_references(self, target, capabilities, materials);
         }
     }
 }

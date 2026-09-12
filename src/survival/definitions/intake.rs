@@ -5,6 +5,9 @@ use crate::core::time::TickSpan;
 use crate::fluid::FluidDefinitionId;
 use crate::material::CommodityKey;
 
+/// Conservative whole-unit ceiling for physiological food energy: 40 MJ/kg.
+const MAX_FOOD_DIETARY_ENERGY_NJ_PER_MG: u64 = 40_000_000_000;
+
 /// Broad dietary identity used for dietary balance and planning.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FoodCategory {
@@ -80,12 +83,12 @@ impl FoodDefinition {
             "food dietary energy must be nonzero"
         );
         assert!(
-            dietary_energy.nanojoules_per_milligram() <= 100_000_000_000,
-            "food dietary energy must not exceed 100,000,000,000 nJ/mg"
+            dietary_energy.nanojoules_per_milligram() <= MAX_FOOD_DIETARY_ENERGY_NJ_PER_MG,
+            "food dietary energy must not exceed 40,000,000,000 nJ/mg"
         );
         assert!(
-            hydration_microliters_per_milligram <= 1_000,
-            "food hydration must not exceed 1,000 uL/mg"
+            hydration_microliters_per_milligram <= 1,
+            "food hydration must not exceed 1 uL/mg of consumed mass"
         );
         assert!(!shelf_life.is_zero(), "food shelf life must be nonzero");
         Self {

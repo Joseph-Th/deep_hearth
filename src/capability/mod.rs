@@ -27,6 +27,17 @@ impl CapabilityId {
     }
 }
 
+/// Authored direction in which a capability becomes strictly more useful.
+///
+/// This is intentionally separate from one process requirement's `AtLeast`/`AtMost` comparison:
+/// requirements decide whether a provider can perform a specific operation, while improvement
+/// direction describes the capability dimension itself for upgrade and degradation semantics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CapabilityImprovement {
+    Higher,
+    Lower,
+}
+
 /// Physical/value dimension carried by one authored capability.
 /// Capability dimensions are explicit typed variants rather than generic numeric tiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -146,17 +157,43 @@ pub struct CapabilityDefinition {
     id: CapabilityId,
     name: String,
     kind: CapabilityValueKind,
+    improvement: Option<CapabilityImprovement>,
 }
 
 impl CapabilityDefinition {
     #[must_use]
     pub fn new(id: CapabilityId, name: impl Into<String>, kind: CapabilityValueKind) -> Self {
+        Self::new_internal(id, name, kind, None)
+    }
+
+    /// Builds a capability dimension whose better/worse ordering is physically meaningful.
+    #[must_use]
+    pub fn new_with_improvement(
+        id: CapabilityId,
+        name: impl Into<String>,
+        kind: CapabilityValueKind,
+        improvement: CapabilityImprovement,
+    ) -> Self {
+        Self::new_internal(id, name, kind, Some(improvement))
+    }
+
+    fn new_internal(
+        id: CapabilityId,
+        name: impl Into<String>,
+        kind: CapabilityValueKind,
+        improvement: Option<CapabilityImprovement>,
+    ) -> Self {
         let name = name.into();
         assert!(
             !name.trim().is_empty(),
             "capability definition name must not be empty"
         );
-        Self { id, name, kind }
+        Self {
+            id,
+            name,
+            kind,
+            improvement,
+        }
     }
 
     #[must_use]
@@ -172,6 +209,12 @@ impl CapabilityDefinition {
     #[must_use]
     pub const fn kind(&self) -> CapabilityValueKind {
         self.kind
+    }
+
+    /// Returns the authored direction of improvement when this capability has one.
+    #[must_use]
+    pub const fn improvement(&self) -> Option<CapabilityImprovement> {
+        self.improvement
     }
 }
 

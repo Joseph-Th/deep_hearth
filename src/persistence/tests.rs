@@ -803,9 +803,45 @@ fn unknown_fields_are_rejected_at_envelope_and_nested_state_boundaries() {
     envelope["unexpected"] = serde_json::json!(true);
     assert!(serde_json::from_value::<LoadedSaveEnvelope>(envelope).is_err());
 
-    let mut nested = base;
-    nested["state"]["systems"]["inventory"]["unexpected"] = serde_json::json!(true);
-    assert!(serde_json::from_value::<LoadedSaveEnvelope>(nested).is_err());
+    for path in [
+        &["state"][..],
+        &["state", "clock"],
+        &["state", "random"],
+        &["state", "systems"],
+    ] {
+        let mut nested = base.clone();
+        let mut value = &mut nested;
+        for segment in path {
+            value = &mut value[*segment];
+        }
+        value["unexpected"] = serde_json::json!(true);
+        assert!(
+            serde_json::from_value::<LoadedSaveEnvelope>(nested).is_err(),
+            "unknown field was accepted at persistent boundary {}",
+            path.join(".")
+        );
+    }
+
+    for owner in [
+        "energy",
+        "fluid",
+        "equipment",
+        "structures",
+        "geology",
+        "geological_knowledge",
+        "inventory",
+        "production",
+        "mining",
+        "player_work",
+        "survival",
+    ] {
+        let mut nested = base.clone();
+        nested["state"]["systems"][owner]["unexpected"] = serde_json::json!(true);
+        assert!(
+            serde_json::from_value::<LoadedSaveEnvelope>(nested).is_err(),
+            "unknown field was accepted by persistent owner {owner}"
+        );
+    }
 }
 
 #[test]
