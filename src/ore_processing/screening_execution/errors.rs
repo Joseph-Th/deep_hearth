@@ -1,4 +1,4 @@
-//! Failure types for screening resolution and persisted-job replay.
+//! Failure types for screening batch physics and runtime resolution.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -12,9 +12,11 @@ use crate::maintenance::ActiveConditionDurationError;
 use crate::material::{
     FormId, MaterialLotSpecError, ParticleSizeDistributionError, ParticleSizeRange,
 };
-use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError, ProductionJobId};
+use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError};
 
-use super::super::powered_physics::PoweredOreJobValidationError;
+use crate::ore_processing::powered_physics::{
+    PoweredOreEquipmentError, PoweredOreProviderError, PoweredOreSupplyError, PoweredOreTimingError,
+};
 
 /// Failure while partitioning selected material into exact screen products.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,6 +134,45 @@ pub enum ScreeningResolutionError {
     Resolution(ProcessResolutionError),
 }
 
+impl From<PoweredOreProviderError> for ScreeningResolutionError {
+    fn from(error: PoweredOreProviderError) -> Self {
+        match error {
+            PoweredOreProviderError::UnknownProcess { process } => {
+                Self::UnknownScreeningProcess { process }
+            }
+            PoweredOreProviderError::Provider(error) => Self::Equipment(error),
+            PoweredOreProviderError::Capability(error) => Self::Capability(error),
+            PoweredOreProviderError::Equipment(error) => match error {
+                PoweredOreEquipmentError::MissingMassFlowCapability => {
+                    Self::MissingMassFlowCapability
+                }
+                PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+                    Self::MissingMaximumBatchMassCapability
+                }
+                PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+                    Self::BatchMassExceeded { selected, maximum }
+                }
+            },
+        }
+    }
+}
+
+impl From<PoweredOreSupplyError> for ScreeningResolutionError {
+    fn from(error: PoweredOreSupplyError) -> Self {
+        match error {
+            PoweredOreSupplyError::Supply(error) => Self::Energy(error),
+            PoweredOreSupplyError::WrongEnergyCarrier { required, provided } => {
+                Self::WrongEnergyCarrier { required, provided }
+            }
+            PoweredOreSupplyError::Timing(error) => match error {
+                PoweredOreTimingError::Throughput(error) => Self::ThroughputDuration(error),
+                PoweredOreTimingError::Energy(error) => Self::EnergyDuration(error),
+                PoweredOreTimingError::Condition(error) => Self::ConditionDuration(error),
+            },
+        }
+    }
+}
+
 impl Display for ScreeningResolutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -207,54 +248,6 @@ impl Error for ScreeningResolutionError {
                 provided: _provided,
             } => None,
             Self::MissingMassFlowCapability | Self::MissingMaximumBatchMassCapability => None,
-        }
-    }
-}
-
-/// Persistent-state failure found while recomputing an in-flight screening job from its traces.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ScreeningJobValidationError {
-    Powered {
-        job: ProductionJobId,
-        error: PoweredOreJobValidationError,
-    },
-    Batch {
-        job: ProductionJobId,
-        error: ScreeningBatchError,
-    },
-    OutputMismatch {
-        job: ProductionJobId,
-    },
-}
-
-impl Display for ScreeningJobValidationError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Powered { job, error } => write!(
-                formatter,
-                "screening job {} powered-physics replay failed: {error}",
-                job.value()
-            ),
-            Self::Batch { job, error } => write!(
-                formatter,
-                "screening job {} has invalid batch physics: {error}",
-                job.value()
-            ),
-            Self::OutputMismatch { job } => write!(
-                formatter,
-                "screening job {} output snapshot no longer matches its consumed material traces",
-                job.value()
-            ),
-        }
-    }
-}
-
-impl Error for ScreeningJobValidationError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Powered { error, .. } => Some(error),
-            Self::Batch { job: _job, error } => Some(error),
-            Self::OutputMismatch { job: _job } => None,
         }
     }
 }

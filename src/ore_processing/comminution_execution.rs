@@ -1,41 +1,38 @@
-//! Resolves comminution operations and validates persisted comminution jobs.
+//! Resolves exact manual and powered comminution operations.
 
-use crate::capability::evaluate_capabilities;
 use crate::core::quantity::{Energy, MassFlow, Power};
 use crate::core::state::AppState;
-use crate::core::throughput::calculate_mass_flow_duration_ceiling;
 use crate::core::time::TickSpan;
-use crate::energy::{
-    EnergyStoreId, assess_energy_supply_access, calculate_mass_specific_energy,
-    validate_energy_supply_request,
-};
-use crate::equipment::{EquipmentId, resolve_equipment_provider};
+use crate::energy::EnergyStoreId;
+use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
 use crate::production::{
-    ProcessId, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution, ProductionJobRecord,
+    ProcessId, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
 use super::powered_physics::{
-    PoweredOreBottleneck, PoweredOreEquipmentError, PoweredOreTimingError,
-    classify_powered_ore_bottleneck, resolve_powered_ore_equipment, resolve_powered_ore_job_replay,
-    resolve_powered_ore_timing, validate_powered_ore_job_replay,
+    PoweredOreBottleneck, classify_powered_ore_bottleneck, resolve_powered_ore_provider,
+    resolve_powered_ore_supply,
 };
 
 mod errors;
 mod manual;
 mod outputs;
+mod validation;
 
-pub use errors::{ComminutionJobValidationError, ComminutionResolutionError};
+pub use errors::ComminutionResolutionError;
 pub use manual::{
     ManualComminutionCommitError, ManualComminutionRequest, ManualComminutionResolutionError,
     ResolvedManualComminution, StartManualComminutionError, ValidatedManualComminutionStart,
     resolve_manual_comminution_process, validate_start_manual_comminution,
 };
 pub use outputs::ComminutionBatchError;
-use outputs::{resolve_comminution_outputs, resolve_manual_comminution_outputs};
+use outputs::resolve_comminution_outputs;
+pub use validation::ComminutionJobValidationError;
+pub(crate) use validation::validate_loaded_comminution_job;
 
 #[cfg(test)]
 use crate::core::quantity::Temperature;
@@ -169,80 +166,36 @@ pub fn resolve_comminution_process(
         .ok_or(ComminutionResolutionError::UnknownComminutionProcess { process })?;
     let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
         .map_err(ComminutionResolutionError::Input)?;
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(ComminutionResolutionError::Equipment)?;
-    let process_definition = match registries.production().get_process(process) {
-        Some(definition) => definition,
-        None => {
-            return Err(ComminutionResolutionError::UnknownComminutionProcess { process });
-        }
-    };
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
-    )
-    .map_err(ComminutionResolutionError::Capability)?;
-
     let selected_mass = inputs.input_mass();
-    let powered_equipment = resolve_powered_ore_equipment(
-        provider.definition(),
-        provider.condition(),
-        definition.mass_flow_capability(),
-        definition.max_batch_mass_capability(),
+    let profile = definition.operating_profile();
+    let provider = resolve_powered_ore_provider(
+        registries,
+        state,
+        process,
+        equipment,
+        profile,
         selected_mass,
     )
-    .map_err(|error| match error {
-        PoweredOreEquipmentError::MissingMassFlowCapability => {
-            ComminutionResolutionError::MissingMassFlowCapability
-        }
-        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
-            ComminutionResolutionError::MissingMaximumBatchMassCapability
-        }
-        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
-            ComminutionResolutionError::BatchMassExceeded { selected, maximum }
-        }
-    })?;
-    let processing_rate = powered_equipment.processing_rate();
+    .map_err(ComminutionResolutionError::from)?;
+    let processing_rate = provider.processing_rate();
     let outputs = resolve_comminution_outputs(definition, inputs.consumed_inputs())
         .map_err(ComminutionResolutionError::Batch)?;
-    let required_energy =
-        calculate_mass_specific_energy(selected_mass, definition.specific_energy());
-    let energy_access = assess_energy_supply_access(registries, state, energy_store)
-        .map_err(ComminutionResolutionError::Energy)?;
-    let provided_carrier = energy_access.carrier();
-    if provided_carrier != definition.energy_carrier() {
-        return Err(ComminutionResolutionError::WrongEnergyCarrier {
-            required: definition.energy_carrier(),
-            provided: provided_carrier,
-        });
-    }
-    let energy_supply = validate_energy_supply_request(energy_access, required_energy)
-        .map_err(ComminutionResolutionError::Energy)?;
-    let available_power = energy_supply.max_output_power();
-    let timing = resolve_powered_ore_timing(
+    let supply = resolve_powered_ore_supply(
         registries,
-        processing_rate,
+        state,
+        energy_store,
+        profile,
         selected_mass,
-        required_energy,
-        available_power,
-        definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
+        processing_rate,
+        provider.condition_before(),
     )
-    .map_err(|error| match error {
-        PoweredOreTimingError::Throughput(error) => {
-            ComminutionResolutionError::ThroughputDuration(error)
-        }
-        PoweredOreTimingError::Energy(error) => ComminutionResolutionError::EnergyDuration(error),
-        PoweredOreTimingError::Condition(error) => {
-            ComminutionResolutionError::ConditionDuration(error)
-        }
-    })?;
-    let throughput_duration = timing.throughput_duration();
-    let energy_duration = timing.energy_duration();
-    let duration = timing.duration();
-    let condition_after = timing.condition_after();
-    let equipment_use = provider.validated_use();
+    .map_err(ComminutionResolutionError::from)?;
+    let required_energy = supply.required_energy();
+    let available_power = supply.available_power();
+    let throughput_duration = supply.throughput_duration();
+    let energy_duration = supply.energy_duration();
+    let duration = supply.duration();
+    let condition_after = supply.condition_after();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
@@ -250,112 +203,22 @@ pub fn resolve_comminution_process(
                 ProcessOutputStreamId::PRIMARY,
                 outputs,
             )],
-            energy_supply,
-            equipment_use,
+            supply.energy_supply(),
+            provider.validated_use(),
             condition_after,
         )
         .map_err(ComminutionResolutionError::Resolution)?;
 
     Ok(ResolvedComminution {
         resolution,
-        equipment,
-        condition_before: provider.condition(),
+        equipment: provider.id(),
+        condition_before: provider.condition_before(),
         condition_after,
         processing_rate,
         required_energy,
         available_power,
         throughput_duration,
         energy_duration,
-    })
-}
-
-fn validate_loaded_manual_comminution_job(
-    registries: &Registries,
-    job: &ProductionJobRecord,
-    definition: &crate::ore_processing::ManualComminutionProcessDefinition,
-) -> Result<(), ComminutionJobValidationError> {
-    if job.consumed_energy().is_some() || job.released_energy().is_some() {
-        return Err(ComminutionJobValidationError::ManualUnexpectedEnergy { job: job.id() });
-    }
-    if job.equipment_provider().is_some()
-        || job.equipment_condition_after().is_some()
-        || job.has_required_active_support()
-    {
-        return Err(ComminutionJobValidationError::ManualUnexpectedEquipment { job: job.id() });
-    }
-    if job.consumed_mass() > definition.max_batch_mass() {
-        return Err(ComminutionJobValidationError::ManualBatchMassExceeded {
-            job: job.id(),
-            selected: job.consumed_mass(),
-            maximum: definition.max_batch_mass(),
-        });
-    }
-    let required_outputs = resolve_manual_comminution_outputs(definition, job.consumed_inputs())
-        .map_err(|error| ComminutionJobValidationError::Batch {
-            job: job.id(),
-            error,
-        })?;
-    let Some(output_stream) = job.single_output_stream() else {
-        return Err(ComminutionJobValidationError::OutputMismatch { job: job.id() });
-    };
-    if required_outputs.as_slice() != output_stream.outputs() {
-        return Err(ComminutionJobValidationError::OutputMismatch { job: job.id() });
-    }
-    let required = calculate_mass_flow_duration_ceiling(
-        definition.processing_rate(),
-        job.consumed_mass(),
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(|error| ComminutionJobValidationError::ManualDuration {
-        job: job.id(),
-        error,
-    })?;
-    if job.active_duration() != required {
-        return Err(ComminutionJobValidationError::ManualDurationMismatch {
-            job: job.id(),
-            stored: job.active_duration(),
-            required,
-        });
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_loaded_comminution_job(
-    registries: &Registries,
-    job: &ProductionJobRecord,
-) -> Result<(), ComminutionJobValidationError> {
-    if let Some(definition) = registries
-        .ore_processing()
-        .get_manual_comminution(job.process())
-    {
-        return validate_loaded_manual_comminution_job(registries, job, definition);
-    }
-    let Some(definition) = registries.ore_processing().get_comminution(job.process()) else {
-        return Ok(());
-    };
-    let replay = resolve_powered_ore_job_replay(registries, job, definition.operating_profile())
-        .map_err(|error| ComminutionJobValidationError::Powered {
-            job: job.id(),
-            error,
-        })?;
-    let required_outputs =
-        resolve_comminution_outputs(definition, job.consumed_inputs()).map_err(|error| {
-            ComminutionJobValidationError::Batch {
-                job: job.id(),
-                error,
-            }
-        })?;
-    let Some(output_stream) = job.single_output_stream() else {
-        return Err(ComminutionJobValidationError::OutputMismatch { job: job.id() });
-    };
-    if required_outputs.as_slice() != output_stream.outputs() {
-        return Err(ComminutionJobValidationError::OutputMismatch { job: job.id() });
-    }
-    validate_powered_ore_job_replay(registries, job, replay).map_err(|error| {
-        ComminutionJobValidationError::Powered {
-            job: job.id(),
-            error,
-        }
     })
 }
 

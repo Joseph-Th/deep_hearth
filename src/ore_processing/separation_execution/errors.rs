@@ -12,6 +12,10 @@ use crate::maintenance::ActiveConditionDurationError;
 use crate::material::{FormId, MaterialId, MaterialLotSpecError, ParticleSizeRange};
 use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError};
 
+use crate::ore_processing::powered_physics::{
+    PoweredOreEquipmentError, PoweredOreProviderError, PoweredOreSupplyError, PoweredOreTimingError,
+};
+
 /// Failure while deriving physically conservative constituent streams from selected feed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConstituentSeparationBatchError {
@@ -142,6 +146,43 @@ pub enum ConstituentSeparationResolutionError {
     EnergyDuration(PowerDurationError),
     ConditionDuration(ActiveConditionDurationError),
     Resolution(ProcessResolutionError),
+}
+
+impl From<PoweredOreProviderError> for ConstituentSeparationResolutionError {
+    fn from(error: PoweredOreProviderError) -> Self {
+        match error {
+            PoweredOreProviderError::UnknownProcess { process } => Self::UnknownProcess { process },
+            PoweredOreProviderError::Provider(error) => Self::Equipment(error),
+            PoweredOreProviderError::Capability(error) => Self::Capability(error),
+            PoweredOreProviderError::Equipment(error) => match error {
+                PoweredOreEquipmentError::MissingMassFlowCapability => {
+                    Self::MissingMassFlowCapability
+                }
+                PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+                    Self::MissingMaximumBatchMassCapability
+                }
+                PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+                    Self::BatchMassExceeded { selected, maximum }
+                }
+            },
+        }
+    }
+}
+
+impl From<PoweredOreSupplyError> for ConstituentSeparationResolutionError {
+    fn from(error: PoweredOreSupplyError) -> Self {
+        match error {
+            PoweredOreSupplyError::Supply(error) => Self::Energy(error),
+            PoweredOreSupplyError::WrongEnergyCarrier { required, provided } => {
+                Self::WrongEnergyCarrier { required, provided }
+            }
+            PoweredOreSupplyError::Timing(error) => match error {
+                PoweredOreTimingError::Throughput(error) => Self::ThroughputDuration(error),
+                PoweredOreTimingError::Energy(error) => Self::EnergyDuration(error),
+                PoweredOreTimingError::Condition(error) => Self::ConditionDuration(error),
+            },
+        }
+    }
 }
 
 impl Display for ConstituentSeparationResolutionError {

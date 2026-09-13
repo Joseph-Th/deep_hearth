@@ -1,33 +1,29 @@
-//! Exact particle-size screening resolution and persisted-job audit.
+//! Exact particle-size screening resolution and actor-safe representability planning.
 
-use crate::capability::evaluate_capabilities;
 use crate::core::quantity::{Energy, Mass, MassFlow, Power};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::energy::{
-    EnergyStoreId, assess_energy_supply_access, calculate_mass_specific_energy,
-    validate_energy_supply_request,
-};
-use crate::equipment::{EquipmentId, resolve_equipment_provider};
+use crate::energy::EnergyStoreId;
+use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
-use crate::production::{
-    ProcessId, ProcessResolution, ProductionJobRecord, validate_selected_process_inputs,
-};
+use crate::production::{ProcessId, ProcessResolution, validate_selected_process_inputs};
 use crate::registry::Registries;
 
 use super::definitions::ScreeningProcessDefinition;
 use super::powered_physics::{
-    PoweredOreBottleneck, PoweredOreEquipmentError, PoweredOreTimingError,
-    classify_powered_ore_bottleneck, resolve_powered_ore_equipment, resolve_powered_ore_job_replay,
-    resolve_powered_ore_timing, validate_powered_ore_job_replay,
+    PoweredOreBottleneck, classify_powered_ore_bottleneck, resolve_powered_ore_provider,
+    resolve_powered_ore_supply,
 };
 
 mod errors;
 mod outputs;
+mod validation;
 
-pub use errors::{ScreeningBatchError, ScreeningJobValidationError, ScreeningResolutionError};
+pub use errors::{ScreeningBatchError, ScreeningResolutionError};
 use outputs::{representable_screening_mass_floor, resolve_screening_outputs};
+pub use validation::ScreeningJobValidationError;
+pub(crate) use validation::validate_loaded_screening_job;
 
 #[cfg(test)]
 use crate::core::quantity::Temperature;
@@ -202,85 +198,43 @@ pub fn resolve_screening_process(
         .ok_or(ScreeningResolutionError::UnknownScreeningProcess { process })?;
     let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
         .map_err(ScreeningResolutionError::Input)?;
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(ScreeningResolutionError::Equipment)?;
-    let process_definition = registries
-        .production()
-        .get_process(process)
-        .ok_or(ScreeningResolutionError::UnknownScreeningProcess { process })?;
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
-    )
-    .map_err(ScreeningResolutionError::Capability)?;
-
     let selected_mass = inputs.input_mass();
-    let powered_equipment = resolve_powered_ore_equipment(
-        provider.definition(),
-        provider.condition(),
-        definition.mass_flow_capability(),
-        definition.max_batch_mass_capability(),
+    let profile = definition.operating_profile();
+    let provider = resolve_powered_ore_provider(
+        registries,
+        state,
+        process,
+        equipment,
+        profile,
         selected_mass,
     )
-    .map_err(|error| match error {
-        PoweredOreEquipmentError::MissingMassFlowCapability => {
-            ScreeningResolutionError::MissingMassFlowCapability
-        }
-        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
-            ScreeningResolutionError::MissingMaximumBatchMassCapability
-        }
-        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
-            ScreeningResolutionError::BatchMassExceeded { selected, maximum }
-        }
-    })?;
-    let processing_rate = powered_equipment.processing_rate();
+    .map_err(ScreeningResolutionError::from)?;
+    let processing_rate = provider.processing_rate();
 
     let outputs = resolve_screening_outputs(definition, inputs.consumed_inputs())
         .map_err(ScreeningResolutionError::Batch)?;
-    let required_energy =
-        calculate_mass_specific_energy(selected_mass, definition.specific_energy());
-    let energy_access = assess_energy_supply_access(registries, state, energy_store)
-        .map_err(ScreeningResolutionError::Energy)?;
-    let provided_carrier = energy_access.carrier();
-    if provided_carrier != definition.energy_carrier() {
-        return Err(ScreeningResolutionError::WrongEnergyCarrier {
-            required: definition.energy_carrier(),
-            provided: provided_carrier,
-        });
-    }
-    let energy_supply = validate_energy_supply_request(energy_access, required_energy)
-        .map_err(ScreeningResolutionError::Energy)?;
-    let available_power = energy_supply.max_output_power();
-    let timing = resolve_powered_ore_timing(
+    let supply = resolve_powered_ore_supply(
         registries,
-        processing_rate,
+        state,
+        energy_store,
+        profile,
         selected_mass,
-        required_energy,
-        available_power,
-        definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
+        processing_rate,
+        provider.condition_before(),
     )
-    .map_err(|error| match error {
-        PoweredOreTimingError::Throughput(error) => {
-            ScreeningResolutionError::ThroughputDuration(error)
-        }
-        PoweredOreTimingError::Energy(error) => ScreeningResolutionError::EnergyDuration(error),
-        PoweredOreTimingError::Condition(error) => {
-            ScreeningResolutionError::ConditionDuration(error)
-        }
-    })?;
-    let throughput_duration = timing.throughput_duration();
-    let energy_duration = timing.energy_duration();
-    let duration = timing.duration();
-    let condition_after = timing.condition_after();
-    let equipment_use = provider.validated_use();
+    .map_err(ScreeningResolutionError::from)?;
+    let required_energy = supply.required_energy();
+    let available_power = supply.available_power();
+    let throughput_duration = supply.throughput_duration();
+    let energy_duration = supply.energy_duration();
+    let duration = supply.duration();
+    let condition_after = supply.condition_after();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
             outputs.streams,
-            energy_supply,
-            equipment_use,
+            supply.energy_supply(),
+            provider.validated_use(),
             condition_after,
         )
         .map_err(ScreeningResolutionError::Resolution)?;
@@ -288,8 +242,8 @@ pub fn resolve_screening_process(
     Ok(ResolvedScreening {
         resolution,
         equipment: ScreeningEquipmentProfile {
-            id: equipment,
-            condition_before: provider.condition(),
+            id: provider.id(),
+            condition_before: provider.condition_before(),
             condition_after,
         },
         constraints: ScreeningConstraintProfile {
@@ -303,48 +257,6 @@ pub fn resolve_screening_process(
             undersize_mass: outputs.undersize_mass,
             oversize_mass: outputs.oversize_mass,
         },
-    })
-}
-
-pub(crate) fn validate_loaded_screening_job(
-    registries: &Registries,
-    job: &ProductionJobRecord,
-) -> Result<(), ScreeningJobValidationError> {
-    let Some(definition) = registries.ore_processing().get_screening(job.process()) else {
-        return Ok(());
-    };
-    let replay = resolve_powered_ore_job_replay(registries, job, definition.operating_profile())
-        .map_err(|error| ScreeningJobValidationError::Powered {
-            job: job.id(),
-            error,
-        })?;
-    let expected =
-        resolve_screening_outputs(definition, job.consumed_inputs()).map_err(|error| {
-            ScreeningJobValidationError::Batch {
-                job: job.id(),
-                error,
-            }
-        })?;
-    if job.output_streams().len() != expected.streams.len() {
-        return Err(ScreeningJobValidationError::OutputMismatch { job: job.id() });
-    }
-    for expected_stream in &expected.streams {
-        let Some(stored_stream) = job
-            .output_streams()
-            .iter()
-            .find(|stream| stream.id() == expected_stream.id())
-        else {
-            return Err(ScreeningJobValidationError::OutputMismatch { job: job.id() });
-        };
-        if stored_stream.outputs() != expected_stream.outputs() {
-            return Err(ScreeningJobValidationError::OutputMismatch { job: job.id() });
-        }
-    }
-    validate_powered_ore_job_replay(registries, job, replay).map_err(|error| {
-        ScreeningJobValidationError::Powered {
-            job: job.id(),
-            error,
-        }
     })
 }
 

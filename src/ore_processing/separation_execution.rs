@@ -1,14 +1,10 @@
-//! Exact constituent-separation resolution and persisted-job audit for authored liberated feed.
+//! Exact manual and powered constituent-separation resolution for authored liberated feed.
 
-use crate::capability::evaluate_capabilities;
 use crate::core::quantity::{Energy, Mass, MassFlow, Power};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::energy::{
-    EnergyStoreId, assess_energy_supply_access, calculate_mass_specific_energy,
-    validate_energy_supply_request,
-};
-use crate::equipment::{EquipmentId, resolve_equipment_provider};
+use crate::energy::EnergyStoreId;
+use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
 use crate::production::{
@@ -18,8 +14,8 @@ use crate::registry::Registries;
 
 use super::ConstituentSeparationProcessDefinition;
 use super::powered_physics::{
-    PoweredOreBottleneck, PoweredOreEquipmentError, PoweredOreTimingError,
-    classify_powered_ore_bottleneck, resolve_powered_ore_equipment, resolve_powered_ore_timing,
+    PoweredOreBottleneck, classify_powered_ore_bottleneck, resolve_powered_ore_provider,
+    resolve_powered_ore_supply,
 };
 
 mod errors;
@@ -164,38 +160,18 @@ pub fn resolve_constituent_separation_process(
         .ok_or(ConstituentSeparationResolutionError::UnknownProcess { process })?;
     let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
         .map_err(ConstituentSeparationResolutionError::Input)?;
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(ConstituentSeparationResolutionError::Equipment)?;
-    let process_definition = registries
-        .production()
-        .get_process(process)
-        .ok_or(ConstituentSeparationResolutionError::UnknownProcess { process })?;
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
-    )
-    .map_err(ConstituentSeparationResolutionError::Capability)?;
     let selected_mass = inputs.input_mass();
-    let powered_equipment = resolve_powered_ore_equipment(
-        provider.definition(),
-        provider.condition(),
-        definition.mass_flow_capability(),
-        definition.max_batch_mass_capability(),
+    let profile = definition.operating_profile();
+    let provider = resolve_powered_ore_provider(
+        registries,
+        state,
+        process,
+        equipment,
+        profile,
         selected_mass,
     )
-    .map_err(|error| match error {
-        PoweredOreEquipmentError::MissingMassFlowCapability => {
-            ConstituentSeparationResolutionError::MissingMassFlowCapability
-        }
-        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
-            ConstituentSeparationResolutionError::MissingMaximumBatchMassCapability
-        }
-        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
-            ConstituentSeparationResolutionError::BatchMassExceeded { selected, maximum }
-        }
-    })?;
-    let processing_rate = powered_equipment.processing_rate();
+    .map_err(ConstituentSeparationResolutionError::from)?;
+    let processing_rate = provider.processing_rate();
     let target_particle_size_policy = registries
         .materials()
         .get_form(definition.target_output_form())
@@ -210,44 +186,22 @@ pub fn resolve_constituent_separation_process(
         inputs.consumed_inputs(),
     )
     .map_err(ConstituentSeparationResolutionError::Batch)?;
-    let required_energy =
-        calculate_mass_specific_energy(selected_mass, definition.specific_energy());
-    let energy_access = assess_energy_supply_access(registries, state, energy_store)
-        .map_err(ConstituentSeparationResolutionError::Energy)?;
-    if energy_access.carrier() != definition.energy_carrier() {
-        return Err(ConstituentSeparationResolutionError::WrongEnergyCarrier {
-            required: definition.energy_carrier(),
-            provided: energy_access.carrier(),
-        });
-    }
-    let energy_supply = validate_energy_supply_request(energy_access, required_energy)
-        .map_err(ConstituentSeparationResolutionError::Energy)?;
-    let available_power = energy_supply.max_output_power();
-    let timing = resolve_powered_ore_timing(
+    let supply = resolve_powered_ore_supply(
         registries,
-        processing_rate,
+        state,
+        energy_store,
+        profile,
         selected_mass,
-        required_energy,
-        available_power,
-        definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
+        processing_rate,
+        provider.condition_before(),
     )
-    .map_err(|error| match error {
-        PoweredOreTimingError::Throughput(error) => {
-            ConstituentSeparationResolutionError::ThroughputDuration(error)
-        }
-        PoweredOreTimingError::Energy(error) => {
-            ConstituentSeparationResolutionError::EnergyDuration(error)
-        }
-        PoweredOreTimingError::Condition(error) => {
-            ConstituentSeparationResolutionError::ConditionDuration(error)
-        }
-    })?;
-    let throughput_duration = timing.throughput_duration();
-    let energy_duration = timing.energy_duration();
-    let duration = timing.duration();
-    let condition_after = timing.condition_after();
-    let equipment_use = provider.validated_use();
+    .map_err(ConstituentSeparationResolutionError::from)?;
+    let required_energy = supply.required_energy();
+    let available_power = supply.available_power();
+    let throughput_duration = supply.throughput_duration();
+    let energy_duration = supply.energy_duration();
+    let duration = supply.duration();
+    let condition_after = supply.condition_after();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
@@ -261,15 +215,15 @@ pub fn resolve_constituent_separation_process(
                     outputs.residue,
                 ),
             ],
-            energy_supply,
-            equipment_use,
+            supply.energy_supply(),
+            provider.validated_use(),
             condition_after,
         )
         .map_err(ConstituentSeparationResolutionError::Resolution)?;
     Ok(ResolvedConstituentSeparation {
         resolution,
-        equipment,
-        condition_before: provider.condition(),
+        equipment: provider.id(),
+        condition_before: provider.condition_before(),
         condition_after,
         processing_rate,
         required_energy,

@@ -1,4 +1,4 @@
-//! Resolution and trusted-load failures for comminution operations.
+//! Runtime resolution failures for powered comminution operations.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -6,13 +6,14 @@ use std::fmt::{Display, Formatter};
 use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::Mass;
 use crate::core::throughput::MassFlowDurationError;
-use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, EnergySupplyError, PowerDurationError};
 use crate::equipment::EquipmentProviderError;
 use crate::maintenance::ActiveConditionDurationError;
-use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError, ProductionJobId};
+use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError};
 
-use crate::ore_processing::powered_physics::PoweredOreJobValidationError;
+use crate::ore_processing::powered_physics::{
+    PoweredOreEquipmentError, PoweredOreProviderError, PoweredOreSupplyError, PoweredOreTimingError,
+};
 
 use super::outputs::ComminutionBatchError;
 
@@ -41,6 +42,45 @@ pub enum ComminutionResolutionError {
     EnergyDuration(PowerDurationError),
     ConditionDuration(ActiveConditionDurationError),
     Resolution(ProcessResolutionError),
+}
+
+impl From<PoweredOreProviderError> for ComminutionResolutionError {
+    fn from(error: PoweredOreProviderError) -> Self {
+        match error {
+            PoweredOreProviderError::UnknownProcess { process } => {
+                Self::UnknownComminutionProcess { process }
+            }
+            PoweredOreProviderError::Provider(error) => Self::Equipment(error),
+            PoweredOreProviderError::Capability(error) => Self::Capability(error),
+            PoweredOreProviderError::Equipment(error) => match error {
+                PoweredOreEquipmentError::MissingMassFlowCapability => {
+                    Self::MissingMassFlowCapability
+                }
+                PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+                    Self::MissingMaximumBatchMassCapability
+                }
+                PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+                    Self::BatchMassExceeded { selected, maximum }
+                }
+            },
+        }
+    }
+}
+
+impl From<PoweredOreSupplyError> for ComminutionResolutionError {
+    fn from(error: PoweredOreSupplyError) -> Self {
+        match error {
+            PoweredOreSupplyError::Supply(error) => Self::Energy(error),
+            PoweredOreSupplyError::WrongEnergyCarrier { required, provided } => {
+                Self::WrongEnergyCarrier { required, provided }
+            }
+            PoweredOreSupplyError::Timing(error) => match error {
+                PoweredOreTimingError::Throughput(error) => Self::ThroughputDuration(error),
+                PoweredOreTimingError::Energy(error) => Self::EnergyDuration(error),
+                PoweredOreTimingError::Condition(error) => Self::ConditionDuration(error),
+            },
+        }
+    }
 }
 
 impl Display for ComminutionResolutionError {
@@ -109,116 +149,6 @@ impl Error for ComminutionResolutionError {
             | Self::MissingMaximumBatchMassCapability
             | Self::BatchMassExceeded { .. }
             | Self::WrongEnergyCarrier { .. } => None,
-        }
-    }
-}
-
-/// Persistent-state failure found while recomputing an in-flight comminution job from its traces.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ComminutionJobValidationError {
-    Powered {
-        job: ProductionJobId,
-        error: PoweredOreJobValidationError,
-    },
-    Batch {
-        job: ProductionJobId,
-        error: ComminutionBatchError,
-    },
-    ManualUnexpectedEnergy {
-        job: ProductionJobId,
-    },
-    ManualUnexpectedEquipment {
-        job: ProductionJobId,
-    },
-    ManualBatchMassExceeded {
-        job: ProductionJobId,
-        selected: Mass,
-        maximum: Mass,
-    },
-    ManualDuration {
-        job: ProductionJobId,
-        error: MassFlowDurationError,
-    },
-    ManualDurationMismatch {
-        job: ProductionJobId,
-        stored: TickSpan,
-        required: TickSpan,
-    },
-    OutputMismatch {
-        job: ProductionJobId,
-    },
-}
-
-impl Display for ComminutionJobValidationError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Powered { job, error } => write!(
-                formatter,
-                "comminution job {} powered-physics replay failed: {error}",
-                job.value()
-            ),
-            Self::Batch { job, error } => write!(
-                formatter,
-                "comminution job {} has invalid batch physics: {error}",
-                job.value()
-            ),
-            Self::ManualUnexpectedEnergy { job } => write!(
-                formatter,
-                "manual comminution job {} carries unauthored energy",
-                job.value()
-            ),
-            Self::ManualUnexpectedEquipment { job } => write!(
-                formatter,
-                "manual comminution job {} carries unauthored equipment",
-                job.value()
-            ),
-            Self::ManualBatchMassExceeded {
-                job,
-                selected,
-                maximum,
-            } => write!(
-                formatter,
-                "manual comminution job {} contains {} mg beyond its {} mg hand-breaking limit",
-                job.value(),
-                selected.milligrams(),
-                maximum.milligrams()
-            ),
-            Self::ManualDuration { job, error } => write!(
-                formatter,
-                "manual comminution job {} duration replay failed: {error}",
-                job.value()
-            ),
-            Self::ManualDurationMismatch {
-                job,
-                stored,
-                required,
-            } => write!(
-                formatter,
-                "manual comminution job {} stores {} active ticks but requires {}",
-                job.value(),
-                stored.value(),
-                required.value()
-            ),
-            Self::OutputMismatch { job } => write!(
-                formatter,
-                "comminution job {} output snapshot no longer matches its consumed material traces",
-                job.value()
-            ),
-        }
-    }
-}
-
-impl Error for ComminutionJobValidationError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Powered { error, .. } => Some(error),
-            Self::Batch { error, .. } => Some(error),
-            Self::ManualDuration { error, .. } => Some(error),
-            Self::ManualUnexpectedEnergy { .. }
-            | Self::ManualUnexpectedEquipment { .. }
-            | Self::ManualBatchMassExceeded { .. }
-            | Self::ManualDurationMismatch { .. }
-            | Self::OutputMismatch { .. } => None,
         }
     }
 }

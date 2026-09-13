@@ -19,7 +19,8 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::{ComminutionBatchError, resolve_manual_comminution_outputs};
+use super::ComminutionBatchError;
+use super::outputs::resolve_manual_comminution_outputs;
 
 /// Explicit selected-batch request for direct hand breaking of coarse material.
 #[derive(Clone, Copy, Debug)]
