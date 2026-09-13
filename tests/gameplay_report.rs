@@ -68,6 +68,8 @@ mod production_timing;
 mod progression_probe;
 #[path = "gameplay_harness/progression_scope.rs"]
 mod progression_scope;
+#[path = "gameplay_harness/prospecting_timing.rs"]
+mod prospecting_timing;
 #[path = "gameplay_harness/report.rs"]
 mod report;
 #[path = "gameplay_harness/scenario.rs"]

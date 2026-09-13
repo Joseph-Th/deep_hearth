@@ -597,7 +597,6 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
                 registries,
                 &mut state,
                 job,
-                deep_hearth::core::time::TickSpan::new(actual_ticks),
                 "preservation construction",
             );
             assert!(

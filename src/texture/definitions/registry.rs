@@ -90,11 +90,6 @@ impl TextureRegistry {
         registry
     }
 
-    #[cfg(test)]
-    pub(crate) fn empty() -> Self {
-        Self::default()
-    }
-
     #[must_use]
     pub fn get_ramp(&self, id: PaletteRampId) -> Option<&PaletteRampDefinition> {
         self.ramps.get(&id)

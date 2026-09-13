@@ -15,7 +15,7 @@ use crate::ore_processing::{
 use crate::production::{
     ProductionJobRecord, ProductionOutputStream, ProductionSuspensionReason, sum_lot_spec_mass,
 };
-use crate::registry::Registries;
+use crate::registry::{ProcessEnergyRole, ProcessEquipmentRole, Registries};
 use crate::thermal::validate_loaded_thermal_job;
 
 use super::StateValidationError;
@@ -42,9 +42,72 @@ fn validate_production_job(
     validate_job_consumed_energy(registries, state, job)?;
     validate_job_released_energy(registries, state, job)?;
     validate_job_equipment(registries, state, job)?;
+    validate_job_resource_topology(registries, job)?;
     validate_job_subsystem_contracts(registries, job)?;
     validate_job_consumed_inputs(registries, job)?;
     validate_job_outputs(registries, state, job, expected_reservations)
+}
+
+fn validate_job_resource_topology(
+    registries: &Registries,
+    job: &ProductionJobRecord,
+) -> Result<(), StateValidationError> {
+    // Isolated production-owner tests may intentionally register synthetic process definitions
+    // without a gameplay resolver family. Runtime registries guarantee topology for every process.
+    let Some(topology) = registries.process_topology(job.process()) else {
+        return Ok(());
+    };
+
+    let energy_matches = match topology.energy_role() {
+        ProcessEnergyRole::None => {
+            job.consumed_energy().is_none() && job.released_energy().is_none()
+        }
+        ProcessEnergyRole::Supply(carrier) => {
+            job.released_energy().is_none()
+                && job.consumed_energy().is_some_and(|trace| {
+                    trace.carrier() == carrier
+                        && topology
+                            .compatible_energy_stores()
+                            .contains(&trace.definition())
+                })
+        }
+        ProcessEnergyRole::Sink(carrier) => {
+            job.consumed_energy().is_none()
+                && job.released_energy().is_some_and(|trace| {
+                    trace.carrier() == carrier
+                        && topology
+                            .compatible_energy_stores()
+                            .contains(&trace.definition())
+                })
+        }
+    };
+    if !energy_matches {
+        return Err(StateValidationError::JobEnergyTopologyMismatch {
+            job: job.id(),
+            process: job.process(),
+        });
+    }
+
+    let equipment_matches = match topology.equipment_role() {
+        ProcessEquipmentRole::None => job.equipment_provider().is_none(),
+        ProcessEquipmentRole::Optional => job.equipment_provider().is_none_or(|provider| {
+            topology
+                .nominal_providers()
+                .contains(&provider.definition())
+        }),
+        ProcessEquipmentRole::Required => job.equipment_provider().is_some_and(|provider| {
+            topology
+                .nominal_providers()
+                .contains(&provider.definition())
+        }),
+    };
+    if !equipment_matches {
+        return Err(StateValidationError::JobEquipmentTopologyMismatch {
+            job: job.id(),
+            process: job.process(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_job_process_and_source(
@@ -283,20 +346,6 @@ fn validate_job_consumed_inputs(
                 commodity,
             });
         }
-        for component in trace.profile().composition().components() {
-            if registries
-                .materials()
-                .get_material(component.material())
-                .is_none()
-            {
-                return Err(
-                    StateValidationError::UnknownJobConsumedCompositionMaterial {
-                        job: job.id(),
-                        material: component.material(),
-                    },
-                );
-            }
-        }
         validate_material_particle_size_state(
             registries.materials(),
             commodity,
@@ -368,18 +417,6 @@ fn validate_job_output(
             job: job.id(),
             commodity: output.commodity(),
         });
-    }
-    for component in output.composition().components() {
-        if registries
-            .materials()
-            .get_material(component.material())
-            .is_none()
-        {
-            return Err(StateValidationError::UnknownJobOutputCompositionMaterial {
-                job: job.id(),
-                material: component.material(),
-            });
-        }
     }
     validate_stockpile_storage(
         registries,

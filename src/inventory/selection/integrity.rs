@@ -74,12 +74,20 @@ pub(in crate::inventory) fn assert_consumption_parts_well_formed(
     lot_slices: &[LotSlice],
     consumed_inputs: &[ConsumedMaterialTrace],
 ) {
+    assert_consumption_parts_well_formed_iter(inputs, lot_slices, consumed_inputs.iter());
+}
+
+fn assert_consumption_parts_well_formed_iter<'trace>(
+    inputs: &[MaterialInputSpec],
+    lot_slices: &[LotSlice],
+    consumed_inputs: impl Clone + ExactSizeIterator<Item = &'trace ConsumedMaterialTrace>,
+) {
     assert_eq!(
         lot_slices.len(),
         consumed_inputs.len(),
         "consumption plan must retain one physical trace per selected lot slice"
     );
-    for (slice, trace) in lot_slices.iter().zip(consumed_inputs) {
+    for (slice, trace) in lot_slices.iter().zip(consumed_inputs.clone()) {
         assert_eq!(
             slice.mass,
             trace.mass(),
@@ -120,7 +128,23 @@ pub(in crate::inventory) fn assert_consumption_parts_match_state(
     lot_slices: &[LotSlice],
     consumed_inputs: &[ConsumedMaterialTrace],
 ) {
-    assert_consumption_parts_well_formed(inputs, lot_slices, consumed_inputs);
+    assert_consumption_parts_match_state_iter(
+        state,
+        source,
+        inputs,
+        lot_slices,
+        consumed_inputs.iter(),
+    );
+}
+
+pub(in crate::inventory) fn assert_consumption_parts_match_state_iter<'trace>(
+    state: &InventoryState,
+    source: StockpileId,
+    inputs: &[MaterialInputSpec],
+    lot_slices: &[LotSlice],
+    consumed_inputs: impl Clone + ExactSizeIterator<Item = &'trace ConsumedMaterialTrace>,
+) {
+    assert_consumption_parts_well_formed_iter(inputs, lot_slices, consumed_inputs.clone());
     let source_record = state
         .get_stockpile(source)
         .unwrap_or_else(|| panic!("consumption plan source stockpile disappeared"));

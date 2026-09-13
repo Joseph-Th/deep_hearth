@@ -1,7 +1,6 @@
 //! Canonical completion stepping for production work expected to remain uninterrupted.
 
 use deep_hearth::core::state::AppState;
-use deep_hearth::core::time::TickSpan;
 use deep_hearth::production::ProductionJobId;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -14,13 +13,23 @@ pub(super) fn finish_uninterrupted_production_job(
     registries: &Registries,
     state: &mut AppState,
     job: ProductionJobId,
-    resolved_duration: TickSpan,
     context: &'static str,
 ) {
-    let expected_ticks = resolved_duration.value();
+    let admitted = state.production().get_job(job).unwrap_or_else(|| {
+        panic!("gameplay harness {context} admitted production job disappeared")
+    });
+    assert!(
+        !admitted.is_suspended(),
+        "gameplay harness {context} cannot use uninterrupted stepping for a suspended job"
+    );
+    let expected_ticks = admitted
+        .completes_at()
+        .value()
+        .checked_sub(state.tick().value())
+        .unwrap_or_else(|| panic!("gameplay harness {context} completion precedes current time"));
     assert!(
         expected_ticks > 0,
-        "gameplay harness {context} resolved a zero-tick production job"
+        "gameplay harness {context} admitted a zero-remaining-tick production job"
     );
     for elapsed in 1..=expected_ticks {
         let outcome = advance_tick(registries, state)
@@ -42,6 +51,8 @@ pub(super) fn finish_uninterrupted_production_job(
         assert!(
             outcome.ready_mining_jobs().is_empty()
                 && outcome.manual_power().is_none()
+                && outcome.equipment_maintenance().is_none()
+                && outcome.storage_enclosure_dismantling().is_none()
                 && outcome.field_prospecting().is_none(),
             "gameplay harness {context} crossed unrelated observable player work"
         );
@@ -52,12 +63,12 @@ pub(super) fn finish_uninterrupted_production_job(
         {
             assert_eq!(
                 elapsed, expected_ticks,
-                "gameplay harness {context} completed before its resolved duration"
+                "gameplay harness {context} completed before its admitted schedule"
             );
             return;
         }
     }
     panic!(
-        "gameplay harness {context} remained active after its resolved {expected_ticks}-tick duration"
+        "gameplay harness {context} remained active after its admitted {expected_ticks}-tick schedule"
     );
 }

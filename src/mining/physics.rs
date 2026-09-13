@@ -1,16 +1,14 @@
 //! Shared deterministic mining physics used by admission and persistence validation.
 
+use super::MiningMethodDefinition;
 use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::{Mass, MassFlow, Pressure};
 use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
-use crate::core::time::TickSpan;
+use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::equipment::{EquipmentDefinition, resolve_equipment_capability};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
-use crate::registry::Registries;
-
-use super::MiningMethodDefinition;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MiningPhysicsError {
@@ -56,7 +54,7 @@ impl ResolvedMiningPhysics {
 /// Resolves extraction throughput, batch capacity, excavation resistance, duration, and tool wear
 /// from immutable method/equipment definitions plus the deposit's geological excavation hardness.
 pub(crate) fn resolve_mining_physics(
-    registries: &Registries,
+    physical_tick_duration: PhysicalTickDuration,
     method: &MiningMethodDefinition,
     equipment: &EquipmentDefinition,
     condition_before: Condition,
@@ -121,12 +119,8 @@ pub(crate) fn resolve_mining_physics(
         });
     }
 
-    let duration = calculate_mass_flow_duration_ceiling(
-        flow,
-        mass,
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(MiningPhysicsError::Duration)?;
+    let duration = calculate_mass_flow_duration_ceiling(flow, mass, physical_tick_duration)
+        .map_err(MiningPhysicsError::Duration)?;
     let condition_after = calculate_usable_condition_after_active_ticks(
         method.condition_wear_ppm_per_active_tick(),
         condition_before,

@@ -97,13 +97,7 @@ pub(super) fn execute_comminution_stage(
     .unwrap_or_else(|error| panic!("ore preparation {} start failed: {error}", request.stage))
     .commit(&mut episode.state)
     .unwrap_or_else(|error| panic!("ore preparation {} commit failed: {error}", request.stage));
-    finish_uninterrupted_production_job(
-        registries,
-        &mut episode.state,
-        job,
-        duration,
-        request.activity,
-    );
+    finish_uninterrupted_production_job(registries, &mut episode.state, job, request.activity);
     validate_loaded_state(registries, &episode.state).unwrap_or_else(|error| {
         panic!(
             "ore preparation post-{} audit failed: {error}",
@@ -356,13 +350,7 @@ pub(super) fn execute_screening_stage(
     .unwrap_or_else(|error| panic!("ore preparation screening start failed: {error}"))
     .commit(&mut episode.state)
     .unwrap_or_else(|error| panic!("ore preparation screening commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        &mut episode.state,
-        job,
-        duration,
-        "ore screening",
-    );
+    finish_uninterrupted_production_job(registries, &mut episode.state, job, "ore screening");
     validate_loaded_state(registries, &episode.state)
         .unwrap_or_else(|error| panic!("ore preparation post-screen audit failed: {error}"));
     Ok(result)
@@ -471,7 +459,6 @@ pub(super) fn execute_concentration_stage(
         registries,
         &mut episode.state,
         job,
-        duration,
         "copper concentration",
     );
     validate_loaded_state(registries, &episode.state)

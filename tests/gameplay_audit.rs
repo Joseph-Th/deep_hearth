@@ -58,6 +58,8 @@ mod primitive_liberation;
 mod production_support;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/prospecting_timing.rs"]
+mod prospecting_timing;
 #[path = "gameplay_harness/report.rs"]
 mod report;
 #[path = "gameplay_harness/scenario.rs"]

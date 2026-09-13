@@ -70,16 +70,15 @@ fn validate_equipment_maintenance_references(
         let matching = assembly
             .inputs()
             .iter()
-            .filter(|input| input.commodity() == maintenance.replacement())
-            .collect::<Vec<_>>();
+            .find(|input| input.commodity() == maintenance.replacement())
+            .unwrap_or_else(|| {
+                panic!(
+                    "equipment definition {} component maintenance replacement must identify an assembly input",
+                    definition.id().value()
+                )
+            });
         assert_eq!(
-            matching.len(),
-            1,
-            "equipment definition {} component maintenance replacement must identify exactly one assembly input",
-            definition.id().value()
-        );
-        assert_eq!(
-            matching[0].mass(),
+            matching.mass(),
             maintenance.full_service_replacement_mass(),
             "equipment definition {} component maintenance mass must equal the complete authored assembly component mass",
             definition.id().value()

@@ -1,7 +1,5 @@
 //! Binds exact process inputs and derives operation-specific duration, outputs, energy, and equipment effects.
 
-use std::collections::BTreeSet;
-
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
@@ -312,13 +310,9 @@ fn validate_and_order_output_streams(
     if output_streams.is_empty() {
         return Err(ProcessResolutionError::NoOutputs);
     }
-    let mut stream_ids = BTreeSet::new();
     for stream in &mut output_streams {
         if stream.id.value() == 0 {
             return Err(ProcessResolutionError::ZeroOutputStreamId);
-        }
-        if !stream_ids.insert(stream.id) {
-            return Err(ProcessResolutionError::DuplicateOutputStreamId { stream: stream.id });
         }
         if stream.outputs.is_empty() {
             return Err(ProcessResolutionError::EmptyOutputStream);
@@ -327,6 +321,14 @@ fn validate_and_order_output_streams(
         validate_outputs(&stream.outputs)?;
     }
     output_streams.sort_by_key(|stream| stream.id);
+    if let Some(duplicate) = output_streams
+        .windows(2)
+        .find(|pair| pair[0].id == pair[1].id)
+    {
+        return Err(ProcessResolutionError::DuplicateOutputStreamId {
+            stream: duplicate[0].id,
+        });
+    }
     let output_mass = sum_output_stream_mass(&output_streams)
         .ok_or(ProcessResolutionError::OutputMassOverflow)?;
     Ok((output_streams, output_mass))
@@ -444,12 +446,10 @@ impl ProcessResolution {
 }
 
 fn validate_outputs(outputs: &[MaterialLotSpec]) -> Result<(), ProcessResolutionError> {
-    let mut seen = BTreeSet::new();
-    for output in outputs {
-        let commodity = output.commodity();
-        if !seen.insert(output) {
-            return Err(ProcessResolutionError::DuplicateOutputSpecification { commodity });
-        }
+    if let Some(duplicate) = outputs.windows(2).find(|pair| pair[0] == pair[1]) {
+        return Err(ProcessResolutionError::DuplicateOutputSpecification {
+            commodity: duplicate[0].commodity(),
+        });
     }
     Ok(())
 }

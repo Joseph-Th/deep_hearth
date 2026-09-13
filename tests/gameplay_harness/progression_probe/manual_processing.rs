@@ -8,7 +8,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::{TickSpan, WorldSeed};
+use deep_hearth::core::time::WorldSeed;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::material::{COMPOSITION_PARTS_PER_MILLION, CommodityKey};
 use deep_hearth::matter::calculate_matter_accounting;
@@ -128,13 +128,7 @@ pub(super) fn run_owned_ore_manual_bridge(
     .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        state,
-        break_job,
-        TickSpan::new(break_ticks),
-        "owned-ore manual breaking",
-    );
+    finish_uninterrupted_production_job(registries, state, break_job, "owned-ore manual breaking");
 
     let crushed_selections = select_stockpile_mass(
         state,
@@ -175,13 +169,7 @@ pub(super) fn run_owned_ore_manual_bridge(
     .unwrap_or_else(|error| panic!("owned-ore manual bridge sorting start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("owned-ore manual bridge sorting commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        state,
-        sort_job,
-        TickSpan::new(sort_ticks),
-        "owned-ore manual sorting",
-    );
+    finish_uninterrupted_production_job(registries, state, sort_job, "owned-ore manual sorting");
 
     let cold_work_started_at = state.tick().value();
     craft_batches(
@@ -362,7 +350,6 @@ pub(super) fn evaluate_manual_processing_fallback(
         registries,
         &mut state,
         break_job,
-        TickSpan::new(break_ticks),
         "manual processing fallback breaking",
     );
     assert_eq!(state.player_work().active(), None);
@@ -405,7 +392,6 @@ pub(super) fn evaluate_manual_processing_fallback(
         registries,
         &mut state,
         sort_job,
-        TickSpan::new(sort_ticks),
         "manual processing fallback sorting",
     );
     assert_eq!(state.player_work().active(), None);

@@ -57,6 +57,10 @@ impl LaborRegistry {
         self.prospecting.get(&id)
     }
 
+    pub(crate) fn manual_power_definitions(&self) -> impl Iterator<Item = &ManualPowerDefinition> {
+        self.manual_power.values()
+    }
+
     pub fn prospecting_definitions(&self) -> impl Iterator<Item = &ProspectingDefinition> {
         self.prospecting.values()
     }

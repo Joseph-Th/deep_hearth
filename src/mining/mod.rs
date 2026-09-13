@@ -14,6 +14,7 @@ pub use execution::{
     validate_start_mining,
 };
 pub(crate) use execution::{MiningTickError, apply_mining_tick, decide_mining_tick};
+pub(crate) use physics::resolve_mining_physics;
 pub use state::{MiningJobId, MiningJobRecord, MiningState, MiningValidationError};
 pub(crate) use state::{serialize_mining_state, validate_loaded_mining};
 pub use target_resolution::{

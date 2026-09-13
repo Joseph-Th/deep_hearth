@@ -306,11 +306,6 @@ fn validate_dismantling_inventory_capacity(
     if state.inventory().revision().checked_add(3).is_none() {
         return Err(StorageEnclosureDismantlingError::InventoryRevisionExhausted);
     }
-    let entries = enclosure
-        .embodied_material()
-        .iter()
-        .map(MaterialIngressEntry::from_consumed_trace)
-        .collect::<Vec<_>>();
     // Admission precheck only: the returned ingress plan is intentionally discarded. Full
     // ingress legality (containment, capacity, lot-ID space) must hold before reserving, while
     // the reservation below owns the capacity the completion stage re-validates against.
@@ -318,7 +313,10 @@ fn validate_dismantling_inventory_capacity(
         registries,
         state.inventory(),
         recovery_destination,
-        entries,
+        enclosure
+            .embodied_material()
+            .iter()
+            .map(MaterialIngressEntry::from_consumed_trace),
         state.tick(),
     )
     .map_err(map_recovery_ingress_error)?;

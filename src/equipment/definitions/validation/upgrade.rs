@@ -1,9 +1,8 @@
 //! Validates additive equipment-upgrade ancestry, embodiment, and preserved capability semantics.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::capability::CapabilityRegistry;
-use crate::core::quantity::Mass;
 use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::Condition;
 use crate::material::MaterialRegistry;
@@ -67,40 +66,11 @@ pub(super) fn validate_equipment_upgrade_references(
         target.id().value()
     );
 
-    let mut expected_inputs = BTreeMap::new();
-    for input in base_assembly
-        .inputs()
-        .iter()
-        .chain(upgrade.additions().inputs())
-    {
-        let previous = expected_inputs
-            .get(&input.commodity())
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        let combined = previous.checked_add(input.mass()).unwrap_or_else(|| {
-            panic!(
-                "equipment definition {} upgrade material quantity overflows for commodity {}",
-                target.id().value(),
-                input.commodity().value()
-            )
-        });
-        expected_inputs.insert(input.commodity(), combined);
-    }
-    assert_eq!(
-        expected_inputs.len(),
-        target_assembly.inputs().len(),
-        "equipment definition {} upgrade target assembly has extra or missing commodities",
+    assert!(
+        target_assembly.is_exact_additive_extension_of(base_assembly, upgrade.additions()),
+        "equipment definition {} upgrade target assembly must equal base plus additive material",
         target.id().value()
     );
-    for input in target_assembly.inputs() {
-        assert_eq!(
-            expected_inputs.get(&input.commodity()).copied(),
-            Some(input.mass()),
-            "equipment definition {} upgrade target assembly disagrees with base plus additive material for commodity {}",
-            target.id().value(),
-            input.commodity().value()
-        );
-    }
 }
 
 #[cfg(test)]

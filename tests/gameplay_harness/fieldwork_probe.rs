@@ -43,6 +43,7 @@ use super::manual_craft_planning::{
 };
 use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
+use super::prospecting_timing::complete_prospecting_work;
 use super::seed::mix64;
 
 const CHANNEL_START_X: i64 = 20;
@@ -259,31 +260,6 @@ fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
     .unwrap_or_else(|error| panic!("fieldwork region failed: {error}"))
 }
 
-fn complete_prospecting(
-    registries: &Registries,
-    state: &mut AppState,
-    duration: u64,
-    context: &'static str,
-) -> FieldProspectingOutcome {
-    let mut completion = None;
-    for elapsed in 1..=duration {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("fieldwork {context} tick failed: {error}"));
-        if elapsed < duration {
-            assert_eq!(outcome.field_prospecting(), None);
-        } else {
-            completion = outcome.field_prospecting();
-        }
-        assert!(
-            outcome.production_completions().is_empty()
-                && outcome.ready_mining_jobs().is_empty()
-                && outcome.manual_power().is_none(),
-            "fieldwork {context} crossed unrelated observable work"
-        );
-    }
-    completion.unwrap_or_else(|| panic!("fieldwork {context} produced no observation"))
-}
-
 fn craft_equipment_components(
     registries: &Registries,
     state: &mut AppState,
@@ -461,11 +437,6 @@ fn run_survey(
     equipment: Option<EquipmentId>,
     context: &'static str,
 ) -> FieldProspectingOutcome {
-    let definition = registries
-        .labor()
-        .get_prospecting(method)
-        .copied()
-        .unwrap_or_else(|| panic!("fieldwork {context} prospecting definition disappeared"));
     let request = match equipment {
         Some(equipment) => {
             FieldProspectingRequest::new_with_equipment(method, region, MATERIAL_COPPER, equipment)
@@ -474,11 +445,12 @@ fn run_survey(
     };
     let start = validate_start_field_prospecting(registries, state, request)
         .unwrap_or_else(|error| panic!("fieldwork {context} start failed: {error}"));
-    let expected_condition = start.work().condition_after();
+    let work = start.work();
+    let expected_condition = work.condition_after();
     start
         .commit(state)
         .unwrap_or_else(|error| panic!("fieldwork {context} commit failed: {error}"));
-    let outcome = complete_prospecting(registries, state, definition.duration().value(), context);
+    let outcome = complete_prospecting_work(registries, state, work, context);
     match (equipment, expected_condition) {
         (Some(equipment), Some(expected_condition)) => assert_eq!(
             state

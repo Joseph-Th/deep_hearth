@@ -2,7 +2,7 @@
 
 use crate::core::state::AppState;
 use crate::inventory::lot_identity::LotIdentityPlanner;
-use crate::inventory::selection::assert_consumption_parts_match_state;
+use crate::inventory::selection::assert_consumption_parts_match_state_iter;
 use crate::inventory::state::MaterialLotProfile;
 
 use super::ValidatedMaterialReform;
@@ -26,17 +26,12 @@ impl ValidatedMaterialReform {
             "validated material reform must bind one lot identity per conserved output"
         );
 
-        let consumed_inputs = self
-            .outputs
-            .iter()
-            .map(|(trace, _)| trace.clone())
-            .collect::<Vec<_>>();
-        assert_consumption_parts_match_state(
+        assert_consumption_parts_match_state_iter(
             inventories,
             self.source,
             &self.source_inputs,
             &self.lot_slices,
-            &consumed_inputs,
+            self.outputs.iter().map(|(trace, _)| trace),
         );
         let source_record = inventories.get_stockpile(self.source).unwrap_or_else(|| {
             panic!("validated material reform source disappeared before commit")

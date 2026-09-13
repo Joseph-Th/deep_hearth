@@ -85,10 +85,6 @@ pub enum StructureValidationError {
         element: StructuralElementId,
         error: ParticleSizeStateError,
     },
-    UnknownEmbodiedCompositionMaterial {
-        element: StructuralElementId,
-        material: MaterialId,
-    },
     EmbodiedProvenanceInFuture {
         element: StructuralElementId,
         latest_created_at: SimulationTick,
@@ -266,12 +262,6 @@ impl Display for StructureValidationError {
                 "structural element {} has invalid embodied particle-size state: {error}",
                 element.value()
             ),
-            Self::UnknownEmbodiedCompositionMaterial { element, material } => write!(
-                formatter,
-                "structural element {} embodied composition references unknown material {}",
-                element.value(),
-                material.value()
-            ),
             Self::EmbodiedProvenanceInFuture {
                 element,
                 latest_created_at,
@@ -408,8 +398,7 @@ impl Error for StructureValidationError {
             } => None,
             Self::UnknownMaterial { .. }
             | Self::NonStructuralMaterial { .. }
-            | Self::UnsupportedEmbodiedComposition { .. }
-            | Self::UnknownEmbodiedCompositionMaterial { .. } => None,
+            | Self::UnsupportedEmbodiedComposition { .. } => None,
             Self::ZeroCrossSection { element: _element }
             | Self::ZeroLength { element: _element }
             | Self::EmbodiedMassOverflow { element: _element }

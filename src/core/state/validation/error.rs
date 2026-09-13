@@ -81,6 +81,14 @@ pub enum StateValidationError {
         job: ProductionJobId,
         stockpile: StockpileId,
     },
+    JobEnergyTopologyMismatch {
+        job: ProductionJobId,
+        process: ProcessId,
+    },
+    JobEquipmentTopologyMismatch {
+        job: ProductionJobId,
+        process: ProcessId,
+    },
     UnknownJobDestination {
         job: ProductionJobId,
         stockpile: StockpileId,
@@ -216,10 +224,6 @@ pub enum StateValidationError {
         job: ProductionJobId,
         commodity: CommodityKey,
     },
-    UnknownJobOutputCompositionMaterial {
-        job: ProductionJobId,
-        material: MaterialId,
-    },
     JobOutputStorage {
         job: ProductionJobId,
         error: StockpileStorageError,
@@ -227,10 +231,6 @@ pub enum StateValidationError {
     UnknownJobConsumedCommodity {
         job: ProductionJobId,
         commodity: CommodityKey,
-    },
-    UnknownJobConsumedCompositionMaterial {
-        job: ProductionJobId,
-        material: MaterialId,
     },
     InvalidJobConsumedParticleSizeState {
         job: ProductionJobId,
@@ -333,12 +333,6 @@ impl Display for StateValidationError {
                 commodity.material().value(),
                 commodity.form().value()
             ),
-            Self::UnknownJobConsumedCompositionMaterial { job, material } => write!(
-                formatter,
-                "production job {} consumed-input composition references unknown material {}",
-                job.value(),
-                material.value()
-            ),
             Self::InvalidJobConsumedParticleSizeState { job, error } => write!(
                 formatter,
                 "production job {} consumed invalid particle-size state: {error}",
@@ -360,6 +354,18 @@ impl Display for StateValidationError {
                 "production job {} references missing source stockpile {}",
                 job.value(),
                 stockpile.value()
+            ),
+            Self::JobEnergyTopologyMismatch { job, process } => write!(
+                formatter,
+                "production job {} energy resources do not match process {} execution topology",
+                job.value(),
+                process.value()
+            ),
+            Self::JobEquipmentTopologyMismatch { job, process } => write!(
+                formatter,
+                "production job {} equipment resources do not match process {} execution topology",
+                job.value(),
+                process.value()
             ),
             Self::UnknownJobDestination { job, stockpile } => write!(
                 formatter,
@@ -616,12 +622,6 @@ impl Display for StateValidationError {
                 commodity.material().value(),
                 commodity.form().value()
             ),
-            Self::UnknownJobOutputCompositionMaterial { job, material } => write!(
-                formatter,
-                "production job {} output composition references unknown material {}",
-                job.value(),
-                material.value()
-            ),
             Self::JobOutputStorage { job, error } => write!(
                 formatter,
                 "production job {} reserved output is incompatible with its destination: {error}",
@@ -701,14 +701,10 @@ impl Error for StateValidationError {
                 job: _job,
                 process: _process,
             } => None,
-            Self::UnknownJobSource {
-                job: _job,
-                stockpile: _stockpile,
-            }
-            | Self::UnknownJobDestination {
-                job: _job,
-                stockpile: _stockpile,
-            } => None,
+            Self::UnknownJobSource { .. }
+            | Self::JobEnergyTopologyMismatch { .. }
+            | Self::JobEquipmentTopologyMismatch { .. }
+            | Self::UnknownJobDestination { .. } => None,
             Self::UnknownJobEnergySource {
                 job: _job,
                 store: _store,
@@ -829,14 +825,6 @@ impl Error for StateValidationError {
             | Self::UnknownJobConsumedCommodity {
                 job: _job,
                 commodity: _commodity,
-            } => None,
-            Self::UnknownJobOutputCompositionMaterial {
-                job: _job,
-                material: _material,
-            }
-            | Self::UnknownJobConsumedCompositionMaterial {
-                job: _job,
-                material: _material,
             } => None,
             Self::JobOutputMassOverflow { job: _job } => None,
             Self::ReservedInboundMismatch {

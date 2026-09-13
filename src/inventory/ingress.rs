@@ -125,60 +125,16 @@ pub(crate) fn validate_material_ingress(
     entries: impl IntoIterator<Item = MaterialIngressEntry>,
     current_tick: SimulationTick,
 ) -> Result<ValidatedMaterialIngress, MaterialIngressError> {
-    let entries = entries.into_iter().collect::<Vec<_>>();
-    if entries.is_empty() {
-        return Err(MaterialIngressError::Empty);
-    }
-    let Some(destination_record) = state.get_stockpile(destination) else {
-        return Err(MaterialIngressError::UnknownStockpile {
-            stockpile: destination,
-        });
-    };
-    let mass_summary = summarize_ingress_mass(
-        registries,
-        destination_record,
-        destination,
-        &entries,
-        current_tick,
-    )?;
-    validate_ingress_capacity(destination_record, destination, &mass_summary)?;
-    let identity_plan = plan_ingress_identities(
-        registries,
-        state,
-        destination_record,
-        destination,
-        &entries,
-        current_tick,
-        BTreeSet::new(),
-    )?;
-    let next_revision = state
-        .revision()
-        .checked_add(1)
-        .ok_or(MaterialIngressError::RevisionExhausted)?;
-
-    Ok(ValidatedMaterialIngress {
-        expected_revision: state.revision(),
-        next_revision,
-        destination,
-        entries,
-        lot_ids: identity_plan.lot_ids,
-        merge_policies: identity_plan.merge_policies,
-        excluded_existing: identity_plan.excluded_existing,
-        next_lot_id: identity_plan.next_lot_id,
-        current_tick,
-        reserved_mass: Mass::ZERO,
-    })
+    validate_material_ingress_internal(registries, state, destination, entries, current_tick, None)
 }
 
-/// Validates exact source-owned parcels returning to inventory against capacity already reserved
-/// for this same matter. The reserved mass is consumed atomically by the resulting ingress.
-pub(crate) fn validate_reserved_material_ingress(
+fn validate_material_ingress_internal(
     registries: &Registries,
     state: &InventoryState,
     destination: StockpileId,
     entries: impl IntoIterator<Item = MaterialIngressEntry>,
     current_tick: SimulationTick,
-    reserved_mass: Mass,
+    reserved_mass: Option<Mass>,
 ) -> Result<ValidatedMaterialIngress, MaterialIngressError> {
     let entries = entries.into_iter().collect::<Vec<_>>();
     if entries.is_empty() {
@@ -196,19 +152,24 @@ pub(crate) fn validate_reserved_material_ingress(
         &entries,
         current_tick,
     )?;
-    if mass_summary.total != reserved_mass {
-        return Err(MaterialIngressError::ReservationMismatch {
-            stockpile: destination,
-            expected: reserved_mass,
-            actual: mass_summary.total,
-        });
+    match reserved_mass {
+        Some(reserved_mass) => {
+            if mass_summary.total != reserved_mass {
+                return Err(MaterialIngressError::ReservationMismatch {
+                    stockpile: destination,
+                    expected: reserved_mass,
+                    actual: mass_summary.total,
+                });
+            }
+            validate_ingress_capacity_with_reserved_credit(
+                destination_record,
+                destination,
+                &mass_summary,
+                reserved_mass,
+            )?;
+        }
+        None => validate_ingress_capacity(destination_record, destination, &mass_summary)?,
     }
-    validate_ingress_capacity_with_reserved_credit(
-        destination_record,
-        destination,
-        &mass_summary,
-        reserved_mass,
-    )?;
     let identity_plan = plan_ingress_identities(
         registries,
         state,
@@ -222,6 +183,7 @@ pub(crate) fn validate_reserved_material_ingress(
         .revision()
         .checked_add(1)
         .ok_or(MaterialIngressError::RevisionExhausted)?;
+
     Ok(ValidatedMaterialIngress {
         expected_revision: state.revision(),
         next_revision,
@@ -232,8 +194,28 @@ pub(crate) fn validate_reserved_material_ingress(
         excluded_existing: identity_plan.excluded_existing,
         next_lot_id: identity_plan.next_lot_id,
         current_tick,
-        reserved_mass,
+        reserved_mass: reserved_mass.unwrap_or(Mass::ZERO),
     })
+}
+
+/// Validates exact source-owned parcels returning to inventory against capacity already reserved
+/// for this same matter. The reserved mass is consumed atomically by the resulting ingress.
+pub(crate) fn validate_reserved_material_ingress(
+    registries: &Registries,
+    state: &InventoryState,
+    destination: StockpileId,
+    entries: impl IntoIterator<Item = MaterialIngressEntry>,
+    current_tick: SimulationTick,
+    reserved_mass: Mass,
+) -> Result<ValidatedMaterialIngress, MaterialIngressError> {
+    validate_material_ingress_internal(
+        registries,
+        state,
+        destination,
+        entries,
+        current_tick,
+        Some(reserved_mass),
+    )
 }
 
 /// Applies a validated parcel set after its cross-owner transaction rechecks inventory revision.

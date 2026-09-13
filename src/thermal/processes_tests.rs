@@ -1842,6 +1842,97 @@ fn trusted_load_rejects_fixed_equipment_job_with_erased_support_requirement() {
 }
 
 #[test]
+fn trusted_load_rejects_missing_required_process_energy_supply() {
+    let (registries, mut state, source, destination, equipment, energy_store) =
+        make_loaded_fixture(EnergyCarrier::Electrical);
+    let resolved = resolve_test_sensible_heating_process(
+        &registries,
+        &state,
+        PROCESS,
+        source,
+        equipment,
+        energy_store,
+        Temperature::from_millikelvin(303_000),
+    )
+    .unwrap_or_else(|error| panic!("topology-tamper heating resolution failed: {error}"));
+    let job = validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("topology-tamper process start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("topology-tamper process start commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("topology-tamper serialization failed: {error}"));
+    let resources = &mut encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]
+        ["resources"];
+    resources["consumed_energy"] = serde_json::Value::Null;
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("topology tamper failed structural decode: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::JobEnergyTopologyMismatch {
+                job,
+                process: PROCESS,
+            }
+        ))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_missing_required_process_equipment() {
+    let (registries, mut state, source, destination, equipment, energy_store) =
+        make_loaded_fixture(EnergyCarrier::Electrical);
+    let resolved = resolve_test_sensible_heating_process(
+        &registries,
+        &state,
+        PROCESS,
+        source,
+        equipment,
+        energy_store,
+        Temperature::from_millikelvin(303_000),
+    )
+    .unwrap_or_else(|error| panic!("equipment-topology heating resolution failed: {error}"));
+    let job = validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("equipment-topology process start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("equipment-topology process start commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("equipment-topology serialization failed: {error}"));
+    let equipment_state = &mut encoded["state"]["systems"]["production"]["jobs"]
+        [job.value().to_string()]["equipment"];
+    equipment_state["provider"] = serde_json::Value::Null;
+    equipment_state["condition_after"] = serde_json::Value::Null;
+    equipment_state["requires_active_support"] = serde_json::json!(false);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
+        panic!("equipment-topology tamper failed structural decode: {error}")
+    });
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::JobEquipmentTopologyMismatch {
+                job,
+                process: PROCESS,
+            }
+        ))
+    );
+}
+
+#[test]
 fn trusted_load_rejects_fractional_sensible_heat_hidden_by_whole_nanojoule_trace() {
     let (registries, mut state, source, destination, equipment, energy_store) =
         make_loaded_fixture(EnergyCarrier::Electrical);

@@ -1063,14 +1063,14 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
         .unwrap_or_else(|error| {
             panic!("manual craft parallel-work prospecting bounds failed: {error}")
         });
-    validate_start_field_prospecting(
+    let prospecting = validate_start_field_prospecting(
         &registries,
         &state,
         FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
     )
-    .unwrap_or_else(|error| panic!("manual craft parallel-work prospecting start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| {
+    .unwrap_or_else(|error| panic!("manual craft parallel-work prospecting start failed: {error}"));
+    let prospecting_work = prospecting.work();
+    prospecting.commit(&mut state).unwrap_or_else(|error| {
         panic!("manual craft parallel-work prospecting commit failed: {error}")
     });
     assert!(matches!(
@@ -1102,13 +1102,7 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
         Some(PlayerWork::Prospecting { .. })
     ));
 
-    let prospecting_duration = registries
-        .labor()
-        .get_prospecting(PROSPECTING_FIELD_INSPECTION)
-        .unwrap_or_else(|| panic!("manual craft parallel-work prospecting definition disappeared"))
-        .duration()
-        .value();
-    for _ in 1..prospecting_duration {
+    while state.tick() < prospecting_work.completes_at() {
         let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
             panic!("manual craft parallel-work prospecting tick failed: {error}")
         });
@@ -1429,7 +1423,7 @@ fn stone_knapping_is_timed_conserved_hand_work() {
         ),
     )
     .unwrap_or_else(|error| panic!("stone knapping start failed: {error}"));
-    token
+    let job = token
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("stone knapping commit failed: {error}"));
     assert!(matches!(
@@ -1437,7 +1431,12 @@ fn stone_knapping_is_timed_conserved_hand_work() {
         Some(PlayerWork::ManualProduction { .. })
     ));
 
-    for _ in 0..resolution.duration().value() {
+    let completes_at = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("stone knapping job disappeared after admission"))
+        .completes_at();
+    while state.tick() < completes_at {
         let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("stone knapping tick failed: {error}"));
     }

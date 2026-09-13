@@ -70,13 +70,7 @@ fn run_reinvestment_separation(
     .unwrap_or_else(|error| panic!("primitive reinvestment {context} start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive reinvestment {context} commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        state,
-        job,
-        resolved.process_resolution().duration(),
-        context,
-    );
+    finish_uninterrupted_production_job(registries, state, job, context);
     let target_after = state
         .inventory()
         .get_stockpile(native_storage)

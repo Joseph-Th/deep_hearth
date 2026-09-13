@@ -32,7 +32,7 @@ pub(super) fn execute_manual_craft(
     .unwrap_or_else(|error| panic!("gameplay harness {context} start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("gameplay harness {context} commit failed: {error}"));
-    finish_uninterrupted_production_job(registries, state, job, duration, context);
+    finish_uninterrupted_production_job(registries, state, job, context);
     if let (Some(equipment), Some(expected)) = (equipment, expected_condition) {
         assert_eq!(
             state

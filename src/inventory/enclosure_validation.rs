@@ -4,14 +4,12 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::material::{
-    CommodityKey, validate_material_particle_size_state, validate_material_phase_state,
-};
+use crate::material::CommodityKey;
 use crate::registry::Registries;
 
 use super::{
-    ConsumedMaterialTrace, StockpileEnclosureRecord, StockpileId, StockpileRecord,
-    StorageDefinition,
+    ConsumedMaterialTrace, PureMaterialTraceValidationError, StockpileEnclosureRecord, StockpileId,
+    StockpileRecord, StorageDefinition,
 };
 
 mod error;
@@ -60,52 +58,43 @@ fn validate_enclosure_trace(
     enclosure: &StockpileEnclosureRecord,
     trace: &ConsumedMaterialTrace,
 ) -> Result<CommodityKey, StorageEnclosureValidationError> {
-    if trace.mass().is_zero() {
-        return Err(StorageEnclosureValidationError::ZeroEmbodiedTrace { stockpile });
-    }
-    let commodity = trace.profile().commodity();
-    if !registries.materials().has_commodity(commodity) {
-        return Err(StorageEnclosureValidationError::UnknownEmbodiedCommodity {
-            stockpile,
-            commodity,
-        });
-    }
-    if trace.profile().composition().pure_material() != Some(commodity.material()) {
-        return Err(StorageEnclosureValidationError::ImpureEmbodiedMaterial {
-            stockpile,
-            commodity,
-        });
-    }
-    validate_material_phase_state(
-        registries.materials(),
-        commodity,
-        trace.profile().composition(),
-        trace.profile().temperature(),
-    )
-    .map_err(
-        |error| StorageEnclosureValidationError::InvalidEmbodiedPhaseState { stockpile, error },
-    )?;
-    validate_material_particle_size_state(
-        registries.materials(),
-        commodity,
-        trace.profile().particle_size_distribution(),
-    )
-    .map_err(
-        |error| StorageEnclosureValidationError::InvalidEmbodiedParticleSizeState {
-            stockpile,
-            error,
-        },
-    )?;
-    let provenance = trace.provenance();
-    if provenance.latest_created_at() > state.tick() {
-        return Err(
-            StorageEnclosureValidationError::EmbodiedProvenanceInFuture {
+    let commodity = trace
+        .validate_pure_material_state(registries.materials(), state.tick())
+        .map_err(|error| match error {
+            PureMaterialTraceValidationError::ZeroMass => {
+                StorageEnclosureValidationError::ZeroEmbodiedTrace { stockpile }
+            }
+            PureMaterialTraceValidationError::UnknownCommodity { commodity } => {
+                StorageEnclosureValidationError::UnknownEmbodiedCommodity {
+                    stockpile,
+                    commodity,
+                }
+            }
+            PureMaterialTraceValidationError::ImpureMaterial { commodity } => {
+                StorageEnclosureValidationError::ImpureEmbodiedMaterial {
+                    stockpile,
+                    commodity,
+                }
+            }
+            PureMaterialTraceValidationError::InvalidPhaseState(error) => {
+                StorageEnclosureValidationError::InvalidEmbodiedPhaseState { stockpile, error }
+            }
+            PureMaterialTraceValidationError::InvalidParticleSizeState(error) => {
+                StorageEnclosureValidationError::InvalidEmbodiedParticleSizeState {
+                    stockpile,
+                    error,
+                }
+            }
+            PureMaterialTraceValidationError::ProvenanceInFuture {
+                latest_created_at,
+                current,
+            } => StorageEnclosureValidationError::EmbodiedProvenanceInFuture {
                 stockpile,
-                latest_created_at: provenance.latest_created_at(),
-                current: state.tick(),
+                latest_created_at,
+                current,
             },
-        );
-    }
+        })?;
+    let provenance = trace.provenance();
     if provenance.latest_created_at() > enclosure.created_at() {
         return Err(
             StorageEnclosureValidationError::EmbodiedProvenanceAfterConstruction {
@@ -147,7 +136,7 @@ fn validate_enclosure_assembly(
     stockpile: StockpileId,
     definition: &StorageDefinition,
     traced_mass: Mass,
-    mut traced_by_commodity: BTreeMap<CommodityKey, Mass>,
+    traced_by_commodity: BTreeMap<CommodityKey, Mass>,
 ) -> Result<(), StorageEnclosureValidationError> {
     let authored_mass = definition.assembly_profile().input_mass();
     if traced_mass != authored_mass {
@@ -157,25 +146,15 @@ fn validate_enclosure_assembly(
             authored: authored_mass,
         });
     }
-    for input in definition.assembly_profile().inputs() {
-        let stored = traced_by_commodity
-            .remove(&input.commodity())
-            .unwrap_or(Mass::ZERO);
-        if stored != input.mass() {
-            return Err(StorageEnclosureValidationError::AssemblyMaterialMismatch {
-                stockpile,
-                commodity: input.commodity(),
-                stored,
-                authored: input.mass(),
-            });
-        }
-    }
-    if let Some((commodity, stored)) = traced_by_commodity.into_iter().next() {
+    if let Some((commodity, stored, authored)) = definition
+        .assembly_profile()
+        .first_mass_mismatch(&traced_by_commodity)
+    {
         return Err(StorageEnclosureValidationError::AssemblyMaterialMismatch {
             stockpile,
             commodity,
             stored,
-            authored: Mass::ZERO,
+            authored,
         });
     }
     Ok(())

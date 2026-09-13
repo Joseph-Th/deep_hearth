@@ -322,16 +322,10 @@ fn craft_batches(
     .unwrap_or_else(|error| panic!("primitive progression repeated craft failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive progression repeated craft commit failed: {error}"));
-    let duration = state
-        .production()
-        .get_job(job)
-        .map(|record| record.active_duration())
-        .unwrap_or_else(|| panic!("primitive progression craft job disappeared after start"));
     finish_uninterrupted_production_job(
         registries,
         state,
         job,
-        duration,
         "primitive progression manual craft",
     );
 }
@@ -2036,13 +2030,7 @@ fn separate_native_copper(
     .unwrap_or_else(|error| panic!("primitive progression separation start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive progression separation commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        state,
-        job,
-        resolved.process_resolution().duration(),
-        "primitive powered separation",
-    );
+    finish_uninterrupted_production_job(registries, state, job, "primitive powered separation");
     let target_after = state
         .inventory()
         .get_stockpile(native_storage)
@@ -2170,13 +2158,7 @@ fn run_uninterrupted_crush(
     .unwrap_or_else(|error| panic!("primitive reinvestment {context} start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive reinvestment {context} commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        state,
-        job,
-        resolved.process_resolution().duration(),
-        context,
-    );
+    finish_uninterrupted_production_job(registries, state, job, context);
     ticks
 }
 

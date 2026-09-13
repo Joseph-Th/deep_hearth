@@ -4,11 +4,8 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
-use crate::inventory::ConsumedMaterialTrace;
-use crate::material::{
-    CommodityKey, MaterialAssemblyProfile, MaterialRegistry, validate_material_particle_size_state,
-    validate_material_phase_state,
-};
+use crate::inventory::{ConsumedMaterialTrace, PureMaterialTraceValidationError};
+use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialRegistry};
 
 use super::super::super::definitions::{EnergyRegistry, EnergyStoreDefinitionId};
 use super::super::EnergyStoreRecord;
@@ -109,60 +106,52 @@ fn validate_embodied_trace(
     trace: &ConsumedMaterialTrace,
     current: SimulationTick,
 ) -> Result<CommodityKey, EnergyValidationError> {
-    if trace.mass().is_zero() {
-        return Err(EnergyValidationError::ZeroEmbodiedTrace { store: record.id });
-    }
-    let commodity = trace.profile().commodity();
-    if !materials.has_commodity(commodity) {
-        return Err(EnergyValidationError::UnknownEmbodiedCommodity {
-            store: record.id,
-            commodity,
-        });
-    }
-    if trace.profile().composition().pure_material() != Some(commodity.material()) {
-        return Err(EnergyValidationError::ImpureEmbodiedMaterial {
-            store: record.id,
-            commodity,
-        });
-    }
-    validate_material_phase_state(
-        materials,
-        commodity,
-        trace.profile().composition(),
-        trace.profile().temperature(),
-    )
-    .map_err(|error| EnergyValidationError::InvalidEmbodiedPhaseState {
-        store: record.id,
-        error,
-    })?;
-    validate_material_particle_size_state(
-        materials,
-        commodity,
-        trace.profile().particle_size_distribution(),
-    )
-    .map_err(
-        |error| EnergyValidationError::InvalidEmbodiedParticleSizeState {
-            store: record.id,
-            error,
-        },
-    )?;
-
-    let provenance = trace.provenance();
-    if provenance.latest_created_at() > current {
-        return Err(EnergyValidationError::EmbodiedProvenanceInFuture {
-            store: record.id,
-            latest_created_at: provenance.latest_created_at(),
-            current,
-        });
-    }
-    Ok(commodity)
+    trace
+        .validate_pure_material_state(materials, current)
+        .map_err(|error| match error {
+            PureMaterialTraceValidationError::ZeroMass => {
+                EnergyValidationError::ZeroEmbodiedTrace { store: record.id }
+            }
+            PureMaterialTraceValidationError::UnknownCommodity { commodity } => {
+                EnergyValidationError::UnknownEmbodiedCommodity {
+                    store: record.id,
+                    commodity,
+                }
+            }
+            PureMaterialTraceValidationError::ImpureMaterial { commodity } => {
+                EnergyValidationError::ImpureEmbodiedMaterial {
+                    store: record.id,
+                    commodity,
+                }
+            }
+            PureMaterialTraceValidationError::InvalidPhaseState(error) => {
+                EnergyValidationError::InvalidEmbodiedPhaseState {
+                    store: record.id,
+                    error,
+                }
+            }
+            PureMaterialTraceValidationError::InvalidParticleSizeState(error) => {
+                EnergyValidationError::InvalidEmbodiedParticleSizeState {
+                    store: record.id,
+                    error,
+                }
+            }
+            PureMaterialTraceValidationError::ProvenanceInFuture {
+                latest_created_at,
+                current,
+            } => EnergyValidationError::EmbodiedProvenanceInFuture {
+                store: record.id,
+                latest_created_at,
+                current,
+            },
+        })
 }
 
 fn validate_embodied_totals(
     record: &EnergyStoreRecord,
     assembly: &MaterialAssemblyProfile,
     traced_mass: Mass,
-    mut stored_by_commodity: BTreeMap<CommodityKey, Mass>,
+    stored_by_commodity: BTreeMap<CommodityKey, Mass>,
 ) -> Result<(), EnergyValidationError> {
     if traced_mass != assembly.input_mass() {
         return Err(EnergyValidationError::EmbodiedMassMismatch {
@@ -171,25 +160,13 @@ fn validate_embodied_totals(
             authored: assembly.input_mass(),
         });
     }
-    for input in assembly.inputs() {
-        let stored = stored_by_commodity
-            .remove(&input.commodity())
-            .unwrap_or(Mass::ZERO);
-        if stored != input.mass() {
-            return Err(EnergyValidationError::AssemblyMaterialMismatch {
-                store: record.id,
-                commodity: input.commodity(),
-                stored,
-                authored: input.mass(),
-            });
-        }
-    }
-    if let Some((commodity, stored)) = stored_by_commodity.into_iter().next() {
+    if let Some((commodity, stored, authored)) = assembly.first_mass_mismatch(&stored_by_commodity)
+    {
         return Err(EnergyValidationError::AssemblyMaterialMismatch {
             store: record.id,
             commodity,
             stored,
-            authored: Mass::ZERO,
+            authored,
         });
     }
     Ok(())

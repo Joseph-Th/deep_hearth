@@ -27,14 +27,34 @@ use manual_power::validate_manual_power_work;
 use prospecting::validate_prospecting_work;
 use storage_enclosure_dismantling::validate_storage_enclosure_dismantling_work;
 
+#[derive(Default)]
 struct ActivePlayerJobs {
-    manual_production: Vec<crate::production::ProductionJobId>,
-    mining: Vec<crate::mining::MiningJobId>,
+    manual_production: Option<crate::production::ProductionJobId>,
+    mining: Option<crate::mining::MiningJobId>,
+    multiple: bool,
 }
 
 impl ActivePlayerJobs {
-    fn has_any(&self) -> bool {
-        !self.manual_production.is_empty() || !self.mining.is_empty()
+    const fn has_any(&self) -> bool {
+        self.manual_production.is_some() || self.mining.is_some()
+    }
+
+    const fn has_multiple(&self) -> bool {
+        self.multiple
+    }
+
+    fn note_manual_production(&mut self, job: crate::production::ProductionJobId) {
+        if self.has_any() {
+            self.multiple = true;
+        }
+        self.manual_production.get_or_insert(job);
+    }
+
+    fn note_mining(&mut self, job: crate::mining::MiningJobId) {
+        if self.has_any() {
+            self.multiple = true;
+        }
+        self.mining.get_or_insert(job);
     }
 }
 
@@ -64,7 +84,7 @@ pub(crate) fn validate_loaded_player_work(
     work_state: &PlayerWorkState,
 ) -> Result<(), PlayerWorkValidationError> {
     let active_jobs = collect_active_player_jobs(registries, state);
-    if active_jobs.manual_production.len() + active_jobs.mining.len() > 1 {
+    if active_jobs.has_multiple() {
         return Err(PlayerWorkValidationError::MultiplePlayerJobs);
     }
     let Some(work) = work_state.active() else {
@@ -141,34 +161,25 @@ pub(crate) fn validate_loaded_player_work(
 }
 
 fn collect_active_player_jobs(registries: &Registries, state: &AppState) -> ActivePlayerJobs {
-    let manual_production = state
-        .production()
-        .jobs()
-        .filter(|job| {
-            job.suspension().is_none()
-                && registries.manual_process_exertion(job.process()).is_some()
-        })
-        .map(|job| job.id())
-        .collect::<Vec<_>>();
-    let mining = state
-        .mining()
-        .jobs()
-        .filter(|job| job.is_working())
-        .map(|job| job.id())
-        .collect::<Vec<_>>();
-    ActivePlayerJobs {
-        manual_production,
-        mining,
+    let mut active = ActivePlayerJobs::default();
+    for job in state.production().jobs().filter(|job| {
+        job.suspension().is_none() && registries.manual_process_exertion(job.process()).is_some()
+    }) {
+        active.note_manual_production(job.id());
     }
+    for job in state.mining().jobs().filter(|job| job.is_working()) {
+        active.note_mining(job.id());
+    }
+    active
 }
 
 fn validate_idle_player_work(
     active_jobs: &ActivePlayerJobs,
 ) -> Result<(), PlayerWorkValidationError> {
-    if !active_jobs.manual_production.is_empty() {
+    if active_jobs.manual_production.is_some() {
         return Err(PlayerWorkValidationError::ManualProductionMissingWork);
     }
-    if !active_jobs.mining.is_empty() {
+    if active_jobs.mining.is_some() {
         return Err(PlayerWorkValidationError::MiningMissingWork);
     }
     Ok(())
@@ -188,7 +199,7 @@ fn validate_manual_production_work(
     let Some(exertion) = registries.manual_process_exertion(record.process()) else {
         return Err(PlayerWorkValidationError::ManualProductionProcessMismatch);
     };
-    if active_jobs.manual_production.as_slice() != [job] {
+    if active_jobs.manual_production != Some(job) {
         return Err(PlayerWorkValidationError::ManualProductionMissingWork);
     }
     let remaining = match record.suspension() {
@@ -222,7 +233,7 @@ fn validate_mining_work(
     if !record.is_working() {
         return Err(PlayerWorkValidationError::MiningJobNotWorking);
     }
-    if active_jobs.mining.as_slice() != [job] {
+    if active_jobs.mining != Some(job) {
         return Err(PlayerWorkValidationError::MiningMissingWork);
     }
     let method = registries

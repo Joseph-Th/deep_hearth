@@ -1,5 +1,6 @@
 //! Derived production scheduling and exclusive-resource indexes.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::time::SimulationTick;
@@ -12,10 +13,46 @@ use super::{ProductionJobId, ProductionJobRecord};
 type ProductionOccupancyMismatch<Resource> =
     (Resource, Option<ProductionJobId>, Option<ProductionJobId>);
 
+fn first_map_key_mismatch<Key, Value>(
+    indexed: &BTreeMap<Key, Value>,
+    expected: &BTreeMap<Key, Value>,
+) -> Option<Key>
+where
+    Key: Copy + Ord,
+    Value: PartialEq,
+{
+    let mut indexed_entries = indexed.iter().peekable();
+    let mut expected_entries = expected.iter().peekable();
+    loop {
+        match (
+            indexed_entries.peek().copied(),
+            expected_entries.peek().copied(),
+        ) {
+            (Some((&indexed_key, indexed_value)), Some((&expected_key, expected_value))) => {
+                match indexed_key.cmp(&expected_key) {
+                    Ordering::Less => return Some(indexed_key),
+                    Ordering::Greater => return Some(expected_key),
+                    Ordering::Equal => {
+                        let _ = indexed_entries.next();
+                        let _ = expected_entries.next();
+                        if indexed_value != expected_value {
+                            return Some(indexed_key);
+                        }
+                    }
+                }
+            }
+            (Some((&indexed_key, _)), None) => return Some(indexed_key),
+            (None, Some((&expected_key, _))) => return Some(expected_key),
+            (None, None) => return None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ProductionJobIndexProjection {
     due_tick: Option<SimulationTick>,
-    energy_stores: Vec<EnergyStoreId>,
+    consumed_energy_store: Option<EnergyStoreId>,
+    released_energy_store: Option<EnergyStoreId>,
     equipment: Option<EquipmentId>,
     output_stockpiles: BTreeSet<StockpileId>,
 }
@@ -24,12 +61,8 @@ impl ProductionJobIndexProjection {
     pub(super) fn from_job(job: &ProductionJobRecord) -> Self {
         Self {
             due_tick: (!job.is_suspended()).then_some(job.completes_at()),
-            energy_stores: job
-                .consumed_energy()
-                .map(|trace| trace.source())
-                .into_iter()
-                .chain(job.released_energy().map(|trace| trace.destination()))
-                .collect(),
+            consumed_energy_store: job.consumed_energy().map(|trace| trace.source()),
+            released_energy_store: job.released_energy().map(|trace| trace.destination()),
             equipment: job
                 .equipment_provider()
                 .map(|provider| provider.equipment()),
@@ -39,6 +72,12 @@ impl ProductionJobIndexProjection {
                 .map(|stream| stream.destination())
                 .collect(),
         }
+    }
+
+    fn energy_stores(&self) -> impl Iterator<Item = EnergyStoreId> {
+        [self.consumed_energy_store, self.released_energy_store]
+            .into_iter()
+            .flatten()
     }
 }
 
@@ -71,7 +110,7 @@ impl ProductionIndexes {
         if let Some(due_tick) = projection.due_tick {
             self.due_jobs.entry(due_tick).or_default().insert(id);
         }
-        for store in projection.energy_stores.iter().copied() {
+        for store in projection.energy_stores() {
             self.energy_occupancy.entry(store).or_insert(id);
         }
         if let Some(equipment) = projection.equipment {
@@ -113,19 +152,18 @@ impl ProductionIndexes {
         id: ProductionJobId,
         projection: &ProductionJobIndexProjection,
     ) {
-        assert_eq!(
-            projection.energy_stores.len(),
-            projection
-                .energy_stores
-                .iter()
-                .copied()
-                .collect::<BTreeSet<_>>()
-                .len(),
-            "validated production job cannot reserve one energy store more than once"
-        );
-        for store in &projection.energy_stores {
+        if let (Some(consumed), Some(released)) = (
+            projection.consumed_energy_store,
+            projection.released_energy_store,
+        ) {
+            assert_ne!(
+                consumed, released,
+                "validated production job cannot reserve one energy store more than once"
+            );
+        }
+        for store in projection.energy_stores() {
             assert!(
-                !self.energy_occupancy.contains_key(store),
+                !self.energy_occupancy.contains_key(&store),
                 "validated production job cannot replace an existing energy-store reservation"
             );
         }
@@ -180,9 +218,9 @@ impl ProductionIndexes {
         } else {
             self.assert_due_job_absent(id);
         }
-        for store in &projection.energy_stores {
+        for store in projection.energy_stores() {
             assert_eq!(
-                self.energy_occupancy.get(store).copied(),
+                self.energy_occupancy.get(&store).copied(),
                 Some(id),
                 "runtime invariant broken: energy occupancy index disagrees with production job {}",
                 id.value()
@@ -245,7 +283,7 @@ impl ProductionIndexes {
         if let Some(due_tick) = projection.due_tick {
             self.insert_due_job(id, due_tick);
         }
-        for store in projection.energy_stores.iter().copied() {
+        for store in projection.energy_stores() {
             assert!(
                 self.energy_occupancy.insert(store, id).is_none(),
                 "runtime invariant broken: production energy occupancy replaced an existing job"
@@ -277,9 +315,9 @@ impl ProductionIndexes {
         if let Some(due_tick) = projection.due_tick {
             self.remove_due_job(id, due_tick);
         }
-        for store in &projection.energy_stores {
+        for store in projection.energy_stores() {
             assert_eq!(
-                self.energy_occupancy.remove(store),
+                self.energy_occupancy.remove(&store),
                 Some(id),
                 "runtime invariant broken: energy occupancy index disagrees with production job {}",
                 id.value()
@@ -322,7 +360,12 @@ impl ProductionIndexes {
     ) -> Result<BTreeMap<EnergyStoreId, ProductionJobId>, EnergyStoreId> {
         let mut occupied = BTreeMap::new();
         for job in jobs {
-            for store in ProductionJobIndexProjection::from_job(job).energy_stores {
+            for store in job
+                .consumed_energy()
+                .map(|trace| trace.source())
+                .into_iter()
+                .chain(job.released_energy().map(|trace| trace.destination()))
+            {
                 if occupied.insert(store, job.id()).is_some() {
                     return Err(store);
                 }
@@ -336,20 +379,15 @@ impl ProductionIndexes {
         jobs: impl Iterator<Item = &'a ProductionJobRecord>,
     ) -> Result<Option<ProductionOccupancyMismatch<EnergyStoreId>>, EnergyStoreId> {
         let expected = Self::expected_energy_occupancy(jobs)?;
-        let stores = self
-            .energy_occupancy
-            .keys()
-            .chain(expected.keys())
-            .copied()
-            .collect::<BTreeSet<_>>();
-        for store in stores {
-            let indexed = self.energy_occupancy.get(&store).copied();
-            let expected = expected.get(&store).copied();
-            if indexed != expected {
-                return Ok(Some((store, indexed, expected)));
-            }
-        }
-        Ok(None)
+        Ok(
+            first_map_key_mismatch(&self.energy_occupancy, &expected).map(|store| {
+                (
+                    store,
+                    self.energy_occupancy.get(&store).copied(),
+                    expected.get(&store).copied(),
+                )
+            }),
+        )
     }
 
     fn expected_equipment_occupancy<'a>(
@@ -357,7 +395,9 @@ impl ProductionIndexes {
     ) -> Result<BTreeMap<EquipmentId, ProductionJobId>, EquipmentId> {
         let mut occupied = BTreeMap::new();
         for job in jobs {
-            if let Some(equipment) = ProductionJobIndexProjection::from_job(job).equipment
+            if let Some(equipment) = job
+                .equipment_provider()
+                .map(|provider| provider.equipment())
                 && occupied.insert(equipment, job.id()).is_some()
             {
                 return Err(equipment);
@@ -371,20 +411,15 @@ impl ProductionIndexes {
         jobs: impl Iterator<Item = &'a ProductionJobRecord>,
     ) -> Result<Option<ProductionOccupancyMismatch<EquipmentId>>, EquipmentId> {
         let expected = Self::expected_equipment_occupancy(jobs)?;
-        let equipment_ids = self
-            .equipment_occupancy
-            .keys()
-            .chain(expected.keys())
-            .copied()
-            .collect::<BTreeSet<_>>();
-        for equipment in equipment_ids {
-            let indexed = self.equipment_occupancy.get(&equipment).copied();
-            let expected = expected.get(&equipment).copied();
-            if indexed != expected {
-                return Ok(Some((equipment, indexed, expected)));
-            }
-        }
-        Ok(None)
+        Ok(
+            first_map_key_mismatch(&self.equipment_occupancy, &expected).map(|equipment| {
+                (
+                    equipment,
+                    self.equipment_occupancy.get(&equipment).copied(),
+                    expected.get(&equipment).copied(),
+                )
+            }),
+        )
     }
 
     fn expected_output_stockpile_occupancy<'a>(
@@ -392,8 +427,11 @@ impl ProductionIndexes {
     ) -> BTreeMap<StockpileId, BTreeSet<ProductionJobId>> {
         let mut occupied = BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
         for job in jobs {
-            for stockpile in ProductionJobIndexProjection::from_job(job).output_stockpiles {
-                occupied.entry(stockpile).or_default().insert(job.id());
+            for stream in job.output_streams() {
+                occupied
+                    .entry(stream.destination())
+                    .or_default()
+                    .insert(job.id());
             }
         }
         occupied
@@ -404,14 +442,6 @@ impl ProductionIndexes {
         jobs: impl Iterator<Item = &'a ProductionJobRecord>,
     ) -> Option<StockpileId> {
         let expected = Self::expected_output_stockpile_occupancy(jobs);
-        let stockpiles = self
-            .output_stockpile_occupancy
-            .keys()
-            .chain(expected.keys())
-            .copied()
-            .collect::<BTreeSet<_>>();
-        stockpiles.into_iter().find(|stockpile| {
-            self.output_stockpile_occupancy.get(stockpile) != expected.get(stockpile)
-        })
+        first_map_key_mismatch(&self.output_stockpile_occupancy, &expected)
     }
 }

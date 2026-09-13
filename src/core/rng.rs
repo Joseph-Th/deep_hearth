@@ -95,7 +95,7 @@ impl RandomState {
 
     /// Advances one independent state-owned stream for deterministic stream-isolation tests.
     #[cfg(test)]
-    pub(crate) fn next_u64(&mut self, stream: RngStreamId) -> u64 {
+    fn next_u64(&mut self, stream: RngStreamId) -> u64 {
         let derivation = self.derivation;
         let world_seed = self.root_seed;
         self.streams

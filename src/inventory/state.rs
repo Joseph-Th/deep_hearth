@@ -24,7 +24,10 @@ pub(super) use lot_mutation::{
 pub(super) use lot_mutation::{
     LotStorageTransition, apply_aggregate_deposit, apply_move_full_lot, apply_split_lot,
 };
-pub(crate) use records::{AMBIENT_PRESERVATION_MULTIPLIER_PPM, checked_consumed_material_mass};
+pub(crate) use records::{
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, PureMaterialTraceValidationError,
+    checked_consumed_material_mass,
+};
 pub use records::{
     ConsumedMaterialTrace, MaterialLotId, MaterialLotProfile, MaterialLotProvenance,
     MaterialLotRecord, StockpileEnclosureRecord, StockpileId, StockpileRecord,

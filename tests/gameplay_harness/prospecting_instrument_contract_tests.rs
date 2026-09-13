@@ -31,6 +31,7 @@ use deep_hearth::survival::initialize_player_survival;
 use super::environment::ROOM_TEMPERATURE;
 use super::inventory_support::add_solid_stockpile;
 use super::ore_fixture::copper_ore_composition;
+use super::prospecting_timing::complete_prospecting_work;
 
 fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
     VoxelBounds::new(
@@ -38,24 +39,6 @@ fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
         VoxelCoord::new(start_x + width, 0, 1),
     )
     .unwrap_or_else(|error| panic!("prospecting-instrument region failed: {error}"))
-}
-
-fn complete_prospecting(
-    registries: &deep_hearth::registry::Registries,
-    state: &mut AppState,
-    duration: u64,
-) -> deep_hearth::geology::FieldProspectingOutcome {
-    let mut completion = None;
-    for elapsed in 1..=duration {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("prospecting-instrument tick failed: {error}"));
-        if elapsed < duration {
-            assert_eq!(outcome.field_prospecting(), None);
-        } else {
-            completion = outcome.field_prospecting();
-        }
-    }
-    completion.unwrap_or_else(|| panic!("prospecting-instrument work produced no observation"))
 }
 
 #[test]
@@ -235,15 +218,19 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         ),
     )
     .unwrap_or_else(|error| panic!("detailed hammer survey failed: {error}"));
-    let expected_condition_after_detailed =
-        detailed_start.work().condition_after().unwrap_or_else(|| {
-            panic!("detailed survey lost its validated equipment condition outcome")
-        });
+    let detailed_work = detailed_start.work();
+    let expected_condition_after_detailed = detailed_work.condition_after().unwrap_or_else(|| {
+        panic!("detailed survey lost its validated equipment condition outcome")
+    });
     detailed_start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("detailed hammer survey commit failed: {error}"));
-    let detailed_outcome =
-        complete_prospecting(&registries, &mut state, detailed.duration().value());
+    let detailed_outcome = complete_prospecting_work(
+        &registries,
+        &mut state,
+        detailed_work,
+        "detailed hammer survey",
+    );
     assert_eq!(detailed_outcome.region(), detailed_region);
     assert_eq!(
         detailed_outcome.evidence(),
@@ -301,8 +288,8 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         ),
     )
     .unwrap_or_else(|error| panic!("indexed channel survey failed: {error}"));
-    let expected_condition_after_channel = channel_start
-        .work()
+    let channel_work = channel_start.work();
+    let expected_condition_after_channel = channel_work
         .condition_after()
         .unwrap_or_else(|| panic!("channel survey lost its validated equipment condition outcome"));
     channel_start
@@ -332,7 +319,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     assert_eq!(loaded, state);
 
     let mut channel_outcome = None;
-    for _ in elapsed_before_save..channel.duration().value() {
+    while state.tick() < channel_work.completes_at() {
         let expected = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("channel survey source tick failed: {error}"));
         let actual = advance_tick(&registries, &mut loaded)

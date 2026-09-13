@@ -18,7 +18,7 @@ use crate::geology::{
     insert_generated_deposit,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId};
+use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId, ProspectingWork};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::mining::{MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -70,14 +70,8 @@ fn local_transect_reduces_repeated_point_work_without_revealing_an_exact_target(
         })
     ));
 
-    start_prospecting(&registries, &mut state, PROSPECTING_LOCAL_TRANSECT, region);
-    let mut completed = None;
-    for _ in 0..transect.duration().value() {
-        completed = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("local-transect tick failed: {error}"))
-            .field_prospecting();
-    }
-    let observation = completed.unwrap_or_else(|| panic!("local transect did not complete"));
+    let work = start_prospecting(&registries, &mut state, PROSPECTING_LOCAL_TRANSECT, region);
+    let observation = complete_prospecting_work(&registries, &mut state, work, "local transect");
     assert_eq!(observation.method(), PROSPECTING_LOCAL_TRANSECT);
     assert_eq!(observation.region(), region);
     assert_eq!(
@@ -117,16 +111,9 @@ fn positive_local_transect_stays_area_evidence_even_with_one_hidden_deposit() {
     let requested_voxel = one_voxel(62);
     insert_copper(&registries, &mut state, region);
 
-    start_prospecting(&registries, &mut state, PROSPECTING_LOCAL_TRANSECT, region);
-    let duration = prospecting_duration(&registries, PROSPECTING_LOCAL_TRANSECT);
-    let mut completed = None;
-    for _ in 0..duration {
-        completed = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("positive local-transect tick failed: {error}"))
-            .field_prospecting();
-    }
+    let work = start_prospecting(&registries, &mut state, PROSPECTING_LOCAL_TRANSECT, region);
     let observation =
-        completed.unwrap_or_else(|| panic!("positive local transect did not complete"));
+        complete_prospecting_work(&registries, &mut state, work, "positive local transect");
     let finding = state
         .geological_knowledge()
         .get_observation(observation.observation())
@@ -197,7 +184,7 @@ fn regional_reconnaissance_trades_precision_for_footprint_then_local_inspection_
         })
     ));
 
-    start_prospecting(
+    let regional_work = start_prospecting(
         &registries,
         &mut state,
         PROSPECTING_REGIONAL_RECONNAISSANCE,
@@ -208,13 +195,12 @@ fn regional_reconnaissance_trades_precision_for_footprint_then_local_inspection_
         regional_duration > prospecting_duration(&registries, PROSPECTING_DETAILED_FIELD_SURVEY),
         "regional reconnaissance should trade more elapsed field time for broader coverage"
     );
-    let mut completed = None;
-    for _ in 0..regional_duration {
-        completed = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("regional prospecting tick failed: {error}"))
-            .field_prospecting();
-    }
-    let observation = completed.unwrap_or_else(|| panic!("regional prospecting did not complete"));
+    let observation = complete_prospecting_work(
+        &registries,
+        &mut state,
+        regional_work,
+        "regional prospecting",
+    );
     assert_eq!(observation.method(), PROSPECTING_REGIONAL_RECONNAISSANCE);
     assert_eq!(observation.region(), region);
     assert_eq!(
@@ -240,11 +226,8 @@ fn regional_reconnaissance_trades_precision_for_footprint_then_local_inspection_
         )
     );
 
-    start_inspection(&registries, &mut state, target_region);
-    for _ in 0..prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION) {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("local refinement tick failed: {error}"));
-    }
+    let work = start_inspection(&registries, &mut state, target_region);
+    let _ = complete_prospecting_work(&registries, &mut state, work, "local refinement");
     let target = resolve_mining_target(
         &state,
         MiningTargetRequest::new(target_region, MATERIAL_COPPER),
@@ -279,19 +262,45 @@ fn start_prospecting(
     state: &mut AppState,
     method: ProspectingMethodId,
     region: VoxelBounds,
-) {
-    validate_start_field_prospecting(
+) -> ProspectingWork {
+    let start = validate_start_field_prospecting(
         registries,
         state,
         FieldProspectingRequest::new(method, region, MATERIAL_COPPER),
     )
-    .unwrap_or_else(|error| panic!("field prospecting start failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("field prospecting commit failed: {error}"));
+    .unwrap_or_else(|error| panic!("field prospecting start failed: {error}"));
+    let work = start.work();
+    start
+        .commit(state)
+        .unwrap_or_else(|error| panic!("field prospecting commit failed: {error}"));
+    work
 }
 
-fn start_inspection(registries: &Registries, state: &mut AppState, region: VoxelBounds) {
-    start_prospecting(registries, state, PROSPECTING_FIELD_INSPECTION, region);
+fn start_inspection(
+    registries: &Registries,
+    state: &mut AppState,
+    region: VoxelBounds,
+) -> ProspectingWork {
+    start_prospecting(registries, state, PROSPECTING_FIELD_INSPECTION, region)
+}
+
+fn complete_prospecting_work(
+    registries: &Registries,
+    state: &mut AppState,
+    work: ProspectingWork,
+    context: &'static str,
+) -> FieldProspectingOutcome {
+    let mut completed = None;
+    while state.tick() < work.completes_at() {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("{context} tick failed: {error}"));
+        if state.tick() < work.completes_at() {
+            assert_eq!(outcome.field_prospecting(), None);
+        } else {
+            completed = outcome.field_prospecting();
+        }
+    }
+    completed.unwrap_or_else(|| panic!("{context} did not complete"))
 }
 
 fn assemble_sampling_hammer(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -339,9 +348,13 @@ fn inspection_ready_to_complete_fixture() -> (Registries, AppState) {
         .unwrap_or_else(|error| panic!("prospecting exhaustion survival setup failed: {error}"));
     let region = one_voxel(40);
     insert_copper(&registries, &mut state, region);
-    start_inspection(&registries, &mut state, region);
-    let duration = prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION);
-    for _ in 1..duration {
+    let work = start_inspection(&registries, &mut state, region);
+    let remaining = work
+        .completes_at()
+        .value()
+        .checked_sub(state.tick().value())
+        .unwrap_or_else(|| panic!("prospecting exhaustion completion precedes start"));
+    for _ in 1..remaining {
         let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("prospecting exhaustion setup tick failed: {error}"));
     }
@@ -406,25 +419,19 @@ fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
     let survival_before = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("field prospecting survival state disappeared"));
 
-    start_inspection(&registries, &mut state, region);
+    let work = start_inspection(&registries, &mut state, region);
     assert!(matches!(
         state.player_work().active(),
         Some(PlayerWork::Prospecting { .. })
     ));
     assert_eq!(state.geological_knowledge().observations().count(), 0);
 
-    let field_duration = prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION);
-    for _ in 1..field_duration {
-        let outcome = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
-            panic!("field prospecting pre-completion tick failed: {error}")
-        });
-        assert_eq!(outcome.field_prospecting(), None);
-    }
-    let outcome = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("field prospecting completion tick failed: {error}"));
-    let observation = outcome
-        .field_prospecting()
-        .unwrap_or_else(|| panic!("field prospecting completion produced no observation"));
+    let field_duration = work
+        .completes_at()
+        .value()
+        .checked_sub(work.started_at().value())
+        .unwrap_or_else(|| panic!("field prospecting completion precedes admission"));
+    let observation = complete_prospecting_work(&registries, &mut state, work, "field prospecting");
     assert_eq!(observation.method(), PROSPECTING_FIELD_INSPECTION);
     assert_eq!(observation.region(), region);
     assert_eq!(observation.material(), MATERIAL_COPPER);
@@ -477,14 +484,8 @@ fn empty_ground_produces_uncertain_negative_evidence_without_hidden_presence_ora
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("empty prospecting survival setup failed: {error}"));
     let region = one_voxel(10);
-    start_inspection(&registries, &mut state, region);
-    let mut completed = None;
-    for _ in 0..prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION) {
-        completed = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("empty prospecting tick failed: {error}"))
-            .field_prospecting();
-    }
-    let observation = completed.unwrap_or_else(|| panic!("empty prospecting did not complete"));
+    let work = start_inspection(&registries, &mut state, region);
+    let observation = complete_prospecting_work(&registries, &mut state, work, "empty prospecting");
     let finding = state
         .geological_knowledge()
         .get_observation(observation.observation())
@@ -574,11 +575,8 @@ fn completed_field_inspection_provides_the_evidence_required_for_mining_target_r
         resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER)).is_err()
     );
 
-    start_inspection(&registries, &mut state, region);
-    for _ in 0..prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION) {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("target prospecting tick failed: {error}"));
-    }
+    let work = start_inspection(&registries, &mut state, region);
+    let _ = complete_prospecting_work(&registries, &mut state, work, "target prospecting");
     let target = resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER))
         .unwrap_or_else(|error| panic!("field evidence did not resolve mining target: {error}"));
     assert_eq!(target.region(), region);
@@ -596,17 +594,23 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     let request = MiningTargetRequest::new(region, MATERIAL_COPPER);
     let hammer = assemble_sampling_hammer(&registries, &mut state);
 
-    start_prospecting(
+    let field_work = start_prospecting(
         &registries,
         &mut state,
         PROSPECTING_FIELD_INSPECTION,
         region,
     );
-    let field_duration = prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION);
-    for _ in 0..field_duration {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("surface refinement prospecting tick failed: {error}"));
-    }
+    let field_duration = field_work
+        .completes_at()
+        .value()
+        .checked_sub(field_work.started_at().value())
+        .unwrap_or_else(|| panic!("surface refinement completion precedes admission"));
+    let _ = complete_prospecting_work(
+        &registries,
+        &mut state,
+        field_work,
+        "surface refinement prospecting",
+    );
     assert_eq!(
         resolve_mining_target(&state, request),
         Err(
@@ -631,7 +635,7 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
         "equipment-free surface inspection must not reveal excavation resistance"
     );
 
-    validate_start_field_prospecting(
+    let detailed_start = validate_start_field_prospecting(
         &registries,
         &state,
         FieldProspectingRequest::new_with_equipment(
@@ -641,13 +645,12 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
             hammer,
         ),
     )
-    .unwrap_or_else(|error| panic!("detailed refinement prospecting start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("detailed refinement prospecting commit failed: {error}"));
-    let prospecting_completes_at = match state.player_work().active() {
-        Some(PlayerWork::Prospecting { work }) => work.completes_at(),
-        other => panic!("detailed prospecting work disappeared after start: {other:?}"),
-    };
+    .unwrap_or_else(|error| panic!("detailed refinement prospecting start failed: {error}"));
+    let detailed_work = detailed_start.work();
+    detailed_start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("detailed refinement prospecting commit failed: {error}"));
+    let prospecting_completes_at = detailed_work.completes_at();
     assert_eq!(
         decide_equipment_wear(&state, hammer, 1),
         Err(EquipmentConditionPlanError::EquipmentBusyProspecting {
@@ -656,12 +659,18 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
         }),
         "test-only condition mutation must respect prospecting occupancy"
     );
-    let detailed_duration = prospecting_duration(&registries, PROSPECTING_DETAILED_FIELD_SURVEY);
+    let detailed_duration = detailed_work
+        .completes_at()
+        .value()
+        .checked_sub(detailed_work.started_at().value())
+        .unwrap_or_else(|| panic!("detailed refinement completion precedes admission"));
     assert!(detailed_duration > field_duration);
-    for _ in 0..detailed_duration {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("detailed refinement prospecting tick failed: {error}"));
-    }
+    let _ = complete_prospecting_work(
+        &registries,
+        &mut state,
+        detailed_work,
+        "detailed refinement prospecting",
+    );
     let detailed_record = state
         .geological_knowledge()
         .observations()
@@ -722,8 +731,12 @@ fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation(
         .unwrap_or_else(|error| panic!("round-trip prospecting survival setup failed: {error}"));
     let region = one_voxel(30);
     insert_copper(&registries, &mut state, region);
-    start_inspection(&registries, &mut state, region);
-    let field_duration = prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION);
+    let work = start_inspection(&registries, &mut state, region);
+    let field_duration = work
+        .completes_at()
+        .value()
+        .checked_sub(work.started_at().value())
+        .unwrap_or_else(|| panic!("round-trip prospecting completion precedes admission"));
     let pre_save_ticks = 7;
     assert!(pre_save_ticks < field_duration);
     for _ in 0..pre_save_ticks {
@@ -740,7 +753,7 @@ fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation(
         .unwrap_or_else(|error| panic!("round-trip prospecting load failed: {error}"));
     assert_eq!(loaded, state);
 
-    for _ in pre_save_ticks..field_duration {
+    while state.tick() < work.completes_at() {
         let expected = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("round-trip prospecting source tick failed: {error}"));
         let actual = advance_tick(&registries, &mut loaded)

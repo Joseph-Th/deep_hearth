@@ -110,7 +110,7 @@ pub(super) fn execute_melt(
     .unwrap_or_else(|error| panic!("foundry probe melt start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("foundry probe melt commit failed: {error}"));
-    finish_uninterrupted_production_job(registries, state, job, duration, "foundry melt");
+    finish_uninterrupted_production_job(registries, state, job, "foundry melt");
     duration
 }
 
@@ -158,7 +158,7 @@ pub(super) fn execute_primary_cast(
     .unwrap_or_else(|error| panic!("foundry probe casting start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("foundry probe casting commit failed: {error}"));
-    finish_uninterrupted_production_job(registries, state, job, duration, "foundry casting");
+    finish_uninterrupted_production_job(registries, state, job, "foundry casting");
     let molten_remaining = processed_mass
         .checked_sub(cast_mass)
         .unwrap_or_else(|| unreachable!("cast mass cannot exceed melted mass"));

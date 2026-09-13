@@ -14,7 +14,8 @@ mod integrity;
 mod reservation;
 
 pub(in crate::inventory) use integrity::{
-    assert_consumption_parts_match_state, assert_consumption_parts_well_formed,
+    assert_consumption_parts_match_state, assert_consumption_parts_match_state_iter,
+    assert_consumption_parts_well_formed,
 };
 #[cfg(test)]
 pub(crate) use reservation::apply_consumption_reservation;

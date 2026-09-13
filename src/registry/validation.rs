@@ -1,17 +1,13 @@
-//! Cross-domain authored-reference and practical-operability validation.
+//! Cross-domain authored-reference validation and registry-wide invariant composition.
 
-use crate::capability::CapabilityValue;
-use crate::core::time::TickSpan;
-use crate::crafting::{
-    ManualCraftDefinition, ManualCraftEquipmentProfile, resolve_manual_craft_equipment_schedule,
-};
-use crate::equipment::resolve_equipment_capability;
-use crate::labor::calculate_player_work_resource_budget;
-use crate::maintenance::Condition;
 use crate::material::MaterialAssemblyProfile;
-use crate::survival::{PhysiologyDefinition, SurvivalExertion, SurvivalRegistry};
+use crate::survival::SurvivalRegistry;
 
 use super::{CoreDefinitions, RegistryDomains};
+
+mod operability;
+
+use operability::validate_player_work_operability;
 
 fn assert_nonperishable_infrastructure_assembly(
     owner: &str,
@@ -69,144 +65,6 @@ fn validate_infrastructure_perishability(domains: &RegistryDomains) {
     }
 }
 
-fn assert_player_work_fits_reserves(
-    physiology: PhysiologyDefinition,
-    exertion: SurvivalExertion,
-    duration: TickSpan,
-    owner: &str,
-    id: u64,
-) {
-    let budget = calculate_player_work_resource_budget(physiology, exertion, duration)
-        .unwrap_or_else(|error| panic!("{owner} {id} work budget overflows: {error:?}"));
-    assert!(
-        budget.metabolic_energy() <= physiology.maximum_metabolic_energy(),
-        "{owner} {id} requires {} nJ but full metabolic reserves hold only {} nJ",
-        budget.metabolic_energy().nanojoules(),
-        physiology.maximum_metabolic_energy().nanojoules(),
-    );
-    assert!(
-        budget.hydration() <= physiology.maximum_hydration(),
-        "{owner} {id} requires {} uL hydration but full hydration reserves hold only {} uL",
-        budget.hydration().microliters(),
-        physiology.maximum_hydration().microliters(),
-    );
-}
-
-fn best_operable_manual_craft_equipment_duration(
-    core: &CoreDefinitions,
-    domains: &RegistryDomains,
-    definition: &ManualCraftDefinition,
-    profile: ManualCraftEquipmentProfile,
-) -> Option<TickSpan> {
-    domains
-        .equipment
-        .definitions()
-        .filter_map(|equipment| {
-            let Some(CapabilityValue::MassFlow(flow)) = resolve_equipment_capability(
-                equipment,
-                Condition::PRISTINE,
-                profile.mass_flow_capability(),
-            ) else {
-                return None;
-            };
-            let Ok(schedule) = resolve_manual_craft_equipment_schedule(
-                flow,
-                definition.input_mass(),
-                core.physical_tick_duration(),
-                profile.condition_wear_ppm_per_active_tick(),
-                Condition::PRISTINE,
-            ) else {
-                return None;
-            };
-            let duration = schedule.duration();
-            let physiology = domains.survival.physiology();
-            let Ok(budget) =
-                calculate_player_work_resource_budget(physiology, definition.exertion(), duration)
-            else {
-                return None;
-            };
-            (budget.metabolic_energy() <= physiology.maximum_metabolic_energy()
-                && budget.hydration() <= physiology.maximum_hydration())
-            .then_some(duration)
-        })
-        .min()
-}
-
-fn validate_fixed_player_work_operability(core: &CoreDefinitions, domains: &RegistryDomains) {
-    let physiology = domains.survival.physiology();
-
-    for definition in domains.crafting.definitions() {
-        match definition.equipment_profile() {
-            None => assert_player_work_fits_reserves(
-                physiology,
-                definition.exertion(),
-                definition.duration(),
-                "manual craft process",
-                u64::from(definition.process().value()),
-            ),
-            Some(profile) => {
-                let best_equipment_duration = best_operable_manual_craft_equipment_duration(
-                    core, domains, definition, profile,
-                );
-                if !profile.requires_equipment() {
-                    assert_player_work_fits_reserves(
-                        physiology,
-                        definition.exertion(),
-                        definition.duration(),
-                        "manual craft process",
-                        u64::from(definition.process().value()),
-                    );
-                    assert!(
-                        best_equipment_duration
-                            .is_some_and(|duration| duration < definition.duration()),
-                        "optional equipment for manual craft process {} has no pristine route faster than the equipment-free {}-tick batch",
-                        definition.process().value(),
-                        definition.duration().value()
-                    );
-                }
-                assert!(
-                    best_equipment_duration.is_some(),
-                    "manual craft process {} has no pristine equipment route that can finish one authored batch within condition and survival limits",
-                    definition.process().value()
-                );
-            }
-        }
-    }
-
-    for definition in domains.labor.prospecting_definitions() {
-        assert_player_work_fits_reserves(
-            physiology,
-            definition.exertion(),
-            definition.duration(),
-            "prospecting method",
-            u64::from(definition.id().value()),
-        );
-    }
-
-    for definition in domains.equipment.definitions() {
-        let Some(maintenance) = definition.maintenance_profile() else {
-            continue;
-        };
-        assert_player_work_fits_reserves(
-            physiology,
-            maintenance.exertion(),
-            maintenance.required_service_duration(Condition::FAILED),
-            "equipment full service",
-            u64::from(definition.id().value()),
-        );
-    }
-
-    for definition in domains.storage.definitions() {
-        assert_player_work_fits_reserves(
-            physiology,
-            definition.dismantle_exertion(),
-            definition.dismantle_duration(),
-            "storage dismantling",
-            u64::from(definition.id().value()),
-        );
-    }
-}
-
 pub(super) fn validate_registry_domains(core: &CoreDefinitions, domains: &RegistryDomains) {
     domains
         .energy
@@ -248,9 +106,5 @@ pub(super) fn validate_registry_domains(core: &CoreDefinitions, domains: &Regist
         .presentation
         .textures
         .validate_references(&domains.materials, &domains.equipment);
-    validate_fixed_player_work_operability(core, domains);
+    validate_player_work_operability(core, domains);
 }
-
-#[cfg(test)]
-#[path = "validation_tests.rs"]
-mod tests;

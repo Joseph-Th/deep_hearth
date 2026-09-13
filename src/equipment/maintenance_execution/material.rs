@@ -7,9 +7,8 @@ use crate::inventory::{
     MaterialReformCommitError, MaterialReformError, StockpileStoredMassChange,
     ValidatedMaterialEgress, ValidatedMaterialIngress, ValidatedMaterialReform,
     ValidatedStockpileStructuralLoad, apply_material_egress, apply_material_ingress,
-    checked_consumed_material_mass, validate_material_egress_from_selection,
-    validate_material_ingress_after_egress, validate_material_reform_from_selection,
-    validate_stockpile_stored_mass_changes,
+    validate_material_egress_from_selection, validate_material_ingress_after_egress,
+    validate_material_reform_from_selection, validate_stockpile_stored_mass_changes,
 };
 use crate::material::CommodityKey;
 use crate::registry::Registries;
@@ -114,11 +113,6 @@ impl ValidatedMaintenanceMaterial {
         }
         Ok(())
     }
-}
-
-fn trace_mass(traces: &[ConsumedMaterialTrace]) -> Mass {
-    checked_consumed_material_mass(traces)
-        .unwrap_or_else(|| panic!("validated maintenance trace mass overflowed"))
 }
 
 fn map_egress_error(error: MaterialEgressError) -> EquipmentMaintenanceMaterialError {
@@ -258,10 +252,11 @@ fn validate_component_exchange(
     let worn = record
         .embodied_material()
         .iter()
-        .filter(|trace| trace.profile().commodity() == component)
-        .cloned()
-        .collect::<Vec<_>>();
-    let embodied = trace_mass(&worn);
+        .filter(|trace| trace.profile().commodity() == component);
+    let embodied = worn
+        .clone()
+        .try_fold(Mass::ZERO, |mass, trace| mass.checked_add(trace.mass()))
+        .unwrap_or_else(|| panic!("validated maintenance trace mass overflowed"));
     if embodied != required {
         return Err(
             EquipmentMaintenanceMaterialError::EmbodiedComponentMismatch {
@@ -283,7 +278,7 @@ fn validate_component_exchange(
         state.inventory(),
         &egress,
         spent_destination,
-        worn.iter().map(|trace| {
+        worn.map(|trace| {
             MaterialIngressEntry::from_reformed_consumed_trace(trace, resolution.spent.form())
         }),
         state.tick(),

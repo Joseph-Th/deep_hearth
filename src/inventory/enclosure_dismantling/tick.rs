@@ -80,16 +80,14 @@ pub(crate) fn decide_storage_enclosure_dismantling_tick(
     .unwrap_or_else(|error| {
         panic!("runtime invariant broken: admitted dismantling target became invalid: {error}")
     });
-    let entries = enclosure
-        .embodied_material()
-        .iter()
-        .map(MaterialIngressEntry::from_consumed_trace)
-        .collect::<Vec<_>>();
     let ingress = validate_reserved_material_ingress(
         registries,
         projected_inventory,
         work.recovery_destination(),
-        entries,
+        enclosure
+            .embodied_material()
+            .iter()
+            .map(MaterialIngressEntry::from_consumed_trace),
         next_tick,
         work.recovered_mass(),
     )

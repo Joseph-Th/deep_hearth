@@ -1055,7 +1055,6 @@ fn crush_batch(
         option.resolved.condition_after().parts_per_million(),
         option.resolved.bottleneck(),
     );
-    let duration = option.resolved.process_resolution().duration();
     let bottleneck = option.resolved.bottleneck();
     let start = validate_start_process(
         registries,
@@ -1068,10 +1067,12 @@ fn crush_batch(
     let job = start
         .commit(state)
         .unwrap_or_else(|error| panic!("gameplay harness crushing commit failed: {error}"));
-    let started_at = state.tick().value();
-    let completes_at = started_at
-        .checked_add(duration.value())
-        .unwrap_or_else(|| panic!("gameplay harness crushing completion tick overflowed"));
+    let admitted_job = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("gameplay harness admitted crushing job disappeared"));
+    let started_at = admitted_job.started_at().value();
+    let completes_at = admitted_job.completes_at().value();
     if !actor.report.progress.delivery_applied
         && started_at < controller.delivery.delivery_at_tick
         && controller.delivery.delivery_at_tick < completes_at

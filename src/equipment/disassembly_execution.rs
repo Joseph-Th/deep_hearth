@@ -243,19 +243,17 @@ pub fn validate_disassemble_equipment(
         return Err(error);
     }
 
-    let entries = record
-        .embodied_material()
-        .iter()
-        .map(|trace| match worn_recovery_form {
-            Some(form) => MaterialIngressEntry::from_reformed_consumed_trace(trace, form),
-            None => MaterialIngressEntry::from_consumed_trace(trace),
-        })
-        .collect::<Vec<_>>();
     let ingress = validate_material_ingress(
         registries,
         state.inventory(),
         destination,
-        entries,
+        record
+            .embodied_material()
+            .iter()
+            .map(|trace| match worn_recovery_form {
+                Some(form) => MaterialIngressEntry::from_reformed_consumed_trace(trace, form),
+                None => MaterialIngressEntry::from_consumed_trace(trace),
+            }),
         state.tick(),
     )
     .map_err(|error| map_ingress_error(equipment, error))?;

@@ -101,7 +101,7 @@ fn resolve_mining_equipment_plan(
         | None => {}
     }
     let physics = resolve_mining_physics(
-        registries,
+        registries.core().physical_tick_duration(),
         method,
         provider.definition(),
         provider.condition(),

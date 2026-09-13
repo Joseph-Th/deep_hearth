@@ -59,8 +59,8 @@ pub(crate) use selection::{
     validate_explicit_consumption_selection,
 };
 pub(crate) use state::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialStorageHistory, STORAGE_AGE_PARTS_PER_TICK,
-    checked_consumed_material_mass, validate_loaded_inventory,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialStorageHistory, PureMaterialTraceValidationError,
+    STORAGE_AGE_PARTS_PER_TICK, checked_consumed_material_mass, validate_loaded_inventory,
 };
 pub use state::{
     ConsumedMaterialTrace, InventoryState, InventoryValidationError, MaterialLotId,

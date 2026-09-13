@@ -103,11 +103,19 @@ impl FoundryReport {
     }
 
     fn print_review(self) {
+        let pipeline = if self.molten_after_first.is_zero() {
+            "compare-heating-counterfactual->melt->cast"
+        } else if self.cooldown_ticks == 0 {
+            "compare-heating-counterfactual->melt->cast->retry"
+        } else {
+            "compare-heating-counterfactual->melt->cast->passive-cool->retry"
+        };
         reviewln!(
-            "FOUNDRY REVIEW seed=0x{:016X} sample={} role=capability-only outcome={} pipeline=compare-heating-counterfactual->melt->cast->passive-cool->retry feed-form={} offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg heating=[runtime-route:{} same-source-preheat:counterfactual-only direct:{}mg/{}t preheated:{}mg/{}t] preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] electrical=[melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            "FOUNDRY REVIEW seed=0x{:016X} sample={} role=capability-only outcome={} pipeline={} feed-form={} offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg heating=[runtime-route:{} same-source-preheat:counterfactual-only direct:{}mg/{}t preheated:{}mg/{}t] preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] electrical=[melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
             self.seed,
             self.sample,
             self.outcome,
+            pipeline,
             self.feed_form.value(),
             self.offered.milligrams(),
             self.melted.milligrams(),

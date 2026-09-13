@@ -390,13 +390,7 @@ fn execute_optional_preheat(
     .unwrap_or_else(|error| panic!("foundry sensible-preheat start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("foundry sensible-preheat commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        state,
-        job,
-        duration,
-        "foundry sensible preheat",
-    );
+    finish_uninterrupted_production_job(registries, state, job, "foundry sensible preheat");
     PreheatResult {
         source: ids.preheated_source,
         energy,
@@ -531,13 +525,7 @@ fn execute_recovery_cast(
     .unwrap_or_else(|error| panic!("foundry recovery casting start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("foundry recovery casting commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        state,
-        job,
-        duration,
-        "foundry recovery casting",
-    );
+    finish_uninterrupted_production_job(registries, state, job, "foundry recovery casting");
     let remaining_mass = offered
         .checked_sub(cast_mass)
         .unwrap_or_else(|| unreachable!("recovery cast cannot exceed its offered molten mass"));
@@ -707,8 +695,8 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         ids,
         cycle.final_thermal,
         |candidate_state| {
-            !recovery_target.is_zero()
-                && resolve_largest_feasible_cast(registries, candidate_state, ids, recovery_target)
+            recovery_target.is_zero()
+                || resolve_largest_feasible_cast(registries, candidate_state, ids, recovery_target)
                     .is_some_and(|(_, feasible_mass, _)| feasible_mass == recovery_target)
         },
     );

@@ -106,7 +106,7 @@ impl NutritionReserves {
     }
 
     #[cfg(test)]
-    pub(crate) const fn from_parts_per_million(grain: u32, fruit: u32, protein: u32) -> Self {
+    pub(super) const fn from_parts_per_million(grain: u32, fruit: u32, protein: u32) -> Self {
         Self {
             grain,
             fruit,

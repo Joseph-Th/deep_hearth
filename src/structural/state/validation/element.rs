@@ -116,7 +116,7 @@ fn validate_element_embodied_trace(
         return Err(StructureValidationError::ZeroEmbodiedTrace { element: record.id });
     }
     validate_embodied_trace_material_state(materials, record.id, trace)?;
-    validate_embodied_trace_identity(materials, record, trace)?;
+    validate_embodied_trace_identity(record, trace)?;
     validate_embodied_trace_provenance(record.id, trace, current_tick)
 }
 
@@ -154,7 +154,6 @@ fn validate_embodied_trace_material_state(
 }
 
 fn validate_embodied_trace_identity(
-    materials: &MaterialRegistry,
     record: &StructuralElementRecord,
     trace: &ConsumedMaterialTrace,
 ) -> Result<(), StructureValidationError> {
@@ -171,16 +170,6 @@ fn validate_embodied_trace_identity(
             element: record.id,
             material: record.material(),
         });
-    }
-    for component in trace.profile().composition().components() {
-        if materials.get_material(component.material()).is_none() {
-            return Err(
-                StructureValidationError::UnknownEmbodiedCompositionMaterial {
-                    element: record.id,
-                    material: component.material(),
-                },
-            );
-        }
     }
     Ok(())
 }

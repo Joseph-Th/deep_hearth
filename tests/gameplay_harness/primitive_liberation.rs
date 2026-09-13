@@ -249,16 +249,10 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     .unwrap_or_else(|error| panic!("primitive sizing-plate craft failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("primitive sizing-plate craft commit failed: {error}"));
-    let plate_duration = state
-        .production()
-        .get_job(plate_job)
-        .map(|job| job.active_duration())
-        .unwrap_or_else(|| panic!("primitive sizing-plate craft disappeared after start"));
     finish_uninterrupted_production_job(
         registries,
         &mut state,
         plate_job,
-        plate_duration,
         "primitive copper sizing plate",
     );
     let authored_scrap = plate_craft
@@ -332,7 +326,6 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         registries,
         &mut state,
         crush_job,
-        crush.process_resolution().duration(),
         "primitive liberation crushing",
     );
 
@@ -363,7 +356,6 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         registries,
         &mut state,
         grind_job,
-        grind.process_resolution().duration(),
         "primitive rotary-quern grinding",
     );
 
@@ -397,7 +389,6 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         registries,
         &mut state,
         screen_job,
-        screened.process_resolution().duration(),
         "primitive copper sizing screen",
     );
 
@@ -434,7 +425,6 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         registries,
         &mut state,
         regrind_job,
-        regrind.process_resolution().duration(),
         "primitive rotary-quern regrinding",
     );
 
@@ -476,7 +466,6 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         registries,
         &mut state,
         separation_job,
-        separated.process_resolution().duration(),
         "primitive concentration",
     );
 

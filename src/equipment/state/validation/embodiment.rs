@@ -4,11 +4,8 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
-use crate::inventory::ConsumedMaterialTrace;
-use crate::material::{
-    CommodityKey, MaterialAssemblyProfile, MaterialRegistry, validate_material_particle_size_state,
-    validate_material_phase_state,
-};
+use crate::inventory::{ConsumedMaterialTrace, PureMaterialTraceValidationError};
+use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialRegistry};
 
 use super::super::super::definitions::{
     EquipmentDefinition, EquipmentDefinitionId, EquipmentRegistry,
@@ -207,63 +204,54 @@ fn validate_embodied_trace(
     trace: &ConsumedMaterialTrace,
     current_tick: SimulationTick,
 ) -> Result<CommodityKey, EquipmentValidationError> {
-    if trace.mass().is_zero() {
-        return Err(EquipmentValidationError::ZeroEmbodiedTrace {
-            equipment: record.id,
-        });
-    }
-    let commodity = trace.profile().commodity();
-    if !materials.has_commodity(commodity) {
-        return Err(EquipmentValidationError::UnknownEmbodiedCommodity {
-            equipment: record.id,
-            commodity,
-        });
-    }
-    if trace.profile().composition().pure_material() != Some(commodity.material()) {
-        return Err(EquipmentValidationError::ImpureEmbodiedMaterial {
-            equipment: record.id,
-            commodity,
-        });
-    }
-    validate_material_phase_state(
-        materials,
-        commodity,
-        trace.profile().composition(),
-        trace.profile().temperature(),
-    )
-    .map_err(
-        |error| EquipmentValidationError::InvalidEmbodiedPhaseState {
-            equipment: record.id,
-            error,
-        },
-    )?;
-    validate_material_particle_size_state(
-        materials,
-        commodity,
-        trace.profile().particle_size_distribution(),
-    )
-    .map_err(
-        |error| EquipmentValidationError::InvalidEmbodiedParticleSizeState {
-            equipment: record.id,
-            error,
-        },
-    )?;
-    let provenance = trace.provenance();
-    if provenance.latest_created_at() > current_tick {
-        return Err(EquipmentValidationError::EmbodiedProvenanceInFuture {
-            equipment: record.id,
-            latest_created_at: provenance.latest_created_at(),
-            current: current_tick,
-        });
-    }
-    Ok(commodity)
+    trace
+        .validate_pure_material_state(materials, current_tick)
+        .map_err(|error| match error {
+            PureMaterialTraceValidationError::ZeroMass => {
+                EquipmentValidationError::ZeroEmbodiedTrace {
+                    equipment: record.id,
+                }
+            }
+            PureMaterialTraceValidationError::UnknownCommodity { commodity } => {
+                EquipmentValidationError::UnknownEmbodiedCommodity {
+                    equipment: record.id,
+                    commodity,
+                }
+            }
+            PureMaterialTraceValidationError::ImpureMaterial { commodity } => {
+                EquipmentValidationError::ImpureEmbodiedMaterial {
+                    equipment: record.id,
+                    commodity,
+                }
+            }
+            PureMaterialTraceValidationError::InvalidPhaseState(error) => {
+                EquipmentValidationError::InvalidEmbodiedPhaseState {
+                    equipment: record.id,
+                    error,
+                }
+            }
+            PureMaterialTraceValidationError::InvalidParticleSizeState(error) => {
+                EquipmentValidationError::InvalidEmbodiedParticleSizeState {
+                    equipment: record.id,
+                    error,
+                }
+            }
+            PureMaterialTraceValidationError::ProvenanceInFuture {
+                latest_created_at,
+                current,
+            } => EquipmentValidationError::EmbodiedProvenanceInFuture {
+                equipment: record.id,
+                latest_created_at,
+                current,
+            },
+        })
 }
 
 fn validate_embodied_totals(
     record: &EquipmentRecord,
     assembly: &MaterialAssemblyProfile,
     traced_mass: Mass,
-    mut stored_by_commodity: BTreeMap<CommodityKey, Mass>,
+    stored_by_commodity: BTreeMap<CommodityKey, Mass>,
 ) -> Result<(), EquipmentValidationError> {
     if traced_mass != record.embodied_mass {
         return Err(EquipmentValidationError::EmbodiedTraceMassMismatch {
@@ -272,25 +260,13 @@ fn validate_embodied_totals(
             traced: traced_mass,
         });
     }
-    for input in assembly.inputs() {
-        let stored = stored_by_commodity
-            .remove(&input.commodity())
-            .unwrap_or(Mass::ZERO);
-        if stored != input.mass() {
-            return Err(EquipmentValidationError::AssemblyMaterialMismatch {
-                equipment: record.id,
-                commodity: input.commodity(),
-                stored,
-                authored: input.mass(),
-            });
-        }
-    }
-    if let Some((commodity, stored)) = stored_by_commodity.into_iter().next() {
+    if let Some((commodity, stored, authored)) = assembly.first_mass_mismatch(&stored_by_commodity)
+    {
         return Err(EquipmentValidationError::AssemblyMaterialMismatch {
             equipment: record.id,
             commodity,
             stored,
-            authored: Mass::ZERO,
+            authored,
         });
     }
     Ok(())

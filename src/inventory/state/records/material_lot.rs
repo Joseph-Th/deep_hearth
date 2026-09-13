@@ -5,7 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{
-    CommodityKey, MaterialComposition, ParticleSizeDistribution, ParticleSizeRange,
+    CommodityKey, MaterialComposition, MaterialPhaseStateError, MaterialRegistry,
+    ParticleSizeDistribution, ParticleSizeRange, ParticleSizeStateError,
+    validate_material_particle_size_state, validate_material_phase_state,
 };
 
 use super::super::storage_history::MaterialStorageHistory;
@@ -23,6 +25,24 @@ pub struct ConsumedMaterialTrace {
     pub(in crate::inventory) provenance: MaterialLotProvenance,
 }
 
+/// Invalid physical state for a consumed trace expected to represent pure authored matter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PureMaterialTraceValidationError {
+    ZeroMass,
+    UnknownCommodity {
+        commodity: CommodityKey,
+    },
+    ImpureMaterial {
+        commodity: CommodityKey,
+    },
+    InvalidPhaseState(MaterialPhaseStateError),
+    InvalidParticleSizeState(ParticleSizeStateError),
+    ProvenanceInFuture {
+        latest_created_at: SimulationTick,
+        current: SimulationTick,
+    },
+}
+
 impl ConsumedMaterialTrace {
     #[must_use]
     pub const fn mass(&self) -> Mass {
@@ -37,6 +57,49 @@ impl ConsumedMaterialTrace {
     #[must_use]
     pub const fn provenance(&self) -> MaterialLotProvenance {
         self.provenance
+    }
+
+    /// Validates common persisted-state invariants for exact pure-material embodiment traces.
+    ///
+    /// Equipment, energy stores, and storage enclosures all embody authored pure-material assembly
+    /// inputs. Construction-history rules remain with those owners, while this value owns the
+    /// repeated physical validity checks for the trace itself.
+    pub(crate) fn validate_pure_material_state(
+        &self,
+        materials: &MaterialRegistry,
+        current: SimulationTick,
+    ) -> Result<CommodityKey, PureMaterialTraceValidationError> {
+        if self.mass.is_zero() {
+            return Err(PureMaterialTraceValidationError::ZeroMass);
+        }
+        let commodity = self.profile.commodity();
+        if !materials.has_commodity(commodity) {
+            return Err(PureMaterialTraceValidationError::UnknownCommodity { commodity });
+        }
+        if self.profile.composition().pure_material() != Some(commodity.material()) {
+            return Err(PureMaterialTraceValidationError::ImpureMaterial { commodity });
+        }
+        validate_material_phase_state(
+            materials,
+            commodity,
+            self.profile.composition(),
+            self.profile.temperature(),
+        )
+        .map_err(PureMaterialTraceValidationError::InvalidPhaseState)?;
+        validate_material_particle_size_state(
+            materials,
+            commodity,
+            self.profile.particle_size_distribution(),
+        )
+        .map_err(PureMaterialTraceValidationError::InvalidParticleSizeState)?;
+        let latest_created_at = self.provenance.latest_created_at();
+        if latest_created_at > current {
+            return Err(PureMaterialTraceValidationError::ProvenanceInFuture {
+                latest_created_at,
+                current,
+            });
+        }
+        Ok(commodity)
     }
 }
 

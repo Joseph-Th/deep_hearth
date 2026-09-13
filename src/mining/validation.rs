@@ -235,7 +235,7 @@ fn validate_mining_job_physics(
     references: &MiningJobReferences<'_>,
 ) -> Result<(), MiningJobValidationError> {
     let physics = resolve_mining_physics(
-        registries,
+        registries.core().physical_tick_duration(),
         references.method,
         references.equipment_definition,
         job.equipment_condition_before(),

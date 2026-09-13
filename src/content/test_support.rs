@@ -125,11 +125,18 @@ pub(super) fn empty_thermal_registry() -> ThermalRegistry {
 }
 
 pub(super) fn empty_texture_registry() -> TextureRegistry {
-    TextureRegistry::empty()
+    TextureRegistry::new(
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    )
 }
 
 pub(super) fn empty_shader_registry() -> ShaderRegistry {
-    ShaderRegistry::empty()
+    ShaderRegistry::new(std::iter::empty())
 }
 
 fn build_capability_registry(
