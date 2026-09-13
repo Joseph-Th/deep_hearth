@@ -510,13 +510,13 @@ mod exploratory_output {
                     .get_form(commodity.form())
                     .unwrap_or_else(|| unreachable!("validated food commodity has a form"));
                 format!(
-                    "{}:{}/{}:{:?}:energy={}nJ/mg:hydration={}uL/mg:shelf={}t",
+                    "{}:{}/{}:{:?}:energy={}nJ/mg:hydration={}ppm:shelf={}t",
                     commodity.value(),
                     material.name(),
                     form.name(),
                     food.category(),
                     food.dietary_energy().nanojoules_per_milligram(),
-                    food.hydration_microliters_per_milligram(),
+                    food.hydration_multiplier_ppm(),
                     food.shelf_life().value(),
                 )
             })

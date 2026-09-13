@@ -78,7 +78,6 @@ impl FieldProspectingOutcome {
 pub(crate) enum FieldProspectingTickError {
     ObservationId,
     KnowledgeRevision,
-    EquipmentRevision,
 }
 
 pub(crate) struct FieldProspectingTickPlan {
@@ -137,13 +136,6 @@ pub(crate) fn decide_field_prospecting_tick(
     };
     if work.completes_at() != next_tick {
         return Ok(None);
-    }
-    if work.equipment().is_some() {
-        state
-            .equipment()
-            .revision()
-            .checked_add(1)
-            .ok_or(FieldProspectingTickError::EquipmentRevision)?;
     }
     let method = registries
         .labor()
@@ -224,7 +216,7 @@ pub(crate) fn apply_field_prospecting_tick(
         let equipment_revision = state.equipment().revision();
         let next_equipment_revision = equipment_revision
             .checked_add(1)
-            .unwrap_or_else(|| panic!("prevalidated prospecting equipment revision exhausted"));
+            .unwrap_or_else(|| panic!("prebudgeted prospecting equipment revision exhausted"));
         let record = state
             .equipment()
             .get_equipment(trace.equipment())

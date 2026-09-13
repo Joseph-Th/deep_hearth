@@ -23,9 +23,6 @@ pub enum MiningStartError {
     },
     TargetNoLongerResolved,
     ZeroMass,
-    InsufficientTargetMass {
-        requested: Mass,
-    },
     Equipment(EquipmentProviderError),
     EquipmentMounted {
         equipment: EquipmentId,
@@ -95,11 +92,6 @@ impl Display for MiningStartError {
                 "resolved mining target is no longer uniquely supported by current local evidence and geology",
             ),
             Self::ZeroMass => formatter.write_str("mining request mass must be nonzero"),
-            Self::InsufficientTargetMass { requested } => write!(
-                formatter,
-                "resolved mining target cannot supply the requested {} mg",
-                requested.milligrams()
-            ),
             Self::Equipment(error) => write!(formatter, "mining equipment failed: {error}"),
             Self::EquipmentMounted { equipment } => write!(
                 formatter,
@@ -223,7 +215,6 @@ impl Error for MiningStartError {
             Self::UnknownMethod { .. }
             | Self::TargetNoLongerResolved
             | Self::ZeroMass
-            | Self::InsufficientTargetMass { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }

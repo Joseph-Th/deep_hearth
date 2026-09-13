@@ -287,7 +287,10 @@ work. Organic worlds vary between shallow and deep finite opportunities independ
 limit. A machine that performs useful canonical work but reaches known target exhaustion before setup payback is
 a valid gameplay outcome, not a harness failure. The actor may discover that an investment was premature because
 the available evidence does not expose hidden total deposit mass; hidden reserve truth must not become policy
-input merely to make the investment look optimal in hindsight. The mature reinvestment counterfactual is
+input merely to make the investment look optimal in hindsight. Mining validation therefore must not reject an
+otherwise feasible request merely because hidden remaining reserve is smaller. The actor learns shortage only
+after committing the requested extraction effort and observing a smaller canonical claim, or after later
+evidence can no longer resolve an extractable target. The mature reinvestment counterfactual is
 resolved only from the post-delegation, post-service state the actor actually reaches. Maintained deep worlds must
 still execute that branch, while an organic branch that has canonically exhausted its known target reports
 `known-target-supply` rather than receiving fixture ore or advertising an opportunity that later experience has

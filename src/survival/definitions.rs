@@ -10,7 +10,10 @@ use crate::material::{CommodityKey, MaterialId, MaterialRegistry};
 
 mod intake;
 
-pub use intake::{ConsumptionTemperatureRange, DrinkDefinition, FoodCategory, FoodDefinition};
+pub use intake::{
+    ConsumptionTemperatureRange, DrinkDefinition, FoodCategory, FoodDefinition,
+    calculate_food_hydration_offer,
+};
 
 /// Authored rate at which recent dietary balance fades and can support vitality recovery.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

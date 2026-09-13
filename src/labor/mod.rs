@@ -35,9 +35,7 @@ pub(crate) use lifecycle::{
     decide_manual_production_player_work_start, decide_player_work_tick, player_work_exertion,
     validate_player_work_start,
 };
-pub(crate) use power_execution::{
-    ManualPowerTickError, apply_manual_power_tick, decide_manual_power_tick,
-};
+pub(crate) use power_execution::{apply_manual_power_tick, decide_manual_power_tick};
 pub(crate) use power_physics::resolve_manual_power_schedule;
 pub(crate) use validation::validate_loaded_player_work;
 pub(crate) use work_resources::{

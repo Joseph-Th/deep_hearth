@@ -178,11 +178,13 @@ pub(super) fn evaluate_mature_reinvestment(
         reinforced_pick_mining_batch_limit(registries),
     ) {
         Ok(_) => {}
-        Err(
-            MiningStartError::TargetNoLongerResolved
-            | MiningStartError::InsufficientTargetMass { .. },
-        ) => return PrimitiveReinvestmentOutcome::TargetSupplyLimited,
-        Err(error) => panic!("primitive mature reinvestment mining failed: {error}"),
+        Err(AutonomousWorkStop::TargetSupply) => {
+            return PrimitiveReinvestmentOutcome::TargetSupplyLimited;
+        }
+        Err(stop) => panic!(
+            "primitive mature reinvestment mining stopped unexpectedly: {}",
+            stop.label()
+        ),
     }
 
     let primary_energy = calculate_mass_specific_energy(

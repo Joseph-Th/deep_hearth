@@ -9,13 +9,6 @@ use crate::geology::GeologicalDepositId;
 use super::super::MiningJobId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MiningTickError {
-    Geology,
-    Mining,
-    Equipment,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct GeologicalExtraction {
     deposit: GeologicalDepositId,
     remaining_after: Mass,
@@ -24,15 +17,21 @@ struct GeologicalExtraction {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MiningTickPlan {
     expected_revision: u64,
-    next_revision: u64,
     expected_geology_revision: u64,
-    next_geology_revision: u64,
     completion_tick: SimulationTick,
     extraction: GeologicalExtraction,
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
 }
 
 impl MiningTickPlan {
+    pub(crate) const fn mining_revision_steps(&self) -> u64 {
+        1
+    }
+
+    pub(crate) const fn geology_revision_steps(&self) -> u64 {
+        1
+    }
+
     pub(crate) fn equipment_revision_steps(&self) -> u64 {
         u64::from(!self.equipment_outcomes.is_empty())
     }
@@ -41,23 +40,15 @@ impl MiningTickPlan {
 pub(crate) fn decide_mining_tick(
     state: &AppState,
     next_tick: SimulationTick,
-) -> Result<Option<MiningTickPlan>, MiningTickError> {
-    let Some(due_jobs) = state.mining().jobs_due_at(next_tick) else {
-        return Ok(None);
-    };
+) -> Option<MiningTickPlan> {
+    let due_jobs = state.mining().jobs_due_at(next_tick)?;
     assert_eq!(
         due_jobs.len(),
         1,
         "runtime invariant broken: exclusive player labor permits only one due mining job"
     );
     let expected_revision = state.mining().revision();
-    let next_revision = expected_revision
-        .checked_add(1)
-        .ok_or(MiningTickError::Mining)?;
     let expected_geology_revision = state.geology().revision();
-    let next_geology_revision = expected_geology_revision
-        .checked_add(1)
-        .ok_or(MiningTickError::Geology)?;
     let mut equipment_outcomes = Vec::with_capacity(1);
     let mut extraction = None;
     for &job in due_jobs {
@@ -101,24 +92,15 @@ pub(crate) fn decide_mining_tick(
             ));
         }
     }
-    if !equipment_outcomes.is_empty() {
-        state
-            .equipment()
-            .revision()
-            .checked_add(1)
-            .ok_or(MiningTickError::Equipment)?;
-    }
-    Ok(Some(MiningTickPlan {
+    Some(MiningTickPlan {
         expected_revision,
-        next_revision,
         expected_geology_revision,
-        next_geology_revision,
         completion_tick: next_tick,
         extraction: extraction.unwrap_or_else(|| {
             panic!("runtime invariant broken: due mining job produced no extraction")
         }),
         equipment_outcomes,
-    }))
+    })
 }
 
 pub(crate) fn apply_mining_tick(
@@ -129,9 +111,17 @@ pub(crate) fn apply_mining_tick(
         return Vec::new();
     };
     assert_eq!(state.geology().revision(), plan.expected_geology_revision);
+    let next_mining_revision = plan
+        .expected_revision
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("prebudgeted mining revision exhausted"));
+    let next_geology_revision = plan
+        .expected_geology_revision
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("prebudgeted geology revision exhausted"));
     state.mining().assert_due_jobs_ready_available(
         plan.expected_revision,
-        plan.next_revision,
+        next_mining_revision,
         plan.completion_tick,
     );
     let equipment_revision = if plan.equipment_outcomes.is_empty() {
@@ -153,7 +143,7 @@ pub(crate) fn apply_mining_tick(
     state.geology_state_mut().apply_extraction(
         plan.extraction.deposit,
         plan.extraction.remaining_after,
-        plan.next_geology_revision,
+        next_geology_revision,
     );
     if let Some((expected_equipment_revision, next_equipment_revision)) = equipment_revision {
         state
@@ -166,7 +156,7 @@ pub(crate) fn apply_mining_tick(
     }
     state.mining_state_mut().mark_due_jobs_ready(
         plan.expected_revision,
-        plan.next_revision,
+        next_mining_revision,
         plan.completion_tick,
     )
 }

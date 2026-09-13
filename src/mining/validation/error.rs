@@ -47,6 +47,15 @@ pub enum MiningJobValidationError {
     OutputProfileMismatch {
         job: MiningJobId,
     },
+    ZeroRequestedMass {
+        job: MiningJobId,
+    },
+    OutputMassMismatch {
+        job: MiningJobId,
+        requested: Mass,
+        available: Mass,
+        output: Mass,
+    },
     OutputExceedsDepositTrace {
         job: MiningJobId,
         traced: Mass,
@@ -182,6 +191,24 @@ impl Display for MiningJobValidationError {
                 formatter,
                 "mining job {} output no longer matches its geological deposit",
                 job.value()
+            ),
+            Self::ZeroRequestedMass { job } => write!(
+                formatter,
+                "mining job {} has zero requested extraction mass",
+                job.value()
+            ),
+            Self::OutputMassMismatch {
+                job,
+                requested,
+                available,
+                output,
+            } => write!(
+                formatter,
+                "mining job {} output {} mg does not match the recoverable slice for requested {} mg against {} mg available",
+                job.value(),
+                output.milligrams(),
+                requested.milligrams(),
+                available.milligrams()
             ),
             Self::OutputExceedsDepositTrace {
                 job,
@@ -337,6 +364,8 @@ impl Error for MiningJobValidationError {
             | Self::WorkingEquipmentMounted { .. }
             | Self::EquipmentConditionMismatch { .. }
             | Self::OutputProfileMismatch { .. }
+            | Self::ZeroRequestedMass { .. }
+            | Self::OutputMassMismatch { .. }
             | Self::OutputExceedsDepositTrace { .. }
             | Self::WorkingDepositMassMismatch { .. }
             | Self::ReadyDepositMassAbovePostExtraction { .. }

@@ -8,12 +8,6 @@ use crate::energy::{EnergyStoreRecord, apply_released_energy_outcomes};
 use super::super::{ManualPowerWork, PlayerWork};
 use super::ManualPowerOutcome;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ManualPowerTickError {
-    EnergyRevisionExhausted,
-    EquipmentRevisionExhausted,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ManualPowerTickPlan {
     work: ManualPowerWork,
@@ -33,32 +27,22 @@ impl ManualPowerTickPlan {
 pub(crate) fn decide_manual_power_tick(
     state: &AppState,
     next_tick: SimulationTick,
-) -> Result<Option<ManualPowerTickPlan>, ManualPowerTickError> {
+) -> Option<ManualPowerTickPlan> {
     let Some(PlayerWork::ManualPower { work }) = state.player_work().active() else {
-        return Ok(None);
+        return None;
     };
     if work.completes_at() != next_tick {
-        return Ok(None);
+        return None;
     }
-    state
-        .energy()
-        .revision()
-        .checked_add(1)
-        .ok_or(ManualPowerTickError::EnergyRevisionExhausted)?;
-    state
-        .equipment()
-        .revision()
-        .checked_add(1)
-        .ok_or(ManualPowerTickError::EquipmentRevisionExhausted)?;
     let stored_before = state
         .energy()
         .get_store(work.destination())
         .unwrap_or_else(|| panic!("runtime invariant broken: manual power destination disappeared"))
         .stored();
-    Ok(Some(ManualPowerTickPlan {
+    Some(ManualPowerTickPlan {
         work,
         stored_before,
-    }))
+    })
 }
 
 pub(crate) fn apply_manual_power_tick(
@@ -88,11 +72,11 @@ pub(crate) fn apply_manual_power_tick(
     let energy_revision = state.energy().revision();
     let next_energy_revision = energy_revision
         .checked_add(1)
-        .unwrap_or_else(|| panic!("prevalidated manual power energy revision exhausted"));
+        .unwrap_or_else(|| panic!("prebudgeted manual power energy revision exhausted"));
     let equipment_revision = state.equipment().revision();
     let next_equipment_revision = equipment_revision
         .checked_add(1)
-        .unwrap_or_else(|| panic!("prevalidated manual power equipment revision exhausted"));
+        .unwrap_or_else(|| panic!("prebudgeted manual power equipment revision exhausted"));
     state.equipment().assert_condition_change_available(
         work.equipment(),
         work.equipment_trace().condition(),

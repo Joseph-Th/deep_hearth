@@ -2,8 +2,6 @@
 
 use crate::geology::FieldProspectingTickError;
 use crate::inventory::StorageEnclosureDismantlingTickError;
-use crate::labor::ManualPowerTickError;
-use crate::mining::MiningTickError;
 use crate::production::{CompletionCommitError, CompletionPlanError};
 use crate::survival::SurvivalTickError;
 
@@ -82,30 +80,6 @@ impl From<FieldProspectingTickError> for TickError {
             FieldProspectingTickError::KnowledgeRevision => {
                 Self::GeologicalKnowledgeRevisionExhausted
             }
-            FieldProspectingTickError::EquipmentRevision => Self::EquipmentRevisionExhausted,
-        }
-    }
-}
-
-impl From<ManualPowerTickError> for TickError {
-    fn from(error: ManualPowerTickError) -> Self {
-        match error {
-            ManualPowerTickError::EnergyRevisionExhausted => {
-                Self::ManualPowerEnergyRevisionExhausted
-            }
-            ManualPowerTickError::EquipmentRevisionExhausted => {
-                Self::ManualPowerEquipmentRevisionExhausted
-            }
-        }
-    }
-}
-
-impl From<MiningTickError> for TickError {
-    fn from(error: MiningTickError) -> Self {
-        match error {
-            MiningTickError::Geology => Self::GeologyRevisionExhausted,
-            MiningTickError::Mining => Self::MiningRevisionExhausted,
-            MiningTickError::Equipment => Self::EquipmentRevisionExhausted,
         }
     }
 }

@@ -148,6 +148,22 @@ fn validate_mining_source_ownership(
     job: &MiningJobRecord,
     references: &MiningJobReferences<'_>,
 ) -> Result<(), MiningJobValidationError> {
+    if job.requested_mass().is_zero() {
+        return Err(MiningJobValidationError::ZeroRequestedMass { job: job.id() });
+    }
+    let expected_output = Mass::from_milligrams(
+        job.requested_mass()
+            .milligrams()
+            .min(job.deposit_mass_before().milligrams()),
+    );
+    if job.output().mass() != expected_output {
+        return Err(MiningJobValidationError::OutputMassMismatch {
+            job: job.id(),
+            requested: job.requested_mass(),
+            available: job.deposit_mass_before(),
+            output: job.output().mass(),
+        });
+    }
     let remaining_after = job
         .deposit_mass_before()
         .checked_sub(job.output().mass())
@@ -240,7 +256,7 @@ fn validate_mining_job_physics(
         references.equipment_definition,
         job.equipment_condition_before(),
         references.excavation_hardness,
-        job.output().mass(),
+        job.requested_mass(),
     )
     .map_err(|error| map_physics_error(job.id(), error))?;
     let stored_duration = TickSpan::new(

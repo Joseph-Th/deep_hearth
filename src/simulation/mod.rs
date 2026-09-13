@@ -180,8 +180,22 @@ pub fn advance_tick(
     )?;
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);
     let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)?;
-    let manual_power_plan = decide_manual_power_tick(state, next_tick)?;
-    let mining_plan = decide_mining_tick(state, next_tick)?;
+    let manual_power_plan = decide_manual_power_tick(state, next_tick);
+    let mining_plan = decide_mining_tick(state, next_tick);
+    require_revision_capacity(
+        state.mining().revision(),
+        [mining_plan
+            .as_ref()
+            .map_or(0, |plan| plan.mining_revision_steps())],
+        TickError::MiningRevisionExhausted,
+    )?;
+    require_revision_capacity(
+        state.geology().revision(),
+        [mining_plan
+            .as_ref()
+            .map_or(0, |plan| plan.geology_revision_steps())],
+        TickError::GeologyRevisionExhausted,
+    )?;
     require_revision_capacity(
         state.equipment().revision(),
         [

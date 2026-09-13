@@ -47,7 +47,6 @@ struct MiningDestinationPlan {
 fn validate_mining_target(
     state: &AppState,
     target: MiningTargetResolution,
-    mass: Mass,
 ) -> Result<MiningTargetPlan, MiningStartError> {
     if !target.still_resolves(state) {
         return Err(MiningStartError::TargetNoLongerResolved);
@@ -57,9 +56,6 @@ fn validate_mining_target(
         .geology()
         .get_deposit(deposit)
         .unwrap_or_else(|| panic!("re-resolved mining target deposit disappeared"));
-    if mass > record.remaining_mass() {
-        return Err(MiningStartError::InsufficientTargetMass { requested: mass });
-    }
     Ok(MiningTargetPlan {
         deposit,
         excavation_hardness: record.excavation_hardness(),
@@ -163,7 +159,8 @@ fn validate_mining_destination(
     state: &AppState,
     destination: StockpileId,
     output: &MaterialLotSpec,
-    mass: Mass,
+    requested_mass: Mass,
+    output_mass: Mass,
 ) -> Result<MiningDestinationPlan, MiningStartError> {
     let destination_record = state.inventory().get_stockpile(destination).ok_or(
         MiningStartError::UnknownDestination {
@@ -192,8 +189,15 @@ fn validate_mining_destination(
     let expected_structure_revision =
         validate_stockpile_support_for_new_inbound(state, destination)
             .map_err(MiningStartError::DestinationSupport)?;
-    let reservation = validate_inbound_reservation(state.inventory(), destination, mass)
-        .map_err(map_inbound_reservation_error)?;
+    let requested_reservation =
+        validate_inbound_reservation(state.inventory(), destination, requested_mass)
+            .map_err(map_inbound_reservation_error)?;
+    let reservation = if requested_mass == output_mass {
+        requested_reservation
+    } else {
+        validate_inbound_reservation(state.inventory(), destination, output_mass)
+            .map_err(map_inbound_reservation_error)?
+    };
     Ok(MiningDestinationPlan {
         reservation,
         expected_structure_revision,
@@ -338,7 +342,7 @@ pub fn validate_start_mining(
         .mining()
         .get_method(method)
         .ok_or(MiningStartError::UnknownMethod { method })?;
-    let target_plan = validate_mining_target(state, target, mass)?;
+    let target_plan = validate_mining_target(state, target)?;
     let equipment_plan = resolve_mining_equipment_plan(
         registries,
         state,
@@ -351,9 +355,13 @@ pub fn validate_start_mining(
         .tick()
         .checked_add_span(equipment_plan.duration)
         .ok_or(MiningStartError::CompletionTickOverflow)?;
-    let output = resolve_mining_output(state, target_plan, mass)?;
+    let output_mass = Mass::from_milligrams(
+        mass.milligrams()
+            .min(target_plan.deposit_mass_before.milligrams()),
+    );
+    let output = resolve_mining_output(state, target_plan, output_mass)?;
     let destination_plan =
-        validate_mining_destination(registries, state, destination, &output, mass)?;
+        validate_mining_destination(registries, state, destination, &output, mass, output_mass)?;
 
     let expected_equipment_revision = state.equipment().revision();
     let expected_mining_revision = state.mining().revision();
@@ -397,6 +405,7 @@ pub fn validate_start_mining(
                 destination,
                 equipment_trace: equipment_plan.trace,
                 deposit_mass_before: target_plan.deposit_mass_before,
+                requested_mass: mass,
                 output,
                 equipment_condition_after: equipment_plan.condition_after,
             },

@@ -336,8 +336,9 @@ fn built_in_protein_options_trade_immediate_density_for_storage_resilience() {
     assert_eq!(meat.category(), FoodCategory::Protein);
     assert_eq!(legumes.category(), FoodCategory::Protein);
     assert!(meat.dietary_energy() > legumes.dietary_energy());
-    assert!(meat.hydration_microliters_per_milligram() > 0);
-    assert_eq!(legumes.hydration_microliters_per_milligram(), 0);
+    assert!(meat.hydration_multiplier_ppm() > 0);
+    assert!(meat.hydration_multiplier_ppm() < 1_000_000);
+    assert_eq!(legumes.hydration_multiplier_ppm(), 0);
     assert!(legumes.shelf_life() > meat.shelf_life());
 }
 

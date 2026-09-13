@@ -172,7 +172,7 @@ fn drink_hydration_multiplier_cannot_create_hydration_volume() {
 }
 
 #[test]
-fn food_hydration_cannot_exceed_consumed_mass_water_equivalent() {
+fn food_hydration_supports_fractional_water_equivalent_without_exceeding_consumed_mass() {
     let commodity = CommodityKey::new(MaterialId::new(1), FormId::new(1));
     let temperature = ConsumptionTemperatureRange::new(
         Temperature::from_millikelvin(273_150),
@@ -182,24 +182,58 @@ fn food_hydration_cannot_exceed_consumed_mass_water_equivalent() {
         commodity,
         FoodCategory::Fruit,
         MassSpecificEnergy::from_nanojoules_per_milligram(1),
-        1,
+        1_000_000,
         TickSpan::new(10),
         temperature,
     );
     assert_eq!(
-        maximally_hydrating_food.hydration_microliters_per_milligram(),
-        1
+        maximally_hydrating_food.hydration_multiplier_ppm(),
+        1_000_000
+    );
+    let fractional = FoodDefinition::new(
+        commodity,
+        FoodCategory::Fruit,
+        MassSpecificEnergy::from_nanojoules_per_milligram(1),
+        625_000,
+        TickSpan::new(10),
+        temperature,
+    );
+    assert_eq!(
+        calculate_food_hydration_offer([(fractional, Mass::from_milligrams(8))]),
+        Some(Volume::from_microliters(5))
     );
     assert!(
         std::panic::catch_unwind(|| FoodDefinition::new(
             commodity,
             FoodCategory::Fruit,
             MassSpecificEnergy::from_nanojoules_per_milligram(1),
-            2,
+            1_000_001,
             TickSpan::new(10),
             temperature,
         ))
         .is_err()
+    );
+}
+
+#[test]
+fn food_hydration_rounding_is_independent_of_inventory_lot_fragmentation() {
+    let food = FoodDefinition::new(
+        CommodityKey::new(MaterialId::new(1), FormId::new(1)),
+        FoodCategory::Fruit,
+        MassSpecificEnergy::from_nanojoules_per_milligram(1),
+        625_000,
+        TickSpan::new(10),
+        ConsumptionTemperatureRange::new(
+            Temperature::from_millikelvin(273_150),
+            Temperature::from_millikelvin(333_150),
+        ),
+    );
+    assert_eq!(
+        calculate_food_hydration_offer([(food, Mass::from_milligrams(8))]),
+        calculate_food_hydration_offer([
+            (food, Mass::from_milligrams(3)),
+            (food, Mass::from_milligrams(5)),
+        ])
     );
 }
 

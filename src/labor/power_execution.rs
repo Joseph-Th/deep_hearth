@@ -68,7 +68,7 @@ mod start;
 mod tick;
 
 pub use start::{ValidatedManualPowerStart, validate_start_manual_power};
-pub(crate) use tick::{ManualPowerTickError, apply_manual_power_tick, decide_manual_power_tick};
+pub(crate) use tick::{apply_manual_power_tick, decide_manual_power_tick};
 
 #[cfg(test)]
 #[path = "power_execution_tests.rs"]

@@ -580,7 +580,11 @@ class LocalCiPlanTests(unittest.TestCase):
                 if not stripped or stripped.startswith("///") or stripped.startswith("//!"):
                     index += 1
                     continue
-                if "test-gameplay" in " ".join(attributes) and stripped.startswith("pub "):
+                gameplay_gated = any(
+                    attribute.startswith("#[cfg(") and "test-gameplay" in attribute
+                    for attribute in attributes
+                )
+                if gameplay_gated and stripped.startswith("pub "):
                     exposed.add((path.relative_to(ROOT).as_posix(), stripped))
                 attributes.clear()
                 index += 1
@@ -698,7 +702,7 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_app_state_deserialization_is_owned_by_trusted_load(self) -> None:
         state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
         app_state = re.search(
-            r"#\[derive\(([^)]*)\)\]\s*pub struct AppState\s*\{",
+            r"((?:#\[[^\n]+\]\s*)*)pub struct AppState\s*\{",
             state_source,
         )
         self.assertIsNotNone(app_state)
@@ -711,6 +715,23 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertRegex(
             persistence_source,
             r'#\[serde\(deserialize_with = "crate::core::state::deserialize_unvalidated_app_state"\)\]\s*state: AppState,',
+        )
+
+    def test_app_state_public_surface_does_not_expose_world_seed(self) -> None:
+        state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+        self.assertIsNone(
+            re.search(r"\bpub\s+(?:const\s+)?fn\s+world_seed\s*\(", state_source)
+        )
+
+    def test_app_state_hidden_snapshot_traits_are_evaluation_only(self) -> None:
+        state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+        self.assertIn(
+            '#[cfg_attr(any(test, feature = "test-gameplay"), derive(Clone, PartialEq, Eq))]',
+            state_source,
+        )
+        self.assertNotRegex(
+            state_source,
+            r"#\[derive\([^)]*\b(?:Clone|PartialEq|Eq)\b[^)]*\)\]\s*pub struct AppState",
         )
 
     def test_gameplay_harness_cannot_read_authoritative_geology(self) -> None:

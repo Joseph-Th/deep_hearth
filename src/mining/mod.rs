@@ -13,7 +13,7 @@ pub use execution::{
     MiningStartError, ValidatedMiningClaim, ValidatedMiningStart, validate_claim_mining_output,
     validate_start_mining,
 };
-pub(crate) use execution::{MiningTickError, apply_mining_tick, decide_mining_tick};
+pub(crate) use execution::{apply_mining_tick, decide_mining_tick};
 pub(crate) use physics::resolve_mining_physics;
 pub use state::{MiningJobId, MiningJobRecord, MiningState, MiningValidationError};
 pub(crate) use state::{serialize_mining_state, validate_loaded_mining};

@@ -19,7 +19,7 @@ use super::rng::{RandomState, RngStreamId};
 use super::time::{SimulationTick, WorldSeed};
 
 /// Mutable runtime state that must survive execution and restart boundaries.
-#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(any(test, feature = "test-gameplay"), derive(Clone, PartialEq, Eq))]
 pub struct AppState {
     world_seed: WorldSeed,
     clock: ClockState,
@@ -62,7 +62,6 @@ impl Debug for AppState {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("AppState")
-            .field("world_seed", &self.world_seed)
             .field("tick", &self.clock.tick)
             .field(
                 "rng_algorithm",
@@ -156,12 +155,6 @@ impl AppState {
                 survival: SurvivalState::new(),
             },
         }
-    }
-
-    /// Returns the immutable world seed.
-    #[must_use]
-    pub const fn world_seed(&self) -> WorldSeed {
-        self.world_seed
     }
 
     /// Returns the current authoritative simulation tick.

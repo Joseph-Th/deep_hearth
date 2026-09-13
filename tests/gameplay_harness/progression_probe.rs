@@ -96,6 +96,20 @@ impl OreOpportunity {
     }
 }
 
+fn autonomous_target_resolution_stop(error: MiningTargetResolutionError) -> AutonomousWorkStop {
+    match error {
+        MiningTargetResolutionError::EvidenceInsufficientToResolveTarget { .. } => {
+            AutonomousWorkStop::TargetSupply
+        }
+        unexpected @ MiningTargetResolutionError::NoEvidence { .. }
+        | unexpected @ MiningTargetResolutionError::SpatiallyIncomparableEvidence { .. }
+        | unexpected @ MiningTargetResolutionError::ConflictingEvidence { .. }
+        | unexpected @ MiningTargetResolutionError::EvidenceRulesOutMaterial { .. } => panic!(
+            "primitive progression autonomous-window mining lost target evidence unexpectedly: {unexpected}"
+        ),
+    }
+}
+
 pub(super) fn ore_opportunity(seed: u64, maintained_payback_required: bool) -> OreOpportunity {
     if maintained_payback_required {
         return OreOpportunity {
@@ -199,8 +213,7 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
         MiningStartError::DestinationCapacityExceeded { .. } => {
             AutonomousWorkStop::FeedBufferCapacity
         }
-        MiningStartError::TargetNoLongerResolved
-        | MiningStartError::InsufficientTargetMass { .. } => AutonomousWorkStop::TargetSupply,
+        MiningStartError::TargetNoLongerResolved => AutonomousWorkStop::TargetSupply,
         MiningStartError::ConditionDuration(_) | MiningStartError::ZeroThroughput => {
             AutonomousWorkStop::ToolCondition
         }
@@ -230,6 +243,12 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
             "primitive progression autonomous-window mining hit unexpected blocker: {unexpected}"
         ),
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MiningAttemptOutcome {
+    ticks: u64,
+    output: Mass,
 }
 
 fn progression_clue_bounds(slot: usize) -> VoxelBounds {
@@ -733,6 +752,7 @@ fn mine_and_claim(
 ) -> u64 {
     try_mine_and_claim(registries, state, target, destination, equipment, mass)
         .unwrap_or_else(|error| panic!("primitive progression mining failed: {error}"))
+        .ticks
 }
 
 fn try_mine_and_claim(
@@ -742,8 +762,19 @@ fn try_mine_and_claim(
     destination: deep_hearth::inventory::StockpileId,
     equipment: deep_hearth::equipment::EquipmentId,
     mass: Mass,
-) -> Result<u64, MiningStartError> {
+) -> Result<MiningAttemptOutcome, MiningStartError> {
     let target = resolve_progression_mining_target(state, target);
+    try_mine_and_claim_resolved(registries, state, target, destination, equipment, mass)
+}
+
+fn try_mine_and_claim_resolved(
+    registries: &Registries,
+    state: &mut AppState,
+    target: MiningTargetResolution,
+    destination: deep_hearth::inventory::StockpileId,
+    equipment: deep_hearth::equipment::EquipmentId,
+    mass: Mass,
+) -> Result<MiningAttemptOutcome, MiningStartError> {
     let mining = validate_start_mining(
         registries,
         state,
@@ -768,13 +799,16 @@ fn try_mine_and_claim(
         finish_mining_work(registries, state, mining_job, None, "mining"),
         mining_ticks
     );
-    validate_claim_mining_output(registries, state, mining_job)
+    let receipt = validate_claim_mining_output(registries, state, mining_job)
         .unwrap_or_else(|error| panic!("primitive progression mining claim failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| {
             panic!("primitive progression mining claim commit failed: {error}")
         });
-    Ok(mining_ticks)
+    Ok(MiningAttemptOutcome {
+        ticks: mining_ticks,
+        output: receipt.output().mass(),
+    })
 }
 
 fn mine_total_and_claim(
@@ -795,7 +829,7 @@ fn mine_total_and_claim(
         total,
         maximum_batch,
     )
-    .unwrap_or_else(|error| panic!("primitive progression mining failed: {error}"))
+    .unwrap_or_else(|stop| panic!("primitive progression mining stopped: {}", stop.label()))
 }
 
 fn try_mine_total_and_claim(
@@ -806,26 +840,33 @@ fn try_mine_total_and_claim(
     equipment: deep_hearth::equipment::EquipmentId,
     total: Mass,
     maximum_batch: Mass,
-) -> Result<u64, MiningStartError> {
+) -> Result<u64, AutonomousWorkStop> {
     assert!(!total.is_zero());
     assert!(!maximum_batch.is_zero());
     let mut remaining = total;
     let mut elapsed = 0_u64;
     while !remaining.is_zero() {
         let batch = Mass::from_milligrams(remaining.milligrams().min(maximum_batch.milligrams()));
+        let resolved_target =
+            resolve_mining_target(state, target).map_err(autonomous_target_resolution_stop)?;
+        let attempt = try_mine_and_claim_resolved(
+            registries,
+            state,
+            resolved_target,
+            destination,
+            equipment,
+            batch,
+        )
+        .map_err(autonomous_mining_stop)?;
         elapsed = elapsed
-            .checked_add(try_mine_and_claim(
-                registries,
-                state,
-                target,
-                destination,
-                equipment,
-                batch,
-            )?)
+            .checked_add(attempt.ticks)
             .unwrap_or_else(|| panic!("primitive progression mining duration overflowed"));
-        remaining = remaining
-            .checked_sub(batch)
-            .unwrap_or_else(|| unreachable!("mining batch is bounded by remaining mass"));
+        remaining = remaining.checked_sub(attempt.output).unwrap_or_else(|| {
+            unreachable!("mining output cannot exceed requested remaining mass")
+        });
+        if attempt.output < batch {
+            return Err(AutonomousWorkStop::TargetSupply);
+        }
     }
     Ok(elapsed)
 }
@@ -2300,7 +2341,10 @@ fn crush_while_mining(
             .unwrap_or_else(|| {
                 panic!("primitive crusher completion fell behind authoritative time")
             });
-        let concurrent_target = resolve_progression_mining_target(state, concurrent.target);
+        let concurrent_target = match resolve_mining_target(state, concurrent.target) {
+            Ok(target) => target,
+            Err(error) => break autonomous_target_resolution_stop(error),
+        };
         let concurrent_mining = match validate_start_mining(
             registries,
             state,
@@ -2335,9 +2379,6 @@ fn crush_while_mining(
         player_work_ticks = player_work_ticks
             .checked_add(work_ticks)
             .unwrap_or_else(|| panic!("primitive concurrent player-work duration overflowed"));
-        mined_mass = mined_mass
-            .checked_add(concurrent.mass)
-            .unwrap_or_else(|| panic!("primitive concurrent mined mass overflowed"));
         mining_jobs = mining_jobs
             .checked_add(1)
             .unwrap_or_else(|| panic!("primitive concurrent mining-job count overflowed"));
@@ -2355,7 +2396,7 @@ fn crush_while_mining(
             state.mining().get_job(concurrent_mining_job).is_some(),
             "completed mining output must remain claimable after concurrent machine work"
         );
-        validate_claim_mining_output(registries, state, concurrent_mining_job)
+        let receipt = validate_claim_mining_output(registries, state, concurrent_mining_job)
             .unwrap_or_else(|error| {
                 panic!("primitive progression concurrent mining claim failed: {error}")
             })
@@ -2363,6 +2404,13 @@ fn crush_while_mining(
             .unwrap_or_else(|error| {
                 panic!("primitive progression concurrent mining claim commit failed: {error}")
             });
+        let recovered = receipt.output().mass();
+        mined_mass = mined_mass
+            .checked_add(recovered)
+            .unwrap_or_else(|| panic!("primitive concurrent mined mass overflowed"));
+        if recovered < concurrent.mass {
+            break AutonomousWorkStop::TargetSupply;
+        }
     };
     Ok(ConcurrentMachineWork {
         job: crush_job,

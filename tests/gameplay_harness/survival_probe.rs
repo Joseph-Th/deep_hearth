@@ -32,8 +32,9 @@ use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
     DrinkDefinition, DrinkOutcome, EatOutcome, FoodCategory, FoodDefinition, FoodFreshness,
-    assess_food_freshness, assess_survival, initialize_player_survival,
-    project_food_freshness_after_storage_transition, validate_drink, validate_eat,
+    assess_food_freshness, assess_survival, calculate_food_hydration_offer,
+    initialize_player_survival, project_food_freshness_after_storage_transition, validate_drink,
+    validate_eat,
 };
 
 use super::environment::ROOM_TEMPERATURE;
@@ -321,12 +322,12 @@ fn food_option_summary(registries: &Registries, foods: &[FoodDefinition]) -> Str
                 .get_material(food.commodity().material())
                 .unwrap_or_else(|| unreachable!("validated food option has a material"));
             format!(
-                "{}:{}:{:?}:{}nJ/mg:{}uL/mg:{}t",
+                "{}:{}:{:?}:{}nJ/mg:{}ppm-hydration:{}t",
                 food.commodity().value(),
                 material.name(),
                 food.category(),
                 food.dietary_energy().nanojoules_per_milligram(),
-                food.hydration_microliters_per_milligram(),
+                food.hydration_multiplier_ppm(),
                 food.shelf_life().value(),
             )
         })
@@ -1138,22 +1139,21 @@ fn provisioning_plan(
             "survival probe offered food must cover every matched-policy portion"
         );
     }
-    let offered_food_hydration = selected_indices
-        .iter()
-        .zip(&selected_masses)
-        .try_fold(0_u128, |total, (index, mass)| {
-            let contribution = u128::from(mass.milligrams()).checked_mul(u128::from(
-                foods[*index].hydration_microliters_per_milligram(),
-            ))?;
-            total.checked_add(contribution)
-        })
-        .unwrap_or_else(|| panic!("survival probe food hydration overflowed"));
+    let offered_food_hydration = calculate_food_hydration_offer(
+        selected_indices
+            .iter()
+            .zip(&selected_masses)
+            .map(|(index, mass)| (foods[*index], *mass)),
+    )
+    .unwrap_or_else(|| panic!("survival probe food hydration overflowed"))
+    .microliters();
     let hydration_deficit = physiology
         .maximum_hydration()
         .checked_sub(before.hydration())
         .unwrap_or_else(|| panic!("survival provisioning hydration exceeded authored maximum"));
     let target_drink_gain = u64::try_from(
-        u128::from(hydration_deficit.microliters()).saturating_sub(offered_food_hydration),
+        u128::from(hydration_deficit.microliters())
+            .saturating_sub(u128::from(offered_food_hydration)),
     )
     .unwrap_or_else(|_| panic!("survival probe hydration target exceeds represented range"));
     let drink_volume = if target_drink_gain == 0 {
@@ -1700,7 +1700,7 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         .survival()
         .foods()
         .copied()
-        .filter(|food| food.hydration_microliters_per_milligram() == 0)
+        .filter(|food| food.hydration_multiplier_ppm() == 0)
         .collect::<Vec<_>>();
     dry_foods.sort_by_key(|food| food.commodity());
     assert!(

@@ -56,6 +56,7 @@ fn mining_claim_returns_merge_aware_inventory_landing_identity() {
                 Condition::PRISTINE,
             ),
             deposit_mass_before: claimed_mass,
+            requested_mass: claimed_mass,
             output: MaterialLotSpec::new(commodity, claimed_mass, temperature),
             equipment_condition_after: Condition::PRISTINE,
         },

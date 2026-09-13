@@ -54,17 +54,131 @@ use crate::structural::{
 use crate::survival::{assess_survival, initialize_player_survival};
 
 fn deposit_spec() -> GeneratedDepositSpec {
+    deposit_spec_with_mass(Mass::from_milligrams(1_000_000))
+}
+
+fn deposit_spec_with_mass(mass: Mass) -> GeneratedDepositSpec {
     let bounds = VoxelBounds::new(VoxelCoord::new(0, -8, 0), VoxelCoord::new(4, -4, 4))
         .unwrap_or_else(|error| panic!("mining test bounds failed: {error}"));
     GeneratedDepositSpec::new(
         bounds,
         CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-        Mass::from_milligrams(1_000_000),
+        mass,
         Temperature::from_millikelvin(300_000),
         Pressure::from_pascals(350_000_000),
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("mining test deposit failed: {error}"))
+}
+
+#[test]
+fn mining_shortage_is_revealed_only_after_committing_requested_work() {
+    let registries = build_registries();
+    let setup = |seed: u64, deposit_mass: Mass| {
+        let mut state = AppState::new(WorldSeed::new(seed));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("shortage mining survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200_000))
+            .unwrap_or_else(|error| panic!("shortage mining destination failed: {error}"));
+        let deposit = insert_known_deposit(
+            &registries,
+            &mut state,
+            deposit_spec_with_mass(deposit_mass),
+        )
+        .unwrap_or_else(|error| panic!("shortage mining deposit failed: {error}"));
+        (state, deposit, destination, pick)
+    };
+    let requested = Mass::from_milligrams(100_000);
+    let recoverable = Mass::from_milligrams(50_000);
+    let (mut scarce, scarce_deposit, scarce_destination, scarce_pick) =
+        setup(0xA11E_0110, recoverable);
+    let (mut ample, ample_deposit, ample_destination, ample_pick) =
+        setup(0xA11E_0111, Mass::from_milligrams(1_000_000));
+
+    let scarce_before = scarce.clone();
+    let scarce_start = validate_known_mining(
+        &registries,
+        &scarce,
+        MINING_METHOD_HAND_PICK,
+        scarce_deposit,
+        scarce_destination,
+        scarce_pick,
+        requested,
+    )
+    .unwrap_or_else(|error| panic!("scarce target leaked shortage during validation: {error}"));
+    let ample_start = validate_known_mining(
+        &registries,
+        &ample,
+        MINING_METHOD_HAND_PICK,
+        ample_deposit,
+        ample_destination,
+        ample_pick,
+        requested,
+    )
+    .unwrap_or_else(|error| panic!("ample target mining validation failed: {error}"));
+    assert_eq!(
+        scarce, scarce_before,
+        "mining validation must stay read-only"
+    );
+    assert_eq!(
+        scarce_start.player_work().resource_budget(),
+        ample_start.player_work().resource_budget(),
+        "hidden reserve size must not change pre-commit labor feasibility for the same request"
+    );
+
+    let scarce_job = scarce_start
+        .commit(&mut scarce)
+        .unwrap_or_else(|error| panic!("scarce mining commit failed: {error}"));
+    let ample_job = ample_start
+        .commit(&mut ample)
+        .unwrap_or_else(|error| panic!("ample mining commit failed: {error}"));
+    let scarce_record = scarce
+        .mining()
+        .get_job(scarce_job)
+        .unwrap_or_else(|| panic!("scarce mining job disappeared"));
+    let ample_record = ample
+        .mining()
+        .get_job(ample_job)
+        .unwrap_or_else(|| panic!("ample mining job disappeared"));
+    assert_eq!(
+        scarce_record.completes_at().value() - scarce_record.started_at().value(),
+        ample_record.completes_at().value() - ample_record.started_at().value(),
+        "requested effort, not hidden recoverable mass, must determine mining duration"
+    );
+    assert_eq!(
+        scarce_record.equipment_condition_after(),
+        ample_record.equipment_condition_after(),
+        "requested effort, not hidden recoverable mass, must determine tool wear"
+    );
+    assert_eq!(
+        scarce
+            .inventory()
+            .get_stockpile(scarce_destination)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(recoverable),
+        "the committed job may reveal its now-irreversible actual output reservation"
+    );
+
+    let duration = scarce_record.completes_at().value() - scarce_record.started_at().value();
+    for _ in 0..duration {
+        let _ = advance_tick(&registries, &mut scarce)
+            .unwrap_or_else(|error| panic!("scarce mining completion failed: {error}"));
+    }
+    let receipt = validate_claim_mining_output(&registries, &scarce, scarce_job)
+        .unwrap_or_else(|error| panic!("scarce mining claim validation failed: {error}"))
+        .commit(&mut scarce)
+        .unwrap_or_else(|error| panic!("scarce mining claim failed: {error}"));
+    assert_eq!(receipt.output().mass(), recoverable);
+    assert_eq!(
+        scarce
+            .geology()
+            .get_deposit(scarce_deposit)
+            .map(|deposit| deposit.remaining_mass()),
+        Some(Mass::ZERO)
+    );
+    validate_loaded_state(&registries, &scarce)
+        .unwrap_or_else(|error| panic!("scarce mining post-claim state invalid: {error}"));
 }
 
 fn assemble_quarry_pick_for_test(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -1092,6 +1206,37 @@ fn loaded_working_mining_job_rejects_forged_source_mass_trace() {
                 expected: Mass::from_milligrams(900_000),
                 actual: Mass::from_milligrams(1_000_000),
             }
+        )))
+    );
+}
+
+#[test]
+fn loaded_working_mining_job_rejects_forged_requested_mass() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("mining requested-mass start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining requested-mass commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mining requested-mass serialization failed: {error}"));
+    encoded["state"]["systems"]["mining"]["jobs"][job.value().to_string()]["resources"]["requested_mass"] =
+        serde_json::json!(0_u64);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("mining requested-mass tamper decode failed: {error}"));
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::MiningJob(
+            MiningJobValidationError::ZeroRequestedMass { job }
         )))
     );
 }

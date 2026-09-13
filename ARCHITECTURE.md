@@ -41,6 +41,11 @@ automated actors can read, but consequential writes must return through owner-co
 the canonical tick orchestrator. Do not add a public `*_mut` escape hatch to make an adapter, harness, or agent
 integration convenient.
 
+Ordinary builds also do not expose whole-state cloning or equality for `AppState`: both would include hidden
+authoritative facts and make speculative future forks or whole-state diffs an accidental caller interface.
+Unit tests and the explicit `test-gameplay` evaluation feature may derive those traits for atomicity,
+determinism, replay, and matched-counterfactual evidence only; they are not actor observation surfaces.
+
 A value type may expose mutation when it is independently ownable and mutation is its own complete contract,
 such as an explicitly owned deterministic RNG. That does not authorize bypassing `AppState` ownership for
 generated simulation state.

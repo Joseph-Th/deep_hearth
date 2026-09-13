@@ -37,10 +37,6 @@ pub enum TickError {
     GeologyRevisionExhausted,
     /// Mining cannot advance its persisted scheduling revision for this tick.
     MiningRevisionExhausted,
-    /// Direct player-powered generation cannot advance its energy owner revision this tick.
-    ManualPowerEnergyRevisionExhausted,
-    /// Direct player-powered generation cannot advance its equipment owner revision this tick.
-    ManualPowerEquipmentRevisionExhausted,
     /// Field prospecting cannot allocate another persistent observation identity.
     GeologicalObservationIdExhausted,
     /// Field prospecting cannot advance acquired geological knowledge.
@@ -97,12 +93,6 @@ impl Display for TickError {
             }
             Self::MiningRevisionExhausted => {
                 formatter.write_str("mining revision space is exhausted")
-            }
-            Self::ManualPowerEnergyRevisionExhausted => {
-                formatter.write_str("manual power energy revision space is exhausted")
-            }
-            Self::ManualPowerEquipmentRevisionExhausted => {
-                formatter.write_str("manual power equipment revision space is exhausted")
             }
             Self::GeologicalObservationIdExhausted => {
                 formatter.write_str("geological observation identifier space is exhausted")
@@ -211,8 +201,6 @@ impl Error for TickError {
             | Self::PlayerWorkRevisionExhausted
             | Self::GeologyRevisionExhausted
             | Self::MiningRevisionExhausted
-            | Self::ManualPowerEnergyRevisionExhausted
-            | Self::ManualPowerEquipmentRevisionExhausted
             | Self::GeologicalObservationIdExhausted
             | Self::GeologicalKnowledgeRevisionExhausted => None,
         }

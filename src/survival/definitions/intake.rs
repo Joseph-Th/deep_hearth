@@ -64,7 +64,7 @@ pub struct FoodDefinition {
     commodity: CommodityKey,
     category: FoodCategory,
     dietary_energy: MassSpecificEnergy,
-    hydration_microliters_per_milligram: u32,
+    hydration_multiplier_ppm: u32,
     shelf_life: TickSpan,
     consumption_temperature: ConsumptionTemperatureRange,
 }
@@ -75,7 +75,7 @@ impl FoodDefinition {
         commodity: CommodityKey,
         category: FoodCategory,
         dietary_energy: MassSpecificEnergy,
-        hydration_microliters_per_milligram: u32,
+        hydration_multiplier_ppm: u32,
         shelf_life: TickSpan,
         consumption_temperature: ConsumptionTemperatureRange,
     ) -> Self {
@@ -88,15 +88,15 @@ impl FoodDefinition {
             "food dietary energy must not exceed 40,000,000,000 nJ/mg"
         );
         assert!(
-            hydration_microliters_per_milligram <= 1,
-            "food hydration must not exceed 1 uL/mg of consumed mass"
+            hydration_multiplier_ppm <= NORMALIZED_PARTS_PER_MILLION,
+            "food hydration multiplier must not exceed 1,000,000 ppm of consumed mass water-equivalent"
         );
         assert!(!shelf_life.is_zero(), "food shelf life must be nonzero");
         Self {
             commodity,
             category,
             dietary_energy,
-            hydration_microliters_per_milligram,
+            hydration_multiplier_ppm,
             shelf_life,
             consumption_temperature,
         }
@@ -132,8 +132,8 @@ impl FoodDefinition {
     }
 
     #[must_use]
-    pub const fn hydration_microliters_per_milligram(self) -> u32 {
-        self.hydration_microliters_per_milligram
+    pub const fn hydration_multiplier_ppm(self) -> u32 {
+        self.hydration_multiplier_ppm
     }
 
     #[must_use]
@@ -145,6 +145,28 @@ impl FoodDefinition {
     pub const fn consumption_temperature(self) -> ConsumptionTemperatureRange {
         self.consumption_temperature
     }
+}
+
+/// Projects the whole-microliter hydration represented by consumed food portions.
+///
+/// Hydration is accumulated at ppm precision and rounded down once at the physiological-volume
+/// boundary. This makes the result independent of how one homogeneous food mass is split across
+/// inventory lots while preventing food from creating more water-equivalent volume than consumed
+/// mass can represent. `None` means the aggregate numerator or represented volume overflowed.
+#[must_use]
+pub fn calculate_food_hydration_offer(
+    portions: impl IntoIterator<Item = (FoodDefinition, Mass)>,
+) -> Option<Volume> {
+    let mut numerator = 0_u128;
+    for (food, mass) in portions {
+        let contribution = u128::from(mass.milligrams())
+            .checked_mul(u128::from(food.hydration_multiplier_ppm()))?;
+        numerator = numerator.checked_add(contribution)?;
+    }
+    let microliters = numerator / u128::from(NORMALIZED_PARTS_PER_MILLION);
+    u64::try_from(microliters)
+        .ok()
+        .map(Volume::from_microliters)
 }
 
 /// Hydration contribution of one exact finite fluid identity.

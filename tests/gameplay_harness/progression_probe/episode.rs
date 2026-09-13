@@ -313,7 +313,7 @@ fn discover_primitive_progression(
         }),
         "the known hard seam must be a real blocked affordance before pick reinforcement"
     );
-    let direct_copper_mining_ticks = mine_total_and_claim(
+    let initial_direct_copper_mining_ticks = mine_total_and_claim(
         registries,
         state,
         direct_copper_clue.request,
@@ -332,22 +332,32 @@ fn discover_primitive_progression(
         Some(pick_upgrade_native),
         "the actor's strongest copper clue must reveal directly usable native metal only after extraction"
     );
-    let direct_second_upgrade_blocked = matches!(
-        validate_start_mining(
-            registries,
-            state,
-            MINING_METHOD_HAND_PICK,
-            resolve_progression_mining_target(state, direct_copper_clue.request),
-            native_storage,
-            pick,
-            crank_upgrade_native,
-        ),
-        Err(MiningStartError::InsufficientTargetMass { requested })
-            if requested == crank_upgrade_native
-    );
+    let second_direct_attempt = try_mine_and_claim(
+        registries,
+        state,
+        direct_copper_clue.request,
+        native_storage,
+        pick,
+        crank_upgrade_native,
+    )
+    .unwrap_or_else(|error| panic!("direct-copper exhaustion attempt failed: {error}"));
+    let direct_second_upgrade_blocked = second_direct_attempt.output < crank_upgrade_native;
     assert!(
         direct_second_upgrade_blocked,
-        "the player must learn through the canonical mining action that the promising direct-copper occurrence cannot fund both upgrades"
+        "the player must learn only after committed mining work that the promising direct-copper occurrence cannot fund both upgrades"
+    );
+    let direct_copper_mining_ticks = initial_direct_copper_mining_ticks
+        .checked_add(second_direct_attempt.ticks)
+        .unwrap_or_else(|| panic!("direct-copper mining duration overflowed"));
+    let direct_native_total = pick_upgrade_native
+        .checked_add(second_direct_attempt.output)
+        .unwrap_or_else(|| panic!("direct-copper recovered mass overflowed"));
+    assert!(
+        direct_native_total
+            < pick_upgrade_native
+                .checked_add(crank_upgrade_native)
+                .unwrap_or_else(|| panic!("two-upgrade copper requirement overflowed")),
+        "committed direct-copper exhaustion must still leave the two upgrades underfunded"
     );
     let direct_supply_blocked_at = state.tick().value();
     let bulk_sample = observe_material_sample(state, ore_storage, "bulk ore");

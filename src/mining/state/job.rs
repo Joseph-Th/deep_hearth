@@ -44,6 +44,7 @@ pub(in crate::mining) struct MiningJobResources {
     pub(in crate::mining) destination: StockpileId,
     pub(in crate::mining) equipment_trace: EquipmentOperationTrace,
     pub(in crate::mining) deposit_mass_before: Mass,
+    pub(in crate::mining) requested_mass: Mass,
     pub(in crate::mining) output: MaterialLotSpec,
     pub(in crate::mining) equipment_condition_after: Condition,
 }
@@ -132,6 +133,11 @@ impl MiningJobRecord {
     #[must_use]
     pub(crate) const fn deposit_mass_before(&self) -> Mass {
         self.resources.deposit_mass_before
+    }
+
+    #[must_use]
+    pub(crate) const fn requested_mass(&self) -> Mass {
+        self.resources.requested_mass
     }
 
     #[must_use]

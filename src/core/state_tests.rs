@@ -330,20 +330,22 @@ fn new_state_starts_at_zero_with_versioned_rng() {
     let registries = build_registries();
     let state = AppState::new(WorldSeed::new(42));
 
-    assert_eq!(state.world_seed(), WorldSeed::new(42));
     assert_eq!(state.tick(), SimulationTick::ZERO);
     assert_eq!(state.rng_algorithm(), RngAlgorithm::Xoshiro256StarStarV1);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
-fn app_state_debug_does_not_expose_hidden_geology_or_random_stream_state() {
-    let state = AppState::new(WorldSeed::new(0xD1A6_0001));
+fn app_state_debug_does_not_expose_hidden_world_or_random_stream_state() {
+    const HIDDEN_SEED: u64 = 0xD1A6_0001_D15C_105E;
+    let state = AppState::new(WorldSeed::new(HIDDEN_SEED));
 
     let debug = format!("{state:?}");
 
     assert!(debug.contains("rng_algorithm"));
     assert!(debug.contains("geological_knowledge"));
+    assert!(!debug.contains("world_seed"));
+    assert!(!debug.contains(&HIDDEN_SEED.to_string()));
     assert!(!debug.contains("random:"));
     assert!(!debug.contains("geology:"));
 }
