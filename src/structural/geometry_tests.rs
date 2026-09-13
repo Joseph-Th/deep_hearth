@@ -61,3 +61,25 @@ fn equal_geometry_requires_more_dense_material_mass() {
     assert_eq!(wood, Ok(Mass::from_milligrams(6_500)));
     assert_eq!(copper, Ok(Mass::from_milligrams(89_600)));
 }
+
+#[test]
+fn material_mass_can_remain_representable_beyond_volume_range() {
+    let registries = build_registries();
+    let area = Area::from_square_millimeters(u64::MAX);
+    let length = Length::from_micrometers(1_001);
+
+    assert_eq!(
+        calculate_prismatic_volume_ceiling(area, length),
+        Err(StructuralGeometryError::VolumeOutOfRange)
+    );
+    assert!(
+        calculate_prismatic_material_mass_ceiling(
+            registries.materials(),
+            MATERIAL_WOOD,
+            area,
+            length,
+        )
+        .is_ok(),
+        "low-density material mass should not inherit the narrower volume representation bound"
+    );
+}

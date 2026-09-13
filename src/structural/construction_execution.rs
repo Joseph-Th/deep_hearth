@@ -8,7 +8,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{AggregateMass, Force, Mass, Volume};
+use crate::core::quantity::{AggregateMass, Force, Mass};
 use crate::core::state::AppState;
 use crate::inventory::{
     ConsumedMaterialTrace, ConsumptionSelection, MaterialEgressError, StockpileId,
@@ -24,10 +24,7 @@ use crate::inventory::{
 use crate::material::MaterialId;
 use crate::registry::Registries;
 
-use super::geometry::{
-    StructuralGeometryError, calculate_prismatic_material_mass_ceiling,
-    calculate_prismatic_volume_ceiling,
-};
+use super::geometry::{StructuralGeometryError, calculate_prismatic_material_mass_ceiling};
 use super::load::calculate_aggregate_weight_force_ceiling;
 #[cfg(test)]
 use super::state::StructuralLoadKind;
@@ -39,7 +36,6 @@ use super::state::{StructuralElementId, StructuralElementRecord, StructuralLifec
 pub struct StructuralMaterialRequirement {
     element: StructuralElementId,
     material: MaterialId,
-    solid_volume_ceiling: Volume,
     required_mass: Mass,
 }
 
@@ -53,12 +49,6 @@ impl StructuralMaterialRequirement {
     #[must_use]
     pub const fn material(self) -> MaterialId {
         self.material
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) const fn solid_volume_ceiling(self) -> Volume {
-        self.solid_volume_ceiling
     }
 
     #[must_use]
@@ -116,9 +106,6 @@ pub fn resolve_structural_material_requirement(
         .structures()
         .get_element(element)
         .ok_or(StructuralMaterialRequirementError::UnknownElement { element })?;
-    let solid_volume_ceiling =
-        calculate_prismatic_volume_ceiling(record.cross_section(), record.length())
-            .map_err(|error| StructuralMaterialRequirementError::Geometry { element, error })?;
     let required_mass = calculate_prismatic_material_mass_ceiling(
         registries.materials(),
         record.material(),
@@ -129,7 +116,6 @@ pub fn resolve_structural_material_requirement(
     Ok(StructuralMaterialRequirement {
         element,
         material: record.material(),
-        solid_volume_ceiling,
         required_mass,
     })
 }

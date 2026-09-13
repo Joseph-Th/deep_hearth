@@ -4,14 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::time::SimulationTick;
-use crate::material::CommodityKey;
-use crate::structural::{
-    StructuralElementId, apply_support_index_change, assert_support_index_change_available,
-};
+use crate::structural::StructuralElementId;
 
-use super::StorageDefinitionId;
-
+mod enclosure;
+mod indexes;
 mod lot_mutation;
 mod records;
 mod storage_history;
@@ -115,49 +111,6 @@ impl InventoryState {
         self.revision = next_revision;
     }
 
-    pub(super) fn apply_storage_enclosure_removal(
-        &mut self,
-        stockpile: StockpileId,
-        expected_profile: StockpileStorageProfile,
-        next_profile: StockpileStorageProfile,
-        expected_definition: StorageDefinitionId,
-        at: SimulationTick,
-        next_revision: u64,
-    ) {
-        assert_eq!(
-            self.revision.checked_add(1),
-            Some(next_revision),
-            "validated storage dismantling must advance inventory revision exactly once after recovered material ingress"
-        );
-        self.transition_stockpile_preservation(
-            stockpile,
-            expected_profile.preservation_multiplier_ppm(),
-            next_profile.preservation_multiplier_ppm(),
-            at,
-        );
-        let record = self.stockpiles.get_mut(&stockpile).unwrap_or_else(|| {
-            panic!(
-                "runtime invariant broken: stockpile {} disappeared during enclosure dismantling",
-                stockpile.value()
-            )
-        });
-        assert_eq!(
-            record.storage_profile, expected_profile,
-            "validated storage dismantling target profile changed before apply"
-        );
-        assert_eq!(
-            record
-                .enclosure
-                .as_ref()
-                .map(StockpileEnclosureRecord::definition),
-            Some(expected_definition),
-            "validated storage dismantling target enclosure changed before apply"
-        );
-        record.storage_profile = next_profile;
-        record.enclosure = None;
-        self.revision = next_revision;
-    }
-
     pub(super) fn apply_lot_cursor_and_revision(&mut self, next_lot_id: u64, next_revision: u64) {
         assert_eq!(
             self.revision.checked_add(1),
@@ -179,90 +132,6 @@ impl InventoryState {
             "inventory revision must advance exactly once per canonical mutation batch"
         );
         self.revision = next_revision;
-    }
-
-    pub(super) fn apply_storage_enclosure(
-        &mut self,
-        stockpile: StockpileId,
-        expected_profile: StockpileStorageProfile,
-        next_profile: StockpileStorageProfile,
-        enclosure: StockpileEnclosureRecord,
-        at: SimulationTick,
-        next_revision: u64,
-    ) {
-        assert_eq!(
-            self.revision.checked_add(1),
-            Some(next_revision),
-            "validated storage construction must advance inventory revision exactly once after material egress"
-        );
-        self.transition_stockpile_preservation(
-            stockpile,
-            expected_profile.preservation_multiplier_ppm(),
-            next_profile.preservation_multiplier_ppm(),
-            at,
-        );
-        let record = self.stockpiles.get_mut(&stockpile).unwrap_or_else(|| {
-            panic!(
-                "runtime invariant broken: stockpile {} disappeared during enclosure construction",
-                stockpile.value()
-            )
-        });
-        assert_eq!(
-            record.storage_profile, expected_profile,
-            "validated storage construction target profile changed before apply"
-        );
-        assert!(
-            record.enclosure.is_none(),
-            "validated storage construction target unexpectedly gained an enclosure"
-        );
-        record.storage_profile = next_profile;
-        record.enclosure = Some(enclosure);
-        self.revision = next_revision;
-    }
-
-    fn transition_stockpile_preservation(
-        &mut self,
-        stockpile: StockpileId,
-        source_preservation_multiplier_ppm: u32,
-        destination_preservation_multiplier_ppm: u32,
-        at: SimulationTick,
-    ) {
-        let Some(index) = self.lot_indexes.get(&stockpile) else {
-            let record = self.stockpiles.get(&stockpile).unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: stockpile {} disappeared during storage profile transition",
-                    stockpile.value()
-                )
-            });
-            assert!(
-                record.stored_mass().is_zero(),
-                "runtime invariant broken: nonempty stockpile is missing its lot index"
-            );
-            return;
-        };
-        for lot_id in index.lot_ids() {
-            let lot = self.lots.get_mut(&lot_id).unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: stockpile {} lot index references missing lot {}",
-                    stockpile.value(),
-                    lot_id.value()
-                )
-            });
-            assert_eq!(
-                lot.stockpile, stockpile,
-                "runtime invariant broken: stockpile lot index references a lot owned elsewhere"
-            );
-            lot.storage_history = lot
-                .storage_history
-                .transition_preservation(
-                    at,
-                    source_preservation_multiplier_ppm,
-                    destination_preservation_multiplier_ppm,
-                )
-                .unwrap_or_else(|| {
-                    panic!("validated storage profile transition overflowed lot age")
-                });
-        }
     }
 
     pub(crate) fn has_valid_id_cursors(&self) -> bool {
@@ -300,140 +169,6 @@ impl InventoryState {
     /// Iterates all material lots deterministically by stable runtime ID.
     pub fn lots(&self) -> impl Iterator<Item = &MaterialLotRecord> {
         self.lots.values()
-    }
-
-    /// Iterates one stockpile's owned lots in stable persistent-ID order.
-    pub fn lot_ids(&self, stockpile: StockpileId) -> impl Iterator<Item = MaterialLotId> + '_ {
-        self.lot_indexes
-            .get(&stockpile)
-            .into_iter()
-            .flat_map(StockpileLotIndex::lot_ids)
-    }
-
-    pub(super) fn lot_ids_for_commodity(
-        &self,
-        stockpile: StockpileId,
-        commodity: CommodityKey,
-    ) -> impl Iterator<Item = MaterialLotId> + '_ {
-        self.lot_indexes
-            .get(&stockpile)
-            .into_iter()
-            .flat_map(move |index| index.lot_ids_for_commodity(commodity))
-    }
-
-    pub(super) fn insert_lot_index(
-        &mut self,
-        stockpile: StockpileId,
-        commodity: CommodityKey,
-        lot: MaterialLotId,
-    ) {
-        self.lot_indexes
-            .entry(stockpile)
-            .or_default()
-            .insert(lot, commodity);
-    }
-
-    pub(super) fn remove_lot_index(
-        &mut self,
-        stockpile: StockpileId,
-        commodity: CommodityKey,
-        lot: MaterialLotId,
-    ) {
-        let remove_entry = {
-            let index = self
-                .lot_indexes
-                .get_mut(&stockpile)
-                .unwrap_or_else(|| panic!("runtime invariant broken: missing stockpile lot index"));
-            index.remove(lot, commodity);
-            index.is_empty()
-        };
-        if remove_entry {
-            self.lot_indexes.remove(&stockpile);
-        }
-    }
-
-    pub(crate) fn rebuild_derived_indexes(&mut self) {
-        let mut lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();
-        let mut stockpiles_by_support =
-            BTreeMap::<StructuralElementId, BTreeSet<StockpileId>>::new();
-        for stockpile in self.stockpiles.values() {
-            if let Some(support) = stockpile.supported_by {
-                stockpiles_by_support
-                    .entry(support)
-                    .or_default()
-                    .insert(stockpile.id);
-            }
-        }
-        for lot in self.lots.values() {
-            if !self.stockpiles.contains_key(&lot.stockpile) {
-                continue;
-            }
-            lot_indexes
-                .entry(lot.stockpile)
-                .or_default()
-                .insert(lot.id, lot.commodity());
-        }
-        self.lot_indexes = lot_indexes;
-        self.stockpiles_by_support = stockpiles_by_support;
-    }
-
-    /// Iterates stockpiles assigned to one structural support in stable stockpile-ID order.
-    pub(crate) fn supported_stockpiles(
-        &self,
-        support: StructuralElementId,
-    ) -> impl Iterator<Item = StockpileId> + '_ {
-        self.stockpiles_by_support
-            .get(&support)
-            .into_iter()
-            .flat_map(|stockpiles| stockpiles.iter().copied())
-    }
-
-    pub(super) fn assert_support_change_available(
-        &self,
-        stockpile: StockpileId,
-        before: Option<StructuralElementId>,
-        after: Option<StructuralElementId>,
-        next_revision: u64,
-    ) {
-        assert_eq!(
-            self.revision.checked_add(1),
-            Some(next_revision),
-            "validated stockpile support change must advance the owner revision exactly once"
-        );
-        let record = match self.stockpiles.get(&stockpile) {
-            Some(record) => record,
-            None => panic!(
-                "runtime invariant broken: stockpile {} disappeared during support update",
-                stockpile.value()
-            ),
-        };
-        assert_eq!(
-            record.supported_by, before,
-            "runtime invariant broken: stockpile support record disagrees with support index"
-        );
-        assert_support_index_change_available(
-            &self.stockpiles_by_support,
-            stockpile,
-            before,
-            after,
-        );
-    }
-
-    pub(super) fn apply_support_change(
-        &mut self,
-        stockpile: StockpileId,
-        before: Option<StructuralElementId>,
-        after: Option<StructuralElementId>,
-        next_revision: u64,
-    ) {
-        self.assert_support_change_available(stockpile, before, after, next_revision);
-        apply_support_index_change(&mut self.stockpiles_by_support, stockpile, before, after);
-        let record = match self.stockpiles.get_mut(&stockpile) {
-            Some(record) => record,
-            None => unreachable!("stockpile support record was prechecked before index mutation"),
-        };
-        record.supported_by = after;
-        self.revision = next_revision;
     }
 }
 

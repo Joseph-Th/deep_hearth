@@ -324,11 +324,39 @@ fn material_requirement_uses_member_geometry_and_authored_density() {
 
     assert_eq!(requirement.element(), element);
     assert_eq!(requirement.material(), MATERIAL_WOOD);
-    assert_eq!(
-        requirement.solid_volume_ceiling(),
-        Volume::from_microliters(10_000)
-    );
     assert_eq!(requirement.required_mass(), Mass::from_milligrams(6_500));
+}
+
+#[test]
+fn material_requirement_is_not_limited_by_unneeded_volume_projection() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5C00_0014));
+    let bounds = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1))
+        .unwrap_or_else(|error| panic!("large-member bounds failed: {error}"));
+    let geometry = crate::structural::StructuralElementGeometry::new(
+        bounds,
+        Length::from_micrometers(1_001),
+        Area::from_square_millimeters(u64::MAX),
+    )
+    .unwrap_or_else(|error| panic!("large-member geometry failed: {error}"));
+    let element = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap_or_else(|error| panic!("large-member allocation failed: {error}"));
+
+    let requirement = resolve_structural_material_requirement(&registries, &state, element)
+        .unwrap_or_else(|error| {
+            panic!("representable large-member mass requirement was rejected: {error}")
+        });
+
+    assert_eq!(requirement.element(), element);
+    assert_eq!(requirement.material(), MATERIAL_WOOD);
+    assert!(!requirement.required_mass().is_zero());
 }
 
 #[test]

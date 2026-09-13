@@ -8,16 +8,16 @@ use crate::content::{
     MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE,
     STORAGE_TIMBER_PROVISIONS_CHEST, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Area, Force, Length, Temperature, Volume};
-use crate::core::state::{StateValidationError, validate_loaded_state};
+use crate::core::quantity::{Area, Force, Length, Mass, Pressure, Temperature, Volume};
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::crafting::{
     ManualCraftStartRequest, StartManualCraftError, validate_start_manual_craft,
 };
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::equipment::{
-    apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
-    validate_upgrade_equipment,
+    EquipmentId, apply_equipment_condition_plan, decide_equipment_wear,
+    validate_assemble_equipment, validate_upgrade_equipment,
 };
 #[cfg(feature = "test-soak")]
 use crate::geology::GeologicalDepositLifecycle;
@@ -27,7 +27,7 @@ use crate::geology::{
 };
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotSelection, STORAGE_AGE_PARTS_PER_TICK,
-    StockpileStructuralLoadError, add_solid_stockpile_for_test, deposit_lot_for_test,
+    StockpileId, StockpileStructuralLoadError, add_solid_stockpile_for_test, deposit_lot_for_test,
     validate_build_storage_enclosure, validate_mount_stockpile,
     validate_start_storage_enclosure_dismantling, validate_unmount_stockpile,
 };
@@ -39,9 +39,11 @@ use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::mining::{
-    MiningJobValidationError, MiningTargetRequest, MiningValidationError, resolve_mining_target,
+    MiningJobId, MiningJobRecord, MiningJobValidationError, MiningMethodId, MiningTargetRequest,
+    MiningValidationError, resolve_mining_target,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
@@ -123,7 +125,7 @@ fn heavy_quarry_pick_reduces_bulk_soft_rock_attention_through_canonical_mining()
             mass,
         )
         .unwrap_or_else(|error| panic!("bulk-mining validation failed: {error}"));
-        let budget = token.work.resource_budget();
+        let budget = token.player_work().resource_budget();
         let job = token
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("bulk-mining commit failed: {error}"));
