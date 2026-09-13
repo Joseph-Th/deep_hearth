@@ -817,7 +817,10 @@ pub(super) fn run_primitive_progression_case(
         "primitive separator must leave some recoverable copper in its physical residue"
     );
     let soft_separation_feed_mass = primitive_sorting
-        .minimum_feed_mass_for_target_recovery(crank_upgrade_native, bulk_sample.copper_ppm)
+        .minimum_homogeneous_feed_mass_for_target_recovery(
+            crank_upgrade_native,
+            bulk_sample.copper_ppm,
+        )
         .unwrap_or_else(|| panic!("bulk ore cannot physically recover one crank reinforcement"));
     assert!(
         soft_separation_feed_mass <= mined_mass,
@@ -853,8 +856,9 @@ pub(super) fn run_primitive_progression_case(
 
     // Exercise the strongest obvious bootstrap alternative rather than merely timing its isolated
     // hand-processing leg. Spend the directly mined parcel on the already-owned pick, sample the
-    // newly accessible hard seam, hand-process one second reinforcement from owned bulk ore, then
-    // build and fully charge the primitive line with both upgrades available. This branch is a
+    // newly accessible hard seam, hand-process one second reinforcement from the best owned feed
+    // actually observed, then build and fully charge the primitive line with both upgrades
+    // available. This branch is a
     // matched player counterfactual: it starts from the exact same observed state and uses only
     // canonical runtime actions, but it does not alter the infrastructure-first episode below.
     let mut manual_bootstrap_state = state.clone();
@@ -893,13 +897,17 @@ pub(super) fn run_primitive_progression_case(
     );
     let manual_bootstrap_selected_hard_feed =
         manual_bootstrap_hard_sample.copper_ppm > bulk_sample.copper_ppm;
-    let manual_bootstrap_feed_ppm = if manual_bootstrap_selected_hard_feed {
-        manual_bootstrap_hard_sample.copper_ppm
-    } else {
-        bulk_sample.copper_ppm
-    };
+    let (manual_bootstrap_feed_source, manual_bootstrap_feed_ppm) =
+        if manual_bootstrap_selected_hard_feed {
+            (hard_ore_storage, manual_bootstrap_hard_sample.copper_ppm)
+        } else {
+            (ore_storage, bulk_sample.copper_ppm)
+        };
     let manual_bootstrap_separation_feed_mass = primitive_sorting
-        .minimum_feed_mass_for_target_recovery(crank_upgrade_native, manual_bootstrap_feed_ppm)
+        .minimum_homogeneous_feed_mass_for_target_recovery(
+            crank_upgrade_native,
+            manual_bootstrap_feed_ppm,
+        )
         .unwrap_or_else(|| {
             panic!("manual bootstrap feed cannot physically recover one crank reinforcement")
         });
@@ -907,19 +915,30 @@ pub(super) fn run_primitive_progression_case(
         registries,
         &mut manual_bootstrap_state,
         OwnedOreManualBridgePlan {
-            ore_source: ore_storage,
+            ore_source: manual_bootstrap_feed_source,
             crushed_destination: crushed_storage,
             native_destination: native_storage,
             residue_destination: separation_residue_storage,
             shaped_destination: shaped,
-            copper_ppm: bulk_sample.copper_ppm,
+            copper_ppm: manual_bootstrap_feed_ppm,
             reinforcement_required: crank_upgrade_native,
         },
     );
-    assert_eq!(
-        manual_bootstrap_bridge.total_attention_ticks, manual_bridge.total_attention_ticks,
-        "manual bootstrap must preserve the matched hand-processing duration"
-    );
+    if manual_bootstrap_selected_hard_feed {
+        assert!(
+            manual_bootstrap_bridge.feed_mass < manual_bridge.feed_mass,
+            "a better observed hard-seam assay must reduce the feed required for the same reinforcement"
+        );
+        assert!(
+            manual_bootstrap_bridge.total_attention_ticks <= manual_bridge.total_attention_ticks,
+            "a smaller better-grade manual feed cannot require more hand-processing attention"
+        );
+    } else {
+        assert_eq!(
+            manual_bootstrap_bridge.total_attention_ticks, manual_bridge.total_attention_ticks,
+            "unchanged feed selection must preserve the matched hand-processing duration"
+        );
+    }
     let manual_bootstrap_second_ready_ticks = manual_bootstrap_state
         .tick()
         .value()
@@ -1008,7 +1027,7 @@ pub(super) fn run_primitive_progression_case(
                     hard_sample.copper_ppm,
                     true,
                     primitive_sorting
-                        .minimum_feed_mass_for_target_recovery(
+                        .minimum_homogeneous_feed_mass_for_target_recovery(
                             crank_upgrade_native,
                             hard_sample.copper_ppm,
                         )

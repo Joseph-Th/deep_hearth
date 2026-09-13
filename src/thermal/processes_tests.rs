@@ -944,6 +944,33 @@ fn sensible_heating_rejects_wrong_energy_carrier_before_mutation() {
 }
 
 #[test]
+fn sensible_heating_reports_wrong_carrier_before_insufficient_energy() {
+    let (registries, state, source, _, equipment, energy_store) = make_loaded_fixture_at(
+        EnergyCarrier::Thermal,
+        Temperature::from_millikelvin(300_000),
+        Energy::ZERO,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            equipment,
+            energy_store,
+            Temperature::from_millikelvin(303_000),
+        ),
+        Err(SensibleHeatingResolutionError::WrongEnergyCarrier {
+            required: EnergyCarrier::Electrical,
+            provided: EnergyCarrier::Thermal,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn sensible_heating_rejects_noop_target_before_consuming_resources() {
     let (registries, state, source, _, equipment, energy_store) =
         make_loaded_fixture(EnergyCarrier::Electrical);

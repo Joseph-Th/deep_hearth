@@ -69,7 +69,7 @@ enum ConstituentSeparationMode {
     Concentration,
 }
 
-fn minimum_feed_mass_for_target_recovery(
+fn minimum_homogeneous_feed_mass_for_target_recovery(
     target: Mass,
     constituent_ppm: u32,
     recovery_ppm: u32,

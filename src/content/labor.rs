@@ -71,11 +71,8 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                     Energy::from_nanojoules(650_000_000_000),
                     Volume::from_microliters(160),
                 ),
-                ProspectingEquipmentProfile::new(
-                    EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
-                    Some(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER),
-                    120,
-                ),
+                ProspectingEquipmentProfile::new(EQUIPMENT_STONE_GEOLOGICAL_HAMMER, 120)
+                    .with_alternative(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, 60),
             )
             .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000)),
             ProspectingDefinition::new(
@@ -112,7 +109,6 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 ),
                 ProspectingEquipmentProfile::new(
                     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
-                    None,
                     150,
                 ),
             )

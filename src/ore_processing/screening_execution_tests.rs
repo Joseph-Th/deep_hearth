@@ -29,6 +29,7 @@ const FLOW_CAPABILITY: CapabilityId = CapabilityId::new(971_001);
 const BATCH_CAPABILITY: CapabilityId = CapabilityId::new(971_002);
 const SCREEN: EquipmentDefinitionId = EquipmentDefinitionId::new(971_001);
 const ENERGY_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(971_001);
+const COMPATIBLE_ENERGY_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(971_002);
 const PROCESS: ProcessId = ProcessId::new(971_001);
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
 
@@ -76,7 +77,11 @@ fn composition() -> MaterialComposition {
     .unwrap_or_else(|error| panic!("screening composition fixture failed: {error}"))
 }
 
-fn registries_with_power(aperture: Length, max_output_power: Power) -> Registries {
+fn registries_with_power_and_carrier(
+    aperture: Length,
+    max_output_power: Power,
+    carrier: EnergyCarrier,
+) -> Registries {
     let capabilities = CapabilityProfile::new([
         (
             FLOW_CAPABILITY,
@@ -117,6 +122,25 @@ fn registries_with_power(aperture: Length, max_output_power: Power) -> Registrie
             ),
         ],
     );
+    let selected_energy = EnergyStoreDefinition::new_with_transfer_limits(
+        ENERGY_STORE,
+        "test screen energy buffer",
+        carrier,
+        Energy::from_nanojoules(1_000_000),
+        Power::ZERO,
+        max_output_power,
+    );
+    let mut energy_definitions = vec![selected_energy];
+    if carrier != EnergyCarrier::Mechanical {
+        energy_definitions.push(EnergyStoreDefinition::new_with_transfer_limits(
+            COMPATIBLE_ENERGY_STORE,
+            "test compatible screen mechanical buffer",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(1_000_000),
+            Power::ZERO,
+            max_output_power,
+        ));
+    }
     make_test_registries_with_screening(
         vec![
             CapabilityDefinition::new(
@@ -131,14 +155,7 @@ fn registries_with_power(aperture: Length, max_output_power: Power) -> Registrie
             ),
         ],
         equipment,
-        vec![EnergyStoreDefinition::new_with_transfer_limits(
-            ENERGY_STORE,
-            "test screen mechanical buffer",
-            EnergyCarrier::Mechanical,
-            Energy::from_nanojoules(1_000_000),
-            Power::ZERO,
-            max_output_power,
-        )],
+        energy_definitions,
         process,
         ScreeningProcessDefinition::new(
             PROCESS,
@@ -158,7 +175,11 @@ fn registries_with_power(aperture: Length, max_output_power: Power) -> Registrie
 
 #[cfg(feature = "test-soak")]
 fn registries(aperture: Length) -> Registries {
-    registries_with_power(aperture, Power::from_microwatts(100))
+    registries_with_power_and_carrier(
+        aperture,
+        Power::from_microwatts(100),
+        EnergyCarrier::Mechanical,
+    )
 }
 
 struct Fixture {
@@ -171,7 +192,21 @@ struct Fixture {
 }
 
 fn fixture_with_power(aperture: Length, max_output_power: Power) -> Fixture {
-    let registries = registries_with_power(aperture, max_output_power);
+    fixture_with_power_carrier_and_energy(
+        aperture,
+        max_output_power,
+        EnergyCarrier::Mechanical,
+        Energy::from_nanojoules(1_000_000),
+    )
+}
+
+fn fixture_with_power_carrier_and_energy(
+    aperture: Length,
+    max_output_power: Power,
+    carrier: EnergyCarrier,
+    initial_energy: Energy,
+) -> Fixture {
+    let registries = registries_with_power_and_carrier(aperture, max_output_power, carrier);
     let mut state = AppState::new(WorldSeed::new(0x9710_0001));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("screening source fixture failed: {error}"));
@@ -191,7 +226,7 @@ fn fixture_with_power(aperture: Length, max_output_power: Power) -> Fixture {
         &registries,
         &mut state,
         ENERGY_STORE,
-        Energy::from_nanojoules(1_000_000),
+        initial_energy,
     )
     .unwrap_or_else(|error| panic!("screening energy fixture failed: {error}"));
     Fixture {
@@ -223,6 +258,26 @@ fn resolve(fixture: &Fixture) -> Result<ResolvedScreening, ScreeningResolutionEr
             fixture.energy,
         ),
     )
+}
+
+#[test]
+fn screening_reports_wrong_carrier_before_insufficient_energy() {
+    let fixture = fixture_with_power_carrier_and_energy(
+        Length::from_micrometers(2_000),
+        Power::from_microwatts(100),
+        EnergyCarrier::Electrical,
+        Energy::ZERO,
+    );
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve(&fixture).err(),
+        Some(ScreeningResolutionError::WrongEnergyCarrier {
+            required: EnergyCarrier::Mechanical,
+            provided: EnergyCarrier::Electrical,
+        })
+    );
+    assert_eq!(fixture.state, before);
 }
 
 #[test]

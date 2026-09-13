@@ -110,6 +110,8 @@ fn physical_quantities_use_explicit_units() {
     );
     assert_eq!(Force::from_millinewtons(4_000).millinewtons(), 4_000);
     assert_eq!(Power::from_microwatts(3).picowatts(), 3_000_000);
+    assert_eq!(Power::from_microwatts(3).whole_microwatts(), Some(3));
+    assert_eq!(Power::from_picowatts(3_000_001).whole_microwatts(), None);
     assert_eq!(Volume::from_microliters(9).microliters(), 9);
     assert_eq!(
         MassSpecificEnergy::from_nanojoules_per_milligram(17).nanojoules_per_milligram(),

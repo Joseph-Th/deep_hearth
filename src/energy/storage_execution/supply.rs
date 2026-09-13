@@ -52,10 +52,12 @@ impl ConsumedEnergyTrace {
 /// Current read-only supply envelope for one unoccupied finite energy store.
 ///
 /// This is a planning projection, not a reservation. A later mutation may invalidate it, so
-/// consequential callers must still bind an exact amount through [`validate_energy_supply`].
+/// consequential callers must still bind an exact amount through [`validate_energy_supply`] or
+/// `validate_energy_supply_request`.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct EnergySupplyAccess {
+    expected_revision: u64,
     store: EnergyStoreId,
     definition: EnergyStoreDefinitionId,
     carrier: EnergyCarrier,
@@ -149,6 +151,7 @@ pub(crate) fn assess_energy_supply_access(
         None => {}
     }
     Ok(EnergySupplyAccess {
+        expected_revision: state.energy().revision(),
         store,
         definition: record.definition(),
         carrier: definition.carrier(),
@@ -168,17 +171,33 @@ pub fn validate_energy_supply(
         return Err(EnergySupplyError::ZeroEnergy);
     }
     let access = assess_energy_supply_access(registries, state, store)?;
+    validate_energy_supply_request(access, requested)
+}
+
+/// Binds an exact requested amount to one previously assessed supply envelope.
+///
+/// Process resolvers use this after validating process-specific properties such as carrier
+/// compatibility. The resulting proof remains bound to the energy revision captured by the access
+/// assessment, so callers inspect the observable envelope once without weakening stale-state
+/// rejection at the eventual reservation boundary.
+pub(crate) fn validate_energy_supply_request(
+    access: EnergySupplyAccess,
+    requested: Energy,
+) -> Result<ValidatedEnergySupply, EnergySupplyError> {
+    if requested.is_zero() {
+        return Err(EnergySupplyError::ZeroEnergy);
+    }
     if access.available < requested {
         return Err(EnergySupplyError::InsufficientEnergy {
-            store,
+            store: access.store,
             available: access.available,
             requested,
         });
     }
     Ok(ValidatedEnergySupply {
-        expected_revision: state.energy().revision(),
+        expected_revision: access.expected_revision,
         trace: ConsumedEnergyTrace {
-            source: store,
+            source: access.store,
             definition: access.definition,
             carrier: access.carrier,
             energy: requested,

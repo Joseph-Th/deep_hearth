@@ -42,6 +42,14 @@ fn supply_access_reports_an_empty_but_currently_usable_store_without_reserving_i
     assert_eq!(access.available(), Energy::ZERO);
     assert_eq!(access.max_output_power(), Power::from_microwatts(25));
     assert_eq!(
+        validate_energy_supply_request(access, Energy::from_nanojoules(1)),
+        Err(EnergySupplyError::InsufficientEnergy {
+            store,
+            available: Energy::ZERO,
+            requested: Energy::from_nanojoules(1),
+        })
+    );
+    assert_eq!(
         validate_energy_supply(&registries, &state, store, Energy::from_nanojoules(1)),
         Err(EnergySupplyError::InsufficientEnergy {
             store,

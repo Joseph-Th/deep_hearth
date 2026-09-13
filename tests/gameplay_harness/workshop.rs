@@ -858,10 +858,10 @@ fn probe_manual_recovery_option(
             .energy()
             .get_store(option.store)
             .and_then(|store| registries.energy().get_store(store.definition()))
-            .map(|definition| definition.max_output_power().whole_microwatts())
+            .and_then(|definition| definition.max_output_power().whole_microwatts())
             .unwrap_or_else(|| {
                 panic!(
-                    "manual-recovery {} drive lost its authored output-power definition",
+                    "manual-recovery {} drive lost its authored whole-microwatt output-power definition",
                     option.name
                 )
             });
@@ -1042,12 +1042,19 @@ fn crush_batch(
         option,
         batch_index,
     } = execution;
+    let available_power_microwatts = option
+        .resolved
+        .available_power()
+        .whole_microwatts()
+        .unwrap_or_else(|| {
+            panic!("workshop crushing power must be an exact whole-microwatt value")
+        });
     println!(
         "  crush#{batch_index}: drive={} mass={}mg rate={}mg/s power={}uW duration={}t constraints=[throughput:{}t energy:{}t] condition={}ppm->{}ppm bottleneck={:?}",
         option.name,
         mass.milligrams(),
         option.resolved.processing_rate().milligrams_per_second(),
-        option.resolved.available_power().whole_microwatts(),
+        available_power_microwatts,
         option.resolved.process_resolution().duration().value(),
         option.resolved.throughput_duration().value(),
         option.resolved.energy_duration().value(),

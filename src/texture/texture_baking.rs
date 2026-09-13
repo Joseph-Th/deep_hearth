@@ -132,12 +132,12 @@ impl TextureRegistry {
         let mut palette_row_ids =
             BTreeMap::<[u16; TEXTURE_PALETTE_SLOT_COUNT], TexturePaletteRow>::new();
 
-        let maximum_texture_id = self
+        let texture_lookup_len = self
             .textures_in_id_order()
             .map(|definition| usize::from(definition.id().value()))
             .max()
-            .unwrap_or(0);
-        let mut descriptors_by_texture = vec![None; maximum_texture_id + 1];
+            .map_or(0, |maximum_id| maximum_id + 1);
+        let mut descriptors_by_texture = vec![None; texture_lookup_len];
 
         for definition in self.textures_in_id_order() {
             let pattern = definition.texels();
@@ -179,13 +179,13 @@ impl TextureRegistry {
         }
 
         let mip_levels = mip::build_mip_levels(patterns);
-        let maximum_ramp_id = self
+        let ramp_lookup_len = self
             .ramps_in_id_order()
             .map(|definition| usize::from(definition.id().value()))
             .max()
-            .unwrap_or(0);
+            .map_or(0, |maximum_id| maximum_id + 1);
         let mut palette_colors =
-            vec![ColorRgba8::default(); (maximum_ramp_id + 1) * PALETTE_RAMP_COLOR_COUNT];
+            vec![ColorRgba8::default(); ramp_lookup_len * PALETTE_RAMP_COLOR_COUNT];
         for ramp in self.ramps_in_id_order() {
             let start = usize::from(ramp.id().value()) * PALETTE_RAMP_COLOR_COUNT;
             palette_colors[start..start + PALETTE_RAMP_COLOR_COUNT].copy_from_slice(ramp.colors());

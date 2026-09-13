@@ -7,7 +7,8 @@ use crate::material::{CommodityKey, FormId, MaterialId, ParticleSizeRange};
 use crate::production::ProcessId;
 
 use super::{
-    ConstituentRecoveryProfile, ConstituentSeparationPhysics, minimum_feed_mass_for_target_recovery,
+    ConstituentRecoveryProfile, ConstituentSeparationPhysics,
+    minimum_homogeneous_feed_mass_for_target_recovery,
 };
 use crate::ore_processing::definitions::PoweredOreProcessProfile;
 
@@ -110,27 +111,32 @@ impl ConstituentSeparationProcessDefinition {
     }
 
     /// Returns the authored fraction of exact target content recovered to the target stream.
-    /// Recovery is conservatively floored once at the whole-milligram output boundary; the
-    /// unresolved fractional target and all intentionally unrecovered target remain explicit
-    /// residue matter.
+    /// Recovery is conservatively floored at the whole-milligram output boundary for each
+    /// temperature/particle-size recovery group. The unresolved fractional target and all
+    /// intentionally unrecovered target remain explicit residue matter.
     #[must_use]
     pub const fn target_recovery_ppm(self) -> u32 {
         self.physics.target_recovery_ppm()
     }
 
-    /// Minimum selected feed mass whose exact target-constituent share can recover `target` whole
-    /// milligrams under this process's authored target recovery.
+    /// Minimum one-profile feed mass whose exact target-constituent share can recover `target`
+    /// whole milligrams under this process's authored target recovery.
     ///
-    /// `constituent_ppm` is the observed target-material share of the candidate feed. The result
-    /// owns the same conservative whole-milligram recovery boundary as runtime separation and is
-    /// suitable for actor planning before exact selection resolution.
+    /// `constituent_ppm` is the target-material share of that homogeneous candidate feed. Runtime
+    /// recovery preserves temperature and particle-size identity and therefore rounds each distinct
+    /// recovery group independently. Callers planning a heterogeneous selection must resolve the
+    /// exact selection rather than treating its aggregate assay as one recovery group.
     #[must_use]
-    pub fn minimum_feed_mass_for_target_recovery(
+    pub fn minimum_homogeneous_feed_mass_for_target_recovery(
         self,
         target: Mass,
         constituent_ppm: u32,
     ) -> Option<Mass> {
-        minimum_feed_mass_for_target_recovery(target, constituent_ppm, self.target_recovery_ppm())
+        minimum_homogeneous_feed_mass_for_target_recovery(
+            target,
+            constituent_ppm,
+            self.target_recovery_ppm(),
+        )
     }
 
     /// Returns the fraction of each non-target constituent carried into a concentration target

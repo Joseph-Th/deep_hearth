@@ -207,12 +207,15 @@ fn resolve_prospecting_equipment_plan(
     };
     let provider = resolve_equipment_provider(registries, state, equipment)
         .map_err(FieldProspectingStartError::Equipment)?;
-    if !profile.accepts(provider.definition().id()) {
+    let equipment_definition = provider.definition().id();
+    let Some(condition_wear_ppm_per_active_tick) =
+        profile.condition_wear_ppm_per_active_tick(equipment_definition)
+    else {
         return Err(FieldProspectingStartError::EquipmentDefinitionNotAccepted {
             method: request.method,
             equipment,
         });
-    }
+    };
     if state
         .equipment()
         .get_equipment(equipment)
@@ -223,7 +226,7 @@ fn resolve_prospecting_equipment_plan(
     validate_start_equipment_occupancy(state, equipment)?;
     let use_trace = provider.validated_use();
     let condition_after = calculate_usable_condition_after_active_ticks(
-        profile.condition_wear_ppm_per_active_tick(),
+        condition_wear_ppm_per_active_tick,
         provider.condition(),
         method.duration(),
     )

@@ -65,6 +65,15 @@ fn assembly_is_transitive_deduplicated_and_stably_ordered() {
 }
 
 #[test]
+fn empty_registry_bakes_without_phantom_lookup_entries() {
+    let baked = ShaderRegistry::new(std::iter::empty()).bake_shader_set();
+
+    assert_eq!(baked.program_count(), 0);
+    assert_eq!(baked.programs_by_id.len(), 0);
+    assert_eq!(baked.get_program(ShaderId::new(1)), None);
+}
+
+#[test]
 fn library_cannot_be_requested_as_an_executable_program() {
     assert_eq!(
         registry().assemble_program(COMMON),

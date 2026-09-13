@@ -2,11 +2,11 @@
 
 use super::*;
 use crate::content::{
-    ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-    EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE, FORM_CRUSHED, FORM_NATIVE_METAL,
-    FORM_REINFORCEMENT, FORM_TAILINGS, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CONCENTRATE_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER,
-    PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
+    ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_SMALL_DRIVE,
+    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE,
+    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_TAILINGS, MATERIAL_CLAY,
+    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CONCENTRATE_COPPER,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::{Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
@@ -35,6 +35,42 @@ fn liberated_particle_size() -> ParticleSizeRange {
         Length::from_micrometers(10_000),
     )
     .unwrap_or_else(|error| panic!("separation particle-size fixture failed: {error}"))
+}
+
+#[test]
+fn separation_reports_wrong_carrier_before_insufficient_energy() {
+    let mut fixture = fixture(Mass::from_milligrams(10), copper_stone_composition(400_000));
+    let wrong_energy = add_energy_store_with_initial_for_fixture(
+        &fixture.registries,
+        &mut fixture.state,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap_or_else(|error| panic!("separation wrong-carrier energy fixture failed: {error}"));
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ConstituentSeparationRequest::new(
+                PROCESS_SEPARATE_NATIVE_COPPER,
+                fixture.source,
+                &[MaterialLotSelection::new(
+                    fixture.lot,
+                    Mass::from_milligrams(10)
+                )],
+                fixture.separator,
+                wrong_energy,
+            ),
+        )
+        .err(),
+        Some(ConstituentSeparationResolutionError::WrongEnergyCarrier {
+            required: crate::energy::EnergyCarrier::Mechanical,
+            provided: crate::energy::EnergyCarrier::Electrical,
+        })
+    );
+    assert_eq!(fixture.state, before);
 }
 
 #[test]
@@ -439,13 +475,16 @@ fn hand_sorting_is_a_conserved_survival_costed_fallback_that_powered_sorting_mat
         .unwrap_or_else(|| panic!("powered native-copper sorting definition disappeared"));
 
     assert_eq!(
-        manual_definition.minimum_feed_mass_for_target_recovery(resolved.target_mass(), 400_000,),
+        manual_definition
+            .minimum_homogeneous_feed_mass_for_target_recovery(resolved.target_mass(), 400_000,),
         Some(mass),
         "manual planning projection must agree with the exact resolved recovery boundary"
     );
     assert_eq!(
-        powered_definition
-            .minimum_feed_mass_for_target_recovery(powered_resolved.target_mass(), 400_000,),
+        powered_definition.minimum_homogeneous_feed_mass_for_target_recovery(
+            powered_resolved.target_mass(),
+            400_000,
+        ),
         Some(mass),
         "powered planning projection must agree with the exact resolved recovery boundary"
     );
@@ -997,6 +1036,62 @@ fn constituent_separation_keeps_sub_resolution_group_target_in_residue_without_b
         })
         .sum::<u128>();
     assert_eq!(represented_copper_ppm_mg, 4_u128 * 500_000_u128);
+}
+
+#[test]
+fn homogeneous_recovery_projection_does_not_overpromise_for_heterogeneous_selection() {
+    let primary_mass = Mass::from_milligrams(4);
+    let trace_mass = Mass::from_milligrams(1);
+    let composition = copper_stone_composition(500_000);
+    let mut fixture = fixture(primary_mass, composition.clone());
+    let definition = fixture
+        .registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("native-copper separation definition disappeared"));
+    assert_eq!(
+        definition
+            .minimum_homogeneous_feed_mass_for_target_recovery(Mass::from_milligrams(2), 500_000,),
+        Some(Mass::from_milligrams(5))
+    );
+
+    let trace = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        trace_mass,
+        Temperature::from_millikelvin(310_000),
+        composition,
+        liberated_particle_size(),
+    )
+    .unwrap_or_else(|error| panic!("heterogeneous recovery input specification failed: {error}"));
+    let trace_lot = deposit_lot_spec_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.source,
+        trace,
+    )
+    .unwrap_or_else(|error| panic!("heterogeneous recovery lot fixture failed: {error}"));
+
+    let resolved = resolve_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ConstituentSeparationRequest::new(
+            PROCESS_SEPARATE_NATIVE_COPPER,
+            fixture.source,
+            &[
+                MaterialLotSelection::new(fixture.lot, primary_mass),
+                MaterialLotSelection::new(trace_lot, trace_mass),
+            ],
+            fixture.separator,
+            fixture.energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("heterogeneous recovery separation failed: {error}"));
+
+    assert_eq!(
+        resolved.target_mass(),
+        Mass::from_milligrams(1),
+        "whole-milligram recovery is resolved independently for unlike temperature/particle profiles"
+    );
 }
 
 #[test]

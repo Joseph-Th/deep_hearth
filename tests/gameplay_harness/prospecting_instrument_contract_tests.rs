@@ -91,6 +91,16 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     assert!(detailed_tool.accepts(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER));
     assert!(!channel_tool.accepts(EQUIPMENT_STONE_GEOLOGICAL_HAMMER));
     assert!(channel_tool.accepts(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER));
+    assert_eq!(
+        detailed_tool.condition_wear_ppm_per_active_tick(EQUIPMENT_STONE_GEOLOGICAL_HAMMER),
+        Some(120)
+    );
+    assert_eq!(
+        detailed_tool
+            .condition_wear_ppm_per_active_tick(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER),
+        Some(60),
+        "copper reinforcement must halve detailed-sampling wear"
+    );
 
     let base_hammer = registries
         .equipment()
@@ -275,6 +285,33 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
             .map(|record| record.condition()),
         Some(condition_after_detailed),
         "sampling-hammer reinforcement must preserve prior wear"
+    );
+    let reinforced_detailed_start = validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new_with_equipment(
+            PROSPECTING_DETAILED_FIELD_SURVEY,
+            detailed_region,
+            MATERIAL_COPPER,
+            hammer,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("reinforced detailed hammer survey failed: {error}"));
+    let reinforced_detailed_after = reinforced_detailed_start
+        .work()
+        .condition_after()
+        .unwrap_or_else(|| panic!("reinforced detailed survey lost its condition outcome"));
+    assert_eq!(
+        u64::from(
+            condition_after_detailed
+                .parts_per_million()
+                .checked_sub(reinforced_detailed_after.parts_per_million())
+                .unwrap_or_else(|| {
+                    panic!("reinforced detailed survey cannot improve equipment condition")
+                }),
+        ),
+        60 * detailed.duration().value(),
+        "reinforced hammer must apply its lower 60 ppm/t wear through canonical detailed-survey admission"
     );
 
     let channel_start = validate_start_field_prospecting(

@@ -128,22 +128,28 @@ impl LaborRegistry {
             let Some(profile) = definition.equipment() else {
                 continue;
             };
-            assert!(
-                calculate_usable_condition_after_active_ticks(
-                    profile.condition_wear_ppm_per_active_tick(),
-                    Condition::PRISTINE,
-                    definition.duration(),
-                )
-                .is_ok(),
-                "prospecting method {} cannot complete its authored {}-tick duration with a pristine instrument at {} ppm wear per active tick",
-                definition.id().value(),
-                definition.duration().value(),
-                profile.condition_wear_ppm_per_active_tick()
-            );
             for equipment_id in [Some(profile.primary()), profile.alternative()]
                 .into_iter()
                 .flatten()
             {
+                let condition_wear_ppm_per_active_tick = profile
+                    .condition_wear_ppm_per_active_tick(equipment_id)
+                    .unwrap_or_else(|| {
+                        unreachable!("prospecting profile enumerates only accepted equipment")
+                    });
+                assert!(
+                    calculate_usable_condition_after_active_ticks(
+                        condition_wear_ppm_per_active_tick,
+                        Condition::PRISTINE,
+                        definition.duration(),
+                    )
+                    .is_ok(),
+                    "prospecting method {} cannot complete its authored {}-tick duration with pristine instrument {} at {} ppm wear per active tick",
+                    definition.id().value(),
+                    definition.duration().value(),
+                    equipment_id.value(),
+                    condition_wear_ppm_per_active_tick
+                );
                 let equipment_definition =
                     equipment.get_equipment(equipment_id).unwrap_or_else(|| {
                         panic!(

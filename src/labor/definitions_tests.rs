@@ -25,7 +25,7 @@ fn prospecting_definition_rejects_duplicate_hardness_resolution() {
         1,
         1,
         active_exertion(),
-        ProspectingEquipmentProfile::new(EquipmentDefinitionId::new(55_001), None, 1),
+        ProspectingEquipmentProfile::new(EquipmentDefinitionId::new(55_001), 1),
     );
     let resolution = Pressure::from_pascals(1);
     let result = std::panic::catch_unwind(|| {
@@ -46,7 +46,7 @@ fn prospecting_definition_rejects_hardness_on_nonphysical_evidence() {
         1,
         1,
         active_exertion(),
-        ProspectingEquipmentProfile::new(EquipmentDefinitionId::new(55_005), None, 1),
+        ProspectingEquipmentProfile::new(EquipmentDefinitionId::new(55_005), 1),
     );
 
     let result = std::panic::catch_unwind(|| {
@@ -114,7 +114,7 @@ fn prospecting_authoring_rejects_structurally_installed_instruments() {
         1,
         1,
         active_exertion(),
-        ProspectingEquipmentProfile::new(EQUIPMENT_JAW_CRUSHER, None, 1),
+        ProspectingEquipmentProfile::new(EQUIPMENT_JAW_CRUSHER, 1),
     );
     let labor = LaborRegistry::new(std::iter::empty(), [prospecting]);
 
@@ -139,7 +139,7 @@ fn prospecting_authoring_rejects_duration_beyond_pristine_tool_lifetime() {
         1,
         1,
         active_exertion(),
-        ProspectingEquipmentProfile::new(EQUIPMENT_STONE_GEOLOGICAL_HAMMER, None, 1_000_000),
+        ProspectingEquipmentProfile::new(EQUIPMENT_STONE_GEOLOGICAL_HAMMER, 1_000_000),
     );
     let labor = LaborRegistry::new(std::iter::empty(), [prospecting]);
 
@@ -152,4 +152,24 @@ fn prospecting_authoring_rejects_duration_beyond_pristine_tool_lifetime() {
     });
 
     assert!(result.is_err());
+}
+
+#[test]
+fn prospecting_equipment_profile_resolves_wear_per_accepted_instrument() {
+    let primary = EquipmentDefinitionId::new(55_006);
+    let alternative = EquipmentDefinitionId::new(55_007);
+    let profile = ProspectingEquipmentProfile::new(primary, 120).with_alternative(alternative, 60);
+
+    assert_eq!(
+        profile.condition_wear_ppm_per_active_tick(primary),
+        Some(120)
+    );
+    assert_eq!(
+        profile.condition_wear_ppm_per_active_tick(alternative),
+        Some(60)
+    );
+    assert_eq!(
+        profile.condition_wear_ppm_per_active_tick(EquipmentDefinitionId::new(55_008)),
+        None
+    );
 }

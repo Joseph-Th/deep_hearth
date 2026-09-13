@@ -3,7 +3,7 @@
 use crate::capability::evaluate_capabilities;
 use crate::core::quantity::{Energy, Power, Temperature};
 use crate::core::state::AppState;
-use crate::energy::{EnergyStoreId, validate_energy_supply};
+use crate::energy::{EnergyStoreId, assess_energy_supply_access, validate_energy_supply_request};
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::production::{
@@ -195,15 +195,17 @@ pub fn resolve_sensible_heating_process(
         return Err(SensibleHeatingResolutionError::NoHeatingRequired);
     }
 
-    let energy_supply = validate_energy_supply(registries, state, energy_store, required_energy)
+    let energy_access = assess_energy_supply_access(registries, state, energy_store)
         .map_err(SensibleHeatingResolutionError::Energy)?;
-    let provided_carrier = energy_supply.trace().carrier();
+    let provided_carrier = energy_access.carrier();
     if provided_carrier != definition.energy_carrier() {
         return Err(SensibleHeatingResolutionError::WrongEnergyCarrier {
             required: definition.energy_carrier(),
             provided: provided_carrier,
         });
     }
+    let energy_supply = validate_energy_supply_request(energy_access, required_energy)
+        .map_err(SensibleHeatingResolutionError::Energy)?;
     let timing = resolve_thermal_transfer_timing(
         registries,
         limits.transfer_power(),

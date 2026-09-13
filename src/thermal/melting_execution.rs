@@ -3,7 +3,9 @@
 use crate::capability::{CapabilityId, evaluate_capabilities};
 use crate::core::quantity::{Energy, Power, Temperature};
 use crate::core::state::AppState;
-use crate::energy::{EnergyCarrier, EnergyStoreId, validate_energy_supply};
+use crate::energy::{
+    EnergyCarrier, EnergyStoreId, assess_energy_supply_access, validate_energy_supply_request,
+};
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::MaterialLotSelection;
 use crate::inventory::StockpileId;
@@ -286,16 +288,17 @@ pub fn resolve_melting_process(
             },
         );
     }
-    let energy_supply =
-        validate_energy_supply(registries, state, energy_store, batch.transfer_energy)
-            .map_err(MeltingResolutionError::Energy)?;
-    let provided_carrier = energy_supply.trace().carrier();
+    let energy_access = assess_energy_supply_access(registries, state, energy_store)
+        .map_err(MeltingResolutionError::Energy)?;
+    let provided_carrier = energy_access.carrier();
     if provided_carrier != definition.energy_carrier() {
         return Err(MeltingResolutionError::WrongEnergyCarrier {
             required: definition.energy_carrier(),
             provided: provided_carrier,
         });
     }
+    let energy_supply = validate_energy_supply_request(energy_access, batch.transfer_energy)
+        .map_err(MeltingResolutionError::Energy)?;
     let timing = resolve_thermal_transfer_timing(
         registries,
         limits.transfer_power(),

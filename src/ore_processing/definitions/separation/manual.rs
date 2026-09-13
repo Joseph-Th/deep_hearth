@@ -5,7 +5,7 @@ use crate::material::{CommodityKey, FormId, MaterialId, ParticleSizeRange};
 use crate::production::ProcessId;
 use crate::survival::SurvivalExertion;
 
-use super::{ConstituentSeparationPhysics, minimum_feed_mass_for_target_recovery};
+use super::{ConstituentSeparationPhysics, minimum_homogeneous_feed_mass_for_target_recovery};
 use crate::ore_processing::definitions::ManualOreProcessProfile;
 
 /// Immutable selected-batch constituent separation performed directly by player labor.
@@ -85,15 +85,23 @@ impl ManualConstituentSeparationProcessDefinition {
         self.physics.target_recovery_ppm()
     }
 
-    /// Minimum selected feed mass whose exact target-constituent share can recover `target` whole
-    /// milligrams under this manual process's authored recovery.
+    /// Minimum one-profile feed mass whose exact target-constituent share can recover `target`
+    /// whole milligrams under this manual process's authored recovery.
+    ///
+    /// Runtime recovery preserves temperature and particle-size identity and therefore rounds each
+    /// distinct recovery group independently. Callers planning a heterogeneous selection must
+    /// resolve that exact selection instead of treating an aggregate assay as one homogeneous lot.
     #[must_use]
-    pub fn minimum_feed_mass_for_target_recovery(
+    pub fn minimum_homogeneous_feed_mass_for_target_recovery(
         self,
         target: Mass,
         constituent_ppm: u32,
     ) -> Option<Mass> {
-        minimum_feed_mass_for_target_recovery(target, constituent_ppm, self.target_recovery_ppm())
+        minimum_homogeneous_feed_mass_for_target_recovery(
+            target,
+            constituent_ppm,
+            self.target_recovery_ppm(),
+        )
     }
 
     #[must_use]

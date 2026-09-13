@@ -38,6 +38,7 @@ const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(950_002);
 const MAX_BATCH_MASS: CapabilityId = CapabilityId::new(950_003);
 const FURNACE: EquipmentDefinitionId = EquipmentDefinitionId::new(950_001);
 const ENERGY_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(950_001);
+const COMPATIBLE_ENERGY_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(950_002);
 const PROCESS: ProcessId = ProcessId::new(950_001);
 const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 const INPUT_TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
@@ -95,12 +96,23 @@ fn make_registries(maximum_temperature: Temperature, carrier: EnergyCarrier) -> 
     );
     let energy = EnergyStoreDefinition::new_with_transfer_limits(
         ENERGY_STORE,
-        "test melting electrical buffer",
+        "test melting energy buffer",
         carrier,
         Energy::from_nanojoules(2_000_000_000_000),
         Power::ZERO,
         Power::from_microwatts(10_000_000),
     );
+    let mut energy_definitions = vec![energy];
+    if carrier != EnergyCarrier::Electrical {
+        energy_definitions.push(EnergyStoreDefinition::new_with_transfer_limits(
+            COMPATIBLE_ENERGY_STORE,
+            "test compatible melting electrical buffer",
+            EnergyCarrier::Electrical,
+            Energy::from_nanojoules(2_000_000_000_000),
+            Power::ZERO,
+            Power::from_microwatts(10_000_000),
+        ));
+    }
     let process = ProcessDefinition::new_selected_batch(
         PROCESS,
         "pure material melting",
@@ -141,7 +153,7 @@ fn make_registries(maximum_temperature: Temperature, carrier: EnergyCarrier) -> 
             ),
         ],
         equipment,
-        vec![energy],
+        energy_definitions,
         process,
         MeltingProcessDefinition::new(
             PROCESS,
@@ -437,6 +449,32 @@ fn make_fixture_with_resources(
             source_lot,
         },
     }
+}
+
+#[test]
+fn melting_reports_wrong_carrier_before_insufficient_energy() {
+    let fixture = make_fixture_with_resources(
+        Temperature::from_millikelvin(1_500_000),
+        EnergyCarrier::Thermal,
+        Mass::from_milligrams(10),
+        Condition::PRISTINE,
+        Energy::ZERO,
+    );
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_selected(
+            &fixture.registries,
+            &fixture.state,
+            fixture.ids,
+            Mass::from_milligrams(10),
+        ),
+        Err(MeltingResolutionError::WrongEnergyCarrier {
+            required: EnergyCarrier::Electrical,
+            provided: EnergyCarrier::Thermal,
+        })
+    );
+    assert_eq!(fixture.state, before);
 }
 
 #[test]

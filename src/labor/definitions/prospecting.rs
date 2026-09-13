@@ -37,7 +37,7 @@ pub enum ProspectingSpatialResolution {
     PerVoxel,
 }
 
-/// Physical instrument requirement and wear for one prospecting method.
+/// Physical instrument requirements and per-instrument wear for one prospecting method.
 ///
 /// The accepted definitions are explicit authored tool identities rather than a generic tier score.
 /// This keeps prospecting precision owned by the method while equipment remains responsible for
@@ -45,32 +45,62 @@ pub enum ProspectingSpatialResolution {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProspectingEquipmentProfile {
     primary: EquipmentDefinitionId,
+    primary_condition_wear_ppm_per_active_tick: u32,
     alternative: Option<EquipmentDefinitionId>,
-    condition_wear_ppm_per_active_tick: u32,
+    alternative_condition_wear_ppm_per_active_tick: Option<u32>,
 }
 
 impl ProspectingEquipmentProfile {
     #[must_use]
-    pub fn new(
-        primary: EquipmentDefinitionId,
-        alternative: Option<EquipmentDefinitionId>,
-        condition_wear_ppm_per_active_tick: u32,
-    ) -> Self {
-        assert!(
-            alternative != Some(primary),
-            "prospecting equipment alternatives must identify distinct definitions"
-        );
+    pub fn new(primary: EquipmentDefinitionId, condition_wear_ppm_per_active_tick: u32) -> Self {
         assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         Self {
             primary,
-            alternative,
-            condition_wear_ppm_per_active_tick,
+            primary_condition_wear_ppm_per_active_tick: condition_wear_ppm_per_active_tick,
+            alternative: None,
+            alternative_condition_wear_ppm_per_active_tick: None,
         }
     }
 
     #[must_use]
+    pub fn with_alternative(
+        mut self,
+        alternative: EquipmentDefinitionId,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert_ne!(
+            alternative, self.primary,
+            "prospecting equipment alternatives must identify distinct definitions"
+        );
+        assert!(
+            self.alternative.is_none(),
+            "prospecting equipment profile cannot define more than one alternative"
+        );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        self.alternative = Some(alternative);
+        self.alternative_condition_wear_ppm_per_active_tick =
+            Some(condition_wear_ppm_per_active_tick);
+        self
+    }
+
+    #[must_use]
+    pub fn condition_wear_ppm_per_active_tick(
+        self,
+        definition: EquipmentDefinitionId,
+    ) -> Option<u32> {
+        if definition == self.primary {
+            return Some(self.primary_condition_wear_ppm_per_active_tick);
+        }
+        if self.alternative == Some(definition) {
+            return self.alternative_condition_wear_ppm_per_active_tick;
+        }
+        None
+    }
+
+    #[must_use]
     pub fn accepts(self, definition: EquipmentDefinitionId) -> bool {
-        definition == self.primary || self.alternative == Some(definition)
+        self.condition_wear_ppm_per_active_tick(definition)
+            .is_some()
     }
 
     #[must_use]
@@ -81,11 +111,6 @@ impl ProspectingEquipmentProfile {
     #[must_use]
     pub const fn alternative(self) -> Option<EquipmentDefinitionId> {
         self.alternative
-    }
-
-    #[must_use]
-    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
-        self.condition_wear_ppm_per_active_tick
     }
 }
 

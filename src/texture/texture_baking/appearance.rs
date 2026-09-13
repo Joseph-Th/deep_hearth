@@ -7,12 +7,12 @@ pub(super) fn bake_block_appearances(
     registry: &TextureRegistry,
     descriptors: &[Option<BakedTextureDescriptor>],
 ) -> Vec<Option<BakedBlockAppearance>> {
-    let maximum_id = registry
+    let lookup_len = registry
         .blocks_in_id_order()
         .map(|definition| usize::from(definition.id().value()))
         .max()
-        .unwrap_or(0);
-    let mut baked = vec![None; maximum_id + 1];
+        .map_or(0, |maximum_id| maximum_id + 1);
+    let mut baked = vec![None; lookup_len];
     for definition in registry.blocks_in_id_order() {
         let textures = definition
             .textures()
@@ -26,12 +26,12 @@ pub(super) fn bake_object_appearances(
     registry: &TextureRegistry,
     descriptors: &[Option<BakedTextureDescriptor>],
 ) -> Vec<Option<BakedObjectAppearance>> {
-    let maximum_id = registry
+    let lookup_len = registry
         .objects_in_id_order()
         .map(|definition| usize::from(definition.id().value()))
         .max()
-        .unwrap_or(0);
-    let mut baked = vec![None; maximum_id + 1];
+        .map_or(0, |maximum_id| maximum_id + 1);
+    let mut baked = vec![None; lookup_len];
     for definition in registry.objects_in_id_order() {
         let textures = definition
             .textures()

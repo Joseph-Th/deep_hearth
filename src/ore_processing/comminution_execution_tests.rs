@@ -689,6 +689,7 @@ fn make_fixture_with_registries(
     seed: WorldSeed,
     input_mass: Mass,
     equipment_condition: Condition,
+    initial_energy: Energy,
 ) -> Fixture {
     let mut state = AppState::new(seed);
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
@@ -719,7 +720,7 @@ fn make_fixture_with_registries(
         &registries,
         &mut state,
         ENERGY_STORE_DEFINITION,
-        Energy::from_nanojoules(1_000_000),
+        initial_energy,
     ) {
         Ok(energy_store) => energy_store,
         Err(error) => panic!("comminution energy fixture failed: {error}"),
@@ -736,7 +737,13 @@ fn make_fixture_with_registries(
 }
 
 fn make_fixture(seed: WorldSeed, input_mass: Mass, equipment_condition: Condition) -> Fixture {
-    make_fixture_with_registries(make_registries(), seed, input_mass, equipment_condition)
+    make_fixture_with_registries(
+        make_registries(),
+        seed,
+        input_mass,
+        equipment_condition,
+        Energy::from_nanojoules(1_000_000),
+    )
 }
 
 fn matter_total(state: &AppState) -> AggregateMass {
@@ -862,6 +869,7 @@ fn weak_energy_delivery_extends_active_time_and_equipment_wear() {
         WorldSeed::new(0x9700_0004),
         Mass::from_milligrams(20),
         Condition::PRISTINE,
+        Energy::from_nanojoules(1_000_000),
     );
     let resolved = match resolve_mass(&fixture, &fixture.state, Mass::from_milligrams(20)) {
         Ok(resolved) => resolved,
@@ -886,12 +894,13 @@ fn weak_energy_delivery_extends_active_time_and_equipment_wear() {
 }
 
 #[test]
-fn comminution_rejects_wrong_energy_carrier_without_mutation() {
+fn comminution_reports_wrong_energy_carrier_before_insufficient_energy() {
     let fixture = make_fixture_with_registries(
         make_registries_with_energy(EnergyCarrier::Electrical, Power::from_microwatts(100)),
         WorldSeed::new(0x9700_0005),
         Mass::from_milligrams(20),
         Condition::PRISTINE,
+        Energy::ZERO,
     );
     let before = fixture.state.clone();
 

@@ -235,8 +235,12 @@ impl Power {
 
     /// Returns whole microwatts when exact; callers needing full precision use `picowatts`.
     #[must_use]
-    pub const fn whole_microwatts(self) -> u128 {
-        self.0 / 1_000_000
+    pub const fn whole_microwatts(self) -> Option<u128> {
+        if self.0.is_multiple_of(1_000_000) {
+            Some(self.0 / 1_000_000)
+        } else {
+            None
+        }
     }
 }
 

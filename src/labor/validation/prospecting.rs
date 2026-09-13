@@ -28,11 +28,13 @@ fn validate_equipment_trace(
     if record.definition() != trace.definition() {
         return Err(PlayerWorkValidationError::ProspectingEquipmentDefinitionMismatch);
     }
-    if !profile.accepts(record.definition()) {
+    let Some(condition_wear_ppm_per_active_tick) =
+        profile.condition_wear_ppm_per_active_tick(record.definition())
+    else {
         return Err(
             PlayerWorkValidationError::ProspectingEquipmentDefinitionNotAccepted { equipment },
         );
-    }
+    };
     if record.condition() != trace.condition() {
         return Err(PlayerWorkValidationError::ProspectingEquipmentConditionMismatch);
     }
@@ -48,7 +50,7 @@ fn validate_equipment_trace(
         );
     }
     let required = calculate_usable_condition_after_active_ticks(
-        profile.condition_wear_ppm_per_active_tick(),
+        condition_wear_ppm_per_active_tick,
         trace.condition(),
         duration,
     )

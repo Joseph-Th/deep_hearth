@@ -4,7 +4,10 @@ use crate::capability::evaluate_capabilities;
 use crate::core::quantity::{Energy, Mass, MassFlow, Power};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::energy::{EnergyStoreId, calculate_mass_specific_energy, validate_energy_supply};
+use crate::energy::{
+    EnergyStoreId, assess_energy_supply_access, calculate_mass_specific_energy,
+    validate_energy_supply_request,
+};
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
@@ -209,14 +212,16 @@ pub fn resolve_constituent_separation_process(
     .map_err(ConstituentSeparationResolutionError::Batch)?;
     let required_energy =
         calculate_mass_specific_energy(selected_mass, definition.specific_energy());
-    let energy_supply = validate_energy_supply(registries, state, energy_store, required_energy)
+    let energy_access = assess_energy_supply_access(registries, state, energy_store)
         .map_err(ConstituentSeparationResolutionError::Energy)?;
-    if energy_supply.trace().carrier() != definition.energy_carrier() {
+    if energy_access.carrier() != definition.energy_carrier() {
         return Err(ConstituentSeparationResolutionError::WrongEnergyCarrier {
             required: definition.energy_carrier(),
-            provided: energy_supply.trace().carrier(),
+            provided: energy_access.carrier(),
         });
     }
+    let energy_supply = validate_energy_supply_request(energy_access, required_energy)
+        .map_err(ConstituentSeparationResolutionError::Energy)?;
     let available_power = energy_supply.max_output_power();
     let timing = resolve_powered_ore_timing(
         registries,

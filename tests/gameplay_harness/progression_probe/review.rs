@@ -325,8 +325,12 @@ fn nominal_manual_power(
 }
 
 fn relative_power_gain_ppm(base: Power, upgraded: Power) -> u32 {
-    let base = base.whole_microwatts();
-    let upgraded = upgraded.whole_microwatts();
+    let base = base
+        .whole_microwatts()
+        .unwrap_or_else(|| panic!("primitive base power must be an exact whole-microwatt value"));
+    let upgraded = upgraded.whole_microwatts().unwrap_or_else(|| {
+        panic!("primitive upgraded power must be an exact whole-microwatt value")
+    });
     assert!(base > 0 && upgraded > base);
     u32::try_from((upgraded - base) * 1_000_000 / base)
         .unwrap_or_else(|_| panic!("primitive manual-power gain exceeds report range"))
@@ -1242,6 +1246,12 @@ pub(crate) fn evaluate_primitive_progression_probe(
         natural.elapsed_ticks,
     );
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+        let reinforced_crank_power_microwatts = reinforced_crank_power
+            .whole_microwatts()
+            .unwrap_or_else(|| panic!("reinforced crank power must be whole microwatts"));
+        let primitive_flywheel_input_power_microwatts = primitive_flywheel_input_power
+            .whole_microwatts()
+            .unwrap_or_else(|| panic!("primitive flywheel input power must be whole microwatts"));
         reviewln!(
             "PROGRESSION TRADEOFF seed=0x{seed:016X} evidence=matched-counterfactual same-decision-state:true authorship=distinct-physical-consequences pick-first=[unlock:hard-seam grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t hard-window:{}t] crank-first-counterfactual=[feed-grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t autonomy-lead:{}t first-output-delta:{:+}t crank:{}uW flywheel-input:{}uW unclipped:true full-charge-attention-reduction:{}ppm pre-pick-output-window:{}t] counterfactual-distinct:{} convergence=[both-upgrades:{} delta:{:+}t final-hard-ore:{}vs{}mg]",
             review.extraction_feed_copper_ppm,
@@ -1255,8 +1265,8 @@ pub(crate) fn evaluate_primitive_progression_probe(
             review.mechanization_separation_ticks,
             review.mechanization_autonomy_lead_ticks,
             review.mechanization_output_delta_ticks,
-            reinforced_crank_power.whole_microwatts(),
-            primitive_flywheel_input_power.whole_microwatts(),
+            reinforced_crank_power_microwatts,
+            primitive_flywheel_input_power_microwatts,
             review.crank_attention_reduction_ppm,
             review.mechanization_processed_output_window_ticks,
             review.sequencing_tradeoff,

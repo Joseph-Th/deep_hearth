@@ -27,6 +27,30 @@ fn pattern() -> [PackedTexel; TEXTURE_SIDE * TEXTURE_SIDE] {
 }
 
 #[test]
+fn empty_registry_bakes_without_phantom_lookup_or_palette_data() {
+    let registry = TextureRegistry::new(
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    );
+
+    let baked = registry.bake_texture_array();
+
+    assert!(baked.descriptors_by_texture.is_empty());
+    assert!(baked.blocks_by_id.is_empty());
+    assert!(baked.objects_by_id.is_empty());
+    assert!(baked.palette_rows().is_empty());
+    assert!(baked.palette_color_bytes().is_empty());
+    assert_eq!(baked.pattern_layer_count(), 0);
+    assert_eq!(baked.palette_row_count(), 0);
+    assert_eq!(baked.total_gpu_bytes(), 0);
+    assert_eq!(baked.get_descriptor(TextureId::new(1)), None);
+}
+
+#[test]
 fn bake_deduplicates_patterns_and_palette_rows_independently() {
     let texture_a = TextureDefinition::new(
         TextureId::new(1),

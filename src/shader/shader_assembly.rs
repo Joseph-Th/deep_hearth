@@ -129,12 +129,12 @@ impl ShaderRegistry {
     /// Preassembles every executable program into one bounded dense lookup.
     #[must_use]
     pub fn bake_shader_set(&self) -> BakedShaderSet {
-        let maximum_id = self
+        let lookup_len = self
             .program_ids()
             .map(|id| usize::from(id.value()))
             .max()
-            .unwrap_or(0);
-        let mut programs_by_id = vec![None; maximum_id + 1];
+            .map_or(0, |maximum_id| maximum_id + 1);
+        let mut programs_by_id = vec![None; lookup_len];
         for id in self.program_ids() {
             let program = match self.assemble_program(id) {
                 Ok(program) => program,

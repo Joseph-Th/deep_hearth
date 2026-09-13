@@ -84,7 +84,10 @@ pub(super) fn run_owned_ore_manual_bridge(
         .unwrap_or_else(|| panic!("owned-ore manual bridge lost its powered comparison route"));
     let manual_recovery_ppm = sorting.target_recovery_ppm();
     let feed_mass = sorting
-        .minimum_feed_mass_for_target_recovery(plan.reinforcement_required, plan.copper_ppm)
+        .minimum_homogeneous_feed_mass_for_target_recovery(
+            plan.reinforcement_required,
+            plan.copper_ppm,
+        )
         .unwrap_or_else(|| {
             panic!("player-owned bulk ore cannot physically recover one manual reinforcement")
         });
