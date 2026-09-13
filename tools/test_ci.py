@@ -740,6 +740,17 @@ class LocalCiPlanTests(unittest.TestCase):
             self.assertEqual(len(plan), 1)
             self.assertFalse(any(stage in ci.quick_plan() for stage in plan))
 
+    def test_lint_gate_covers_all_targets_and_features_in_one_build_lane(self) -> None:
+        plan = ci.plan_for(gate_args(lint=True))
+        self.assertEqual(plan, [("clippy", ci.lint_command())])
+        command = plan[0][1]
+        self.assertEqual(command[:2], ["cargo", "clippy"])
+        self.assertIn("--all-targets", command)
+        self.assertIn("--all-features", command)
+        self.assertIn("--locked", command)
+        self.assertEqual(command[command.index("-j") + 1], "4")
+        self.assertEqual(command[-2:], ["-D", "warnings"])
+
     def test_soak_gate_does_not_repeat_ordinary_core_tests(self) -> None:
         builds = cargo_build_commands(ci.plan_for(gate_args(soak=True)))
         self.assertEqual(builds, [["cargo", "test-soak"]])

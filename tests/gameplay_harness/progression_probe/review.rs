@@ -316,10 +316,13 @@ fn nominal_manual_power(
         });
     match value {
         CapabilityValue::Power(power) => power,
-        other => panic!(
+        CapabilityValue::Mass(_)
+        | CapabilityValue::Temperature(_)
+        | CapabilityValue::Pressure(_)
+        | CapabilityValue::MassFlow(_) => panic!(
             "primitive progression equipment {} manual-power capability has wrong kind {:?}",
             equipment.value(),
-            other.kind()
+            value.kind()
         ),
     }
 }
@@ -428,6 +431,22 @@ fn detailed_reinvestment_summary(outcome: &PrimitiveReinvestmentOutcome) -> Stri
         reinvestment.survival_energy_spent_nj,
         reinvestment.survival_hydration_spent_ul,
     )
+}
+
+struct PrimitiveProgressionReportContext<'a> {
+    seed: u64,
+    sample: &'static str,
+    manual_fallback: Option<ManualProcessingFallbackReview>,
+    maintained_payback_required: bool,
+    extraction: &'a PrimitiveProgressionExperience,
+    mechanization: &'a PrimitiveProgressionExperience,
+    natural: &'a PrimitiveProgressionExperience,
+    extraction_pick_at: u64,
+    mechanization_pick_at: u64,
+    extraction_hard_at: u64,
+    mechanization_hard_at: u64,
+    reinforced_crank_power: Power,
+    primitive_flywheel_input_power: Power,
 }
 
 pub(crate) fn evaluate_primitive_progression_probe(
@@ -817,63 +836,6 @@ pub(crate) fn evaluate_primitive_progression_probe(
         deep_hearth::maintenance::Condition::PRISTINE.parts_per_million()
     );
 
-    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
-        reviewln!(
-            "PROGRESSION SEQUENCING seed=0x{seed:016X} first-investment=[extraction:pick@{}t hard-access@{}t hard-before-convergence:{}mg; mechanization:crank@{}t machine@{}t output@{}t] convergence=[extraction:{}t mechanization:{}t lead:{:+}t mechanization-pick:{}t hard-access:{}t] post-maturity-throughput=[hard-ore:{}vs{}mg total-ore:{}vs{}mg direct-second-upgrade-blocked:{}]",
-            extraction.first_upgrade_at,
-            extraction_hard_at,
-            extraction.hard_ore_before_convergence.milligrams(),
-            mechanization.first_upgrade_at,
-            mechanization.machine_started_at,
-            mechanization.first_processed_output_at,
-            extraction.second_upgrade_at,
-            mechanization.second_upgrade_at,
-            mechanization_convergence_delta_ticks,
-            mechanization_pick_at,
-            mechanization_hard_at,
-            extraction.hard_ore_mined.milligrams(),
-            mechanization.hard_ore_mined.milligrams(),
-            extraction.total_ore_mined.milligrams(),
-            mechanization.total_ore_mined.milligrams(),
-            extraction.direct_second_upgrade_blocked,
-        );
-        reviewln!(
-            "PROGRESSION AGENCY seed=0x{seed:016X} matched-world branches=[pick-first,crank-first-counterfactual] milestones=[machine-start:{}vs{}t first-output:{}vs{}t second-upgrade:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm episode-charge:{}vs{}t full-accumulator:stone:{}t reinforced:{}t reduction:{}ppm] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free:{}vs{}t] durability=[pick:{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t]",
-            extraction.machine_started_at,
-            mechanization.machine_started_at,
-            extraction.first_processed_output_at,
-            mechanization.first_processed_output_at,
-            extraction.second_upgrade_at,
-            mechanization.second_upgrade_at,
-            extraction.soft_ore_mining_ticks,
-            extraction_reinforced_mining_ticks,
-            tool_attention_reduction_ppm,
-            extraction.charge_ticks,
-            mechanization.charge_ticks,
-            stone_full_charge_ticks,
-            reinforced_full_charge_ticks,
-            crank_attention_reduction_ppm,
-            extraction.machine_work_ticks,
-            extraction.reserve_machine_work_ticks,
-            extraction.overlap_ticks,
-            mechanization.overlap_ticks,
-            extraction.machine_useful_overlap_ticks,
-            mechanization.machine_useful_overlap_ticks,
-            extraction.reserve_useful_overlap_ticks,
-            mechanization.reserve_useful_overlap_ticks,
-            extraction.machine_player_free_ticks,
-            mechanization.machine_player_free_ticks,
-            extraction.final_pick_condition_ppm,
-            mechanization.final_pick_condition_ppm,
-            extraction.metabolic_energy_spent_nj,
-            mechanization.metabolic_energy_spent_nj,
-            extraction.hydration_spent_ul,
-            mechanization.hydration_spent_ul,
-            extraction.elapsed_ticks,
-            mechanization.elapsed_ticks,
-        );
-    }
-
     let review = PrimitiveProgressionReview {
         natural_priority,
         prospecting_ticks: extraction.prospecting_ticks,
@@ -980,29 +942,130 @@ pub(crate) fn evaluate_primitive_progression_probe(
         ),
         reinvestment: natural.reinvestment.clone(),
     };
+    report_primitive_progression_review(
+        registries,
+        &review,
+        PrimitiveProgressionReportContext {
+            seed,
+            sample,
+            manual_fallback,
+            maintained_payback_required,
+            extraction: &extraction,
+            mechanization: &mechanization,
+            natural: &natural,
+            extraction_pick_at,
+            mechanization_pick_at,
+            extraction_hard_at,
+            mechanization_hard_at,
+            reinforced_crank_power,
+            primitive_flywheel_input_power,
+        },
+    );
+    review
+}
+
+fn report_primitive_progression_review(
+    registries: &Registries,
+    review: &PrimitiveProgressionReview,
+    context: PrimitiveProgressionReportContext<'_>,
+) {
+    let PrimitiveProgressionReportContext {
+        seed,
+        sample,
+        manual_fallback,
+        maintained_payback_required,
+        extraction,
+        mechanization,
+        natural,
+        extraction_pick_at,
+        mechanization_pick_at,
+        extraction_hard_at,
+        mechanization_hard_at,
+        reinforced_crank_power,
+        primitive_flywheel_input_power,
+    } = context;
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+        let extraction_reinforced_mining_ticks = extraction
+            .reinforced_mining_ticks
+            .unwrap_or_else(|| panic!("pick-first never exercised its reinforced pick"));
+        reviewln!(
+            "PROGRESSION SEQUENCING seed=0x{seed:016X} first-investment=[extraction:pick@{}t hard-access@{}t hard-before-convergence:{}mg; mechanization:crank@{}t machine@{}t output@{}t] convergence=[extraction:{}t mechanization:{}t lead:{:+}t mechanization-pick:{}t hard-access:{}t] post-maturity-throughput=[hard-ore:{}vs{}mg total-ore:{}vs{}mg direct-second-upgrade-blocked:{}]",
+            extraction.first_upgrade_at,
+            extraction_hard_at,
+            extraction.hard_ore_before_convergence.milligrams(),
+            mechanization.first_upgrade_at,
+            mechanization.machine_started_at,
+            mechanization.first_processed_output_at,
+            extraction.second_upgrade_at,
+            mechanization.second_upgrade_at,
+            review.mechanization_convergence_delta_ticks,
+            mechanization_pick_at,
+            mechanization_hard_at,
+            extraction.hard_ore_mined.milligrams(),
+            mechanization.hard_ore_mined.milligrams(),
+            extraction.total_ore_mined.milligrams(),
+            mechanization.total_ore_mined.milligrams(),
+            extraction.direct_second_upgrade_blocked,
+        );
+        reviewln!(
+            "PROGRESSION AGENCY seed=0x{seed:016X} matched-world branches=[pick-first,crank-first-counterfactual] milestones=[machine-start:{}vs{}t first-output:{}vs{}t second-upgrade:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm episode-charge:{}vs{}t full-accumulator:stone:{}t reinforced:{}t reduction:{}ppm] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free:{}vs{}t] durability=[pick:{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t]",
+            extraction.machine_started_at,
+            mechanization.machine_started_at,
+            extraction.first_processed_output_at,
+            mechanization.first_processed_output_at,
+            extraction.second_upgrade_at,
+            mechanization.second_upgrade_at,
+            extraction.soft_ore_mining_ticks,
+            extraction_reinforced_mining_ticks,
+            review.tool_attention_reduction_ppm,
+            extraction.charge_ticks,
+            mechanization.charge_ticks,
+            extraction.initial_full_charge_ticks,
+            mechanization.initial_full_charge_ticks,
+            review.crank_attention_reduction_ppm,
+            extraction.machine_work_ticks,
+            extraction.reserve_machine_work_ticks,
+            extraction.overlap_ticks,
+            mechanization.overlap_ticks,
+            extraction.machine_useful_overlap_ticks,
+            mechanization.machine_useful_overlap_ticks,
+            extraction.reserve_useful_overlap_ticks,
+            mechanization.reserve_useful_overlap_ticks,
+            extraction.machine_player_free_ticks,
+            mechanization.machine_player_free_ticks,
+            extraction.final_pick_condition_ppm,
+            mechanization.final_pick_condition_ppm,
+            extraction.metabolic_energy_spent_nj,
+            mechanization.metabolic_energy_spent_nj,
+            extraction.hydration_spent_ul,
+            mechanization.hydration_spent_ul,
+            extraction.elapsed_ticks,
+            mechanization.elapsed_ticks,
+        );
+    }
     let choice_windows_are_consequential = review.extraction_hard_material_window_ticks > 0
         && review.mechanization_processed_output_window_ticks > 0;
     let post_productive_payback_cycles = review
         .productive_payback_cycles
         .and_then(|payback| review.steady_state_cycles.checked_sub(payback))
         .unwrap_or(0);
-    let fantasy_captured = regional_information_captured(&review)
-        && information_path_captured(&review)
-        && investment_choice_captured(&review, choice_windows_are_consequential)
-        && manual_bridge_evidence_captured(&review)
+    let fantasy_captured = regional_information_captured(review)
+        && information_path_captured(review)
+        && investment_choice_captured(review, choice_windows_are_consequential)
+        && manual_bridge_evidence_captured(review)
         && automation_maturity_captured(
-            &review,
+            review,
             post_productive_payback_cycles,
             maintained_payback_required,
         )
-        && lifecycle_obligations_captured(&review)
-        && reinvestment_captured(&review, maintained_payback_required);
+        && lifecycle_obligations_captured(review)
+        && reinvestment_captured(review, maintained_payback_required);
     assert!(
         fantasy_captured,
         "primitive progression must turn uncertainty into a paid information choice, make an observation-grounded scarce-copper decision produce reciprocal physical leverage, demonstrate useful delegated work, and expose a legitimate post-work reinvestment opportunity or blocker"
     );
-    let productive_payback = productive_payback_label(&review);
-    let automation_economics = automation_economics_label(&review);
+    let productive_payback = productive_payback_label(review);
+    let automation_economics = automation_economics_label(review);
     let physiology = registries.survival().physiology();
     let natural_energy_spent_ppm = u32::try_from(
         natural.metabolic_energy_spent_nj * 1_000_000
@@ -1300,7 +1363,6 @@ pub(crate) fn evaluate_primitive_progression_probe(
             review.mechanization_elapsed_delta_ticks,
         );
     }
-    review
 }
 
 pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: FocusedProbeCase) {

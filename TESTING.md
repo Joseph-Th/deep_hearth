@@ -22,7 +22,7 @@ Use the smallest lane that completely proves the changed contract.
 | Core audit | `python ci.py audit --core` |
 | Gameplay audit | `python ci.py audit --gameplay` |
 | Core + gameplay audit | `python ci.py audit --all` |
-| Clippy | `python ci.py gate --lint` |
+| Clippy across all maintained targets/features | `python ci.py gate --lint` |
 | Shader validation | `python ci.py gate --shaders` |
 | Rustdoc | `python ci.py gate --rustdoc` |
 | Long-horizon soak | `python ci.py gate --soak` |

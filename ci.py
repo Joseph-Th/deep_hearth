@@ -86,6 +86,24 @@ def cargo(alias: str) -> list[str]:
     return ["cargo", alias]
 
 
+def lint_command() -> list[str]:
+    """Lint every maintained Rust target under every repository feature."""
+
+    return [
+        "cargo",
+        "clippy",
+        "--quiet",
+        "--locked",
+        "-j",
+        "4",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings",
+    ]
+
+
 def rust_test_summary(stdout: str) -> str | None:
     """Return one compact count for successful Rust test output, if present."""
 
@@ -646,7 +664,7 @@ def gate_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if args.rustdoc:
         return [("rustdoc", cargo("test-doc"))]
     if args.lint:
-        return [("clippy", cargo("test-lint"))]
+        return [("clippy", lint_command())]
     return [("compile", cargo("check-fast"))]
 
 
@@ -798,7 +816,7 @@ def build_parser() -> argparse.ArgumentParser:
     lane.add_argument(
         "--lint",
         action="store_true",
-        help="run production-library Clippy as the gate's single build lane",
+        help="run all-target/all-feature Clippy as the gate's single build lane",
     )
     lane.add_argument(
         "--all",

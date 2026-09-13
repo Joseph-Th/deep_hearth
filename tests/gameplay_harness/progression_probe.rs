@@ -194,6 +194,44 @@ impl AutonomousWorkStop {
     }
 }
 
+fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
+    match error {
+        MiningStartError::DestinationCapacityExceeded { .. } => {
+            AutonomousWorkStop::FeedBufferCapacity
+        }
+        MiningStartError::TargetNoLongerResolved
+        | MiningStartError::InsufficientTargetMass { .. } => AutonomousWorkStop::TargetSupply,
+        MiningStartError::ConditionDuration(_) | MiningStartError::ZeroThroughput => {
+            AutonomousWorkStop::ToolCondition
+        }
+        unexpected @ MiningStartError::UnknownMethod { .. }
+        | unexpected @ MiningStartError::ZeroMass
+        | unexpected @ MiningStartError::Equipment(_)
+        | unexpected @ MiningStartError::EquipmentMounted { .. }
+        | unexpected @ MiningStartError::EquipmentBusyProduction { .. }
+        | unexpected @ MiningStartError::EquipmentBusyMining { .. }
+        | unexpected @ MiningStartError::EquipmentBusyManualPower { .. }
+        | unexpected @ MiningStartError::MissingCapability { .. }
+        | unexpected @ MiningStartError::CapabilityKindMismatch { .. }
+        | unexpected @ MiningStartError::BatchTooLarge { .. }
+        | unexpected @ MiningStartError::TargetTooHard { .. }
+        | unexpected @ MiningStartError::Duration(_)
+        | unexpected @ MiningStartError::CompletionTickOverflow
+        | unexpected @ MiningStartError::InvalidOutput(_)
+        | unexpected @ MiningStartError::UnknownDestination { .. }
+        | unexpected @ MiningStartError::DestinationBusyStorageDismantling { .. }
+        | unexpected @ MiningStartError::DestinationStorage(_)
+        | unexpected @ MiningStartError::DestinationMassOverflow { .. }
+        | unexpected @ MiningStartError::InventoryRevisionExhausted
+        | unexpected @ MiningStartError::DestinationSupport(_)
+        | unexpected @ MiningStartError::MiningIdExhausted
+        | unexpected @ MiningStartError::MiningRevisionExhausted
+        | unexpected @ MiningStartError::Work(_) => panic!(
+            "primitive progression autonomous-window mining hit unexpected blocker: {unexpected}"
+        ),
+    }
+}
+
 fn progression_clue_bounds(slot: usize) -> VoxelBounds {
     let x = i64::try_from(slot)
         .unwrap_or_else(|_| unreachable!("four-way clue slot fits i64"))
@@ -883,8 +921,19 @@ fn observed_copper_bounds(state: &AppState, request: MiningTargetRequest) -> (u3
             lower_ppm,
             upper_ppm,
         } => (lower_ppm, upper_ppm),
-        other => panic!(
-            "primitive progression expected compatible copper evidence for {:?}, found {other:?}",
+        GeologicalEvidenceConsistency::NoEvidence => panic!(
+            "primitive progression expected compatible copper evidence for {:?}, found no evidence",
+            request.region()
+        ),
+        GeologicalEvidenceConsistency::SpatiallyIncomparable => panic!(
+            "primitive progression expected compatible copper evidence for {:?}, found spatially incomparable evidence",
+            request.region()
+        ),
+        GeologicalEvidenceConsistency::Conflicting {
+            highest_lower_ppm,
+            lowest_upper_ppm,
+        } => panic!(
+            "primitive progression expected compatible copper evidence for {:?}, found conflicting bounds {highest_lower_ppm}..{lowest_upper_ppm} ppm",
             request.region()
         ),
     }
@@ -2262,23 +2311,7 @@ fn crush_while_mining(
             concurrent.mass,
         ) {
             Ok(start) => start,
-            Err(error) => {
-                break match error {
-                    MiningStartError::DestinationCapacityExceeded { .. } => {
-                        AutonomousWorkStop::FeedBufferCapacity
-                    }
-                    MiningStartError::TargetNoLongerResolved
-                    | MiningStartError::InsufficientTargetMass { .. } => {
-                        AutonomousWorkStop::TargetSupply
-                    }
-                    MiningStartError::ConditionDuration(_) | MiningStartError::ZeroThroughput => {
-                        AutonomousWorkStop::ToolCondition
-                    }
-                    other => panic!(
-                        "primitive progression autonomous-window mining hit unexpected blocker: {other}"
-                    ),
-                };
-            }
+            Err(error) => break autonomous_mining_stop(error),
         };
         let concurrent_mining_job = concurrent_mining.commit(state).unwrap_or_else(|error| {
             panic!("primitive progression concurrent mining commit failed: {error}")
