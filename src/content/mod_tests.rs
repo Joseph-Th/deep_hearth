@@ -256,37 +256,47 @@ fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_ro
 #[test]
 fn primitive_flywheel_loses_stored_rotation_without_erasing_short_work_windows() {
     let registries = build_registries();
-    let flywheel = registries
-        .energy()
-        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
-        .unwrap_or_else(|| panic!("built-in stone flywheel definition disappeared"));
-    let loss = flywheel.passive_dissipation_power();
-
-    assert_eq!(loss, Power::from_microwatts(50_000));
-    assert!(
-        !loss.is_zero(),
-        "a physical flywheel must not retain rotation forever"
-    );
-    assert!(
-        loss < flywheel.max_input_power() && loss < flywheel.max_output_power(),
-        "passive flywheel drag must remain a background loss rather than dominate active transfer"
-    );
-    let loss_per_tick = crate::energy::integrate_power(
-        loss,
-        TickSpan::new(1),
-        registries.core().physical_tick_duration(),
-        crate::energy::PowerRemainder::ZERO,
-    )
-    .unwrap_or_else(|error| panic!("stone flywheel loss integration failed: {error}"));
-    assert_eq!(
-        loss_per_tick.remainder(),
-        crate::energy::PowerRemainder::ZERO
-    );
-    assert_eq!(loss_per_tick.energy(), Energy::from_nanojoules(180_000_000));
-    assert!(
-        flywheel.capacity().nanojoules() / loss_per_tick.energy().nanojoules() > 2_000,
-        "full charge must survive long enough for near-term primitive work instead of becoming a reaction-time tax"
-    );
+    for (store, expected_loss) in [
+        (
+            ENERGY_STONE_FLYWHEEL_DRIVE,
+            Power::from_microwatts(1_000_000),
+        ),
+        (
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            Power::from_microwatts(1_000_000),
+        ),
+        (
+            ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
+            Power::from_microwatts(2_000_000),
+        ),
+    ] {
+        let flywheel = registries
+            .energy()
+            .get_store(store)
+            .unwrap_or_else(|| panic!("built-in primitive flywheel definition disappeared"));
+        let loss = flywheel.passive_dissipation_power();
+        assert_eq!(loss, expected_loss);
+        assert!(
+            loss < flywheel.max_input_power() && loss < flywheel.max_output_power(),
+            "passive flywheel drag must remain below active transfer power"
+        );
+        let loss_per_tick = crate::energy::integrate_power(
+            loss,
+            TickSpan::new(1),
+            registries.core().physical_tick_duration(),
+            crate::energy::PowerRemainder::ZERO,
+        )
+        .unwrap_or_else(|error| panic!("primitive flywheel loss integration failed: {error}"));
+        assert_eq!(
+            loss_per_tick.remainder(),
+            crate::energy::PowerRemainder::ZERO
+        );
+        let passive_ticks = flywheel.capacity().nanojoules() / loss_per_tick.energy().nanojoules();
+        assert!(
+            (120..=210).contains(&passive_ticks),
+            "primitive flywheel full-charge coast time must remain a multi-minute work buffer, not long-term storage"
+        );
+    }
 }
 
 #[test]
@@ -361,6 +371,27 @@ fn built_in_world_time_scale_and_gravity_are_stable() {
     assert_eq!(
         registries.core().calendar().physical_seconds_per_day(),
         DEFAULT_PHYSICAL_SECONDS_PER_DAY
+    );
+}
+
+#[test]
+fn hand_mining_exertion_remains_a_sustained_human_workload() {
+    let registries = build_registries();
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("built-in hand-mining method disappeared"));
+    let total_energy_per_tick = registries
+        .survival()
+        .physiology()
+        .basal_energy_cost_per_tick()
+        .checked_add(method.exertion().energy_cost_per_tick())
+        .unwrap_or_else(|| panic!("hand-mining metabolic cost overflowed"));
+
+    // 2.16 kJ over the authoritative 3.6-second tick is 600 W total metabolic demand.
+    assert!(
+        total_energy_per_tick <= Energy::from_nanojoules(2_160_000_000_000),
+        "sustained hand mining must not require implausible kilowatt-scale human metabolism"
     );
 }
 

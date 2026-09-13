@@ -8,7 +8,7 @@ use deep_hearth::content::{
     MATERIAL_COPPER, PROCESS_CONCENTRATE_COPPER, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SCREEN_CRUSHED_ORE,
 };
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -94,6 +94,45 @@ fn assemble_energy_store_from_authored_parts(
         .unwrap_or_else(|error| panic!("primitive liberation drive assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("primitive liberation drive commit failed: {error}"))
+}
+
+fn replenish_primitive_drive(
+    registries: &Registries,
+    state: &mut AppState,
+    treadle: EquipmentId,
+    drive: EnergyStoreId,
+    capacity: Energy,
+    label: &'static str,
+) {
+    let stored = state
+        .energy()
+        .get_store(drive)
+        .map(|record| record.stored())
+        .unwrap_or_else(|| panic!("{label} drive disappeared"));
+    let requested = capacity
+        .checked_sub(stored)
+        .unwrap_or_else(|| panic!("{label} drive exceeded authored capacity"));
+    if requested.is_zero() {
+        return;
+    }
+    let charge = validate_start_manual_power(
+        registries,
+        state,
+        ManualPowerRequest::new(MANUAL_POWER_FOOT_TREADLE, treadle, drive, requested),
+    )
+    .unwrap_or_else(|error| panic!("{label} treadle recharge failed: {error}"));
+    let work = charge.work();
+    charge
+        .commit(state)
+        .unwrap_or_else(|error| panic!("{label} treadle recharge commit failed: {error}"));
+    finish_manual_power_work(registries, state, work, label);
+    assert!(
+        state
+            .energy()
+            .get_store(drive)
+            .is_some_and(|record| record.stored() > stored),
+        "{label} recharge must increase stored mechanical work"
+    );
 }
 
 fn full_stockpile_selection(
@@ -281,20 +320,12 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("primitive sizing-screen assembly commit failed: {error}"));
 
-    let charge = validate_start_manual_power(
-        registries,
-        &state,
-        ManualPowerRequest::new(MANUAL_POWER_FOOT_TREADLE, treadle, drive, drive_capacity),
-    )
-    .unwrap_or_else(|error| panic!("primitive liberation treadle charge failed: {error}"));
-    let charge_work = charge.work();
-    charge.commit(&mut state).unwrap_or_else(|error| {
-        panic!("primitive liberation treadle charge commit failed: {error}")
-    });
-    finish_manual_power_work(
+    replenish_primitive_drive(
         registries,
         &mut state,
-        charge_work,
+        treadle,
+        drive,
+        drive_capacity,
         "primitive liberation treadle charge",
     );
     assert_eq!(
@@ -329,6 +360,14 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         "primitive liberation crushing",
     );
 
+    replenish_primitive_drive(
+        registries,
+        &mut state,
+        treadle,
+        drive,
+        drive_capacity,
+        "primitive liberation post-crush recharge",
+    );
     let ground_feed = full_stockpile_selection(&state, crushed);
     let grind = resolve_comminution_process(
         registries,
@@ -359,6 +398,14 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         "primitive rotary-quern grinding",
     );
 
+    replenish_primitive_drive(
+        registries,
+        &mut state,
+        treadle,
+        drive,
+        drive_capacity,
+        "primitive liberation post-grind recharge",
+    );
     let screen_feed = full_stockpile_selection(&state, ground);
     let screened = resolve_screening_process(
         registries,
@@ -392,6 +439,14 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         "primitive copper sizing screen",
     );
 
+    replenish_primitive_drive(
+        registries,
+        &mut state,
+        treadle,
+        drive,
+        drive_capacity,
+        "primitive liberation post-screen recharge",
+    );
     let oversize_mass = state
         .inventory()
         .get_stockpile(oversize)
@@ -428,6 +483,14 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         "primitive rotary-quern regrinding",
     );
 
+    replenish_primitive_drive(
+        registries,
+        &mut state,
+        treadle,
+        drive,
+        drive_capacity,
+        "primitive liberation post-regrind recharge",
+    );
     let concentration_feed = full_stockpile_selection(&state, undersize);
     let separated = resolve_constituent_separation_process(
         registries,

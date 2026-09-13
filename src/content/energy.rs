@@ -29,11 +29,11 @@ const WORKSHOP_THERMAL_SINK_PASSIVE_DISSIPATION_POWER: Power =
     Power::from_microwatts(100_000_000_000);
 /// Low but nonzero bearing/windage loss for the crude mechanical accumulator.
 ///
-/// At the authoritative 3.6-second tick this rejects exactly 180 mJ per tick. A full 500 J charge
-/// therefore cannot function as permanent stored work, while freshly charged workshop-scale
-/// operations still have a useful multi-minute physical window.
-const STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(50_000);
-const PAIRED_STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(100_000);
+/// At the authoritative 3.6-second tick a single flywheel rejects exactly 3.6 J. A full 500 J
+/// stone flywheel therefore coasts for a little over eight minutes without load: long enough to
+/// buffer nearby primitive work, but short enough that crude bearings cannot act like a battery.
+const STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(1_000_000);
+const PAIRED_STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(2_000_000);
 
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([

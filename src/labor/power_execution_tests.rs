@@ -505,7 +505,10 @@ fn manual_power_topoff_does_not_credit_completion_tick_passive_loss() {
         .unwrap_or_else(|error| panic!("overfill-boundary survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
     let drive = assemble_flywheel_fixture(&registries, &mut state);
-    let initial = Energy::from_nanojoules(300_500_000_000);
+    // With the authored 1 W flywheel drag, one pre-completion tick frees 3.6 J. Keep the
+    // over-capacity margin above that amount so only an incorrect completion-tick credit can
+    // authorize the top-off.
+    let initial = Energy::from_nanojoules(304_000_000_000);
     let requested = Energy::from_nanojoules(200_000_000_000);
     let initial_charge = validate_start_manual_power(
         &registries,

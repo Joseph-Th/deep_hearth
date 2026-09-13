@@ -142,24 +142,28 @@ pub(super) fn project_loads(
     while let Some(element) = propagation.next_ready() {
         let record = &state.element_map()[&element];
         let load = propagation.carried[&element];
-        let active_supports: Vec<_> = overlay
-            .supports(state, element)
+        let supports = overlay.supports(state, element);
+        let active_support_count = supports
             .iter()
-            .copied()
             .filter(|support| active.contains(support))
-            .collect();
+            .count();
 
-        if !record.is_grounded() && active_supports.is_empty() {
+        if !record.is_grounded() && active_support_count == 0 {
             return Err(StructuralAnalysisError::UnsupportedActiveElement { element });
         }
         if record.is_grounded() {
             continue;
         }
 
-        let support_count = active_supports.len() as u128;
+        let support_count = active_support_count as u128;
         let base = load.millinewtons() / support_count;
         let remainder = load.millinewtons() % support_count;
-        for (index, support) in active_supports.into_iter().enumerate() {
+        for (index, support) in supports
+            .iter()
+            .copied()
+            .filter(|support| active.contains(support))
+            .enumerate()
+        {
             let extra = u128::from((index as u128) < remainder);
             let share = Force::from_millinewtons(base + extra);
             propagation.add_support_load(support, share)?;
