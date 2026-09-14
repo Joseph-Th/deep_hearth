@@ -1,4 +1,4 @@
-//! Contract tests for equipment assembly and occupancy execution.
+//! Contract tests for controlled equipment fixture allocation and condition setup.
 
 use super::*;
 use crate::capability::{
@@ -8,10 +8,7 @@ use crate::content::make_test_registries_with_equipment;
 use crate::content::{EQUIPMENT_STONE_PICK, build_registries};
 use crate::core::quantity::Mass;
 use crate::core::time::WorldSeed;
-use crate::equipment::{
-    EquipmentConditionCommitError, EquipmentDefinition, EquipmentDefinitionId,
-    apply_equipment_condition_plan, decide_equipment_wear,
-};
+use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId};
 use crate::maintenance::MaintenanceThresholds;
 
 const TEST_CAPABILITY: CapabilityId = CapabilityId::new(810_001);
@@ -73,7 +70,7 @@ fn make_registries() -> Registries {
 }
 
 #[test]
-fn creation_and_wear_use_canonical_revisioned_state() {
+fn creation_and_condition_fixture_use_canonical_revisioned_state() {
     let registries = make_registries();
     let mut state = AppState::new(WorldSeed::new(17));
     let equipment = match add_equipment(
@@ -85,15 +82,7 @@ fn creation_and_wear_use_canonical_revisioned_state() {
         Ok(equipment) => equipment,
         Err(error) => panic!("equipment creation failed: {error}"),
     };
-    let wear = match decide_equipment_wear(&state, equipment, 300_000) {
-        Ok(plan) => plan,
-        Err(error) => panic!("wear planning failed: {error}"),
-    };
-    assert_eq!(wear.before(), Condition::PRISTINE);
-    assert_eq!(wear.after(), condition(700_000));
-    if let Err(error) = apply_equipment_condition_plan(&mut state, wear) {
-        panic!("wear commit failed: {error}");
-    }
+    degrade_equipment_condition_for_test(&mut state, equipment, 300_000);
 
     let record = match state.equipment().get_equipment(equipment) {
         Some(record) => record,
@@ -101,41 +90,4 @@ fn creation_and_wear_use_canonical_revisioned_state() {
     };
     assert_eq!(record.condition(), condition(700_000));
     assert_eq!(state.equipment().revision(), 2);
-}
-
-#[test]
-fn stale_condition_plan_leaves_equipment_unchanged() {
-    let registries = make_registries();
-    let mut state = AppState::new(WorldSeed::new(23));
-    let equipment = match add_equipment(
-        &registries,
-        &mut state,
-        TEST_DEFINITION,
-        Condition::PRISTINE,
-    ) {
-        Ok(equipment) => equipment,
-        Err(error) => panic!("equipment creation failed: {error}"),
-    };
-    let stale = match decide_equipment_wear(&state, equipment, 200_000) {
-        Ok(plan) => plan,
-        Err(error) => panic!("wear planning failed: {error}"),
-    };
-    if let Err(error) = add_equipment(
-        &registries,
-        &mut state,
-        TEST_DEFINITION,
-        Condition::PRISTINE,
-    ) {
-        panic!("second equipment creation failed: {error}");
-    }
-    let before = state.clone();
-
-    assert_eq!(
-        apply_equipment_condition_plan(&mut state, stale),
-        Err(EquipmentConditionCommitError::StaleRevision {
-            expected: 1,
-            actual: 2,
-        })
-    );
-    assert_eq!(state, before);
 }

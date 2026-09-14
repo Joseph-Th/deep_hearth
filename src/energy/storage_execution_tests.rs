@@ -109,10 +109,8 @@ fn validated_supply_consumes_exact_energy_and_preserves_trace() {
         Ok(reservation) => reservation,
         Err(error) => panic!("energy reservation failed: {error:?}"),
     };
-    let trace = match apply_energy_consumption_reservation(state.energy_state_mut(), reservation) {
-        Ok(trace) => trace,
-        Err(error) => panic!("energy consumption commit failed: {error:?}"),
-    };
+    let trace =
+        apply_prechecked_energy_consumption_reservation(state.energy_state_mut(), reservation);
 
     assert_eq!(trace.source(), store);
     assert_eq!(trace.definition(), STORE_DEFINITION);

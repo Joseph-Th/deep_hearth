@@ -12,8 +12,6 @@ use crate::energy::state::{EnergyState, EnergyStoreId};
 
 mod errors;
 
-#[cfg(test)]
-use errors::EnergyCommitError;
 pub(crate) use errors::EnergyReservationError;
 pub use errors::EnergySupplyError;
 
@@ -283,23 +281,6 @@ pub(crate) fn validate_energy_consumption_reservation(
         next_revision,
         trace,
     })
-}
-
-#[cfg(test)]
-pub(crate) fn apply_energy_consumption_reservation(
-    state: &mut EnergyState,
-    reservation: EnergyConsumptionReservation,
-) -> Result<ConsumedEnergyTrace, EnergyCommitError> {
-    if state.revision() != reservation.expected_revision {
-        return Err(EnergyCommitError::StaleRevision {
-            expected: reservation.expected_revision,
-            actual: state.revision(),
-        });
-    }
-    Ok(apply_prechecked_energy_consumption_reservation(
-        state,
-        reservation,
-    ))
 }
 
 /// Applies a finite-energy reservation after a surrounding transaction has checked its revision.

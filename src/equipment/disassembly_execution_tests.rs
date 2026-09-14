@@ -15,8 +15,8 @@ use crate::core::time::WorldSeed;
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
-    EquipmentDefinitionId, apply_equipment_condition_plan, decide_equipment_wear,
-    validate_assemble_equipment, validate_upgrade_equipment,
+    EquipmentDefinitionId, degrade_equipment_condition_for_test, validate_assemble_equipment,
+    validate_upgrade_equipment,
 };
 use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
@@ -120,10 +120,7 @@ fn worn_pick_copper_scrap_can_be_reworked_into_a_second_pick_upgrade() {
     let first = assembled_pick(&registries, &mut state);
     let second = assembled_pick(&registries, &mut state);
     upgrade_pick(&registries, &mut state, first);
-    let wear = decide_equipment_wear(&state, first, 1)
-        .unwrap_or_else(|error| panic!("scrap-loop wear decision failed: {error}"));
-    apply_equipment_condition_plan(&mut state, wear)
-        .unwrap_or_else(|error| panic!("scrap-loop wear commit failed: {error}"));
+    degrade_equipment_condition_for_test(&mut state, first, 1);
     let recovery = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_020_000))
         .unwrap_or_else(|error| panic!("scrap-loop recovery stockpile failed: {error}"));
     let reinforcement = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
@@ -229,10 +226,7 @@ fn worn_reinforced_processing_machines_return_copper_to_the_scrap_recovery_loop(
         let mut state = AppState::new(WorldSeed::new(seed));
         let equipment = assembled_authored_equipment(&registries, &mut state, base);
         upgrade_with_reinforcement(&registries, &mut state, equipment, upgraded);
-        let wear = decide_equipment_wear(&state, equipment, 1)
-            .unwrap_or_else(|error| panic!("processing disassembly wear decision failed: {error}"));
-        apply_equipment_condition_plan(&mut state, wear)
-            .unwrap_or_else(|error| panic!("processing disassembly wear commit failed: {error}"));
+        degrade_equipment_condition_for_test(&mut state, equipment, 1);
         let destination = add_solid_stockpile_for_test(&mut state, total_mass)
             .unwrap_or_else(|error| panic!("processing disassembly destination failed: {error}"));
         let matter_before = calculate_matter_accounting(&state)
@@ -317,10 +311,7 @@ fn worn_upgraded_equipment_recovers_every_embodied_material_as_scrap() {
     let mut state = AppState::new(WorldSeed::new(0xD15A_0004));
     let pick = assembled_pick(&registries, &mut state);
     upgrade_pick(&registries, &mut state, pick);
-    let wear = decide_equipment_wear(&state, pick, 1)
-        .unwrap_or_else(|error| panic!("upgraded disassembly wear decision failed: {error}"));
-    apply_equipment_condition_plan(&mut state, wear)
-        .unwrap_or_else(|error| panic!("upgraded disassembly wear commit failed: {error}"));
+    degrade_equipment_condition_for_test(&mut state, pick, 1);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_020_000))
         .unwrap_or_else(|error| panic!("upgraded disassembly destination failed: {error}"));
     let matter_before = calculate_matter_accounting(&state)
@@ -488,10 +479,7 @@ fn worn_equipment_recovers_as_same_material_scrap_without_resetting_components()
     let pick = assembled_pick(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("worn disassembly destination failed: {error}"));
-    let wear = decide_equipment_wear(&state, pick, 1)
-        .unwrap_or_else(|error| panic!("worn disassembly wear decision failed: {error}"));
-    apply_equipment_condition_plan(&mut state, wear)
-        .unwrap_or_else(|error| panic!("worn disassembly wear commit failed: {error}"));
+    degrade_equipment_condition_for_test(&mut state, pick, 1);
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("worn disassembly matter before failed: {error}"))
         .total();

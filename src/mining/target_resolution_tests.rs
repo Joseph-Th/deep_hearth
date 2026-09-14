@@ -7,7 +7,7 @@ use crate::core::state::AppState;
 use crate::core::time::WorldSeed;
 use crate::geology::{
     GeneratedDepositSpec, GeologicalEvidenceKind, MaterialAbundanceEstimate, ProspectingResolution,
-    insert_generated_deposit, validate_record_prospecting,
+    insert_generated_deposit, record_prospecting_for_test,
 };
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::registry::Registries;
@@ -46,10 +46,8 @@ fn record_copper_evidence(
         GeologicalEvidenceKind::SurfaceExposure,
         vec![estimate],
     );
-    validate_record_prospecting(registries, state, resolution)
-        .unwrap_or_else(|error| panic!("mining target evidence validation failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("mining target evidence commit failed: {error}"));
+    record_prospecting_for_test(registries, state, resolution)
+        .unwrap_or_else(|error| panic!("mining target evidence failed: {error}"));
 }
 
 #[test]

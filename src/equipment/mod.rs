@@ -4,15 +4,13 @@ mod availability;
 mod construction_execution;
 mod definitions;
 mod disassembly_execution;
-#[cfg(any(test, feature = "test-gameplay"))]
-mod equipment_execution;
 mod equipment_integration;
 mod equipment_structural_integration;
+#[cfg(any(test, feature = "test-gameplay"))]
+mod fixture_execution;
 mod maintenance_execution;
 mod maintenance_resolution;
 mod state;
-#[cfg(test)]
-mod test_condition_mutation;
 mod upgrade_execution;
 
 pub use construction_execution::{
@@ -27,8 +25,6 @@ pub use disassembly_execution::{
     EquipmentDisassemblyCommitError, EquipmentDisassemblyError, EquipmentDisassemblyOutcome,
     ValidatedEquipmentDisassembly, validate_disassemble_equipment,
 };
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) use equipment_execution::add_equipment;
 pub use equipment_integration::{
     EquipmentProviderError, ResolvedEquipmentProvider, resolve_equipment_provider,
 };
@@ -37,6 +33,10 @@ pub use equipment_structural_integration::{
     ValidatedEquipmentSupportChange, validate_mount_equipment, validate_relocate_equipment,
     validate_unmount_equipment,
 };
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use fixture_execution::add_equipment;
+#[cfg(test)]
+pub(crate) use fixture_execution::degrade_equipment_condition_for_test;
 pub use maintenance_execution::{
     EquipmentMaintenanceCommitError, EquipmentMaintenanceError, EquipmentMaintenanceMaterialError,
     EquipmentMaintenanceOutcome, EquipmentMaintenanceStartOutcome, ValidatedEquipmentMaintenance,
@@ -48,11 +48,6 @@ pub use maintenance_resolution::{
 };
 pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,
-};
-#[cfg(test)]
-pub(crate) use test_condition_mutation::{
-    EquipmentConditionCommitError, EquipmentConditionPlanError, apply_equipment_condition_plan,
-    decide_equipment_wear,
 };
 pub use upgrade_execution::{
     EquipmentUpgradeCommitError, EquipmentUpgradeError, ValidatedEquipmentUpgrade,

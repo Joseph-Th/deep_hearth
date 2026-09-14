@@ -1,10 +1,14 @@
-//! Fixture-only allocation for authored equipment that has no ordinary assembly path.
+//! Controlled equipment fixture allocation and condition setup.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+#[cfg(test)]
+use crate::core::time::TickSpan;
 use crate::maintenance::Condition;
+#[cfg(test)]
+use crate::maintenance::calculate_condition_after_active_ticks;
 #[cfg(any(test, feature = "test-gameplay"))]
 use crate::registry::Registries;
 
@@ -87,6 +91,46 @@ pub(crate) fn add_equipment(
     Ok(id)
 }
 
+/// Degrades idle equipment through the authoritative condition owner for controlled test setup.
+///
+/// This is deliberately not a gameplay command: it exposes no validation token or recoverable
+/// legality model, and may only establish damaged fixture state while the equipment is unoccupied.
 #[cfg(test)]
-#[path = "equipment_execution_tests.rs"]
+pub(crate) fn degrade_equipment_condition_for_test(
+    state: &mut AppState,
+    equipment: EquipmentId,
+    wear_ppm: u32,
+) {
+    assert!(
+        super::equipment_occupancy(state, equipment).is_none(),
+        "equipment condition fixture cannot mutate occupied equipment {}",
+        equipment.value()
+    );
+    let record = state
+        .equipment()
+        .get_equipment(equipment)
+        .unwrap_or_else(|| {
+            panic!(
+                "equipment condition fixture references unknown equipment {}",
+                equipment.value()
+            )
+        });
+    let before = record.condition();
+    let after = calculate_condition_after_active_ticks(wear_ppm, before, TickSpan::new(1));
+    assert!(
+        after < before,
+        "equipment condition fixture must strictly degrade condition"
+    );
+    let next_revision = state
+        .equipment()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("equipment condition fixture exhausted owner revision space"));
+    state
+        .equipment_state_mut()
+        .apply_condition_change(equipment, before, after, next_revision);
+}
+
+#[cfg(test)]
+#[path = "fixture_execution_tests.rs"]
 mod tests;

@@ -25,7 +25,7 @@ pub use prospecting_action::{
     FieldProspectingStartError, ValidatedFieldProspectingStart, validate_start_field_prospecting,
 };
 #[cfg(test)]
-pub(crate) use prospecting_execution::validate_record_prospecting;
+pub(crate) use prospecting_execution::record_prospecting_for_test;
 pub(crate) use prospecting_execution::{
     ProspectingResolution, RecordProspectingError, ValidatedGeologicalObservation,
 };

@@ -10,20 +10,20 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Force, Length, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
+use crate::core::time::{SimulationTick, WorldSeed};
 use crate::crafting::{
     ManualCraftStartRequest, StartManualCraftError, validate_start_manual_craft,
 };
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::equipment::{
-    EquipmentId, apply_equipment_condition_plan, decide_equipment_wear,
-    validate_assemble_equipment, validate_upgrade_equipment,
+    EquipmentId, degrade_equipment_condition_for_test, validate_assemble_equipment,
+    validate_upgrade_equipment,
 };
 #[cfg(feature = "test-soak")]
 use crate::geology::GeologicalDepositLifecycle;
 use crate::geology::{
     GeneratedDepositSpec, GeologicalDepositId, GeologicalEvidenceKind, MaterialAbundanceEstimate,
-    ProspectingResolution, validate_record_prospecting,
+    ProspectingResolution, record_prospecting_for_test,
 };
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotSelection, STORAGE_AGE_PARTS_PER_TICK,
@@ -276,10 +276,8 @@ fn insert_known_deposit(
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate],
     );
-    validate_record_prospecting(registries, state, evidence)
-        .unwrap_or_else(|error| panic!("mining known-deposit evidence failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("mining known-deposit evidence commit failed: {error}"));
+    record_prospecting_for_test(registries, state, evidence)
+        .unwrap_or_else(|error| panic!("mining known-deposit evidence failed: {error}"));
     Ok(deposit)
 }
 
@@ -646,18 +644,16 @@ fn resolved_mining_target_survives_unrelated_remote_geological_knowledge() {
         .unwrap_or_else(|error| panic!("stale-target knowledge evidence bounds failed: {error}"));
     let estimate = MaterialAbundanceEstimate::new(MATERIAL_STONE, 1, 1_000_000)
         .unwrap_or_else(|error| panic!("stale-target knowledge estimate failed: {error}"));
-    validate_record_prospecting(
+    record_prospecting_for_test(
         &registries,
-        &state,
+        &mut state,
         ProspectingResolution::new_for_fixture(
             remote,
             GeologicalEvidenceKind::SurfaceExposure,
             vec![estimate],
         ),
     )
-    .unwrap_or_else(|error| panic!("stale-target knowledge evidence validation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("stale-target knowledge evidence commit failed: {error}"));
+    .unwrap_or_else(|error| panic!("stale-target knowledge evidence failed: {error}"));
     let before = state.clone();
 
     let _validated = super::validate_start_mining(
@@ -732,12 +728,11 @@ fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
         .geology()
         .get_deposit(deposit)
         .unwrap_or_else(|| panic!("stale-start knowledge deposit disappeared"));
+    let deposit_bounds = deposit_record.bounds();
+    let deposit_material = deposit_record.commodity().material();
     let target = resolve_mining_target(
         &state,
-        MiningTargetRequest::new(
-            deposit_record.bounds(),
-            deposit_record.commodity().material(),
-        ),
+        MiningTargetRequest::new(deposit_bounds, deposit_material),
     )
     .unwrap_or_else(|error| panic!("stale-start knowledge target resolution failed: {error}"));
     let start = super::validate_start_mining(
@@ -752,18 +747,16 @@ fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
     .unwrap_or_else(|error| panic!("stale-start knowledge mining validation failed: {error}"));
     let contradiction = MaterialAbundanceEstimate::new(MATERIAL_COPPER, 0, 0)
         .unwrap_or_else(|error| panic!("stale-start knowledge estimate failed: {error}"));
-    validate_record_prospecting(
+    record_prospecting_for_test(
         &registries,
-        &state,
+        &mut state,
         ProspectingResolution::new_for_fixture(
-            deposit_record.bounds(),
+            deposit_bounds,
             GeologicalEvidenceKind::SurfaceExposure,
             vec![contradiction],
         ),
     )
-    .unwrap_or_else(|error| panic!("stale-start knowledge evidence validation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("stale-start knowledge evidence commit failed: {error}"));
+    .unwrap_or_else(|error| panic!("stale-start knowledge evidence failed: {error}"));
     let before = state.clone();
 
     assert_eq!(
@@ -848,10 +841,7 @@ fn mining_rejects_work_that_would_continue_after_tool_failure() {
         .unwrap_or_else(|error| panic!("condition-lifetime destination failed: {error}"));
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("condition-lifetime deposit failed: {error}"));
-    let wear = decide_equipment_wear(&state, pick, 999_500)
-        .unwrap_or_else(|error| panic!("condition-lifetime wear decision failed: {error}"));
-    apply_equipment_condition_plan(&mut state, wear)
-        .unwrap_or_else(|error| panic!("condition-lifetime wear commit failed: {error}"));
+    degrade_equipment_condition_for_test(&mut state, pick, 999_500);
     assert_eq!(
         state
             .equipment()
@@ -1334,6 +1324,67 @@ fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("follow-on mining state audit failed: {error}"));
 
+    let mut forged_mass_history = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| {
+            panic!("follow-on mining mass-history serialization failed: {error}")
+        });
+    forged_mass_history["state"]["systems"]["mining"]["jobs"][second_job.value().to_string()]["resources"]
+        ["deposit_mass_before"] = serde_json::json!(950_000_u64);
+    let forged_mass_history: LoadedSaveEnvelope = serde_json::from_value(forged_mass_history)
+        .unwrap_or_else(|error| panic!("follow-on mining mass-history decode failed: {error}"));
+    assert_eq!(
+        forged_mass_history.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::MiningJob(
+            MiningJobValidationError::DepositHistoryMassIncrease {
+                earlier: first_job,
+                later: second_job,
+                maximum_later_mass: Mass::from_milligrams(900_000),
+                later_mass: Mass::from_milligrams(950_000),
+            }
+        )))
+    );
+
+    let first_record = state
+        .mining()
+        .get_job(first_job)
+        .unwrap_or_else(|| panic!("first follow-on mining job disappeared before schedule tamper"));
+    let second_record = state.mining().get_job(second_job).unwrap_or_else(|| {
+        panic!("second follow-on mining job disappeared before schedule tamper")
+    });
+    let forged_second_start = SimulationTick::new(
+        second_record
+            .started_at()
+            .value()
+            .checked_sub(1)
+            .unwrap_or_else(|| panic!("second follow-on mining job unexpectedly starts at zero")),
+    );
+    let forged_second_completion = SimulationTick::new(
+        second_record
+            .completes_at()
+            .value()
+            .checked_sub(1)
+            .unwrap_or_else(|| panic!("second follow-on mining completion unexpectedly zero")),
+    );
+    let mut forged_schedule = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("follow-on mining schedule serialization failed: {error}"));
+    forged_schedule["state"]["systems"]["mining"]["jobs"][second_job.value().to_string()]["schedule"]
+        ["started_at"] = serde_json::json!(forged_second_start.value());
+    forged_schedule["state"]["systems"]["mining"]["jobs"][second_job.value().to_string()]["schedule"]
+        ["completes_at"] = serde_json::json!(forged_second_completion.value());
+    let forged_schedule: LoadedSaveEnvelope = serde_json::from_value(forged_schedule)
+        .unwrap_or_else(|error| panic!("follow-on mining schedule decode failed: {error}"));
+    assert_eq!(
+        forged_schedule.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::MiningJob(
+            MiningJobValidationError::OverlappingRetainedWork {
+                earlier: first_job,
+                later: second_job,
+                earlier_completes: first_record.completes_at(),
+                later_starts: forged_second_start,
+            }
+        )))
+    );
+
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("follow-on mining save failed: {error}"));
     let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
@@ -1390,6 +1441,12 @@ fn trusted_load_rejects_multiple_working_mining_jobs_before_single_extraction_ti
     .unwrap_or_else(|error| panic!("multiple-mining canonical start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("multiple-mining canonical commit failed: {error}"));
+    let first_record = state
+        .mining()
+        .get_job(first_job)
+        .unwrap_or_else(|| panic!("multiple-mining canonical job disappeared"));
+    let first_started_at = first_record.started_at();
+    let first_completes_at = first_record.completes_at();
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("multiple-mining serialization failed: {error}"));
@@ -1409,8 +1466,13 @@ fn trusted_load_rejects_multiple_working_mining_jobs_before_single_extraction_ti
 
     assert_eq!(
         forged.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
-            PlayerWorkValidationError::MultiplePlayerJobs
+        Err(LoadError::InvalidState(StateValidationError::MiningJob(
+            MiningJobValidationError::OverlappingRetainedWork {
+                earlier: first_job,
+                later: second_job,
+                earlier_completes: first_completes_at,
+                later_starts: first_started_at,
+            }
         )))
     );
 }

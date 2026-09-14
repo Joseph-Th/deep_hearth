@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Mass, Pressure};
 use crate::core::throughput::MassFlowDurationError;
-use crate::core::time::TickSpan;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::equipment::EquipmentDefinitionId;
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 
@@ -70,6 +70,18 @@ pub enum MiningJobValidationError {
         job: MiningJobId,
         maximum: Mass,
         actual: Mass,
+    },
+    OverlappingRetainedWork {
+        earlier: MiningJobId,
+        later: MiningJobId,
+        earlier_completes: SimulationTick,
+        later_starts: SimulationTick,
+    },
+    DepositHistoryMassIncrease {
+        earlier: MiningJobId,
+        later: MiningJobId,
+        maximum_later_mass: Mass,
+        later_mass: Mass,
     },
     OutputStorageInvalid {
         job: MiningJobId,
@@ -243,6 +255,32 @@ impl Display for MiningJobValidationError {
                 maximum.milligrams(),
                 actual.milligrams()
             ),
+            Self::OverlappingRetainedWork {
+                earlier,
+                later,
+                earlier_completes,
+                later_starts,
+            } => write!(
+                formatter,
+                "retained mining job {} completes at tick {} after mining job {} starts at tick {}",
+                earlier.value(),
+                earlier_completes.value(),
+                later.value(),
+                later_starts.value()
+            ),
+            Self::DepositHistoryMassIncrease {
+                earlier,
+                later,
+                maximum_later_mass,
+                later_mass,
+            } => write!(
+                formatter,
+                "mining job {} leaves at most {} mg before later retained job {} but that job traces {} mg available",
+                earlier.value(),
+                maximum_later_mass.milligrams(),
+                later.value(),
+                later_mass.milligrams()
+            ),
             Self::OutputStorageInvalid { job } => write!(
                 formatter,
                 "mining job {} output is incompatible with its destination storage",
@@ -369,6 +407,8 @@ impl Error for MiningJobValidationError {
             | Self::OutputExceedsDepositTrace { .. }
             | Self::WorkingDepositMassMismatch { .. }
             | Self::ReadyDepositMassAbovePostExtraction { .. }
+            | Self::OverlappingRetainedWork { .. }
+            | Self::DepositHistoryMassIncrease { .. }
             | Self::OutputStorageInvalid { .. }
             | Self::EquipmentAlsoUsedByProduction { .. }
             | Self::EquipmentAlsoUsedByManualPower { .. }

@@ -109,10 +109,7 @@ fn record(
         Ok(token) => token,
         Err(error) => panic!("prospecting fixture validation failed: {error}"),
     };
-    match token.commit(state) {
-        Ok(id) => id,
-        Err(error) => panic!("prospecting fixture commit failed: {error}"),
-    }
+    token.apply_prechecked(state)
 }
 
 #[test]
@@ -398,37 +395,6 @@ fn prospecting_rejects_physically_impossible_combined_abundance_minima() {
         })
     );
     assert_eq!(state.geological_knowledge().observations().count(), 0);
-}
-
-#[test]
-fn stale_observation_commit_is_atomic() {
-    let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0004));
-    let first = make_test_prospecting_resolution(
-        bounds(0, 4),
-        GeologicalEvidenceKind::LooseIndicator,
-        vec![estimate(MATERIAL_COPPER, 0, 200_000)],
-    );
-    let second = make_test_prospecting_resolution(
-        bounds(4, 8),
-        GeologicalEvidenceKind::PannedConcentrate,
-        vec![estimate(MATERIAL_SLAG, 100_000, 400_000)],
-    );
-    let stale = match validate_record_prospecting(&registries, &state, first) {
-        Ok(token) => token,
-        Err(error) => panic!("stale prospecting validation failed: {error}"),
-    };
-    record(&registries, &mut state, second);
-    let before = state.clone();
-
-    assert_eq!(
-        stale.commit(&mut state),
-        Err(ProspectingCommitError::StaleKnowledgeRevision {
-            expected: 0,
-            actual: 1,
-        })
-    );
-    assert_eq!(state, before);
 }
 
 #[test]

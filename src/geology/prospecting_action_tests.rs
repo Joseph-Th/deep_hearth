@@ -10,9 +10,7 @@ use crate::content::{
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
-use crate::equipment::{
-    EquipmentConditionPlanError, EquipmentId, decide_equipment_wear, validate_assemble_equipment,
-};
+use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
     insert_generated_deposit,
@@ -650,15 +648,6 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     detailed_start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("detailed refinement prospecting commit failed: {error}"));
-    let prospecting_completes_at = detailed_work.completes_at();
-    assert_eq!(
-        decide_equipment_wear(&state, hammer, 1),
-        Err(EquipmentConditionPlanError::EquipmentBusyProspecting {
-            equipment: hammer,
-            completes_at: prospecting_completes_at,
-        }),
-        "test-only condition mutation must respect prospecting occupancy"
-    );
     let detailed_duration = detailed_work
         .completes_at()
         .value()

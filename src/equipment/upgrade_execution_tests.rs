@@ -14,8 +14,7 @@ use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::{SimulationTick, WorldSeed};
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
-    EquipmentValidationError, apply_equipment_condition_plan, decide_equipment_wear,
-    validate_assemble_equipment,
+    EquipmentValidationError, degrade_equipment_condition_for_test, validate_assemble_equipment,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
@@ -161,10 +160,7 @@ fn primitive_processing_upgrades_preserve_identity_wear_matter_and_replay() {
         let mut state = AppState::new(WorldSeed::new(seed));
         let equipment = assemble_authored_equipment(&registries, &mut state, base);
         let reinforcement = reinforcement_source(&registries, &mut state);
-        let wear = decide_equipment_wear(&state, equipment, 123_456)
-            .unwrap_or_else(|error| panic!("processing upgrade wear decision failed: {error}"));
-        apply_equipment_condition_plan(&mut state, wear)
-            .unwrap_or_else(|error| panic!("processing upgrade wear commit failed: {error}"));
+        degrade_equipment_condition_for_test(&mut state, equipment, 123_456);
         let before = state
             .equipment()
             .get_equipment(equipment)
@@ -290,10 +286,7 @@ fn additive_upgrade_preserves_identity_wear_and_world_matter() {
     let mut state = AppState::new(WorldSeed::new(0xA66D_0001));
     let pick = assemble_stone_pick(&registries, &mut state);
     let reinforcement = reinforcement_source(&registries, &mut state);
-    let wear = decide_equipment_wear(&state, pick, 87_654)
-        .unwrap_or_else(|error| panic!("upgrade wear decision failed: {error}"));
-    apply_equipment_condition_plan(&mut state, wear)
-        .unwrap_or_else(|error| panic!("upgrade wear commit failed: {error}"));
+    degrade_equipment_condition_for_test(&mut state, pick, 87_654);
     let before_record = state
         .equipment()
         .get_equipment(pick)
@@ -420,10 +413,7 @@ fn intervening_equipment_mutation_invalidates_upgrade_token() {
     )
     .unwrap_or_else(|error| panic!("stale upgrade validation failed: {error}"));
     let expected = state.equipment().revision();
-    let wear = decide_equipment_wear(&state, pick, 1)
-        .unwrap_or_else(|error| panic!("stale upgrade wear decision failed: {error}"));
-    apply_equipment_condition_plan(&mut state, wear)
-        .unwrap_or_else(|error| panic!("stale upgrade wear commit failed: {error}"));
+    degrade_equipment_condition_for_test(&mut state, pick, 1);
 
     assert_eq!(
         token.commit(&mut state),

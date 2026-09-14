@@ -20,8 +20,7 @@ use crate::energy::{
     validate_energy_supply,
 };
 use crate::equipment::{
-    EquipmentConditionPlanError, decide_equipment_wear, validate_assemble_equipment,
-    validate_mount_equipment, validate_unmount_equipment,
+    validate_assemble_equipment, validate_mount_equipment, validate_unmount_equipment,
 };
 use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError};
@@ -696,10 +695,6 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     assert_eq!(
         validate_energy_supply(&registries, &state, drive, Energy::from_nanojoules(1)),
         Err(EnergySupplyError::StoreBusyManualPower { store: drive })
-    );
-    assert_eq!(
-        decide_equipment_wear(&state, crank, 1),
-        Err(EquipmentConditionPlanError::EquipmentBusyManualPower { equipment: crank })
     );
 
     advance_exact(&registries, &mut state, 5);

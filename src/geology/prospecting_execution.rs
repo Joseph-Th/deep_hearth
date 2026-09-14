@@ -46,7 +46,7 @@ impl ProspectingResolution {
         }
     }
 
-    /// Unit-test constructor for deliberately synthetic or contradictory evidence.
+    /// Constructs deliberately synthetic acquired evidence for controlled tests.
     #[cfg(test)]
     pub(crate) fn new_for_fixture(
         region: VoxelBounds,
@@ -136,28 +136,6 @@ impl Display for RecordProspectingError {
 
 impl Error for RecordProspectingError {}
 
-/// Failure to commit an observation after geological knowledge changed.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ProspectingCommitError {
-    StaleKnowledgeRevision { expected: u64, actual: u64 },
-}
-
-#[cfg(test)]
-impl Display for ProspectingCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StaleKnowledgeRevision { expected, actual } => write!(
-                formatter,
-                "validated prospecting observation expected knowledge revision {expected} but current revision is {actual}"
-            ),
-        }
-    }
-}
-
-#[cfg(test)]
-impl Error for ProspectingCommitError {}
-
 /// Consumed proof that resolved geological evidence can be persisted atomically.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
@@ -174,45 +152,6 @@ pub struct ValidatedGeologicalObservation {
 }
 
 impl ValidatedGeologicalObservation {
-    #[cfg(test)]
-    pub(crate) fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<GeologicalObservationId, ProspectingCommitError> {
-        let Self {
-            expected_revision,
-            next_revision,
-            id,
-            next_observation_id,
-            region,
-            evidence,
-            findings,
-            excavation_hardness,
-            observed_at,
-        } = self;
-        let knowledge = state.geological_knowledge_state_mut();
-        if knowledge.revision() != expected_revision {
-            return Err(ProspectingCommitError::StaleKnowledgeRevision {
-                expected: expected_revision,
-                actual: knowledge.revision(),
-            });
-        }
-
-        knowledge.insert_observation(
-            GeologicalObservationRecord {
-                id,
-                region,
-                evidence,
-                findings,
-                excavation_hardness,
-                observed_at,
-            },
-            next_observation_id,
-            next_revision,
-        );
-        Ok(id)
-    }
-
     pub(super) fn apply_prechecked(self, state: &mut AppState) -> GeologicalObservationId {
         let Self {
             expected_revision,
@@ -259,6 +198,16 @@ pub(crate) fn validate_record_prospecting(
     Ok(validated
         .pop()
         .unwrap_or_else(|| unreachable!("one prospecting resolution validates to one observation")))
+}
+
+/// Records one synthetic observation through the production validation and apply path.
+#[cfg(test)]
+pub(crate) fn record_prospecting_for_test(
+    registries: &Registries,
+    state: &mut AppState,
+    resolution: ProspectingResolution,
+) -> Result<GeologicalObservationId, RecordProspectingError> {
+    Ok(validate_record_prospecting(registries, state, resolution)?.apply_prechecked(state))
 }
 
 pub(super) fn validate_record_prospecting_batch_at(

@@ -23,9 +23,8 @@ use crate::energy::{
     add_energy_store_with_initial_for_fixture, calculate_explicit_energy_accounting,
 };
 use crate::equipment::{
-    EquipmentConditionPlanError, EquipmentDefinition, EquipmentDefinitionId,
-    EquipmentMaintenanceProfile, add_equipment, apply_equipment_condition_plan,
-    decide_equipment_wear, validate_assemble_equipment, validate_upgrade_equipment,
+    EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, add_equipment,
+    degrade_equipment_condition_for_test, validate_assemble_equipment, validate_upgrade_equipment,
 };
 
 use crate::inventory::{
@@ -145,10 +144,7 @@ fn every_builtin_material_backed_component_service_executes_from_its_real_assemb
             .unwrap_or_else(|error| panic!("component service assembly failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("component service assembly commit failed: {error}"));
-        let wear = decide_equipment_wear(&state, equipment, 100_000)
-            .unwrap_or_else(|error| panic!("component service wear plan failed: {error}"));
-        apply_equipment_condition_plan(&mut state, wear)
-            .unwrap_or_else(|error| panic!("component service wear commit failed: {error}"));
+        degrade_equipment_condition_for_test(&mut state, equipment, 100_000);
         let unrelated_embodied_before = state
             .equipment()
             .get_equipment(equipment)
@@ -194,14 +190,6 @@ fn every_builtin_material_backed_component_service_executes_from_its_real_assemb
             .unwrap_or_else(|error| panic!("component service commit failed: {error}"));
         assert_eq!(outcome.equipment(), equipment);
         assert_eq!(outcome.target_condition(), maintenance.restored_condition());
-        assert_eq!(
-            decide_equipment_wear(&state, equipment, 1),
-            Err(EquipmentConditionPlanError::EquipmentUnderMaintenance {
-                equipment,
-                completes_at: outcome.completes_at(),
-            }),
-            "test-only condition mutation must respect maintenance occupancy"
-        );
 
         let record = state
             .equipment()
@@ -325,12 +313,7 @@ fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
         .total();
 
     for service in 0..2 {
-        let wear = decide_equipment_wear(&state, pick, 100_000).unwrap_or_else(|error| {
-            panic!("stone scrap maintenance wear {service} failed: {error}")
-        });
-        apply_equipment_condition_plan(&mut state, wear).unwrap_or_else(|error| {
-            panic!("stone scrap maintenance wear commit {service} failed: {error}")
-        });
+        degrade_equipment_condition_for_test(&mut state, pick, 100_000);
         let resolution = resolve_equipment_maintenance(
             &registries,
             &state,
@@ -407,10 +390,7 @@ fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
         Some(Mass::from_milligrams(200_000))
     );
 
-    let wear = decide_equipment_wear(&state, pick, 100_000)
-        .unwrap_or_else(|error| panic!("reknapped component wear failed: {error}"));
-    apply_equipment_condition_plan(&mut state, wear)
-        .unwrap_or_else(|error| panic!("reknapped component wear commit failed: {error}"));
+    degrade_equipment_condition_for_test(&mut state, pick, 100_000);
     let recycled_resolution = resolve_equipment_maintenance(
         &registries,
         &state,
@@ -538,10 +518,7 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
         .unwrap_or_else(|error| panic!("component service upgrade commit failed: {error}")),
         pick
     );
-    let wear = decide_equipment_wear(&state, pick, 400_000)
-        .unwrap_or_else(|error| panic!("component service wear planning failed: {error}"));
-    apply_equipment_condition_plan(&mut state, wear)
-        .unwrap_or_else(|error| panic!("component service wear commit failed: {error}"));
+    degrade_equipment_condition_for_test(&mut state, pick, 400_000);
     let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("component service provenance tick failed: {error}"));
 
@@ -1407,13 +1384,7 @@ fn maintenance_rechecks_inventory_and_equipment_before_any_partial_commit() {
             Ok(token) => token,
             Err(error) => panic!("maintenance stale equipment validation failed: {error}"),
         };
-    let wear = match decide_equipment_wear(&state, equipment, 1_000) {
-        Ok(plan) => plan,
-        Err(error) => panic!("maintenance stale equipment wear failed: {error}"),
-    };
-    if let Err(error) = apply_equipment_condition_plan(&mut state, wear) {
-        panic!("maintenance stale equipment wear commit failed: {error}");
-    }
+    degrade_equipment_condition_for_test(&mut state, equipment, 1_000);
     let lot_mass_before = state.inventory().get_lot(lot).map(|record| record.mass());
     assert!(matches!(
         equipment_stale.commit(&mut state),
@@ -1454,13 +1425,7 @@ fn maintenance_resolution_is_invalidated_by_equipment_change_before_validation()
     )
     .unwrap_or_else(|error| panic!("maintenance stale-resolution binding failed: {error}"));
     assert_eq!(resolution.condition_before(), condition(500_000));
-    let wear = match decide_equipment_wear(&state, equipment, 1_000) {
-        Ok(plan) => plan,
-        Err(error) => panic!("maintenance stale-resolution wear planning failed: {error}"),
-    };
-    if let Err(error) = apply_equipment_condition_plan(&mut state, wear) {
-        panic!("maintenance stale-resolution wear commit failed: {error}");
-    }
+    degrade_equipment_condition_for_test(&mut state, equipment, 1_000);
     let actual_revision = state.equipment().revision();
     let inventory_before = state.inventory().clone();
 
@@ -1749,13 +1714,7 @@ fn equipment_maintenance_soak_preserves_timed_service_resources_and_replay() {
 
     for cycle in 0..500_u64 {
         for state in [&mut first, &mut second] {
-            let wear = match decide_equipment_wear(state, equipment, 1_000) {
-                Ok(plan) => plan,
-                Err(error) => panic!("maintenance soak wear planning failed at {cycle}: {error}"),
-            };
-            if let Err(error) = apply_equipment_condition_plan(state, wear) {
-                panic!("maintenance soak wear commit failed at {cycle}: {error}");
-            }
+            degrade_equipment_condition_for_test(state, equipment, 1_000);
             assert_eq!(
                 state
                     .equipment()

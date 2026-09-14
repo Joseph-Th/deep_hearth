@@ -18,11 +18,9 @@ use crate::energy::{
     calculate_explicit_energy_accounting, calculate_power_duration_ceiling, validate_energy_supply,
 };
 use crate::equipment::{
-    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentConditionCommitError,
-    EquipmentConditionPlanError, EquipmentDefinition, EquipmentDefinitionId, EquipmentId,
-    EquipmentProviderError, EquipmentSupportCommitError, add_equipment,
-    apply_equipment_condition_plan, decide_equipment_wear, validate_mount_equipment,
-    validate_unmount_equipment,
+    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
+    EquipmentId, EquipmentProviderError, EquipmentSupportCommitError, add_equipment,
+    validate_mount_equipment, validate_unmount_equipment,
 };
 use crate::inventory::{
     MaterialLotSelection, StockpileId, StockpileStorageProfile, add_solid_stockpile_for_test,
@@ -2189,14 +2187,6 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         Some(Condition::PRISTINE)
     );
     assert_eq!(
-        decide_equipment_wear(&state, equipment, 1),
-        Err(EquipmentConditionPlanError::EquipmentBusy {
-            equipment,
-            job,
-            release: ProductionOccupancyRelease::AwaitingResume,
-        })
-    );
-    assert_eq!(
         validate_energy_supply(
             &registries,
             &state,
@@ -2562,14 +2552,10 @@ fn validated_heating_start_rejects_support_change_before_commit_without_consumin
 }
 
 #[test]
-fn prevalidated_maintenance_and_mount_are_blocked_if_job_starts_first() {
+fn prevalidated_mount_is_blocked_if_job_starts_first() {
     let (registries, mut state, source, destination, equipment, energy_store) =
         make_loaded_fixture(EnergyCarrier::Electrical);
     let support = add_active_support(&registries, &mut state, 0);
-    let wear = match decide_equipment_wear(&state, equipment, 1) {
-        Ok(plan) => plan,
-        Err(error) => panic!("occupancy-race wear validation failed: {error}"),
-    };
     let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
         Ok(token) => token,
         Err(error) => panic!("occupancy-race mount validation failed: {error}"),
@@ -2604,17 +2590,6 @@ fn prevalidated_maintenance_and_mount_are_blocked_if_job_starts_first() {
         Some(record) => record.completes_at(),
         None => panic!("occupancy-race job disappeared"),
     };
-
-    let before_wear = state.clone();
-    assert_eq!(
-        apply_equipment_condition_plan(&mut state, wear),
-        Err(EquipmentConditionCommitError::EquipmentBusy {
-            equipment,
-            job,
-            release: ProductionOccupancyRelease::Scheduled(completes_at),
-        })
-    );
-    assert_eq!(state, before_wear);
 
     let before_mount = state.clone();
     assert_eq!(
@@ -2717,25 +2692,12 @@ fn heater_is_exclusive_while_job_runs_and_releases_on_completion() {
             release: ProductionOccupancyRelease::Scheduled(completes_at),
         })
     );
-    assert_eq!(
-        decide_equipment_wear(&state, equipment, 1),
-        Err(EquipmentConditionPlanError::EquipmentBusy {
-            equipment,
-            job: first_job,
-            release: ProductionOccupancyRelease::Scheduled(completes_at),
-        })
-    );
-
     for _ in 0..duration.value() {
         if let Err(error) = advance_tick(&registries, &mut state) {
             panic!("heater occupancy completion failed: {error}");
         }
     }
     assert!(state.production().get_job(first_job).is_none());
-    let post_release_wear = decide_equipment_wear(&state, equipment, 1)
-        .unwrap_or_else(|error| panic!("released heater remained spuriously occupied: {error}"));
-    assert_eq!(post_release_wear.equipment(), equipment);
-    assert!(post_release_wear.after() < post_release_wear.before());
 
     let after_release = match resolve_test_sensible_heating_process(
         &registries,

@@ -1,4 +1,4 @@
-//! Diagnostics for finite energy-supply selection, reservation, and test commit checks.
+//! Diagnostics for finite energy-supply selection and reservation.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -101,10 +101,4 @@ pub(crate) enum EnergyReservationError {
         requested: Energy,
     },
     RevisionExhausted,
-}
-
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EnergyCommitError {
-    StaleRevision { expected: u64, actual: u64 },
 }
