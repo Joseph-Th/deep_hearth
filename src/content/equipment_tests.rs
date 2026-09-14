@@ -261,12 +261,12 @@ fn industrial_maintenance_replacement_mass_scales_with_machine_mass() {
 }
 
 #[test]
-fn every_builtin_equipment_definition_has_a_condition_recovery_route() {
+fn every_builtin_equipment_definition_has_authored_maintenance() {
     let registry = build_equipment_registry();
     for definition in registry.definitions() {
         assert!(
-            definition.maintenance_profile().is_some() || definition.worn_recovery_form().is_some(),
-            "built-in equipment {} must be repairable or destructively recoverable after wear",
+            definition.maintenance_profile().is_some(),
+            "built-in equipment {} must have an authored maintenance route",
             definition.id().value()
         );
     }

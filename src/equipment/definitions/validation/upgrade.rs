@@ -29,6 +29,13 @@ pub(super) fn validate_equipment_upgrade_references(
             )
         });
     validate_equipment_upgrade_capabilities(base, target, capabilities);
+    assert_eq!(
+        target.maintenance_profile(),
+        base.maintenance_profile(),
+        "equipment definition {} additive upgrade from {} preserves condition and must preserve its maintenance profile",
+        target.id().value(),
+        base.id().value()
+    );
     assert!(
         upgrade
             .additions()

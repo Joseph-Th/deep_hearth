@@ -85,6 +85,11 @@ impl EquipmentMaintenanceProfile {
         full_service_duration: TickSpan,
         exertion: SurvivalExertion,
     ) -> Self {
+        assert_eq!(
+            restored_condition,
+            Condition::PRISTINE,
+            "complete embodied-component replacement must restore pristine condition because residual component wear is not separately represented"
+        );
         let mut profile = Self::new(
             replacement,
             component_mass,

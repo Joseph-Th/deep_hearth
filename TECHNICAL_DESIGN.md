@@ -597,22 +597,27 @@ Equipment owns identity, condition, embodied traces, occupancy, and optional str
 machinery requires active support before new work starts. Mounted equipment contributes its own structural-load
 channel.
 
-Assembly consumes exact traces. Additive upgrades preserve identity, condition, and prior embodiment while
-adding authored matter. Disassembly and worn recovery are allowed only through authored routes. Maintenance is
-physical: aggregate replacement consumes an exact commodity and emits conserved spent matter; traced component
-service replaces one complete authored component while preserving unrelated traces and upgrades. Phase or
-particle transformations remain owned by their physical process.
+Assembly consumes exact traces. Additive upgrades preserve identity, condition, prior embodiment, and the exact
+maintenance profile that gives preserved condition its physical meaning while adding authored matter. An
+upgrade therefore cannot move accumulated wear onto another component or silently change its service cost.
+Disassembly and worn recovery are allowed only through authored routes. Maintenance is physical: aggregate
+replacement consumes an exact commodity and emits conserved spent matter; traced component service replaces one
+complete authored component, restores pristine condition because no residual component wear is separately
+represented, and preserves unrelated traces and upgrades. Phase or particle transformations remain owned by
+their physical process.
 
 Built-in primitive copper reinforcement uses that additive path for extraction, geological sampling,
 woodworking, manual power, crushing, grinding, and separation equipment. Reinforced equipment improves its
 authored capability without replacing the instance or prior wear; processors may increase both flow and batch
 capacity. Their condition curves degrade both productive flow and safe batch capacity;
-component service replaces only the stone working component and leaves copper reinforcement embodied. Worn
-disassembly returns the copper trace as copper scrap, which can re-enter the manual reinforcement-recovery route.
-Stone working-component service emits the exact replaced mass as stone scrap. Once at least 1 kg of compatible
-pure scrap has accumulated, manual reknapping can produce another exact 0.8 kg pick/separator component. The
-remaining scrap and produced chips stay represented, so repeated service reduces but does not eliminate fresh
-stone demand.
+component service replaces only the authored working component and leaves unrelated handles, frames, and copper
+reinforcement embodied. Worn disassembly follows that same component ownership: the worn component enters its
+authored spent form while unrelated embodied traces are recovered exactly. This prevents a worn saw blade from
+destroying its timber frame, or a worn stone head from destroying intact copper reinforcement, without allowing
+the wear-bearing component to reset into reusable stock. Stone working-component service and disassembly emit
+the exact worn mass as stone scrap. Once at least 1 kg of compatible pure scrap has accumulated, manual reknapping
+can produce another exact 0.8 kg pick/separator component. The remaining scrap and produced chips stay represented,
+so repeated service reduces but does not eliminate fresh stone demand.
 
 ### Player work and survival
 

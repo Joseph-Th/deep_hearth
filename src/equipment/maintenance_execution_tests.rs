@@ -24,7 +24,8 @@ use crate::energy::{
 };
 use crate::equipment::{
     EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, add_equipment,
-    degrade_equipment_condition_for_test, validate_assemble_equipment, validate_upgrade_equipment,
+    degrade_equipment_condition_for_test, validate_assemble_equipment,
+    validate_disassemble_equipment, validate_upgrade_equipment,
 };
 
 use crate::inventory::{
@@ -617,6 +618,8 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
     assert_eq!(completion.condition_after(), Condition::PRISTINE);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("component service final state audit failed: {error}"));
+    let recovery = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_020_000))
+        .unwrap_or_else(|error| panic!("component service recovery stockpile failed: {error}"));
     let encoded =
         serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("component service persistence serialization failed: {error}")
@@ -630,6 +633,51 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
         loaded, state,
         "component service must persist a newer replacement trace inside the older equipment identity"
     );
+
+    let expected_recovery = validate_disassemble_equipment(&registries, &state, pick, recovery)
+        .unwrap_or_else(|error| panic!("serviced pick disassembly validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("serviced pick disassembly commit failed: {error}"));
+    let mut loaded = loaded;
+    let actual_recovery = validate_disassemble_equipment(&registries, &loaded, pick, recovery)
+        .unwrap_or_else(|error| {
+            panic!("loaded serviced pick disassembly validation failed: {error}")
+        })
+        .commit(&mut loaded)
+        .unwrap_or_else(|error| panic!("loaded serviced pick disassembly commit failed: {error}"));
+    assert_eq!(actual_recovery, expected_recovery);
+    assert_eq!(loaded, state);
+    let recovered = state
+        .inventory()
+        .get_stockpile(recovery)
+        .unwrap_or_else(|| panic!("component service recovery stockpile disappeared"));
+    assert_eq!(
+        recovered.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)),
+        Mass::from_milligrams(800_000),
+        "completed component service must make the fresh replacement component exactly recoverable"
+    );
+    assert_eq!(
+        recovered.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE)),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(
+        recovered.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)),
+        Mass::from_milligrams(20_000)
+    );
+    assert_eq!(
+        recovered.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)),
+        Mass::ZERO,
+        "a completed service must not leave the replacement component marked as worn"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!(
+                "serviced pick disassembly matter audit failed: {error}"
+            ))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn registries() -> Registries {

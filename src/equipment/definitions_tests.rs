@@ -180,6 +180,23 @@ fn component_maintenance_requires_the_complete_component_at_any_wear_level() {
 }
 
 #[test]
+fn component_maintenance_cannot_leave_unowned_residual_wear_after_full_replacement() {
+    let result = std::panic::catch_unwind(|| {
+        EquipmentMaintenanceProfile::new_component_replacement(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(7),
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+            Condition::new(900_000)
+                .unwrap_or_else(|error| panic!("residual-wear condition fixture failed: {error}")),
+            TickSpan::new(7),
+            active_exertion(),
+        )
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
 fn maintenance_replacement_mass_tracks_condition_restored_and_rounds_positive_repairs_up() {
     let profile = EquipmentMaintenanceProfile::new(
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
@@ -345,12 +362,6 @@ fn equipment_definition_rejects_duplicate_authoritative_profiles() {
             .with_assembly_profile(assembly_profile())
             .with_assembly_profile(assembly_profile())
     });
-    let duplicate_recovery = std::panic::catch_unwind(|| {
-        basic_definition(EquipmentDefinitionId::new(810_006))
-            .with_assembly_profile(assembly_profile())
-            .with_worn_recovery_form(FORM_SCRAP)
-            .with_worn_recovery_form(FORM_SCRAP)
-    });
     let duplicate_upgrade = std::panic::catch_unwind(|| {
         basic_definition(EquipmentDefinitionId::new(810_007))
             .with_upgrade_profile(EquipmentUpgradeProfile::new(
@@ -365,7 +376,6 @@ fn equipment_definition_rejects_duplicate_authoritative_profiles() {
 
     assert!(duplicate_maintenance.is_err());
     assert!(duplicate_assembly.is_err());
-    assert!(duplicate_recovery.is_err());
     assert!(duplicate_upgrade.is_err());
 }
 

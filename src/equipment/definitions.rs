@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::capability::{CapabilityId, CapabilityProfile};
 use crate::core::quantity::Mass;
 use crate::maintenance::MaintenanceThresholds;
-use crate::material::{FormId, MaterialAssemblyProfile};
+use crate::material::MaterialAssemblyProfile;
 
 mod condition;
 mod maintenance;
@@ -49,7 +49,6 @@ pub struct EquipmentDefinition {
     maintenance_profile: Option<EquipmentMaintenanceProfile>,
     assembly_profile: Option<MaterialAssemblyProfile>,
     upgrade_profile: Option<EquipmentUpgradeProfile>,
-    worn_recovery_form: Option<FormId>,
 }
 
 /// Authored additive conversion from one existing equipment class into this definition.
@@ -151,7 +150,6 @@ impl EquipmentDefinition {
             maintenance_profile: None,
             assembly_profile: None,
             upgrade_profile: None,
-            worn_recovery_form: None,
         }
     }
 
@@ -203,23 +201,6 @@ impl EquipmentDefinition {
             self.id.value()
         );
         self.assembly_profile = Some(profile);
-        self
-    }
-
-    /// Adds a destructive same-material recovery form for worn assembled equipment.
-    #[must_use]
-    pub fn with_worn_recovery_form(mut self, form: FormId) -> Self {
-        assert!(
-            self.worn_recovery_form.is_none(),
-            "equipment definition {} cannot define more than one worn-recovery form",
-            self.id.value()
-        );
-        assert!(
-            self.assembly_profile.is_some(),
-            "equipment definition {} cannot author worn recovery without embodied assembly matter",
-            self.id.value()
-        );
-        self.worn_recovery_form = Some(form);
         self
     }
 
@@ -301,11 +282,6 @@ impl EquipmentDefinition {
     #[must_use]
     pub const fn has_authored_acquisition_edge(&self) -> bool {
         self.assembly_profile.is_some() || self.upgrade_profile.is_some()
-    }
-
-    #[must_use]
-    pub const fn worn_recovery_form(&self) -> Option<FormId> {
-        self.worn_recovery_form
     }
 }
 

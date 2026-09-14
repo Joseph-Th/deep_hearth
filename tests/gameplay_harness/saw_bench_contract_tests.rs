@@ -3,10 +3,10 @@
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, FORM_BOARD, FORM_CHIP,
-    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_SAW_BLADE, PROCESS_KNAP_STONE_TOOL,
-    PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
-    build_registries,
+    FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_SAW_BLADE, FORM_SCRAP,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_BOARDS,
+    PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -14,7 +14,7 @@ use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{
     ManualCraftError, ManualCraftStartRequest, resolve_manual_craft, validate_start_manual_craft,
 };
-use deep_hearth::equipment::validate_assemble_equipment;
+use deep_hearth::equipment::{validate_assemble_equipment, validate_disassemble_equipment};
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -72,6 +72,11 @@ fn frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention
     let output = seed_stockpile(
         &mut state,
         Mass::from_milligrams(12_000_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let recovery = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(2_000_000),
         StockpileStorageProfile::unbounded_solid_only(),
     );
     initialize_player_survival(&registries, &mut state)
@@ -307,6 +312,43 @@ fn frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention
     assert_eq!(
         output_stock.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
         saw_chip_mass
+    );
+    let expected_recovery = validate_disassemble_equipment(&registries, &state, saw, recovery)
+        .unwrap_or_else(|error| panic!("worn frame-saw disassembly validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("worn frame-saw disassembly commit failed: {error}"));
+    let actual_recovery = validate_disassemble_equipment(&registries, &loaded, saw, recovery)
+        .unwrap_or_else(|error| {
+            panic!("loaded worn frame-saw disassembly validation failed: {error}")
+        })
+        .commit(&mut loaded)
+        .unwrap_or_else(|error| panic!("loaded worn frame-saw disassembly commit failed: {error}"));
+    assert_eq!(actual_recovery, expected_recovery);
+    assert_eq!(loaded, state);
+    assert!(state.equipment().get_equipment(saw).is_none());
+    let recovered = state
+        .inventory()
+        .get_stockpile(recovery)
+        .unwrap_or_else(|| panic!("frame-saw recovery stockpile disappeared"));
+    assert_eq!(
+        recovered.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
+        Mass::from_milligrams(1_600_000),
+        "worn blade must not destroy the timber frame boards"
+    );
+    assert_eq!(
+        recovered.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE)),
+        Mass::from_milligrams(200_000),
+        "worn blade must not destroy the frame handle"
+    );
+    assert_eq!(
+        recovered.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+        Mass::from_milligrams(54_000),
+        "only the worn blade component should enter copper scrap recovery"
+    );
+    assert_eq!(
+        recovered.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE)),
+        Mass::ZERO,
+        "worn blade must not reset into reusable blade stock"
     );
     assert_eq!(
         calculate_matter_accounting(&state)

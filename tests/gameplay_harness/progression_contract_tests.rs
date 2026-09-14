@@ -237,8 +237,13 @@ fn primitive_recovery_and_reinforcement_routes_remain_connected() {
             .equipment()
             .get_equipment(target)
             .unwrap_or_else(|| panic!("required primitive reinforcement target disappeared"));
-        assert!(definition.maintenance_profile().is_some());
-        assert!(definition.worn_recovery_form().is_some());
+        let maintenance = definition
+            .maintenance_profile()
+            .unwrap_or_else(|| panic!("required primitive reinforcement target lost maintenance"));
+        assert!(
+            maintenance.is_component_replacement(),
+            "primitive reinforcement target must localize wear to an embodied replaceable component"
+        );
     }
 
     let base_flywheel = registries

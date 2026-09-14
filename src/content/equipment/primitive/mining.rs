@@ -8,9 +8,7 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use crate::content::capabilities::{
     CAPABILITY_MINING_FLOW, CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS,
 };
-use crate::content::materials::{
-    FORM_HANDLE, FORM_SCRAP, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD,
-};
+use crate::content::materials::{FORM_HANDLE, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD};
 
 use super::super::authoring::{
     component_maintenance, mass_flow_condition_curve, profile, thresholds,
@@ -62,7 +60,6 @@ pub(super) fn stone_pick() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(800_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 pub(super) fn copper_reinforced_pick() -> EquipmentDefinition {
@@ -106,7 +103,6 @@ pub(super) fn copper_reinforced_pick() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(800_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_PICK))
 }
 
@@ -153,7 +149,6 @@ pub(super) fn stone_quarry_pick() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(1_600_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 pub(super) fn copper_reinforced_stone_quarry_pick() -> EquipmentDefinition {
@@ -197,7 +192,6 @@ pub(super) fn copper_reinforced_stone_quarry_pick() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(1_600_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_QUARRY_PICK))
 }
 
@@ -226,7 +220,6 @@ pub(super) fn stone_geological_hammer() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(500_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 pub(super) fn copper_reinforced_geological_hammer() -> EquipmentDefinition {
@@ -252,6 +245,5 @@ pub(super) fn copper_reinforced_geological_hammer() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(500_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_GEOLOGICAL_HAMMER))
 }

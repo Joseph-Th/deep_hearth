@@ -1,24 +1,78 @@
 //! Conserved recovery of assembled equipment.
 //!
-//! Pristine equipment reverses assembly exactly. Worn equipment with an authored recovery form is
-//! destructively decommissioned into same-material scrap so wear cannot be erased and failed tools do
-//! not permanently trap matter. Equipment without an authored worn-recovery policy remains intact.
+//! Pristine equipment reverses assembly exactly. For component-maintained equipment, worn
+//! disassembly preserves unrelated embodied components and reforms only the authored wear component
+//! into its spent form. Worn equipment without component-replacement semantics remains intact.
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
-    MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
+    ConsumedMaterialTrace, MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
     StockpileStoredMassChange, ValidatedMaterialIngress, ValidatedStockpileStructuralLoad,
     apply_material_ingress, validate_material_ingress, validate_stockpile_stored_mass_changes,
 };
 use crate::maintenance::Condition;
+use crate::material::{CommodityKey, FormId};
 use crate::registry::Registries;
 
-use super::{EquipmentId, EquipmentOccupancy, equipment_occupancy};
+use super::{EquipmentId, EquipmentOccupancy, EquipmentRecord, equipment_occupancy};
 
 mod errors;
 
 pub use errors::{EquipmentDisassemblyCommitError, EquipmentDisassemblyError};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EquipmentDisassemblyRecovery {
+    Exact,
+    WornComponent {
+        component: CommodityKey,
+        spent_form: FormId,
+    },
+}
+
+impl EquipmentDisassemblyRecovery {
+    fn ingress_entry(self, trace: &ConsumedMaterialTrace) -> MaterialIngressEntry {
+        match self {
+            Self::Exact => MaterialIngressEntry::from_consumed_trace(trace),
+            Self::WornComponent {
+                component,
+                spent_form,
+            } if trace.profile().commodity() == component => {
+                MaterialIngressEntry::from_reformed_consumed_trace(trace, spent_form)
+            }
+            Self::WornComponent { .. } => MaterialIngressEntry::from_consumed_trace(trace),
+        }
+    }
+}
+
+fn resolve_disassembly_recovery(
+    registries: &Registries,
+    record: &EquipmentRecord,
+) -> Result<EquipmentDisassemblyRecovery, EquipmentDisassemblyError> {
+    if record.condition() == Condition::PRISTINE {
+        return Ok(EquipmentDisassemblyRecovery::Exact);
+    }
+    let equipment = record.id();
+    let definition = registries
+        .equipment()
+        .get_equipment(record.definition())
+        .ok_or(EquipmentDisassemblyError::InvalidEmbodiedMatter { equipment })?;
+    if let Some(maintenance) = definition
+        .maintenance_profile()
+        .filter(|profile| profile.is_component_replacement())
+    {
+        return Ok(EquipmentDisassemblyRecovery::WornComponent {
+            component: maintenance.replacement(),
+            spent_form: maintenance.spent().form(),
+        });
+    }
+    Err(
+        EquipmentDisassemblyError::WornComponentRecoveryUnavailable {
+            equipment,
+            condition: record.condition(),
+        },
+    )
+}
 
 fn validation_occupancy_error(
     state: &AppState,
@@ -222,20 +276,7 @@ pub fn validate_disassemble_equipment(
     if record.embodied_mass().is_zero() || record.embodied_material().is_empty() {
         return Err(EquipmentDisassemblyError::NoEmbodiedMatter { equipment });
     }
-    let worn_recovery_form = if record.condition() == Condition::PRISTINE {
-        None
-    } else {
-        let definition = registries
-            .equipment()
-            .get_equipment(record.definition())
-            .ok_or(EquipmentDisassemblyError::InvalidEmbodiedMatter { equipment })?;
-        Some(definition.worn_recovery_form().ok_or(
-            EquipmentDisassemblyError::WornRecoveryUnavailable {
-                equipment,
-                condition: record.condition(),
-            },
-        )?)
-    };
+    let recovery = resolve_disassembly_recovery(registries, record)?;
     if let Some(element) = record.supported_by() {
         return Err(EquipmentDisassemblyError::EquipmentMounted { equipment, element });
     }
@@ -250,10 +291,7 @@ pub fn validate_disassemble_equipment(
         record
             .embodied_material()
             .iter()
-            .map(|trace| match worn_recovery_form {
-                Some(form) => MaterialIngressEntry::from_reformed_consumed_trace(trace, form),
-                None => MaterialIngressEntry::from_consumed_trace(trace),
-            }),
+            .map(|trace| recovery.ingress_entry(trace)),
         state.tick(),
     )
     .map_err(|error| map_ingress_error(equipment, error))?;

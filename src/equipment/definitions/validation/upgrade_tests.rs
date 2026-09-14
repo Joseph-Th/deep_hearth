@@ -4,15 +4,20 @@ use crate::capability::{
     CapabilityDefinition, CapabilityId, CapabilityImprovement, CapabilityProfile,
     CapabilityRegistry, CapabilityValue, CapabilityValueKind,
 };
-use crate::content::{EQUIPMENT_STONE_PICK, FORM_TOOL, MATERIAL_STONE, build_registries};
-use crate::core::quantity::{Mass, MassFlow};
+use crate::content::{
+    EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_SCRAP, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD,
+    build_registries,
+};
+use crate::core::quantity::{Energy, Mass, MassFlow, Volume};
+use crate::core::time::TickSpan;
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
-    EquipmentRegistry, EquipmentUpgradeProfile,
+    EquipmentMaintenanceProfile, EquipmentRegistry, EquipmentUpgradeProfile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use crate::registry::Registries;
+use crate::survival::SurvivalExertion;
 
 fn fixture_capability() -> (Registries, CapabilityId) {
     let registries = build_registries();
@@ -27,6 +32,37 @@ fn fixture_capability() -> (Registries, CapabilityId) {
         })
         .unwrap_or_else(|| panic!("stone pick lost its mass-flow capability"));
     (registries, capability)
+}
+
+fn active_exertion() -> SurvivalExertion {
+    SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO)
+}
+
+fn component_maintenance(
+    replacement: CommodityKey,
+    spent: CommodityKey,
+) -> EquipmentMaintenanceProfile {
+    EquipmentMaintenanceProfile::new_component_replacement(
+        replacement,
+        Mass::from_milligrams(1),
+        spent,
+        Condition::PRISTINE,
+        TickSpan::new(1),
+        active_exertion(),
+    )
+}
+
+fn two_component_assembly() -> MaterialAssemblyProfile {
+    MaterialAssemblyProfile::new(vec![
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1),
+        ),
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(1),
+        ),
+    ])
 }
 
 fn simple_definition(
@@ -135,6 +171,33 @@ fn additive_upgrade_cannot_drop_inherited_capability() {
         ),
         base_id,
     );
+
+    assert_invalid_upgrade(&registries, base, target);
+}
+
+#[test]
+fn additive_upgrade_cannot_move_preserved_wear_to_a_different_service_component() {
+    let (registries, capability) = fixture_capability();
+    let base_id = EquipmentDefinitionId::new(810_029);
+    let target_id = EquipmentDefinitionId::new(810_030);
+    let base =
+        base_definition(base_id, capability).with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        ));
+    let target = simple_definition(target_id, capability, 120, 2)
+        .with_assembly_profile(two_component_assembly())
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
+        ))
+        .with_upgrade_profile(EquipmentUpgradeProfile::new(
+            base_id,
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(1),
+            )]),
+        ));
 
     assert_invalid_upgrade(&registries, base, target);
 }

@@ -21,7 +21,7 @@ pub enum EquipmentDisassemblyError {
     NoEmbodiedMatter {
         equipment: EquipmentId,
     },
-    WornRecoveryUnavailable {
+    WornComponentRecoveryUnavailable {
         equipment: EquipmentId,
         condition: Condition,
     },
@@ -82,12 +82,12 @@ impl Display for EquipmentDisassemblyError {
                 "equipment {} has no embodied matter to disassemble",
                 equipment.value()
             ),
-            Self::WornRecoveryUnavailable {
+            Self::WornComponentRecoveryUnavailable {
                 equipment,
                 condition,
             } => write!(
                 formatter,
-                "equipment {} is at {} ppm condition and its definition has no destructive worn-recovery form",
+                "equipment {} is at {} ppm condition and has no authored component-replacement recovery route",
                 equipment.value(),
                 condition.parts_per_million()
             ),
@@ -192,7 +192,7 @@ impl Error for EquipmentDisassemblyError {
             Self::StoredMatterLoad(error) => Some(error),
             Self::UnknownEquipment { .. }
             | Self::NoEmbodiedMatter { .. }
-            | Self::WornRecoveryUnavailable { .. }
+            | Self::WornComponentRecoveryUnavailable { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }

@@ -7,8 +7,8 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use crate::content::capabilities::{CAPABILITY_SAWING_FLOW, CAPABILITY_WOODWORKING_FLOW};
 use crate::content::materials::{
-    FORM_BOARD, FORM_HANDLE, FORM_SAW_BLADE, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_HANDLE, FORM_SAW_BLADE, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 
 use super::super::authoring::{
@@ -52,7 +52,6 @@ pub(super) fn stone_woodworking_adze() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(800_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 /// Copper edge reinforcement doubles pristine shaping throughput without discarding the stone
@@ -88,7 +87,6 @@ pub(super) fn copper_reinforced_woodworking_adze() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(800_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_WOODWORKING_ADZE))
 }
 
@@ -132,5 +130,4 @@ pub(super) fn timber_frame_saw_bench() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
         Mass::from_milligrams(54_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }

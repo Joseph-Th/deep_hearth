@@ -9,7 +9,7 @@ use crate::content::capabilities::{
     CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_POWER_OUTPUT,
 };
 use crate::content::materials::{
-    FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_SCRAP, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 use super::super::authoring::{component_maintenance, power_condition_curve, profile, thresholds};
@@ -49,7 +49,6 @@ pub(super) fn stone_hand_crank() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
         Mass::from_milligrams(200_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 pub(super) fn copper_reinforced_hand_crank() -> EquipmentDefinition {
@@ -83,7 +82,6 @@ pub(super) fn copper_reinforced_hand_crank() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
         Mass::from_milligrams(200_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_HAND_CRANK))
 }
 
@@ -123,5 +121,4 @@ pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
         Mass::from_milligrams(400_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }

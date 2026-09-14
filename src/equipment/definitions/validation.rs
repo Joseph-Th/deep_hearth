@@ -1,7 +1,7 @@
 //! Cross-registry validation for authored equipment definitions.
 
 use crate::capability::CapabilityRegistry;
-use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
+use crate::material::MaterialRegistry;
 
 use super::{EquipmentDefinition, EquipmentRegistry};
 
@@ -143,62 +143,6 @@ fn validate_equipment_assembly_references(
     );
 }
 
-fn validate_worn_recovery_references(
-    definition: &EquipmentDefinition,
-    materials: &MaterialRegistry,
-) {
-    let Some(recovery_form) = definition.worn_recovery_form() else {
-        return;
-    };
-    let assembly = definition.assembly_profile().unwrap_or_else(|| {
-        panic!(
-            "equipment definition {} has worn recovery but no assembly profile",
-            definition.id().value()
-        )
-    });
-    let form = materials.get_form(recovery_form).unwrap_or_else(|| {
-        panic!(
-            "equipment definition {} references missing worn-recovery form {}",
-            definition.id().value(),
-            recovery_form.value()
-        )
-    });
-    assert_eq!(
-        form.phase(),
-        MaterialPhase::Solid,
-        "equipment definition {} worn-recovery form {} must be solid",
-        definition.id().value(),
-        recovery_form.value()
-    );
-    assert_eq!(
-        form.particle_size_policy(),
-        ParticleSizeStatePolicy::Untracked,
-        "equipment definition {} worn-recovery form {} must not require particulate state",
-        definition.id().value(),
-        recovery_form.value()
-    );
-    assert!(
-        assembly
-            .inputs()
-            .iter()
-            .all(|input| input.commodity().form() != recovery_form),
-        "equipment definition {} worn-recovery form {} cannot also be a direct assembly input",
-        definition.id().value(),
-        recovery_form.value()
-    );
-    assert!(
-        assembly.inputs().iter().all(|input| {
-            materials.has_commodity(CommodityKey::new(
-                input.commodity().material(),
-                recovery_form,
-            ))
-        }),
-        "equipment definition {} worn-recovery form {} must be authored for every embodied assembly material",
-        definition.id().value(),
-        recovery_form.value()
-    );
-}
-
 impl EquipmentRegistry {
     pub(crate) fn validate_references(
         &self,
@@ -209,7 +153,6 @@ impl EquipmentRegistry {
             validate_equipment_capability_references(definition, capabilities);
             validate_equipment_maintenance_references(definition, materials);
             validate_equipment_assembly_references(definition, materials);
-            validate_worn_recovery_references(definition, materials);
         }
 
         validate_equipment_upgrade_ancestry(self);

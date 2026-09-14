@@ -11,8 +11,8 @@ use crate::content::capabilities::{
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
 use crate::content::materials::{
-    FORM_BOARD, FORM_HANDLE, FORM_SCRAP, FORM_SCREEN_PLATE, FORM_TOOL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_HANDLE, FORM_SCREEN_PLATE, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 
 use super::super::authoring::{
@@ -68,7 +68,6 @@ pub(super) fn stone_crusher() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(1_600_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 pub(super) fn stone_separator() -> EquipmentDefinition {
@@ -114,7 +113,6 @@ pub(super) fn stone_separator() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(800_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 pub(super) fn stone_rotary_quern() -> EquipmentDefinition {
@@ -160,7 +158,6 @@ pub(super) fn stone_rotary_quern() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(1_600_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 pub(super) fn copper_plate_sizing_screen() -> EquipmentDefinition {
@@ -206,7 +203,6 @@ pub(super) fn copper_plate_sizing_screen() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
         Mass::from_milligrams(18_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
 }
 
 pub(super) fn copper_reinforced_stone_crusher() -> EquipmentDefinition {
@@ -253,7 +249,6 @@ pub(super) fn copper_reinforced_stone_crusher() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(1_600_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_CRUSHER))
 }
 
@@ -301,7 +296,6 @@ pub(super) fn copper_reinforced_stone_rotary_quern() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(1_600_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_ROTARY_QUERN))
 }
 
@@ -349,6 +343,5 @@ pub(super) fn copper_reinforced_stone_separator() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(800_000),
     ))
-    .with_worn_recovery_form(FORM_SCRAP)
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_SEPARATOR))
 }

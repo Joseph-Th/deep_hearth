@@ -5,24 +5,22 @@ use crate::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_PICK,
     EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    EQUIPMENT_STONE_SEPARATOR, FORM_FLYWHEEL, FORM_HANDLE, FORM_REINFORCEMENT, FORM_SCRAP,
-    FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, build_registries,
+    EQUIPMENT_STONE_SEPARATOR, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, FORM_BOARD, FORM_FLYWHEEL,
+    FORM_HANDLE, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_TOOL,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::validate_loaded_state;
 use crate::core::time::WorldSeed;
-use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     EquipmentDefinitionId, degrade_equipment_condition_for_test, validate_assemble_equipment,
     validate_upgrade_equipment,
 };
-use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
-use crate::simulation::advance_tick;
 use crate::survival::initialize_player_survival;
 
 fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -112,19 +110,15 @@ fn upgrade_with_reinforcement(
 }
 
 #[test]
-fn worn_pick_copper_scrap_can_be_reworked_into_a_second_pick_upgrade() {
+fn worn_pick_disassembly_reuses_intact_reinforcement_without_resetting_worn_head() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xD15A_0005));
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("scrap-loop survival setup failed: {error}"));
     let first = assembled_pick(&registries, &mut state);
     let second = assembled_pick(&registries, &mut state);
     upgrade_pick(&registries, &mut state, first);
     degrade_equipment_condition_for_test(&mut state, first, 1);
     let recovery = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_020_000))
         .unwrap_or_else(|error| panic!("scrap-loop recovery stockpile failed: {error}"));
-    let reinforcement = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
-        .unwrap_or_else(|error| panic!("scrap-loop reinforcement stockpile failed: {error}"));
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("scrap-loop matter-before audit failed: {error}"))
         .total();
@@ -135,45 +129,24 @@ fn worn_pick_copper_scrap_can_be_reworked_into_a_second_pick_upgrade() {
         .unwrap_or_else(|error| panic!("scrap-loop disassembly commit failed: {error}"));
     assert_eq!(
         state.inventory().get_stockpile(recovery).map(|stockpile| {
-            stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
+            stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
         }),
         Some(Mass::from_milligrams(20_000))
     );
-    let scrap = state
-        .inventory()
-        .lot_ids(recovery)
-        .find(|lot| {
-            state.inventory().get_lot(*lot).is_some_and(|record| {
-                record.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)
-            })
-        })
-        .unwrap_or_else(|| panic!("scrap-loop recovered copper lot disappeared"));
-
-    let job = validate_start_manual_craft(
-        &registries,
-        &state,
-        ManualCraftStartRequest::single(
-            PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
-            recovery,
-            MaterialLotSelection::new(scrap, Mass::from_milligrams(20_000)),
-            reinforcement,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("scrap-loop rework validation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("scrap-loop rework commit failed: {error}"));
-    while state.production().get_job(job).is_some() {
-        let _ = advance_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("scrap-loop rework tick failed: {error}"));
-    }
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(reinforcement)
-            .map(|stockpile| {
-                stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
-            }),
-        Some(Mass::from_milligrams(20_000))
+            .get_stockpile(recovery)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)) }),
+        Some(Mass::from_milligrams(800_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovery)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))),
+        Some(Mass::ZERO),
+        "the worn working component must not return as reusable tool stock"
     );
 
     validate_upgrade_equipment(
@@ -181,11 +154,13 @@ fn worn_pick_copper_scrap_can_be_reworked_into_a_second_pick_upgrade() {
         &state,
         second,
         EQUIPMENT_COPPER_REINFORCED_PICK,
-        reinforcement,
+        recovery,
     )
-    .unwrap_or_else(|error| panic!("scrap-loop second upgrade validation failed: {error}"))
+    .unwrap_or_else(|error| {
+        panic!("intact-reinforcement second upgrade validation failed: {error}")
+    })
     .commit(&mut state)
-    .unwrap_or_else(|error| panic!("scrap-loop second upgrade commit failed: {error}"));
+    .unwrap_or_else(|error| panic!("intact-reinforcement second upgrade commit failed: {error}"));
     assert_eq!(
         state
             .equipment()
@@ -203,7 +178,7 @@ fn worn_pick_copper_scrap_can_be_reworked_into_a_second_pick_upgrade() {
 }
 
 #[test]
-fn worn_reinforced_processing_machines_return_copper_to_the_scrap_recovery_loop() {
+fn worn_reinforced_processing_machines_preserve_unworn_components() {
     let registries = build_registries();
     for (seed, base, upgraded, total_mass, stone_mass, wood_mass) in [
         (
@@ -255,9 +230,9 @@ fn worn_reinforced_processing_machines_return_copper_to_the_scrap_recovery_loop(
             recovered,
             std::collections::BTreeMap::from([
                 (CommodityKey::new(MATERIAL_STONE, FORM_SCRAP), stone_mass),
-                (CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP), wood_mass),
+                (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), wood_mass),
                 (
-                    CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                    CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                     Mass::from_milligrams(20_000),
                 ),
             ])
@@ -306,7 +281,7 @@ fn explicit_energy(registries: &Registries, state: &AppState) -> crate::energy::
 }
 
 #[test]
-fn worn_upgraded_equipment_recovers_every_embodied_material_as_scrap() {
+fn worn_upgraded_equipment_preserves_unworn_components_and_upgrade_material() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xD15A_0004));
     let pick = assembled_pick(&registries, &mut state);
@@ -345,11 +320,11 @@ fn worn_upgraded_equipment_recovers_every_embodied_material_as_scrap() {
                 Mass::from_milligrams(800_000),
             ),
             (
-                CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(200_000),
             ),
             (
-                CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
             ),
         ])
@@ -473,7 +448,7 @@ fn pristine_disassembly_recovers_exact_matter_without_reusing_identity() {
 }
 
 #[test]
-fn worn_equipment_recovers_as_same_material_scrap_without_resetting_components() {
+fn worn_component_equipment_recovers_only_wear_component_as_spent_material() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xD15A_0002));
     let pick = assembled_pick(&registries, &mut state);
@@ -505,7 +480,7 @@ fn worn_equipment_recovers_as_same_material_scrap_without_resetting_components()
         recovered,
         std::collections::BTreeSet::from([
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
-            CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
         ])
     );
     assert_eq!(
@@ -517,6 +492,69 @@ fn worn_equipment_recovers_as_same_material_scrap_without_resetting_components()
     assert_eq!(explicit_energy(&registries, &state), energy_before);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("worn disassembly state audit failed: {error}"));
+}
+
+#[test]
+fn worn_saw_disassembly_preserves_frame_and_spends_only_blade() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xD15A_0006));
+    let saw =
+        assembled_authored_equipment(&registries, &mut state, EQUIPMENT_TIMBER_FRAME_SAW_BENCH);
+    degrade_equipment_condition_for_test(&mut state, saw, 1);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_854_000))
+        .unwrap_or_else(|error| panic!("saw disassembly destination failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("saw disassembly matter-before failed: {error}"))
+        .total();
+
+    let outcome = validate_disassemble_equipment(&registries, &state, saw, destination)
+        .unwrap_or_else(|error| panic!("saw disassembly validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("saw disassembly commit failed: {error}"));
+
+    let recovered = outcome
+        .recovered_lots()
+        .iter()
+        .map(|lot| {
+            let lot = state
+                .inventory()
+                .get_lot(*lot)
+                .unwrap_or_else(|| panic!("saw recovery lot disappeared"));
+            (lot.commodity(), lot.mass())
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        recovered,
+        std::collections::BTreeMap::from([
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(1_600_000),
+            ),
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+            (
+                CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                Mass::from_milligrams(54_000),
+            ),
+        ])
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE))),
+        Some(Mass::ZERO),
+        "worn blade must not return as reusable blade stock"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("saw disassembly matter-after failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
