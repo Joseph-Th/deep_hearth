@@ -618,8 +618,11 @@ stone demand.
 
 `PlayerWorkState` allows at most one active player-attention operation across manual production, prospecting,
 mining, manual power, eating, and drinking. Work admission binds the required metabolic-energy and hydration
-budget. Suspended manual production releases attention; resumption must reacquire it and revalidate the exact
-remaining budget.
+budget. Registry assembly rejects authored exertion-bound work that has no physically executable full-reserve
+route: fixed-duration work must fit complete reserves, manual ore processing must fit its maximum authored batch,
+and manual power must have at least one pristine portable provider that can fully charge a compatible finite
+store before condition or survival limits are exhausted. Suspended manual production releases attention;
+resumption must reacquire it and revalidate the exact remaining budget.
 
 Direct manual power requires portable unmounted equipment and a compatible finite energy destination. Duration
 is limited by provider capability, destination input power, sustainable metabolic output, and requested work.

@@ -1,7 +1,8 @@
 //! Registry-wide proof that authored player work has at least one physically executable route.
 
 use crate::capability::CapabilityValue;
-use crate::core::quantity::{Energy, Pressure};
+use crate::core::quantity::{Mass, MassFlow, Pressure};
+use crate::core::throughput::calculate_mass_flow_duration_ceiling;
 use crate::core::time::TickSpan;
 use crate::crafting::{
     ManualCraftDefinition, ManualCraftEquipmentProfile, resolve_manual_craft_equipment_schedule,
@@ -38,6 +39,24 @@ fn assert_player_work_fits_reserves(
         budget.hydration().microliters(),
         physiology.maximum_hydration().microliters(),
     );
+}
+
+fn assert_manual_ore_batch_fits_reserves(
+    core: &CoreDefinitions,
+    physiology: PhysiologyDefinition,
+    processing_rate: MassFlow,
+    maximum_batch: Mass,
+    exertion: SurvivalExertion,
+    owner: &str,
+    id: u64,
+) {
+    let duration = calculate_mass_flow_duration_ceiling(
+        processing_rate,
+        maximum_batch,
+        core.physical_tick_duration(),
+    )
+    .unwrap_or_else(|error| panic!("{owner} {id} maximum-batch duration failed: {error}"));
+    assert_player_work_fits_reserves(physiology, exertion, duration, owner, id);
 }
 
 fn best_operable_manual_craft_equipment_duration(
@@ -80,14 +99,13 @@ fn best_operable_manual_craft_equipment_duration(
         .min()
 }
 
-fn best_operable_manual_power_duration(
+fn best_operable_manual_power_full_charge_duration(
     core: &CoreDefinitions,
     equipment_registry: &EquipmentRegistry,
     energy_registry: &EnergyRegistry,
     physiology: PhysiologyDefinition,
     definition: &ManualPowerDefinition,
 ) -> Option<TickSpan> {
-    let minimum_output = Energy::from_nanojoules(1);
     equipment_registry
         .definitions()
         .filter(|equipment| !equipment.requires_structural_support())
@@ -110,7 +128,7 @@ fn best_operable_manual_power_duration(
                 .filter_map(|store| {
                     let transfer_power = std::cmp::min(equipment_power, store.max_input_power());
                     let schedule = resolve_manual_power_schedule(
-                        minimum_output,
+                        store.capacity(),
                         transfer_power,
                         core.physical_tick_duration(),
                         definition.maximum_exertion(),
@@ -181,12 +199,14 @@ fn best_operable_mining_duration(
         .min()
 }
 
-pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: &RegistryDomains) {
-    let physiology = domains.survival.physiology();
-
+fn validate_manual_power_operability(
+    core: &CoreDefinitions,
+    domains: &RegistryDomains,
+    physiology: PhysiologyDefinition,
+) {
     for definition in domains.labor.manual_power_definitions() {
         assert!(
-            best_operable_manual_power_duration(
+            best_operable_manual_power_full_charge_duration(
                 core,
                 &domains.equipment,
                 &domains.energy,
@@ -194,11 +214,17 @@ pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: 
                 definition,
             )
             .is_some(),
-            "manual power method {} has no pristine portable provider and compatible sink route that can produce nonzero energy within condition and survival limits",
+            "manual power method {} has no pristine portable provider and compatible finite store that can be charged from empty to full within condition and survival limits",
             definition.id().value()
         );
     }
+}
 
+fn validate_mining_operability(
+    core: &CoreDefinitions,
+    domains: &RegistryDomains,
+    physiology: PhysiologyDefinition,
+) {
     for definition in domains.mining.definitions() {
         assert!(
             best_operable_mining_duration(core, &domains.equipment, physiology, definition)
@@ -207,7 +233,13 @@ pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: 
             definition.id().value()
         );
     }
+}
 
+fn validate_manual_craft_operability(
+    core: &CoreDefinitions,
+    domains: &RegistryDomains,
+    physiology: PhysiologyDefinition,
+) {
     for definition in domains.crafting.definitions() {
         match definition.equipment_profile() {
             None => assert_player_work_fits_reserves(
@@ -245,7 +277,46 @@ pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: 
             }
         }
     }
+}
 
+fn validate_manual_ore_operability(
+    core: &CoreDefinitions,
+    domains: &RegistryDomains,
+    physiology: PhysiologyDefinition,
+) {
+    for process in domains.production.definitions() {
+        if let Some(definition) = domains.ore_processing.get_manual_comminution(process.id()) {
+            assert_manual_ore_batch_fits_reserves(
+                core,
+                physiology,
+                definition.processing_rate(),
+                definition.max_batch_mass(),
+                definition.exertion(),
+                "manual comminution process",
+                u64::from(process.id().value()),
+            );
+        }
+        if let Some(definition) = domains
+            .ore_processing
+            .get_manual_constituent_separation(process.id())
+        {
+            assert_manual_ore_batch_fits_reserves(
+                core,
+                physiology,
+                definition.processing_rate(),
+                definition.max_batch_mass(),
+                definition.exertion(),
+                "manual constituent-separation process",
+                u64::from(process.id().value()),
+            );
+        }
+    }
+}
+
+fn validate_fixed_player_work_operability(
+    domains: &RegistryDomains,
+    physiology: PhysiologyDefinition,
+) {
     for definition in domains.labor.prospecting_definitions() {
         assert_player_work_fits_reserves(
             physiology,
@@ -278,6 +349,15 @@ pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: 
             u64::from(definition.id().value()),
         );
     }
+}
+
+pub(super) fn validate_player_work_operability(core: &CoreDefinitions, domains: &RegistryDomains) {
+    let physiology = domains.survival.physiology();
+    validate_manual_power_operability(core, domains, physiology);
+    validate_mining_operability(core, domains, physiology);
+    validate_manual_craft_operability(core, domains, physiology);
+    validate_manual_ore_operability(core, domains, physiology);
+    validate_fixed_player_work_operability(domains, physiology);
 }
 
 #[cfg(test)]
