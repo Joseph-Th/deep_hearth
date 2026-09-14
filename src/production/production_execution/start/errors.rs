@@ -71,6 +71,7 @@ pub enum StartProcessError {
     InventoryRevisionExhausted,
     ProductionRevisionExhausted,
     EnergyRevisionExhausted,
+    EquipmentRevisionExhausted,
     ResolutionSourceMismatch {
         bound: StockpileId,
         requested: StockpileId,
@@ -240,6 +241,9 @@ impl Display for StartProcessError {
             Self::EnergyRevisionExhausted => {
                 formatter.write_str("energy state revision space is exhausted")
             }
+            Self::EquipmentRevisionExhausted => {
+                formatter.write_str("equipment revision space is exhausted")
+            }
             Self::ResolutionSourceMismatch { bound, requested } => write!(
                 formatter,
                 "resolved process is bound to source stockpile {} but start requested stockpile {}",
@@ -402,6 +406,7 @@ impl Error for StartProcessError {
             | Self::InventoryRevisionExhausted
             | Self::ProductionRevisionExhausted
             | Self::EnergyRevisionExhausted
+            | Self::EquipmentRevisionExhausted
             | Self::ResolutionSourceMismatch { .. }
             | Self::StaleResolvedInputs { .. }
             | Self::StaleResolvedEnergy { .. }

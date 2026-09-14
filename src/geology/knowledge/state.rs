@@ -37,7 +37,7 @@ impl GeologicalKnowledgeState {
     }
 
     #[must_use]
-    pub(in crate::geology) const fn next_observation_id(&self) -> u32 {
+    pub(crate) const fn next_observation_id(&self) -> u32 {
         self.next_observation_id
     }
 

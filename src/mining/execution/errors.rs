@@ -79,6 +79,8 @@ pub enum MiningStartError {
     DestinationSupport(StockpileStructuralLoadError),
     MiningIdExhausted,
     MiningRevisionExhausted,
+    GeologyRevisionExhausted,
+    EquipmentRevisionExhausted,
     Work(PlayerWorkStartError),
 }
 
@@ -197,6 +199,12 @@ impl Display for MiningStartError {
             Self::MiningRevisionExhausted => {
                 formatter.write_str("mining revision space is exhausted")
             }
+            Self::GeologyRevisionExhausted => {
+                formatter.write_str("geology revision space is exhausted")
+            }
+            Self::EquipmentRevisionExhausted => {
+                formatter.write_str("equipment revision space is exhausted")
+            }
             Self::Work(error) => write!(formatter, "mining player-work admission failed: {error}"),
         }
     }
@@ -231,7 +239,9 @@ impl Error for MiningStartError {
             | Self::DestinationCapacityExceeded { .. }
             | Self::InventoryRevisionExhausted
             | Self::MiningIdExhausted
-            | Self::MiningRevisionExhausted => None,
+            | Self::MiningRevisionExhausted
+            | Self::GeologyRevisionExhausted
+            | Self::EquipmentRevisionExhausted => None,
         }
     }
 }

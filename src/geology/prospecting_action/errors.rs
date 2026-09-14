@@ -50,6 +50,9 @@ pub enum FieldProspectingStartError {
         equipment: EquipmentId,
     },
     ConditionDuration(ActiveConditionDurationError),
+    ObservationIdExhausted,
+    KnowledgeRevisionExhausted,
+    EquipmentRevisionExhausted,
     CompletionTickOverflow,
     Work(PlayerWorkStartError),
 }
@@ -120,6 +123,15 @@ impl Display for FieldProspectingStartError {
                 formatter,
                 "prospecting sampling instrument cannot survive the survey: {error}"
             ),
+            Self::ObservationIdExhausted => formatter.write_str(
+                "prospecting cannot reserve the geological observation identities required at completion",
+            ),
+            Self::KnowledgeRevisionExhausted => formatter.write_str(
+                "prospecting cannot reserve the geological knowledge revisions required at completion",
+            ),
+            Self::EquipmentRevisionExhausted => formatter.write_str(
+                "prospecting cannot reserve the equipment revision required at completion",
+            ),
             Self::CompletionTickOverflow => {
                 formatter.write_str("prospecting completion tick overflowed")
             }
@@ -145,6 +157,9 @@ impl Error for FieldProspectingStartError {
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
+            | Self::ObservationIdExhausted
+            | Self::KnowledgeRevisionExhausted
+            | Self::EquipmentRevisionExhausted
             | Self::CompletionTickOverflow => None,
         }
     }

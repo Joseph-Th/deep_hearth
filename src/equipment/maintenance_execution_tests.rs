@@ -944,6 +944,44 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
 }
 
 #[test]
+fn maintenance_rejects_revision_budget_that_cannot_complete_before_any_mutation() {
+    let registries = registries();
+    let mut state = AppState::new(WorldSeed::new(0x8120_0011));
+    initialize_service_player(&registries, &mut state);
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+        .unwrap_or_else(|error| panic!("revision-budget maintenance equipment failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("revision-budget maintenance source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("revision-budget maintenance spent failed: {error}"));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(20));
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("revision-budget maintenance serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("revision-budget maintenance decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("near-exhausted maintenance revision fixture should load: {error}")
+    });
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &loaded,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("revision-budget maintenance resolution failed: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_equipment_maintenance(&registries, &loaded, resolution).err(),
+        Some(EquipmentMaintenanceError::EquipmentRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
 fn in_progress_maintenance_round_trip_preserves_material_payment_and_continuation() {
     let registries = registries_with_service_duration(TickSpan::new(6));
     let mut state = AppState::new(WorldSeed::new(0x8120_0010));

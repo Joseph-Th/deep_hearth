@@ -1,11 +1,14 @@
 //! Player survival, perishability, and conserved food/water consumption.
 
+mod assessment;
 mod consumption;
 mod definitions;
 mod lifecycle;
+mod resource_cost;
 mod state;
 mod validation;
 
+pub use assessment::{HungerState, HydrationState, SurvivalAssessment, assess_survival};
 pub use consumption::{
     DrinkCommitError, DrinkError, DrinkOutcome, EatCommitError, EatError, EatOutcome,
     EatPortionOutcome, FoodFreshness, FoodFreshnessError, FoodFreshnessProjectionError,
@@ -17,10 +20,8 @@ pub use definitions::{
     FoodDefinition, HydrationDefinition, MetabolismDefinition, NutritionDefinition,
     PhysiologyDefinition, SurvivalRegistry, calculate_food_hydration_offer,
 };
-pub use lifecycle::{
-    HungerState, HydrationState, InitializeSurvivalError, SurvivalAssessment, SurvivalExertion,
-    assess_survival, initialize_player_survival,
-};
+pub use lifecycle::{InitializeSurvivalError, initialize_player_survival};
+pub use resource_cost::SurvivalExertion;
 pub use state::{
     NUTRITION_PARTS_PER_MILLION, NutritionReserves, PlayerSurvivalRecord, SurvivalState, Vitality,
 };
@@ -31,6 +32,9 @@ pub(crate) use lifecycle::{SurvivalTickError, apply_survival_tick, decide_surviv
 pub(crate) use lifecycle::{
     initialize_player_survival_at_hunger_warning_boundary_for_fixture,
     initialize_player_survival_at_hydration_warning_boundary_for_fixture,
+};
+pub(crate) use resource_cost::{
+    SurvivalTickResourceCostError, resolve_survival_tick_resource_cost,
 };
 pub(crate) use state::PendingDirectConsumption;
 #[cfg(test)]

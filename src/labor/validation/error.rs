@@ -12,6 +12,7 @@ use crate::material::MaterialId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWorkValidationError {
     WorkWithoutPlayer,
+    RevisionExhausted,
     ManualProductionJobMissing,
     ManualProductionProcessMismatch,
     ManualProductionScheduleInvalid,
@@ -41,6 +42,8 @@ pub enum PlayerWorkValidationError {
     ManualPowerConditionDuration(ActiveConditionDurationError),
     ManualPowerConditionMismatch,
     ManualPowerResourceDoubleBooked,
+    ManualPowerEquipmentRevisionExhausted,
+    ManualPowerEnergyRevisionExhausted,
     ProspectingMethodMissing,
     ProspectingUnknownMaterial {
         material: MaterialId,
@@ -70,6 +73,9 @@ pub enum PlayerWorkValidationError {
     ProspectingEquipmentResourceDoubleBooked {
         equipment: EquipmentId,
     },
+    ProspectingObservationIdExhausted,
+    ProspectingKnowledgeRevisionExhausted,
+    ProspectingEquipmentRevisionExhausted,
     ProspectingScheduleInvalid,
     ProspectingDurationMismatch,
     EatingMassInvalid {
@@ -131,6 +137,9 @@ impl Display for PlayerWorkValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WorkWithoutPlayer => formatter.write_str("player work exists without a player"),
+            Self::RevisionExhausted => formatter.write_str(
+                "active player work cannot reserve the revision required to release attention",
+            ),
             Self::ManualProductionJobMissing => {
                 formatter.write_str("player work references missing manual production job")
             }
@@ -213,6 +222,10 @@ impl Display for PlayerWorkValidationError {
             Self::ManualPowerResourceDoubleBooked => formatter.write_str(
                 "manual power equipment or destination is simultaneously owned elsewhere",
             ),
+            Self::ManualPowerEquipmentRevisionExhausted => formatter
+                .write_str("active manual power cannot reserve its completion equipment revision"),
+            Self::ManualPowerEnergyRevisionExhausted => formatter
+                .write_str("active manual power cannot reserve its completion energy revision"),
             Self::ProspectingMethodMissing => {
                 formatter.write_str("player prospecting work references a missing authored method")
             }
@@ -267,6 +280,13 @@ impl Display for PlayerWorkValidationError {
                 "player prospecting equipment {} is simultaneously owned by another operation",
                 equipment.value()
             ),
+            Self::ProspectingObservationIdExhausted => formatter.write_str(
+                "active prospecting cannot reserve its completion observation identities",
+            ),
+            Self::ProspectingKnowledgeRevisionExhausted => formatter
+                .write_str("active prospecting cannot reserve its completion knowledge revisions"),
+            Self::ProspectingEquipmentRevisionExhausted => formatter
+                .write_str("active prospecting cannot reserve its completion equipment revision"),
             Self::ProspectingScheduleInvalid => {
                 formatter.write_str("player prospecting work has an invalid persisted schedule")
             }
@@ -417,6 +437,7 @@ impl Error for PlayerWorkValidationError {
             Self::ProspectingEquipmentConditionDuration(error) => Some(error),
             Self::StorageDismantlingRecoveryStorage(error) => Some(error),
             Self::WorkWithoutPlayer
+            | Self::RevisionExhausted
             | Self::ManualProductionJobMissing
             | Self::ManualProductionProcessMismatch
             | Self::ManualProductionScheduleInvalid
@@ -445,6 +466,8 @@ impl Error for PlayerWorkValidationError {
             | Self::ManualPowerDurationMismatch
             | Self::ManualPowerConditionMismatch
             | Self::ManualPowerResourceDoubleBooked
+            | Self::ManualPowerEquipmentRevisionExhausted
+            | Self::ManualPowerEnergyRevisionExhausted
             | Self::ProspectingMethodMissing
             | Self::ProspectingUnknownMaterial { .. }
             | Self::ProspectingRegionVolumeOverflow
@@ -457,6 +480,9 @@ impl Error for PlayerWorkValidationError {
             | Self::ProspectingEquipmentMounted { .. }
             | Self::ProspectingEquipmentConditionOutcomeMismatch { .. }
             | Self::ProspectingEquipmentResourceDoubleBooked { .. }
+            | Self::ProspectingObservationIdExhausted
+            | Self::ProspectingKnowledgeRevisionExhausted
+            | Self::ProspectingEquipmentRevisionExhausted
             | Self::ProspectingScheduleInvalid
             | Self::ProspectingDurationMismatch
             | Self::EatingMassInvalid { .. }

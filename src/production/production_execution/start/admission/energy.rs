@@ -48,6 +48,15 @@ pub(in super::super) fn validate_energy_reservations(
         .as_ref()
         .map(EnergyConsumptionReservation::trace);
     let released = ingress.map(EnergyIngressReservation::trace);
+    let energy_revision_steps = u64::from(consumption.is_some()) + u64::from(released.is_some());
+    if state
+        .energy()
+        .revision()
+        .checked_add(energy_revision_steps)
+        .is_none()
+    {
+        return Err(StartProcessError::EnergyRevisionExhausted);
+    }
     for store in consumed
         .map(|trace| trace.source())
         .into_iter()

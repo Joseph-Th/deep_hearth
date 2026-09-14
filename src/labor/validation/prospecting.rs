@@ -13,6 +13,20 @@ use super::{
 };
 use crate::labor::{ProspectingDefinition, ProspectingEquipmentProfile, ProspectingWork};
 
+fn observation_count(
+    method: ProspectingDefinition,
+    work: ProspectingWork,
+) -> Result<u32, PlayerWorkValidationError> {
+    match method.spatial_resolution() {
+        crate::labor::ProspectingSpatialResolution::AggregateRegion => Ok(1),
+        crate::labor::ProspectingSpatialResolution::PerVoxel => work
+            .region()
+            .voxel_count()
+            .and_then(|count| u32::try_from(count).ok())
+            .ok_or(PlayerWorkValidationError::ProspectingObservationIdExhausted),
+    }
+}
+
 fn validate_equipment_trace(
     state: &AppState,
     profile: ProspectingEquipmentProfile,
@@ -146,6 +160,26 @@ pub(super) fn validate_prospecting_work(
         .get_prospecting(work.method())
         .copied()
         .ok_or(PlayerWorkValidationError::ProspectingMethodMissing)?;
+    let observations = observation_count(method, work)?;
+    if state
+        .geological_knowledge()
+        .next_observation_id()
+        .checked_add(observations)
+        .is_none()
+    {
+        return Err(PlayerWorkValidationError::ProspectingObservationIdExhausted);
+    }
+    if state
+        .geological_knowledge()
+        .revision()
+        .checked_add(u64::from(observations))
+        .is_none()
+    {
+        return Err(PlayerWorkValidationError::ProspectingKnowledgeRevisionExhausted);
+    }
+    if work.equipment().is_some() && state.equipment().revision().checked_add(1).is_none() {
+        return Err(PlayerWorkValidationError::ProspectingEquipmentRevisionExhausted);
+    }
     validate_equipment_replay(state, method, work)?;
     validate_target_replay(registries, method, work)?;
     let remaining_duration = validate_schedule_replay(state, method, work)?;

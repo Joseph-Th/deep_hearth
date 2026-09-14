@@ -23,8 +23,8 @@ use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
-    CompletionCommitError, ProcessDefinition, ProductionJobRecord, apply_completion_plan,
-    decide_due_completions, validate_start_process,
+    CompletionCommitError, ProcessDefinition, ProductionJobRecord, StartProcessError,
+    apply_completion_plan, decide_due_completions, validate_start_process,
 };
 use crate::simulation::advance_tick;
 use crate::thermal::{PhaseChangeProcessProfile, ThermalJobValidationError};
@@ -1174,6 +1174,49 @@ fn same_tick_casting_release_and_passive_loss_prebudget_energy_revision_capacity
         Err(crate::simulation::TickError::EnergyRevisionExhausted)
     );
     assert_eq!(loaded, before);
+}
+
+#[test]
+fn casting_start_rejects_exhausted_completion_owner_revisions() {
+    let fixture = make_fixture(Mass::from_milligrams(10), MELTING_POINT);
+    let encoded = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("casting revision-budget serialization failed: {error}"));
+
+    for (owner, expected) in [
+        ("equipment", StartProcessError::EquipmentRevisionExhausted),
+        ("energy", StartProcessError::EnergyRevisionExhausted),
+    ] {
+        let mut candidate = encoded.clone();
+        candidate["state"]["systems"][owner]["revision"] = serde_json::json!(u64::MAX);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
+            .unwrap_or_else(|error| panic!("casting revision-budget decode failed: {error}"));
+        let loaded = decoded
+            .into_state(&fixture.registries)
+            .unwrap_or_else(|error| {
+                panic!("idle exhausted casting completion owner should load: {error}")
+            });
+        let resolved = resolve_selected(
+            &fixture.registries,
+            &loaded,
+            fixture.ids,
+            Mass::from_milligrams(10),
+        )
+        .unwrap_or_else(|error| panic!("casting revision-budget resolution failed: {error}"));
+        let before = loaded.clone();
+
+        assert_eq!(
+            validate_start_process(
+                &fixture.registries,
+                &loaded,
+                resolved.process_resolution(),
+                fixture.ids.source,
+                fixture.ids.destination,
+            )
+            .err(),
+            Some(expected)
+        );
+        assert_eq!(loaded, before);
+    }
 }
 
 #[cfg(feature = "test-soak")]

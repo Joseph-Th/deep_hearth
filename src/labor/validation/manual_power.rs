@@ -31,6 +31,12 @@ pub(super) fn validate_manual_power_work(
     if active_jobs.has_any() {
         return Err(PlayerWorkValidationError::MultiplePlayerJobs);
     }
+    if state.equipment().revision().checked_add(1).is_none() {
+        return Err(PlayerWorkValidationError::ManualPowerEquipmentRevisionExhausted);
+    }
+    if state.energy().revision().checked_add(1).is_none() {
+        return Err(PlayerWorkValidationError::ManualPowerEnergyRevisionExhausted);
+    }
     let method = registries
         .labor()
         .get_manual_power(work.method())

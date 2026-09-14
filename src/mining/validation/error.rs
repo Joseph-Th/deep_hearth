@@ -136,6 +136,15 @@ pub enum MiningJobValidationError {
         stored: Condition,
         required: Condition,
     },
+    WorkingMiningRevisionExhausted {
+        job: MiningJobId,
+    },
+    WorkingGeologyRevisionExhausted {
+        job: MiningJobId,
+    },
+    WorkingEquipmentRevisionExhausted {
+        job: MiningJobId,
+    },
 }
 
 impl Display for MiningJobValidationError {
@@ -383,6 +392,21 @@ impl Display for MiningJobValidationError {
                 stored.parts_per_million(),
                 required.parts_per_million()
             ),
+            Self::WorkingMiningRevisionExhausted { job } => write!(
+                formatter,
+                "working mining job {} cannot reserve its automatic ready-state revision",
+                job.value()
+            ),
+            Self::WorkingGeologyRevisionExhausted { job } => write!(
+                formatter,
+                "working mining job {} cannot reserve its extraction revision",
+                job.value()
+            ),
+            Self::WorkingEquipmentRevisionExhausted { job } => write!(
+                formatter,
+                "working mining job {} cannot reserve its completion equipment revision",
+                job.value()
+            ),
         }
     }
 }
@@ -419,7 +443,10 @@ impl Error for MiningJobValidationError {
             | Self::ZeroThroughput { .. }
             | Self::InvalidSchedule { .. }
             | Self::DurationMismatch { .. }
-            | Self::ConditionOutcomeMismatch { .. } => None,
+            | Self::ConditionOutcomeMismatch { .. }
+            | Self::WorkingMiningRevisionExhausted { .. }
+            | Self::WorkingGeologyRevisionExhausted { .. }
+            | Self::WorkingEquipmentRevisionExhausted { .. } => None,
         }
     }
 }

@@ -239,6 +239,8 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
         | unexpected @ MiningStartError::DestinationSupport(_)
         | unexpected @ MiningStartError::MiningIdExhausted
         | unexpected @ MiningStartError::MiningRevisionExhausted
+        | unexpected @ MiningStartError::GeologyRevisionExhausted
+        | unexpected @ MiningStartError::EquipmentRevisionExhausted
         | unexpected @ MiningStartError::Work(_) => panic!(
             "primitive progression autonomous-window mining hit unexpected blocker: {unexpected}"
         ),

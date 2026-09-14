@@ -32,9 +32,15 @@ pub(in super::super) fn validate_job_allocation(
         .checked_add(1)
         .ok_or(StartProcessError::JobIdExhausted)?;
     let expected_production_revision = state.production().revision();
+    // Admission inserts the durable job and its scheduled completion removes or transitions it.
+    // Require both deterministic owner mutations up front so starting a job cannot consume the
+    // final production revision and make its first due transition impossible.
+    expected_production_revision
+        .checked_add(2)
+        .ok_or(StartProcessError::ProductionRevisionExhausted)?;
     let next_production_revision = expected_production_revision
         .checked_add(1)
-        .ok_or(StartProcessError::ProductionRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("two-step production revision budget includes admission"));
     Ok(ValidatedJobAllocation {
         current,
         completes_at,

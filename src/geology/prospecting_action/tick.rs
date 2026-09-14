@@ -16,6 +16,7 @@ use super::super::{
 };
 use super::abundance::resolve_region_abundance_bounds;
 use super::hardness::resolve_region_excavation_hardness;
+use super::prospecting_observation_count;
 
 /// Observable completion of one field-prospecting action. The hidden geological owner is intentionally absent.
 #[must_use]
@@ -90,6 +91,9 @@ fn prospecting_observation_regions(
     resolution: ProspectingSpatialResolution,
     region: VoxelBounds,
 ) -> Vec<VoxelBounds> {
+    let expected_count = prospecting_observation_count(resolution, region).unwrap_or_else(|| {
+        panic!("runtime invariant broken: prospecting observation count overflowed")
+    });
     match resolution {
         ProspectingSpatialResolution::AggregateRegion => vec![region],
         ProspectingSpatialResolution::PerVoxel => {
@@ -111,6 +115,11 @@ fn prospecting_observation_regions(
                     }
                 }
             }
+            assert_eq!(
+                regions.len(),
+                usize::try_from(expected_count)
+                    .unwrap_or_else(|_| unreachable!("u32 observation count fits usize")),
+            );
             regions
         }
     }

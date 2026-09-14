@@ -108,12 +108,17 @@ pub fn validate_equipment_maintenance(
     let condition_before = resolution.condition_before;
     let condition_after = resolution.condition_after;
     validate_resolved_outcome(&resolution)?;
-    let next_equipment_revision = state
-        .equipment()
-        .revision()
-        .checked_add(1)
-        .ok_or(EquipmentMaintenanceError::EquipmentRevisionExhausted)?;
     let expected_equipment_revision = state.equipment().revision();
+    // Maintenance mutates equipment twice: admission exchanges the service component and
+    // completion applies the deferred condition recovery. Reserve both owner revisions before
+    // consuming material or player attention so an accepted service cannot become permanently
+    // stranded at its due tick solely because revision space was exhausted at admission.
+    expected_equipment_revision
+        .checked_add(2)
+        .ok_or(EquipmentMaintenanceError::EquipmentRevisionExhausted)?;
+    let next_equipment_revision = expected_equipment_revision
+        .checked_add(1)
+        .unwrap_or_else(|| unreachable!("two-step maintenance revision budget includes admission"));
     let duration = resolution.duration;
     let exertion = resolution.exertion;
     let material = validate_maintenance_material(registries, state, record, resolution)

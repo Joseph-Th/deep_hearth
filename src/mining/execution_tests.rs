@@ -532,6 +532,102 @@ fn mining_start_rejects_exhausted_mining_revision_without_claiming_work() {
 }
 
 #[test]
+fn mining_start_reserves_scheduled_completion_owner_revisions() {
+    let (registries, state, deposit, destination, pick) = unstarted_mining_fixture();
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mining revision-budget serialization failed: {error}"));
+
+    for (owner, revision, expected) in [
+        (
+            "mining",
+            u64::MAX - 1,
+            MiningStartError::MiningRevisionExhausted,
+        ),
+        (
+            "geology",
+            u64::MAX,
+            MiningStartError::GeologyRevisionExhausted,
+        ),
+        (
+            "equipment",
+            u64::MAX,
+            MiningStartError::EquipmentRevisionExhausted,
+        ),
+    ] {
+        let mut candidate = encoded.clone();
+        candidate["state"]["systems"][owner]["revision"] = serde_json::json!(revision);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
+            .unwrap_or_else(|error| panic!("mining revision-budget decode failed: {error}"));
+        let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+            panic!("idle near-exhausted mining owner should load: {error}")
+        });
+        let before = loaded.clone();
+
+        assert_eq!(
+            validate_known_mining(
+                &registries,
+                &loaded,
+                MINING_METHOD_HAND_PICK,
+                deposit,
+                destination,
+                pick,
+                Mass::from_milligrams(100_000),
+            )
+            .err(),
+            Some(expected)
+        );
+        assert_eq!(loaded, before);
+    }
+}
+
+#[test]
+fn trusted_load_rejects_working_mining_without_scheduled_completion_revisions() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("mining load revision-budget start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining load revision-budget commit failed: {error}"));
+    let encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("mining load revision-budget serialization failed: {error}")
+        });
+
+    for (owner, expected) in [
+        (
+            "mining",
+            MiningJobValidationError::WorkingMiningRevisionExhausted { job },
+        ),
+        (
+            "geology",
+            MiningJobValidationError::WorkingGeologyRevisionExhausted { job },
+        ),
+        (
+            "equipment",
+            MiningJobValidationError::WorkingEquipmentRevisionExhausted { job },
+        ),
+    ] {
+        let mut candidate = encoded.clone();
+        candidate["state"]["systems"][owner]["revision"] = serde_json::json!(u64::MAX);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
+            .unwrap_or_else(|error| panic!("mining load revision-budget decode failed: {error}"));
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::MiningJob(
+                expected
+            )))
+        );
+    }
+}
+
+#[test]
 fn mining_claim_rejects_exhausted_lot_id_without_releasing_pending_output() {
     let (registries, state, job) = ready_mining_claim_fixture();
     let mut encoded =

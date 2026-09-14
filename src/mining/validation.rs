@@ -286,12 +286,34 @@ fn validate_mining_job_physics(
     Ok(())
 }
 
+fn validate_working_completion_revision_capacity(
+    state: &AppState,
+    job: &MiningJobRecord,
+) -> Result<(), MiningJobValidationError> {
+    if !job.is_working() {
+        return Ok(());
+    }
+    if state.mining().revision().checked_add(1).is_none() {
+        return Err(MiningJobValidationError::WorkingMiningRevisionExhausted { job: job.id() });
+    }
+    if state.geology().revision().checked_add(1).is_none() {
+        return Err(MiningJobValidationError::WorkingGeologyRevisionExhausted { job: job.id() });
+    }
+    if job.equipment_condition_after() != job.equipment_condition_before()
+        && state.equipment().revision().checked_add(1).is_none()
+    {
+        return Err(MiningJobValidationError::WorkingEquipmentRevisionExhausted { job: job.id() });
+    }
+    Ok(())
+}
+
 fn validate_loaded_mining_job(
     registries: &Registries,
     state: &AppState,
     job: &MiningJobRecord,
 ) -> Result<(), MiningJobValidationError> {
     let references = resolve_mining_job_references(registries, state, job)?;
+    validate_working_completion_revision_capacity(state, job)?;
     validate_working_mining_equipment(state, job, &references)?;
     validate_mining_source_ownership(job, &references)?;
     validate_mining_output(registries, job, &references)?;

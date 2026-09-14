@@ -91,6 +91,9 @@ pub(crate) fn validate_loaded_player_work(
         validate_idle_player_work(&active_jobs)?;
         return validate_direct_consumption_binding(state, None);
     };
+    if work_state.revision().checked_add(1).is_none() {
+        return Err(PlayerWorkValidationError::RevisionExhausted);
+    }
     let player = state
         .survival()
         .player()

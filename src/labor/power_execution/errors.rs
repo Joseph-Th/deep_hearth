@@ -70,6 +70,8 @@ pub enum ManualPowerError {
         method: ManualPowerMethodId,
     },
     ConditionDuration(ActiveConditionDurationError),
+    EquipmentRevisionExhausted,
+    EnergyRevisionExhausted,
     CompletionTickOverflow {
         method: ManualPowerMethodId,
     },
@@ -174,6 +176,12 @@ impl Display for ManualPowerError {
                 formatter,
                 "manual power work exceeds equipment condition lifetime: {error}"
             ),
+            Self::EquipmentRevisionExhausted => formatter.write_str(
+                "manual power cannot reserve the equipment revision required at completion",
+            ),
+            Self::EnergyRevisionExhausted => formatter.write_str(
+                "manual power cannot reserve the energy revision required at completion",
+            ),
             Self::CompletionTickOverflow { method } => write!(
                 formatter,
                 "manual power method {} completion exceeds the world clock range",
@@ -203,6 +211,8 @@ impl Error for ManualPowerError {
             | Self::MetabolicConversionTooSmall { .. }
             | Self::MetabolicDurationOverflow { .. }
             | Self::ExertionResolution { .. }
+            | Self::EquipmentRevisionExhausted
+            | Self::EnergyRevisionExhausted
             | Self::CompletionTickOverflow { .. } => None,
         }
     }

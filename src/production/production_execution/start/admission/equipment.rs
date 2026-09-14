@@ -50,6 +50,13 @@ pub(in super::super) fn validate_equipment_resources(
             equipment: trace.equipment(),
         });
     }
+    if resolution
+        .equipment_condition_after()
+        .is_some_and(|after| after != trace.condition())
+        && actual.checked_add(1).is_none()
+    {
+        return Err(StartProcessError::EquipmentRevisionExhausted);
+    }
     validate_equipment_support(state, selection, record.supported_by())?;
     validate_equipment_available(state, trace.equipment())?;
     Ok(ValidatedEquipmentResources {

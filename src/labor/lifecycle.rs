@@ -186,9 +186,15 @@ pub(crate) fn validate_player_work_start(
         });
     }
     let expected_revision = attention.expected_revision();
+    // Every admitted work interval mutates this owner twice: once to claim exclusive attention
+    // and once to release it. Reserve both revisions up front so accepted work cannot strand the
+    // player at completion solely because revision space was already exhausted at admission.
+    expected_revision
+        .checked_add(2)
+        .ok_or(PlayerWorkStartError::RevisionExhausted)?;
     let next_revision = expected_revision
         .checked_add(1)
-        .ok_or(PlayerWorkStartError::RevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("two-step player-work revision budget includes admission"));
     Ok(ValidatedPlayerWorkStart {
         expected_revision,
         next_revision,
@@ -197,3 +203,7 @@ pub(crate) fn validate_player_work_start(
         resource_budget: budget,
     })
 }
+
+#[cfg(test)]
+#[path = "lifecycle_tests.rs"]
+mod tests;

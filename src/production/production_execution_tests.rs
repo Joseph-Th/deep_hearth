@@ -261,6 +261,34 @@ fn process_start_rejects_exhausted_production_revision_without_consuming_materia
 }
 
 #[test]
+fn process_start_reserves_revision_capacity_for_admission_and_completion() {
+    let (registries, state, source, destination) = unstarted_process_fixture();
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("production revision-budget serialization failed: {error}"));
+
+    for (owner, expected) in [
+        ("production", StartProcessError::ProductionRevisionExhausted),
+        ("inventory", StartProcessError::InventoryRevisionExhausted),
+    ] {
+        let mut candidate = encoded.clone();
+        candidate["state"]["systems"][owner]["revision"] = serde_json::json!(u64::MAX - 1);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
+            .unwrap_or_else(|error| panic!("production revision-budget decode failed: {error}"));
+        let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+            panic!("idle near-exhausted production owner should load: {error}")
+        });
+        let before = loaded.clone();
+        let resolution = make_test_resolution(&registries, &loaded, source, 3);
+
+        assert_eq!(
+            validate_start_process(&registries, &loaded, &resolution, source, destination).err(),
+            Some(expected)
+        );
+        assert_eq!(loaded, before);
+    }
+}
+
+#[test]
 fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
     let registries = make_test_registries();
     let mut state = AppState::new(WorldSeed::new(10));

@@ -364,10 +364,26 @@ pub fn validate_start_mining(
         validate_mining_destination(registries, state, destination, &output, mass, output_mass)?;
 
     let expected_equipment_revision = state.equipment().revision();
+    if equipment_plan.condition_after != equipment_plan.trace.condition()
+        && expected_equipment_revision.checked_add(1).is_none()
+    {
+        return Err(MiningStartError::EquipmentRevisionExhausted);
+    }
+    state
+        .geology()
+        .revision()
+        .checked_add(1)
+        .ok_or(MiningStartError::GeologyRevisionExhausted)?;
     let expected_mining_revision = state.mining().revision();
+    // Mining admission inserts a working job and the due tick deterministically transitions that
+    // same record to ready-to-claim. Budget both mutations so admission cannot consume the final
+    // mining revision and strand the scheduled extraction before it becomes claimable.
+    expected_mining_revision
+        .checked_add(2)
+        .ok_or(MiningStartError::MiningRevisionExhausted)?;
     let next_mining_revision = expected_mining_revision
         .checked_add(1)
-        .ok_or(MiningStartError::MiningRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("two-step mining revision budget includes admission"));
     let job_value = state.mining().next_job_id();
     let next_mining_job_id = job_value
         .checked_add(1)

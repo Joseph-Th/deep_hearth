@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::content::build_registries;
+use crate::core::quantity::{Energy, Volume};
 use crate::core::time::{SimulationTick, WorldSeed};
+use crate::survival::{SurvivalExertion, assess_survival};
 
 fn next_tick(state: &AppState) -> SimulationTick {
     SimulationTick::new(

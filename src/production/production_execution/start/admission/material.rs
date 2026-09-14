@@ -31,6 +31,13 @@ pub(in super::super) fn validate_material_reservation(
         inbound_by_destination,
     )
     .map_err(map_reservation_error)?;
+    // Production consumes/reserves inventory at admission and deterministically lands the reserved
+    // output at completion. The generic reservation owns only the admission mutation, so budget the
+    // second production-specific inventory mutation here.
+    reservation
+        .expected_revision()
+        .checked_add(2)
+        .ok_or(StartProcessError::InventoryRevisionExhausted)?;
     let storage_history = reservation
         .oldest_storage_history_at(state.inventory(), state.tick())
         .unwrap_or_else(|| {

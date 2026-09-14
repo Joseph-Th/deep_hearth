@@ -42,6 +42,92 @@ fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
     }
 }
 
+#[test]
+fn manual_power_rejects_completion_owner_revision_exhaustion_at_admission() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0010));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("manual power revision survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
+        .unwrap_or_else(|error| panic!("manual power revision drive failed: {error}"));
+    let requested = Energy::from_nanojoules(100_000_000_000);
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("manual power revision serialization failed: {error}"));
+
+    for (owner, expected) in [
+        ("equipment", ManualPowerError::EquipmentRevisionExhausted),
+        ("energy", ManualPowerError::EnergyRevisionExhausted),
+    ] {
+        let mut candidate = encoded.clone();
+        candidate["state"]["systems"][owner]["revision"] = serde_json::json!(u64::MAX);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
+            .unwrap_or_else(|error| panic!("manual power revision decode failed: {error}"));
+        let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+            panic!("idle exhausted manual power owner should load: {error}")
+        });
+        let before = loaded.clone();
+        assert_eq!(
+            validate_start_manual_power(
+                &registries,
+                &loaded,
+                ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
+            )
+            .err(),
+            Some(expected)
+        );
+        assert_eq!(loaded, before);
+    }
+}
+
+#[test]
+fn active_manual_power_load_requires_completion_owner_revisions() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0011));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("manual power load revision survival failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
+        .unwrap_or_else(|error| panic!("manual power load revision drive failed: {error}"));
+    validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            drive,
+            Energy::from_nanojoules(100_000_000_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("manual power load revision start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("manual power load revision commit failed: {error}"));
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("manual power load revision serialization failed: {error}"));
+
+    for (owner, expected) in [
+        (
+            "equipment",
+            PlayerWorkValidationError::ManualPowerEquipmentRevisionExhausted,
+        ),
+        (
+            "energy",
+            PlayerWorkValidationError::ManualPowerEnergyRevisionExhausted,
+        ),
+    ] {
+        let mut candidate = encoded.clone();
+        candidate["state"]["systems"][owner]["revision"] = serde_json::json!(u64::MAX);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
+            .unwrap_or_else(|error| panic!("manual power load revision decode failed: {error}"));
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+                expected
+            )))
+        );
+    }
+}
+
 #[path = "power_execution_tests/treadle_package.rs"]
 mod treadle_package;
 

@@ -15,6 +15,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
 
 use super::errors::{FieldProspectingCommitError, FieldProspectingStartError};
+use super::prospecting_observation_count;
 
 /// One player-selected geological prospecting action over an authored-bounded region.
 #[must_use]
@@ -252,6 +253,26 @@ pub fn validate_start_field_prospecting(
         })?;
     validate_prospecting_target(registries, request, method)?;
     let equipment_plan = resolve_prospecting_equipment_plan(registries, state, request, method)?;
+    let observation_count =
+        prospecting_observation_count(method.spatial_resolution(), request.region)
+            .ok_or(FieldProspectingStartError::ObservationIdExhausted)?;
+    state
+        .geological_knowledge()
+        .next_observation_id()
+        .checked_add(observation_count)
+        .ok_or(FieldProspectingStartError::ObservationIdExhausted)?;
+    state
+        .geological_knowledge()
+        .revision()
+        .checked_add(u64::from(observation_count))
+        .ok_or(FieldProspectingStartError::KnowledgeRevisionExhausted)?;
+    if equipment_plan.trace.is_some() {
+        state
+            .equipment()
+            .revision()
+            .checked_add(1)
+            .ok_or(FieldProspectingStartError::EquipmentRevisionExhausted)?;
+    }
     let completes_at = state
         .tick()
         .checked_add_span(method.duration())

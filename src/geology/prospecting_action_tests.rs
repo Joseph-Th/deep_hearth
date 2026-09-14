@@ -21,7 +21,7 @@ use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::mining::{MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
-use crate::simulation::{TickError, advance_tick};
+use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::survival::{assess_survival, initialize_player_survival};
 
@@ -360,7 +360,7 @@ fn inspection_ready_to_complete_fixture() -> (Registries, AppState) {
 }
 
 #[test]
-fn completion_tick_rejects_exhausted_observation_id_without_partial_progress() {
+fn trusted_load_rejects_active_prospecting_without_completion_observation_id() {
     let (registries, state) = inspection_ready_to_complete_fixture();
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
@@ -371,20 +371,16 @@ fn completion_tick_rejects_exhausted_observation_id_without_partial_progress() {
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
         panic!("prospecting observation-id exhaustion decode failed: {error}")
     });
-    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
-        panic!("prospecting observation-id exhaustion fixture should load: {error}")
-    });
-    let before = loaded.clone();
-
     assert_eq!(
-        advance_tick(&registries, &mut loaded),
-        Err(TickError::GeologicalObservationIdExhausted)
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::ProspectingObservationIdExhausted
+        )))
     );
-    assert_eq!(loaded, before);
 }
 
 #[test]
-fn completion_tick_rejects_exhausted_knowledge_revision_without_partial_progress() {
+fn trusted_load_rejects_active_prospecting_without_completion_knowledge_revision() {
     let (registries, state) = inspection_ready_to_complete_fixture();
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
@@ -394,16 +390,80 @@ fn completion_tick_rejects_exhausted_knowledge_revision_without_partial_progress
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
         panic!("prospecting knowledge revision exhaustion decode failed: {error}")
     });
-    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
-        panic!("prospecting knowledge revision exhaustion fixture should load: {error}")
-    });
-    let before = loaded.clone();
-
     assert_eq!(
-        advance_tick(&registries, &mut loaded),
-        Err(TickError::GeologicalKnowledgeRevisionExhausted)
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::ProspectingKnowledgeRevisionExhausted
+        )))
     );
-    assert_eq!(loaded, before);
+}
+
+#[test]
+fn prospecting_admission_reserves_completion_identity_and_owner_revisions() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_E002));
+    initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+        panic!("prospecting revision-budget survival setup failed: {error}")
+    });
+    let hammer = assemble_sampling_hammer(&registries, &mut state);
+    let region = one_voxel(41);
+    let encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("prospecting revision-budget serialization failed: {error}")
+        });
+
+    let cases = [
+        (
+            "observation-id",
+            FieldProspectingStartError::ObservationIdExhausted,
+        ),
+        (
+            "knowledge-revision",
+            FieldProspectingStartError::KnowledgeRevisionExhausted,
+        ),
+        (
+            "equipment-revision",
+            FieldProspectingStartError::EquipmentRevisionExhausted,
+        ),
+    ];
+    for (case, expected) in cases {
+        let mut candidate = encoded.clone();
+        let request = match case {
+            "observation-id" => {
+                candidate["state"]["systems"]["geological_knowledge"]["next_observation_id"] =
+                    serde_json::json!(u32::MAX);
+                FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER)
+            }
+            "knowledge-revision" => {
+                candidate["state"]["systems"]["geological_knowledge"]["revision"] =
+                    serde_json::json!(u64::MAX);
+                FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER)
+            }
+            "equipment-revision" => {
+                candidate["state"]["systems"]["equipment"]["revision"] =
+                    serde_json::json!(u64::MAX);
+                FieldProspectingRequest::new_with_equipment(
+                    PROSPECTING_DETAILED_FIELD_SURVEY,
+                    region,
+                    MATERIAL_COPPER,
+                    hammer,
+                )
+            }
+            _ => unreachable!("bounded prospecting revision-budget case"),
+        };
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
+            .unwrap_or_else(|error| panic!("prospecting revision-budget decode failed: {error}"));
+        let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+            panic!("idle exhausted prospecting completion owner should load: {error}")
+        });
+        let before = loaded.clone();
+
+        assert_eq!(
+            validate_start_field_prospecting(&registries, &loaded, request).err(),
+            Some(expected)
+        );
+        assert_eq!(loaded, before);
+    }
 }
 
 #[test]

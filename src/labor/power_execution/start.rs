@@ -241,6 +241,16 @@ pub fn validate_start_manual_power(
         duration,
     )
     .map_err(ManualPowerError::ConditionDuration)?;
+    state
+        .equipment()
+        .revision()
+        .checked_add(1)
+        .ok_or(ManualPowerError::EquipmentRevisionExhausted)?;
+    state
+        .energy()
+        .revision()
+        .checked_add(1)
+        .ok_or(ManualPowerError::EnergyRevisionExhausted)?;
     let work = ManualPowerWork::new(
         request.method,
         equipment_use.trace(),
