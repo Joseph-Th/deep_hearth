@@ -184,6 +184,11 @@ impl SurvivalState {
     }
 
     #[must_use]
+    pub(crate) const fn can_advance_revision_by(&self, steps: u64) -> bool {
+        self.revision.checked_add(steps).is_some()
+    }
+
+    #[must_use]
     pub const fn player(&self) -> Option<&PlayerSurvivalRecord> {
         self.player.as_ref()
     }

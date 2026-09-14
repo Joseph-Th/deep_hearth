@@ -1633,6 +1633,39 @@ fn active_manual_craft_save_requires_player_work_revision_for_later_release() {
 }
 
 #[test]
+fn active_manual_craft_save_requires_survival_revision_capacity_to_finish() {
+    let (registries, mut state, source, lot, destination) = make_fixture();
+    validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("manual craft survival-revision start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("manual craft survival-revision commit failed: {error}"));
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("manual craft survival-revision serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["survival"]["revision"] = serde_json::json!(u64::MAX);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("manual craft survival-revision decode failed: {error}"));
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::SurvivalRevisionExhausted
+        )))
+    );
+}
+
+#[test]
 fn suspended_manual_craft_loads_with_depleted_reserves_and_does_not_resume_unsafely() {
     let (registries, mut state, source, lot, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);

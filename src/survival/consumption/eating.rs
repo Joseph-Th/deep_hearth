@@ -262,9 +262,19 @@ pub fn validate_eat(
     )
     .map_err(EatError::StructuralLoad)?;
     let expected_survival_revision = state.survival().revision();
-    let next_survival_revision = expected_survival_revision
+    let required_survival_revisions = duration
+        .value()
         .checked_add(1)
         .ok_or(EatError::SurvivalRevisionExhausted)?;
+    if !state
+        .survival()
+        .can_advance_revision_by(required_survival_revisions)
+    {
+        return Err(EatError::SurvivalRevisionExhausted);
+    }
+    let next_survival_revision = expected_survival_revision
+        .checked_add(1)
+        .unwrap_or_else(|| unreachable!("direct-consumption survival budget includes admission"));
     let absorption_offer = meal_absorption_offer(&offer, physiology.maximum_metabolic_energy())?;
     let next_consumed_masses = resolve_consumed_mass_totals(state, offer.consumed_additions)?;
     let pending = PendingEating::new(

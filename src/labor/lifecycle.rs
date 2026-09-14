@@ -31,6 +31,7 @@ pub enum PlayerWorkStartError {
     HydrationCostOverflow { duration: TickSpan },
     InsufficientHydration { available: Volume, required: Volume },
     RevisionExhausted,
+    SurvivalRevisionExhausted { duration: TickSpan },
 }
 
 impl Display for PlayerWorkStartError {
@@ -72,6 +73,11 @@ impl Display for PlayerWorkStartError {
             Self::RevisionExhausted => {
                 formatter.write_str("player-work revision space is exhausted")
             }
+            Self::SurvivalRevisionExhausted { duration } => write!(
+                formatter,
+                "player work cannot reserve survival revisions for {} active ticks",
+                duration.value()
+            ),
         }
     }
 }
@@ -184,6 +190,9 @@ pub(crate) fn validate_player_work_start(
             available: player.hydration(),
             required: budget.hydration(),
         });
+    }
+    if !state.survival().can_advance_revision_by(duration.value()) {
+        return Err(PlayerWorkStartError::SurvivalRevisionExhausted { duration });
     }
     let expected_revision = attention.expected_revision();
     // Every admitted work interval mutates this owner twice: once to claim exclusive attention

@@ -13,6 +13,7 @@ use crate::material::MaterialId;
 pub enum PlayerWorkValidationError {
     WorkWithoutPlayer,
     RevisionExhausted,
+    SurvivalRevisionExhausted,
     ManualProductionJobMissing,
     ManualProductionProcessMismatch,
     ManualProductionScheduleInvalid,
@@ -139,6 +140,9 @@ impl Display for PlayerWorkValidationError {
             Self::WorkWithoutPlayer => formatter.write_str("player work exists without a player"),
             Self::RevisionExhausted => formatter.write_str(
                 "active player work cannot reserve the revision required to release attention",
+            ),
+            Self::SurvivalRevisionExhausted => formatter.write_str(
+                "active player work cannot reserve survival revisions through its completion tick",
             ),
             Self::ManualProductionJobMissing => {
                 formatter.write_str("player work references missing manual production job")
@@ -438,6 +442,7 @@ impl Error for PlayerWorkValidationError {
             Self::StorageDismantlingRecoveryStorage(error) => Some(error),
             Self::WorkWithoutPlayer
             | Self::RevisionExhausted
+            | Self::SurvivalRevisionExhausted
             | Self::ManualProductionJobMissing
             | Self::ManualProductionProcessMismatch
             | Self::ManualProductionScheduleInvalid

@@ -57,6 +57,7 @@ pub(super) fn validate_equipment_maintenance_work(
     }
     validate_remaining_resources(
         registries,
+        state,
         available_energy,
         available_hydration,
         profile.exertion(),

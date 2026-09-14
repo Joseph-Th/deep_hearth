@@ -37,6 +37,125 @@ fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) 
     }
 }
 
+fn load_with_owner_revisions(
+    registries: &Registries,
+    state: &AppState,
+    player_work_revision: Option<u64>,
+    survival_revision: Option<u64>,
+) -> AppState {
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(registries, state))
+        .unwrap_or_else(|error| panic!("owner-revision fixture serialization failed: {error}"));
+    if let Some(revision) = player_work_revision {
+        encoded["state"]["systems"]["player_work"]["revision"] = serde_json::json!(revision);
+    }
+    if let Some(revision) = survival_revision {
+        encoded["state"]["systems"]["survival"]["revision"] = serde_json::json!(revision);
+    }
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("owner-revision fixture decode failed: {error}"));
+    decoded
+        .into_state(registries)
+        .unwrap_or_else(|error| panic!("owner-revision fixture should load: {error}"))
+}
+
+fn direct_consumption_fixture(
+    registries: &Registries,
+    seed: u64,
+) -> (
+    AppState,
+    crate::inventory::StockpileId,
+    crate::inventory::MaterialLotId,
+    crate::fluid::FluidStoreId,
+) {
+    let mut state = AppState::new(WorldSeed::new(seed));
+    initialize_and_spend_reserves(registries, &mut state);
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+        .unwrap_or_else(|error| panic!("direct-consumption revision stockpile failed: {error}"));
+    let food = deposit_lot_for_test(
+        registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("direct-consumption revision food failed: {error}"));
+    let water = add_fluid_store_with_contents_for_fixture(
+        registries,
+        &mut state,
+        Volume::from_microliters(10),
+        FLUID_WATER,
+        Volume::from_microliters(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("direct-consumption revision water failed: {error}"));
+    (state, stockpile, food, water)
+}
+
+#[test]
+fn direct_consumption_reserves_attention_release_revision_before_admission() {
+    let registries = build_registries();
+    let (state, stockpile, food, _) = direct_consumption_fixture(&registries, 0x5A70_0030);
+    let state = load_with_owner_revisions(&registries, &state, Some(u64::MAX - 1), None);
+
+    assert_eq!(
+        validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+        )
+        .err(),
+        Some(EatError::PlayerWorkRevisionExhausted)
+    );
+}
+
+#[test]
+fn direct_consumption_reserves_survival_revisions_through_completion() {
+    let registries = build_registries();
+    let (state, stockpile, food, water) = direct_consumption_fixture(&registries, 0x5A70_0031);
+    let state = load_with_owner_revisions(&registries, &state, None, Some(u64::MAX - 1));
+
+    assert_eq!(
+        validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+        )
+        .err(),
+        Some(EatError::SurvivalRevisionExhausted)
+    );
+    assert_eq!(
+        validate_drink(&registries, &state, water, Volume::from_microliters(1)).err(),
+        Some(DrinkError::SurvivalRevisionExhausted)
+    );
+}
+
+#[test]
+fn trusted_load_rejects_active_consumption_without_survival_revision_capacity() {
+    let registries = build_registries();
+    let (mut state, _, _, water) = direct_consumption_fixture(&registries, 0x5A70_0032);
+    let _ = validate_drink(&registries, &state, water, Volume::from_microliters(10))
+        .unwrap_or_else(|error| panic!("active-consumption revision validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("active-consumption revision commit failed: {error}"));
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("active-consumption revision serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["survival"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("active-consumption revision decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::SurvivalRevisionExhausted
+        )))
+    );
+}
+
 #[test]
 fn prospective_storage_freshness_matches_the_canonical_future_enclosure_transition() {
     let registries = build_registries();

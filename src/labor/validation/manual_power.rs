@@ -57,6 +57,7 @@ pub(super) fn validate_manual_power_work(
     }
     validate_remaining_resources(
         registries,
+        state,
         available_energy,
         available_hydration,
         exertion,

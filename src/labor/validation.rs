@@ -215,6 +215,7 @@ fn validate_manual_production_work(
     };
     validate_remaining_resources(
         registries,
+        state,
         available_energy,
         available_hydration,
         exertion,
@@ -249,6 +250,7 @@ fn validate_mining_work(
             .remaining;
     validate_remaining_resources(
         registries,
+        state,
         available_energy,
         available_hydration,
         method.exertion(),
@@ -258,11 +260,13 @@ fn validate_mining_work(
 
 pub(super) fn validate_remaining_resources(
     registries: &Registries,
+    state: &AppState,
     available_energy: Energy,
     available_hydration: Volume,
     exertion: crate::survival::SurvivalExertion,
     duration: TickSpan,
 ) -> Result<(), PlayerWorkValidationError> {
+    validate_survival_revision_capacity(state, duration)?;
     let budget = calculate_player_work_resource_budget(
         registries.survival().physiology(),
         exertion,
@@ -287,6 +291,16 @@ pub(super) fn validate_remaining_resources(
             available: available_hydration,
             required: budget.hydration(),
         });
+    }
+    Ok(())
+}
+
+pub(super) fn validate_survival_revision_capacity(
+    state: &AppState,
+    duration: TickSpan,
+) -> Result<(), PlayerWorkValidationError> {
+    if !state.survival().can_advance_revision_by(duration.value()) {
+        return Err(PlayerWorkValidationError::SurvivalRevisionExhausted);
     }
     Ok(())
 }

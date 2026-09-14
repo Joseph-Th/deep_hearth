@@ -185,6 +185,7 @@ pub(super) fn validate_prospecting_work(
     let remaining_duration = validate_schedule_replay(state, method, work)?;
     validate_remaining_resources(
         registries,
+        state,
         available_energy,
         available_hydration,
         method.exertion(),

@@ -180,7 +180,8 @@ pub(crate) fn decide_manual_production_player_work_start(
         | Err(PlayerWorkStartError::PlayerDead)
         | Err(PlayerWorkStartError::Busy { .. })
         | Err(PlayerWorkStartError::InsufficientMetabolicEnergy { .. })
-        | Err(PlayerWorkStartError::InsufficientHydration { .. }) => Ok(None),
+        | Err(PlayerWorkStartError::InsufficientHydration { .. })
+        | Err(PlayerWorkStartError::SurvivalRevisionExhausted { .. }) => Ok(None),
     }
 }
 

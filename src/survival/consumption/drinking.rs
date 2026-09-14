@@ -158,9 +158,19 @@ pub fn validate_drink(
     }
     let egress_volume = egress.volume();
     let expected_survival_revision = state.survival().revision();
-    let next_survival_revision = expected_survival_revision
+    let required_survival_revisions = duration
+        .value()
         .checked_add(1)
         .ok_or(DrinkError::SurvivalRevisionExhausted)?;
+    if !state
+        .survival()
+        .can_advance_revision_by(required_survival_revisions)
+    {
+        return Err(DrinkError::SurvivalRevisionExhausted);
+    }
+    let next_survival_revision = expected_survival_revision
+        .checked_add(1)
+        .unwrap_or_else(|| unreachable!("direct-consumption survival budget includes admission"));
     let next_consumed_volume = state
         .survival()
         .consumed_fluid_volume(contents.fluid())

@@ -48,7 +48,12 @@ impl ValidatedPlayerAttention {
     }
 
     pub(crate) fn hold(self, work: PlayerWork) -> Option<ValidatedPlayerAttentionHold> {
-        let next_revision = self.expected_revision.checked_add(1)?;
+        // A delayed attention hold mutates player-work once when admitted and once when the
+        // interval releases. Reserve both revisions before the first mutation.
+        self.expected_revision.checked_add(2)?;
+        let next_revision = self.expected_revision.checked_add(1).unwrap_or_else(|| {
+            unreachable!("two-step attention revision budget includes admission")
+        });
         Some(ValidatedPlayerAttentionHold {
             expected_revision: self.expected_revision,
             next_revision,

@@ -5,7 +5,10 @@ use crate::labor::{DrinkingWork, EatingWork, PlayerWork};
 use crate::registry::Registries;
 use crate::survival::PendingDirectConsumption;
 
-use super::{ActivePlayerJobs, PlayerWorkValidationError, project_active_work_schedule};
+use super::{
+    ActivePlayerJobs, PlayerWorkValidationError, project_active_work_schedule,
+    validate_survival_revision_capacity,
+};
 
 fn validate_eating_binding(
     work: EatingWork,
@@ -95,7 +98,7 @@ pub(super) fn validate_eating_work(
     if schedule.duration != required {
         return Err(PlayerWorkValidationError::EatingDurationMismatch);
     }
-    Ok(())
+    validate_survival_revision_capacity(state, schedule.remaining)
 }
 
 pub(super) fn validate_drinking_work(
@@ -121,5 +124,5 @@ pub(super) fn validate_drinking_work(
     if schedule.duration != required {
         return Err(PlayerWorkValidationError::DrinkingDurationMismatch);
     }
-    Ok(())
+    validate_survival_revision_capacity(state, schedule.remaining)
 }

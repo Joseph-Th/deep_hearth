@@ -159,6 +159,7 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
     validate_completion_replay(registries, state, &work)?;
     validate_remaining_resources(
         registries,
+        state,
         available_energy,
         available_hydration,
         definition.dismantle_exertion(),
