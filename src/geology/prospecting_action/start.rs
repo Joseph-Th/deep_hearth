@@ -3,7 +3,7 @@
 use crate::core::state::AppState;
 use crate::equipment::{
     EquipmentId, EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy,
-    resolve_equipment_provider,
+    resolve_equipment_provider_with_occupancy,
 };
 use crate::labor::{
     PlayerWork, ProspectingDefinition, ProspectingMethodId, ProspectingWork,
@@ -167,10 +167,10 @@ fn validate_prospecting_target(
 }
 
 fn validate_start_equipment_occupancy(
-    state: &AppState,
+    occupancy: Option<EquipmentOccupancy>,
     equipment: EquipmentId,
 ) -> Result<(), FieldProspectingStartError> {
-    match equipment_occupancy(state, equipment) {
+    match occupancy {
         Some(EquipmentOccupancy::Production { job, .. }) => {
             Err(FieldProspectingStartError::EquipmentBusyProduction { equipment, job })
         }
@@ -206,8 +206,9 @@ fn resolve_prospecting_equipment_plan(
         }
         (Some(profile), Some(equipment)) => (profile, equipment),
     };
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(FieldProspectingStartError::Equipment)?;
+    let (provider, occupancy) =
+        resolve_equipment_provider_with_occupancy(registries, state, equipment)
+            .map_err(FieldProspectingStartError::Equipment)?;
     let equipment_definition = provider.definition().id();
     let Some(condition_wear_ppm_per_active_tick) =
         profile.condition_wear_ppm_per_active_tick(equipment_definition)
@@ -224,7 +225,7 @@ fn resolve_prospecting_equipment_plan(
     {
         return Err(FieldProspectingStartError::EquipmentMounted { equipment });
     }
-    validate_start_equipment_occupancy(state, equipment)?;
+    validate_start_equipment_occupancy(occupancy, equipment)?;
     let use_trace = provider.validated_use();
     let condition_after = calculate_usable_condition_after_active_ticks(
         condition_wear_ppm_per_active_tick,

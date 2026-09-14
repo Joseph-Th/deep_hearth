@@ -5,7 +5,7 @@ use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::{
     EquipmentId, EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy,
-    resolve_equipment_provider,
+    resolve_equipment_provider_with_occupancy,
 };
 use crate::geology::GeologicalDepositId;
 use crate::inventory::{
@@ -71,8 +71,9 @@ fn resolve_mining_equipment_plan(
     excavation_hardness: Pressure,
     mass: Mass,
 ) -> Result<MiningEquipmentPlan, MiningStartError> {
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(MiningStartError::Equipment)?;
+    let (provider, occupancy) =
+        resolve_equipment_provider_with_occupancy(registries, state, equipment)
+            .map_err(MiningStartError::Equipment)?;
     if state
         .equipment()
         .get_equipment(equipment)
@@ -80,7 +81,7 @@ fn resolve_mining_equipment_plan(
     {
         return Err(MiningStartError::EquipmentMounted { equipment });
     }
-    match equipment_occupancy(state, equipment) {
+    match occupancy {
         Some(EquipmentOccupancy::Production { job, release }) => {
             return Err(MiningStartError::EquipmentBusyProduction {
                 equipment,

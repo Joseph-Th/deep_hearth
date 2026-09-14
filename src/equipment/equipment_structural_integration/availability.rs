@@ -1,46 +1,85 @@
 //! Runtime occupancy policy for equipment support relocation.
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::equipment::{EquipmentId, EquipmentOccupancy, equipment_occupancy};
-use crate::production::ProductionOccupancyRelease;
+use crate::mining::MiningJobId;
+use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 
 use super::{EquipmentSupportCommitError, EquipmentSupportError};
+
+/// Current runtime ownership that prevents physically changing an equipment support assignment.
+///
+/// Suspended production deliberately does not block relocation because support recovery is one of
+/// the canonical ways to make that retained work resumable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EquipmentSupportBlocker {
+    Production {
+        job: ProductionJobId,
+        completes_at: SimulationTick,
+    },
+    Mining {
+        job: MiningJobId,
+    },
+    ManualPower,
+    Prospecting {
+        completes_at: SimulationTick,
+    },
+    Maintenance {
+        completes_at: SimulationTick,
+    },
+}
+
+fn blocker(state: &AppState, equipment: EquipmentId) -> Option<EquipmentSupportBlocker> {
+    equipment_occupancy(state, equipment).and_then(|occupancy| match occupancy {
+        EquipmentOccupancy::Production {
+            job,
+            release: ProductionOccupancyRelease::Scheduled(completes_at),
+        } => Some(EquipmentSupportBlocker::Production { job, completes_at }),
+        EquipmentOccupancy::Production {
+            release: ProductionOccupancyRelease::AwaitingResume,
+            ..
+        } => None,
+        EquipmentOccupancy::Mining { job } => Some(EquipmentSupportBlocker::Mining { job }),
+        EquipmentOccupancy::ManualPower { .. } => Some(EquipmentSupportBlocker::ManualPower),
+        EquipmentOccupancy::Prospecting { completes_at } => {
+            Some(EquipmentSupportBlocker::Prospecting { completes_at })
+        }
+        EquipmentOccupancy::Maintenance { completes_at } => {
+            Some(EquipmentSupportBlocker::Maintenance { completes_at })
+        }
+    })
+}
 
 pub(super) fn support_validation_error(
     state: &AppState,
     equipment: EquipmentId,
 ) -> Option<EquipmentSupportError> {
-    equipment_occupancy(state, equipment).and_then(|occupancy| match occupancy {
-        EquipmentOccupancy::Production {
-            job,
-            release: ProductionOccupancyRelease::Scheduled(completes_at),
-        } => EquipmentSupportError::EquipmentBusy {
-            equipment,
-            job,
-            completes_at,
+    blocker(state, equipment).map(|blocker| match blocker {
+        EquipmentSupportBlocker::Production { job, completes_at } => {
+            EquipmentSupportError::EquipmentBusy {
+                equipment,
+                job,
+                completes_at,
+            }
         }
-        .into(),
-        EquipmentOccupancy::Production {
-            release: ProductionOccupancyRelease::AwaitingResume,
-            ..
-        } => None,
-        EquipmentOccupancy::Mining { job } => {
-            Some(EquipmentSupportError::EquipmentBusyMining { equipment, job })
+        EquipmentSupportBlocker::Mining { job } => {
+            EquipmentSupportError::EquipmentBusyMining { equipment, job }
         }
-        EquipmentOccupancy::ManualPower { .. } => {
-            Some(EquipmentSupportError::EquipmentBusyManualPower { equipment })
+        EquipmentSupportBlocker::ManualPower => {
+            EquipmentSupportError::EquipmentBusyManualPower { equipment }
         }
-        EquipmentOccupancy::Prospecting { completes_at } => {
-            Some(EquipmentSupportError::EquipmentBusyProspecting {
+        EquipmentSupportBlocker::Prospecting { completes_at } => {
+            EquipmentSupportError::EquipmentBusyProspecting {
                 equipment,
                 completes_at,
-            })
+            }
         }
-        EquipmentOccupancy::Maintenance { completes_at } => {
-            Some(EquipmentSupportError::EquipmentUnderMaintenance {
+        EquipmentSupportBlocker::Maintenance { completes_at } => {
+            EquipmentSupportError::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
-            })
+            }
         }
     })
 }
@@ -49,37 +88,31 @@ pub(super) fn support_commit_error(
     state: &AppState,
     equipment: EquipmentId,
 ) -> Option<EquipmentSupportCommitError> {
-    equipment_occupancy(state, equipment).and_then(|occupancy| match occupancy {
-        EquipmentOccupancy::Production {
-            job,
-            release: ProductionOccupancyRelease::Scheduled(completes_at),
-        } => EquipmentSupportCommitError::EquipmentBusy {
-            equipment,
-            job,
-            completes_at,
+    blocker(state, equipment).map(|blocker| match blocker {
+        EquipmentSupportBlocker::Production { job, completes_at } => {
+            EquipmentSupportCommitError::EquipmentBusy {
+                equipment,
+                job,
+                completes_at,
+            }
         }
-        .into(),
-        EquipmentOccupancy::Production {
-            release: ProductionOccupancyRelease::AwaitingResume,
-            ..
-        } => None,
-        EquipmentOccupancy::Mining { job } => {
-            Some(EquipmentSupportCommitError::EquipmentBusyMining { equipment, job })
+        EquipmentSupportBlocker::Mining { job } => {
+            EquipmentSupportCommitError::EquipmentBusyMining { equipment, job }
         }
-        EquipmentOccupancy::ManualPower { .. } => {
-            Some(EquipmentSupportCommitError::EquipmentBusyManualPower { equipment })
+        EquipmentSupportBlocker::ManualPower => {
+            EquipmentSupportCommitError::EquipmentBusyManualPower { equipment }
         }
-        EquipmentOccupancy::Prospecting { completes_at } => {
-            Some(EquipmentSupportCommitError::EquipmentBusyProspecting {
+        EquipmentSupportBlocker::Prospecting { completes_at } => {
+            EquipmentSupportCommitError::EquipmentBusyProspecting {
                 equipment,
                 completes_at,
-            })
+            }
         }
-        EquipmentOccupancy::Maintenance { completes_at } => {
-            Some(EquipmentSupportCommitError::EquipmentUnderMaintenance {
+        EquipmentSupportBlocker::Maintenance { completes_at } => {
+            EquipmentSupportCommitError::EquipmentUnderMaintenance {
                 equipment,
                 completes_at,
-            })
+            }
         }
     })
 }

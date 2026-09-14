@@ -1,23 +1,21 @@
 //! Resolves condition-adjusted equipment capabilities from immutable definitions and runtime state.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
 use crate::capability::{
     CapabilityId, CapabilitySource, CapabilityValue, interpolate_capability_value,
 };
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::maintenance::{Condition, MaintenanceBand, MaintenanceThresholds};
-use crate::mining::MiningJobId;
-use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::{StructuralElementId, StructuralLifecycle};
 
 use super::availability::{EquipmentOccupancy, equipment_occupancy};
-use super::definitions::{CapabilityConditionCurve, EquipmentDefinition, EquipmentDefinitionId};
+use super::definitions::{CapabilityConditionCurve, EquipmentDefinition};
 use super::state::{EquipmentId, EquipmentOperationTrace, EquipmentRecord};
+
+mod errors;
+
+pub use errors::EquipmentProviderError;
 
 /// Revision-bound equipment provider selection carried by a resolved operation until start.
 #[must_use]
@@ -173,151 +171,22 @@ pub(crate) fn resolve_equipment_capability(
     )
 }
 
-/// Failure to resolve a runtime equipment provider or establish its current availability.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EquipmentProviderError {
-    UnknownEquipment {
-        equipment: EquipmentId,
-    },
-    UnknownDefinition {
-        equipment: EquipmentId,
-        definition: EquipmentDefinitionId,
-    },
-    StructuralSupportRequired {
-        equipment: EquipmentId,
-    },
-    UnknownStructuralSupport {
-        equipment: EquipmentId,
-        element: StructuralElementId,
-    },
-    StructuralSupportNotActive {
-        equipment: EquipmentId,
-        element: StructuralElementId,
-        lifecycle: StructuralLifecycle,
-    },
-    MaintenanceInProgress {
-        equipment: EquipmentId,
-        completes_at: SimulationTick,
-    },
-    ProspectingInProgress {
-        equipment: EquipmentId,
-        completes_at: SimulationTick,
-    },
-    ProductionInProgress {
-        equipment: EquipmentId,
-        job: ProductionJobId,
-        release: ProductionOccupancyRelease,
-    },
-    MiningInProgress {
-        equipment: EquipmentId,
-        job: MiningJobId,
-    },
-    ManualPowerInProgress {
-        equipment: EquipmentId,
-        completes_at: SimulationTick,
-    },
-}
-
-impl Display for EquipmentProviderError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownEquipment { equipment } => {
-                write!(formatter, "unknown equipment id {}", equipment.value())
-            }
-            Self::UnknownDefinition {
-                equipment,
-                definition,
-            } => write!(
-                formatter,
-                "equipment {} references unknown definition {}",
-                equipment.value(),
-                definition.value()
-            ),
-            Self::StructuralSupportRequired { equipment } => write!(
-                formatter,
-                "equipment {} requires an active structural support before it can authorize work",
-                equipment.value()
-            ),
-            Self::UnknownStructuralSupport { equipment, element } => write!(
-                formatter,
-                "equipment {} references missing structural support {}",
-                equipment.value(),
-                element.value()
-            ),
-            Self::MaintenanceInProgress {
-                equipment,
-                completes_at,
-            } => write!(
-                formatter,
-                "equipment {} is under maintenance until tick {} and cannot authorize a new operation",
-                equipment.value(),
-                completes_at.value()
-            ),
-            Self::ProspectingInProgress {
-                equipment,
-                completes_at,
-            } => write!(
-                formatter,
-                "equipment {} is occupied by geological sampling until tick {} and cannot authorize a new operation",
-                equipment.value(),
-                completes_at.value()
-            ),
-            Self::ProductionInProgress {
-                equipment,
-                job,
-                release,
-            } => write!(
-                formatter,
-                "equipment {} is occupied by production job {} {release} and cannot authorize a new operation",
-                equipment.value(),
-                job.value()
-            ),
-            Self::MiningInProgress { equipment, job } => write!(
-                formatter,
-                "equipment {} is occupied by mining job {} and cannot authorize a new operation",
-                equipment.value(),
-                job.value()
-            ),
-            Self::ManualPowerInProgress {
-                equipment,
-                completes_at,
-            } => write!(
-                formatter,
-                "equipment {} is occupied by direct player-powered generation until tick {} and cannot authorize a new operation",
-                equipment.value(),
-                completes_at.value()
-            ),
-            Self::StructuralSupportNotActive {
-                equipment,
-                element,
-                lifecycle,
-            } => write!(
-                formatter,
-                "equipment {} structural support {} is {lifecycle:?} and cannot authorize a new operation",
-                equipment.value(),
-                element.value()
-            ),
-        }
-    }
-}
-
-impl Error for EquipmentProviderError {}
-
-/// Resolves static capability data and current condition while rejecting direct maintenance and
-/// prospecting work that already owns the equipment.
-///
-/// This is the base provider boundary used by exact operation resolvers. Call
-/// `resolve_available_equipment_provider` for disposable current-opportunity projections that must
-/// also reject production, mining, and manual-power occupancy before reporting usable capacity.
-pub fn resolve_equipment_provider<'state>(
+pub(crate) fn resolve_equipment_provider_with_occupancy<'state>(
     registries: &'state Registries,
     state: &'state AppState,
     equipment: EquipmentId,
-) -> Result<ResolvedEquipmentProvider<'state>, EquipmentProviderError> {
+) -> Result<
+    (
+        ResolvedEquipmentProvider<'state>,
+        Option<EquipmentOccupancy>,
+    ),
+    EquipmentProviderError,
+> {
     let Some(record) = state.equipment().get_equipment(equipment) else {
         return Err(EquipmentProviderError::UnknownEquipment { equipment });
     };
-    match equipment_occupancy(state, equipment) {
+    let occupancy = equipment_occupancy(state, equipment);
+    match occupancy {
         Some(EquipmentOccupancy::Maintenance { completes_at }) => {
             return Err(EquipmentProviderError::MaintenanceInProgress {
                 equipment,
@@ -361,12 +230,30 @@ pub fn resolve_equipment_provider<'state>(
     } else {
         None
     };
-    Ok(ResolvedEquipmentProvider {
-        record,
-        definition,
-        expected_equipment_revision: state.equipment().revision(),
-        expected_structure_revision,
-    })
+    Ok((
+        ResolvedEquipmentProvider {
+            record,
+            definition,
+            expected_equipment_revision: state.equipment().revision(),
+            expected_structure_revision,
+        },
+        occupancy,
+    ))
+}
+
+/// Resolves static capability data and current condition while rejecting direct maintenance and
+/// prospecting work that already owns the equipment.
+///
+/// This is the base provider boundary used by exact operation resolvers. Call
+/// `resolve_available_equipment_provider` for disposable current-opportunity projections that must
+/// also reject production, mining, and manual-power occupancy before reporting usable capacity.
+pub fn resolve_equipment_provider<'state>(
+    registries: &'state Registries,
+    state: &'state AppState,
+    equipment: EquipmentId,
+) -> Result<ResolvedEquipmentProvider<'state>, EquipmentProviderError> {
+    resolve_equipment_provider_with_occupancy(registries, state, equipment)
+        .map(|(provider, _occupancy)| provider)
 }
 
 /// Resolves one equipment provider only when no canonical operation currently occupies it.
@@ -380,8 +267,9 @@ pub(crate) fn resolve_available_equipment_provider<'state>(
     state: &'state AppState,
     equipment: EquipmentId,
 ) -> Result<ResolvedEquipmentProvider<'state>, EquipmentProviderError> {
-    let provider = resolve_equipment_provider(registries, state, equipment)?;
-    match equipment_occupancy(state, equipment) {
+    let (provider, occupancy) =
+        resolve_equipment_provider_with_occupancy(registries, state, equipment)?;
+    match occupancy {
         Some(EquipmentOccupancy::Production { job, release }) => {
             return Err(EquipmentProviderError::ProductionInProgress {
                 equipment,

@@ -9,7 +9,7 @@ use crate::energy::{
 };
 use crate::equipment::{
     EquipmentId, EquipmentOccupancy, ResolvedEquipmentProvider, equipment_occupancy,
-    resolve_equipment_provider,
+    resolve_equipment_provider_with_occupancy,
 };
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::registry::Registries;
@@ -90,10 +90,10 @@ impl ValidatedManualPowerStart {
 }
 
 fn validate_manual_power_equipment_occupancy(
-    state: &AppState,
+    occupancy: Option<EquipmentOccupancy>,
     equipment: EquipmentId,
 ) -> Result<(), ManualPowerError> {
-    match equipment_occupancy(state, equipment) {
+    match occupancy {
         Some(EquipmentOccupancy::Production { job, release }) => {
             Err(ManualPowerError::EquipmentBusyProduction {
                 equipment,
@@ -192,9 +192,10 @@ pub fn validate_start_manual_power(
             equipment: request.equipment,
         });
     }
-    let provider = resolve_equipment_provider(registries, state, request.equipment)
-        .map_err(ManualPowerError::Equipment)?;
-    validate_manual_power_equipment_occupancy(state, request.equipment)?;
+    let (provider, occupancy) =
+        resolve_equipment_provider_with_occupancy(registries, state, request.equipment)
+            .map_err(ManualPowerError::Equipment)?;
+    validate_manual_power_equipment_occupancy(occupancy, request.equipment)?;
     let equipment_power = resolve_manual_power_equipment_power(
         provider,
         request.equipment,

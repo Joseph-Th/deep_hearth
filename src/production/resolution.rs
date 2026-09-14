@@ -14,12 +14,14 @@ use super::definitions::ProcessId;
 
 mod errors;
 mod inputs;
+mod resources;
 
 pub use errors::ProcessResolutionError;
 pub use inputs::{
     ProcessInputError, ValidatedProcessInputs, validate_process_inputs,
     validate_selected_process_inputs,
 };
+use resources::ProcessResourceResolution;
 
 /// Operation-local identity for one physically distinct output stream.
 ///
@@ -72,124 +74,6 @@ impl ProcessOutputStream {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProcessResourceResolution {
-    None,
-    Equipment {
-        equipment: ProcessEquipmentResolution,
-    },
-    SupplyAndEquipment {
-        energy_supply: ValidatedEnergySupply,
-        equipment: ProcessEquipmentResolution,
-    },
-    SinkAndEquipment {
-        energy_sink: ValidatedEnergySink,
-        equipment: ProcessEquipmentResolution,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ProcessEquipmentResolution {
-    equipment_use: ValidatedEquipmentUse,
-    condition_after: Condition,
-}
-
-struct ResolvedProcessResources {
-    energy_supply: Option<ValidatedEnergySupply>,
-    energy_sink: Option<ValidatedEnergySink>,
-    equipment_use: Option<ValidatedEquipmentUse>,
-    equipment_condition_after: Option<Condition>,
-}
-
-impl ProcessEquipmentResolution {
-    fn validate(self) -> Result<Self, ProcessResolutionError> {
-        let before = self.equipment_use.trace().condition();
-        if self.condition_after > before {
-            return Err(ProcessResolutionError::EquipmentConditionImproved {
-                before,
-                after: self.condition_after,
-            });
-        }
-        Ok(self)
-    }
-}
-
-impl ProcessResourceResolution {
-    const NONE: Self = Self::None;
-
-    const fn with_supply_and_equipment(
-        energy_supply: ValidatedEnergySupply,
-        equipment_use: ValidatedEquipmentUse,
-        condition_after: Condition,
-    ) -> Self {
-        Self::SupplyAndEquipment {
-            energy_supply,
-            equipment: ProcessEquipmentResolution {
-                equipment_use,
-                condition_after,
-            },
-        }
-    }
-
-    const fn with_sink_and_equipment(
-        energy_sink: ValidatedEnergySink,
-        equipment_use: ValidatedEquipmentUse,
-        condition_after: Condition,
-    ) -> Self {
-        Self::SinkAndEquipment {
-            energy_sink,
-            equipment: ProcessEquipmentResolution {
-                equipment_use,
-                condition_after,
-            },
-        }
-    }
-
-    fn resolve(self) -> Result<ResolvedProcessResources, ProcessResolutionError> {
-        match self {
-            Self::None => Ok(ResolvedProcessResources {
-                energy_supply: None,
-                energy_sink: None,
-                equipment_use: None,
-                equipment_condition_after: None,
-            }),
-            Self::Equipment { equipment } => {
-                let equipment = equipment.validate()?;
-                Ok(ResolvedProcessResources {
-                    energy_supply: None,
-                    energy_sink: None,
-                    equipment_use: Some(equipment.equipment_use),
-                    equipment_condition_after: Some(equipment.condition_after),
-                })
-            }
-            Self::SupplyAndEquipment {
-                energy_supply,
-                equipment,
-            } => {
-                let equipment = equipment.validate()?;
-                Ok(ResolvedProcessResources {
-                    energy_supply: Some(energy_supply),
-                    energy_sink: None,
-                    equipment_use: Some(equipment.equipment_use),
-                    equipment_condition_after: Some(equipment.condition_after),
-                })
-            }
-            Self::SinkAndEquipment {
-                energy_sink,
-                equipment,
-            } => {
-                let equipment = equipment.validate()?;
-                Ok(ResolvedProcessResources {
-                    energy_supply: None,
-                    energy_sink: Some(energy_sink),
-                    equipment_use: Some(equipment.equipment_use),
-                    equipment_condition_after: Some(equipment.condition_after),
-                })
-            }
-        }
-    }
-}
-
 impl ValidatedProcessInputs {
     pub(crate) fn resolve_with_equipment(
         self,
@@ -204,12 +88,7 @@ impl ValidatedProcessInputs {
                 ProcessOutputStreamId::PRIMARY,
                 outputs,
             )],
-            ProcessResourceResolution::Equipment {
-                equipment: ProcessEquipmentResolution {
-                    equipment_use,
-                    condition_after: equipment_condition_after,
-                },
-            },
+            ProcessResourceResolution::with_equipment(equipment_use, equipment_condition_after),
         )
     }
     pub(crate) fn resolve_without_resources(
@@ -223,7 +102,7 @@ impl ValidatedProcessInputs {
                 ProcessOutputStreamId::PRIMARY,
                 outputs,
             )],
-            ProcessResourceResolution::NONE,
+            ProcessResourceResolution::none(),
         )
     }
 
@@ -232,7 +111,7 @@ impl ValidatedProcessInputs {
         duration: TickSpan,
         output_streams: Vec<ProcessOutputStream>,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
-        self.resolve_inner(duration, output_streams, ProcessResourceResolution::NONE)
+        self.resolve_inner(duration, output_streams, ProcessResourceResolution::none())
     }
 
     pub(crate) fn resolve_with_energy_and_equipment(
