@@ -73,13 +73,10 @@ impl ValidatedMaterialRelocation {
             source_record.stored_mass() >= total_mass,
             "validated material relocation exceeds source stored mass"
         );
-        let destination_committed = destination_record
-            .stored_mass()
-            .checked_add(destination_record.reserved_inbound())
-            .unwrap_or_else(|| panic!("validated relocation destination mass overflowed"));
-        let destination_after = destination_committed
-            .checked_add(total_mass)
-            .unwrap_or_else(|| panic!("validated relocation destination mass overflowed"));
+        let destination_after = destination_record
+            .project_mass_exchange(Mass::ZERO, total_mass)
+            .unwrap_or_else(|| panic!("validated relocation destination mass overflowed"))
+            .after_incoming;
         assert!(
             destination_after <= destination_record.capacity(),
             "validated material relocation exceeds destination capacity"

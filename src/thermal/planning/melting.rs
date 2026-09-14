@@ -197,6 +197,14 @@ pub fn assess_melting_lot_mass_envelope(
         material,
     )
     .map_err(MeltingResolutionError::Batch)?;
+    if offer.trace.profile().temperature() > equipment.maximum_temperature {
+        return Err(
+            MeltingResolutionError::InputTemperatureExceedsEquipmentMaximum {
+                input: offer.trace.profile().temperature(),
+                maximum: equipment.maximum_temperature,
+            },
+        );
+    }
     if unit.melting_point > equipment.maximum_temperature {
         return Err(
             MeltingResolutionError::MeltingPointExceedsEquipmentMaximum {

@@ -155,6 +155,92 @@ fn multiple_stockpiles_aggregate_mass_before_rounding_weight() {
 }
 
 #[test]
+fn same_tick_production_completions_apply_one_aggregate_destination_load() {
+    let process_id = ProcessId::new(971_006);
+    let process = ProcessDefinition::new(
+        process_id,
+        "same-tick supported production fixture",
+        vec![MaterialInputSpec::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(10),
+        )],
+        Vec::new(),
+    );
+    let registries = make_test_registries_with_process(process);
+    let mut state = AppState::new(WorldSeed::new(0x1A71_0012));
+    let support = active_support(&registries, &mut state, 0);
+    let source = seeded_stockpile(
+        &registries,
+        &mut state,
+        Mass::from_milligrams(40),
+        Mass::from_milligrams(20),
+    );
+    let destination = seeded_stockpile(
+        &registries,
+        &mut state,
+        Mass::from_milligrams(40),
+        Mass::ZERO,
+    );
+    let _ = mount(&registries, &mut state, destination, support);
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.load(StructuralLoadKind::StoredMatter)),
+        Some(Force::ZERO)
+    );
+
+    for _ in 0..2 {
+        let inputs = validate_process_inputs(&registries, &state, process_id, source)
+            .unwrap_or_else(|error| {
+                panic!("same-tick supported production inputs failed: {error}")
+            });
+        let resolution = make_test_process_resolution(
+            inputs,
+            1,
+            vec![MaterialLotSpec::new(
+                CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+                Mass::from_milligrams(10),
+                Temperature::from_millikelvin(500_000),
+            )],
+        );
+        validate_start_process(&registries, &state, &resolution, source, destination)
+            .unwrap_or_else(|error| panic!("same-tick supported production start failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("same-tick supported production commit failed: {error}")
+            });
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|record| record.reserved_inbound()),
+        Some(Mass::from_milligrams(20))
+    );
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("same-tick supported completion failed: {error}"));
+    assert_eq!(outcome.production_completions().len(), 2);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|record| record.stored_mass()),
+        Some(Mass::from_milligrams(20))
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.load(StructuralLoadKind::StoredMatter)),
+        Some(expected_weight(&registries, Mass::from_milligrams(20))),
+        "same-tick production must validate and commit the aggregate final destination load"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn new_production_rejects_failed_destination_support() {
     let process = ProcessDefinition::new(
         ProcessId::new(971_002),

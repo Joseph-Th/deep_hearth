@@ -1164,6 +1164,10 @@ struct PrimitiveProgressionExperience {
 pub(super) enum PrimitiveReinvestmentOutcome {
     Completed(Box<PrimitiveReinvestmentExperience>),
     TargetSupplyLimited,
+    StorageCapacityLimited {
+        available: Mass,
+        required_above: Mass,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

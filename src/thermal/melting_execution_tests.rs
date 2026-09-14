@@ -1046,6 +1046,26 @@ fn melting_rejects_feed_hotter_than_equipment_maximum() {
         source_lot,
     };
     assert_eq!(
+        crate::thermal::assess_melting_lot_mass_envelope(
+            &registries,
+            &state,
+            crate::thermal::MeltingLotMassRequest::new(
+                PROCESS,
+                source,
+                MaterialLotSelection::new(source_lot, Mass::from_milligrams(10)),
+                equipment,
+                energy_store,
+            ),
+        ),
+        Err(
+            MeltingResolutionError::InputTemperatureExceedsEquipmentMaximum {
+                input: feed,
+                maximum,
+            }
+        ),
+        "melting planning must reject the same over-temperature feed as canonical resolution"
+    );
+    assert_eq!(
         resolve_selected(&registries, &state, ids, Mass::from_milligrams(10)),
         Err(
             MeltingResolutionError::InputTemperatureExceedsEquipmentMaximum {

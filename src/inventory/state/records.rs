@@ -301,6 +301,29 @@ impl StockpileRecord {
         self.reserved_inbound
     }
 
+    /// Returns capacity not already occupied by stored matter or committed inbound reservations.
+    ///
+    /// This is an observation, not an authorization. Callers must still use the canonical
+    /// reservation or ingress operation because another transition can consume this capacity.
+    #[must_use]
+    pub fn available_capacity(&self) -> Mass {
+        let committed = self
+            .stored_mass
+            .checked_add(self.reserved_inbound)
+            .unwrap_or_else(|| {
+                panic!(
+                    "validated stockpile {} committed mass overflowed",
+                    self.id.value()
+                )
+            });
+        self.capacity.checked_sub(committed).unwrap_or_else(|| {
+            panic!(
+                "validated stockpile {} committed mass exceeds capacity",
+                self.id.value()
+            )
+        })
+    }
+
     /// Projects committed capacity after one outgoing amount and one new incoming amount.
     ///
     /// Existing inbound reservations remain committed throughout the exchange. Callers pass zero
@@ -330,3 +353,7 @@ impl StockpileRecord {
         self.contents.iter().map(|(key, mass)| (*key, *mass))
     }
 }
+
+#[cfg(test)]
+#[path = "records_tests.rs"]
+mod tests;

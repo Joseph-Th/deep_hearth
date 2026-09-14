@@ -688,7 +688,7 @@ mod exploratory_output {
                 )
             };
             std::println!(
-                "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-energy:-{}nJ hydration:-{}uL vitality:{}ppm] outcome={}",
+                "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-spent=[energy:{}nJ hydration:{}uL] vitality:{}ppm] outcome={}",
                 report.world_seed,
                 report.behavior_seed,
                 report.inputs.initial_maintenance_band,

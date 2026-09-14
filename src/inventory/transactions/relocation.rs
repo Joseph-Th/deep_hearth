@@ -299,16 +299,14 @@ fn validate_destination_mass(
     let overflow = || MaterialRelocationError::DestinationMassOverflow {
         stockpile: destination,
     };
-    let committed = destination_record
-        .stored_mass
-        .checked_add(destination_record.reserved_inbound)
+    let projection = destination_record
+        .project_mass_exchange(Mass::ZERO, total_consumed)
         .ok_or_else(overflow)?;
-    let capacity_after = committed.checked_add(total_consumed).ok_or_else(overflow)?;
-    if capacity_after > destination_record.capacity {
+    if projection.after_incoming > destination_record.capacity() {
         return Err(MaterialRelocationError::DestinationCapacityExceeded {
             stockpile: destination,
-            capacity: destination_record.capacity,
-            committed,
+            capacity: destination_record.capacity(),
+            committed: projection.committed_before_incoming,
             requested: total_consumed,
         });
     }

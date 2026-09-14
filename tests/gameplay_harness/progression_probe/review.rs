@@ -231,7 +231,10 @@ fn reinvestment_captured(
         PrimitiveReinvestmentOutcome::Completed(reinvestment) => {
             completed_reinvestment_captured(reinvestment)
         }
-        PrimitiveReinvestmentOutcome::TargetSupplyLimited => !maintained_reinvestment_required,
+        PrimitiveReinvestmentOutcome::TargetSupplyLimited
+        | PrimitiveReinvestmentOutcome::StorageCapacityLimited { .. } => {
+            !maintained_reinvestment_required
+        }
     }
 }
 
@@ -368,8 +371,21 @@ fn automation_economics_label(review: &PrimitiveProgressionReview) -> &'static s
 }
 
 fn concise_reinvestment_summary(outcome: &PrimitiveReinvestmentOutcome) -> String {
-    let PrimitiveReinvestmentOutcome::Completed(reinvestment) = outcome else {
-        return "blocked:known-target-supply".to_string();
+    let reinvestment = match outcome {
+        PrimitiveReinvestmentOutcome::Completed(reinvestment) => reinvestment,
+        PrimitiveReinvestmentOutcome::TargetSupplyLimited => {
+            return "blocked:known-target-supply".to_string();
+        }
+        PrimitiveReinvestmentOutcome::StorageCapacityLimited {
+            available,
+            required_above,
+        } => {
+            return format!(
+                "blocked:crushed-storage available:{}mg requires-more-than:{}mg",
+                available.milligrams(),
+                required_above.milligrams()
+            );
+        }
     };
     format!(
         "available copper-needed:{}mg projected=[crusher:{}->{}t separator-resolved:{}->{}t flow:{}->{}mg/s recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded:crusher:{}mg/{}t separator:{}t]",
@@ -397,8 +413,21 @@ fn concise_reinvestment_summary(outcome: &PrimitiveReinvestmentOutcome) -> Strin
 }
 
 fn detailed_reinvestment_summary(outcome: &PrimitiveReinvestmentOutcome) -> String {
-    let PrimitiveReinvestmentOutcome::Completed(reinvestment) = outcome else {
-        return "blocked:known-target-supply".to_string();
+    let reinvestment = match outcome {
+        PrimitiveReinvestmentOutcome::Completed(reinvestment) => reinvestment,
+        PrimitiveReinvestmentOutcome::TargetSupplyLimited => {
+            return "blocked:known-target-supply".to_string();
+        }
+        PrimitiveReinvestmentOutcome::StorageCapacityLimited {
+            available,
+            required_above,
+        } => {
+            return format!(
+                "blocked:crushed-storage available:{}mg requires-more-than:{}mg",
+                available.milligrams(),
+                required_above.milligrams()
+            );
+        }
     };
     format!(
         "available copper-needed:{}mg projected=[crusher-time:{}->{}t reduction:{}ppm separator-resolved-time:{}->{}t flow:{}->{}mg/s gain:{}ppm separator-recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded:[mass:{}mg crusher-energy:{}nJ charge:{}t crush:{}t separator-energy:{}nJ separator:{}t target:{}mg] survival:{}nJ/{}uL]",

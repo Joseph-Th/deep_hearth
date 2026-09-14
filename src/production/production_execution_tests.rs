@@ -699,9 +699,25 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         state
             .inventory()
+            .get_stockpile(charcoal_destination)
+            .map(|record| record.available_capacity()),
+        Some(Mass::from_milligrams(4)),
+        "available capacity must include committed production output"
+    );
+    assert_eq!(
+        state
+            .inventory()
             .get_stockpile(slag_destination)
             .map(|record| record.reserved_inbound()),
         Some(Mass::from_milligrams(4))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(slag_destination)
+            .map(|record| record.available_capacity()),
+        Some(Mass::from_milligrams(6)),
+        "available capacity must distinguish each destination's reservation"
     );
     let stored_routes = match state.production().get_job(job) {
         Some(record) => record
@@ -848,12 +864,18 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
         charcoal_record.get_mass(charcoal_lump()),
         Mass::from_milligrams(6)
     );
+    assert_eq!(
+        charcoal_record.available_capacity(),
+        Mass::from_milligrams(4),
+        "completion must replace reserved capacity with stored matter without changing free capacity"
+    );
     let slag_record = match state.inventory().get_stockpile(slag_destination) {
         Some(record) => record,
         None => panic!("slag destination disappeared"),
     };
     assert_eq!(slag_record.reserved_inbound(), Mass::ZERO);
     assert_eq!(slag_record.get_mass(slag_lump()), Mass::from_milligrams(4));
+    assert_eq!(slag_record.available_capacity(), Mass::from_milligrams(6));
 }
 
 #[test]

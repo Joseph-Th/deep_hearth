@@ -95,11 +95,250 @@ fn run_reinvestment_separation(
     }
 }
 
-pub(super) fn evaluate_mature_reinvestment(
+#[derive(Clone, Copy)]
+struct ReinvestmentCapacityEnvelope {
+    base_drive: Energy,
+    upgraded_drive: Energy,
+    base_separator_batch: Mass,
+    upgraded_separator_batch: Mass,
+    desired_expanded_batch: CrushingBatch,
+}
+
+fn reinvestment_capacity_envelope(registries: &Registries) -> ReinvestmentCapacityEnvelope {
+    let base_drive = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .map(|definition| definition.capacity())
+        .unwrap_or_else(|| panic!("primitive reinvestment base flywheel disappeared"));
+    let upgraded_drive = registries
+        .energy()
+        .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .map(|definition| definition.capacity())
+        .unwrap_or_else(|| panic!("primitive reinvestment upgraded flywheel disappeared"));
+    assert!(upgraded_drive > base_drive);
+
+    let separation_definition = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("primitive reinvestment separator process disappeared"));
+    let base_separator_batch = nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_STONE_SEPARATOR,
+        separation_definition.max_batch_mass_capability(),
+    );
+    let upgraded_separator_batch = nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+        separation_definition.max_batch_mass_capability(),
+    );
+    assert!(upgraded_separator_batch > base_separator_batch);
+
+    let desired_energy = Energy::from_nanojoules(
+        base_drive
+            .nanojoules()
+            .checked_add(
+                upgraded_drive
+                    .nanojoules()
+                    .checked_sub(base_drive.nanojoules())
+                    .unwrap_or_else(|| unreachable!("upgraded flywheel has larger capacity"))
+                    / 2,
+            )
+            .unwrap_or_else(|| panic!("primitive reinvestment expanded charge overflowed")),
+    );
+    assert!(desired_energy > base_drive && desired_energy <= upgraded_drive);
+    ReinvestmentCapacityEnvelope {
+        base_drive,
+        upgraded_drive,
+        base_separator_batch,
+        upgraded_separator_batch,
+        desired_expanded_batch: CrushingBatch {
+            mass: crush_mass_for_exact_energy(registries, desired_energy),
+            expected_energy: desired_energy,
+        },
+    }
+}
+
+enum ExpandedBatchDecision {
+    Ready(CrushingBatch),
+    StorageCapacityLimited {
+        available: Mass,
+        required_above: Mass,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReinvestmentBlocker {
+    TargetSupplyLimited,
+    StorageCapacityLimited {
+        available: Mass,
+        required_above: Mass,
+    },
+}
+
+impl ReinvestmentBlocker {
+    fn into_outcome(self) -> PrimitiveReinvestmentOutcome {
+        match self {
+            Self::TargetSupplyLimited => PrimitiveReinvestmentOutcome::TargetSupplyLimited,
+            Self::StorageCapacityLimited {
+                available,
+                required_above,
+            } => PrimitiveReinvestmentOutcome::StorageCapacityLimited {
+                available,
+                required_above,
+            },
+        }
+    }
+}
+
+fn ensure_reinvestment_ore(
+    registries: &Registries,
+    state: &mut AppState,
+    mining_target: MiningTargetRequest,
+    ore_storage: deep_hearth::inventory::StockpileId,
+    pick: deep_hearth::equipment::EquipmentId,
+    required: Mass,
+) -> Result<u64, AutonomousWorkStop> {
+    let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    let available = state
+        .inventory()
+        .get_stockpile(ore_storage)
+        .map(|stockpile| stockpile.get_mass(ore))
+        .unwrap_or_else(|| panic!("primitive reinvestment ore stockpile disappeared"));
+    if available >= required {
+        return Ok(0);
+    }
+    let shortfall = required
+        .checked_sub(available)
+        .unwrap_or_else(|| unreachable!("reinvestment ore shortfall is positive"));
+    let elapsed = try_mine_total_and_claim(
+        registries,
+        state,
+        mining_target,
+        ore_storage,
+        pick,
+        shortfall,
+        reinforced_pick_mining_batch_limit(registries),
+    )?;
+    let after = state
+        .inventory()
+        .get_stockpile(ore_storage)
+        .map(|stockpile| stockpile.get_mass(ore))
+        .unwrap_or_else(|| panic!("primitive reinvestment ore stockpile disappeared after mining"));
+    assert!(
+        after >= required,
+        "reinvestment mining must cover only the observed ore shortfall"
+    );
+    Ok(elapsed)
+}
+
+fn require_reinvestment_ore(
+    registries: &Registries,
+    state: &mut AppState,
+    mining_target: MiningTargetRequest,
+    ore_storage: deep_hearth::inventory::StockpileId,
+    pick: deep_hearth::equipment::EquipmentId,
+    required: Mass,
+    context: &'static str,
+) -> Result<(), ReinvestmentBlocker> {
+    match ensure_reinvestment_ore(
+        registries,
+        state,
+        mining_target,
+        ore_storage,
+        pick,
+        required,
+    ) {
+        Ok(_) => Ok(()),
+        Err(AutonomousWorkStop::TargetSupply) => Err(ReinvestmentBlocker::TargetSupplyLimited),
+        Err(stop) => panic!(
+            "primitive mature reinvestment {context} mining stopped unexpectedly: {}",
+            stop.label()
+        ),
+    }
+}
+
+fn require_current_reinvestment_target(
+    state: &AppState,
+    mining_target: MiningTargetRequest,
+) -> Result<(), ReinvestmentBlocker> {
+    resolve_mining_target(state, mining_target)
+        .map(|_| ())
+        .map_err(|error| {
+            let stop = autonomous_target_resolution_stop(error);
+            debug_assert_eq!(stop, AutonomousWorkStop::TargetSupply);
+            ReinvestmentBlocker::TargetSupplyLimited
+        })
+}
+
+fn decide_expanded_batch(
+    registries: &Registries,
+    state: &AppState,
+    crushed_storage: deep_hearth::inventory::StockpileId,
+    envelope: ReinvestmentCapacityEnvelope,
+) -> ExpandedBatchDecision {
+    let available = state
+        .inventory()
+        .get_stockpile(crushed_storage)
+        .map(|stockpile| stockpile.available_capacity())
+        .unwrap_or_else(|| panic!("primitive reinvestment crushed stockpile disappeared"));
+    let base_flywheel_batch = crush_mass_for_exact_energy(registries, envelope.base_drive);
+    let required_above = if base_flywheel_batch > envelope.base_separator_batch {
+        base_flywheel_batch
+    } else {
+        envelope.base_separator_batch
+    };
+    if available <= required_above {
+        return ExpandedBatchDecision::StorageCapacityLimited {
+            available,
+            required_above,
+        };
+    }
+    let mass = if available < envelope.desired_expanded_batch.mass {
+        available
+    } else {
+        envelope.desired_expanded_batch.mass
+    };
+    let expected_energy = calculate_mass_specific_energy(
+        mass,
+        registries
+            .ore_processing()
+            .get_comminution(PROCESS_CRUSH_ORE)
+            .unwrap_or_else(|| panic!("primitive reinvestment crusher process disappeared"))
+            .specific_energy(),
+    );
+    assert!(
+        expected_energy > envelope.base_drive && expected_energy <= envelope.upgraded_drive,
+        "capacity-sized mature crusher batch must still require the reinforced flywheel"
+    );
+    ExpandedBatchDecision::Ready(CrushingBatch {
+        mass,
+        expected_energy,
+    })
+}
+
+fn require_expanded_batch(
+    registries: &Registries,
+    state: &AppState,
+    crushed_storage: deep_hearth::inventory::StockpileId,
+    envelope: ReinvestmentCapacityEnvelope,
+) -> Result<CrushingBatch, ReinvestmentBlocker> {
+    match decide_expanded_batch(registries, state, crushed_storage, envelope) {
+        ExpandedBatchDecision::Ready(batch) => Ok(batch),
+        ExpandedBatchDecision::StorageCapacityLimited {
+            available,
+            required_above,
+        } => Err(ReinvestmentBlocker::StorageCapacityLimited {
+            available,
+            required_above,
+        }),
+    }
+}
+
+fn try_evaluate_mature_reinvestment(
     registries: &Registries,
     decision_state: &AppState,
     plan: MatureReinvestmentPlan,
-) -> PrimitiveReinvestmentOutcome {
+) -> Result<PrimitiveReinvestmentExperience, ReinvestmentBlocker> {
     let MatureReinvestmentPlan {
         raw,
         shaped,
@@ -120,72 +359,24 @@ pub(super) fn evaluate_mature_reinvestment(
         .total();
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("primitive reinvestment player disappeared at decision point"));
-    let base_drive_capacity = registries
-        .energy()
-        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
-        .map(|definition| definition.capacity())
-        .unwrap_or_else(|| panic!("primitive reinvestment base flywheel disappeared"));
-    let upgraded_drive_capacity = registries
-        .energy()
-        .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
-        .map(|definition| definition.capacity())
-        .unwrap_or_else(|| panic!("primitive reinvestment upgraded flywheel disappeared"));
-    assert!(upgraded_drive_capacity > base_drive_capacity);
-    let separation_definition = registries
-        .ore_processing()
-        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
-        .unwrap_or_else(|| panic!("primitive reinvestment separator process disappeared"));
-    let base_separator_batch_capacity = nominal_equipment_mass_capability(
-        registries,
-        EQUIPMENT_STONE_SEPARATOR,
-        separation_definition.max_batch_mass_capability(),
-    );
-    let upgraded_separator_batch_capacity = nominal_equipment_mass_capability(
-        registries,
-        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-        separation_definition.max_batch_mass_capability(),
-    );
-    assert!(upgraded_separator_batch_capacity > base_separator_batch_capacity);
-    let expanded_batch_energy = Energy::from_nanojoules(
-        base_drive_capacity
-            .nanojoules()
-            .checked_add(
-                upgraded_drive_capacity
-                    .nanojoules()
-                    .checked_sub(base_drive_capacity.nanojoules())
-                    .unwrap_or_else(|| unreachable!("upgraded flywheel has larger capacity"))
-                    / 2,
-            )
-            .unwrap_or_else(|| panic!("primitive reinvestment expanded charge overflowed")),
-    );
-    assert!(
-        expanded_batch_energy > base_drive_capacity
-            && expanded_batch_energy <= upgraded_drive_capacity
-    );
-    let expanded_batch_mass = crush_mass_for_exact_energy(registries, expanded_batch_energy);
-    let maximum_drain_mass = crush_mass_for_exact_energy(registries, base_drive_capacity);
-    let prepared_ore = primary_batch_mass
-        .checked_add(maximum_drain_mass)
-        .and_then(|mass| mass.checked_add(expanded_batch_mass))
-        .unwrap_or_else(|| panic!("primitive reinvestment prepared ore mass overflowed"));
-    match try_mine_total_and_claim(
+    // Reinvestment is a current opportunity, not merely a use for buffered ore. Once acquired
+    // evidence no longer resolves a live target, the actor has already observed that this local
+    // supply opportunity ended and must not advertise further investment against hidden reserve.
+    require_current_reinvestment_target(&state, mining_target)?;
+    let capacity_envelope = reinvestment_capacity_envelope(registries);
+    let base_drive_capacity = capacity_envelope.base_drive;
+    let upgraded_drive_capacity = capacity_envelope.upgraded_drive;
+    let base_separator_batch_capacity = capacity_envelope.base_separator_batch;
+    let upgraded_separator_batch_capacity = capacity_envelope.upgraded_separator_batch;
+    require_reinvestment_ore(
         registries,
         &mut state,
         mining_target,
         ore_storage,
         pick,
-        prepared_ore,
-        reinforced_pick_mining_batch_limit(registries),
-    ) {
-        Ok(_) => {}
-        Err(AutonomousWorkStop::TargetSupply) => {
-            return PrimitiveReinvestmentOutcome::TargetSupplyLimited;
-        }
-        Err(stop) => panic!(
-            "primitive mature reinvestment mining stopped unexpectedly: {}",
-            stop.label()
-        ),
-    }
+        primary_batch_mass,
+        "baseline",
+    )?;
 
     let primary_energy = calculate_mass_specific_energy(
         primary_batch_mass,
@@ -441,6 +632,15 @@ pub(super) fn evaluate_mature_reinvestment(
                 }));
             let drain_energy =
                 calculate_mass_specific_energy(drain_mass, crusher_process.specific_energy());
+            require_reinvestment_ore(
+                registries,
+                &mut state,
+                mining_target,
+                ore_storage,
+                pick,
+                drain_mass,
+                "residual-work",
+            )?;
             run_uninterrupted_crush(
                 registries,
                 &mut state,
@@ -532,6 +732,20 @@ pub(super) fn evaluate_mature_reinvestment(
         Some(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
     );
 
+    let expanded_batch =
+        require_expanded_batch(registries, &state, crushed_storage, capacity_envelope)?;
+    let expanded_batch_mass = expanded_batch.mass;
+    let expanded_batch_energy = expanded_batch.expected_energy;
+    let base_flywheel_batch_mass = crush_mass_for_exact_energy(registries, base_drive_capacity);
+    require_reinvestment_ore(
+        registries,
+        &mut state,
+        mining_target,
+        ore_storage,
+        pick,
+        expanded_batch_mass,
+        "expanded-batch",
+    )?;
     let expanded_charge_ticks =
         charge_exact_reinvestment_energy(registries, &mut state, machine, expanded_batch_energy);
     let expanded_crush_ticks = run_uninterrupted_crush(
@@ -547,7 +761,7 @@ pub(super) fn evaluate_mature_reinvestment(
         },
     );
     assert!(
-        expanded_batch_mass > crush_mass_for_exact_energy(registries, base_drive_capacity),
+        expanded_batch_mass > base_flywheel_batch_mass,
         "flywheel reinforcement must fund a single crusher batch the base accumulator cannot hold"
     );
     assert!(
@@ -585,7 +799,7 @@ pub(super) fn evaluate_mature_reinvestment(
     );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("primitive reinvestment state audit failed: {error}"));
-    PrimitiveReinvestmentOutcome::Completed(Box::new(PrimitiveReinvestmentExperience {
+    Ok(PrimitiveReinvestmentExperience {
         invested_copper_mass,
         base_crush_ticks,
         reinforced_crush_ticks,
@@ -610,5 +824,16 @@ pub(super) fn evaluate_mature_reinvestment(
         expanded_separator_target_mass: expanded_separator.target_mass,
         survival_energy_spent_nj,
         survival_hydration_spent_ul,
-    }))
+    })
+}
+
+pub(super) fn evaluate_mature_reinvestment(
+    registries: &Registries,
+    decision_state: &AppState,
+    plan: MatureReinvestmentPlan,
+) -> PrimitiveReinvestmentOutcome {
+    match try_evaluate_mature_reinvestment(registries, decision_state, plan) {
+        Ok(experience) => PrimitiveReinvestmentOutcome::Completed(Box::new(experience)),
+        Err(blocker) => blocker.into_outcome(),
+    }
 }
