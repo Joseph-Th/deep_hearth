@@ -4,8 +4,8 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::{
-    StockpileRecord, StorageDefinition, StorageEnclosureDismantlingError,
-    validate_storage_dismantling_target_for_completion,
+    StockpileEnclosureRecord, StockpileRecord, StorageDefinition, StorageEnclosureDismantlingError,
+    validate_stockpile_storage, validate_storage_dismantling_target_for_completion,
 };
 use crate::labor::StorageEnclosureDismantlingWork;
 use crate::registry::Registries;
@@ -31,7 +31,7 @@ fn validate_work_identity(
 fn validate_target<'a>(
     state: &'a AppState,
     work: &StorageEnclosureDismantlingWork,
-) -> Result<&'a StockpileRecord, PlayerWorkValidationError> {
+) -> Result<(&'a StockpileRecord, &'a StockpileEnclosureRecord), PlayerWorkValidationError> {
     let target = state
         .inventory()
         .get_stockpile(work.target())
@@ -54,11 +54,13 @@ fn validate_target<'a>(
     if !target.reserved_inbound().is_zero() {
         return Err(PlayerWorkValidationError::StorageDismantlingTargetReservedInbound);
     }
-    Ok(target)
+    Ok((target, enclosure))
 }
 
 fn validate_recovery_destination(
+    registries: &Registries,
     state: &AppState,
+    enclosure: &StockpileEnclosureRecord,
     work: &StorageEnclosureDismantlingWork,
 ) -> Result<(), PlayerWorkValidationError> {
     let recovery = state
@@ -67,6 +69,19 @@ fn validate_recovery_destination(
         .ok_or(PlayerWorkValidationError::StorageDismantlingRecoveryMissing)?;
     if recovery.supported_by().is_some() {
         return Err(PlayerWorkValidationError::StorageDismantlingRecoveryMounted);
+    }
+    for trace in enclosure.embodied_material() {
+        let profile = trace.profile();
+        validate_stockpile_storage(
+            registries,
+            recovery,
+            recovery.id(),
+            profile.commodity(),
+            profile.composition(),
+            profile.temperature(),
+            profile.particle_size_distribution(),
+        )
+        .map_err(PlayerWorkValidationError::StorageDismantlingRecoveryStorage)?;
     }
     Ok(())
 }
@@ -137,8 +152,8 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
     available_hydration: Volume,
 ) -> Result<(), PlayerWorkValidationError> {
     validate_work_identity(active_jobs, &work)?;
-    let target = validate_target(state, &work)?;
-    validate_recovery_destination(state, &work)?;
+    let (target, enclosure) = validate_target(state, &work)?;
+    validate_recovery_destination(registries, state, enclosure, &work)?;
     let (definition, remaining) =
         validate_definition_and_schedule(registries, state, target, &work)?;
     validate_completion_replay(registries, state, &work)?;

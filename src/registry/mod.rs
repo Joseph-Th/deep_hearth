@@ -30,9 +30,9 @@ mod validation;
 #[path = "process_topology_tests.rs"]
 mod process_topology_tests;
 
-#[cfg(test)]
-use process_topology::build_partial_process_topology_for_owner_tests;
 use process_topology::build_process_topology;
+#[cfg(test)]
+use process_topology::build_process_topology_for_owner_tests;
 pub use process_topology::{
     ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily, ProcessTopology,
 };
@@ -146,7 +146,7 @@ impl Registries {
         domains: RegistryDomains,
     ) -> Self {
         validate_registry_domains(&core, &domains);
-        let process_topology = build_partial_process_topology_for_owner_tests(&domains);
+        let process_topology = build_process_topology_for_owner_tests(&domains);
         Self {
             schema_version,
             core,

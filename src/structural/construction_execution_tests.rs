@@ -23,7 +23,8 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructureValidationError, add_structural_element, validate_activate_structural_element,
+    StructureValidationError, add_structural_element, materialize_structural_element_for_test,
+    validate_activate_structural_element,
 };
 
 fn wood_length_for_mass(mass: Mass) -> Length {

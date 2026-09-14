@@ -77,6 +77,10 @@ pub enum StateValidationError {
         job: ProductionJobId,
         process: ProcessId,
     },
+    MissingJobProcessTopology {
+        job: ProductionJobId,
+        process: ProcessId,
+    },
     UnknownJobSource {
         job: ProductionJobId,
         stockpile: StockpileId,
@@ -346,6 +350,12 @@ impl Display for StateValidationError {
             Self::UnknownJobProcess { job, process } => write!(
                 formatter,
                 "production job {} references unknown process {}",
+                job.value(),
+                process.value()
+            ),
+            Self::MissingJobProcessTopology { job, process } => write!(
+                formatter,
+                "production job {} process {} has no execution topology",
                 job.value(),
                 process.value()
             ),
@@ -701,7 +711,8 @@ impl Error for StateValidationError {
                 job: _job,
                 process: _process,
             } => None,
-            Self::UnknownJobSource { .. }
+            Self::MissingJobProcessTopology { .. }
+            | Self::UnknownJobSource { .. }
             | Self::JobEnergyTopologyMismatch { .. }
             | Self::JobEquipmentTopologyMismatch { .. }
             | Self::UnknownJobDestination { .. } => None,

@@ -32,6 +32,6 @@ pub(crate) use resolution::sum_lot_spec_mass;
 pub(crate) use state::{validate_loaded_production, validate_loaded_production_schedule_history};
 
 #[cfg(test)]
-pub(crate) use resolution::{
+pub(crate) use test_support::{
     make_test_process_resolution, make_test_process_resolution_with_streams,
 };

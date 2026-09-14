@@ -334,26 +334,6 @@ fn validate_and_order_output_streams(
     Ok((output_streams, output_mass))
 }
 
-#[cfg(test)]
-pub(crate) fn make_test_process_resolution_with_streams(
-    inputs: ValidatedProcessInputs,
-    duration_ticks: u64,
-    output_streams: Vec<(ProcessOutputStreamId, Vec<MaterialLotSpec>)>,
-) -> ProcessResolution {
-    let output_streams = output_streams
-        .into_iter()
-        .map(|(id, outputs)| ProcessOutputStream::new(id, outputs))
-        .collect();
-    match inputs.resolve_inner(
-        TickSpan::new(duration_ticks),
-        output_streams,
-        ProcessResourceResolution::NONE,
-    ) {
-        Ok(resolution) => resolution,
-        Err(error) => panic!("multi-stream test process resolution fixture failed: {error}"),
-    }
-}
-
 /// Immutable outcome of physical process resolution for one exact selected input snapshot.
 ///
 /// There is no public arbitrary constructor. Physical subsystem resolvers consume
@@ -464,16 +444,4 @@ pub(crate) fn sum_output_stream_mass(entries: &[ProcessOutputStream]) -> Option<
         total = total.checked_add(sum_lot_spec_mass(stream.outputs())?)?;
     }
     Some(total)
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_process_resolution(
-    inputs: ValidatedProcessInputs,
-    duration_ticks: u64,
-    outputs: Vec<MaterialLotSpec>,
-) -> ProcessResolution {
-    match inputs.resolve_without_resources(TickSpan::new(duration_ticks), outputs) {
-        Ok(resolution) => resolution,
-        Err(error) => panic!("test process resolution fixture failed: {error}"),
-    }
 }

@@ -52,11 +52,12 @@ fn validate_job_resource_topology(
     registries: &Registries,
     job: &ProductionJobRecord,
 ) -> Result<(), StateValidationError> {
-    // Isolated production-owner tests may intentionally register synthetic process definitions
-    // without a gameplay resolver family. Runtime registries guarantee topology for every process.
-    let Some(topology) = registries.process_topology(job.process()) else {
-        return Ok(());
-    };
+    let topology = registries.process_topology(job.process()).ok_or(
+        StateValidationError::MissingJobProcessTopology {
+            job: job.id(),
+            process: job.process(),
+        },
+    )?;
 
     let energy_matches = match topology.energy_role() {
         ProcessEnergyRole::None => {

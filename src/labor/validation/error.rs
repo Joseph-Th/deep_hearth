@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::equipment::EquipmentId;
-use crate::inventory::MaterialLotId;
+use crate::inventory::{MaterialLotId, StockpileStorageError};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::MaterialId;
 
@@ -101,6 +101,7 @@ pub enum PlayerWorkValidationError {
     StorageDismantlingRecoveryMissing,
     StorageDismantlingRecoveryIsTarget,
     StorageDismantlingRecoveryMounted,
+    StorageDismantlingRecoveryStorage(StockpileStorageError),
     StorageDismantlingStorageProfileMismatch,
     StorageDismantlingTargetContentsIncompatible {
         lot: MaterialLotId,
@@ -343,6 +344,10 @@ impl Display for PlayerWorkValidationError {
             Self::StorageDismantlingRecoveryMounted => formatter.write_str(
                 "storage dismantling recovery stockpile must remain unmounted while work is active",
             ),
+            Self::StorageDismantlingRecoveryStorage(error) => write!(
+                formatter,
+                "storage dismantling recovery stockpile cannot accept the installed enclosure matter: {error}"
+            ),
             Self::StorageDismantlingStorageProfileMismatch => formatter.write_str(
                 "storage dismantling target profile disagrees with its authored enclosure",
             ),
@@ -410,6 +415,7 @@ impl Error for PlayerWorkValidationError {
         match self {
             Self::ManualPowerConditionDuration(error) => Some(error),
             Self::ProspectingEquipmentConditionDuration(error) => Some(error),
+            Self::StorageDismantlingRecoveryStorage(error) => Some(error),
             Self::WorkWithoutPlayer
             | Self::ManualProductionJobMissing
             | Self::ManualProductionProcessMismatch

@@ -10,7 +10,7 @@ use crate::content::{
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{AggregateMass, Area, Length, Mass, Temperature};
-use crate::core::state::{AppState, validate_loaded_state};
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::calculate_explicit_energy_accounting;
@@ -19,9 +19,10 @@ use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, validate_build_storage_enclosure,
     validate_mount_stockpile, validate_unmount_stockpile,
 };
+use crate::labor::PlayerWorkValidationError;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -72,6 +73,45 @@ fn fixture() -> (
     let recovery = add_solid_stockpile_for_test(&mut state, CHEST_MASS)
         .unwrap_or_else(|error| panic!("dismantle recovery fixture failed: {error}"));
     (registries, state, target, construction, recovery, food)
+}
+
+#[test]
+fn trusted_load_rejects_dismantling_recovery_that_cannot_accept_enclosure_matter() {
+    let (registries, mut state, target, construction, recovery, _food) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("recovery-storage load fixture build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("recovery-storage load fixture build commit failed: {error}"));
+    let _ = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+        .unwrap_or_else(|error| panic!("recovery-storage load fixture start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("recovery-storage load fixture start commit failed: {error}")
+        });
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("recovery-storage load fixture serialization failed: {error}")
+        });
+    let profile = &mut encoded["state"]["systems"]["inventory"]["stockpiles"]
+        [recovery.value().to_string()]["storage_profile"];
+    profile["can_store_solid"] = serde_json::json!(false);
+    profile["can_store_liquid"] = serde_json::json!(true);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("recovery-storage tamper failed decode: {error}"));
+
+    assert!(matches!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::StorageDismantlingRecoveryStorage(_)
+        )))
+    ));
 }
 
 fn complete_storage_dismantling(

@@ -11,6 +11,8 @@ mod load;
 mod state;
 mod structural_execution;
 mod support_index;
+#[cfg(test)]
+mod test_support;
 
 pub use analysis::{
     StructuralAnalysis, StructuralAnalysisError, StructuralAssessment, StructuralDamageEvent,
@@ -63,16 +65,6 @@ pub(crate) use support_index::{
 };
 
 #[cfg(test)]
-pub(crate) use construction_execution::materialize_structural_element_for_test;
-
-#[cfg(test)]
-pub(crate) fn make_test_structural_geometry(
-    bounds: crate::spatial::VoxelBounds,
-    length: crate::core::quantity::Length,
-    cross_section: crate::core::quantity::Area,
-) -> StructuralElementGeometry {
-    match StructuralElementGeometry::new(bounds, length, cross_section) {
-        Ok(geometry) => geometry,
-        Err(error) => panic!("structural test geometry is invalid: {error}"),
-    }
-}
+pub(crate) use test_support::{
+    make_test_structural_geometry, materialize_structural_element_for_test,
+};
