@@ -8,7 +8,6 @@ use crate::material::{
 };
 
 pub const MATERIAL_WOOD: MaterialId = MaterialId::new(1);
-pub const MATERIAL_CHARCOAL: MaterialId = MaterialId::new(2);
 pub const MATERIAL_COPPER: MaterialId = MaterialId::new(3);
 pub const MATERIAL_SLAG: MaterialId = MaterialId::new(4);
 pub const MATERIAL_WATER: MaterialId = MaterialId::new(5);
@@ -165,11 +164,6 @@ fn register_materials(registry: &mut MaterialRegistry) {
             ),
         ),
         MaterialDefinition::new(
-            MATERIAL_CHARCOAL,
-            "charcoal",
-            MaterialProperties::new(250, ThermalProperties::new(1_000, None), None),
-        ),
-        MaterialDefinition::new(
             MATERIAL_COPPER,
             "copper",
             MaterialProperties::new(
@@ -252,7 +246,6 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
         CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
         CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
         CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
         CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
@@ -263,7 +256,6 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-        CommodityKey::new(MATERIAL_SLAG, FORM_LUMP),
         CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
         CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),

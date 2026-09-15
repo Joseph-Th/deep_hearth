@@ -111,27 +111,6 @@ pub(super) fn wood_end_pattern() -> TexturePattern {
     texels
 }
 
-pub(super) fn charcoal_pattern() -> TexturePattern {
-    let mut texels = base_noise_pattern(0x3bca_0197, 6, 3);
-    for y in 0..TEXTURE_SIDE {
-        for x in 0..TEXTURE_SIDE {
-            let cell_hash = hash_2d(0x9021_bef3, x / 5, y / 5);
-            let fine = hash_2d(0xe241_97b5, x, y);
-            let index = y * TEXTURE_SIDE + x;
-            let fracture = (x + y * 3 + usize::from((cell_hash & 7) as u8)).is_multiple_of(17)
-                || (x * 3 + y + usize::from(((cell_hash >> 4) & 7) as u8)).is_multiple_of(23);
-            if fracture {
-                texels[index] = packed(0, varied_shade(2, 1, fine));
-            } else if cell_hash.is_multiple_of(11) && fine.is_multiple_of(5) {
-                texels[index] = packed(1, varied_shade(8, 2, fine));
-            } else if fine.is_multiple_of(41) {
-                texels[index] = packed(1, 5);
-            }
-        }
-    }
-    texels
-}
-
 pub(super) fn ore_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0x16ac_48d2, 7, 3);
     for y in 0..TEXTURE_SIDE {

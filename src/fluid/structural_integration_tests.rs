@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::content::{
-    FORM_LOG, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_WATER, MATERIAL_WOOD,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, make_test_registries_with_fluids,
+    FORM_LOG, MATERIAL_COPPER, MATERIAL_WATER, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    make_test_registries_with_fluids,
 };
 use crate::core::quantity::{AggregateMass, Area, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -251,7 +251,7 @@ fn mounted_fluid_uses_material_density_for_structural_weight() {
 
 #[test]
 fn fluid_mass_rounding_occurs_after_support_local_aggregation() {
-    let registries = registries_with_material(MATERIAL_CHARCOAL);
+    let registries = registries_with_material(MATERIAL_WOOD);
     let mut state = AppState::new(WorldSeed::new(0x9410_0002));
     let support = add_active_support(&registries, &mut state, 0);
     let first = add_filled(&registries, &mut state, 1);
@@ -269,7 +269,7 @@ fn fluid_mass_rounding_occurs_after_support_local_aggregation() {
 
     assert_eq!(
         supported_mass_micrograms(&registries, &state, support, &BTreeMap::new(), None),
-        Ok(1_000)
+        Ok(2_600)
     );
     assert_eq!(
         state
@@ -283,17 +283,17 @@ fn fluid_mass_rounding_occurs_after_support_local_aggregation() {
 
 #[test]
 fn fractional_fluid_mass_does_not_round_up_before_weight_conversion() {
-    let registries = registries_with_material(MATERIAL_CHARCOAL);
+    let registries = registries_with_material(MATERIAL_WOOD);
     let mut state = AppState::new(WorldSeed::new(0x9410_000B));
     let support = add_active_support(&registries, &mut state, 0);
-    let store = add_filled(&registries, &mut state, 405);
+    let store = add_filled(&registries, &mut state, 156);
 
     let _ = mount(&registries, &mut state, store, support);
 
     assert_eq!(
         supported_mass_micrograms(&registries, &state, support, &BTreeMap::new(), None),
-        Ok(101_250),
-        "405 uL at 250 kg/m^3 is exactly 101.25 mg"
+        Ok(101_400),
+        "156 uL at 650 kg/m^3 is exactly 101.4 mg"
     );
     assert_eq!(
         state

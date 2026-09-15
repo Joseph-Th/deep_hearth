@@ -7,6 +7,7 @@ use crate::core::quantity::{Energy, Mass, MassFlow, Volume};
 use crate::core::time::TickSpan;
 use crate::labor::{ManualPowerDefinition, ManualPowerMethodId};
 use crate::mining::{MiningMethodDefinition, MiningMethodId};
+use crate::ore_processing::ManualOreProcessProfile;
 
 #[test]
 fn built_player_work_routes_are_operable() {
@@ -179,9 +180,11 @@ fn manual_ore_operability_rejects_maximum_batch_beyond_full_reserves() {
         assert_manual_ore_batch_fits_reserves(
             registries.core(),
             physiology,
-            MassFlow::from_milligrams_per_second(1),
-            Mass::from_milligrams(1),
-            SurvivalExertion::new(impossible_energy, Volume::ZERO),
+            ManualOreProcessProfile::new(
+                MassFlow::from_milligrams_per_second(1),
+                Mass::from_milligrams(1),
+                SurvivalExertion::new(impossible_energy, Volume::ZERO),
+            ),
             "test manual ore process",
             1,
         );

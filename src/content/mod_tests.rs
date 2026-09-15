@@ -890,11 +890,6 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_LOG,
         ),
         (
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
-            Some(BLOCK_CHARCOAL),
-            OBJECT_CHARCOAL,
-        ),
-        (
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             Some(BLOCK_COPPER_ORE),
             OBJECT_COPPER_ORE,
@@ -930,9 +925,9 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_COPPER_SCRAP,
         ),
         (
-            CommodityKey::new(MATERIAL_SLAG, FORM_LUMP),
-            Some(BLOCK_SLAG),
-            OBJECT_SLAG,
+            CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
+            None,
+            OBJECT_TAILINGS,
         ),
         (
             CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),

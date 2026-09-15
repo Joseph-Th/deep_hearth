@@ -38,6 +38,9 @@ use availability::{support_commit_error, support_validation_error};
 pub use errors::{
     StockpileStructuralLoadError, StockpileSupportCommitError, StockpileSupportError,
 };
+pub(crate) use projection::{
+    StockpileStructuralLoadConsistencyError, validate_existing_stockpile_structural_load,
+};
 use projection::{support_force, supported_mass_projection, validate_existing_load};
 
 pub(crate) type ValidatedStockpileStructuralLoad = ValidatedStructuralLoadChange;

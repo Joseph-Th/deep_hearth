@@ -71,7 +71,8 @@ pub use storage::{StorageDefinition, StorageDefinitionId, StorageRegistry};
 pub use storage_validation::StockpileStorageError;
 pub(crate) use storage_validation::validate_stockpile_storage;
 pub(crate) use structural_integration::{
-    StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
+    StockpileStoredMassChange, StockpileStructuralLoadConsistencyError,
+    ValidatedStockpileStructuralLoad, validate_existing_stockpile_structural_load,
     validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
 };
 pub use structural_integration::{

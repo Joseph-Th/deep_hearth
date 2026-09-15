@@ -119,6 +119,10 @@ impl ManualConstituentSeparationProcessDefinition {
         self.operating.exertion()
     }
 
+    pub(crate) const fn operating_profile(self) -> ManualOreProcessProfile {
+        self.operating
+    }
+
     pub(in crate::ore_processing) const fn physics(self) -> ConstituentSeparationPhysics {
         self.physics
     }

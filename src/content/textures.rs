@@ -11,15 +11,13 @@ mod bindings;
 mod patterns;
 
 use patterns::{
-    aggregate_pattern, charcoal_pattern, molten_pattern, ore_pattern, panel_pattern,
-    refractory_pattern, screen_pattern, slag_pattern, wood_end_pattern, wood_side_pattern,
-    working_metal_pattern,
+    aggregate_pattern, molten_pattern, ore_pattern, panel_pattern, refractory_pattern,
+    screen_pattern, slag_pattern, wood_end_pattern, wood_side_pattern, working_metal_pattern,
 };
 
 const RAMP_WOOD: PaletteRampId = PaletteRampId::new(1);
 const RAMP_BARK: PaletteRampId = PaletteRampId::new(2);
-const RAMP_CHARCOAL: PaletteRampId = PaletteRampId::new(3);
-const RAMP_ASH: PaletteRampId = PaletteRampId::new(4);
+const RAMP_DARK_MINERAL: PaletteRampId = PaletteRampId::new(3);
 const RAMP_STONE: PaletteRampId = PaletteRampId::new(5);
 const RAMP_COPPER_MINERAL: PaletteRampId = PaletteRampId::new(6);
 const RAMP_COPPER_METAL: PaletteRampId = PaletteRampId::new(7);
@@ -34,7 +32,6 @@ const RAMP_TRANSPARENT: PaletteRampId = PaletteRampId::new(15);
 
 pub const TEXTURE_WOOD_SIDE: TextureId = TextureId::new(1);
 pub const TEXTURE_WOOD_END: TextureId = TextureId::new(2);
-pub const TEXTURE_CHARCOAL: TextureId = TextureId::new(3);
 pub const TEXTURE_COPPER_ORE: TextureId = TextureId::new(4);
 pub const TEXTURE_COPPER_HAMMERED: TextureId = TextureId::new(5);
 pub const TEXTURE_SLAG: TextureId = TextureId::new(6);
@@ -47,18 +44,14 @@ pub const TEXTURE_SCREEN_MESH: TextureId = TextureId::new(12);
 pub const TEXTURE_STONE: TextureId = TextureId::new(13);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
-pub const BLOCK_CHARCOAL: BlockAppearanceId = BlockAppearanceId::new(2);
 pub const BLOCK_COPPER_ORE: BlockAppearanceId = BlockAppearanceId::new(3);
 pub const BLOCK_COPPER: BlockAppearanceId = BlockAppearanceId::new(4);
-pub const BLOCK_SLAG: BlockAppearanceId = BlockAppearanceId::new(5);
 
 pub const OBJECT_LOG: ObjectAppearanceId = ObjectAppearanceId::new(1);
-pub const OBJECT_CHARCOAL: ObjectAppearanceId = ObjectAppearanceId::new(2);
 pub const OBJECT_COPPER_ORE: ObjectAppearanceId = ObjectAppearanceId::new(3);
 pub const OBJECT_CRUSHED_ORE: ObjectAppearanceId = ObjectAppearanceId::new(4);
 pub const OBJECT_COPPER_INGOT: ObjectAppearanceId = ObjectAppearanceId::new(5);
 pub const OBJECT_MOLTEN_COPPER: ObjectAppearanceId = ObjectAppearanceId::new(6);
-pub const OBJECT_SLAG: ObjectAppearanceId = ObjectAppearanceId::new(7);
 pub const OBJECT_STONE_LUMP: ObjectAppearanceId = ObjectAppearanceId::new(8);
 pub const OBJECT_WOOD_HANDLE: ObjectAppearanceId = ObjectAppearanceId::new(9);
 pub const OBJECT_JAW_CRUSHER: ObjectAppearanceId = ObjectAppearanceId::new(10);
@@ -133,14 +126,9 @@ fn build_palette_ramps() -> Vec<PaletteRampDefinition> {
             [(19, 19, 26), (54, 36, 31), (104, 66, 40), (181, 133, 77)],
         ),
         ramp(
-            RAMP_CHARCOAL,
-            "blue charcoal",
+            RAMP_DARK_MINERAL,
+            "dark mineral",
             [(8, 10, 17), (22, 26, 35), (51, 54, 61), (112, 104, 96)],
-        ),
-        ramp(
-            RAMP_ASH,
-            "warm ash",
-            [(28, 29, 35), (69, 66, 65), (128, 119, 108), (213, 198, 172)],
         ),
         ramp(
             RAMP_STONE,
@@ -233,13 +221,6 @@ fn build_textures() -> Vec<TextureDefinition> {
             wood_end_pattern(),
         ),
         texture(
-            TEXTURE_CHARCOAL,
-            "fractured charcoal",
-            &[RAMP_CHARCOAL, RAMP_ASH],
-            TextureAlphaMode::Opaque,
-            charcoal_pattern(),
-        ),
-        texture(
             TEXTURE_COPPER_ORE,
             "copper mineral in host stone",
             &[RAMP_STONE, RAMP_COPPER_MINERAL],
@@ -256,7 +237,7 @@ fn build_textures() -> Vec<TextureDefinition> {
         texture(
             TEXTURE_SLAG,
             "porous slag",
-            &[RAMP_SLAG, RAMP_CHARCOAL],
+            &[RAMP_SLAG, RAMP_DARK_MINERAL],
             TextureAlphaMode::Opaque,
             slag_pattern(),
         ),
@@ -337,7 +318,6 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             TEXTURE_WOOD_SIDE,
             TEXTURE_WOOD_END,
         ),
-        BlockAppearanceDefinition::uniform(BLOCK_CHARCOAL, "charcoal block", TEXTURE_CHARCOAL),
         BlockAppearanceDefinition::uniform(
             BLOCK_COPPER_ORE,
             "copper ore block",
@@ -348,7 +328,6 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             "hammered copper block",
             TEXTURE_COPPER_HAMMERED,
         ),
-        BlockAppearanceDefinition::uniform(BLOCK_SLAG, "slag block", TEXTURE_SLAG),
     ]
 }
 

@@ -3,7 +3,7 @@
 use super::*;
 use crate::content::{
     FORM_FOOD, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_BERRIES,
-    MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
+    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
     make_test_registries_with_process,
 };
 use crate::core::quantity::{Mass, Temperature};
@@ -50,12 +50,12 @@ fn make_test_perishable_process() -> ProcessDefinition {
     )
 }
 
-fn charcoal_lump() -> CommodityKey {
-    CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP)
+fn stone_lump() -> CommodityKey {
+    CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
 }
 
-fn slag_lump() -> CommodityKey {
-    CommodityKey::new(MATERIAL_SLAG, FORM_LUMP)
+fn copper_ingot() -> CommodityKey {
+    CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
 }
 
 fn berry_food() -> CommodityKey {
@@ -117,7 +117,7 @@ fn make_test_multi_stream_resolution(
             (
                 ProcessOutputStreamId::new(20),
                 vec![MaterialLotSpec::new(
-                    slag_lump(),
+                    copper_ingot(),
                     Mass::from_milligrams(4),
                     Temperature::from_millikelvin(600_000),
                 )],
@@ -125,7 +125,7 @@ fn make_test_multi_stream_resolution(
             (
                 ProcessOutputStreamId::new(10),
                 vec![MaterialLotSpec::new(
-                    charcoal_lump(),
+                    stone_lump(),
                     Mass::from_milligrams(6),
                     Temperature::from_millikelvin(600_000),
                 )],
@@ -152,7 +152,7 @@ fn make_test_resolution(
         inputs,
         duration_ticks,
         vec![MaterialLotSpec::new(
-            charcoal_lump(),
+            stone_lump(),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(600_000),
         )],
@@ -350,7 +350,7 @@ fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
     };
     assert_eq!(destination_record.reserved_inbound(), Mass::ZERO);
     assert_eq!(
-        destination_record.get_mass(charcoal_lump()),
+        destination_record.get_mass(stone_lump()),
         Mass::from_milligrams(10)
     );
     let output_lots: Vec<_> = state.inventory().lot_ids(destination).collect();
@@ -686,8 +686,8 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     let registries = make_test_registries();
     let mut state = AppState::new(WorldSeed::new(10_001));
     let source = add_test_stockpile(&mut state, 20);
-    let charcoal_destination = add_test_stockpile(&mut state, 10);
-    let slag_destination = add_test_stockpile(&mut state, 10);
+    let stone_destination = add_test_stockpile(&mut state, 10);
+    let copper_destination = add_test_stockpile(&mut state, 10);
     deposit_test_wood(&registries, &mut state, source, 10);
     let resolution = make_test_multi_stream_resolution(&registries, &state, source, 1);
     assert_eq!(
@@ -708,8 +708,8 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
         &resolution,
         source,
         &[
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(20), slag_destination),
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), charcoal_destination),
+            ProcessOutputRoute::new(ProcessOutputStreamId::new(20), copper_destination),
+            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), stone_destination),
         ],
     ) {
         Ok(token) => token,
@@ -720,14 +720,14 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(charcoal_destination)
+            .get_stockpile(stone_destination)
             .map(|record| record.reserved_inbound()),
         Some(Mass::from_milligrams(6))
     );
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(charcoal_destination)
+            .get_stockpile(stone_destination)
             .map(|record| record.available_capacity()),
         Some(Mass::from_milligrams(4)),
         "available capacity must include committed production output"
@@ -735,14 +735,14 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(slag_destination)
+            .get_stockpile(copper_destination)
             .map(|record| record.reserved_inbound()),
         Some(Mass::from_milligrams(4))
     );
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(slag_destination)
+            .get_stockpile(copper_destination)
             .map(|record| record.available_capacity()),
         Some(Mass::from_milligrams(6)),
         "available capacity must distinguish each destination's reservation"
@@ -758,8 +758,8 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         stored_routes,
         vec![
-            (ProcessOutputStreamId::new(10), charcoal_destination),
-            (ProcessOutputStreamId::new(20), slag_destination),
+            (ProcessOutputStreamId::new(10), stone_destination),
+            (ProcessOutputStreamId::new(20), copper_destination),
         ]
     );
     if let Err(error) = validate_loaded_state(&registries, &state) {
@@ -847,8 +847,8 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         outcome.production_completions()[0].routes(),
         [
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), charcoal_destination,),
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(20), slag_destination),
+            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), stone_destination,),
+            ProcessOutputRoute::new(ProcessOutputStreamId::new(20), copper_destination),
         ]
     );
     let completion = &outcome.production_completions()[0];
@@ -857,53 +857,56 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
         completion.landings()[0].stream(),
         ProcessOutputStreamId::new(10)
     );
-    assert_eq!(completion.landings()[0].destination(), charcoal_destination);
+    assert_eq!(completion.landings()[0].destination(), stone_destination);
     assert_eq!(completion.landings()[0].parcels().len(), 1);
     assert_eq!(
         completion.landings()[1].stream(),
         ProcessOutputStreamId::new(20)
     );
-    assert_eq!(completion.landings()[1].destination(), slag_destination);
+    assert_eq!(completion.landings()[1].destination(), copper_destination);
     assert_eq!(completion.landings()[1].parcels().len(), 1);
-    let charcoal_parcel = &completion.landings()[0].parcels()[0];
-    assert_eq!(charcoal_parcel.output().commodity(), charcoal_lump());
-    assert_eq!(charcoal_parcel.output().mass(), Mass::from_milligrams(6));
-    let charcoal_landing = state
+    let stone_parcel = &completion.landings()[0].parcels()[0];
+    assert_eq!(stone_parcel.output().commodity(), stone_lump());
+    assert_eq!(stone_parcel.output().mass(), Mass::from_milligrams(6));
+    let stone_landing = state
         .inventory()
-        .get_lot(charcoal_parcel.lot())
-        .unwrap_or_else(|| panic!("charcoal completion landing disappeared"));
-    assert_eq!(charcoal_landing.stockpile(), charcoal_destination);
-    assert_eq!(charcoal_landing.commodity(), charcoal_lump());
-    let slag_parcel = &completion.landings()[1].parcels()[0];
-    assert_eq!(slag_parcel.output().commodity(), slag_lump());
-    assert_eq!(slag_parcel.output().mass(), Mass::from_milligrams(4));
-    let slag_landing = state
+        .get_lot(stone_parcel.lot())
+        .unwrap_or_else(|| panic!("stone completion landing disappeared"));
+    assert_eq!(stone_landing.stockpile(), stone_destination);
+    assert_eq!(stone_landing.commodity(), stone_lump());
+    let copper_parcel = &completion.landings()[1].parcels()[0];
+    assert_eq!(copper_parcel.output().commodity(), copper_ingot());
+    assert_eq!(copper_parcel.output().mass(), Mass::from_milligrams(4));
+    let copper_landing = state
         .inventory()
-        .get_lot(slag_parcel.lot())
-        .unwrap_or_else(|| panic!("slag completion landing disappeared"));
-    assert_eq!(slag_landing.stockpile(), slag_destination);
-    assert_eq!(slag_landing.commodity(), slag_lump());
-    let charcoal_record = match state.inventory().get_stockpile(charcoal_destination) {
+        .get_lot(copper_parcel.lot())
+        .unwrap_or_else(|| panic!("copper completion landing disappeared"));
+    assert_eq!(copper_landing.stockpile(), copper_destination);
+    assert_eq!(copper_landing.commodity(), copper_ingot());
+    let stone_record = match state.inventory().get_stockpile(stone_destination) {
         Some(record) => record,
-        None => panic!("charcoal destination disappeared"),
+        None => panic!("stone destination disappeared"),
     };
-    assert_eq!(charcoal_record.reserved_inbound(), Mass::ZERO);
+    assert_eq!(stone_record.reserved_inbound(), Mass::ZERO);
     assert_eq!(
-        charcoal_record.get_mass(charcoal_lump()),
+        stone_record.get_mass(stone_lump()),
         Mass::from_milligrams(6)
     );
     assert_eq!(
-        charcoal_record.available_capacity(),
+        stone_record.available_capacity(),
         Mass::from_milligrams(4),
         "completion must replace reserved capacity with stored matter without changing free capacity"
     );
-    let slag_record = match state.inventory().get_stockpile(slag_destination) {
+    let copper_record = match state.inventory().get_stockpile(copper_destination) {
         Some(record) => record,
-        None => panic!("slag destination disappeared"),
+        None => panic!("copper destination disappeared"),
     };
-    assert_eq!(slag_record.reserved_inbound(), Mass::ZERO);
-    assert_eq!(slag_record.get_mass(slag_lump()), Mass::from_milligrams(4));
-    assert_eq!(slag_record.available_capacity(), Mass::from_milligrams(6));
+    assert_eq!(copper_record.reserved_inbound(), Mass::ZERO);
+    assert_eq!(
+        copper_record.get_mass(copper_ingot()),
+        Mass::from_milligrams(4)
+    );
+    assert_eq!(copper_record.available_capacity(), Mass::from_milligrams(6));
 }
 
 #[test]
@@ -1006,7 +1009,7 @@ fn resolved_process_cannot_create_or_destroy_unaccounted_matter() {
     let result = inputs.resolve_without_resources(
         TickSpan::new(3),
         vec![MaterialLotSpec::new(
-            charcoal_lump(),
+            stone_lump(),
             Mass::from_milligrams(9),
             Temperature::from_millikelvin(600_000),
         )],
@@ -1318,12 +1321,12 @@ fn in_flight_job_uses_committed_output_snapshot_after_later_resolution_differs()
         1,
         vec![
             MaterialLotSpec::new(
-                charcoal_lump(),
+                stone_lump(),
                 Mass::from_milligrams(1),
                 Temperature::from_millikelvin(900_000),
             ),
             MaterialLotSpec::new(
-                slag_lump(),
+                copper_ingot(),
                 Mass::from_milligrams(9),
                 Temperature::from_millikelvin(900_000),
             ),
@@ -1346,7 +1349,7 @@ fn in_flight_job_uses_committed_output_snapshot_after_later_resolution_differs()
         None => panic!("destination disappeared"),
     };
     assert_eq!(
-        destination_record.get_mass(charcoal_lump()),
+        destination_record.get_mass(stone_lump()),
         Mass::from_milligrams(10)
     );
     let lot_id = match state.inventory().lot_ids(destination).next() {
@@ -1427,7 +1430,7 @@ fn composition_constrained_process_consumes_only_eligible_lots() {
                 Temperature::from_millikelvin(350_000),
             ),
             MaterialLotSpec::new(
-                slag_lump(),
+                copper_ingot(),
                 Mass::from_milligrams(2),
                 Temperature::from_millikelvin(350_000),
             ),

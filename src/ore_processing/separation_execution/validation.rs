@@ -3,13 +3,14 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
-use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
-use crate::core::time::TickSpan;
 use crate::production::{ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
 
 use super::{ConstituentSeparationBatchError, resolve_separation_outputs};
+use crate::ore_processing::ManualOreJobValidationError;
+use crate::ore_processing::manual_physics::{
+    validate_manual_ore_job_admission, validate_manual_ore_job_duration,
+};
 use crate::ore_processing::powered_physics::{
     PoweredOreJobValidationError, resolve_powered_ore_job_replay, validate_powered_ore_job_replay,
 };
@@ -28,25 +29,9 @@ pub enum ConstituentSeparationJobValidationError {
         job: ProductionJobId,
         error: ConstituentSeparationBatchError,
     },
-    ManualUnexpectedEnergy {
+    Manual {
         job: ProductionJobId,
-    },
-    ManualUnexpectedEquipment {
-        job: ProductionJobId,
-    },
-    ManualBatchMassExceeded {
-        job: ProductionJobId,
-        selected: Mass,
-        maximum: Mass,
-    },
-    ManualDuration {
-        job: ProductionJobId,
-        error: MassFlowDurationError,
-    },
-    ManualDurationMismatch {
-        job: ProductionJobId,
-        stored: TickSpan,
-        required: TickSpan,
+        error: ManualOreJobValidationError,
     },
     OutputMismatch {
         job: ProductionJobId,
@@ -66,42 +51,10 @@ impl Display for ConstituentSeparationJobValidationError {
                 "constituent-separation job {} input replay failed: {error}",
                 job.value()
             ),
-            Self::ManualUnexpectedEnergy { job } => write!(
+            Self::Manual { job, error } => write!(
                 formatter,
-                "manual constituent-separation job {} carries an unauthored energy resource",
-                job.value()
-            ),
-            Self::ManualUnexpectedEquipment { job } => write!(
-                formatter,
-                "manual constituent-separation job {} carries unauthored equipment",
-                job.value()
-            ),
-            Self::ManualBatchMassExceeded {
-                job,
-                selected,
-                maximum,
-            } => write!(
-                formatter,
-                "manual constituent-separation job {} contains {} mg beyond its {} mg hand-sorting limit",
+                "manual constituent-separation job {} replay failed: {error}",
                 job.value(),
-                selected.milligrams(),
-                maximum.milligrams()
-            ),
-            Self::ManualDuration { job, error } => write!(
-                formatter,
-                "manual constituent-separation job {} duration replay failed: {error}",
-                job.value()
-            ),
-            Self::ManualDurationMismatch {
-                job,
-                stored,
-                required,
-            } => write!(
-                formatter,
-                "manual constituent-separation job {} stores {} active ticks but requires {}",
-                job.value(),
-                stored.value(),
-                required.value()
             ),
             Self::OutputMismatch { job } => write!(
                 formatter,
@@ -117,12 +70,8 @@ impl Error for ConstituentSeparationJobValidationError {
         match self {
             Self::Powered { error, .. } => Some(error),
             Self::Batch { error, .. } => Some(error),
-            Self::ManualDuration { error, .. } => Some(error),
-            Self::ManualUnexpectedEnergy { .. }
-            | Self::ManualUnexpectedEquipment { .. }
-            | Self::ManualBatchMassExceeded { .. }
-            | Self::ManualDurationMismatch { .. }
-            | Self::OutputMismatch { .. } => None,
+            Self::Manual { error, .. } => Some(error),
+            Self::OutputMismatch { .. } => None,
         }
     }
 }
@@ -164,28 +113,12 @@ fn validate_loaded_manual_separation_job(
     job: &ProductionJobRecord,
     definition: ManualConstituentSeparationProcessDefinition,
 ) -> Result<(), ConstituentSeparationJobValidationError> {
-    if job.consumed_energy().is_some() || job.released_energy().is_some() {
-        return Err(
-            ConstituentSeparationJobValidationError::ManualUnexpectedEnergy { job: job.id() },
-        );
-    }
-    if job.equipment_provider().is_some()
-        || job.equipment_condition_after().is_some()
-        || job.has_required_active_support()
-    {
-        return Err(
-            ConstituentSeparationJobValidationError::ManualUnexpectedEquipment { job: job.id() },
-        );
-    }
-    if job.consumed_mass() > definition.max_batch_mass() {
-        return Err(
-            ConstituentSeparationJobValidationError::ManualBatchMassExceeded {
-                job: job.id(),
-                selected: job.consumed_mass(),
-                maximum: definition.max_batch_mass(),
-            },
-        );
-    }
+    validate_manual_ore_job_admission(job, definition.operating_profile()).map_err(|error| {
+        ConstituentSeparationJobValidationError::Manual {
+            job: job.id(),
+            error,
+        }
+    })?;
     let target_particle_size_policy = registries
         .materials()
         .get_form(definition.target_output_form())
@@ -202,27 +135,15 @@ fn validate_loaded_manual_separation_job(
         error,
     })?;
     validate_output_streams(job, &expected.target, &expected.residue)?;
-    let required = calculate_mass_flow_duration_ceiling(
-        definition.processing_rate(),
-        job.consumed_mass(),
+    validate_manual_ore_job_duration(
         registries.core().physical_tick_duration(),
+        job,
+        definition.operating_profile(),
     )
-    .map_err(
-        |error| ConstituentSeparationJobValidationError::ManualDuration {
-            job: job.id(),
-            error,
-        },
-    )?;
-    if job.active_duration() != required {
-        return Err(
-            ConstituentSeparationJobValidationError::ManualDurationMismatch {
-                job: job.id(),
-                stored: job.active_duration(),
-                required,
-            },
-        );
-    }
-    Ok(())
+    .map_err(|error| ConstituentSeparationJobValidationError::Manual {
+        job: job.id(),
+        error,
+    })
 }
 
 pub(crate) fn validate_loaded_constituent_separation_job(

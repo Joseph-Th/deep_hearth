@@ -6,7 +6,7 @@ use crate::capability::{
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG,
+    FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE,
     MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     make_test_registries_with_energy_store, make_test_registries_with_equipment,
     make_test_registries_with_process, make_test_registries_with_sensible_heating,
@@ -602,7 +602,7 @@ fn make_test_resolution(
         inputs,
         5,
         vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         )],
@@ -2094,13 +2094,13 @@ fn in_flight_job_survives_later_process_requirement_rebalance() {
             panic!("rebalanced in-flight continuation failed: {error}");
         }
     }
-    let charcoal = CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
     let destination_record = match loaded.inventory().get_stockpile(destination) {
         Some(record) => record,
         None => panic!("destination disappeared after completion"),
     };
     assert_eq!(
-        destination_record.get_mass(charcoal),
+        destination_record.get_mass(stone),
         Mass::from_milligrams(10)
     );
 }

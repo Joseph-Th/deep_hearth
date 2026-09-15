@@ -7,7 +7,7 @@ use crate::registry::Registries;
 
 #[cfg(feature = "test-soak")]
 use crate::content::{
-    FORM_LOG, FORM_LUMP, MATERIAL_CHARCOAL, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
     make_test_registries_with_process,
 };
 
@@ -76,7 +76,7 @@ fn make_test_soak_resolution(
         inputs,
         29,
         vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(450_000),
         )],
@@ -235,10 +235,10 @@ fn transfer_soak_output(
     state: &mut AppState,
     processing: crate::inventory::StockpileId,
     archive: crate::inventory::StockpileId,
-    charcoal: CommodityKey,
+    stone: CommodityKey,
 ) {
     let available = match state.inventory().get_stockpile(processing) {
-        Some(record) => record.get_mass(charcoal),
+        Some(record) => record.get_mass(stone),
         None => panic!("soak processing stockpile disappeared"),
     };
     if available < Mass::from_milligrams(1) {
@@ -249,7 +249,7 @@ fn transfer_soak_output(
         state,
         processing,
         archive,
-        charcoal,
+        stone,
         Mass::from_milligrams(1),
     ) {
         Ok(token) => token,
@@ -269,7 +269,7 @@ fn run_test_soak(seed: WorldSeed) -> AppState {
     let archive = add_soak_stockpile(&mut state, 10_000);
     let structural_deck = build_soak_structure(&registries, &mut state);
     let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
-    let charcoal = CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
     if let Err(error) = deposit_bulk_for_test(
         &registries,
         &mut state,
@@ -289,7 +289,7 @@ fn run_test_soak(seed: WorldSeed) -> AppState {
             schedule_soak_process(&registries, &mut state, source, processing, wood);
         }
         if step % 17 == 0 {
-            transfer_soak_output(&registries, &mut state, processing, archive, charcoal);
+            transfer_soak_output(&registries, &mut state, processing, archive, stone);
         }
         if step % 19 == 0 {
             vary_soak_structural_load(&registries, &mut state, structural_deck, step);

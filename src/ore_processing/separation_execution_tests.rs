@@ -21,7 +21,7 @@ use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
 };
 use crate::matter::calculate_matter_accounting;
-use crate::ore_processing::ManualConstituentSeparationProcessDefinition;
+use crate::ore_processing::{ManualConstituentSeparationProcessDefinition, ManualOrePhysicsError};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessOutputRoute, StartProcessError, validate_start_process_routed};
 use crate::simulation::advance_tick;
@@ -611,12 +611,12 @@ fn hand_sorting_enforces_a_small_attention_bounded_batch() {
             ),
         )
         .err(),
-        Some(
-            ManualConstituentSeparationResolutionError::BatchMassExceeded {
+        Some(ManualConstituentSeparationResolutionError::Physics(
+            ManualOrePhysicsError::BatchMassExceeded {
                 selected: mass,
                 maximum: Mass::from_milligrams(200_000),
             }
-        )
+        ))
     );
 }
 

@@ -149,6 +149,10 @@ impl ManualComminutionProcessDefinition {
     pub const fn exertion(&self) -> SurvivalExertion {
         self.operating.exertion()
     }
+
+    pub(crate) const fn operating_profile(&self) -> ManualOreProcessProfile {
+        self.operating
+    }
 }
 
 impl ComminutionProcessDefinition {

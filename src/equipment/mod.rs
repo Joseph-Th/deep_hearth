@@ -59,6 +59,9 @@ pub(crate) use equipment_integration::{
     ValidatedEquipmentUse, resolve_available_equipment_provider, resolve_equipment_capability,
     resolve_equipment_provider_with_occupancy,
 };
+pub(crate) use equipment_structural_integration::{
+    EquipmentStructuralLoadConsistencyError, validate_existing_equipment_structural_load,
+};
 pub(crate) use maintenance_execution::{
     apply_equipment_maintenance_tick, decide_equipment_maintenance_tick,
 };

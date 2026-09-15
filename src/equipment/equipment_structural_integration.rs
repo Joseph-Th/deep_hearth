@@ -19,6 +19,36 @@ mod errors;
 use availability::{support_commit_error, support_validation_error};
 pub use errors::{EquipmentSupportCommitError, EquipmentSupportError};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EquipmentStructuralLoadConsistencyError {
+    AggregateMassOverflow {
+        element: StructuralElementId,
+    },
+    WeightForceOverflow {
+        element: StructuralElementId,
+    },
+    ExistingLoadMismatch {
+        element: StructuralElementId,
+        stored: Force,
+        expected: Force,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SupportedEquipmentMassError {
+    AggregateMassOverflow { element: StructuralElementId },
+}
+
+impl From<SupportedEquipmentMassError> for EquipmentSupportError {
+    fn from(error: SupportedEquipmentMassError) -> Self {
+        match error {
+            SupportedEquipmentMassError::AggregateMassOverflow { element } => {
+                Self::AggregateMassOverflow { element }
+            }
+        }
+    }
+}
+
 /// Successful support change including any structural damage caused by the equipment load change.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
@@ -118,7 +148,7 @@ fn supported_mass(
     state: &AppState,
     element: StructuralElementId,
     excluded: Option<EquipmentId>,
-) -> Result<AggregateMass, EquipmentSupportError> {
+) -> Result<AggregateMass, SupportedEquipmentMassError> {
     let mut total = AggregateMass::ZERO;
     for equipment in state.equipment().supported_equipment(element) {
         if excluded == Some(equipment) {
@@ -133,7 +163,7 @@ fn supported_mass(
         };
         total = total
             .checked_add(AggregateMass::from_mass(record.embodied_mass()))
-            .ok_or(EquipmentSupportError::AggregateMassOverflow { element })?;
+            .ok_or(SupportedEquipmentMassError::AggregateMassOverflow { element })?;
     }
     Ok(total)
 }
@@ -152,8 +182,6 @@ fn validate_existing_load(
     state: &AppState,
     element: StructuralElementId,
 ) -> Result<AggregateMass, EquipmentSupportError> {
-    let mass = supported_mass(state, element, None)?;
-    let expected = support_force(registries, element, mass)?;
     let stored = state
         .structures()
         .get_element(element)
@@ -161,12 +189,48 @@ fn validate_existing_load(
             StructuralMutationError::UnknownElement { element },
         ))?
         .load(StructuralLoadKind::Equipment);
+    validate_existing_equipment_structural_load(registries, state, element, stored).map_err(
+        |error| match error {
+            EquipmentStructuralLoadConsistencyError::AggregateMassOverflow { element } => {
+                EquipmentSupportError::AggregateMassOverflow { element }
+            }
+            EquipmentStructuralLoadConsistencyError::WeightForceOverflow { element } => {
+                EquipmentSupportError::WeightForceOverflow { element }
+            }
+            EquipmentStructuralLoadConsistencyError::ExistingLoadMismatch {
+                element,
+                stored,
+                expected,
+            } => EquipmentSupportError::ExistingEquipmentLoadMismatch {
+                element,
+                stored,
+                expected,
+            },
+        },
+    )
+}
+
+pub(crate) fn validate_existing_equipment_structural_load(
+    registries: &Registries,
+    state: &AppState,
+    element: StructuralElementId,
+    stored: Force,
+) -> Result<AggregateMass, EquipmentStructuralLoadConsistencyError> {
+    let mass = supported_mass(state, element, None).map_err(|error| match error {
+        SupportedEquipmentMassError::AggregateMassOverflow { element } => {
+            EquipmentStructuralLoadConsistencyError::AggregateMassOverflow { element }
+        }
+    })?;
+    let expected = calculate_aggregate_weight_force_ceiling(mass, registries.core().gravity())
+        .ok_or(EquipmentStructuralLoadConsistencyError::WeightForceOverflow { element })?;
     if stored != expected {
-        return Err(EquipmentSupportError::ExistingEquipmentLoadMismatch {
-            element,
-            stored,
-            expected,
-        });
+        return Err(
+            EquipmentStructuralLoadConsistencyError::ExistingLoadMismatch {
+                element,
+                stored,
+                expected,
+            },
+        );
     }
     Ok(mass)
 }

@@ -32,7 +32,8 @@ use crate::maintenance::MaintenanceThresholds;
 use crate::material::CompositionComponent;
 use crate::matter::calculate_matter_accounting;
 use crate::ore_processing::{
-    ComminutionProcessDefinition, PoweredOreJobValidationError, PoweredOreProcessProfile,
+    ComminutionProcessDefinition, ManualOreJobValidationError, ManualOrePhysicsError,
+    PoweredOreJobValidationError, PoweredOreProcessProfile,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, StartProcessError, validate_start_process};
@@ -1289,10 +1290,12 @@ fn hand_breaking_enforces_its_attention_bounded_batch() {
             ),
         )
         .err(),
-        Some(ManualComminutionResolutionError::BatchMassExceeded {
-            selected: mass,
-            maximum: Mass::from_milligrams(100_000),
-        })
+        Some(ManualComminutionResolutionError::Physics(
+            ManualOrePhysicsError::BatchMassExceeded {
+                selected: mass,
+                maximum: Mass::from_milligrams(100_000),
+            }
+        ))
     );
 }
 
@@ -1334,13 +1337,13 @@ fn in_progress_hand_breaking_round_trip_replays_exact_manual_physics() {
     assert_eq!(
         tampered.into_state(&fixture.registries),
         Err(LoadError::InvalidState(
-            StateValidationError::ComminutionJob(
-                ComminutionJobValidationError::ManualDurationMismatch {
-                    job,
+            StateValidationError::ComminutionJob(ComminutionJobValidationError::Manual {
+                job,
+                error: ManualOreJobValidationError::DurationMismatch {
                     stored: TickSpan::new(duration.value() + 1),
                     required: duration,
-                }
-            )
+                },
+            })
         ))
     );
 

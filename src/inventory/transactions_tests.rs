@@ -5,8 +5,7 @@ use std::collections::BTreeMap;
 use super::*;
 use crate::content::{
     FORM_CHIP, FORM_FOOD, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_BERRIES,
-    MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
-    build_registries,
+    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, apply_clock_advance, validate_loaded_state};
@@ -1183,7 +1182,7 @@ fn consumption_reservation_and_reserved_deposit_preserve_final_quantity() {
     );
 
     let output = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(10),
         Temperature::from_millikelvin(500_000),
     );

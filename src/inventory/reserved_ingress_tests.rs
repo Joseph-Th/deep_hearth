@@ -1,7 +1,7 @@
 //! Contract tests for reserved material ingress planning and commit.
 
 use super::*;
-use crate::content::{FORM_LUMP, MATERIAL_CHARCOAL, build_registries};
+use crate::content::{FORM_LUMP, MATERIAL_STONE, build_registries};
 use crate::core::quantity::Temperature;
 use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::{SimulationTick, WorldSeed};
@@ -22,7 +22,7 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
         Mass::from_milligrams(10);
     let output = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(10),
         Temperature::from_millikelvin(500_000),
     );
@@ -68,7 +68,7 @@ fn reserved_deposit_projection_matches_consuming_commit_without_mutating_source(
         &registries,
         &mut state,
         destination,
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(4),
         Temperature::from_millikelvin(500_000),
     )
@@ -76,7 +76,7 @@ fn reserved_deposit_projection_matches_consuming_commit_without_mutating_source(
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
         Mass::from_milligrams(6);
     let output = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(6),
         Temperature::from_millikelvin(500_000),
     );
@@ -127,7 +127,7 @@ fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
         &registries,
         &mut state,
         destination,
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(4),
         Temperature::from_millikelvin(500_000),
     )
@@ -136,7 +136,7 @@ fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
         Mass::from_milligrams(6);
     let output = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(6),
         Temperature::from_millikelvin(500_000),
     );
@@ -180,7 +180,7 @@ fn delayed_reserved_output_uses_admission_time_for_merging_and_preserves_creatio
         &registries,
         &mut state,
         destination,
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(4),
         Temperature::from_millikelvin(500_000),
     )
@@ -189,7 +189,7 @@ fn delayed_reserved_output_uses_admission_time_for_merging_and_preserves_creatio
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
         Mass::from_milligrams(6);
     let output = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(6),
         Temperature::from_millikelvin(500_000),
     );
@@ -235,7 +235,7 @@ fn malformed_reserved_deposit_identity_plan_fails_before_authoritative_mutation(
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
         Mass::from_milligrams(10);
     let output = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(10),
         Temperature::from_millikelvin(500_000),
     );
@@ -267,7 +267,7 @@ fn shape_valid_but_wrong_reserved_identity_fails_before_mutation() {
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
         Mass::from_milligrams(10);
     let output = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(10),
         Temperature::from_millikelvin(500_000),
     );
@@ -299,7 +299,7 @@ fn shape_valid_but_wrong_reserved_cursor_fails_before_mutation() {
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
         Mass::from_milligrams(10);
     let output = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(10),
         Temperature::from_millikelvin(500_000),
     );
@@ -331,12 +331,12 @@ fn same_destination_reserved_entries_are_preflighted_as_one_total() {
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
         Mass::from_milligrams(10);
     let first = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(6),
         Temperature::from_millikelvin(500_000),
     );
     let second = MaterialLotSpec::new(
-        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(4),
         Temperature::from_millikelvin(500_000),
     );

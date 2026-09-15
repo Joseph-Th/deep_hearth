@@ -1,8 +1,7 @@
 //! Registry-wide proof that authored player work has at least one physically executable route.
 
 use crate::capability::CapabilityValue;
-use crate::core::quantity::{Mass, MassFlow, Pressure};
-use crate::core::throughput::calculate_mass_flow_duration_ceiling;
+use crate::core::quantity::Pressure;
 use crate::core::time::TickSpan;
 use crate::crafting::{
     ManualCraftDefinition, ManualCraftEquipmentProfile, resolve_manual_craft_equipment_schedule,
@@ -14,6 +13,7 @@ use crate::labor::{
 };
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::mining::{MiningMethodDefinition, resolve_mining_physics};
+use crate::ore_processing::{ManualOreProcessProfile, resolve_manual_ore_duration};
 use crate::survival::{PhysiologyDefinition, SurvivalExertion};
 
 use super::super::{CoreDefinitions, RegistryDomains};
@@ -44,19 +44,17 @@ fn assert_player_work_fits_reserves(
 fn assert_manual_ore_batch_fits_reserves(
     core: &CoreDefinitions,
     physiology: PhysiologyDefinition,
-    processing_rate: MassFlow,
-    maximum_batch: Mass,
-    exertion: SurvivalExertion,
+    profile: ManualOreProcessProfile,
     owner: &str,
     id: u64,
 ) {
-    let duration = calculate_mass_flow_duration_ceiling(
-        processing_rate,
-        maximum_batch,
+    let duration = resolve_manual_ore_duration(
         core.physical_tick_duration(),
+        profile,
+        profile.max_batch_mass(),
     )
     .unwrap_or_else(|error| panic!("{owner} {id} maximum-batch duration failed: {error}"));
-    assert_player_work_fits_reserves(physiology, exertion, duration, owner, id);
+    assert_player_work_fits_reserves(physiology, profile.exertion(), duration, owner, id);
 }
 
 fn best_operable_manual_craft_equipment_duration(
@@ -289,9 +287,7 @@ fn validate_manual_ore_operability(
             assert_manual_ore_batch_fits_reserves(
                 core,
                 physiology,
-                definition.processing_rate(),
-                definition.max_batch_mass(),
-                definition.exertion(),
+                definition.operating_profile(),
                 "manual comminution process",
                 u64::from(process.id().value()),
             );
@@ -303,9 +299,7 @@ fn validate_manual_ore_operability(
             assert_manual_ore_batch_fits_reserves(
                 core,
                 physiology,
-                definition.processing_rate(),
-                definition.max_batch_mass(),
-                definition.exertion(),
+                definition.operating_profile(),
                 "manual constituent-separation process",
                 u64::from(process.id().value()),
             );

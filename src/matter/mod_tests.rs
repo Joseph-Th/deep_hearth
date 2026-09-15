@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::{
-    FORM_LOG, FORM_LUMP, MATERIAL_CHARCOAL, MATERIAL_WOOD, make_test_registries_with_process,
+    FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, make_test_registries_with_process,
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::WorldSeed;
@@ -56,7 +56,7 @@ fn process_start_and_completion_preserve_world_matter_ownership_total() {
         inputs,
         1,
         vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         )],
@@ -159,7 +159,7 @@ fn transfer_split_then_process_lifecycle_preserves_world_matter_total() {
         inputs,
         1,
         vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         )],

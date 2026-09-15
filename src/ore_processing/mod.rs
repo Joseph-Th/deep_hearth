@@ -2,6 +2,7 @@
 
 mod comminution_execution;
 mod definitions;
+mod manual_physics;
 mod planning;
 mod powered_physics;
 mod screening_execution;
@@ -32,6 +33,8 @@ pub use definitions::{
     ManualConstituentSeparationProcessDefinition, ManualOreProcessProfile,
     PoweredOreProcessProfile, ScreeningProcessDefinition,
 };
+pub(crate) use manual_physics::resolve_manual_ore_duration;
+pub use manual_physics::{ManualOreJobValidationError, ManualOrePhysicsError};
 
 pub use separation_execution::{
     ConstituentSeparationBatchError, ConstituentSeparationJobValidationError,

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::{
-    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CHARCOAL, MATERIAL_WOOD,
+    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_process,
 };
 use crate::core::quantity::{Area, Length, Temperature};
@@ -199,7 +199,7 @@ fn same_tick_production_completions_apply_one_aggregate_destination_load() {
             inputs,
             1,
             vec![MaterialLotSpec::new(
-                CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
                 Mass::from_milligrams(10),
                 Temperature::from_millikelvin(500_000),
             )],
@@ -296,7 +296,7 @@ fn new_production_rejects_failed_destination_support() {
         inputs,
         1,
         vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         )],
@@ -358,7 +358,7 @@ fn validated_production_start_rejects_destination_support_collapse_before_commit
         inputs,
         1,
         vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         )],
@@ -443,7 +443,7 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
         inputs,
         1,
         vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         )],
@@ -693,7 +693,7 @@ fn production_moves_supported_weight_with_authoritative_matter_ownership() {
         inputs,
         1,
         vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         )],

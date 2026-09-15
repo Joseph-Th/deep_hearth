@@ -5,7 +5,6 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Mass, MassFlow};
 use crate::core::state::AppState;
-use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::TickSpan;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{
@@ -21,6 +20,10 @@ use crate::registry::Registries;
 
 use super::{ConstituentSeparationBatchError, resolve_separation_outputs};
 use crate::ore_processing::ManualConstituentSeparationProcessDefinition;
+use crate::ore_processing::ManualOrePhysicsError;
+use crate::ore_processing::manual_physics::{
+    resolve_manual_ore_duration, validate_manual_ore_batch,
+};
 
 /// Explicit selected-batch request for direct hand sorting.
 #[derive(Clone, Copy, Debug)]
@@ -50,9 +53,8 @@ impl<'selection> ManualConstituentSeparationRequest<'selection> {
 pub enum ManualConstituentSeparationResolutionError {
     UnknownProcess { process: ProcessId },
     Input(ProcessInputError),
-    BatchMassExceeded { selected: Mass, maximum: Mass },
+    Physics(ManualOrePhysicsError),
     Batch(ConstituentSeparationBatchError),
-    ThroughputDuration(MassFlowDurationError),
     Resolution(ProcessResolutionError),
 }
 
@@ -65,16 +67,8 @@ impl Display for ManualConstituentSeparationResolutionError {
                 process.value()
             ),
             Self::Input(error) => write!(formatter, "manual separation input failed: {error}"),
-            Self::BatchMassExceeded { selected, maximum } => write!(
-                formatter,
-                "selected manual separation batch {} mg exceeds hand-sorting maximum {} mg",
-                selected.milligrams(),
-                maximum.milligrams()
-            ),
+            Self::Physics(error) => write!(formatter, "manual separation physics failed: {error}"),
             Self::Batch(error) => write!(formatter, "manual separation batch failed: {error}"),
-            Self::ThroughputDuration(error) => {
-                write!(formatter, "manual separation duration failed: {error}")
-            }
             Self::Resolution(error) => {
                 write!(
                     formatter,
@@ -89,10 +83,10 @@ impl Error for ManualConstituentSeparationResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Input(error) => Some(error),
+            Self::Physics(error) => Some(error),
             Self::Batch(error) => Some(error),
-            Self::ThroughputDuration(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            Self::UnknownProcess { .. } | Self::BatchMassExceeded { .. } => None,
+            Self::UnknownProcess { .. } => None,
         }
     }
 }
@@ -151,14 +145,8 @@ pub fn resolve_manual_constituent_separation_process(
     let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
         .map_err(ManualConstituentSeparationResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
-    if selected_mass > definition.max_batch_mass() {
-        return Err(
-            ManualConstituentSeparationResolutionError::BatchMassExceeded {
-                selected: selected_mass,
-                maximum: definition.max_batch_mass(),
-            },
-        );
-    }
+    validate_manual_ore_batch(definition.operating_profile(), selected_mass)
+        .map_err(ManualConstituentSeparationResolutionError::Physics)?;
     let target_particle_size_policy = registries
         .materials()
         .get_form(definition.target_output_form())
@@ -173,12 +161,12 @@ pub fn resolve_manual_constituent_separation_process(
         inputs.consumed_inputs(),
     )
     .map_err(ManualConstituentSeparationResolutionError::Batch)?;
-    let duration = calculate_mass_flow_duration_ceiling(
-        definition.processing_rate(),
-        selected_mass,
+    let duration = resolve_manual_ore_duration(
         registries.core().physical_tick_duration(),
+        definition.operating_profile(),
+        selected_mass,
     )
-    .map_err(ManualConstituentSeparationResolutionError::ThroughputDuration)?;
+    .map_err(ManualConstituentSeparationResolutionError::Physics)?;
     let resolution = inputs
         .resolve_without_resources_routed(
             duration,

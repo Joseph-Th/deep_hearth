@@ -1,15 +1,15 @@
 //! Validates cross-owner structural support and load-channel consistency.
 
-use std::collections::BTreeMap;
-
-use crate::core::quantity::AggregateMass;
 use crate::core::state::AppState;
-use crate::fluid::validate_existing_fluid_load;
-use crate::registry::Registries;
-use crate::structural::{
-    StructuralElementId, StructuralLifecycle, StructuralLoadKind, analyze_structure,
-    calculate_aggregate_weight_force_ceiling,
+use crate::equipment::{
+    EquipmentStructuralLoadConsistencyError, validate_existing_equipment_structural_load,
 };
+use crate::fluid::validate_existing_fluid_load;
+use crate::inventory::{
+    StockpileStructuralLoadConsistencyError, validate_existing_stockpile_structural_load,
+};
+use crate::registry::Registries;
+use crate::structural::{StructuralLifecycle, StructuralLoadKind, analyze_structure};
 
 use super::StateValidationError;
 
@@ -17,7 +17,6 @@ fn validate_equipment_structural_loads(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
-    let mut mounted_mass_by_element = BTreeMap::<StructuralElementId, AggregateMass>::new();
     for equipment in state.systems.equipment.equipment() {
         let Some(element) = equipment.supported_by() else {
             continue;
@@ -34,31 +33,29 @@ fn validate_equipment_structural_loads(
                 element,
             });
         }
-        let current = mounted_mass_by_element
-            .get(&element)
-            .copied()
-            .unwrap_or(AggregateMass::ZERO);
-        let next = current
-            .checked_add(AggregateMass::from_mass(equipment.embodied_mass()))
-            .ok_or(StateValidationError::MountedEquipmentMassOverflow { element })?;
-        mounted_mass_by_element.insert(element, next);
     }
     for structural in state.systems.structures.elements() {
         let element = structural.id();
-        let mass = mounted_mass_by_element
-            .get(&element)
-            .copied()
-            .unwrap_or(AggregateMass::ZERO);
-        let expected = calculate_aggregate_weight_force_ceiling(mass, registries.core().gravity())
-            .ok_or(StateValidationError::MountedEquipmentWeightOverflow { element })?;
         let stored = structural.load(StructuralLoadKind::Equipment);
-        if stored != expected {
-            return Err(StateValidationError::EquipmentStructuralLoadMismatch {
-                element,
-                stored,
-                expected,
-            });
-        }
+        validate_existing_equipment_structural_load(registries, state, element, stored).map_err(
+            |error| match error {
+                EquipmentStructuralLoadConsistencyError::AggregateMassOverflow { element } => {
+                    StateValidationError::MountedEquipmentMassOverflow { element }
+                }
+                EquipmentStructuralLoadConsistencyError::WeightForceOverflow { element } => {
+                    StateValidationError::MountedEquipmentWeightOverflow { element }
+                }
+                EquipmentStructuralLoadConsistencyError::ExistingLoadMismatch {
+                    element,
+                    stored,
+                    expected,
+                } => StateValidationError::EquipmentStructuralLoadMismatch {
+                    element,
+                    stored,
+                    expected,
+                },
+            },
+        )?;
     }
 
     Ok(())
@@ -68,7 +65,6 @@ fn validate_stockpile_structural_loads(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
-    let mut stored_mass_by_element = BTreeMap::<StructuralElementId, AggregateMass>::new();
     for stockpile in state.systems.inventory.stockpiles() {
         let Some(element) = stockpile.supported_by() else {
             continue;
@@ -85,35 +81,32 @@ fn validate_stockpile_structural_loads(
                 element,
             });
         }
-        let current = stored_mass_by_element
-            .get(&element)
-            .copied()
-            .unwrap_or(AggregateMass::ZERO);
-        let stockpile_mass = stockpile
-            .stored_mass()
-            .checked_add(stockpile.embodied_mass())
-            .ok_or(StateValidationError::StoredMatterMassOverflow { element })?;
-        let next = current
-            .checked_add(AggregateMass::from_mass(stockpile_mass))
-            .ok_or(StateValidationError::StoredMatterMassOverflow { element })?;
-        stored_mass_by_element.insert(element, next);
     }
     for structural in state.systems.structures.elements() {
         let element = structural.id();
-        let mass = stored_mass_by_element
-            .get(&element)
-            .copied()
-            .unwrap_or(AggregateMass::ZERO);
-        let expected = calculate_aggregate_weight_force_ceiling(mass, registries.core().gravity())
-            .ok_or(StateValidationError::StoredMatterWeightOverflow { element })?;
         let stored = structural.load(StructuralLoadKind::StoredMatter);
-        if stored != expected {
-            return Err(StateValidationError::StoredMatterStructuralLoadMismatch {
-                element,
-                stored,
-                expected,
-            });
-        }
+        validate_existing_stockpile_structural_load(registries, state, element, stored).map_err(
+            |error| match error {
+                StockpileStructuralLoadConsistencyError::UnknownStockpile { stockpile } => {
+                    StateValidationError::UnknownStockpileSupport { stockpile, element }
+                }
+                StockpileStructuralLoadConsistencyError::AggregateMassOverflow { element } => {
+                    StateValidationError::StoredMatterMassOverflow { element }
+                }
+                StockpileStructuralLoadConsistencyError::WeightForceOverflow { element } => {
+                    StateValidationError::StoredMatterWeightOverflow { element }
+                }
+                StockpileStructuralLoadConsistencyError::ExistingLoadMismatch {
+                    element,
+                    stored,
+                    expected,
+                } => StateValidationError::StoredMatterStructuralLoadMismatch {
+                    element,
+                    stored,
+                    expected,
+                },
+            },
+        )?;
     }
 
     Ok(())

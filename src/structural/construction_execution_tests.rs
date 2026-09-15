@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::{
-    FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_MOLTEN, MATERIAL_CHARCOAL, MATERIAL_COPPER,
+    FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_STONE,
     MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Force, Length};
@@ -640,7 +640,7 @@ fn mixed_composition_cannot_claim_pure_material_structural_strength() {
     };
     let composition = match MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_WOOD, 900_000),
-        CompositionComponent::new(MATERIAL_CHARCOAL, 100_000),
+        CompositionComponent::new(MATERIAL_STONE, 100_000),
     ]) {
         Ok(composition) => composition,
         Err(error) => panic!("mixed construction composition failed: {error}"),

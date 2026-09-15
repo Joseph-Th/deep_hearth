@@ -3,9 +3,8 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Mass, MassFlow};
+use crate::core::quantity::MassFlow;
 use crate::core::state::AppState;
-use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::TickSpan;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{
@@ -21,6 +20,10 @@ use crate::registry::Registries;
 
 use super::ComminutionBatchError;
 use super::outputs::resolve_manual_comminution_outputs;
+use crate::ore_processing::ManualOrePhysicsError;
+use crate::ore_processing::manual_physics::{
+    resolve_manual_ore_duration, validate_manual_ore_batch,
+};
 
 /// Explicit selected-batch request for direct hand breaking of coarse material.
 #[derive(Clone, Copy, Debug)]
@@ -50,9 +53,8 @@ impl<'selection> ManualComminutionRequest<'selection> {
 pub enum ManualComminutionResolutionError {
     UnknownProcess { process: ProcessId },
     Input(ProcessInputError),
-    BatchMassExceeded { selected: Mass, maximum: Mass },
+    Physics(ManualOrePhysicsError),
     Batch(ComminutionBatchError),
-    ThroughputDuration(MassFlowDurationError),
     Resolution(ProcessResolutionError),
 }
 
@@ -65,16 +67,8 @@ impl Display for ManualComminutionResolutionError {
                 process.value()
             ),
             Self::Input(error) => write!(formatter, "manual comminution input failed: {error}"),
-            Self::BatchMassExceeded { selected, maximum } => write!(
-                formatter,
-                "selected manual comminution batch {} mg exceeds hand-breaking maximum {} mg",
-                selected.milligrams(),
-                maximum.milligrams()
-            ),
+            Self::Physics(error) => write!(formatter, "manual comminution physics failed: {error}"),
             Self::Batch(error) => write!(formatter, "manual comminution batch failed: {error}"),
-            Self::ThroughputDuration(error) => {
-                write!(formatter, "manual comminution duration failed: {error}")
-            }
             Self::Resolution(error) => {
                 write!(formatter, "manual comminution resolution failed: {error}")
             }
@@ -86,10 +80,10 @@ impl Error for ManualComminutionResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Input(error) => Some(error),
+            Self::Physics(error) => Some(error),
             Self::Batch(error) => Some(error),
-            Self::ThroughputDuration(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            Self::UnknownProcess { .. } | Self::BatchMassExceeded { .. } => None,
+            Self::UnknownProcess { .. } => None,
         }
     }
 }
@@ -136,20 +130,16 @@ pub fn resolve_manual_comminution_process(
     let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
         .map_err(ManualComminutionResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
-    if selected_mass > definition.max_batch_mass() {
-        return Err(ManualComminutionResolutionError::BatchMassExceeded {
-            selected: selected_mass,
-            maximum: definition.max_batch_mass(),
-        });
-    }
+    validate_manual_ore_batch(definition.operating_profile(), selected_mass)
+        .map_err(ManualComminutionResolutionError::Physics)?;
     let outputs = resolve_manual_comminution_outputs(definition, inputs.consumed_inputs())
         .map_err(ManualComminutionResolutionError::Batch)?;
-    let duration = calculate_mass_flow_duration_ceiling(
-        definition.processing_rate(),
-        selected_mass,
+    let duration = resolve_manual_ore_duration(
         registries.core().physical_tick_duration(),
+        definition.operating_profile(),
+        selected_mass,
     )
-    .map_err(ManualComminutionResolutionError::ThroughputDuration)?;
+    .map_err(ManualComminutionResolutionError::Physics)?;
     let resolution = inputs
         .resolve_without_resources_routed(
             duration,
