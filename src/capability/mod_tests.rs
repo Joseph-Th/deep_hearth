@@ -83,6 +83,53 @@ fn wrong_physical_dimension_is_rejected_before_threshold_comparison() {
 }
 
 #[test]
+fn evaluation_reports_unknown_missing_and_wrong_kind_provider_capabilities() {
+    let registry = make_registry();
+    let unknown = CapabilityId::new(999);
+    let unknown_requirement = CapabilityRequirement::new(
+        unknown,
+        CapabilityComparison::AtLeast,
+        CapabilityValue::Mass(Mass::from_milligrams(1)),
+    );
+    assert_eq!(
+        evaluate_capabilities(
+            &registry,
+            &CapabilityProfile::default(),
+            &[unknown_requirement],
+        ),
+        Err(CapabilityEvaluationError::UnknownDefinition {
+            capability: unknown,
+        })
+    );
+
+    let required = CapabilityRequirement::new(
+        CHAMBER_TEMPERATURE,
+        CapabilityComparison::AtLeast,
+        CapabilityValue::Temperature(Temperature::from_millikelvin(1_200_000)),
+    );
+    assert_eq!(
+        evaluate_capabilities(&registry, &CapabilityProfile::default(), &[required],),
+        Err(CapabilityEvaluationError::MissingCapability {
+            capability: CHAMBER_TEMPERATURE,
+        })
+    );
+
+    let wrong_kind = CapabilityProfile::new([(
+        CHAMBER_TEMPERATURE,
+        CapabilityValue::Power(Power::from_picowatts(1)),
+    )])
+    .unwrap_or_else(|error| panic!("wrong-kind profile fixture failed: {error}"));
+    assert_eq!(
+        evaluate_capabilities(&registry, &wrong_kind, &[required]),
+        Err(CapabilityEvaluationError::ProfileKindMismatch {
+            capability: CHAMBER_TEMPERATURE,
+            expected: CapabilityValueKind::Temperature,
+            found: CapabilityValueKind::Power,
+        })
+    );
+}
+
+#[test]
 fn insufficient_capability_reports_requirement_and_provided_values() {
     let registry = make_registry();
     let provided = CapabilityValue::Temperature(Temperature::from_millikelvin(900_000));

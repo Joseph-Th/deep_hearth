@@ -269,12 +269,6 @@ fn maximum_sink_feasible_mass(
     if upper_mass.is_zero() {
         return Ok(Mass::ZERO);
     }
-    // Zero unit energy means no transfer energy binds any mass; the sink search below divides
-    // by unit energy and cannot represent a zero-duration bucket, so the full upper mass is
-    // feasible by construction.
-    if unit_energy.is_zero() {
-        return Ok(upper_mass);
-    }
     let upper_energy = energy_for_mass(unit_energy, upper_mass);
     let maximum_duration = calculate_power_duration_ceiling(
         transfer_power,

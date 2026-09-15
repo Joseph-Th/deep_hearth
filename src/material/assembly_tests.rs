@@ -65,6 +65,25 @@ fn additive_extension_combines_shared_commodities_without_parallel_rules() {
 }
 
 #[test]
+fn additive_extension_rejects_shared_commodity_mass_overflow() {
+    let copper = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
+    let base = MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+        copper,
+        Mass::from_milligrams(u64::MAX),
+    )]);
+    let additions = MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+        copper,
+        Mass::from_milligrams(1),
+    )]);
+    let representable_target = MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+        copper,
+        Mass::from_milligrams(u64::MAX),
+    )]);
+
+    assert!(!representable_target.is_exact_additive_extension_of(&base, &additions));
+}
+
+#[test]
 fn assembly_mass_comparison_reports_missing_changed_and_extra_commodities() {
     let copper = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
     let scrap = CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP);

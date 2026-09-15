@@ -193,6 +193,52 @@ pub(crate) fn sum_lot_spec_mass(entries: &[MaterialLotSpec]) -> Option<Mass> {
     Some(total)
 }
 
+fn validate_process_input_references(definition: &ProcessDefinition, materials: &MaterialRegistry) {
+    let Some(inputs) = definition.fixed_inputs() else {
+        return;
+    };
+    for input in inputs {
+        assert!(
+            materials.has_commodity(input.commodity()),
+            "process {} references missing input material {} or form {}",
+            definition.id().value(),
+            input.commodity().material().value(),
+            input.commodity().form().value()
+        );
+        for constraint in input.constraints() {
+            assert!(
+                materials.get_material(constraint.material()).is_some(),
+                "process {} input constraint references missing material {}",
+                definition.id().value(),
+                constraint.material().value()
+            );
+        }
+    }
+}
+
+fn validate_process_capability_references(
+    definition: &ProcessDefinition,
+    capabilities: &CapabilityRegistry,
+) {
+    for requirement in definition.capability_requirements() {
+        let capability = requirement.capability();
+        let Some(capability_definition) = capabilities.get_capability(capability) else {
+            panic!(
+                "process {} references missing capability {}",
+                definition.id().value(),
+                capability.value()
+            );
+        };
+        assert_eq!(
+            requirement.threshold().kind(),
+            capability_definition.kind(),
+            "process {} capability {} requirement has wrong physical value kind",
+            definition.id().value(),
+            capability.value()
+        );
+    }
+}
+
 /// Immutable deterministic process lookup table assembled from Rust content builders.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProductionRegistry {
@@ -233,42 +279,8 @@ impl ProductionRegistry {
         capabilities: &CapabilityRegistry,
     ) {
         for definition in self.definitions.values() {
-            if let Some(inputs) = definition.fixed_inputs() {
-                for input in inputs {
-                    assert!(
-                        materials.has_commodity(input.commodity()),
-                        "process {} references missing input material {} or form {}",
-                        definition.id().value(),
-                        input.commodity().material().value(),
-                        input.commodity().form().value()
-                    );
-                    for constraint in input.constraints() {
-                        assert!(
-                            materials.get_material(constraint.material()).is_some(),
-                            "process {} input constraint references missing material {}",
-                            definition.id().value(),
-                            constraint.material().value()
-                        );
-                    }
-                }
-            }
-            for requirement in definition.capability_requirements() {
-                let capability = requirement.capability();
-                let Some(capability_definition) = capabilities.get_capability(capability) else {
-                    panic!(
-                        "process {} references missing capability {}",
-                        definition.id().value(),
-                        capability.value()
-                    );
-                };
-                assert_eq!(
-                    requirement.threshold().kind(),
-                    capability_definition.kind(),
-                    "process {} capability {} requirement has wrong physical value kind",
-                    definition.id().value(),
-                    capability.value()
-                );
-            }
+            validate_process_input_references(definition, materials);
+            validate_process_capability_references(definition, capabilities);
         }
     }
 }

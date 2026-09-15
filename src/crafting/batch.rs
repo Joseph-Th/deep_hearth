@@ -79,16 +79,15 @@ impl ManualCraftBatch {
     }
 }
 
-pub(super) fn validate_manual_craft_batch(
+fn validate_trace_profiles(
     definition: &ManualCraftDefinition,
-    consumed_mass: Mass,
     traces: &[ConsumedMaterialTrace],
-) -> Result<ManualCraftBatch, ManualCraftBatchError> {
-    if traces.is_empty() {
+) -> Result<Temperature, ManualCraftBatchError> {
+    let Some(first) = traces.first() else {
         return Err(ManualCraftBatchError::EmptyInput);
-    }
+    };
     let expected_composition = MaterialComposition::pure(definition.input().material());
-    let mut temperature = None;
+    let temperature = first.profile().temperature();
     for trace in traces {
         if trace.profile().commodity() != definition.input() {
             return Err(ManualCraftBatchError::InputCommodityMismatch);
@@ -96,32 +95,35 @@ pub(super) fn validate_manual_craft_batch(
         if trace.profile().composition() != &expected_composition {
             return Err(ManualCraftBatchError::InputCompositionMismatch);
         }
-        match temperature {
-            Some(existing) if existing != trace.profile().temperature() => {
-                return Err(ManualCraftBatchError::MixedInputTemperature);
-            }
-            Some(_) => {}
-            None => temperature = Some(trace.profile().temperature()),
+        if trace.profile().temperature() != temperature {
+            return Err(ManualCraftBatchError::MixedInputTemperature);
         }
     }
+    Ok(temperature)
+}
+
+fn validate_batch_count(
+    definition: &ManualCraftDefinition,
+    consumed_mass: Mass,
+) -> Result<NonZeroU64, ManualCraftBatchError> {
     let batch_mass = definition.input_mass();
     let quotient = consumed_mass.milligrams() / batch_mass.milligrams();
     let remainder = consumed_mass.milligrams() % batch_mass.milligrams();
-    let Some(batches) = NonZeroU64::new(quotient) else {
-        return Err(ManualCraftBatchError::InputMassNotWholeBatches {
+    NonZeroU64::new(quotient).filter(|_| remainder == 0).ok_or(
+        ManualCraftBatchError::InputMassNotWholeBatches {
             consumed: consumed_mass,
             batch_mass,
-        });
-    };
-    if remainder != 0 {
-        return Err(ManualCraftBatchError::InputMassNotWholeBatches {
-            consumed: consumed_mass,
-            batch_mass,
-        });
-    }
-    let Some(temperature) = temperature else {
-        return Err(ManualCraftBatchError::EmptyInput);
-    };
+        },
+    )
+}
+
+pub(super) fn validate_manual_craft_batch(
+    definition: &ManualCraftDefinition,
+    consumed_mass: Mass,
+    traces: &[ConsumedMaterialTrace],
+) -> Result<ManualCraftBatch, ManualCraftBatchError> {
+    let temperature = validate_trace_profiles(definition, traces)?;
+    let batches = validate_batch_count(definition, consumed_mass)?;
     Ok(ManualCraftBatch {
         batches,
         temperature,

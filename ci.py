@@ -231,7 +231,7 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
         summaries.append(
             "PROGRESSION DIVERSITY "
             f"samples={len(progression)} "
-            f"local-copper=[pick-first:{count('local-copper-sequence=pick-first')} crank-counterfactual:{count('counterfactual=[crank-first-dominated')}] "
+            f"local-copper=[pick-first:{count('local-copper-sequence=pick-first')} crank-counterfactual:{count('counterfactual=[crank-first-tradeoff')}] "
             f"information=[surface-resolved:{count('information=surface-resolved')} deferred-refinement:{count('information=deferred-refinement')}] "
             f"automation=[setup-repaid:{count('economics:setup-repaid')} opportunity-ended-before-payback:{count('economics:opportunity-ended-before-payback')}] "
             f"reinvestment=[available:{count('next-reinvestment=[available')} known-target-supply:{count('next-reinvestment=[blocked:known-target-supply]')}]"

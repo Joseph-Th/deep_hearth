@@ -126,53 +126,60 @@ impl Display for CapabilityEvaluationError {
 
 impl Error for CapabilityEvaluationError {}
 
+fn evaluate_requirement(
+    registry: &CapabilityRegistry,
+    source: &(impl CapabilitySource + ?Sized),
+    requirement: CapabilityRequirement,
+) -> Result<(), CapabilityEvaluationError> {
+    let capability = requirement.capability();
+    let definition = registry
+        .get_capability(capability)
+        .ok_or(CapabilityEvaluationError::UnknownDefinition { capability })?;
+    let expected_kind = definition.kind();
+    let required = requirement.threshold();
+    if required.kind() != expected_kind {
+        return Err(CapabilityEvaluationError::RequirementKindMismatch {
+            capability,
+            expected: expected_kind,
+            found: required.kind(),
+        });
+    }
+    let provided = source
+        .get_capability(capability)
+        .ok_or(CapabilityEvaluationError::MissingCapability { capability })?;
+    if provided.kind() != expected_kind {
+        return Err(CapabilityEvaluationError::ProfileKindMismatch {
+            capability,
+            expected: expected_kind,
+            found: provided.kind(),
+        });
+    }
+    let ordering = provided.compare(required).unwrap_or_else(|| {
+        unreachable!("validated capability values with equal kinds must be comparable")
+    });
+    let satisfied = match requirement.comparison() {
+        CapabilityComparison::AtLeast => ordering != Ordering::Less,
+        CapabilityComparison::AtMost => ordering != Ordering::Greater,
+    };
+    if !satisfied {
+        return Err(CapabilityEvaluationError::ThresholdNotMet {
+            capability,
+            comparison: requirement.comparison(),
+            required,
+            provided,
+        });
+    }
+    Ok(())
+}
+
 /// Validates and evaluates requirements against one explicit capability source.
 pub fn evaluate_capabilities(
     registry: &CapabilityRegistry,
     source: &(impl CapabilitySource + ?Sized),
     requirements: &[CapabilityRequirement],
 ) -> Result<(), CapabilityEvaluationError> {
-    for requirement in requirements {
-        let capability = requirement.capability();
-        let Some(definition) = registry.get_capability(capability) else {
-            return Err(CapabilityEvaluationError::UnknownDefinition { capability });
-        };
-        if requirement.threshold().kind() != definition.kind() {
-            return Err(CapabilityEvaluationError::RequirementKindMismatch {
-                capability,
-                expected: definition.kind(),
-                found: requirement.threshold().kind(),
-            });
-        }
-        let Some(provided) = source.get_capability(capability) else {
-            return Err(CapabilityEvaluationError::MissingCapability { capability });
-        };
-        if provided.kind() != definition.kind() {
-            return Err(CapabilityEvaluationError::ProfileKindMismatch {
-                capability,
-                expected: definition.kind(),
-                found: provided.kind(),
-            });
-        }
-        let Some(ordering) = provided.compare(requirement.threshold()) else {
-            return Err(CapabilityEvaluationError::ProfileKindMismatch {
-                capability,
-                expected: definition.kind(),
-                found: provided.kind(),
-            });
-        };
-        let is_satisfied = match requirement.comparison() {
-            CapabilityComparison::AtLeast => ordering != Ordering::Less,
-            CapabilityComparison::AtMost => ordering != Ordering::Greater,
-        };
-        if !is_satisfied {
-            return Err(CapabilityEvaluationError::ThresholdNotMet {
-                capability,
-                comparison: requirement.comparison(),
-                required: requirement.threshold(),
-                provided,
-            });
-        }
-    }
-    Ok(())
+    requirements
+        .iter()
+        .copied()
+        .try_for_each(|requirement| evaluate_requirement(registry, source, requirement))
 }

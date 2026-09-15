@@ -1,6 +1,7 @@
 //! Actor-visible preservation comparison over one finite disclosed raw-material opportunity.
 
 use std::collections::BTreeSet;
+use std::fmt::{Display, Formatter};
 
 use super::preservation::{
     PreservationRawOpportunity, preservation_raw_opportunity,
@@ -17,6 +18,39 @@ use super::{
     preservation_freshness_return_threshold_ppm,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in super::super) struct SignedResourceDelta {
+    magnitude: u128,
+    negative: bool,
+}
+
+impl SignedResourceDelta {
+    pub(in super::super) const fn between(after: u128, before: u128) -> Self {
+        if after >= before {
+            Self {
+                magnitude: after - before,
+                negative: false,
+            }
+        } else {
+            Self {
+                magnitude: before - after,
+                negative: true,
+            }
+        }
+    }
+}
+
+impl Display for SignedResourceDelta {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{}{}",
+            if self.negative { '-' } else { '+' },
+            self.magnitude
+        )
+    }
+}
+
 pub(super) struct PreservationDecisionReview {
     pub(super) opportunity: PreservationRawOpportunity,
     pub(super) attention: PreservationInfrastructureReview,
@@ -28,9 +62,9 @@ pub(super) struct PreservationDecisionReview {
     pub(super) selected_on_physical_frontier: bool,
     pub(super) selected_policy_reachable: bool,
     pub(super) protection_attention_delta_ticks: u64,
-    pub(super) protection_raw_delta_mg: u64,
-    pub(super) protection_metabolic_delta_nj: u128,
-    pub(super) protection_hydration_delta_ul: u64,
+    pub(super) protection_raw_delta_mg: SignedResourceDelta,
+    pub(super) protection_metabolic_delta_nj: SignedResourceDelta,
+    pub(super) protection_hydration_delta_ul: SignedResourceDelta,
     pub(super) protection_freshness_delta_ticks: i128,
     pub(super) protection_remaining_fresh_delta_ticks: i128,
     pub(super) preservation_return_ppm: u32,
@@ -92,18 +126,16 @@ pub(super) fn evaluate_preservation_decision(
         .production_ticks
         .checked_sub(attention.production_ticks)
         .unwrap_or_else(|| unreachable!("maximum protection is not cheaper to construct"));
-    let protection_raw_delta_mg = protection
-        .raw_material_mass_mg
-        .checked_sub(attention.raw_material_mass_mg)
-        .unwrap_or_else(|| unreachable!("maximum protection does not use less raw matter"));
-    let protection_metabolic_delta_nj = protection
-        .metabolic_cost_nj
-        .checked_sub(attention.metabolic_cost_nj)
-        .unwrap_or_else(|| unreachable!("maximum protection does not cost less manual exertion"));
-    let protection_hydration_delta_ul = protection
-        .hydration_cost_ul
-        .checked_sub(attention.hydration_cost_ul)
-        .unwrap_or_else(|| unreachable!("maximum protection does not cost less hydration"));
+    let protection_raw_delta_mg = SignedResourceDelta::between(
+        u128::from(protection.raw_material_mass_mg),
+        u128::from(attention.raw_material_mass_mg),
+    );
+    let protection_metabolic_delta_nj =
+        SignedResourceDelta::between(protection.metabolic_cost_nj, attention.metabolic_cost_nj);
+    let protection_hydration_delta_ul = SignedResourceDelta::between(
+        u128::from(protection.hydration_cost_ul),
+        u128::from(attention.hydration_cost_ul),
+    );
     let protection_freshness_delta_ticks = i128::from(attention.enclosed_age_after_ticks)
         - i128::from(protection.enclosed_age_after_ticks);
     let protection_remaining_fresh_delta_ticks =

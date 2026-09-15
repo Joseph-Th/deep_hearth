@@ -19,6 +19,7 @@ use super::preservation_route::{
     is_disclosed_preservation_raw_material, preservation_construction_plan,
 };
 use super::survival_probe::preservation::preservation_storage_definition_for_policy_with_constraints;
+use super::survival_probe::preservation_decision::SignedResourceDelta;
 use super::survival_probe::preservation_evaluation::{
     project_preservation_candidates_with_raw_opportunity, select_preservation_projection,
     select_preservation_projection_for_attention_value,
@@ -44,6 +45,13 @@ use super::survival_probe::{
     diet_provisioning_policy_for_behavior_seed, preservation_freshness_return_threshold_ppm,
     prospecting_method_for_work_pressure, provisioning_world,
 };
+
+#[test]
+fn preservation_resource_deltas_preserve_comparison_direction() {
+    assert_eq!(SignedResourceDelta::between(13, 10).to_string(), "+3");
+    assert_eq!(SignedResourceDelta::between(10, 13).to_string(), "-3");
+    assert_eq!(SignedResourceDelta::between(10, 10).to_string(), "+0");
+}
 
 #[test]
 fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {

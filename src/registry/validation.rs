@@ -23,38 +23,44 @@ fn assert_nonperishable_infrastructure_assembly(
     }
 }
 
+fn assert_optional_nonperishable_infrastructure_assembly(
+    owner: &str,
+    assembly: Option<&MaterialAssemblyProfile>,
+    survival: &SurvivalRegistry,
+) {
+    if let Some(assembly) = assembly {
+        assert_nonperishable_infrastructure_assembly(owner, assembly, survival);
+    }
+}
+
 fn validate_infrastructure_perishability(domains: &RegistryDomains) {
     for definition in domains.energy.definitions() {
-        if let Some(assembly) = definition.assembly_profile() {
-            assert_nonperishable_infrastructure_assembly(
-                "energy-store assembly",
-                assembly,
-                &domains.survival,
-            );
-        }
-        if let Some(upgrade) = definition.upgrade_profile() {
-            assert_nonperishable_infrastructure_assembly(
-                "energy-store upgrade",
-                upgrade.additions(),
-                &domains.survival,
-            );
-        }
+        assert_optional_nonperishable_infrastructure_assembly(
+            "energy-store assembly",
+            definition.assembly_profile(),
+            &domains.survival,
+        );
+        assert_optional_nonperishable_infrastructure_assembly(
+            "energy-store upgrade",
+            definition
+                .upgrade_profile()
+                .map(|upgrade| upgrade.additions()),
+            &domains.survival,
+        );
     }
     for definition in domains.equipment.definitions() {
-        if let Some(assembly) = definition.assembly_profile() {
-            assert_nonperishable_infrastructure_assembly(
-                "equipment assembly",
-                assembly,
-                &domains.survival,
-            );
-        }
-        if let Some(upgrade) = definition.upgrade_profile() {
-            assert_nonperishable_infrastructure_assembly(
-                "equipment upgrade",
-                upgrade.additions(),
-                &domains.survival,
-            );
-        }
+        assert_optional_nonperishable_infrastructure_assembly(
+            "equipment assembly",
+            definition.assembly_profile(),
+            &domains.survival,
+        );
+        assert_optional_nonperishable_infrastructure_assembly(
+            "equipment upgrade",
+            definition
+                .upgrade_profile()
+                .map(|upgrade| upgrade.additions()),
+            &domains.survival,
+        );
     }
     for definition in domains.storage.definitions() {
         assert_nonperishable_infrastructure_assembly(

@@ -154,7 +154,10 @@ fn resolve_thermal_equipment_envelope(
 }
 
 fn mass_capacity_from_energy(available: Energy, unit_energy: Energy) -> Mass {
-    debug_assert!(!unit_energy.is_zero());
+    assert!(
+        !unit_energy.is_zero(),
+        "phase-change planning requires nonzero transfer energy per milligram"
+    );
     let milligrams = available.nanojoules() / unit_energy.nanojoules();
     Mass::from_milligrams(u64::try_from(milligrams).unwrap_or(u64::MAX))
 }

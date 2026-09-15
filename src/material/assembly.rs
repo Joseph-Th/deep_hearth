@@ -2,6 +2,8 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::iter::Peekable;
+use std::slice::Iter;
 
 use crate::core::quantity::Mass;
 
@@ -22,6 +24,33 @@ pub(crate) enum MaterialAssemblyReferenceError {
 pub struct MaterialAssemblyProfile {
     inputs: Vec<MaterialInputSpec>,
     input_mass: Mass,
+}
+
+fn next_additive_input(
+    base: &mut Peekable<Iter<'_, MaterialInputSpec>>,
+    additions: &mut Peekable<Iter<'_, MaterialInputSpec>>,
+) -> Result<Option<(CommodityKey, Mass)>, ()> {
+    let next = match (base.peek().copied(), additions.peek().copied()) {
+        (Some(base_input), Some(addition_input)) => {
+            match base_input.commodity().cmp(&addition_input.commodity()) {
+                Ordering::Less => base.next(),
+                Ordering::Greater => additions.next(),
+                Ordering::Equal => {
+                    let _ = base.next();
+                    let _ = additions.next();
+                    let mass = base_input
+                        .mass()
+                        .checked_add(addition_input.mass())
+                        .ok_or(())?;
+                    return Ok(Some((base_input.commodity(), mass)));
+                }
+            }
+        }
+        (Some(_), None) => base.next(),
+        (None, Some(_)) => additions.next(),
+        (None, None) => return Ok(None),
+    };
+    Ok(next.map(|input| (input.commodity(), input.mass())))
 }
 
 impl MaterialAssemblyProfile {
@@ -79,50 +108,17 @@ impl MaterialAssemblyProfile {
         let mut target_inputs = self.inputs.iter();
 
         loop {
-            let expected = match (base_inputs.peek().copied(), addition_inputs.peek().copied()) {
-                (Some(base_input), Some(addition_input)) => {
-                    match base_input.commodity().cmp(&addition_input.commodity()) {
-                        Ordering::Less => {
-                            let _ = base_inputs.next();
-                            Some((base_input.commodity(), base_input.mass()))
-                        }
-                        Ordering::Greater => {
-                            let _ = addition_inputs.next();
-                            Some((addition_input.commodity(), addition_input.mass()))
-                        }
-                        Ordering::Equal => {
-                            let _ = base_inputs.next();
-                            let _ = addition_inputs.next();
-                            let Some(mass) = base_input.mass().checked_add(addition_input.mass())
-                            else {
-                                return false;
-                            };
-                            Some((base_input.commodity(), mass))
-                        }
-                    }
-                }
-                (Some(base_input), None) => {
-                    let _ = base_inputs.next();
-                    Some((base_input.commodity(), base_input.mass()))
-                }
-                (None, Some(addition_input)) => {
-                    let _ = addition_inputs.next();
-                    Some((addition_input.commodity(), addition_input.mass()))
-                }
-                (None, None) => None,
+            let expected = match next_additive_input(&mut base_inputs, &mut addition_inputs) {
+                Ok(expected) => expected,
+                Err(()) => return false,
             };
-            let Some((commodity, mass)) = expected else {
-                break;
+            match (expected, target_inputs.next()) {
+                (Some((commodity, mass)), Some(target_input))
+                    if target_input.commodity() == commodity && target_input.mass() == mass => {}
+                (None, None) => return true,
+                (Some(_), Some(_)) | (Some(_), None) | (None, Some(_)) => return false,
             };
-            let Some(target_input) = target_inputs.next() else {
-                return false;
-            };
-            if target_input.commodity() != commodity || target_input.mass() != mass {
-                return false;
-            }
         }
-
-        target_inputs.next().is_none()
     }
 
     /// Returns the first commodity whose actual mass differs from this exact assembly profile.
