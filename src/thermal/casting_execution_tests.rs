@@ -352,7 +352,7 @@ fn make_registries_with_sink_dissipation(
             Power::ZERO,
         ));
     }
-    let process = ProcessDefinition::new_selected_batch(
+    let process = ProcessDefinition::new(
         PROCESS,
         "pure material casting",
         vec![

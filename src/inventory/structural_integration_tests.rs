@@ -1,22 +1,27 @@
 //! Contract tests for inventory-owned structural loads.
 
+use std::ops::Deref;
+
 use super::*;
 use crate::content::{
-    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_process,
+    FORM_FOOD, FORM_LOG, MATERIAL_BERRIES, MATERIAL_WOOD, STANDARD_TEST_HEATER,
+    STANDARD_TEST_HEATING_ENERGY, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    make_test_registries_with_standard_sensible_heating,
 };
-use crate::core::quantity::{Area, Length, Temperature};
+use crate::core::quantity::{Area, Energy, Length, Temperature};
 use crate::core::state::validate_loaded_state;
 use crate::core::time::{TickSpan, WorldSeed};
+use crate::energy::add_energy_store_with_initial_for_fixture;
+use crate::equipment::add_equipment;
 use crate::inventory::{
-    MaterialTransferCommitError, MaterialTransferError, add_solid_stockpile_for_test,
-    deposit_lot_for_test, validate_material_transfer_for_test,
+    MaterialLotSelection, MaterialTransferCommitError, MaterialTransferError,
+    add_solid_stockpile_for_test, deposit_lot_for_test, validate_material_transfer_for_test,
 };
-use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
+use crate::maintenance::Condition;
+use crate::material::CommodityKey;
 use crate::production::{
-    ProcessDefinition, ProcessId, ProductionAvailabilityChange, ProductionSuspensionReason,
-    StartProcessError, make_test_process_resolution, validate_process_inputs,
-    validate_start_process,
+    ProcessId, ProcessResolution, ProductionAvailabilityChange, ProductionSuspensionReason,
+    StartProcessError, validate_start_process,
 };
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -27,6 +32,21 @@ use crate::structural::{
     validate_set_structural_load,
 };
 use crate::survival::{FoodFreshness, assess_food_freshness};
+use crate::thermal::{
+    ResolvedSensibleHeating, SensibleHeatingRequest, resolve_sensible_heating_process,
+};
+
+const STRUCTURAL_TEST_TARGET: Temperature = Temperature::from_millikelvin(500_000);
+
+struct StructuralHeatingResolution(ResolvedSensibleHeating);
+
+impl Deref for StructuralHeatingResolution {
+    type Target = ProcessResolution;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.process_resolution()
+    }
+}
 
 fn active_support(registries: &Registries, state: &mut AppState, x: i64) -> StructuralElementId {
     let bounds = match VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1)) {
@@ -57,6 +77,43 @@ fn active_support(registries: &Registries, state: &mut AppState, x: i64) -> Stru
         panic!("stockpile support activation commit failed: {error}");
     }
     element
+}
+
+fn resolve_structural_heating(
+    registries: &Registries,
+    state: &mut AppState,
+    process: ProcessId,
+    source: StockpileId,
+    mass: Mass,
+    target: Temperature,
+) -> StructuralHeatingResolution {
+    let lot =
+        state.inventory().lot_ids(source).next().unwrap_or_else(|| {
+            panic!("structural production source {} has no lot", source.value())
+        });
+    let equipment = add_equipment(registries, state, STANDARD_TEST_HEATER, Condition::PRISTINE)
+        .unwrap_or_else(|error| panic!("structural production heater fixture failed: {error}"));
+    let energy = add_energy_store_with_initial_for_fixture(
+        registries,
+        state,
+        STANDARD_TEST_HEATING_ENERGY,
+        Energy::from_nanojoules(10_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("structural production energy fixture failed: {error}"));
+    let resolved = resolve_sensible_heating_process(
+        registries,
+        state,
+        SensibleHeatingRequest::new(
+            process,
+            source,
+            &[MaterialLotSelection::new(lot, mass)],
+            equipment,
+            energy,
+            target,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("structural production heating resolution failed: {error}"));
+    StructuralHeatingResolution(resolved)
 }
 
 fn seeded_stockpile(
@@ -157,16 +214,7 @@ fn multiple_stockpiles_aggregate_mass_before_rounding_weight() {
 #[test]
 fn same_tick_production_completions_apply_one_aggregate_destination_load() {
     let process_id = ProcessId::new(971_006);
-    let process = ProcessDefinition::new(
-        process_id,
-        "same-tick supported production fixture",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
+    let registries = make_test_registries_with_standard_sensible_heating(process_id);
     let mut state = AppState::new(WorldSeed::new(0x1A71_0012));
     let support = active_support(&registries, &mut state, 0);
     let source = seeded_stockpile(
@@ -190,20 +238,20 @@ fn same_tick_production_completions_apply_one_aggregate_destination_load() {
         Some(Force::ZERO)
     );
 
+    let mut duration = None;
     for _ in 0..2 {
-        let inputs = validate_process_inputs(&registries, &state, process_id, source)
-            .unwrap_or_else(|error| {
-                panic!("same-tick supported production inputs failed: {error}")
-            });
-        let resolution = make_test_process_resolution(
-            inputs,
-            1,
-            vec![MaterialLotSpec::new(
-                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                Mass::from_milligrams(10),
-                Temperature::from_millikelvin(500_000),
-            )],
+        let resolution = resolve_structural_heating(
+            &registries,
+            &mut state,
+            process_id,
+            source,
+            Mass::from_milligrams(10),
+            STRUCTURAL_TEST_TARGET,
         );
+        match duration {
+            Some(expected) => assert_eq!(resolution.duration(), expected),
+            None => duration = Some(resolution.duration()),
+        }
         validate_start_process(&registries, &state, &resolution, source, destination)
             .unwrap_or_else(|error| panic!("same-tick supported production start failed: {error}"))
             .commit(&mut state)
@@ -219,6 +267,12 @@ fn same_tick_production_completions_apply_one_aggregate_destination_load() {
         Some(Mass::from_milligrams(20))
     );
 
+    let duration = duration.unwrap_or_else(|| panic!("same-tick production fixture had no jobs"));
+    for _ in 1..duration.value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("same-tick pre-completion failed: {error}"));
+        assert!(outcome.production_completions().is_empty());
+    }
     let outcome = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("same-tick supported completion failed: {error}"));
     assert_eq!(outcome.production_completions().len(), 2);
@@ -242,16 +296,7 @@ fn same_tick_production_completions_apply_one_aggregate_destination_load() {
 
 #[test]
 fn new_production_rejects_failed_destination_support() {
-    let process = ProcessDefinition::new(
-        ProcessId::new(971_002),
-        "failed destination production fixture",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
+    let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_002));
     let mut state = AppState::new(WorldSeed::new(0x1A71_0009));
     let support = active_support(&registries, &mut state, 0);
     let source = seeded_stockpile(
@@ -287,19 +332,13 @@ fn new_production_rejects_failed_destination_support() {
             .map(|record| record.lifecycle()),
         Some(StructuralLifecycle::Failed)
     );
-    let inputs = match validate_process_inputs(&registries, &state, ProcessId::new(971_002), source)
-    {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("failed destination inputs failed: {error}"),
-    };
-    let resolution = make_test_process_resolution(
-        inputs,
-        1,
-        vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(500_000),
-        )],
+    let resolution = resolve_structural_heating(
+        &registries,
+        &mut state,
+        ProcessId::new(971_002),
+        source,
+        Mass::from_milligrams(10),
+        STRUCTURAL_TEST_TARGET,
     );
 
     assert!(matches!(
@@ -324,16 +363,7 @@ fn new_production_rejects_failed_destination_support() {
 
 #[test]
 fn validated_production_start_rejects_destination_support_collapse_before_commit() {
-    let process = ProcessDefinition::new(
-        ProcessId::new(971_004),
-        "stale destination support fixture",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
+    let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_004));
     let mut state = AppState::new(WorldSeed::new(0x1A71_0011));
     let support = active_support(&registries, &mut state, 0);
     let source = seeded_stockpile(
@@ -349,19 +379,13 @@ fn validated_production_start_rejects_destination_support_collapse_before_commit
         Mass::ZERO,
     );
     let _ = mount(&registries, &mut state, destination, support);
-    let inputs = match validate_process_inputs(&registries, &state, ProcessId::new(971_004), source)
-    {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("stale destination support inputs failed: {error}"),
-    };
-    let resolution = make_test_process_resolution(
-        inputs,
-        1,
-        vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(500_000),
-        )],
+    let resolution = resolve_structural_heating(
+        &registries,
+        &mut state,
+        ProcessId::new(971_004),
+        source,
+        Mass::from_milligrams(10),
+        STRUCTURAL_TEST_TARGET,
     );
     let start = match validate_start_process(&registries, &state, &resolution, source, destination)
     {
@@ -408,16 +432,7 @@ fn validated_production_start_rejects_destination_support_collapse_before_commit
 
 #[test]
 fn production_suspends_until_failed_destination_support_is_recovered() {
-    let process = ProcessDefinition::new(
-        ProcessId::new(971_003),
-        "committed failed destination fixture",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
+    let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_003));
     let mut state = AppState::new(WorldSeed::new(0x1A71_0010));
     let support = active_support(&registries, &mut state, 0);
     let recovery_support = active_support(&registries, &mut state, 2);
@@ -434,20 +449,15 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
         Mass::ZERO,
     );
     let _ = mount(&registries, &mut state, destination, support);
-    let inputs = match validate_process_inputs(&registries, &state, ProcessId::new(971_003), source)
-    {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("committed destination inputs failed: {error}"),
-    };
-    let resolution = make_test_process_resolution(
-        inputs,
-        1,
-        vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(500_000),
-        )],
+    let resolution = resolve_structural_heating(
+        &registries,
+        &mut state,
+        ProcessId::new(971_003),
+        source,
+        Mass::from_milligrams(10),
+        STRUCTURAL_TEST_TARGET,
     );
+    let duration = resolution.duration();
     let start = match validate_start_process(&registries, &state, &resolution, source, destination)
     {
         Ok(start) => start,
@@ -493,7 +503,7 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
                 stockpile: destination,
             },
             suspended_at: crate::core::time::SimulationTick::new(0),
-            remaining_active_time: crate::core::time::TickSpan::new(1),
+            remaining_active_time: duration,
         }]
     );
     assert_eq!(
@@ -517,9 +527,16 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
         .unwrap_or_else(|error| panic!("suspended destination unmount commit failed: {error}"));
     let _ = mount(&registries, &mut state, destination, recovery_support);
 
-    let completed = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("recovered destination completion failed: {error}"));
-    assert_eq!(completed.production_completions().len(), 1);
+    let mut completion_count = 0;
+    for _ in 0..=duration.value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("recovered destination completion failed: {error}"));
+        completion_count += outcome.production_completions().len();
+        if state.production().jobs().next().is_none() {
+            break;
+        }
+    }
+    assert_eq!(completion_count, 1);
     assert_eq!(
         state
             .inventory()
@@ -540,16 +557,7 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
 
 #[test]
 fn suspended_perishable_work_in_process_keeps_aging_in_wall_clock_time() {
-    let process = ProcessDefinition::new(
-        ProcessId::new(971_005),
-        "suspended perishable handling fixture",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
+    let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_005));
     let mut state = AppState::new(WorldSeed::new(0x1A71_0011));
     let support = active_support(&registries, &mut state, 0);
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
@@ -566,17 +574,15 @@ fn suspended_perishable_work_in_process_keeps_aging_in_wall_clock_time() {
     )
     .unwrap_or_else(|error| panic!("perishable suspension input failed: {error}"));
     let _ = mount(&registries, &mut state, destination, support);
-    let inputs = validate_process_inputs(&registries, &state, ProcessId::new(971_005), source)
-        .unwrap_or_else(|error| panic!("perishable suspension inputs failed: {error}"));
-    let resolution = make_test_process_resolution(
-        inputs,
-        2,
-        vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(293_150),
-        )],
+    let resolution = resolve_structural_heating(
+        &registries,
+        &mut state,
+        ProcessId::new(971_005),
+        source,
+        Mass::from_milligrams(10),
+        STRUCTURAL_TEST_TARGET,
     );
+    let duration = resolution.duration();
     let job = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("perishable suspension start failed: {error}"))
         .commit(&mut state)
@@ -602,7 +608,7 @@ fn suspended_perishable_work_in_process_keeps_aging_in_wall_clock_time() {
                 stockpile: destination,
             },
             suspended_at: crate::core::time::SimulationTick::ZERO,
-            remaining_active_time: TickSpan::new(2),
+            remaining_active_time: duration,
         }]
     );
 
@@ -630,7 +636,7 @@ fn suspended_perishable_work_in_process_keeps_aging_in_wall_clock_time() {
         .unwrap_or_else(|error| panic!("perishable suspension recovery failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("perishable suspension recovery commit failed: {error}"));
-    for _ in 0..3 {
+    for _ in 0..=duration.value() {
         let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("perishable suspension completion failed: {error}"));
         if state.production().get_job(job).is_none() {
@@ -657,16 +663,7 @@ fn suspended_perishable_work_in_process_keeps_aging_in_wall_clock_time() {
 
 #[test]
 fn production_moves_supported_weight_with_authoritative_matter_ownership() {
-    let process = ProcessDefinition::new(
-        ProcessId::new(971_001),
-        "supported stockpile production fixture",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
+    let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_001));
     let mut state = AppState::new(WorldSeed::new(0x1A71_0006));
     let source_support = active_support(&registries, &mut state, 0);
     let destination_support = active_support(&registries, &mut state, 2);
@@ -684,20 +681,15 @@ fn production_moves_supported_weight_with_authoritative_matter_ownership() {
     );
     let _ = mount(&registries, &mut state, source, source_support);
     let _ = mount(&registries, &mut state, destination, destination_support);
-    let inputs = match validate_process_inputs(&registries, &state, ProcessId::new(971_001), source)
-    {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("supported production inputs failed: {error}"),
-    };
-    let resolution = make_test_process_resolution(
-        inputs,
-        1,
-        vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(500_000),
-        )],
+    let resolution = resolve_structural_heating(
+        &registries,
+        &mut state,
+        ProcessId::new(971_001),
+        source,
+        Mass::from_milligrams(10),
+        STRUCTURAL_TEST_TARGET,
     );
+    let duration = resolution.duration();
     let start = match validate_start_process(&registries, &state, &resolution, source, destination)
     {
         Ok(start) => start,
@@ -723,8 +715,10 @@ fn production_moves_supported_weight_with_authoritative_matter_ownership() {
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 
-    if let Err(error) = advance_tick(&registries, &mut state) {
-        panic!("supported production completion failed: {error}");
+    for _ in 0..duration.value() {
+        if let Err(error) = advance_tick(&registries, &mut state) {
+            panic!("supported production completion failed: {error}");
+        }
     }
     assert_eq!(
         state

@@ -221,8 +221,8 @@ then read the owning section/source for exact semantics and errors.
 | Fluids | `FluidRegistry`, fluid definitions | `AppState::fluid()`, store records, fluid accounting | consumers validate exact egress internally; no generic routing planner exists | support validators and canonical consumers; generic transfer/pumping/mixing absent |
 | Structures | `StructuralRegistry`, profiles and geometry | `AppState::structures()`, `analyze_structure`, `StructuralAssessment` | owner-specific support/load validation plans final aggregate load | support/load commits through inventory/equipment/fluid/structural owners; general player construction remains absent |
 | Manual crafting overlay | `CraftingRegistry`, manual craft definitions, optional-or-required equipment profile | inventory, survival, authored craft definitions, optional equipment instance | `resolve_manual_craft` uses fixed authored duration when fallback is permitted, otherwise requires canonical condition-adjusted MassFlow | `validate_start_manual_craft` -> equipment-reserving production job + player work -> tick |
-| Ore-processing overlay | `OreProcessingRegistry`, manual/powered process profiles | inventory, equipment, energy, production state | `assess_powered_ore_mass_envelope` for shared current scale bounds; `resolve_comminution_process`, `resolve_screening_process`, `resolve_constituent_separation_process` for exact selected-batch legality; manual counterparts expose their own resolutions | powered resolutions enter `validate_start_process*`; manual start validators also bind player work |
-| Thermal overlay | `ThermalRegistry`, heating/melting/casting definitions | inventory, equipment, energy, production state | `assess_melting_lot_mass_envelope` and `assess_casting_lot_mass_envelope` for current homogeneous-lot scale bounds; `resolve_sensible_heating_process`, `resolve_melting_process`, `resolve_casting_process` for exact selected-batch legality | resolved work enters `validate_start_process*`; tick applies outputs, wear, and energy consequences |
+| Ore-processing overlay | `OreProcessingRegistry`, manual/powered process profiles | inventory, equipment, energy, production state | `assess_powered_ore_mass_envelope` for shared current scale bounds; `resolve_comminution_process`, `resolve_screening_process`, `resolve_constituent_separation_process` for exact selected-lot legality; manual counterparts expose their own resolutions | powered resolutions enter `validate_start_process*`; manual start validators also bind player work |
+| Thermal overlay | `ThermalRegistry`, heating/melting/casting definitions | inventory, equipment, energy, production state | `assess_melting_lot_mass_envelope` and `assess_casting_lot_mass_envelope` for current homogeneous-lot scale bounds; `resolve_sensible_heating_process`, `resolve_melting_process`, `resolve_casting_process` for exact selected-lot legality | resolved work enters `validate_start_process*`; tick applies outputs, wear, and energy consequences |
 | Conservation/accounting | authored material/fluid/energy properties | `calculate_matter_accounting`, `calculate_fluid_volume_accounting`, `calculate_explicit_energy_accounting` | read-only reconciliation only | none; accounting never mutates or authorizes custody |
 | Persistence | current save schema + registry schema | `SaveEnvelope` for output, decoded `LoadedSaveEnvelope` before trust | exact-version admission plus deterministic index rebuild/graph validation | `LoadedSaveEnvelope::into_state`; adapters own bytes/storage, not state promotion |
 | Presentation definitions | texture/shader registries and authored assets | immutable definition access and deterministic bake/assembly results | deterministic renderer-neutral assembly | graphics resources/frame effects belong to adapters, outside `AppState` |
@@ -504,10 +504,12 @@ can continue while a blocked claim is repaired without losing, duplicating, or s
 
 ### Production jobs
 
-`ProcessDefinition` owns immutable process identity, material requirements, and typed capability requirements.
-Resolver-owned equipment capability IDs also appear as `AtLeast` process requirements so generic provider
-discovery and resolver admission use the same capability dimensions. Operation-specific duration, yield,
-energy, wear, and dynamic batch limits belong in resolver output.
+`ProcessDefinition` owns immutable process identity and typed generic provider-capability requirements.
+Exact material eligibility, quantity, and recipe semantics belong only to the execution-family resolver definition
+that can physically interpret the selected lots; production does not author a second feed recipe. Resolver-owned
+equipment capability IDs also appear as `AtLeast` process requirements so generic provider discovery and resolver
+admission use the same capability dimensions. Operation-specific duration, yield, energy, wear, and dynamic batch
+limits likewise belong in resolver output.
 
 `ProcessResolution` binds one concrete operation to exact selected inputs, duration, output streams, and finite
 resource consequences. Production reserves output capacity at start and owns consumed matter and modeled
@@ -571,7 +573,7 @@ Implemented resolver contracts:
   use deterministic remainder allocation, and emit forms that prevent unsupported repeat-processing loops.
 - **Thermal processing:** sensible heating, pure-material melting, and casting use exact selected matter, finite
   energy sources/sinks, equipment limits, phase boundaries, and latent heat. Ppm-weighted sensible heat is first
-  resolved at femtojoule precision. Selected-batch heating sums exact trace energies before narrowing once at the
+  resolved at femtojoule precision. Multi-lot heating sums exact trace energies before narrowing once at the
   aggregate energy-transaction boundary, so physically identical work does not become invalid merely because
   matter is split across lots. A runtime transfer whose aggregate is still not exactly representable in whole
   nanojoules is rejected rather than rounded down, while read-only material thermal accounting retains the

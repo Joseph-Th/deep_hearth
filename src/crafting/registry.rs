@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::capability::{CapabilityRegistry, CapabilityValueKind};
 use crate::material::{CommodityKey, MaterialRegistry, ParticleSizeStatePolicy};
-use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
+use crate::production::{ProcessId, ProductionRegistry};
 
 use super::ManualCraftDefinition;
 
@@ -174,11 +174,6 @@ impl CraftingRegistry {
             assert!(
                 process.capability_requirements().is_empty(),
                 "manual craft {} production definition cannot require machine capabilities because equipment use is a crafting-owned path",
-                definition.process().value()
-            );
-            assert!(
-                matches!(process.input_policy(), ProcessInputPolicy::SelectedBatch),
-                "manual craft {} must use selected-batch production input policy because crafting owns exact recipe and lot eligibility",
                 definition.process().value()
             );
         }

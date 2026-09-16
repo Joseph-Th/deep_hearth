@@ -8,7 +8,7 @@ use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
 use crate::production::{
-    ProcessId, ProcessOutputStream, ProcessResolution, validate_selected_process_inputs,
+    ProcessId, ProcessOutputStream, ProcessResolution, validate_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -158,7 +158,7 @@ pub fn resolve_constituent_separation_process(
         .ore_processing()
         .get_constituent_separation(process)
         .ok_or(ConstituentSeparationResolutionError::UnknownProcess { process })?;
-    let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(ConstituentSeparationResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     let profile = definition.operating_profile();

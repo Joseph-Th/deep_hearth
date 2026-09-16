@@ -4,7 +4,7 @@ use crate::capability::{
     CapabilityComparison, CapabilityId, CapabilityRegistry, CapabilityValueKind,
 };
 use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
-use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
+use crate::production::{ProcessId, ProductionRegistry};
 
 use super::{CastingProcessDefinition, MeltingProcessDefinition};
 
@@ -180,21 +180,12 @@ pub(super) fn validate_common_thermal_references(
     production: &ProductionRegistry,
     capabilities: &CapabilityRegistry,
 ) {
-    let process_definition = match production.get_process(process) {
-        Some(definition) => definition,
-        None => panic!(
+    let process_definition = production.get_process(process).unwrap_or_else(|| {
+        panic!(
             "thermal definition references missing process {}",
             process.value()
-        ),
-    };
-    assert!(
-        matches!(
-            process_definition.input_policy(),
-            ProcessInputPolicy::SelectedBatch
-        ),
-        "thermal process {} must use selected-batch input policy",
-        process.value()
-    );
+        )
+    });
     let power = match capabilities.get_capability(thermal_power_capability) {
         Some(capability) => capability,
         None => panic!(

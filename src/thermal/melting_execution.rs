@@ -12,7 +12,7 @@ use crate::inventory::StockpileId;
 use crate::material::{FormId, MaterialId};
 use crate::production::{
     ProcessId, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
-    validate_selected_process_inputs,
+    validate_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -219,7 +219,7 @@ pub fn resolve_melting_process(
         .thermal()
         .get_melting(process)
         .ok_or(MeltingResolutionError::UnknownThermalProcess { process })?;
-    let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(MeltingResolutionError::Input)?;
     let provider = resolve_equipment_provider(registries, state, equipment)
         .map_err(MeltingResolutionError::Equipment)?;

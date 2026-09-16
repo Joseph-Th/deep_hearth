@@ -90,7 +90,7 @@ pub(super) fn validate_registry_domains(core: &CoreDefinitions, domains: &Regist
     domains.storage.validate_references(&domains.materials);
     domains
         .production
-        .validate_references(&domains.materials, &domains.capabilities);
+        .validate_references(&domains.capabilities);
     domains
         .mining
         .validate_references(&domains.capabilities, &domains.equipment);

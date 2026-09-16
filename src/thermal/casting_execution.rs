@@ -12,7 +12,7 @@ use crate::inventory::StockpileId;
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec};
 use crate::production::{
     ProcessId, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
-    validate_selected_process_inputs,
+    validate_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -275,7 +275,7 @@ pub fn resolve_casting_process(
         .thermal()
         .get_casting(process)
         .ok_or(CastingResolutionError::UnknownThermalProcess { process })?;
-    let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(CastingResolutionError::Input)?;
     let provider = resolve_equipment_provider(registries, state, equipment)
         .map_err(CastingResolutionError::Equipment)?;

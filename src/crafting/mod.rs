@@ -6,8 +6,8 @@ use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
 use crate::production::{
-    ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess,
-    validate_selected_process_inputs, validate_start_manual_process,
+    ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess, validate_process_inputs,
+    validate_start_manual_process,
 };
 use crate::registry::Registries;
 use crate::survival::{Vitality, assess_survival};
@@ -136,9 +136,8 @@ pub fn resolve_manual_craft(
         .crafting()
         .get_manual(process)
         .ok_or(ManualCraftError::UnknownManualProcess { process })?;
-    let inputs =
-        validate_selected_process_inputs(registries, state, process, source, request.selections())
-            .map_err(ManualCraftError::Input)?;
+    let inputs = validate_process_inputs(registries, state, process, source, request.selections())
+        .map_err(ManualCraftError::Input)?;
     let batch = batch::validate_manual_craft_batch(
         definition,
         inputs.input_mass(),

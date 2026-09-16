@@ -8,7 +8,7 @@ use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::production::{
     ProcessId, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
-    validate_selected_process_inputs,
+    validate_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -127,7 +127,7 @@ pub fn resolve_sensible_heating_process(
         .thermal()
         .get_sensible_heating(process)
         .ok_or(SensibleHeatingResolutionError::UnknownThermalProcess { process })?;
-    let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(SensibleHeatingResolutionError::Input)?;
     let provider = resolve_equipment_provider(registries, state, equipment)
         .map_err(SensibleHeatingResolutionError::Equipment)?;

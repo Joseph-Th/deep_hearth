@@ -17,10 +17,8 @@ mod inputs;
 mod resources;
 
 pub use errors::ProcessResolutionError;
-pub use inputs::{
-    ProcessInputError, ValidatedProcessInputs, validate_process_inputs,
-    validate_selected_process_inputs,
-};
+pub use inputs::ProcessInputError;
+pub(crate) use inputs::{ValidatedProcessInputs, validate_process_inputs};
 use resources::ProcessResourceResolution;
 
 /// Operation-local identity for one physically distinct output stream.

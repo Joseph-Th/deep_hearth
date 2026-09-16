@@ -432,7 +432,7 @@ fn make_registries_with_energy_output_power_condition_curves_and_support(
             energy_output_power,
         ));
     }
-    let process = ProcessDefinition::new_selected_batch(
+    let process = ProcessDefinition::new(
         PROCESS,
         "test sensible heating",
         vec![

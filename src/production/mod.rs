@@ -3,11 +3,12 @@
 mod definitions;
 mod production_execution;
 mod resolution;
+mod resource_contract;
 mod state;
 #[cfg(test)]
 mod test_support;
 
-pub use definitions::{ProcessDefinition, ProcessId, ProcessInputPolicy, ProductionRegistry};
+pub use definitions::{ProcessDefinition, ProcessId, ProductionRegistry};
 pub use production_execution::{
     ProcessCompletion, ProcessOutputLanding, ProcessOutputRoute, ProcessParcelLanding,
     ProductionAvailabilityChange, StartProcessCommitError, StartProcessError,
@@ -15,8 +16,7 @@ pub use production_execution::{
 };
 pub use resolution::{
     ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
-    ProcessResolutionError, ValidatedProcessInputs, validate_process_inputs,
-    validate_selected_process_inputs,
+    ProcessResolutionError,
 };
 pub use state::{
     ProductionJobId, ProductionJobRecord, ProductionOccupancyRelease, ProductionOutputStream,
@@ -28,10 +28,8 @@ pub(crate) use production_execution::{
     apply_completion_plan, decide_due_completions, validate_start_manual_process,
     validate_start_manual_process_routed,
 };
-pub(crate) use resolution::sum_lot_spec_mass;
-pub(crate) use state::{validate_loaded_production, validate_loaded_production_schedule_history};
-
-#[cfg(test)]
-pub(crate) use test_support::{
-    make_test_process_resolution, make_test_process_resolution_with_streams,
+pub(crate) use resolution::{sum_lot_spec_mass, validate_process_inputs};
+pub(crate) use resource_contract::{
+    ProcessResourceContractError, ProcessResourceSnapshot, validate_process_resource_contract,
 };
+pub(crate) use state::{validate_loaded_production, validate_loaded_production_schedule_history};

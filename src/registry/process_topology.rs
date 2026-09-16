@@ -21,8 +21,6 @@ pub enum ProcessExecutionFamily {
     SensibleHeating,
     Melting,
     Casting,
-    #[cfg(test)]
-    ProductionOwnerFixture,
 }
 
 /// Static equipment relationship required by one authored process execution family.
@@ -101,30 +99,6 @@ pub(super) fn build_process_topology(
         .collect()
 }
 
-#[cfg(test)]
-pub(super) fn build_process_topology_for_owner_tests(
-    domains: &RegistryDomains,
-) -> BTreeMap<ProcessId, ProcessTopology> {
-    domains
-        .production
-        .definitions()
-        .map(|process| {
-            derive_process_topology(domains, process).unwrap_or_else(|| {
-                (
-                    process.id(),
-                    ProcessTopology {
-                        execution_family: ProcessExecutionFamily::ProductionOwnerFixture,
-                        equipment_role: ProcessEquipmentRole::None,
-                        energy_role: ProcessEnergyRole::None,
-                        nominal_providers: Vec::new(),
-                        compatible_energy_stores: Vec::new(),
-                    },
-                )
-            })
-        })
-        .collect()
-}
-
 fn derive_process_topology(
     domains: &RegistryDomains,
     process: &crate::production::ProcessDefinition,
@@ -138,8 +112,6 @@ fn derive_process_topology(
         ProcessExecutionFamily::ManualComminution | ProcessExecutionFamily::ManualSeparation => {
             Vec::new()
         }
-        #[cfg(test)]
-        ProcessExecutionFamily::ProductionOwnerFixture => Vec::new(),
         ProcessExecutionFamily::Comminution
         | ProcessExecutionFamily::Screening
         | ProcessExecutionFamily::ConstituentSeparation
@@ -185,8 +157,6 @@ fn process_equipment_role(
         ProcessExecutionFamily::ManualComminution | ProcessExecutionFamily::ManualSeparation => {
             ProcessEquipmentRole::None
         }
-        #[cfg(test)]
-        ProcessExecutionFamily::ProductionOwnerFixture => ProcessEquipmentRole::None,
         ProcessExecutionFamily::Comminution
         | ProcessExecutionFamily::Screening
         | ProcessExecutionFamily::ConstituentSeparation

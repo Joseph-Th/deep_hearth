@@ -14,7 +14,7 @@ use crate::labor::{
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputRoute, ProcessOutputStream, ProcessResolution,
     ProcessResolutionError, ProductionJobId, StartProcessCommitError, StartProcessError,
-    ValidatedStartProcess, validate_selected_process_inputs, validate_start_manual_process_routed,
+    ValidatedStartProcess, validate_process_inputs, validate_start_manual_process_routed,
 };
 use crate::registry::Registries;
 
@@ -142,7 +142,7 @@ pub fn resolve_manual_constituent_separation_process(
         .ore_processing()
         .get_manual_constituent_separation(process)
         .ok_or(ManualConstituentSeparationResolutionError::UnknownProcess { process })?;
-    let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(ManualConstituentSeparationResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     validate_manual_ore_batch(definition.operating_profile(), selected_mass)

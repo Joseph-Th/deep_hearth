@@ -14,7 +14,7 @@ use crate::labor::{
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, ProductionJobId, StartProcessCommitError, StartProcessError,
-    ValidatedStartProcess, validate_selected_process_inputs, validate_start_manual_process,
+    ValidatedStartProcess, validate_process_inputs, validate_start_manual_process,
 };
 use crate::registry::Registries;
 
@@ -127,7 +127,7 @@ pub fn resolve_manual_comminution_process(
         .ore_processing()
         .get_manual_comminution(process)
         .ok_or(ManualComminutionResolutionError::UnknownProcess { process })?;
-    let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(ManualComminutionResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     validate_manual_ore_batch(definition.operating_profile(), selected_mass)

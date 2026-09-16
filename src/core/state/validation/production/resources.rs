@@ -5,8 +5,11 @@ use crate::core::time::TickSpan;
 use crate::energy::{
     EnergySinkCapacityError, EnergyValidationError, validate_energy_sink_capacity_at_release,
 };
-use crate::production::ProductionJobRecord;
-use crate::registry::{ProcessEnergyRole, ProcessEquipmentRole, Registries};
+use crate::production::{
+    ProcessResourceContractError, ProcessResourceSnapshot, ProductionJobRecord,
+    validate_process_resource_contract,
+};
+use crate::registry::Registries;
 
 use super::super::StateValidationError;
 
@@ -20,70 +23,29 @@ pub(super) fn validate_job_resource_topology(
             process: job.process(),
         },
     )?;
-    validate_job_energy_topology(job, topology)?;
-    validate_job_equipment_topology(job, topology)
-}
-
-fn validate_job_energy_topology(
-    job: &ProductionJobRecord,
-    topology: &crate::registry::ProcessTopology,
-) -> Result<(), StateValidationError> {
-    let energy_matches = match topology.energy_role() {
-        ProcessEnergyRole::None => {
-            job.consumed_energy().is_none() && job.released_energy().is_none()
-        }
-        ProcessEnergyRole::Supply(carrier) => {
-            job.released_energy().is_none()
-                && job.consumed_energy().is_some_and(|trace| {
-                    trace.carrier() == carrier
-                        && topology
-                            .compatible_energy_stores()
-                            .contains(&trace.definition())
-                })
-        }
-        ProcessEnergyRole::Sink(carrier) => {
-            job.consumed_energy().is_none()
-                && job.released_energy().is_some_and(|trace| {
-                    trace.carrier() == carrier
-                        && topology
-                            .compatible_energy_stores()
-                            .contains(&trace.definition())
-                })
-        }
-    };
-    if !energy_matches {
-        return Err(StateValidationError::JobEnergyTopologyMismatch {
+    validate_process_resource_contract(
+        topology,
+        ProcessResourceSnapshot::new(
+            job.equipment_provider()
+                .map(|provider| provider.definition()),
+            job.consumed_energy()
+                .map(|trace| (trace.carrier(), trace.definition())),
+            job.released_energy()
+                .map(|trace| (trace.carrier(), trace.definition())),
+        ),
+    )
+    .map_err(|error| match error {
+        ProcessResourceContractError::Energy => StateValidationError::JobEnergyTopologyMismatch {
             job: job.id(),
             process: job.process(),
-        });
-    }
-    Ok(())
-}
-
-fn validate_job_equipment_topology(
-    job: &ProductionJobRecord,
-    topology: &crate::registry::ProcessTopology,
-) -> Result<(), StateValidationError> {
-    let equipment_matches = match topology.equipment_role() {
-        ProcessEquipmentRole::None => job.equipment_provider().is_none(),
-        ProcessEquipmentRole::Optional => job.equipment_provider().is_none_or(|provider| {
-            topology
-                .nominal_providers()
-                .contains(&provider.definition())
-        }),
-        ProcessEquipmentRole::Required => job.equipment_provider().is_some_and(|provider| {
-            topology
-                .nominal_providers()
-                .contains(&provider.definition())
-        }),
-    };
-    if !equipment_matches {
-        return Err(StateValidationError::JobEquipmentTopologyMismatch {
-            job: job.id(),
-            process: job.process(),
-        });
-    }
-    Ok(())
+        },
+        ProcessResourceContractError::Equipment => {
+            StateValidationError::JobEquipmentTopologyMismatch {
+                job: job.id(),
+                process: job.process(),
+            }
+        }
+    })
 }
 
 pub(super) fn validate_job_process_and_source(

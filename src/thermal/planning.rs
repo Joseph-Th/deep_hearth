@@ -20,7 +20,7 @@ use crate::energy::integrate_power_or_saturate;
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
-use crate::production::{ProcessId, ProcessInputError, validate_selected_process_inputs};
+use crate::production::{ProcessId, ProcessInputError, validate_process_inputs};
 use crate::registry::Registries;
 
 use super::equipment_physics::{
@@ -41,8 +41,7 @@ fn resolve_phase_change_lot_offer(
     source: StockpileId,
     selection: MaterialLotSelection,
 ) -> Result<PhaseChangeLotOffer, ProcessInputError> {
-    let inputs =
-        validate_selected_process_inputs(registries, state, process, source, &[selection])?;
+    let inputs = validate_process_inputs(registries, state, process, source, &[selection])?;
     let trace = inputs
         .consumed_inputs()
         .first()

@@ -15,6 +15,9 @@ use crate::inventory::{ConsumptionReservation, StockpileId, ValidatedStockpileSt
 use crate::registry::Registries;
 
 use super::super::resolution::{ProcessOutputStreamId, ProcessResolution};
+use super::super::resource_contract::{
+    ProcessResourceContractError, ProcessResourceSnapshot, validate_process_resource_contract,
+};
 use super::super::state::{
     ProductionJobEquipment, ProductionJobIdentity, ProductionJobRecord, ProductionJobResources,
     ProductionJobSchedule,
@@ -161,6 +164,34 @@ fn validate_start_process_routed_internal(
     if !allow_player_labor && registries.manual_process_exertion(process).is_some() {
         return Err(StartProcessError::ManualProcessRequiresPlayerWork { process });
     }
+    let topology = registries.process_topology(process).unwrap_or_else(|| {
+        panic!(
+            "registered production process {} has no process topology",
+            process.value()
+        )
+    });
+    validate_process_resource_contract(
+        topology,
+        ProcessResourceSnapshot::new(
+            resolution
+                .equipment_input()
+                .map(|provider| provider.definition()),
+            resolution
+                .energy_input()
+                .map(|trace| (trace.carrier(), trace.definition())),
+            resolution
+                .energy_sink()
+                .map(|sink| (sink.trace().carrier(), sink.trace().definition())),
+        ),
+    )
+    .map_err(|error| match error {
+        ProcessResourceContractError::Equipment => {
+            StartProcessError::ResolutionEquipmentTopologyMismatch { process }
+        }
+        ProcessResourceContractError::Energy => {
+            StartProcessError::ResolutionEnergyTopologyMismatch { process }
+        }
+    })?;
     let ValidatedOutputRouting {
         output_streams,
         inbound_by_destination,

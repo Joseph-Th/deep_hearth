@@ -228,7 +228,7 @@ fn manual_craft_registry_rejects_output_that_requires_unauthored_particle_state(
     let output = CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED);
     let input_mass = Mass::from_milligrams(1);
     let mut production = ProductionRegistry::new();
-    production.register_process(ProcessDefinition::new_selected_batch(
+    production.register_process(ProcessDefinition::new(
         process,
         "particulate manual output fixture",
         Vec::new(),

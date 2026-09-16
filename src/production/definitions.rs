@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityRequirement};
 use crate::core::quantity::Mass;
-use crate::material::{MaterialInputSpec, MaterialLotSpec, MaterialRegistry};
+use crate::material::MaterialLotSpec;
 
 /// Stable authored identifier for one physical production process definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -30,68 +30,19 @@ impl ProcessId {
 pub struct ProcessDefinition {
     id: ProcessId,
     name: String,
-    input_policy: ProcessInputPolicy,
     capability_requirements: Vec<CapabilityRequirement>,
 }
 
-/// Static policy for how matter enters one process class.
-///
-/// Fixed processes author exact material requirements. Selected-batch processes deliberately do
-/// not encode a recipe-shaped feed amount: a physical resolver must bind explicit runtime lots and
-/// derive the outcome from those exact material traces.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProcessInputPolicy {
-    Fixed {
-        inputs: Vec<MaterialInputSpec>,
-        input_mass: Mass,
-    },
-    SelectedBatch,
-}
-
 impl ProcessDefinition {
-    /// Builds normalized static material and capability requirements.
+    /// Builds normalized process identity and provider-discovery requirements.
     ///
-    /// Duration, recovery, output composition, output temperature, and other operation-specific
-    /// physical outcomes belong in a resolved process plan. Equipment/tool/worker requirements are
-    /// authored here as typed capabilities rather than generic technology tiers.
+    /// Exact matter eligibility and quantity belong to the owning physical resolver together with
+    /// duration, recovery, output composition, output temperature, and other operation-specific
+    /// outcomes. Machine-provider requirements remain typed capabilities rather than generic tiers.
     #[must_use]
     pub fn new(
         id: ProcessId,
         name: impl Into<String>,
-        mut inputs: Vec<MaterialInputSpec>,
-        mut capability_requirements: Vec<CapabilityRequirement>,
-    ) -> Self {
-        assert!(id.value() != 0, "process id must be nonzero");
-        let name = name.into();
-        assert!(!name.trim().is_empty(), "process name must not be empty");
-        assert!(
-            !inputs.is_empty(),
-            "material process {} has no input requirements",
-            id.value()
-        );
-
-        inputs.sort();
-        validate_inputs(id, &inputs);
-        capability_requirements.sort();
-        validate_capability_requirements(id, &capability_requirements);
-        let input_mass = match sum_input_spec_mass(&inputs) {
-            Some(mass) => mass,
-            None => panic!("process {} input mass overflows", id.value()),
-        };
-
-        Self {
-            id,
-            name,
-            input_policy: ProcessInputPolicy::Fixed { inputs, input_mass },
-            capability_requirements,
-        }
-    }
-
-    /// Builds a process whose exact conserved matter batch is chosen at resolution time.
-    #[must_use]
-    pub fn new_selected_batch(
-        id: ProcessId,
-        name: impl Into<String>,
         mut capability_requirements: Vec<CapabilityRequirement>,
     ) -> Self {
         assert!(id.value() != 0, "process id must be nonzero");
@@ -102,7 +53,6 @@ impl ProcessDefinition {
         Self {
             id,
             name,
-            input_policy: ProcessInputPolicy::SelectedBatch,
             capability_requirements,
         }
     }
@@ -115,20 +65,6 @@ impl ProcessDefinition {
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    #[must_use]
-    pub const fn input_policy(&self) -> &ProcessInputPolicy {
-        &self.input_policy
-    }
-
-    /// Returns static material requirements only for fixed-feed processes.
-    #[must_use]
-    fn fixed_inputs(&self) -> Option<&[MaterialInputSpec]> {
-        match &self.input_policy {
-            ProcessInputPolicy::Fixed { inputs, .. } => Some(inputs),
-            ProcessInputPolicy::SelectedBatch => None,
-        }
     }
 
     #[must_use]
@@ -160,60 +96,12 @@ fn validate_capability_requirements(id: ProcessId, requirements: &[CapabilityReq
     }
 }
 
-fn validate_inputs(id: ProcessId, inputs: &[MaterialInputSpec]) {
-    for input in inputs {
-        assert!(
-            !input.mass().is_zero(),
-            "process {} contains zero-mass input",
-            id.value()
-        );
-    }
-    for pair in inputs.windows(2) {
-        assert!(
-            pair[0] != pair[1],
-            "process {} contains duplicate input specification",
-            id.value()
-        );
-    }
-}
-
-fn sum_input_spec_mass(entries: &[MaterialInputSpec]) -> Option<Mass> {
-    let mut total = Mass::ZERO;
-    for entry in entries {
-        total = total.checked_add(entry.mass())?;
-    }
-    Some(total)
-}
-
 pub(crate) fn sum_lot_spec_mass(entries: &[MaterialLotSpec]) -> Option<Mass> {
     let mut total = Mass::ZERO;
     for entry in entries {
         total = total.checked_add(entry.mass())?;
     }
     Some(total)
-}
-
-fn validate_process_input_references(definition: &ProcessDefinition, materials: &MaterialRegistry) {
-    let Some(inputs) = definition.fixed_inputs() else {
-        return;
-    };
-    for input in inputs {
-        assert!(
-            materials.has_commodity(input.commodity()),
-            "process {} references missing input material {} or form {}",
-            definition.id().value(),
-            input.commodity().material().value(),
-            input.commodity().form().value()
-        );
-        for constraint in input.constraints() {
-            assert!(
-                materials.get_material(constraint.material()).is_some(),
-                "process {} input constraint references missing material {}",
-                definition.id().value(),
-                constraint.material().value()
-            );
-        }
-    }
 }
 
 fn validate_process_capability_references(
@@ -273,13 +161,8 @@ impl ProductionRegistry {
         self.definitions.values()
     }
 
-    pub(crate) fn validate_references(
-        &self,
-        materials: &MaterialRegistry,
-        capabilities: &CapabilityRegistry,
-    ) {
+    pub(crate) fn validate_references(&self, capabilities: &CapabilityRegistry) {
         for definition in self.definitions.values() {
-            validate_process_input_references(definition, materials);
             validate_process_capability_references(definition, capabilities);
         }
     }

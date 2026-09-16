@@ -125,7 +125,7 @@ fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
         capabilities.register_capability(CapabilityDefinition::new(id, name, kind));
     }
     let mut production = ProductionRegistry::new();
-    production.register_process(ProcessDefinition::new_selected_batch(
+    production.register_process(ProcessDefinition::new(
         TEST_PROCESS,
         "invalid phase-change fixture",
         vec![
@@ -1359,10 +1359,6 @@ fn missing_process_capability_reference_is_rejected_during_registry_assembly() {
     let process = ProcessDefinition::new(
         TEST_PROCESS,
         "test capability process",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(1),
-        )],
         vec![CapabilityRequirement::new(
             TEST_CAPABILITY,
             CapabilityComparison::AtLeast,
@@ -1394,10 +1390,6 @@ fn process_without_physical_resolver_semantics_is_rejected_during_registry_assem
     production.register_process(ProcessDefinition::new(
         TEST_PROCESS,
         "orphan physical process fixture",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(1),
-        )],
         Vec::new(),
     ));
 
@@ -1444,7 +1436,7 @@ fn process_cannot_own_multiple_physical_resolver_semantics() {
     ] {
         capabilities.register_capability(CapabilityDefinition::new(id, name, kind));
     }
-    let process = ProcessDefinition::new_selected_batch(
+    let process = ProcessDefinition::new(
         TEST_PROCESS,
         "ambiguous physical resolver fixture",
         vec![

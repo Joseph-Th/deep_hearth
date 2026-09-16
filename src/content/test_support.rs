@@ -22,6 +22,15 @@ use crate::thermal::{
     ThermalRegistry,
 };
 
+#[path = "test_support/standard_processes.rs"]
+mod standard_processes;
+
+pub(crate) use standard_processes::{
+    STANDARD_TEST_HEATER, STANDARD_TEST_HEATING_ENERGY, STANDARD_TEST_SCREEN,
+    STANDARD_TEST_SCREENING_ENERGY, make_test_registries_with_standard_screening,
+    make_test_registries_with_standard_sensible_heating,
+};
+
 struct TestRegistryDomains {
     energy: EnergyRegistry,
     fluid: FluidRegistry,
@@ -57,10 +66,6 @@ impl TestRegistryDomains {
 
     fn build(self) -> Registries {
         self.build_with(Registries::new)
-    }
-
-    fn build_for_isolated_production_owner_test(self) -> Registries {
-        self.build_with(Registries::new_for_isolated_production_owner_test)
     }
 
     fn build_with(
@@ -198,12 +203,6 @@ pub(crate) fn make_test_registries_with_equipment(
     domains.capabilities = build_capability_registry([capability]);
     domains.equipment = EquipmentRegistry::new([equipment_definition]);
     domains.build()
-}
-
-pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> Registries {
-    let mut domains = TestRegistryDomains::empty();
-    domains.production = build_production_registry(process);
-    domains.build_for_isolated_production_owner_test()
 }
 
 pub(crate) fn make_test_registries_with_energy_store(

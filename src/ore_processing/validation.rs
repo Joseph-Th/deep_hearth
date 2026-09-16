@@ -5,7 +5,7 @@ use crate::material::{
     CommodityKey, FormId, MaterialFormCohesion, MaterialPhase, MaterialRegistry, ParticleSizeRange,
     ParticleSizeStatePolicy,
 };
-use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
+use crate::production::{ProcessId, ProductionRegistry};
 
 use super::definitions::ConstituentSeparationPhysics;
 use super::{
@@ -27,11 +27,6 @@ fn validate_powered_process_contract(
             process.value()
         )
     });
-    assert!(
-        matches!(definition.input_policy(), ProcessInputPolicy::SelectedBatch),
-        "{operation} process {} must use selected-batch input policy",
-        process.value()
-    );
     for (capability, kind, role) in [
         (
             profile.mass_flow_capability(),
@@ -168,11 +163,6 @@ fn validate_manual_process_contract(
             process.value()
         )
     });
-    assert!(
-        matches!(definition.input_policy(), ProcessInputPolicy::SelectedBatch),
-        "{operation} process {} must use selected-batch input policy",
-        process.value()
-    );
     assert!(
         definition.capability_requirements().is_empty(),
         "{operation} process {} is direct player labor and cannot require equipment capabilities",

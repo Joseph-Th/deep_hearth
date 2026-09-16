@@ -6,13 +6,10 @@ use crate::content::build_registries;
 use crate::registry::Registries;
 
 #[cfg(feature = "test-soak")]
-use crate::content::{
-    FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    make_test_registries_with_process,
-};
+use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
 
 #[cfg(feature = "test-soak")]
-use crate::core::quantity::{Area, Force, Mass, Temperature};
+use crate::core::quantity::{Area, Force, Mass};
 use crate::core::rng::{RandomStateValidationError, RngAlgorithm, RngStreamId};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
@@ -22,16 +19,10 @@ use crate::inventory::{
 };
 
 #[cfg(feature = "test-soak")]
-use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
+use crate::material::CommodityKey;
 
 #[cfg(feature = "test-soak")]
 use crate::matter::calculate_matter_accounting;
-
-#[cfg(feature = "test-soak")]
-use crate::production::{
-    ProcessDefinition, ProcessId, ProcessResolution, make_test_process_resolution,
-    validate_process_inputs, validate_start_process,
-};
 
 #[cfg(feature = "test-soak")]
 use crate::simulation::advance_tick;
@@ -45,43 +36,6 @@ use crate::structural::{
     ValidatedStructuralMutation, add_structural_element, materialize_structural_element_for_test,
     validate_activate_structural_element, validate_link_support, validate_set_structural_load,
 };
-
-#[cfg(feature = "test-soak")]
-const SOAK_PROCESS: ProcessId = ProcessId::new(900_201);
-
-#[cfg(feature = "test-soak")]
-fn make_test_soak_process() -> ProcessDefinition {
-    ProcessDefinition::new(
-        SOAK_PROCESS,
-        "soak material transform",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
-    )
-}
-
-#[cfg(feature = "test-soak")]
-fn make_test_soak_resolution(
-    registries: &Registries,
-    state: &AppState,
-    source: crate::inventory::StockpileId,
-) -> ProcessResolution {
-    let inputs = match validate_process_inputs(registries, state, SOAK_PROCESS, source) {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("soak process input binding failed: {error}"),
-    };
-    make_test_process_resolution(
-        inputs,
-        29,
-        vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(450_000),
-        )],
-    )
-}
 
 #[cfg(feature = "test-soak")]
 fn add_soak_stockpile(state: &mut AppState, capacity: u64) -> crate::inventory::StockpileId {
@@ -205,7 +159,7 @@ fn vary_soak_structural_load(
 }
 
 #[cfg(feature = "test-soak")]
-fn schedule_soak_process(
+fn transfer_soak_input(
     registries: &Registries,
     state: &mut AppState,
     source: crate::inventory::StockpileId,
@@ -219,13 +173,19 @@ fn schedule_soak_process(
     if available < Mass::from_milligrams(10) {
         return;
     }
-    let resolution = make_test_soak_resolution(registries, state, source);
-    let token = match validate_start_process(registries, state, &resolution, source, processing) {
+    let token = match validate_material_transfer_for_test(
+        registries,
+        state,
+        source,
+        processing,
+        wood,
+        Mass::from_milligrams(10),
+    ) {
         Ok(token) => token,
-        Err(error) => panic!("soak process validation failed: {error}"),
+        Err(error) => panic!("soak input transfer validation failed: {error}"),
     };
     if let Err(error) = token.commit(state) {
-        panic!("soak process commit failed: {error}");
+        panic!("soak input transfer commit failed: {error}");
     }
 }
 
@@ -235,10 +195,10 @@ fn transfer_soak_output(
     state: &mut AppState,
     processing: crate::inventory::StockpileId,
     archive: crate::inventory::StockpileId,
-    stone: CommodityKey,
+    wood: CommodityKey,
 ) {
     let available = match state.inventory().get_stockpile(processing) {
-        Some(record) => record.get_mass(stone),
+        Some(record) => record.get_mass(wood),
         None => panic!("soak processing stockpile disappeared"),
     };
     if available < Mass::from_milligrams(1) {
@@ -249,7 +209,7 @@ fn transfer_soak_output(
         state,
         processing,
         archive,
-        stone,
+        wood,
         Mass::from_milligrams(1),
     ) {
         Ok(token) => token,
@@ -262,14 +222,13 @@ fn transfer_soak_output(
 
 #[cfg(feature = "test-soak")]
 fn run_test_soak(seed: WorldSeed) -> AppState {
-    let registries = make_test_registries_with_process(make_test_soak_process());
+    let registries = build_registries();
     let mut state = AppState::new(seed);
     let source = add_soak_stockpile(&mut state, 30_000);
     let processing = add_soak_stockpile(&mut state, 10_000);
     let archive = add_soak_stockpile(&mut state, 10_000);
     let structural_deck = build_soak_structure(&registries, &mut state);
     let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
-    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
     if let Err(error) = deposit_bulk_for_test(
         &registries,
         &mut state,
@@ -286,10 +245,10 @@ fn run_test_soak(seed: WorldSeed) -> AppState {
 
     for step in 0_u64..10_000 {
         if step % 11 == 0 {
-            schedule_soak_process(&registries, &mut state, source, processing, wood);
+            transfer_soak_input(&registries, &mut state, source, processing, wood);
         }
         if step % 17 == 0 {
-            transfer_soak_output(&registries, &mut state, processing, archive, stone);
+            transfer_soak_output(&registries, &mut state, processing, archive, wood);
         }
         if step % 19 == 0 {
             vary_soak_structural_load(&registries, &mut state, structural_deck, step);

@@ -82,7 +82,7 @@ fn powered_ore_registry_requires_resolver_capabilities_in_process_requirements()
         .filter(|requirement| requirement.capability() != authored.mass_flow_capability())
         .collect();
     let mut production = ProductionRegistry::new();
-    production.register_process(ProcessDefinition::new_selected_batch(
+    production.register_process(ProcessDefinition::new(
         authored.process(),
         "invalid screening capability contract",
         requirements,

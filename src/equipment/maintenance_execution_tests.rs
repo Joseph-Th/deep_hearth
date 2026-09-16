@@ -783,7 +783,7 @@ fn occupied_registries() -> Registries {
             Power::ZERO,
             Power::from_microwatts(500_000),
         )],
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             HEATING_PROCESS,
             "maintenance occupancy sensible heating",
             vec![

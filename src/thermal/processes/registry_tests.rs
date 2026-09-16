@@ -27,7 +27,7 @@ fn thermal_registry_requires_resolver_capabilities_in_process_requirements() {
         .filter(|requirement| requirement.capability() != authored.cooling_power_capability())
         .collect();
     let mut production = ProductionRegistry::new();
-    production.register_process(ProcessDefinition::new_selected_batch(
+    production.register_process(ProcessDefinition::new(
         authored.process(),
         "invalid casting capability contract",
         requirements,

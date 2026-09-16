@@ -25,6 +25,12 @@ pub enum StartProcessError {
     ManualProcessRequiresPlayerWork {
         process: ProcessId,
     },
+    ResolutionEquipmentTopologyMismatch {
+        process: ProcessId,
+    },
+    ResolutionEnergyTopologyMismatch {
+        process: ProcessId,
+    },
     UnknownOutputMaterial {
         material: MaterialId,
     },
@@ -155,6 +161,16 @@ impl Display for StartProcessError {
             Self::ManualProcessRequiresPlayerWork { process } => write!(
                 formatter,
                 "manual process {} must start through the player-work boundary",
+                process.value()
+            ),
+            Self::ResolutionEquipmentTopologyMismatch { process } => write!(
+                formatter,
+                "resolved process {} equipment resources do not match registered execution topology",
+                process.value()
+            ),
+            Self::ResolutionEnergyTopologyMismatch { process } => write!(
+                formatter,
+                "resolved process {} energy resources do not match registered execution topology",
                 process.value()
             ),
             Self::UnknownOutputMaterial { material } => write!(
@@ -390,6 +406,8 @@ impl Error for StartProcessError {
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownProcess { .. }
             | Self::ManualProcessRequiresPlayerWork { .. }
+            | Self::ResolutionEquipmentTopologyMismatch { .. }
+            | Self::ResolutionEnergyTopologyMismatch { .. }
             | Self::UnknownOutputMaterial { .. }
             | Self::UnknownOutputForm { .. }
             | Self::UnknownOutputCompositionMaterial { .. }

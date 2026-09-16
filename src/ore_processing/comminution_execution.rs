@@ -9,7 +9,7 @@ use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
 use crate::production::{
     ProcessId, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
-    validate_selected_process_inputs,
+    validate_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -164,7 +164,7 @@ pub fn resolve_comminution_process(
         .ore_processing()
         .get_comminution(process)
         .ok_or(ComminutionResolutionError::UnknownComminutionProcess { process })?;
-    let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(ComminutionResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     let profile = definition.operating_profile();

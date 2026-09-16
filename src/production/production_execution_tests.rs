@@ -1,177 +1,221 @@
 //! Focused tests for production admission, completion, routing, and conservation semantics.
 
+use std::ops::Deref;
+
 use super::*;
 use crate::content::{
-    FORM_FOOD, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_BERRIES,
-    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
-    make_test_registries_with_process,
+    FORM_CRUSHED, FORM_FOOD, FORM_INGOT, FORM_LOG, MATERIAL_BERRIES, MATERIAL_COPPER,
+    MATERIAL_WOOD, STANDARD_TEST_HEATER, STANDARD_TEST_HEATING_ENERGY, STANDARD_TEST_SCREEN,
+    STANDARD_TEST_SCREENING_ENERGY, make_test_registries_with_standard_screening,
+    make_test_registries_with_standard_sensible_heating,
 };
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Energy, Length, Mass, Temperature};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
 use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
+use crate::energy::{EnergyStoreId, add_energy_store_with_initial_for_fixture};
+use crate::equipment::{EquipmentId, add_equipment};
 use crate::inventory::{
-    StockpileId, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
-    deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
+    MaterialLotSelection, StockpileId, StockpileStorageProfile, add_solid_stockpile_for_test,
+    add_stockpile, deposit_bulk_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
 };
+use crate::maintenance::Condition;
 use crate::material::{
-    CommodityKey, CompositionComponent, CompositionConstraint, MaterialComposition,
-    MaterialInputSpec, MaterialLotSpec, MaterialPhaseStateError,
+    CommodityKey, MaterialComposition, MaterialLotSpec, ParticleSizeClass,
+    ParticleSizeDistribution, ParticleSizeRange,
+};
+use crate::ore_processing::{
+    ResolvedScreening, ScreeningProcessDefinition, ScreeningRequest, resolve_screening_process,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
-    ProcessDefinition, ProcessId, ProcessInputError, ProcessOutputStreamId, ProcessResolution,
-    ProcessResolutionError, ProductionJobId, ProductionJobRecord, ProductionValidationError,
-    make_test_process_resolution, make_test_process_resolution_with_streams,
-    validate_process_inputs,
+    ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
+    ProductionJobRecord, ProductionValidationError, validate_process_inputs,
 };
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::survival::{FoodFreshness, assess_food_freshness};
+use crate::thermal::{
+    ResolvedSensibleHeating, SensibleHeatingRequest, ThermalJobValidationError,
+    resolve_sensible_heating_process,
+};
 
 const TEST_PROCESS: ProcessId = ProcessId::new(900_001);
 const TEST_COMPOSITION_PROCESS: ProcessId = ProcessId::new(900_002);
 const TEST_PERISHABLE_PROCESS: ProcessId = ProcessId::new(900_003);
+const TEST_TARGET_TEMPERATURE: Temperature = Temperature::from_millikelvin(900_000);
 
 fn wood_log() -> CommodityKey {
     CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
-}
-
-fn make_test_perishable_process() -> ProcessDefinition {
-    ProcessDefinition::new(
-        TEST_PERISHABLE_PROCESS,
-        "test perishable handling",
-        vec![MaterialInputSpec::new(
-            berry_food(),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
-    )
-}
-
-fn stone_lump() -> CommodityKey {
-    CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
-}
-
-fn copper_ingot() -> CommodityKey {
-    CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
 }
 
 fn berry_food() -> CommodityKey {
     CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)
 }
 
-fn copper_ore() -> CommodityKey {
-    CommodityKey::new(MATERIAL_COPPER, FORM_ORE)
-}
-
-fn native_copper() -> CommodityKey {
-    CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)
-}
-
-fn make_copper_slag_composition(copper_parts_per_million: u32) -> MaterialComposition {
-    let slag_parts_per_million = 1_000_000_u32 - copper_parts_per_million;
-    match MaterialComposition::new(vec![
-        CompositionComponent::new(MATERIAL_COPPER, copper_parts_per_million),
-        CompositionComponent::new(MATERIAL_SLAG, slag_parts_per_million),
-    ]) {
-        Ok(composition) => composition,
-        Err(error) => panic!("composition fixture failed: {error}"),
-    }
-}
-
-fn minimum_copper_constraint(minimum: u32) -> CompositionConstraint {
-    match CompositionConstraint::new(MATERIAL_COPPER, minimum, 1_000_000) {
-        Ok(constraint) => constraint,
-        Err(error) => panic!("constraint fixture failed: {error}"),
-    }
-}
-
-fn make_test_process() -> ProcessDefinition {
-    ProcessDefinition::new(
-        TEST_PROCESS,
-        "test mass conversion",
-        vec![MaterialInputSpec::new(
-            wood_log(),
-            Mass::from_milligrams(10),
-        )],
-        Vec::new(),
+fn bind_source_mass(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    source: StockpileId,
+    mass: Mass,
+) -> super::super::resolution::ValidatedProcessInputs {
+    let lot =
+        state.inventory().lot_ids(source).next().unwrap_or_else(|| {
+            panic!("test process source {} has no material lot", source.value())
+        });
+    validate_process_inputs(
+        registries,
+        state,
+        process,
+        source,
+        &[MaterialLotSelection::new(lot, mass)],
     )
+    .unwrap_or_else(|error| panic!("test process input binding failed: {error}"))
+}
+
+#[derive(Clone, Copy)]
+struct TestHeatingResources {
+    equipment: EquipmentId,
+    energy: EnergyStoreId,
+}
+
+struct TestHeatingResolution(ResolvedSensibleHeating);
+
+impl Deref for TestHeatingResolution {
+    type Target = ProcessResolution;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.process_resolution()
+    }
+}
+
+fn add_test_heating_resources(
+    registries: &Registries,
+    state: &mut AppState,
+) -> TestHeatingResources {
+    let equipment = add_equipment(registries, state, STANDARD_TEST_HEATER, Condition::PRISTINE)
+        .unwrap_or_else(|error| panic!("test heating equipment fixture failed: {error}"));
+    let energy = add_energy_store_with_initial_for_fixture(
+        registries,
+        state,
+        STANDARD_TEST_HEATING_ENERGY,
+        Energy::from_nanojoules(10_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("test heating energy fixture failed: {error}"));
+    TestHeatingResources { equipment, energy }
+}
+
+fn resolve_test_heating(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    source: StockpileId,
+    resources: TestHeatingResources,
+    target: Temperature,
+) -> TestHeatingResolution {
+    let lot =
+        state.inventory().lot_ids(source).next().unwrap_or_else(|| {
+            panic!("test heating source {} has no material lot", source.value())
+        });
+    let resolved = resolve_sensible_heating_process(
+        registries,
+        state,
+        SensibleHeatingRequest::new(
+            process,
+            source,
+            &[MaterialLotSelection::new(lot, Mass::from_milligrams(10))],
+            resources.equipment,
+            resources.energy,
+            target,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("test sensible-heating resolution failed: {error}"));
+    TestHeatingResolution(resolved)
+}
+
+fn screening_distribution() -> ParticleSizeDistribution {
+    let class = |minimum, maximum, weight| {
+        let range = ParticleSizeRange::new(
+            Length::from_micrometers(minimum),
+            Length::from_micrometers(maximum),
+        )
+        .unwrap_or_else(|error| panic!("routed screening range fixture failed: {error}"));
+        ParticleSizeClass::new(range, weight)
+            .unwrap_or_else(|error| panic!("routed screening class fixture failed: {error}"))
+    };
+    ParticleSizeDistribution::new(vec![class(500, 2_000, 6), class(6_000, 10_000, 4)])
+        .unwrap_or_else(|error| panic!("routed screening distribution fixture failed: {error}"))
 }
 
 fn make_test_multi_stream_resolution(
     registries: &Registries,
-    state: &AppState,
+    state: &mut AppState,
     source: StockpileId,
-    duration_ticks: u64,
-) -> ProcessResolution {
-    let inputs = match validate_process_inputs(registries, state, TEST_PROCESS, source) {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("multi-stream input binding failed: {error}"),
-    };
-    make_test_process_resolution_with_streams(
-        inputs,
-        duration_ticks,
-        vec![
-            (
-                ProcessOutputStreamId::new(20),
-                vec![MaterialLotSpec::new(
-                    copper_ingot(),
-                    Mass::from_milligrams(4),
-                    Temperature::from_millikelvin(600_000),
-                )],
-            ),
-            (
-                ProcessOutputStreamId::new(10),
-                vec![MaterialLotSpec::new(
-                    stone_lump(),
-                    Mass::from_milligrams(6),
-                    Temperature::from_millikelvin(600_000),
-                )],
-            ),
-        ],
+) -> ResolvedScreening {
+    let input = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+        MaterialComposition::pure(MATERIAL_COPPER),
+        screening_distribution(),
     )
+    .unwrap_or_else(|error| panic!("routed screening input fixture failed: {error}"));
+    let lot = deposit_lot_spec_for_test(registries, state, source, input)
+        .unwrap_or_else(|error| panic!("routed screening deposit failed: {error}"));
+    let equipment = add_equipment(registries, state, STANDARD_TEST_SCREEN, Condition::PRISTINE)
+        .unwrap_or_else(|error| panic!("routed screening equipment fixture failed: {error}"));
+    let energy = add_energy_store_with_initial_for_fixture(
+        registries,
+        state,
+        STANDARD_TEST_SCREENING_ENERGY,
+        Energy::from_nanojoules(10_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("routed screening energy fixture failed: {error}"));
+    resolve_screening_process(
+        registries,
+        state,
+        ScreeningRequest::new(
+            TEST_PROCESS,
+            source,
+            &[MaterialLotSelection::new(lot, Mass::from_milligrams(10))],
+            equipment,
+            energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("routed screening resolution failed: {error}"))
 }
 
 fn make_test_registries() -> Registries {
-    make_test_registries_with_process(make_test_process())
+    make_test_registries_with_standard_sensible_heating(TEST_PROCESS)
 }
 
 fn make_test_resolution(
     registries: &Registries,
-    state: &AppState,
+    state: &mut AppState,
     source: StockpileId,
-    duration_ticks: u64,
-) -> ProcessResolution {
-    let inputs = match validate_process_inputs(registries, state, TEST_PROCESS, source) {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("test process input binding failed: {error}"),
-    };
-    make_test_process_resolution(
-        inputs,
-        duration_ticks,
-        vec![MaterialLotSpec::new(
-            stone_lump(),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(600_000),
-        )],
+) -> TestHeatingResolution {
+    let resources = add_test_heating_resources(registries, state);
+    resolve_test_heating(
+        registries,
+        state,
+        TEST_PROCESS,
+        source,
+        resources,
+        TEST_TARGET_TEMPERATURE,
     )
 }
 
 fn make_resolution_for_process(
     registries: &Registries,
-    state: &AppState,
+    state: &mut AppState,
     source: StockpileId,
     process: ProcessId,
-    duration_ticks: u64,
-    outputs: Vec<MaterialLotSpec>,
-) -> ProcessResolution {
-    let inputs = match validate_process_inputs(registries, state, process, source) {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("test process input binding failed: {error}"),
-    };
-    make_test_process_resolution(inputs, duration_ticks, outputs)
+    target: Temperature,
+) -> TestHeatingResolution {
+    let resources = add_test_heating_resources(registries, state);
+    resolve_test_heating(registries, state, process, source, resources, target)
 }
 
 fn commit_process_for_test(token: ValidatedStartProcess, state: &mut AppState) -> ProductionJobId {
@@ -224,11 +268,11 @@ fn process_start_rejects_exhausted_job_id_without_consuming_material() {
     encoded["state"]["systems"]["production"]["next_job_id"] = serde_json::json!(u64::MAX);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("production job-id exhaustion decode failed: {error}"));
-    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
         panic!("production job-id exhaustion fixture should load: {error}")
     });
+    let resolution = make_test_resolution(&registries, &mut loaded, source);
     let before = loaded.clone();
-    let resolution = make_test_resolution(&registries, &loaded, source, 3);
 
     assert_eq!(
         validate_start_process(&registries, &loaded, &resolution, source, destination).err(),
@@ -247,11 +291,11 @@ fn process_start_rejects_exhausted_production_revision_without_consuming_materia
     encoded["state"]["systems"]["production"]["revision"] = serde_json::json!(u64::MAX);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("production revision exhaustion decode failed: {error}"));
-    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
         panic!("production revision exhaustion fixture should load: {error}")
     });
+    let resolution = make_test_resolution(&registries, &mut loaded, source);
     let before = loaded.clone();
-    let resolution = make_test_resolution(&registries, &loaded, source, 3);
 
     assert_eq!(
         validate_start_process(&registries, &loaded, &resolution, source, destination).err(),
@@ -274,11 +318,11 @@ fn process_start_reserves_revision_capacity_for_admission_and_completion() {
         candidate["state"]["systems"][owner]["revision"] = serde_json::json!(u64::MAX - 1);
         let decoded: LoadedSaveEnvelope = serde_json::from_value(candidate)
             .unwrap_or_else(|error| panic!("production revision-budget decode failed: {error}"));
-        let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
             panic!("idle near-exhausted production owner should load: {error}")
         });
+        let resolution = make_test_resolution(&registries, &mut loaded, source);
         let before = loaded.clone();
-        let resolution = make_test_resolution(&registries, &loaded, source, 3);
 
         assert_eq!(
             validate_start_process(&registries, &loaded, &resolution, source, destination).err(),
@@ -295,7 +339,8 @@ fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
-    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let duration = resolution.duration();
 
     let token = match validate_start_process(&registries, &state, &resolution, source, destination)
     {
@@ -325,10 +370,10 @@ fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
             .production()
             .get_job(job)
             .map(ProductionJobRecord::completes_at),
-        Some(SimulationTick::new(3))
+        Some(SimulationTick::new(duration.value()))
     );
 
-    for expected_tick in 1..=2 {
+    for expected_tick in 1..duration.value() {
         let outcome = match advance_tick(&registries, &mut state) {
             Ok(outcome) => outcome,
             Err(error) => panic!("tick failed: {error}"),
@@ -350,7 +395,7 @@ fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
     };
     assert_eq!(destination_record.reserved_inbound(), Mass::ZERO);
     assert_eq!(
-        destination_record.get_mass(stone_lump()),
+        destination_record.get_mass(wood_log()),
         Mass::from_milligrams(10)
     );
     let output_lots: Vec<_> = state.inventory().lot_ids(destination).collect();
@@ -359,16 +404,16 @@ fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
         Some(lot) => lot,
         None => panic!("completed output lot disappeared"),
     };
+    assert_eq!(output_lot.temperature(), TEST_TARGET_TEMPERATURE);
     assert_eq!(
-        output_lot.temperature(),
-        Temperature::from_millikelvin(600_000)
+        output_lot.created_at(),
+        SimulationTick::new(duration.value())
     );
-    assert_eq!(output_lot.created_at(), SimulationTick::new(3));
 }
 
 #[test]
 fn production_preserves_input_storage_exposure_and_ages_work_in_process() {
-    let registries = make_test_registries_with_process(make_test_perishable_process());
+    let registries = make_test_registries_with_standard_sensible_heating(TEST_PERISHABLE_PROCESS);
     let mut state = AppState::new(WorldSeed::new(0x9000_0003));
     let preserved_profile = StockpileStorageProfile::with_preservation(
         true,
@@ -401,21 +446,17 @@ fn production_preserves_input_storage_exposure_and_ages_work_in_process() {
 
     let resolution = make_resolution_for_process(
         &registries,
-        &state,
+        &mut state,
         source,
         TEST_PERISHABLE_PROCESS,
-        3,
-        vec![MaterialLotSpec::new(
-            berry_food(),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(293_150),
-        )],
+        Temperature::from_millikelvin(500_000),
     );
+    let duration = resolution.duration();
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("perishable process start failed: {error}"));
     commit_process_for_test(token, &mut state);
 
-    for _ in 0..3 {
+    for _ in 0..duration.value() {
         let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("perishable process tick failed: {error}"));
     }
@@ -429,14 +470,15 @@ fn production_preserves_input_storage_exposure_and_ages_work_in_process() {
         .inventory()
         .get_lot(output_lot)
         .unwrap_or_else(|| panic!("perishable process output record disappeared"));
-    assert_eq!(output.created_at(), SimulationTick::new(9));
     assert_eq!(
-        assess_food_freshness(&registries, &state, output_lot),
-        Ok(FoodFreshness::Fresh {
-            age: TickSpan::new(5),
-            remaining: TickSpan::new(95_995),
-        })
+        output.created_at(),
+        SimulationTick::new(6 + duration.value())
     );
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, output_lot),
+        Ok(FoodFreshness::Fresh { age, .. })
+            if age == TickSpan::new(2 + duration.value())
+    ));
 }
 
 #[test]
@@ -446,7 +488,7 @@ fn persisted_production_storage_history_must_be_rebased_to_job_start() {
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("storage-history validation fixture failed: {error}"));
     let job = commit_process_for_test(token, &mut state);
@@ -492,7 +534,7 @@ fn production_started_after_time_elapsed_rebases_storage_history_to_ownership_bo
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
     apply_clock_advance(&mut state, SimulationTick::new(5));
-    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("later production start failed: {error}"));
     let job = commit_process_for_test(token, &mut state);
@@ -517,7 +559,7 @@ fn persisted_production_job_cannot_start_in_the_future() {
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("future-start validation fixture failed: {error}"));
     let job = commit_process_for_test(token, &mut state);
@@ -550,7 +592,7 @@ fn persisted_running_production_job_cannot_already_be_due() {
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("already-due validation fixture failed: {error}"));
     let job = commit_process_for_test(token, &mut state);
@@ -582,14 +624,20 @@ fn persisted_running_production_job_cannot_complete_before_active_duration() {
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let duration = resolution.duration();
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("early-due validation fixture failed: {error}"));
     let job = commit_process_for_test(token, &mut state);
     apply_clock_advance(&mut state, SimulationTick::new(1));
 
-    let forged_due = SimulationTick::new(2);
-    let expected_due = SimulationTick::new(3);
+    let expected_due = SimulationTick::new(duration.value());
+    let forged_due = SimulationTick::new(
+        duration
+            .value()
+            .checked_sub(1)
+            .unwrap_or_else(|| panic!("heating fixture duration must exceed zero")),
+    );
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("early-due fixture serialization failed: {error}"));
     encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["completes_at"] =
@@ -610,15 +658,9 @@ fn persisted_running_production_job_cannot_complete_before_active_duration() {
 }
 
 #[test]
-fn persisted_production_job_rejects_impossible_consumed_material_phase_state() {
+fn persisted_heating_job_rejects_consumed_state_hotter_than_committed_target() {
     let input = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
-    let process = ProcessDefinition::new(
-        TEST_COMPOSITION_PROCESS,
-        "test persisted phase validation",
-        vec![MaterialInputSpec::new(input, Mass::from_milligrams(10))],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
+    let registries = make_test_registries_with_standard_sensible_heating(TEST_COMPOSITION_PROCESS);
     let mut state = AppState::new(WorldSeed::new(0x9000_0007));
     let source = add_test_stockpile(&mut state, 20);
     let destination = add_test_stockpile(&mut state, 20);
@@ -633,15 +675,10 @@ fn persisted_production_job_rejects_impossible_consumed_material_phase_state() {
     .unwrap_or_else(|error| panic!("phase-validation input fixture failed: {error}"));
     let resolution = make_resolution_for_process(
         &registries,
-        &state,
+        &mut state,
         source,
         TEST_COMPOSITION_PROCESS,
-        3,
-        vec![MaterialLotSpec::new(
-            input,
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(300_000),
-        )],
+        TEST_TARGET_TEMPERATURE,
     );
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("phase-validation process start failed: {error}"));
@@ -668,28 +705,26 @@ fn persisted_production_job_rejects_impossible_consumed_material_phase_state() {
 
     assert_eq!(
         tampered.into_state(&registries),
-        Err(LoadError::InvalidState(
-            StateValidationError::InvalidJobConsumedPhaseState {
+        Err(LoadError::InvalidState(StateValidationError::ThermalJob(
+            ThermalJobValidationError::TargetBelowInputTemperature {
                 job,
-                error: MaterialPhaseStateError::SolidAboveMeltingPoint {
-                    material: MATERIAL_COPPER,
-                    temperature: invalid_temperature,
-                    melting_point,
-                },
+                current: invalid_temperature,
+                target: TEST_TARGET_TEMPERATURE,
             }
-        ))
+        )))
     );
 }
 
 #[test]
 fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
-    let registries = make_test_registries();
+    let registries = make_test_registries_with_standard_screening(TEST_PROCESS);
     let mut state = AppState::new(WorldSeed::new(10_001));
     let source = add_test_stockpile(&mut state, 20);
-    let stone_destination = add_test_stockpile(&mut state, 10);
-    let copper_destination = add_test_stockpile(&mut state, 10);
-    deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_multi_stream_resolution(&registries, &state, source, 1);
+    let undersize_destination = add_test_stockpile(&mut state, 10);
+    let oversize_destination = add_test_stockpile(&mut state, 10);
+    let resolved = make_test_multi_stream_resolution(&registries, &mut state, source);
+    let resolution = resolved.process_resolution();
+    let duration = resolution.duration();
     assert_eq!(
         resolution
             .output_streams()
@@ -697,19 +732,25 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
             .map(|stream| stream.id())
             .collect::<Vec<_>>(),
         vec![
-            ProcessOutputStreamId::new(10),
-            ProcessOutputStreamId::new(20)
+            ScreeningProcessDefinition::UNDERSIZE_STREAM,
+            ScreeningProcessDefinition::OVERSIZE_STREAM,
         ]
     );
 
     let token = match validate_start_process_routed(
         &registries,
         &state,
-        &resolution,
+        resolution,
         source,
         &[
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(20), copper_destination),
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), stone_destination),
+            ProcessOutputRoute::new(
+                ScreeningProcessDefinition::OVERSIZE_STREAM,
+                oversize_destination,
+            ),
+            ProcessOutputRoute::new(
+                ScreeningProcessDefinition::UNDERSIZE_STREAM,
+                undersize_destination,
+            ),
         ],
     ) {
         Ok(token) => token,
@@ -720,14 +761,14 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(stone_destination)
+            .get_stockpile(undersize_destination)
             .map(|record| record.reserved_inbound()),
         Some(Mass::from_milligrams(6))
     );
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(stone_destination)
+            .get_stockpile(undersize_destination)
             .map(|record| record.available_capacity()),
         Some(Mass::from_milligrams(4)),
         "available capacity must include committed production output"
@@ -735,14 +776,14 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(copper_destination)
+            .get_stockpile(oversize_destination)
             .map(|record| record.reserved_inbound()),
         Some(Mass::from_milligrams(4))
     );
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(copper_destination)
+            .get_stockpile(oversize_destination)
             .map(|record| record.available_capacity()),
         Some(Mass::from_milligrams(6)),
         "available capacity must distinguish each destination's reservation"
@@ -758,8 +799,14 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         stored_routes,
         vec![
-            (ProcessOutputStreamId::new(10), stone_destination),
-            (ProcessOutputStreamId::new(20), copper_destination),
+            (
+                ScreeningProcessDefinition::UNDERSIZE_STREAM,
+                undersize_destination,
+            ),
+            (
+                ScreeningProcessDefinition::OVERSIZE_STREAM,
+                oversize_destination,
+            ),
         ]
     );
     if let Err(error) = validate_loaded_state(&registries, &state) {
@@ -806,7 +853,7 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
         Err(LoadError::InvalidState(StateValidationError::Production(
             ProductionValidationError::DuplicateOutputStreamId {
                 job,
-                stream: ProcessOutputStreamId::new(10),
+                stream: ScreeningProcessDefinition::UNDERSIZE_STREAM,
             }
         )))
     );
@@ -838,6 +885,11 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     };
     assert_eq!(restored, state);
 
+    for _ in 1..duration.value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("multi-stream pre-completion tick failed: {error}"));
+        assert!(outcome.production_completions().is_empty());
+    }
     let outcome = match advance_tick(&registries, &mut state) {
         Ok(outcome) => outcome,
         Err(error) => panic!("multi-stream completion tick failed: {error}"),
@@ -847,94 +899,116 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     assert_eq!(
         outcome.production_completions()[0].routes(),
         [
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), stone_destination,),
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(20), copper_destination),
+            ProcessOutputRoute::new(
+                ScreeningProcessDefinition::UNDERSIZE_STREAM,
+                undersize_destination,
+            ),
+            ProcessOutputRoute::new(
+                ScreeningProcessDefinition::OVERSIZE_STREAM,
+                oversize_destination,
+            ),
         ]
     );
     let completion = &outcome.production_completions()[0];
     assert_eq!(completion.landings().len(), 2);
     assert_eq!(
         completion.landings()[0].stream(),
-        ProcessOutputStreamId::new(10)
+        ScreeningProcessDefinition::UNDERSIZE_STREAM
     );
-    assert_eq!(completion.landings()[0].destination(), stone_destination);
+    assert_eq!(
+        completion.landings()[0].destination(),
+        undersize_destination
+    );
     assert_eq!(completion.landings()[0].parcels().len(), 1);
     assert_eq!(
         completion.landings()[1].stream(),
-        ProcessOutputStreamId::new(20)
+        ScreeningProcessDefinition::OVERSIZE_STREAM
     );
-    assert_eq!(completion.landings()[1].destination(), copper_destination);
+    assert_eq!(completion.landings()[1].destination(), oversize_destination);
     assert_eq!(completion.landings()[1].parcels().len(), 1);
-    let stone_parcel = &completion.landings()[0].parcels()[0];
-    assert_eq!(stone_parcel.output().commodity(), stone_lump());
-    assert_eq!(stone_parcel.output().mass(), Mass::from_milligrams(6));
-    let stone_landing = state
-        .inventory()
-        .get_lot(stone_parcel.lot())
-        .unwrap_or_else(|| panic!("stone completion landing disappeared"));
-    assert_eq!(stone_landing.stockpile(), stone_destination);
-    assert_eq!(stone_landing.commodity(), stone_lump());
-    let copper_parcel = &completion.landings()[1].parcels()[0];
-    assert_eq!(copper_parcel.output().commodity(), copper_ingot());
-    assert_eq!(copper_parcel.output().mass(), Mass::from_milligrams(4));
-    let copper_landing = state
-        .inventory()
-        .get_lot(copper_parcel.lot())
-        .unwrap_or_else(|| panic!("copper completion landing disappeared"));
-    assert_eq!(copper_landing.stockpile(), copper_destination);
-    assert_eq!(copper_landing.commodity(), copper_ingot());
-    let stone_record = match state.inventory().get_stockpile(stone_destination) {
-        Some(record) => record,
-        None => panic!("stone destination disappeared"),
-    };
-    assert_eq!(stone_record.reserved_inbound(), Mass::ZERO);
+    let undersize_parcel = &completion.landings()[0].parcels()[0];
     assert_eq!(
-        stone_record.get_mass(stone_lump()),
+        undersize_parcel.output().commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)
+    );
+    assert_eq!(undersize_parcel.output().mass(), Mass::from_milligrams(6));
+    let undersize_landing = state
+        .inventory()
+        .get_lot(undersize_parcel.lot())
+        .unwrap_or_else(|| panic!("undersize completion landing disappeared"));
+    assert_eq!(undersize_landing.stockpile(), undersize_destination);
+    let oversize_parcel = &completion.landings()[1].parcels()[0];
+    assert_eq!(
+        oversize_parcel.output().commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)
+    );
+    assert_eq!(oversize_parcel.output().mass(), Mass::from_milligrams(4));
+    let oversize_landing = state
+        .inventory()
+        .get_lot(oversize_parcel.lot())
+        .unwrap_or_else(|| panic!("oversize completion landing disappeared"));
+    assert_eq!(oversize_landing.stockpile(), oversize_destination);
+    let undersize_record = match state.inventory().get_stockpile(undersize_destination) {
+        Some(record) => record,
+        None => panic!("undersize destination disappeared"),
+    };
+    assert_eq!(undersize_record.reserved_inbound(), Mass::ZERO);
+    assert_eq!(
+        undersize_record.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)),
         Mass::from_milligrams(6)
     );
     assert_eq!(
-        stone_record.available_capacity(),
+        undersize_record.available_capacity(),
         Mass::from_milligrams(4),
         "completion must replace reserved capacity with stored matter without changing free capacity"
     );
-    let copper_record = match state.inventory().get_stockpile(copper_destination) {
+    let oversize_record = match state.inventory().get_stockpile(oversize_destination) {
         Some(record) => record,
-        None => panic!("copper destination disappeared"),
+        None => panic!("oversize destination disappeared"),
     };
-    assert_eq!(copper_record.reserved_inbound(), Mass::ZERO);
+    assert_eq!(oversize_record.reserved_inbound(), Mass::ZERO);
     assert_eq!(
-        copper_record.get_mass(copper_ingot()),
+        oversize_record.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)),
         Mass::from_milligrams(4)
     );
-    assert_eq!(copper_record.available_capacity(), Mass::from_milligrams(6));
+    assert_eq!(
+        oversize_record.available_capacity(),
+        Mass::from_milligrams(6)
+    );
 }
 
 #[test]
 fn duplicate_output_route_is_rejected_atomically() {
-    let registries = make_test_registries();
+    let registries = make_test_registries_with_standard_screening(TEST_PROCESS);
     let mut state = AppState::new(WorldSeed::new(10_002));
     let source = add_test_stockpile(&mut state, 20);
     let first_destination = add_test_stockpile(&mut state, 10);
     let second_destination = add_test_stockpile(&mut state, 10);
-    deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_multi_stream_resolution(&registries, &state, source, 1);
+    let resolved = make_test_multi_stream_resolution(&registries, &mut state, source);
+    let resolution = resolved.process_resolution();
     let before = state.clone();
 
     let result = validate_start_process_routed(
         &registries,
         &state,
-        &resolution,
+        resolution,
         source,
         &[
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), first_destination),
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), second_destination),
+            ProcessOutputRoute::new(
+                ScreeningProcessDefinition::UNDERSIZE_STREAM,
+                first_destination,
+            ),
+            ProcessOutputRoute::new(
+                ScreeningProcessDefinition::UNDERSIZE_STREAM,
+                second_destination,
+            ),
         ],
     );
 
     assert_eq!(
         result,
         Err(StartProcessError::DuplicateOutputRoute {
-            stream: ProcessOutputStreamId::new(10),
+            stream: ScreeningProcessDefinition::UNDERSIZE_STREAM,
         })
     );
     assert_eq!(state, before);
@@ -942,22 +1016,22 @@ fn duplicate_output_route_is_rejected_atomically() {
 
 #[test]
 fn shared_destination_capacity_is_checked_against_aggregate_stream_mass() {
-    let registries = make_test_registries();
+    let registries = make_test_registries_with_standard_screening(TEST_PROCESS);
     let mut state = AppState::new(WorldSeed::new(10_003));
     let source = add_test_stockpile(&mut state, 20);
     let destination = add_test_stockpile(&mut state, 9);
-    deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_multi_stream_resolution(&registries, &state, source, 1);
+    let resolved = make_test_multi_stream_resolution(&registries, &mut state, source);
+    let resolution = resolved.process_resolution();
     let before = state.clone();
 
     let result = validate_start_process_routed(
         &registries,
         &state,
-        &resolution,
+        resolution,
         source,
         &[
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(10), destination),
-            ProcessOutputRoute::new(ProcessOutputStreamId::new(20), destination),
+            ProcessOutputRoute::new(ScreeningProcessDefinition::UNDERSIZE_STREAM, destination),
+            ProcessOutputRoute::new(ScreeningProcessDefinition::OVERSIZE_STREAM, destination),
         ],
     );
 
@@ -982,17 +1056,62 @@ fn failed_process_start_is_atomic() {
     deposit_test_wood(&registries, &mut state, source, 5);
     let before = state.clone();
 
-    let result = validate_process_inputs(&registries, &state, TEST_PROCESS, source);
+    let lot = state
+        .inventory()
+        .lot_ids(source)
+        .next()
+        .unwrap_or_else(|| panic!("atomicity fixture lost its material lot"));
+    let result = validate_process_inputs(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        &[MaterialLotSelection::new(lot, Mass::from_milligrams(10))],
+    );
 
     assert!(matches!(
         result,
-        Err(ProcessInputError::InsufficientMass {
-            stockpile: _stockpile,
-            commodity: _commodity,
+        Err(ProcessInputError::InsufficientSelectedLotMass {
+            lot: _lot,
             available: _available,
             requested: _requested,
         })
     ));
+    assert_eq!(state, before);
+}
+
+#[test]
+fn process_start_rejects_resolution_that_bypasses_registered_resource_topology() {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_0014));
+    let source = add_test_stockpile(&mut state, 100);
+    let destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, source, 10);
+    let inputs = bind_source_mass(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        Mass::from_milligrams(10),
+    );
+    let resolution = inputs
+        .resolve_without_resources(
+            TickSpan::new(1),
+            vec![MaterialLotSpec::new(
+                wood_log(),
+                Mass::from_milligrams(10),
+                Temperature::from_millikelvin(500_000),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("topology-bypass fixture resolution failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_process(&registries, &state, &resolution, source, destination),
+        Err(StartProcessError::ResolutionEnergyTopologyMismatch {
+            process: TEST_PROCESS,
+        })
+    );
     assert_eq!(state, before);
 }
 
@@ -1002,14 +1121,19 @@ fn resolved_process_cannot_create_or_destroy_unaccounted_matter() {
     let mut state = AppState::new(WorldSeed::new(111));
     let source = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let inputs = validate_process_inputs(&registries, &state, TEST_PROCESS, source)
-        .unwrap_or_else(|error| panic!("matter-balance input binding failed: {error}"));
+    let inputs = bind_source_mass(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        Mass::from_milligrams(10),
+    );
     let before = state.clone();
 
     let result = inputs.resolve_without_resources(
         TickSpan::new(3),
         vec![MaterialLotSpec::new(
-            stone_lump(),
+            wood_log(),
             Mass::from_milligrams(9),
             Temperature::from_millikelvin(600_000),
         )],
@@ -1033,7 +1157,7 @@ fn reserved_output_capacity_cannot_be_taken_by_later_deposits() {
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 12);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_resolution(&registries, &state, source, 20);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let token = match validate_start_process(&registries, &state, &resolution, source, destination)
     {
         Ok(token) => token,
@@ -1068,7 +1192,7 @@ fn same_stockpile_process_accounts_for_consumed_space_before_reserving_output() 
     let mut state = AppState::new(WorldSeed::new(13));
     let stockpile = add_test_stockpile(&mut state, 10);
     deposit_test_wood(&registries, &mut state, stockpile, 10);
-    let resolution = make_test_resolution(&registries, &state, stockpile, 2);
+    let resolution = make_test_resolution(&registries, &mut state, stockpile);
 
     let token = match validate_start_process(&registries, &state, &resolution, stockpile, stockpile)
     {
@@ -1093,13 +1217,14 @@ fn same_tick_completions_are_emitted_in_stable_job_id_order() {
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
 
-    let first_resolution = make_test_resolution(&registries, &state, source, 1);
+    let first_resolution = make_test_resolution(&registries, &mut state, source);
+    let duration = first_resolution.duration();
     let first =
         match validate_start_process(&registries, &state, &first_resolution, source, destination) {
             Ok(token) => commit_process_for_test(token, &mut state),
             Err(error) => panic!("first process validation failed: {error}"),
         };
-    let second_resolution = make_test_resolution(&registries, &state, source, 1);
+    let second_resolution = make_test_resolution(&registries, &mut state, source);
     let second = match validate_start_process(
         &registries,
         &state,
@@ -1119,7 +1244,11 @@ fn same_tick_completions_are_emitted_in_stable_job_id_order() {
         "two same-tick jobs must reserve their shared destination cumulatively"
     );
     let inventory_revision_before_completion = state.inventory().revision();
-
+    for _ in 1..duration.value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("pre-completion tick failed: {error}"));
+        assert!(outcome.production_completions().is_empty());
+    }
     let outcome = match advance_tick(&registries, &mut state) {
         Ok(outcome) => outcome,
         Err(error) => panic!("completion tick failed: {error}"),
@@ -1153,20 +1282,28 @@ fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
 
-    let first_resolution = make_test_resolution(&registries, &state, source, 1);
+    let first_resolution = make_test_resolution(&registries, &mut state, source);
+    let duration = first_resolution.duration();
     let first =
         match validate_start_process(&registries, &state, &first_resolution, source, destination) {
             Ok(token) => token,
             Err(error) => panic!("first process validation failed: {error}"),
         };
     commit_process_for_test(first, &mut state);
-    let first_outcome = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("first completion failed: {error}"));
+    let mut first_outcome = None;
+    for _ in 0..duration.value() {
+        first_outcome = Some(
+            advance_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("first completion failed: {error}")),
+        );
+    }
+    let first_outcome =
+        first_outcome.unwrap_or_else(|| panic!("first production resolution had zero duration"));
     let first_parcel = &first_outcome.production_completions()[0].landings()[0].parcels()[0];
     assert_eq!(first_parcel.output().mass(), Mass::from_milligrams(10));
     let surviving_lot = first_parcel.lot();
 
-    let second_resolution = make_test_resolution(&registries, &state, source, 1);
+    let second_resolution = make_test_resolution(&registries, &mut state, source);
     let second = match validate_start_process(
         &registries,
         &state,
@@ -1178,8 +1315,15 @@ fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_
         Err(error) => panic!("second process validation failed: {error}"),
     };
     commit_process_for_test(second, &mut state);
-    let second_outcome = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("second completion failed: {error}"));
+    let mut second_outcome = None;
+    for _ in 0..duration.value() {
+        second_outcome = Some(
+            advance_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("second completion failed: {error}")),
+        );
+    }
+    let second_outcome =
+        second_outcome.unwrap_or_else(|| panic!("second production resolution had zero duration"));
     let second_parcel = &second_outcome.production_completions()[0].landings()[0].parcels()[0];
     assert_eq!(second_parcel.output().mass(), Mass::from_milligrams(10));
     assert_eq!(
@@ -1196,8 +1340,11 @@ fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_
         .get_lot(lot_ids[0])
         .unwrap_or_else(|| panic!("coalesced production output disappeared"));
     assert_eq!(lot.mass(), Mass::from_milligrams(20));
-    assert_eq!(lot.created_at(), SimulationTick::new(1));
-    assert_eq!(lot.latest_created_at(), SimulationTick::new(2));
+    assert_eq!(lot.created_at(), SimulationTick::new(duration.value()));
+    assert_eq!(
+        lot.latest_created_at(),
+        SimulationTick::new(duration.value() * 2)
+    );
 }
 
 #[test]
@@ -1209,7 +1356,7 @@ fn resolution_source_mismatch_is_rejected_before_any_start_mutation() {
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
     deposit_test_wood(&registries, &mut state, other_source, 10);
-    let resolution = make_test_resolution(&registries, &state, source, 10);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let before = state.clone();
 
     assert_eq!(
@@ -1229,7 +1376,7 @@ fn resolved_inputs_become_stale_after_inventory_changes_before_start_validation(
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
-    let resolution = make_test_resolution(&registries, &state, source, 10);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let expected_revision = state.inventory().revision();
     add_test_stockpile(&mut state, 1);
     let before = state.clone();
@@ -1251,7 +1398,7 @@ fn stale_inventory_revision_rejects_validated_process_without_mutation() {
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
-    let resolution = make_test_resolution(&registries, &state, source, 10);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let token = match validate_start_process(&registries, &state, &resolution, source, destination)
     {
         Ok(token) => token,
@@ -1279,7 +1426,7 @@ fn stale_production_revision_rejects_second_validated_token_without_mutation() {
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 30);
-    let resolution = make_test_resolution(&registries, &state, source, 10);
+    let resolution = make_test_resolution(&registries, &mut state, source);
     let stale = match validate_start_process(&registries, &state, &resolution, source, destination)
     {
         Ok(token) => token,
@@ -1312,27 +1459,25 @@ fn in_flight_job_uses_committed_output_snapshot_after_later_resolution_differs()
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let resolution = make_test_resolution(&registries, &state, source, 1);
-    let later_resolution = make_resolution_for_process(
+    let resources = add_test_heating_resources(&registries, &mut state);
+    let resolution = resolve_test_heating(
         &registries,
         &state,
-        source,
         TEST_PROCESS,
-        1,
-        vec![
-            MaterialLotSpec::new(
-                stone_lump(),
-                Mass::from_milligrams(1),
-                Temperature::from_millikelvin(900_000),
-            ),
-            MaterialLotSpec::new(
-                copper_ingot(),
-                Mass::from_milligrams(9),
-                Temperature::from_millikelvin(900_000),
-            ),
-        ],
+        source,
+        resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    let later_resolution = resolve_test_heating(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        resources,
+        Temperature::from_millikelvin(1_000_000),
     );
     assert_ne!(resolution.outputs(), later_resolution.outputs());
+    let duration = resolution.duration();
     let token = match validate_start_process(&registries, &state, &resolution, source, destination)
     {
         Ok(token) => token,
@@ -1340,8 +1485,10 @@ fn in_flight_job_uses_committed_output_snapshot_after_later_resolution_differs()
     };
     commit_process_for_test(token, &mut state);
 
-    if let Err(error) = advance_tick(&registries, &mut state) {
-        panic!("completion after later resolution change failed: {error}");
+    for _ in 0..duration.value() {
+        if let Err(error) = advance_tick(&registries, &mut state) {
+            panic!("completion after later resolution change failed: {error}");
+        }
     }
 
     let destination_record = match state.inventory().get_stockpile(destination) {
@@ -1349,7 +1496,7 @@ fn in_flight_job_uses_committed_output_snapshot_after_later_resolution_differs()
         None => panic!("destination disappeared"),
     };
     assert_eq!(
-        destination_record.get_mass(stone_lump()),
+        destination_record.get_mass(wood_log()),
         Mass::from_milligrams(10)
     );
     let lot_id = match state.inventory().lot_ids(destination).next() {
@@ -1360,153 +1507,5 @@ fn in_flight_job_uses_committed_output_snapshot_after_later_resolution_differs()
         Some(lot) => lot,
         None => panic!("committed output lot record is missing"),
     };
-    assert_eq!(lot.temperature(), Temperature::from_millikelvin(600_000));
-}
-
-#[test]
-fn composition_constrained_process_consumes_only_eligible_lots() {
-    let input = match MaterialInputSpec::with_constraints(
-        copper_ore(),
-        Mass::from_milligrams(10),
-        vec![minimum_copper_constraint(800_000)],
-    ) {
-        Ok(input) => input,
-        Err(error) => panic!("input fixture failed: {error}"),
-    };
-    let process = ProcessDefinition::new(
-        TEST_COMPOSITION_PROCESS,
-        "test concentration",
-        vec![input],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
-    let mut state = AppState::new(WorldSeed::new(18));
-    let source = add_test_stockpile(&mut state, 100);
-    let destination = add_test_stockpile(&mut state, 100);
-    let poor = match deposit_composed_lot_for_test(
-        &registries,
-        &mut state,
-        source,
-        copper_ore(),
-        Mass::from_milligrams(20),
-        Temperature::from_millikelvin(300_000),
-        make_copper_slag_composition(600_000),
-    ) {
-        Ok(id) => id,
-        Err(error) => panic!("poor ore fixture failed: {error}"),
-    };
-
-    let poor_only = validate_process_inputs(&registries, &state, TEST_COMPOSITION_PROCESS, source);
-    match poor_only {
-        Err(ProcessInputError::InsufficientMass { available, .. }) => {
-            assert_eq!(available, Mass::ZERO);
-        }
-        Err(error) => panic!("unexpected composition validation error: {error}"),
-        Ok(_) => panic!("poor ore incorrectly satisfied rich-ore input constraint"),
-    }
-
-    let rich = match deposit_composed_lot_for_test(
-        &registries,
-        &mut state,
-        source,
-        copper_ore(),
-        Mass::from_milligrams(11),
-        Temperature::from_millikelvin(300_000),
-        make_copper_slag_composition(900_000),
-    ) {
-        Ok(id) => id,
-        Err(error) => panic!("rich ore fixture failed: {error}"),
-    };
-    let resolution = make_resolution_for_process(
-        &registries,
-        &state,
-        source,
-        TEST_COMPOSITION_PROCESS,
-        5,
-        vec![
-            MaterialLotSpec::new(
-                native_copper(),
-                Mass::from_milligrams(8),
-                Temperature::from_millikelvin(350_000),
-            ),
-            MaterialLotSpec::new(
-                copper_ingot(),
-                Mass::from_milligrams(2),
-                Temperature::from_millikelvin(350_000),
-            ),
-        ],
-    );
-    let token = match validate_start_process(&registries, &state, &resolution, source, destination)
-    {
-        Ok(token) => token,
-        Err(error) => panic!("rich ore should satisfy process: {error}"),
-    };
-    commit_process_for_test(token, &mut state);
-
-    let poor_lot = match state.inventory().get_lot(poor) {
-        Some(lot) => lot,
-        None => panic!("poor ore lot disappeared"),
-    };
-    let rich_lot = match state.inventory().get_lot(rich) {
-        Some(lot) => lot,
-        None => panic!("rich ore lot disappeared"),
-    };
-    assert_eq!(poor_lot.mass(), Mass::from_milligrams(20));
-    assert_eq!(rich_lot.mass(), Mass::from_milligrams(1));
-}
-
-#[test]
-fn overlapping_composition_inputs_cannot_double_count_one_lot() {
-    let first = match MaterialInputSpec::with_constraints(
-        copper_ore(),
-        Mass::from_milligrams(6),
-        vec![minimum_copper_constraint(800_000)],
-    ) {
-        Ok(input) => input,
-        Err(error) => panic!("first input fixture failed: {error}"),
-    };
-    let second = match MaterialInputSpec::with_constraints(
-        copper_ore(),
-        Mass::from_milligrams(6),
-        vec![minimum_copper_constraint(850_000)],
-    ) {
-        Ok(input) => input,
-        Err(error) => panic!("second input fixture failed: {error}"),
-    };
-    let process = ProcessDefinition::new(
-        TEST_COMPOSITION_PROCESS,
-        "overlapping composition selection",
-        vec![first, second],
-        Vec::new(),
-    );
-    let registries = make_test_registries_with_process(process);
-    let mut state = AppState::new(WorldSeed::new(19));
-    let source = add_test_stockpile(&mut state, 100);
-    add_test_stockpile(&mut state, 100);
-    if let Err(error) = deposit_composed_lot_for_test(
-        &registries,
-        &mut state,
-        source,
-        copper_ore(),
-        Mass::from_milligrams(10),
-        Temperature::from_millikelvin(300_000),
-        make_copper_slag_composition(900_000),
-    ) {
-        panic!("overlap lot fixture failed: {error}");
-    }
-
-    let result = validate_process_inputs(&registries, &state, TEST_COMPOSITION_PROCESS, source);
-
-    match result {
-        Err(ProcessInputError::InsufficientMass {
-            available,
-            requested,
-            ..
-        }) => {
-            assert_eq!(available, Mass::from_milligrams(4));
-            assert_eq!(requested, Mass::from_milligrams(6));
-        }
-        Err(error) => panic!("unexpected overlap validation error: {error}"),
-        Ok(_) => panic!("overlapping inputs double-counted one material lot"),
-    }
+    assert_eq!(lot.temperature(), TEST_TARGET_TEMPERATURE);
 }

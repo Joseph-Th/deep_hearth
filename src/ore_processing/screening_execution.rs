@@ -7,7 +7,7 @@ use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::Condition;
-use crate::production::{ProcessId, ProcessResolution, validate_selected_process_inputs};
+use crate::production::{ProcessId, ProcessResolution, validate_process_inputs};
 use crate::registry::Registries;
 
 use super::definitions::ScreeningProcessDefinition;
@@ -196,7 +196,7 @@ pub fn resolve_screening_process(
         .ore_processing()
         .get_screening(process)
         .ok_or(ScreeningResolutionError::UnknownScreeningProcess { process })?;
-    let inputs = validate_selected_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(ScreeningResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     let profile = definition.operating_profile();

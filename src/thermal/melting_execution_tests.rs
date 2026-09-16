@@ -113,7 +113,7 @@ fn make_registries(maximum_temperature: Temperature, carrier: EnergyCarrier) -> 
             Power::from_microwatts(10_000_000),
         ));
     }
-    let process = ProcessDefinition::new_selected_batch(
+    let process = ProcessDefinition::new(
         PROCESS,
         "pure material melting",
         vec![

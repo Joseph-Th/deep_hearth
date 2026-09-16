@@ -367,7 +367,7 @@ fn make_registries_with_definition(
         thresholds,
         vec![throughput_curve],
     );
-    let process = ProcessDefinition::new_selected_batch(
+    let process = ProcessDefinition::new(
         PROCESS,
         "test ore crushing",
         vec![

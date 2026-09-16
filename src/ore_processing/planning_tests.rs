@@ -108,7 +108,7 @@ fn make_registries(config: PlanningConfig) -> Registries {
         capabilities,
         thresholds,
     );
-    let process = ProcessDefinition::new_selected_batch(
+    let process = ProcessDefinition::new(
         PROCESS,
         "planning comminution",
         vec![

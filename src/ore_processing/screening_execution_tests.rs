@@ -106,7 +106,7 @@ fn registries_with_power_and_carrier(
         capabilities,
         thresholds,
     );
-    let process = ProcessDefinition::new_selected_batch(
+    let process = ProcessDefinition::new(
         PROCESS,
         "test dry screening",
         vec![

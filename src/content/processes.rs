@@ -99,193 +99,181 @@ fn thermal_resolver_requirements(
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
     for process in [
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_CRUSH_ORE,
             "crush ore",
             mass_flow_resolver_requirements(CAPABILITY_CRUSHER_FLOW, CAPABILITY_CRUSHER_BATCH),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_MELT_PURE_COPPER,
             "melt pure copper",
             thermal_resolver_requirements(CAPABILITY_HEATING_POWER),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_HEAT_MATERIAL_BATCH,
             "sensible heat material batch",
             thermal_resolver_requirements(CAPABILITY_HEATING_POWER),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_CAST_PURE_COPPER,
             "cast pure copper",
             thermal_resolver_requirements(CAPABILITY_COOLING_POWER),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SCREEN_CRUSHED_ORE,
             "screen crushed ore",
             mass_flow_resolver_requirements(CAPABILITY_SCREEN_FLOW, CAPABILITY_SCREEN_BATCH),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_GRIND_CRUSHED_ORE,
             "grind crushed ore",
             mass_flow_resolver_requirements(CAPABILITY_GRINDER_FLOW, CAPABILITY_GRINDER_BATCH),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
             "fine grind screen oversize",
             mass_flow_resolver_requirements(CAPABILITY_GRINDER_FLOW, CAPABILITY_GRINDER_BATCH),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_HAND_SORT_NATIVE_COPPER,
             "hand sort native copper from crushed ore",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_REKNAP_STONE_SCRAP_TOOL,
             "reknap stone scrap tool",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_ASSEMBLE_TIMBER_CHEST,
             "assemble timber chest body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
             "assemble double-wall timber chest body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_ASSEMBLE_BULK_TIMBER_CRATE,
             "assemble bulk timber crate body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_ASSEMBLE_INSULATED_TIMBER_PANTRY,
             "assemble insulated timber pantry body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
             "assemble rough timber field box body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SALVAGE_TIMBER_CHEST_BODY,
             "salvage timber chest body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
             "salvage double-wall timber chest body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SALVAGE_BULK_TIMBER_CRATE_BODY,
             "salvage bulk timber crate body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SALVAGE_INSULATED_TIMBER_PANTRY_BODY,
             "salvage insulated timber pantry body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY,
             "salvage rough timber field box body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
             "shape carved stone provisions crock body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
             "salvage carved stone provisions crock body",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(PROCESS_HAND_BREAK_ORE, "hand break ore", Vec::new()),
-        ProcessDefinition::new_selected_batch(
-            PROCESS_SHAPE_WOOD_BOARDS,
-            "shape timber boards",
-            Vec::new(),
-        ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(PROCESS_HAND_BREAK_ORE, "hand break ore", Vec::new()),
+        ProcessDefinition::new(PROCESS_SHAPE_WOOD_BOARDS, "shape timber boards", Vec::new()),
+        ProcessDefinition::new(
             PROCESS_SEPARATE_NATIVE_COPPER,
             "separate native copper from crushed ore",
             mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_CONCENTRATE_COPPER,
             "concentrate copper from liberated ore",
             mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
         ),
-        ProcessDefinition::new_selected_batch(
-            PROCESS_KNAP_STONE_TOOL,
-            "knap stone tool",
-            Vec::new(),
-        ),
-        ProcessDefinition::new_selected_batch(
-            PROCESS_SHAPE_WOOD_HANDLE,
-            "shape wood handle",
-            Vec::new(),
-        ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(PROCESS_KNAP_STONE_TOOL, "knap stone tool", Vec::new()),
+        ProcessDefinition::new(PROCESS_SHAPE_WOOD_HANDLE, "shape wood handle", Vec::new()),
+        ProcessDefinition::new(
             PROCESS_SHAPE_STONE_FLYWHEEL,
             "shape stone flywheel",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
             "cold-work native copper reinforcement",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
             "rework copper scrap reinforcement",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_PIERCE_COPPER_SCREEN_PLATE,
             "pierce copper sizing screen plate",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_COLD_WORK_COPPER_SAW_BLADE,
             "cold-work copper frame-saw blade",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SAW_WOOD_BOARDS,
             "rip timber boards on frame saw",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SHAPE_TIMBER_RIDDLE_PANEL,
             "shape timber riddle panel",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SHAPE_TIMBER_FLYWHEEL,
             "shape timber flywheel",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_REWORK_WOOD_SCRAP_HANDLE,
             "rework wood scrap into handle stock",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_RECOVER_WOOD_SCRAP_BOARDS,
             "recover board stock from wood scrap",
             Vec::new(),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_REGRIND_COPPER_TAILINGS,
             "regrind copper-bearing tailings",
             mass_flow_resolver_requirements(CAPABILITY_GRINDER_FLOW, CAPABILITY_GRINDER_BATCH),
         ),
-        ProcessDefinition::new_selected_batch(
+        ProcessDefinition::new(
             PROCESS_SCAVENGE_COPPER_TAILINGS,
             "scavenge copper from reground tailings",
             mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),

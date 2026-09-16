@@ -6,10 +6,9 @@ use crate::capability::{
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE,
-    MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
-    make_test_registries_with_energy_store, make_test_registries_with_equipment,
-    make_test_registries_with_process, make_test_registries_with_sensible_heating,
+    FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_energy_store,
+    make_test_registries_with_equipment, make_test_registries_with_sensible_heating,
 };
 use crate::core::quantity::{Area, Energy, Force, Mass, Power, Temperature};
 use crate::core::state::apply_clock_advance;
@@ -28,13 +27,9 @@ use crate::inventory::{
     validate_mount_stockpile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::{
-    CommodityKey, CompositionComponent, MaterialComposition, MaterialId, MaterialInputSpec,
-    MaterialLotSpec,
-};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
 use crate::production::{
-    ProcessDefinition, ProcessId, ProcessResolution, ProductionValidationError,
-    make_test_process_resolution, validate_process_inputs, validate_start_process,
+    ProcessDefinition, ProcessId, ProductionValidationError, validate_start_process,
 };
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -49,7 +44,6 @@ use crate::thermal::{
     resolve_sensible_heating_process,
 };
 
-const TEST_PROCESS: ProcessId = ProcessId::new(900_101);
 const TEST_EQUIPMENT_CAPABILITY: CapabilityId = CapabilityId::new(900_301);
 const TEST_EQUIPMENT_DEFINITION: EquipmentDefinitionId = EquipmentDefinitionId::new(900_301);
 const TEST_ENERGY_DEFINITION: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(900_401);
@@ -256,7 +250,7 @@ fn make_test_heating_registries() -> Registries {
         Ok(thresholds) => thresholds,
         Err(error) => panic!("heating persistence maintenance fixture failed: {error}"),
     };
-    let process = ProcessDefinition::new_selected_batch(
+    let process = ProcessDefinition::new(
         TEST_HEAT_PROCESS,
         "persistence sensible heating",
         vec![
@@ -322,6 +316,65 @@ fn make_test_heating_registries() -> Registries {
     )
 }
 
+fn make_started_test_heating_state(seed: WorldSeed) -> (Registries, AppState) {
+    let registries = make_test_heating_registries();
+    let mut state = AppState::new(seed);
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("heating persistence source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("heating persistence destination failed: {error}"));
+    let input_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("heating persistence material fixture failed: {error}"));
+    let equipment = add_equipment(
+        &registries,
+        &mut state,
+        TEST_HEATER_DEFINITION,
+        Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("heating persistence equipment failed: {error}"));
+    let energy_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        TEST_HEAT_ENERGY_DEFINITION,
+        Energy::from_nanojoules(500_000_000),
+    )
+    .unwrap_or_else(|error| panic!("heating persistence energy failed: {error}"));
+    let resolved = resolve_sensible_heating_process(
+        &registries,
+        &state,
+        SensibleHeatingRequest::new(
+            TEST_HEAT_PROCESS,
+            source,
+            &[MaterialLotSelection::new(
+                input_lot,
+                Mass::from_milligrams(10),
+            )],
+            equipment,
+            energy_store,
+            Temperature::from_millikelvin(303_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("heating persistence resolution failed: {error}"));
+    validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("heating persistence start validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("heating persistence start commit failed: {error}"));
+    (registries, state)
+}
+
 fn replace_serialized_field(
     encoded: &str,
     field: &str,
@@ -366,32 +419,8 @@ fn duplicate_first_object_entry(encoded: &str, field: &str, object: &serde_json:
 
 #[test]
 fn duplicate_persistent_map_and_set_entries_are_rejected_during_decode() {
-    let registries = make_test_registries_with_process(make_test_process());
-    let mut production_state = AppState::new(WorldSeed::new(0xD001_0001));
-    let source = add_solid_stockpile_for_test(&mut production_state, Mass::from_milligrams(10))
-        .unwrap_or_else(|error| panic!("duplicate-job source fixture failed: {error}"));
-    let destination =
-        add_solid_stockpile_for_test(&mut production_state, Mass::from_milligrams(20))
-            .unwrap_or_else(|error| panic!("duplicate-job destination fixture failed: {error}"));
-    deposit_bulk_for_test(
-        &registries,
-        &mut production_state,
-        source,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(10),
-    )
-    .unwrap_or_else(|error| panic!("duplicate-job input fixture failed: {error}"));
-    let resolution = make_test_resolution(&registries, &production_state, source);
-    validate_start_process(
-        &registries,
-        &production_state,
-        &resolution,
-        source,
-        destination,
-    )
-    .unwrap_or_else(|error| panic!("duplicate-job validation fixture failed: {error}"))
-    .commit(&mut production_state)
-    .unwrap_or_else(|error| panic!("duplicate-job commit fixture failed: {error}"));
+    let (registries, production_state) =
+        make_started_test_heating_state(WorldSeed::new(0xD001_0001));
     let production_value = serde_json::to_value(SaveEnvelope::new(&registries, &production_state))
         .unwrap_or_else(|error| panic!("duplicate-job fixture serialization failed: {error}"));
     let production_json = serde_json::to_string(&production_value)
@@ -571,42 +600,6 @@ fn link_test_structural_support(
         Err(error) => panic!("structural persistence support link failed: {error}"),
     };
     let _ = commit_test_structural_mutation(token, state);
-}
-
-fn make_test_process_with_input_mass(milligrams: u64) -> ProcessDefinition {
-    ProcessDefinition::new(
-        TEST_PROCESS,
-        "persistence test transform",
-        vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(milligrams),
-        )],
-        Vec::new(),
-    )
-}
-
-fn make_test_process() -> ProcessDefinition {
-    make_test_process_with_input_mass(10)
-}
-
-fn make_test_resolution(
-    registries: &Registries,
-    state: &AppState,
-    source: crate::inventory::StockpileId,
-) -> ProcessResolution {
-    let inputs = match validate_process_inputs(registries, state, TEST_PROCESS, source) {
-        Ok(inputs) => inputs,
-        Err(error) => panic!("persistence process input binding failed: {error}"),
-    };
-    make_test_process_resolution(
-        inputs,
-        5,
-        vec![MaterialLotSpec::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(10),
-            Temperature::from_millikelvin(500_000),
-        )],
-    )
 }
 
 #[test]
@@ -1972,177 +1965,6 @@ fn in_flight_sensible_heating_round_trip_preserves_energy_trace_and_continuation
             .map(|record| record.condition()),
         expected_equipment_condition_after
     );
-}
-
-#[test]
-fn in_flight_job_round_trip_preserves_deterministic_continuation() {
-    let registries = make_test_registries_with_process(make_test_process());
-    let mut state = AppState::new(WorldSeed::new(0xC011_71A0));
-    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
-        Ok(id) => id,
-        Err(error) => panic!("fixture source failed: {error}"),
-    };
-    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
-        Ok(id) => id,
-        Err(error) => panic!("fixture destination failed: {error}"),
-    };
-    if let Err(error) = deposit_bulk_for_test(
-        &registries,
-        &mut state,
-        source,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(10),
-    ) {
-        panic!("fixture deposit failed: {error}");
-    }
-    let resolution = make_test_resolution(&registries, &state, source);
-    let token = match validate_start_process(&registries, &state, &resolution, source, destination)
-    {
-        Ok(token) => token,
-        Err(error) => panic!("fixture process failed validation: {error}"),
-    };
-    if let Err(error) = token.commit(&mut state) {
-        panic!("fixture process commit failed: {error}");
-    }
-    for _ in 0..2 {
-        if let Err(error) = advance_tick(&registries, &mut state) {
-            panic!("fixture tick failed: {error}");
-        }
-    }
-    let mut uninterrupted = state.clone();
-
-    let encoded = match serde_json::to_vec(&SaveEnvelope::new(&registries, &state)) {
-        Ok(encoded) => encoded,
-        Err(error) => panic!("in-flight save serialization failed: {error}"),
-    };
-    let decoded: LoadedSaveEnvelope = match serde_json::from_slice(&encoded) {
-        Ok(decoded) => decoded,
-        Err(error) => panic!("in-flight save deserialization failed: {error}"),
-    };
-    let mut resumed = match decoded.into_state(&registries) {
-        Ok(state) => state,
-        Err(error) => panic!("in-flight save validation failed: {error}"),
-    };
-
-    for _ in 0..8 {
-        let uninterrupted_outcome = match advance_tick(&registries, &mut uninterrupted) {
-            Ok(outcome) => outcome,
-            Err(error) => panic!("uninterrupted continuation failed: {error}"),
-        };
-        let resumed_outcome = match advance_tick(&registries, &mut resumed) {
-            Ok(outcome) => outcome,
-            Err(error) => panic!("resumed continuation failed: {error}"),
-        };
-        assert_eq!(resumed_outcome, uninterrupted_outcome);
-    }
-
-    assert_eq!(resumed, uninterrupted);
-}
-
-#[test]
-fn in_flight_job_survives_later_process_requirement_rebalance() {
-    let original_registries = make_test_registries_with_process(make_test_process());
-    let mut state = AppState::new(WorldSeed::new(0xBA1A_0CE0));
-    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
-        Ok(id) => id,
-        Err(error) => panic!("fixture source failed: {error}"),
-    };
-    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
-        Ok(id) => id,
-        Err(error) => panic!("fixture destination failed: {error}"),
-    };
-    if let Err(error) = deposit_bulk_for_test(
-        &original_registries,
-        &mut state,
-        source,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(10),
-    ) {
-        panic!("fixture deposit failed: {error}");
-    }
-    let resolution = make_test_resolution(&original_registries, &state, source);
-    let token = match validate_start_process(
-        &original_registries,
-        &state,
-        &resolution,
-        source,
-        destination,
-    ) {
-        Ok(token) => token,
-        Err(error) => panic!("fixture process failed validation: {error}"),
-    };
-    if let Err(error) = token.commit(&mut state) {
-        panic!("fixture process commit failed: {error}");
-    }
-
-    let encoded = match serde_json::to_vec(&SaveEnvelope::new(&original_registries, &state)) {
-        Ok(encoded) => encoded,
-        Err(error) => panic!("in-flight save serialization failed: {error}"),
-    };
-    let changed_registries =
-        make_test_registries_with_process(make_test_process_with_input_mass(20));
-    let decoded: LoadedSaveEnvelope = match serde_json::from_slice(&encoded) {
-        Ok(decoded) => decoded,
-        Err(error) => panic!("in-flight save deserialization failed: {error}"),
-    };
-    let mut loaded = match decoded.into_state(&changed_registries) {
-        Ok(state) => state,
-        Err(error) => panic!("rebalanced in-flight save failed validation: {error}"),
-    };
-    for _ in 0..5 {
-        if let Err(error) = advance_tick(&changed_registries, &mut loaded) {
-            panic!("rebalanced in-flight continuation failed: {error}");
-        }
-    }
-    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
-    let destination_record = match loaded.inventory().get_stockpile(destination) {
-        Some(record) => record,
-        None => panic!("destination disappeared after completion"),
-    };
-    assert_eq!(
-        destination_record.get_mass(stone),
-        Mass::from_milligrams(10)
-    );
-}
-
-#[test]
-fn obsolete_in_flight_consumed_mass_field_is_rejected_during_decode() {
-    let registries = make_test_registries_with_process(make_test_process());
-    let mut state = AppState::new(WorldSeed::new(0xC0DE_0009));
-    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
-        Ok(id) => id,
-        Err(error) => panic!("fixture source failed: {error}"),
-    };
-    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
-        Ok(id) => id,
-        Err(error) => panic!("fixture destination failed: {error}"),
-    };
-    if let Err(error) = deposit_bulk_for_test(
-        &registries,
-        &mut state,
-        source,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(10),
-    ) {
-        panic!("fixture deposit failed: {error}");
-    }
-    let resolution = make_test_resolution(&registries, &state, source);
-    let token = match validate_start_process(&registries, &state, &resolution, source, destination)
-    {
-        Ok(token) => token,
-        Err(error) => panic!("fixture process failed validation: {error}"),
-    };
-    let job = match token.commit(&mut state) {
-        Ok(job) => job,
-        Err(error) => panic!("fixture process commit failed: {error}"),
-    };
-    let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-        Ok(encoded) => encoded,
-        Err(error) => panic!("save serialization failed: {error}"),
-    };
-    encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]["consumed_mass"] =
-        serde_json::json!(9);
-    assert!(serde_json::from_value::<LoadedSaveEnvelope>(encoded).is_err());
 }
 
 #[test]

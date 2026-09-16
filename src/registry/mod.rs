@@ -31,8 +31,6 @@ mod validation;
 mod process_topology_tests;
 
 use process_topology::build_process_topology;
-#[cfg(test)]
-use process_topology::build_process_topology_for_owner_tests;
 pub use process_topology::{
     ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily, ProcessTopology,
 };
@@ -129,24 +127,6 @@ impl Registries {
     ) -> Self {
         validate_registry_domains(&core, &domains);
         let process_topology = build_process_topology(&domains);
-        Self {
-            schema_version,
-            core,
-            domains,
-            process_topology,
-        }
-    }
-
-    /// Assembles registries for isolated tests of the generic production owner without requiring a
-    /// gameplay resolver family for the synthetic process definition.
-    #[cfg(test)]
-    pub(crate) fn new_for_isolated_production_owner_test(
-        schema_version: RegistrySchemaVersion,
-        core: CoreDefinitions,
-        domains: RegistryDomains,
-    ) -> Self {
-        validate_registry_domains(&core, &domains);
-        let process_topology = build_process_topology_for_owner_tests(&domains);
         Self {
             schema_version,
             core,
