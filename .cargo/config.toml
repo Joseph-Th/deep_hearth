@@ -9,8 +9,10 @@ linker = "lld-link.exe"
 # stable test-support feature shape for unit and gameplay tests instead of recompiling the library
 # under separate Cargo feature fingerprints.
 check-fast = "check --quiet --locked --lib"
-# The optional lint checkpoint checks production code only. Broader alternate feature shapes are
-# verified by their owning executable lanes rather than one expensive all-features Clippy ritual.
+# `test-lint` is the fast lib-only Clippy loop for unstable code. The explicit
+# `python ci.py gate --lint` checkpoint separately covers all targets/features
+# with full local parallelism; that broad lane stays opt-in so one small edit
+# never pays for every test binary.
 test-lint = "clippy --locked --lib -- -D warnings"
 test-core = "test --quiet --locked --lib --features test-gameplay"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not

@@ -85,8 +85,11 @@ wildcard_enum_match_arm = "deny"
 
 [profile.test]
 # Test failures already carry source locations and typed assertion context; omitting debug symbols
-# keeps local test-binary codegen/linking out of the ordinary feedback bottleneck.
+# keeps local test-binary codegen/linking out of the ordinary feedback bottleneck. Maximum
+# codegen units and incremental compilation keep small-edit rebuilds on the fast path.
 debug = 0
+codegen-units = 256
+incremental = true
 
 [profile.release]
 overflow-checks = true

@@ -20,6 +20,34 @@ import ci  # noqa: E402
 from tools import check_authority_docs, check_bca, run_test  # noqa: E402
 
 
+_source_text_cache: dict[Path, str] = {}
+_maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
+
+
+def read_maintained_text(path: Path) -> str:
+    """Return cached source text; the working tree is static during one contract run."""
+
+    if path not in _source_text_cache:
+        _source_text_cache[path] = path.read_text(encoding="utf-8")
+    return _source_text_cache[path]
+
+
+def maintained_rust_files(*roots: Path) -> list[Path]:
+    """Return maintained Rust files in stable order without repeated directory walks."""
+
+    if roots not in _maintained_files_cache:
+        files = [path for root in roots for path in root.rglob("*.rs")]
+        _maintained_files_cache[roots] = sorted(files)
+    return _maintained_files_cache[roots]
+
+
+def _harness_root_declaration(harness: Path, module: str) -> str:
+    """Render the exact root lines that wire one harness module into a focused target."""
+
+    assert (harness / f"{module}.rs").is_file(), module
+    return f'#[path = "gameplay_harness/{module}.rs"]\nmod {module};'
+
+
 def gate_args(**overrides: object) -> argparse.Namespace:
     values: dict[str, object] = {
         "preset": "gate",
@@ -102,7 +130,7 @@ def named_struct_fields(
 def deserialized_named_structs(
     path: Path,
 ) -> list[tuple[int, str, str, list[tuple[int, str, str]]]]:
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = read_maintained_text(path).splitlines()
     structures: list[tuple[int, str, str, list[tuple[int, str, str]]]] = []
     pending_attributes: list[str] = []
     depth = 0
@@ -164,12 +192,17 @@ class LocalCiPlanTests(unittest.TestCase):
         )
 
     def test_focused_gameplay_roots_are_closed_over_harness_dependencies(self) -> None:
+        harness = ROOT / "tests" / "gameplay_harness"
         for scope, target in ci.GAMEPLAY_TARGETS.items():
-            self.assertEqual(
-                run_test.missing_root_modules(target, ROOT / "tests" / "gameplay_harness"),
-                [],
-                f"focused gameplay target {scope!r} is missing a root-level harness module",
-            )
+            missing = run_test.missing_root_modules(target, harness)
+            if missing:
+                snippet = "\n".join(
+                    _harness_root_declaration(harness, module) for module in missing
+                )
+                self.fail(
+                    f"focused gameplay target {scope!r} is missing root-level harness "
+                    f"modules {missing}; add to tests/{target}.rs:\n{snippet}"
+                )
 
     def test_focused_gameplay_targets_exclude_report_only_catalog_code(self) -> None:
         report_only = ROOT / "tests" / "gameplay_harness" / "catalog.rs"
@@ -348,18 +381,21 @@ class LocalCiPlanTests(unittest.TestCase):
         args = check_bca.parse_args(
             ["review", "--changed", "--since", "HEAD", "--path", "src/production/state"]
         )
-        commands = check_bca.execution_commands_for(
-            args,
-            changed_paths=[
-                "src/production/state.rs",
-                "src/production/state/indexes.rs",
-                "src/labor/power_execution.rs",
-            ],
-            exists_at_revision={
-                "src/production/state.rs",
-                "src/production/state",
-            }.__contains__,
-        )
+        # The review helper narrates scope widening to stdout; keep the
+        # contract output concise by discarding that narration here.
+        with contextlib.redirect_stdout(io.StringIO()):
+            commands = check_bca.execution_commands_for(
+                args,
+                changed_paths=[
+                    "src/production/state.rs",
+                    "src/production/state/indexes.rs",
+                    "src/labor/power_execution.rs",
+                ],
+                exists_at_revision={
+                    "src/production/state.rs",
+                    "src/production/state",
+                }.__contains__,
+            )
         self.assertEqual(
             commands,
             [
@@ -523,24 +559,23 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_unit_test_bodies_stay_out_of_production_source_files(self) -> None:
         inline_module = re.compile(r"#\[cfg\(test\)\]\s*mod\s+[A-Za-z0-9_]+\s*\{")
-        maintained_support = [
-            *(ROOT / "src").rglob("*.rs"),
-            *(ROOT / "tests" / "gameplay_harness").rglob("*.rs"),
-        ]
+        maintained_support = maintained_rust_files(
+            ROOT / "src", ROOT / "tests" / "gameplay_harness"
+        )
         offenders = [
             path.relative_to(ROOT).as_posix()
             for path in maintained_support
             if not path.name.endswith("_tests.rs")
             and path.name not in {"tests.rs", "mod_tests.rs"}
-            if inline_module.search(path.read_text(encoding="utf-8"))
+            if inline_module.search(read_maintained_text(path))
         ]
         self.assertEqual(offenders, [])
 
     def test_gameplay_harness_does_not_enumerate_unexpected_variants_only_to_panic(self) -> None:
         offenders = [
             path.relative_to(ROOT).as_posix()
-            for path in (ROOT / "tests" / "gameplay_harness").rglob("*.rs")
-            if "other @ (" in path.read_text(encoding="utf-8")
+            for path in maintained_rust_files(ROOT / "tests" / "gameplay_harness")
+            if "other @ (" in read_maintained_text(path)
         ]
         self.assertEqual(offenders, [])
 
@@ -548,23 +583,49 @@ class LocalCiPlanTests(unittest.TestCase):
         forbidden = re.compile(r"#\[should_panic\s*\([^]]*\bexpected\s*=", re.DOTALL)
         offenders = [
             path.relative_to(ROOT).as_posix()
-            for path in (ROOT / "tests" / "gameplay_harness").rglob("*.rs")
-            if forbidden.search(path.read_text(encoding="utf-8"))
+            for path in maintained_rust_files(ROOT / "tests" / "gameplay_harness")
+            if forbidden.search(read_maintained_text(path))
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_unit_tests_do_not_bind_assertions_to_panic_prose(self) -> None:
+        forbidden = re.compile(r"#\[should_panic\s*\([^]]*\bexpected\s*=", re.DOTALL)
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in maintained_rust_files(ROOT / "src")
+            if forbidden.search(read_maintained_text(path))
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_gate_compiled_sources_avoid_wall_clock_nondeterminism(self) -> None:
+        forbidden = re.compile(r"\bSystemTime\b|Instant::now|thread::sleep")
+        # Fresh organic sampling is report-only and prints its root before
+        # execution, so it stays replayable; routine gates never compile it.
+        allowed = {
+            (ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs").resolve(),
+        }
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in maintained_rust_files(
+                ROOT / "src", ROOT / "tests" / "gameplay_harness"
+            )
+            if path.resolve() not in allowed
+            if forbidden.search(read_maintained_text(path))
         ]
         self.assertEqual(offenders, [])
 
     def test_gameplay_harness_never_discards_tick_outcomes(self) -> None:
         offenders = [
             path.relative_to(ROOT).as_posix()
-            for path in (ROOT / "tests" / "gameplay_harness").rglob("*.rs")
-            if "let _ = advance_tick" in path.read_text(encoding="utf-8")
+            for path in maintained_rust_files(ROOT / "tests" / "gameplay_harness")
+            if "let _ = advance_tick" in read_maintained_text(path)
         ]
         self.assertEqual(offenders, [])
 
     def test_gameplay_feature_public_surface_is_explicitly_bounded(self) -> None:
         exposed: set[tuple[str, str]] = set()
-        for path in (ROOT / "src").rglob("*.rs"):
-            lines = path.read_text(encoding="utf-8").splitlines()
+        for path in maintained_rust_files(ROOT / "src"):
+            lines = read_maintained_text(path).splitlines()
             attributes: list[str] = []
             index = 0
             while index < len(lines):
@@ -595,7 +656,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 ("src/content/mod.rs", "pub mod gameplay_fixture;"),
             },
         )
-        content = (ROOT / "src" / "content" / "mod.rs").read_text(encoding="utf-8")
+        content = read_maintained_text(ROOT / "src" / "content" / "mod.rs")
         self.assertRegex(
             content,
             r'#\[cfg\(feature = "test-gameplay"\)\]\s*#\[doc\(hidden\)\]\s*pub mod gameplay_fixture;',
@@ -603,8 +664,8 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_test_only_source_items_do_not_use_external_public_visibility(self) -> None:
         offenders: list[str] = []
-        for path in (ROOT / "src").rglob("*.rs"):
-            lines = path.read_text(encoding="utf-8").splitlines()
+        for path in maintained_rust_files(ROOT / "src"):
+            lines = read_maintained_text(path).splitlines()
             attributes: list[str] = []
             index = 0
             while index < len(lines):
@@ -632,8 +693,8 @@ class LocalCiPlanTests(unittest.TestCase):
             r"\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum)\s+(Validated[A-Za-z0-9_]*)"
         )
         offenders: list[str] = []
-        for path in (ROOT / "src").rglob("*.rs"):
-            lines = path.read_text(encoding="utf-8").splitlines()
+        for path in maintained_rust_files(ROOT / "src"):
+            lines = read_maintained_text(path).splitlines()
             for index, line in enumerate(lines):
                 match = validated_type.match(line)
                 if match is None:
@@ -649,8 +710,8 @@ class LocalCiPlanTests(unittest.TestCase):
             r"\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum)\s+([A-Za-z0-9_]*Outcome[A-Za-z0-9_]*)"
         )
         offenders: list[str] = []
-        for path in (ROOT / "src").rglob("*.rs"):
-            lines = path.read_text(encoding="utf-8").splitlines()
+        for path in maintained_rust_files(ROOT / "src"):
+            lines = read_maintained_text(path).splitlines()
             for index, line in enumerate(lines):
                 match = outcome_type.match(line)
                 if match is None:
@@ -664,7 +725,7 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_deserialized_structs_deny_unknown_fields(self) -> None:
         offenders = [
             f"{path.relative_to(ROOT).as_posix()}:{line}:{name}"
-            for path in (ROOT / "src").rglob("*.rs")
+            for path in maintained_rust_files(ROOT / "src")
             for line, name, attributes, _fields in deserialized_named_structs(path)
             if "serde(deny_unknown_fields)" not in attributes
         ]
@@ -677,7 +738,7 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         offenders = [
             f"{path.relative_to(ROOT).as_posix()}:{line}:{field}"
-            for path in (ROOT / "src").rglob("*.rs")
+            for path in maintained_rust_files(ROOT / "src")
             for _struct_line, _name, _attributes, fields in deserialized_named_structs(path)
             for line, field, attributes in fields
             if ":" in field
@@ -693,14 +754,14 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         offenders = [
             f"{path.relative_to(ROOT).as_posix()}:{index + 1}:{line.strip()}"
-            for path in (ROOT / "src").rglob("*.rs")
-            for index, line in enumerate(path.read_text(encoding="utf-8").splitlines())
+            for path in maintained_rust_files(ROOT / "src")
+            for index, line in enumerate(read_maintained_text(path).splitlines())
             if forbidden.search(line)
         ]
         self.assertEqual(offenders, [])
 
     def test_app_state_deserialization_is_owned_by_trusted_load(self) -> None:
-        state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+        state_source = read_maintained_text(ROOT / "src" / "core" / "state.rs")
         app_state = re.search(
             r"((?:#\[[^\n]+\]\s*)*)pub struct AppState\s*\{",
             state_source,
@@ -709,22 +770,20 @@ class LocalCiPlanTests(unittest.TestCase):
         assert app_state is not None
         self.assertNotIn("Deserialize", app_state.group(1))
 
-        persistence_source = (ROOT / "src" / "persistence" / "mod.rs").read_text(
-            encoding="utf-8"
-        )
+        persistence_source = read_maintained_text(ROOT / "src" / "persistence" / "mod.rs")
         self.assertRegex(
             persistence_source,
             r'#\[serde\(deserialize_with = "crate::core::state::deserialize_unvalidated_app_state"\)\]\s*state: AppState,',
         )
 
     def test_app_state_public_surface_does_not_expose_world_seed(self) -> None:
-        state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+        state_source = read_maintained_text(ROOT / "src" / "core" / "state.rs")
         self.assertIsNone(
             re.search(r"\bpub\s+(?:const\s+)?fn\s+world_seed\s*\(", state_source)
         )
 
     def test_app_state_hidden_snapshot_traits_are_evaluation_only(self) -> None:
-        state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+        state_source = read_maintained_text(ROOT / "src" / "core" / "state.rs")
         self.assertIn(
             '#[cfg_attr(any(test, feature = "test-gameplay"), derive(Clone, PartialEq, Eq))]',
             state_source,
@@ -738,8 +797,8 @@ class LocalCiPlanTests(unittest.TestCase):
         forbidden = re.compile(r"\.geology\(\)|\bGeologicalDepositId\b|\bget_deposit\(")
         offenders = [
             f"{path.relative_to(ROOT).as_posix()}:{index + 1}:{line.strip()}"
-            for path in (ROOT / "tests" / "gameplay_harness").rglob("*.rs")
-            for index, line in enumerate(path.read_text(encoding="utf-8").splitlines())
+            for path in maintained_rust_files(ROOT / "tests" / "gameplay_harness")
+            for index, line in enumerate(read_maintained_text(path).splitlines())
             if forbidden.search(line)
         ]
         self.assertEqual(offenders, [])
@@ -769,7 +828,10 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("--all-targets", command)
         self.assertIn("--all-features", command)
         self.assertIn("--locked", command)
-        self.assertEqual(command[command.index("-j") + 1], "4")
+        # The broad checkpoint lane must use full local parallelism; a hardcoded
+        # job cap would throttle the most expensive gate on a solo developer box.
+        self.assertNotIn("-j", command)
+        self.assertNotIn("--jobs", command)
         self.assertEqual(command[-2:], ["-D", "warnings"])
 
     def test_soak_gate_does_not_repeat_ordinary_core_tests(self) -> None:

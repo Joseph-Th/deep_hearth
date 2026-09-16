@@ -18,6 +18,17 @@ FEATURE_PREDICATE = re.compile(r'^feature\s*=\s*"(?P<name>[^"]+)"$')
 TOP_LEVEL_USE = re.compile(r"^use\s+(?P<body>.*?);$", re.DOTALL)
 
 
+_file_text_cache: dict[Path, str] = {}
+
+
+def cached_file_text(path: Path) -> str:
+    """Return one process-lifetime read; the tree is static during a single discovery run."""
+
+    if path not in _file_text_cache:
+        _file_text_cache[path] = path.read_text(encoding="utf-8")
+    return _file_text_cache[path]
+
+
 def split_cfg_arguments(expression: str) -> list[str]:
     """Split one cfg combinator argument list without guessing nested expression structure."""
 
@@ -87,7 +98,7 @@ def file_test_names(path: Path, prefix: tuple[str, ...], features: set[str]) -> 
     pending_attributes: list[str] = []
     inline_test_module: str | None = None
 
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in cached_file_text(path).splitlines():
         stripped = line.strip()
         if ATTRIBUTE.match(line):
             pending_attributes.append(stripped)
@@ -163,7 +174,7 @@ def external_modules(
     modules: list[tuple[str, Path]] = []
     pending_attributes: list[str] = []
 
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in cached_file_text(path).splitlines():
         stripped = line.strip()
         if line == stripped and ATTRIBUTE.match(line):
             pending_attributes.append(stripped)
@@ -283,7 +294,7 @@ def missing_root_modules(
         if not prefix:
             continue
         required.update(
-            root_sibling_imports(path.read_text(encoding="utf-8"), len(prefix), features) & available
+            root_sibling_imports(cached_file_text(path), len(prefix), features) & available
         )
     return sorted(required - declared)
 

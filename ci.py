@@ -89,13 +89,14 @@ def cargo(alias: str) -> list[str]:
 def lint_command() -> list[str]:
     """Lint every maintained Rust target under every repository feature."""
 
+    # No explicit job cap: this explicit checkpoint lane should use the solo
+    # developer's full local parallelism instead of throttling the most
+    # expensive gate lane.
     return [
         "cargo",
         "clippy",
         "--quiet",
         "--locked",
-        "-j",
-        "4",
         "--all-targets",
         "--all-features",
         "--",
