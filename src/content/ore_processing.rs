@@ -21,12 +21,14 @@ use super::capabilities::{
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
 use super::materials::{
-    FORM_CONCENTRATE, FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, FORM_TAILINGS, MATERIAL_COPPER,
+    FORM_CONCENTRATE, FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_ORE,
+    FORM_TAILINGS, MATERIAL_COPPER,
 };
 use super::processes::{
     PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
-    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_SEPARATE_NATIVE_COPPER,
 };
 use crate::survival::SurvivalExertion;
 
@@ -68,6 +70,11 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
     let fine_particle_size = ParticleSizeDistribution::new(vec![particle_size_class(500, 2_000)])
         .unwrap_or_else(|error| panic!("built-in fine particle distribution is invalid: {error}"));
     let liberated_concentration_range = fine_particle_size.envelope();
+    let scavenger_particle_size =
+        ParticleSizeDistribution::new(vec![particle_size_class(100, 499)]).unwrap_or_else(
+            |error| panic!("built-in tailings scavenger particle distribution is invalid: {error}"),
+        );
+    let scavenger_concentration_range = scavenger_particle_size.envelope();
     OreProcessingRegistry::new_with_manual_processes(
         [
             ComminutionProcessDefinition::new(
@@ -108,6 +115,20 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     EnergyCarrier::Mechanical,
                     MassSpecificEnergy::from_nanojoules_per_milligram(4_000_000),
                     400,
+                ),
+            ),
+            ComminutionProcessDefinition::new_with_input_particle_size_range(
+                PROCESS_REGRIND_COPPER_TAILINGS,
+                FORM_TAILINGS,
+                FORM_TAILINGS,
+                liberated_concentration_range,
+                scavenger_particle_size,
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_GRINDER_FLOW,
+                    CAPABILITY_GRINDER_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(5_000_000),
+                    500,
                 ),
             ),
         ],
@@ -153,6 +174,21 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     EnergyCarrier::Mechanical,
                     MassSpecificEnergy::from_nanojoules_per_milligram(250_000),
                     150,
+                ),
+            ),
+            ConstituentSeparationProcessDefinition::new_concentration(
+                PROCESS_SCAVENGE_COPPER_TAILINGS,
+                FORM_TAILINGS,
+                scavenger_concentration_range,
+                CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
+                FORM_EXHAUSTED_TAILINGS,
+                ConstituentRecoveryProfile::new(700_000, 100_000),
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(350_000),
+                    200,
                 ),
             ),
         ],

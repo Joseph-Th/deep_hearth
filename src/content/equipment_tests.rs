@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 use crate::capability::CapabilityValue;
 use crate::core::quantity::Mass;
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MaterialInputSpec};
 
 use super::authoring::{INDUSTRIAL_MAINTENANCE_MASS_DIVISOR, condition};
 use super::*;
@@ -13,12 +13,13 @@ use crate::content::capabilities::{
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
     CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_MINING_FLOW, CAPABILITY_MINING_MAX_BATCH,
     CAPABILITY_MINING_MAX_HARDNESS, CAPABILITY_SAWING_FLOW, CAPABILITY_SCREEN_BATCH,
-    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_TREADLE_POWER_OUTPUT,
-    CAPABILITY_WOODWORKING_FLOW,
+    CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
+    CAPABILITY_TREADLE_POWER_OUTPUT, CAPABILITY_WOODWORKING_FLOW,
 };
 use crate::content::materials::{
-    FORM_BOARD, FORM_HANDLE, FORM_INGOT, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE, FORM_TOOL,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_SAW_BLADE, FORM_SCRAP,
+    FORM_SCREEN_PLATE, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::Condition;
@@ -126,9 +127,14 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
             Mass::from_milligrams(1_600_000),
         ),
         (
+            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+            Mass::from_milligrams(1_400_000),
+        ),
+        (
             EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
-            CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
-            Mass::from_milligrams(18_000),
+            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+            Mass::from_milligrams(1_400_000),
         ),
         (
             EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
@@ -219,6 +225,78 @@ fn saw_bench_is_a_distinct_high_throughput_woodworking_provider() {
             .is_none(),
         "the adze must not unlock the high-yield sawing recipe"
     );
+}
+
+#[test]
+fn timber_riddle_opens_sizing_before_copper_and_plate_upgrade_preserves_the_investment() {
+    let registry = build_equipment_registry();
+    let timber = registry
+        .get_equipment(EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN)
+        .unwrap_or_else(|| panic!("timber riddle sizing screen disappeared"));
+    let copper = registry
+        .get_equipment(EQUIPMENT_COPPER_PLATE_SIZING_SCREEN)
+        .unwrap_or_else(|| panic!("copper sizing screen disappeared"));
+
+    for capability in [CAPABILITY_SCREEN_FLOW, CAPABILITY_SCREEN_BATCH] {
+        let timber_value = timber
+            .capabilities()
+            .get_capability(capability)
+            .unwrap_or_else(|| panic!("timber riddle lost sizing capability"));
+        let copper_value = copper
+            .capabilities()
+            .get_capability(capability)
+            .unwrap_or_else(|| panic!("copper screen lost sizing capability"));
+        assert_eq!(
+            timber_value.compare(copper_value),
+            Some(Ordering::Less),
+            "scarce copper must materially improve the existing sizing investment"
+        );
+    }
+
+    let assembly = timber
+        .assembly_profile()
+        .unwrap_or_else(|| panic!("timber riddle lost its assembly route"));
+    assert_eq!(assembly.input_mass(), Mass::from_milligrams(1_600_000));
+    assert_eq!(
+        assembly.inputs(),
+        &[
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+                Mass::from_milligrams(1_400_000),
+            ),
+        ]
+    );
+    let timber_service = timber
+        .maintenance_profile()
+        .unwrap_or_else(|| panic!("timber riddle lost panel replacement service"));
+    assert_eq!(
+        timber_service.replacement(),
+        CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL)
+    );
+
+    let upgrade = copper
+        .upgrade_profile()
+        .unwrap_or_else(|| panic!("copper screen lost timber-riddle upgrade route"));
+    assert_eq!(upgrade.from(), EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN);
+    assert_eq!(
+        upgrade.additions().inputs(),
+        &[MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
+            Mass::from_milligrams(18_000),
+        )]
+    );
+    let copper_service = copper
+        .maintenance_profile()
+        .unwrap_or_else(|| panic!("copper sizing screen lost panel replacement service"));
+    assert_eq!(
+        copper_service.replacement(),
+        CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL)
+    );
+    assert_eq!(copper_service, timber_service);
 }
 
 #[test]
@@ -315,6 +393,16 @@ fn primitive_copper_upgrades_improve_their_intended_nominal_capability() {
             EQUIPMENT_STONE_ROTARY_QUERN,
             EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
             CAPABILITY_GRINDER_BATCH,
+        ),
+        (
+            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+            EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
+            CAPABILITY_SCREEN_FLOW,
+        ),
+        (
+            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+            EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
+            CAPABILITY_SCREEN_BATCH,
         ),
         (
             EQUIPMENT_STONE_QUARRY_PICK,
@@ -469,7 +557,15 @@ fn timber_treadle_is_a_bulk_material_alternative_between_stone_and_copper_cranks
         .get_equipment(EQUIPMENT_TIMBER_TREADLE_DRIVE)
         .and_then(|definition| definition.assembly_profile())
         .unwrap_or_else(|| panic!("timber treadle lost its assembly profile"));
-    assert_eq!(assembly.input_mass(), Mass::from_milligrams(2_900_000));
+    assert_eq!(assembly.input_mass(), Mass::from_milligrams(4_000_000));
+    assert_eq!(
+        assembly
+            .inputs()
+            .iter()
+            .find(|input| { input.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL) })
+            .map(|input| input.mass()),
+        Some(Mass::from_milligrams(2_000_000))
+    );
     assert_eq!(
         assembly
             .inputs()
@@ -477,6 +573,13 @@ fn timber_treadle_is_a_bulk_material_alternative_between_stone_and_copper_cranks
             .find(|input| input.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
             .map(|input| input.mass()),
         Some(Mass::from_milligrams(1_600_000))
+    );
+    assert!(
+        assembly
+            .inputs()
+            .iter()
+            .all(|input| input.commodity().material() == MATERIAL_WOOD),
+        "the timber treadle must no longer hide a stone-flywheel dependency"
     );
 }
 
@@ -519,6 +622,12 @@ fn primitive_processing_wear_reduces_safe_batch_capacity_before_failure() {
             CAPABILITY_GRINDER_BATCH,
             Mass::from_milligrams(750_000),
             Mass::from_milligrams(375_000),
+        ),
+        (
+            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+            CAPABILITY_SCREEN_BATCH,
+            Mass::from_milligrams(250_000),
+            Mass::from_milligrams(125_000),
         ),
         (
             EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
@@ -572,6 +681,7 @@ fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
         EQUIPMENT_STONE_SEPARATOR,
         EQUIPMENT_STONE_ROTARY_QUERN,
         EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+        EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
         EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
         EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,

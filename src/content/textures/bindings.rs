@@ -14,15 +14,15 @@ use crate::content::equipment::{
     EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
     EQUIPMENT_STONE_QUARRY_PICK, EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR,
     EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, EQUIPMENT_TIMBER_TREADLE_DRIVE,
 };
 use crate::content::materials::{
     FORM_BOARD, FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED,
-    FORM_DOUBLE_WALL_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT,
+    FORM_DOUBLE_WALL_CHEST_BODY, FORM_EXHAUSTED_TAILINGS, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT,
     FORM_INSULATED_PANTRY_BODY, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE,
     FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE,
-    FORM_STONE_CROCK_BODY, FORM_TAILINGS, FORM_TOOL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_STONE_CROCK_BODY, FORM_TAILINGS, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_CLAY,
+    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 use super::{
@@ -41,7 +41,8 @@ use super::{
     OBJECT_STONE_HAND_CRANK, OBJECT_STONE_LUMP, OBJECT_STONE_PICK,
     OBJECT_STONE_PROVISIONS_CROCK_BODY, OBJECT_STONE_QUARRY_PICK, OBJECT_STONE_ROTARY_QUERN,
     OBJECT_STONE_SEPARATOR, OBJECT_STONE_TOOL, OBJECT_STONE_WOODWORKING_ADZE, OBJECT_TAILINGS,
-    OBJECT_TIMBER_CHEST_BODY, OBJECT_TIMBER_FRAME_SAW_BENCH, OBJECT_TIMBER_TREADLE_DRIVE,
+    OBJECT_TIMBER_CHEST_BODY, OBJECT_TIMBER_FLYWHEEL, OBJECT_TIMBER_FRAME_SAW_BENCH,
+    OBJECT_TIMBER_RIDDLE_PANEL, OBJECT_TIMBER_RIDDLE_SIZING_SCREEN, OBJECT_TIMBER_TREADLE_DRIVE,
     OBJECT_WOOD_BOARD, OBJECT_WOOD_CHIP, OBJECT_WOOD_HANDLE,
 };
 
@@ -168,6 +169,21 @@ pub(super) fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             Some(OBJECT_TAILINGS),
         ),
         CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_SLAG, FORM_EXHAUSTED_TAILINGS),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_EXHAUSTED_TAILINGS),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_CLAY, FORM_EXHAUSTED_TAILINGS),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             None,
             Some(OBJECT_STONE_LUMP),
@@ -207,6 +223,16 @@ pub(super) fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             None,
             Some(OBJECT_WOOD_CHIP),
         ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+            None,
+            Some(OBJECT_TIMBER_RIDDLE_PANEL),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
+            None,
+            Some(OBJECT_TIMBER_FLYWHEEL),
+        ),
     ]
 }
 
@@ -234,6 +260,10 @@ pub(super) fn build_equipment_bindings() -> Vec<EquipmentAppearanceBinding> {
         EquipmentAppearanceBinding::new(
             EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
             OBJECT_COPPER_PLATE_SIZING_SCREEN,
+        ),
+        EquipmentAppearanceBinding::new(
+            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+            OBJECT_TIMBER_RIDDLE_SIZING_SCREEN,
         ),
         EquipmentAppearanceBinding::new(EQUIPMENT_GRAVITY_SEPARATOR, OBJECT_GRAVITY_SEPARATOR),
         EquipmentAppearanceBinding::new(

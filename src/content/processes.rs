@@ -46,6 +46,12 @@ pub const PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY: ProcessId = ProcessId::ne
 pub const PROCESS_PIERCE_COPPER_SCREEN_PLATE: ProcessId = ProcessId::new(31);
 pub const PROCESS_COLD_WORK_COPPER_SAW_BLADE: ProcessId = ProcessId::new(32);
 pub const PROCESS_SAW_WOOD_BOARDS: ProcessId = ProcessId::new(33);
+pub const PROCESS_SHAPE_TIMBER_RIDDLE_PANEL: ProcessId = ProcessId::new(34);
+pub const PROCESS_SHAPE_TIMBER_FLYWHEEL: ProcessId = ProcessId::new(35);
+pub const PROCESS_REWORK_WOOD_SCRAP_HANDLE: ProcessId = ProcessId::new(36);
+pub const PROCESS_RECOVER_WOOD_SCRAP_BOARDS: ProcessId = ProcessId::new(37);
+pub const PROCESS_REGRIND_COPPER_TAILINGS: ProcessId = ProcessId::new(38);
+pub const PROCESS_SCAVENGE_COPPER_TAILINGS: ProcessId = ProcessId::new(39);
 
 fn mass_flow_resolver_requirements(
     flow_capability: CapabilityId,
@@ -253,6 +259,36 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             PROCESS_SAW_WOOD_BOARDS,
             "rip timber boards on frame saw",
             Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SHAPE_TIMBER_RIDDLE_PANEL,
+            "shape timber riddle panel",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SHAPE_TIMBER_FLYWHEEL,
+            "shape timber flywheel",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_REWORK_WOOD_SCRAP_HANDLE,
+            "rework wood scrap into handle stock",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_RECOVER_WOOD_SCRAP_BOARDS,
+            "recover board stock from wood scrap",
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_REGRIND_COPPER_TAILINGS,
+            "regrind copper-bearing tailings",
+            mass_flow_resolver_requirements(CAPABILITY_GRINDER_FLOW, CAPABILITY_GRINDER_BATCH),
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SCAVENGE_COPPER_TAILINGS,
+            "scavenge copper from reground tailings",
+            mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
         ),
     ] {
         registry.register_process(process);

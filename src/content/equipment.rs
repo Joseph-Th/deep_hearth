@@ -39,6 +39,8 @@ pub const EQUIPMENT_STONE_WOODWORKING_ADZE: EquipmentDefinitionId = EquipmentDef
 pub const EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE: EquipmentDefinitionId =
     EquipmentDefinitionId::new(24);
 pub const EQUIPMENT_TIMBER_FRAME_SAW_BENCH: EquipmentDefinitionId = EquipmentDefinitionId::new(25);
+pub const EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(26);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

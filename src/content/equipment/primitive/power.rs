@@ -91,7 +91,7 @@ pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
     EquipmentDefinition::new_with_capability_condition_curves(
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
         "timber foot-treadle drive",
-        Mass::from_milligrams(2_900_000),
+        Mass::from_milligrams(4_000_000),
         profile([(
             CAPABILITY_TREADLE_POWER_OUTPUT,
             CapabilityValue::Power(Power::from_microwatts(100_000_000)),
@@ -105,8 +105,8 @@ pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
     )
     .with_assembly_profile(MaterialAssemblyProfile::new(vec![
         MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(900_000),
+            CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
+            Mass::from_milligrams(2_000_000),
         ),
         MaterialInputSpec::pure(
             CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),

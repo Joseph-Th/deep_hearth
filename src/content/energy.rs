@@ -20,6 +20,7 @@ pub const ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(6);
 pub const ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(7);
+pub const ENERGY_TIMBER_FLYWHEEL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(8);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -34,6 +35,7 @@ const WORKSHOP_THERMAL_SINK_PASSIVE_DISSIPATION_POWER: Power =
 /// buffer nearby primitive work, but short enough that crude bearings cannot act like a battery.
 const STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(1_000_000);
 const PAIRED_STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(2_000_000);
+const TIMBER_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(500_000);
 
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([
@@ -83,6 +85,25 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
                 Mass::from_milligrams(900_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ])),
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_TIMBER_FLYWHEEL_DRIVE,
+            "timber flywheel accumulator",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(300_000_000_000),
+            Power::from_microwatts(100_000_000),
+            Power::from_microwatts(250_000_000),
+        )
+        .with_passive_dissipation_power(TIMBER_FLYWHEEL_PASSIVE_DISSIPATION_POWER)
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
+                Mass::from_milligrams(2_000_000),
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),

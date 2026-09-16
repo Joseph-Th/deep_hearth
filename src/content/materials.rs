@@ -46,6 +46,8 @@ pub const FORM_ROUGH_BOX_BODY: FormId = FormId::new(22);
 pub const FORM_STONE_CROCK_BODY: FormId = FormId::new(23);
 pub const FORM_SCREEN_PLATE: FormId = FormId::new(24);
 pub const FORM_SAW_BLADE: FormId = FormId::new(25);
+pub const FORM_TIMBER_RIDDLE_PANEL: FormId = FormId::new(26);
+pub const FORM_EXHAUSTED_TAILINGS: FormId = FormId::new(27);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -106,6 +108,7 @@ fn register_forms(registry: &mut MaterialRegistry) {
         consolidated_form(FORM_STONE_CROCK_BODY, "carved stone provisions crock body"),
         consolidated_form(FORM_SCREEN_PLATE, "perforated sizing screen plate"),
         consolidated_form(FORM_SAW_BLADE, "toothed frame-saw blade"),
+        consolidated_form(FORM_TIMBER_RIDDLE_PANEL, "timber riddle panel"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
         loose_form(
@@ -144,6 +147,12 @@ fn register_forms(registry: &mut MaterialRegistry) {
         loose_form(
             FORM_TAILINGS,
             "tailings",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Required,
+        ),
+        loose_form(
+            FORM_EXHAUSTED_TAILINGS,
+            "exhausted tailings",
             MaterialPhase::Solid,
             ParticleSizeStatePolicy::Required,
         ),
@@ -246,6 +255,8 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
         CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+        CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
         CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
         CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
         CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
@@ -258,6 +269,7 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
         CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
         CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
+        CommodityKey::new(MATERIAL_SLAG, FORM_EXHAUSTED_TAILINGS),
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
         CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
@@ -270,8 +282,10 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
         CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
         CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
+        CommodityKey::new(MATERIAL_STONE, FORM_EXHAUSTED_TAILINGS),
         CommodityKey::new(MATERIAL_CLAY, FORM_CRUSHED),
         CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
+        CommodityKey::new(MATERIAL_CLAY, FORM_EXHAUSTED_TAILINGS),
     ] {
         registry.register_commodity(commodity);
     }

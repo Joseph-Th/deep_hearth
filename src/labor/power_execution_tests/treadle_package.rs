@@ -8,16 +8,16 @@ fn treadle_and_paired_flywheel_are_craftable_from_raw_ordinary_materials() {
     let mut state = AppState::new(WorldSeed::new(0x1A80_1003));
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("treadle raw-route survival setup failed: {error}"));
-    let raw = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(9_000_000))
+    let raw = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(11_000_000))
         .unwrap_or_else(|error| panic!("treadle raw-route source failed: {error}"));
-    let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(9_000_000))
+    let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(11_000_000))
         .unwrap_or_else(|error| panic!("treadle raw-route shaped store failed: {error}"));
     let stone = deposit_lot_for_test(
         &registries,
         &mut state,
         raw,
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        Mass::from_milligrams(3_000_000),
+        Mass::from_milligrams(2_000_000),
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("treadle raw-route stone failed: {error}"));
@@ -26,7 +26,7 @@ fn treadle_and_paired_flywheel_are_craftable_from_raw_ordinary_materials() {
         &mut state,
         raw,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(6_000_000),
+        Mass::from_milligrams(8_400_000),
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("treadle raw-route timber failed: {error}"));
@@ -35,8 +35,14 @@ fn treadle_and_paired_flywheel_are_craftable_from_raw_ordinary_materials() {
         (
             PROCESS_SHAPE_STONE_FLYWHEEL,
             stone,
-            Mass::from_milligrams(3_000_000),
-            180,
+            Mass::from_milligrams(2_000_000),
+            120,
+        ),
+        (
+            PROCESS_SHAPE_TIMBER_FLYWHEEL,
+            wood,
+            Mass::from_milligrams(2_400_000),
+            120,
         ),
         (
             PROCESS_SHAPE_WOOD_BOARDS,
@@ -72,7 +78,14 @@ fn treadle_and_paired_flywheel_are_craftable_from_raw_ordinary_materials() {
             .inventory()
             .get_stockpile(shaped)
             .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL))),
-        Some(Mass::from_milligrams(2_700_000))
+        Some(Mass::from_milligrams(1_800_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(shaped)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL))),
+        Some(Mass::from_milligrams(2_000_000))
     );
     assert_eq!(
         state

@@ -3,7 +3,7 @@
 //! The stone hand crank and the timber foot-treadle drive are both copper-free ordinary
 //! builds, yet no maintained episode ever decides between them: progression hard-wires the
 //! crank and liberation hard-wires the treadle. This episode branches from one actor-visible raw
-//! starting state, builds one provider plus one stone flywheel per arm through canonical manual
+//! starting state, builds one provider plus one ordinary flywheel per arm through canonical manual
 //! craft, charges each flywheel to full capacity under survival pressure, and reports the
 //! build/attention/bodily-cost tradeoff the same physical job exposes. The copper-reinforced
 //! crank stays catalog context: it needs mined native copper, so it cannot join this copper-free
@@ -11,9 +11,9 @@
 
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
-    ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_LOG, FORM_LUMP, MANUAL_POWER_FOOT_TREADLE,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_STONE, MATERIAL_WOOD,
+    ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE, ENERGY_TIMBER_FLYWHEEL_DRIVE,
+    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_LOG, FORM_LUMP,
+    MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -217,14 +217,13 @@ fn charge_to_full(
 
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
-    // The charge job varies across the two copper-free ordinary stores: a 500 J stone
-    // flywheel top-up is tick-quantized nearly flat, while a 1,000 J paired charge lets the
-    // treadle's doubled throughput show. Small top-ups genuinely favor the crank; big charges
-    // genuinely repay the treadle frame.
-    let store_definition = if mix64(seed ^ 0x0504_F575_24A4_F421).is_multiple_of(2) {
-        ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE
-    } else {
-        ENERGY_STONE_FLYWHEEL_DRIVE
+    // Vary the matched charge job across all three copper-free ordinary accumulators. Timber
+    // substitutes bulk woodworking for stone and lower capacity; paired stone maximizes work
+    // buffering. All remain large enough for the treadle's higher throughput to save attention.
+    let store_definition = match mix64(seed ^ 0x0504_F575_24A4_F421) % 3 {
+        0 => ENERGY_TIMBER_FLYWHEEL_DRIVE,
+        1 => ENERGY_STONE_FLYWHEEL_DRIVE,
+        _ => ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
     };
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x504F_5752_5052_0001));
     // Raw gathered nature only: every shaped component below is player-crafted through

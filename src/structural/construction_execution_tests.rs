@@ -10,7 +10,7 @@ use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{PreciseEnergy, calculate_explicit_energy_accounting};
 use crate::inventory::{
-    StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
+    MaterialLotSelection, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
     deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
     validate_mount_stockpile,
 };

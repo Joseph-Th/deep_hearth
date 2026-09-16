@@ -258,6 +258,10 @@ fn primitive_flywheel_loses_stored_rotation_without_erasing_short_work_windows()
     let registries = build_registries();
     for (store, expected_loss) in [
         (
+            ENERGY_TIMBER_FLYWHEEL_DRIVE,
+            Power::from_microwatts(500_000),
+        ),
+        (
             ENERGY_STONE_FLYWHEEL_DRIVE,
             Power::from_microwatts(1_000_000),
         ),
@@ -490,6 +494,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_STONE_SEPARATOR,
         EQUIPMENT_STONE_ROTARY_QUERN,
         EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+        EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
         EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
         EQUIPMENT_COPPER_REINFORCED_PICK,
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
@@ -520,6 +525,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         ENERGY_MECHANICAL_LARGE_DRIVE,
         ENERGY_ELECTRICAL_BUFFER,
         ENERGY_THERMAL_SINK,
+        ENERGY_TIMBER_FLYWHEEL_DRIVE,
         ENERGY_STONE_FLYWHEEL_DRIVE,
         ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
         ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
@@ -549,7 +555,13 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
         PROCESS_PIERCE_COPPER_SCREEN_PLATE,
         PROCESS_COLD_WORK_COPPER_SAW_BLADE,
+        PROCESS_REWORK_WOOD_SCRAP_HANDLE,
+        PROCESS_RECOVER_WOOD_SCRAP_BOARDS,
+        PROCESS_REGRIND_COPPER_TAILINGS,
+        PROCESS_SCAVENGE_COPPER_TAILINGS,
         PROCESS_SAW_WOOD_BOARDS,
+        PROCESS_SHAPE_TIMBER_FLYWHEEL,
+        PROCESS_SHAPE_TIMBER_RIDDLE_PANEL,
         PROCESS_HEAT_MATERIAL_BATCH,
         PROCESS_HAND_BREAK_ORE,
         PROCESS_HAND_SORT_NATIVE_COPPER,
@@ -574,6 +586,12 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         registries
             .ore_processing()
             .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_comminution(PROCESS_REGRIND_COPPER_TAILINGS)
             .is_some()
     );
     assert!(
@@ -604,6 +622,12 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         registries
             .ore_processing()
             .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_constituent_separation(PROCESS_SCAVENGE_COPPER_TAILINGS)
             .is_some()
     );
     assert!(
@@ -676,6 +700,14 @@ fn primitive_power_content_exposes_distinct_copper_and_bulk_material_routes() {
         .energy()
         .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
         .unwrap_or_else(|| panic!("copper-banded flywheel disappeared"));
+    let timber = registries
+        .energy()
+        .get_store(ENERGY_TIMBER_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("timber flywheel disappeared"));
+    let stone = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("stone flywheel disappeared"));
     let bulk = registries
         .energy()
         .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
@@ -683,6 +715,19 @@ fn primitive_power_content_exposes_distinct_copper_and_bulk_material_routes() {
     assert!(bulk.capacity() > compact.capacity());
     assert!(bulk.max_input_power() < compact.max_input_power());
     assert!(bulk.passive_dissipation_power() > compact.passive_dissipation_power());
+    assert!(timber.capacity() < stone.capacity());
+    assert!(timber.max_output_power() < stone.max_output_power());
+    assert_eq!(
+        timber.max_input_power(),
+        Power::from_microwatts(100_000_000),
+        "the timber accumulator must accept the treadle's full nominal charge rate"
+    );
+    assert!(timber.assembly_profile().is_some_and(|assembly| {
+        assembly.inputs().iter().all(|input| {
+            input.commodity().material() == MATERIAL_WOOD
+                && input.commodity() != CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+        })
+    }));
     assert!(bulk.has_authored_assembly_edge());
     assert!(compact.assembly_profile().is_some_and(|assembly| {
         assembly.inputs().iter().any(|input| {
@@ -778,6 +823,12 @@ fn retained_primitive_residue_has_one_coherent_later_concentration_route() {
     let concentration = ore
         .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
         .unwrap_or_else(|| panic!("built-in concentration definition disappeared"));
+    let tailings_regrind = ore
+        .get_comminution(PROCESS_REGRIND_COPPER_TAILINGS)
+        .unwrap_or_else(|| panic!("built-in tailings regrind definition disappeared"));
+    let scavenger = ore
+        .get_constituent_separation(PROCESS_SCAVENGE_COPPER_TAILINGS)
+        .unwrap_or_else(|| panic!("built-in tailings scavenger definition disappeared"));
 
     assert_eq!(sorting.residue_output_form(), grinding.input_form());
     assert_eq!(grinding.output_form(), screening.input_form());
@@ -788,6 +839,26 @@ fn retained_primitive_residue_has_one_coherent_later_concentration_route() {
         concentration.input_form(),
         "concentration must terminate the current-tier reprocessing route instead of feeding itself"
     );
+    assert_eq!(
+        concentration.residue_output_form(),
+        tailings_regrind.input_form(),
+        "first-pass tailings must be the explicit feed for the later finer liberation step"
+    );
+    assert_eq!(tailings_regrind.output_form(), scavenger.input_form());
+    assert_eq!(scavenger.residue_output_form(), FORM_EXHAUSTED_TAILINGS);
+    assert_ne!(
+        scavenger.residue_output_form(),
+        scavenger.input_form(),
+        "the scavenger pass must terminate in exhausted tailings rather than permitting an identical loop"
+    );
+    assert!(
+        scavenger.target_recovery_ppm() < concentration.target_recovery_ppm(),
+        "the tailings scavenger must remain a lower-recovery cleanup pass rather than a better primary separator"
+    );
+    assert!(
+        scavenger.non_target_recovery_ppm() < concentration.non_target_recovery_ppm(),
+        "the scavenger pass should carry less gangue into its small recovered stream"
+    );
 
     let concentration_range = concentration
         .input_particle_size_range()
@@ -796,6 +867,18 @@ fn retained_primitive_residue_has_one_coherent_later_concentration_route() {
         regrinding.output_particle_size(),
         concentration_range,
         "screen oversize must have a real regrind route into concentration-sized feed"
+    );
+    let scavenger_range = scavenger
+        .input_particle_size_range()
+        .unwrap_or_else(|| panic!("built-in tailings scavenger lost its liberation envelope"));
+    assert_eq!(
+        tailings_regrind.output_particle_size(),
+        scavenger_range,
+        "tailings must receive additional fine grinding before the scavenger pass can accept them"
+    );
+    assert!(
+        scavenger_range.maximum_diameter() < concentration_range.minimum_diameter(),
+        "scavenger feed must be distinctly finer than the primary concentration envelope"
     );
     let regrind_feed = regrinding
         .input_particle_size_range()
@@ -1010,6 +1093,16 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_STONE_PROVISIONS_CROCK_BODY,
         ),
         (
+            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+            None,
+            OBJECT_TIMBER_RIDDLE_PANEL,
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
+            None,
+            OBJECT_TIMBER_FLYWHEEL,
+        ),
+        (
             CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
             None,
             OBJECT_COPPER_SCREEN_PLATE,
@@ -1068,6 +1161,10 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (
             EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
             OBJECT_STONE_GEOLOGICAL_HAMMER,
+        ),
+        (
+            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+            OBJECT_TIMBER_RIDDLE_SIZING_SCREEN,
         ),
         (
             EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
@@ -1186,7 +1283,7 @@ fn every_supported_separation_residue_host_has_legible_crushed_and_tailings_appe
     let textures = registries.textures();
 
     for material in [MATERIAL_STONE, MATERIAL_CLAY, MATERIAL_SLAG] {
-        for form in [FORM_CRUSHED, FORM_TAILINGS] {
+        for form in [FORM_CRUSHED, FORM_TAILINGS, FORM_EXHAUSTED_TAILINGS] {
             let commodity = CommodityKey::new(material, form);
             assert!(
                 registries.materials().has_commodity(commodity),

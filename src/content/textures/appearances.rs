@@ -18,7 +18,8 @@ use super::{
     OBJECT_STONE_LUMP, OBJECT_STONE_PICK, OBJECT_STONE_PROVISIONS_CROCK_BODY,
     OBJECT_STONE_QUARRY_PICK, OBJECT_STONE_ROTARY_QUERN, OBJECT_STONE_SEPARATOR, OBJECT_STONE_TOOL,
     OBJECT_STONE_WOODWORKING_ADZE, OBJECT_TAILINGS, OBJECT_TIMBER_CHEST_BODY,
-    OBJECT_TIMBER_FRAME_SAW_BENCH, OBJECT_TIMBER_TREADLE_DRIVE, OBJECT_WOOD_BOARD,
+    OBJECT_TIMBER_FLYWHEEL, OBJECT_TIMBER_FRAME_SAW_BENCH, OBJECT_TIMBER_RIDDLE_PANEL,
+    OBJECT_TIMBER_RIDDLE_SIZING_SCREEN, OBJECT_TIMBER_TREADLE_DRIVE, OBJECT_WOOD_BOARD,
     OBJECT_WOOD_CHIP, OBJECT_WOOD_HANDLE, TEXTURE_COPPER_HAMMERED, TEXTURE_COPPER_ORE,
     TEXTURE_CRUSHED_ORE, TEXTURE_MACHINE_PANEL, TEXTURE_MOLTEN_COPPER, TEXTURE_REFRACTORY,
     TEXTURE_SCREEN_MESH, TEXTURE_SLAG, TEXTURE_STONE, TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE,
@@ -124,6 +125,11 @@ pub(super) fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
         ),
         object(OBJECT_STONE_FLYWHEEL, "stone flywheel", &[TEXTURE_STONE]),
         object(
+            OBJECT_TIMBER_FLYWHEEL,
+            "solid timber flywheel",
+            &[TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE],
+        ),
+        object(
             OBJECT_STONE_PICK,
             "knapped stone pick",
             &[TEXTURE_STONE, TEXTURE_WOOD_SIDE],
@@ -161,7 +167,7 @@ pub(super) fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
         object(
             OBJECT_TIMBER_TREADLE_DRIVE,
             "timber foot-treadle drive",
-            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END, TEXTURE_STONE],
+            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
         ),
         object(
             OBJECT_STONE_CRUSHER,
@@ -231,6 +237,16 @@ pub(super) fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             OBJECT_COPPER_PLATE_SIZING_SCREEN,
             "timber-framed copper shaker screen",
             &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END, TEXTURE_SCREEN_MESH],
+        ),
+        object(
+            OBJECT_TIMBER_RIDDLE_PANEL,
+            "slatted timber riddle panel",
+            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
+        ),
+        object(
+            OBJECT_TIMBER_RIDDLE_SIZING_SCREEN,
+            "timber riddle sizing screen",
+            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
         ),
         object(
             OBJECT_STONE_GEOLOGICAL_HAMMER,

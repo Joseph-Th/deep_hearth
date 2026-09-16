@@ -282,5 +282,9 @@ pub fn validate_start_manual_craft(
 mod index_tests;
 
 #[cfg(test)]
+#[path = "wood_recovery_tests.rs"]
+mod wood_recovery_tests;
+
+#[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

@@ -4,30 +4,21 @@ use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
     ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_SCRAP, FORM_SCREEN_PLATE, MANUAL_POWER_FOOT_TREADLE,
-    MATERIAL_COPPER, PROCESS_CONCENTRATE_COPPER, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SCREEN_CRUSHED_ORE,
+    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_SCRAP,
+    FORM_SCREEN_PLATE, MATERIAL_COPPER, PROCESS_GRIND_CRUSHED_ORE,
+    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
-use deep_hearth::energy::{EnergyStoreId, validate_assemble_energy_store};
-use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
+use deep_hearth::energy::EnergyStoreId;
+use deep_hearth::equipment::{EquipmentId, validate_upgrade_equipment};
 use deep_hearth::inventory::MaterialLotSelection;
-use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::ore_processing::{
-    ComminutionRequest, ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
-    ScreeningProcessDefinition, ScreeningRequest, resolve_comminution_process,
-    resolve_constituent_separation_process, resolve_representable_screening_mass,
-    resolve_screening_process,
-};
-use deep_hearth::production::{
-    ProcessOutputRoute, validate_start_process, validate_start_process_routed,
-};
+use deep_hearth::ore_processing::resolve_representable_screening_mass;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::initialize_player_survival;
 
@@ -35,122 +26,38 @@ use super::environment::ROOM_TEMPERATURE;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
-use super::manual_power_timing::finish_manual_power_work;
 use super::ore_fixture::copper_ore_composition;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 
-fn assemble_equipment_from_authored_parts(
-    registries: &deep_hearth::registry::Registries,
-    state: &mut AppState,
-    definition: deep_hearth::equipment::EquipmentDefinitionId,
-) -> EquipmentId {
-    let (mass, inputs) = registries
-        .equipment()
-        .get_equipment(definition)
-        .and_then(|equipment| equipment.assembly_profile())
-        .map(|profile| (profile.input_mass(), profile.inputs().to_vec()))
-        .unwrap_or_else(|| panic!("primitive liberation equipment lost authored assembly"));
-    let source = add_solid_stockpile(state, mass);
-    for input in inputs {
-        seed_lot(
-            registries,
-            state,
-            source,
-            input.commodity(),
-            input.mass(),
-            ROOM_TEMPERATURE,
-        );
-    }
-    validate_assemble_equipment(registries, state, definition, source)
-        .unwrap_or_else(|error| panic!("primitive liberation equipment assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("primitive liberation equipment commit failed: {error}"))
-}
+#[path = "primitive_liberation/primary.rs"]
+mod primary;
+#[path = "primitive_liberation/scavenging.rs"]
+mod scavenging;
+#[path = "primitive_liberation/support.rs"]
+mod support;
 
-fn assemble_energy_store_from_authored_parts(
-    registries: &deep_hearth::registry::Registries,
-    state: &mut AppState,
-    definition: deep_hearth::energy::EnergyStoreDefinitionId,
-) -> EnergyStoreId {
-    let (mass, inputs) = registries
-        .energy()
-        .get_store(definition)
-        .and_then(|store| store.assembly_profile())
-        .map(|profile| (profile.input_mass(), profile.inputs().to_vec()))
-        .unwrap_or_else(|| panic!("primitive liberation drive lost authored assembly"));
-    let source = add_solid_stockpile(state, mass);
-    for input in inputs {
-        seed_lot(
-            registries,
-            state,
-            source,
-            input.commodity(),
-            input.mass(),
-            ROOM_TEMPERATURE,
-        );
-    }
-    validate_assemble_energy_store(registries, state, definition, source)
-        .unwrap_or_else(|error| panic!("primitive liberation drive assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("primitive liberation drive commit failed: {error}"))
-}
-
-fn replenish_primitive_drive(
-    registries: &Registries,
-    state: &mut AppState,
+struct PrimitiveLiberationScenario {
+    state: AppState,
+    batch_mass: Mass,
+    copper_ppm: u32,
+    ore: deep_hearth::inventory::StockpileId,
+    crushed: deep_hearth::inventory::StockpileId,
+    ground: deep_hearth::inventory::StockpileId,
+    undersize: deep_hearth::inventory::StockpileId,
+    oversize: deep_hearth::inventory::StockpileId,
+    concentrate: deep_hearth::inventory::StockpileId,
+    tailings: deep_hearth::inventory::StockpileId,
+    fine_tailings: deep_hearth::inventory::StockpileId,
+    exhausted_tailings: deep_hearth::inventory::StockpileId,
+    ore_lot: deep_hearth::inventory::MaterialLotId,
+    crusher: EquipmentId,
+    quern: EquipmentId,
+    screen: EquipmentId,
+    separator: EquipmentId,
     treadle: EquipmentId,
     drive: EnergyStoreId,
-    capacity: Energy,
-    label: &'static str,
-) {
-    let stored = state
-        .energy()
-        .get_store(drive)
-        .map(|record| record.stored())
-        .unwrap_or_else(|| panic!("{label} drive disappeared"));
-    let requested = capacity
-        .checked_sub(stored)
-        .unwrap_or_else(|| panic!("{label} drive exceeded authored capacity"));
-    if requested.is_zero() {
-        return;
-    }
-    let charge = validate_start_manual_power(
-        registries,
-        state,
-        ManualPowerRequest::new(MANUAL_POWER_FOOT_TREADLE, treadle, drive, requested),
-    )
-    .unwrap_or_else(|error| panic!("{label} treadle recharge failed: {error}"));
-    let work = charge.work();
-    charge
-        .commit(state)
-        .unwrap_or_else(|error| panic!("{label} treadle recharge commit failed: {error}"));
-    finish_manual_power_work(registries, state, work, label);
-    assert!(
-        state
-            .energy()
-            .get_store(drive)
-            .is_some_and(|record| record.stored() > stored),
-        "{label} recharge must increase stored mechanical work"
-    );
-}
-
-fn full_stockpile_selection(
-    state: &AppState,
-    stockpile: deep_hearth::inventory::StockpileId,
-) -> Vec<MaterialLotSelection> {
-    state
-        .inventory()
-        .lot_ids(stockpile)
-        .map(|lot| {
-            let mass = state
-                .inventory()
-                .get_lot(lot)
-                .unwrap_or_else(|| panic!("full-selection lot disappeared"))
-                .mass();
-            MaterialLotSelection::new(lot, mass)
-        })
-        .collect()
+    drive_capacity: Energy,
 }
 
 pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: FocusedProbeCase) {
@@ -185,6 +92,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     let oversize = add_solid_stockpile(&mut state, batch_mass);
     let concentrate = add_solid_stockpile(&mut state, batch_mass);
     let tailings = add_solid_stockpile(&mut state, batch_mass);
+    let fine_tailings = add_solid_stockpile(&mut state, batch_mass);
+    let exhausted_tailings = add_solid_stockpile(&mut state, batch_mass);
     let ore_lot = seed_composed_lot(
         registries,
         &mut state,
@@ -194,56 +103,31 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         ROOM_TEMPERATURE,
         copper_ore_composition(copper_ppm, clay_share_ppm),
     );
-    let crusher =
-        assemble_equipment_from_authored_parts(registries, &mut state, EQUIPMENT_STONE_CRUSHER);
-    let quern = assemble_equipment_from_authored_parts(
+    let crusher = support::assemble_equipment_from_authored_parts(
+        registries,
+        &mut state,
+        EQUIPMENT_STONE_CRUSHER,
+    );
+    let quern = support::assemble_equipment_from_authored_parts(
         registries,
         &mut state,
         EQUIPMENT_STONE_ROTARY_QUERN,
+    );
+    let screen = support::assemble_equipment_from_authored_parts(
+        registries,
+        &mut state,
+        EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
     );
     let plate_craft = registries
         .crafting()
         .get_manual(PROCESS_PIERCE_COPPER_SCREEN_PLATE)
         .unwrap_or_else(|| panic!("primitive sizing-plate craft definition disappeared"));
-    let screen_assembly_profile = registries
-        .equipment()
-        .get_equipment(EQUIPMENT_COPPER_PLATE_SIZING_SCREEN)
-        .and_then(|definition| definition.assembly_profile())
-        .unwrap_or_else(|| panic!("primitive sizing screen lost authored assembly"));
     let screen_plate = plate_craft
         .outputs()
         .iter()
         .find(|output| output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE))
         .unwrap_or_else(|| panic!("primitive sizing-plate craft lost its screen-plate output"));
-    let byproduct_mass = plate_craft
-        .outputs()
-        .iter()
-        .filter(|output| output.commodity() != screen_plate.commodity())
-        .try_fold(Mass::ZERO, |total, output| total.checked_add(output.mass()))
-        .unwrap_or_else(|| panic!("primitive sizing-plate byproduct mass overflowed"));
-    let screen_assembly_capacity = screen_assembly_profile
-        .input_mass()
-        .checked_add(byproduct_mass)
-        .unwrap_or_else(|| panic!("primitive sizing-screen assembly capacity overflowed"));
-    let screen_assembly = add_solid_stockpile(&mut state, screen_assembly_capacity);
-    for input in screen_assembly_profile.inputs() {
-        if input.commodity() == screen_plate.commodity() {
-            assert_eq!(
-                input.mass(),
-                screen_plate.mass(),
-                "screen assembly must consume the authored sizing-plate craft output"
-            );
-            continue;
-        }
-        seed_lot(
-            registries,
-            &mut state,
-            screen_assembly,
-            input.commodity(),
-            input.mass(),
-            ROOM_TEMPERATURE,
-        );
-    }
+    let screen_upgrade_material = add_solid_stockpile(&mut state, plate_craft.input_mass());
     let screen_plate_source = add_solid_stockpile(&mut state, plate_craft.input_mass());
     let screen_plate_input = seed_lot(
         registries,
@@ -253,14 +137,17 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         plate_craft.input_mass(),
         ROOM_TEMPERATURE,
     );
-    let separator =
-        assemble_equipment_from_authored_parts(registries, &mut state, EQUIPMENT_STONE_SEPARATOR);
-    let treadle = assemble_equipment_from_authored_parts(
+    let separator = support::assemble_equipment_from_authored_parts(
+        registries,
+        &mut state,
+        EQUIPMENT_STONE_SEPARATOR,
+    );
+    let treadle = support::assemble_equipment_from_authored_parts(
         registries,
         &mut state,
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
     );
-    let drive = assemble_energy_store_from_authored_parts(
+    let drive = support::assemble_energy_store_from_authored_parts(
         registries,
         &mut state,
         ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
@@ -282,7 +169,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             PROCESS_PIERCE_COPPER_SCREEN_PLATE,
             screen_plate_source,
             MaterialLotSelection::new(screen_plate_input, plate_craft.input_mass()),
-            screen_assembly,
+            screen_upgrade_material,
         ),
     )
     .unwrap_or_else(|error| panic!("primitive sizing-plate craft failed: {error}"))
@@ -303,271 +190,61 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     assert_eq!(
         state
             .inventory()
-            .get_stockpile(screen_assembly)
+            .get_stockpile(screen_upgrade_material)
             .map(|stockpile| {
                 stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
             }),
         Some(authored_scrap),
         "piercing the sizing plate must retain its authored reworkable byproduct"
     );
-    let screen = validate_assemble_equipment(
-        registries,
-        &state,
-        EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
-        screen_assembly,
-    )
-    .unwrap_or_else(|error| panic!("primitive sizing-screen assembly failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("primitive sizing-screen assembly commit failed: {error}"));
-
-    replenish_primitive_drive(
-        registries,
-        &mut state,
-        treadle,
-        drive,
-        drive_capacity,
-        "primitive liberation treadle charge",
-    );
     assert_eq!(
         state
-            .energy()
-            .get_store(drive)
-            .map(|record| record.stored()),
-        Some(drive_capacity),
-        "primitive treadle charge must deliver the requested full-drive work before processing"
+            .inventory()
+            .get_stockpile(screen_upgrade_material)
+            .map(|stockpile| stockpile.get_mass(screen_plate.commodity())),
+        Some(screen_plate.mass()),
+        "the authored plate output must become the exact additive screen-upgrade stock"
     );
-    let crush = resolve_comminution_process(
+    let upgraded_screen = validate_upgrade_equipment(
         registries,
         &state,
-        ComminutionRequest::new(
-            deep_hearth::content::PROCESS_CRUSH_ORE,
-            ore,
-            &[MaterialLotSelection::new(ore_lot, batch_mass)],
-            crusher,
-            drive,
-        ),
+        screen,
+        EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
+        screen_upgrade_material,
     )
-    .unwrap_or_else(|error| panic!("primitive liberation crushing failed: {error}"));
-    let crush_job =
-        validate_start_process(registries, &state, crush.process_resolution(), ore, crushed)
-            .unwrap_or_else(|error| panic!("primitive liberation crushing start failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("primitive liberation crushing commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        &mut state,
-        crush_job,
-        "primitive liberation crushing",
+    .unwrap_or_else(|error| panic!("primitive sizing-screen upgrade failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("primitive sizing-screen upgrade commit failed: {error}"));
+    assert_eq!(
+        upgraded_screen, screen,
+        "copper sizing plate must upgrade the existing timber riddle in place"
     );
 
-    replenish_primitive_drive(
-        registries,
-        &mut state,
-        treadle,
-        drive,
-        drive_capacity,
-        "primitive liberation post-crush recharge",
-    );
-    let ground_feed = full_stockpile_selection(&state, crushed);
-    let grind = resolve_comminution_process(
-        registries,
-        &state,
-        ComminutionRequest::new(
-            PROCESS_GRIND_CRUSHED_ORE,
-            crushed,
-            &ground_feed,
-            quern,
-            drive,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("primitive rotary-quern grinding failed: {error}"));
-    let grind_job = validate_start_process(
-        registries,
-        &state,
-        grind.process_resolution(),
+    let mut scenario = PrimitiveLiberationScenario {
+        state,
+        batch_mass,
+        copper_ppm,
+        ore,
         crushed,
         ground,
-    )
-    .unwrap_or_else(|error| panic!("primitive rotary-quern start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("primitive rotary-quern commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        &mut state,
-        grind_job,
-        "primitive rotary-quern grinding",
-    );
-
-    replenish_primitive_drive(
-        registries,
-        &mut state,
-        treadle,
-        drive,
-        drive_capacity,
-        "primitive liberation post-grind recharge",
-    );
-    let screen_feed = full_stockpile_selection(&state, ground);
-    let screened = resolve_screening_process(
-        registries,
-        &state,
-        ScreeningRequest::new(
-            PROCESS_SCREEN_CRUSHED_ORE,
-            ground,
-            &screen_feed,
-            screen,
-            drive,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("primitive copper sizing screen failed: {error}"));
-    let screen_job = validate_start_process_routed(
-        registries,
-        &state,
-        screened.process_resolution(),
-        ground,
-        &[
-            ProcessOutputRoute::new(ScreeningProcessDefinition::UNDERSIZE_STREAM, undersize),
-            ProcessOutputRoute::new(ScreeningProcessDefinition::OVERSIZE_STREAM, oversize),
-        ],
-    )
-    .unwrap_or_else(|error| panic!("primitive copper sizing-screen start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("primitive copper sizing-screen commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        &mut state,
-        screen_job,
-        "primitive copper sizing screen",
-    );
-
-    replenish_primitive_drive(
-        registries,
-        &mut state,
-        treadle,
-        drive,
-        drive_capacity,
-        "primitive liberation post-screen recharge",
-    );
-    let oversize_mass = state
-        .inventory()
-        .get_stockpile(oversize)
-        .map(|record| record.stored_mass())
-        .unwrap_or_else(|| panic!("primitive oversize stockpile disappeared"));
-    assert!(!oversize_mass.is_zero());
-    let regrind_feed = full_stockpile_selection(&state, oversize);
-    let regrind = resolve_comminution_process(
-        registries,
-        &state,
-        ComminutionRequest::new(
-            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-            oversize,
-            &regrind_feed,
-            quern,
-            drive,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("primitive rotary-quern regrinding failed: {error}"));
-    let regrind_job = validate_start_process(
-        registries,
-        &state,
-        regrind.process_resolution(),
+        undersize,
         oversize,
-        undersize,
-    )
-    .unwrap_or_else(|error| panic!("primitive rotary-quern regrind start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("primitive rotary-quern regrind commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        &mut state,
-        regrind_job,
-        "primitive rotary-quern regrinding",
-    );
-
-    replenish_primitive_drive(
-        registries,
-        &mut state,
+        concentrate,
+        tailings,
+        fine_tailings,
+        exhausted_tailings,
+        ore_lot,
+        crusher,
+        quern,
+        screen,
+        separator,
         treadle,
         drive,
         drive_capacity,
-        "primitive liberation post-regrind recharge",
-    );
-    let concentration_feed = full_stockpile_selection(&state, undersize);
-    let separated = resolve_constituent_separation_process(
-        registries,
-        &state,
-        ConstituentSeparationRequest::new(
-            PROCESS_CONCENTRATE_COPPER,
-            undersize,
-            &concentration_feed,
-            separator,
-            drive,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("primitive concentration failed: {error}"));
-    let resolved_concentrate_mass = separated.target_mass();
-    let resolved_tailings_mass = separated.residue_mass();
-    let separation_job = validate_start_process_routed(
-        registries,
-        &state,
-        separated.process_resolution(),
-        undersize,
-        &[
-            ProcessOutputRoute::new(
-                ConstituentSeparationProcessDefinition::TARGET_STREAM,
-                concentrate,
-            ),
-            ProcessOutputRoute::new(
-                ConstituentSeparationProcessDefinition::RESIDUE_STREAM,
-                tailings,
-            ),
-        ],
-    )
-    .unwrap_or_else(|error| panic!("primitive concentration start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("primitive concentration commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        &mut state,
-        separation_job,
-        "primitive concentration",
-    );
-
-    let concentrate_mass = state
-        .inventory()
-        .get_stockpile(concentrate)
-        .map(|record| record.stored_mass())
-        .unwrap_or_else(|| panic!("primitive concentrate stockpile disappeared"));
-    let tailings_mass = state
-        .inventory()
-        .get_stockpile(tailings)
-        .map(|record| record.stored_mass())
-        .unwrap_or_else(|| panic!("primitive tailings stockpile disappeared"));
-    assert_eq!(
-        concentrate_mass, resolved_concentrate_mass,
-        "primitive concentrate custody must match the canonical separation result"
-    );
-    assert_eq!(
-        tailings_mass, resolved_tailings_mass,
-        "primitive tailings custody must match the canonical separation result"
-    );
-    assert!(!concentrate_mass.is_zero());
-    assert!(!tailings_mass.is_zero());
-    let concentrate_copper_ppm_mg = state
-        .inventory()
-        .lot_ids(concentrate)
-        .map(|lot| {
-            let record = state
-                .inventory()
-                .get_lot(lot)
-                .unwrap_or_else(|| panic!("primitive concentrate lot disappeared"));
-            u128::from(record.mass().milligrams())
-                * u128::from(record.composition().parts_per_million(MATERIAL_COPPER))
-        })
-        .sum::<u128>();
-    let concentrate_grade_ppm =
-        u32::try_from(concentrate_copper_ppm_mg / u128::from(concentrate_mass.milligrams()))
-            .unwrap_or_else(|_| panic!("primitive concentrate grade exceeded normalized range"));
-    assert!(concentrate_grade_ppm > copper_ppm);
+    };
+    let primary = primary::run(registries, &mut scenario);
+    let scavenged = scavenging::run(registries, &mut scenario, &primary);
+    let state = &scenario.state;
     assert!(
         state
             .energy()
@@ -584,12 +261,12 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         );
     }
     assert_eq!(
-        calculate_matter_accounting(&state)
+        calculate_matter_accounting(state)
             .unwrap_or_else(|error| panic!("primitive liberation matter audit failed: {error}"))
             .total(),
         matter_before
     );
-    validate_loaded_state(registries, &state)
+    validate_loaded_state(registries, state)
         .unwrap_or_else(|error| panic!("primitive liberation trusted-state audit failed: {error}"));
     let final_energy = state
         .energy()
@@ -597,12 +274,17 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .map(|record| record.stored())
         .unwrap_or_else(|| panic!("primitive liberation drive disappeared after completion"));
     reviewln!(
-        "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} route=treadle+paired-flywheel->crusher->quern->copper-screen->regrind->separator input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate-grade={}ppm stored-work-remaining={}nJ machinery-worn=true matter=conserved",
+        "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} route=treadle+paired-flywheel->crusher->quern->copper-screen->regrind->separator->tailings-regrind->scavenger input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm additional-copper:{}ppm-mg] exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),
         copper_ppm,
         clay_share_ppm,
-        concentrate_grade_ppm,
+        primary.concentrate_mass.milligrams(),
+        primary.concentrate_grade_ppm,
+        scavenged.concentrate_mass.milligrams(),
+        scavenged.concentrate_grade_ppm,
+        scavenged.additional_recovered_copper_ppm_mg,
+        scavenged.exhausted_tailings_mass.milligrams(),
         final_energy.nanojoules(),
     );
 }

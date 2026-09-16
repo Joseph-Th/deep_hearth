@@ -4,9 +4,10 @@ use super::*;
 use crate::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_SMALL_DRIVE,
     EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE,
-    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_TAILINGS, MATERIAL_CLAY,
-    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CONCENTRATE_COPPER,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
+    FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_TAILINGS,
+    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_CONCENTRATE_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_SCAVENGE_COPPER_TAILINGS,
+    PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::{Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
@@ -35,6 +36,11 @@ fn liberated_particle_size() -> ParticleSizeRange {
         Length::from_micrometers(10_000),
     )
     .unwrap_or_else(|error| panic!("separation particle-size fixture failed: {error}"))
+}
+
+fn scavenger_particle_size() -> ParticleSizeRange {
+    ParticleSizeRange::new(Length::from_micrometers(100), Length::from_micrometers(499))
+        .unwrap_or_else(|error| panic!("scavenger particle-size fixture failed: {error}"))
 }
 
 #[test]
@@ -271,6 +277,22 @@ fn fixture_with_host_and_particle_size(
     composition: MaterialComposition,
     particle_size: ParticleSizeRange,
 ) -> Fixture {
+    fixture_with_host_form_and_particle_size(
+        host_material,
+        FORM_CRUSHED,
+        mass,
+        composition,
+        particle_size,
+    )
+}
+
+fn fixture_with_host_form_and_particle_size(
+    host_material: crate::material::MaterialId,
+    input_form: crate::material::FormId,
+    mass: Mass,
+    composition: MaterialComposition,
+    particle_size: ParticleSizeRange,
+) -> Fixture {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x9720_0001));
     let source_capacity = mass
@@ -283,7 +305,7 @@ fn fixture_with_host_and_particle_size(
     let residue = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("separation residue fixture failed: {error}"));
     let input = MaterialLotSpec::with_composition_and_particle_size(
-        CommodityKey::new(host_material, FORM_CRUSHED),
+        CommodityKey::new(host_material, input_form),
         mass,
         TEMPERATURE,
         composition,
@@ -1334,6 +1356,78 @@ fn concentration_accepts_gangue_hosted_prepared_tailings_and_recovers_target() {
         )),
         "one concentration pass must produce terminal current-tier tailings instead of another identical-process feed"
     );
+}
+
+#[test]
+fn scavenger_rejects_primary_tailings_until_they_are_reground_finer() {
+    let mass = Mass::from_milligrams(1_000);
+    let fixture = fixture_with_host_form_and_particle_size(
+        MATERIAL_STONE,
+        FORM_TAILINGS,
+        mass,
+        copper_stone_composition(100_000),
+        concentration_particle_size(),
+    );
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ConstituentSeparationRequest::new(
+                PROCESS_SCAVENGE_COPPER_TAILINGS,
+                fixture.source,
+                &[MaterialLotSelection::new(fixture.lot, mass)],
+                fixture.separator,
+                fixture.energy,
+            ),
+        )
+        .err(),
+        Some(ConstituentSeparationResolutionError::Batch(
+            ConstituentSeparationBatchError::InputParticleSizeOutsideOperatingRange {
+                required: scavenger_particle_size(),
+                found: concentration_particle_size(),
+            }
+        )),
+        "first-pass tailings must not enter scavenging until additional liberation work is complete"
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn scavenger_rejects_exhausted_tailings_even_at_the_required_particle_size() {
+    let mass = Mass::from_milligrams(1_000);
+    let fixture = fixture_with_host_form_and_particle_size(
+        MATERIAL_STONE,
+        FORM_EXHAUSTED_TAILINGS,
+        mass,
+        copper_stone_composition(30_000),
+        scavenger_particle_size(),
+    );
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ConstituentSeparationRequest::new(
+                PROCESS_SCAVENGE_COPPER_TAILINGS,
+                fixture.source,
+                &[MaterialLotSelection::new(fixture.lot, mass)],
+                fixture.separator,
+                fixture.energy,
+            ),
+        )
+        .err(),
+        Some(ConstituentSeparationResolutionError::Batch(
+            ConstituentSeparationBatchError::InputFormMismatch {
+                expected: FORM_TAILINGS,
+                found: FORM_EXHAUSTED_TAILINGS,
+            }
+        )),
+        "the scavenger route must be finite after one exhausted-tailings output"
+    );
+    assert_eq!(fixture.state, before);
 }
 
 #[test]

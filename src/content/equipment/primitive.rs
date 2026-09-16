@@ -27,6 +27,7 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         processing::stone_crusher(),
         processing::stone_separator(),
         processing::stone_rotary_quern(),
+        processing::timber_riddle_sizing_screen(),
         processing::copper_plate_sizing_screen(),
         processing::copper_reinforced_stone_crusher(),
         processing::copper_reinforced_stone_separator(),

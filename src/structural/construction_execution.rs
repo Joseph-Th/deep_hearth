@@ -5,161 +5,31 @@
 //! player construction system and does not authorize labor, tools, joints, cutting/placement waste, or
 //! build duration.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
 use crate::core::quantity::{AggregateMass, Force, Mass};
 use crate::core::state::AppState;
 use crate::inventory::{
-    ConsumedMaterialTrace, ConsumptionSelection, MaterialEgressError, StockpileId,
-    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
-    ValidatedStockpileStructuralLoad, apply_material_egress,
-    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
-};
-#[cfg(any(test, feature = "test-gameplay"))]
-use crate::inventory::{
-    ExplicitConsumptionSelectionError, MaterialLotSelection,
-    validate_explicit_consumption_selection,
+    ConsumedMaterialTrace, ConsumptionSelection, MaterialEgressError, StockpileStoredMassChange,
+    StockpileStructuralLoadError, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
+    apply_material_egress, validate_material_egress_from_selection,
+    validate_stockpile_stored_mass_changes,
 };
 use crate::material::MaterialId;
 use crate::registry::Registries;
 
-use super::geometry::{StructuralGeometryError, calculate_prismatic_material_mass_ceiling};
 use super::load::calculate_aggregate_weight_force_ceiling;
 #[cfg(test)]
 use super::state::StructuralLoadKind;
 use super::state::{StructuralElementId, StructuralElementRecord, StructuralLifecycle};
 
-/// Read-only physical material requirement for one prismatic structural member.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StructuralMaterialRequirement {
-    element: StructuralElementId,
-    material: MaterialId,
-    required_mass: Mass,
-}
-
-impl StructuralMaterialRequirement {
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) const fn element(self) -> StructuralElementId {
-        self.element
-    }
-
-    #[must_use]
-    pub const fn material(self) -> MaterialId {
-        self.material
-    }
-
-    #[must_use]
-    pub const fn required_mass(self) -> Mass {
-        self.required_mass
-    }
-}
-
-/// Failure while deriving a member's physical solid-material requirement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StructuralMaterialRequirementError {
-    UnknownElement {
-        element: StructuralElementId,
-    },
-    Geometry {
-        element: StructuralElementId,
-        error: StructuralGeometryError,
-    },
-}
-
-impl Display for StructuralMaterialRequirementError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownElement { element } => {
-                write!(formatter, "unknown structural element {}", element.value())
-            }
-            Self::Geometry { element, error } => write!(
-                formatter,
-                "structural element {} material requirement cannot be resolved: {error}",
-                element.value()
-            ),
-        }
-    }
-}
-
-impl Error for StructuralMaterialRequirementError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Geometry {
-                element: _element,
-                error,
-            } => Some(error),
-            Self::UnknownElement { element: _element } => None,
-        }
-    }
-}
-
-/// Derives conservative solid volume and exact milligram ownership from member geometry and density.
-pub fn resolve_structural_material_requirement(
-    registries: &Registries,
-    state: &AppState,
-    element: StructuralElementId,
-) -> Result<StructuralMaterialRequirement, StructuralMaterialRequirementError> {
-    let record = state
-        .structures()
-        .get_element(element)
-        .ok_or(StructuralMaterialRequirementError::UnknownElement { element })?;
-    let required_mass = calculate_prismatic_material_mass_ceiling(
-        registries.materials(),
-        record.material(),
-        record.cross_section(),
-        record.length(),
-    )
-    .map_err(|error| StructuralMaterialRequirementError::Geometry { element, error })?;
-    Ok(StructuralMaterialRequirement {
-        element,
-        material: record.material(),
-        required_mass,
-    })
-}
-
-/// Immutable fixture materialization selection for a planned member.
-///
-/// There is no runtime/public constructor. Player construction is outside current production scope;
-/// this setup-only binding intentionally omits joinery, wastage, tooling, labor, and duration.
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-pub struct StructuralConstructionResolution {
-    element: StructuralElementId,
-    selection: crate::inventory::ConsumptionSelection,
-}
-
-impl StructuralConstructionResolution {
-    #[must_use]
-    pub fn mass(&self) -> Mass {
-        self.selection.total_consumed()
-    }
-}
-
-/// Harness-side binding failure for controlled fixture materialization.
-#[cfg(any(test, feature = "test-gameplay"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum StructuralConstructionBindingError {
-    Inventory(ExplicitConsumptionSelectionError),
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn bind_structural_construction_selection(
-    state: &AppState,
-    element: StructuralElementId,
-    source: StockpileId,
-    selections: &[MaterialLotSelection],
-) -> Result<StructuralConstructionResolution, StructuralConstructionBindingError> {
-    let selection = validate_explicit_consumption_selection(state.inventory(), source, selections)
-        .map_err(StructuralConstructionBindingError::Inventory)?;
-    Ok(StructuralConstructionResolution { element, selection })
-}
-
+mod binding;
 mod errors;
+mod requirement;
 
+use binding::StructuralConstructionResolution;
+pub(crate) use binding::bind_structural_construction_selection;
 pub use errors::{StructuralConstructionCommitError, StructuralConstructionError};
+use requirement::resolve_required_mass;
+pub(crate) use requirement::resolve_structural_material_requirement;
 
 /// Consumed proof that exact inventory matter can become one member's embodied matter atomically.
 #[must_use]
@@ -364,7 +234,7 @@ pub fn validate_structural_construction(
     state: &AppState,
     resolution: StructuralConstructionResolution,
 ) -> Result<ValidatedStructuralConstruction, StructuralConstructionError> {
-    let element = resolution.element;
+    let element = resolution.element();
     let record = state
         .structures()
         .get_element(element)
@@ -374,16 +244,11 @@ pub fn validate_structural_construction(
         registries,
         element,
         record.material(),
-        resolution.selection.consumed_inputs(),
+        resolution.selection().consumed_inputs(),
     )?;
 
-    let required_mass = calculate_prismatic_material_mass_ceiling(
-        registries.materials(),
-        record.material(),
-        record.cross_section(),
-        record.length(),
-    )
-    .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
+    let required_mass = resolve_required_mass(registries.materials(), record)
+        .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
     if resolution.mass() != required_mass {
         return Err(StructuralConstructionError::MaterialQuantityMismatch {
             element,
@@ -397,7 +262,7 @@ pub fn validate_structural_construction(
         state,
         element,
         required_mass,
-        resolution.selection,
+        resolution.into_selection(),
     )?;
     let (expected_structure_revision, next_structure_revision) =
         resolve_structural_construction_revision(state, stockpile_load.as_ref())?;

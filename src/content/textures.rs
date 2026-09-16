@@ -101,6 +101,9 @@ pub const OBJECT_COPPER_REINFORCED_WOODWORKING_ADZE: ObjectAppearanceId =
     ObjectAppearanceId::new(49);
 pub const OBJECT_COPPER_SAW_BLADE: ObjectAppearanceId = ObjectAppearanceId::new(50);
 pub const OBJECT_TIMBER_FRAME_SAW_BENCH: ObjectAppearanceId = ObjectAppearanceId::new(51);
+pub const OBJECT_TIMBER_RIDDLE_PANEL: ObjectAppearanceId = ObjectAppearanceId::new(52);
+pub const OBJECT_TIMBER_RIDDLE_SIZING_SCREEN: ObjectAppearanceId = ObjectAppearanceId::new(53);
+pub const OBJECT_TIMBER_FLYWHEEL: ObjectAppearanceId = ObjectAppearanceId::new(54);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

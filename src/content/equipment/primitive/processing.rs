@@ -2,7 +2,7 @@
 
 use crate::capability::CapabilityValue;
 use crate::core::quantity::{Mass, MassFlow};
-use crate::equipment::EquipmentDefinition;
+use crate::equipment::{EquipmentDefinition, EquipmentUpgradeProfile};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use crate::content::capabilities::{
@@ -11,8 +11,8 @@ use crate::content::capabilities::{
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
 use crate::content::materials::{
-    FORM_BOARD, FORM_HANDLE, FORM_SCREEN_PLATE, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD,
+    FORM_HANDLE, FORM_SCREEN_PLATE, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 use super::super::authoring::{
@@ -22,6 +22,7 @@ use super::super::{
     EQUIPMENT_COPPER_PLATE_SIZING_SCREEN, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR,
+    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
 };
 use super::{copper_reinforcement_input, copper_upgrade};
 
@@ -160,6 +161,54 @@ pub(super) fn stone_rotary_quern() -> EquipmentDefinition {
     ))
 }
 
+/// A low-tech mechanically shaken riddle with a replaceable slatted timber sizing panel. It opens
+/// the same physical grind/screen/regrind loop as later screens without consuming scarce copper,
+/// but pays for that accessibility with smaller batches, lower throughput, and a heavy wear part.
+pub(super) fn timber_riddle_sizing_screen() -> EquipmentDefinition {
+    EquipmentDefinition::new_with_capability_condition_curves(
+        EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+        "timber riddle sizing screen",
+        Mass::from_milligrams(1_600_000),
+        profile([
+            (
+                CAPABILITY_SCREEN_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1_250)),
+            ),
+            (
+                CAPABILITY_SCREEN_BATCH,
+                CapabilityValue::Mass(Mass::from_milligrams(250_000)),
+            ),
+        ]),
+        thresholds(),
+        vec![
+            mass_flow_condition_curve(
+                CAPABILITY_SCREEN_FLOW,
+                600_000,
+                MassFlow::from_milligrams_per_second(625),
+            ),
+            mass_condition_curve(
+                CAPABILITY_SCREEN_BATCH,
+                600_000,
+                Mass::from_milligrams(125_000),
+            ),
+        ],
+    )
+    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+            Mass::from_milligrams(1_400_000),
+        ),
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ]))
+    .with_maintenance_profile(component_maintenance(
+        CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+        Mass::from_milligrams(1_400_000),
+    ))
+}
+
 pub(super) fn copper_plate_sizing_screen() -> EquipmentDefinition {
     EquipmentDefinition::new_with_capability_condition_curves(
         EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
@@ -191,8 +240,12 @@ pub(super) fn copper_plate_sizing_screen() -> EquipmentDefinition {
     )
     .with_assembly_profile(MaterialAssemblyProfile::new(vec![
         MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            Mass::from_milligrams(1_600_000),
+            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+            Mass::from_milligrams(1_400_000),
+        ),
+        MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
         ),
         MaterialInputSpec::pure(
             CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
@@ -200,8 +253,15 @@ pub(super) fn copper_plate_sizing_screen() -> EquipmentDefinition {
         ),
     ]))
     .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
-        Mass::from_milligrams(18_000),
+        CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+        Mass::from_milligrams(1_400_000),
+    ))
+    .with_upgrade_profile(EquipmentUpgradeProfile::new(
+        EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+        MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
+            Mass::from_milligrams(18_000),
+        )]),
     ))
 }
 
