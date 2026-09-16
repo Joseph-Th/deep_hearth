@@ -2,13 +2,15 @@
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+use crate::labor::StorageEnclosureDismantlingWork;
 use crate::registry::Registries;
 
 use super::validate_storage_dismantling_target_for_completion;
 use crate::inventory::{
-    InventoryState, MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
-    StockpileStorageProfile, StorageDefinitionId, ValidatedMaterialIngress, apply_material_ingress,
-    validate_reserved_material_ingress,
+    InboundReservationReleaseError, InventoryState, MaterialIngressEntry, MaterialIngressError,
+    MaterialLotId, StockpileId, StockpileStorageProfile, StorageDefinitionId,
+    ValidatedInboundReservationRelease, ValidatedMaterialIngress, apply_material_ingress,
+    validate_inbound_reservation_release, validate_reserved_material_ingress,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +53,37 @@ pub(crate) struct StorageEnclosureDismantlingTickPlan {
     ingress: ValidatedMaterialIngress,
     next_inventory_revision: u64,
     at: SimulationTick,
+}
+
+#[must_use]
+pub(crate) struct StorageEnclosureDismantlingCancellationPlan {
+    reservation_release: ValidatedInboundReservationRelease,
+}
+
+pub(crate) fn decide_storage_enclosure_dismantling_cancellation(
+    projected_inventory: &InventoryState,
+    work: StorageEnclosureDismantlingWork,
+) -> Result<StorageEnclosureDismantlingCancellationPlan, StorageEnclosureDismantlingTickError> {
+    let reservation_release = validate_inbound_reservation_release(
+        projected_inventory,
+        work.recovery_destination(),
+        work.recovered_mass(),
+    )
+    .map_err(|error| match error {
+        InboundReservationReleaseError::RevisionExhausted => {
+            StorageEnclosureDismantlingTickError::InventoryRevision
+        }
+    })?;
+    Ok(StorageEnclosureDismantlingCancellationPlan {
+        reservation_release,
+    })
+}
+
+pub(crate) fn apply_storage_enclosure_dismantling_cancellation(
+    state: &mut AppState,
+    plan: StorageEnclosureDismantlingCancellationPlan,
+) {
+    plan.reservation_release.apply(state.inventory_state_mut());
 }
 
 pub(crate) fn decide_storage_enclosure_dismantling_tick(

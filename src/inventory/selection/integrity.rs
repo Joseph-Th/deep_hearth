@@ -12,6 +12,25 @@ use crate::inventory::state::{
 };
 
 impl ConsumptionReservation {
+    /// Projects source stored mass after this already-validated consumption reservation.
+    pub(crate) fn source_stored_mass_after(&self, state: &InventoryState) -> Mass {
+        assert_eq!(
+            state.revision(),
+            self.expected_revision,
+            "consumption reservation projection must use its validated inventory revision"
+        );
+        let total_consumed = checked_consumed_material_mass(&self.consumed_inputs)
+            .unwrap_or_else(|| panic!("validated consumption reservation mass overflowed"));
+        state
+            .get_stockpile(self.source)
+            .unwrap_or_else(|| panic!("validated consumption reservation source disappeared"))
+            .stored_mass()
+            .checked_sub(total_consumed)
+            .unwrap_or_else(|| {
+                panic!("validated consumption reservation exceeds source stored mass")
+            })
+    }
+
     /// Fails closed if aggregate input accounting, lot slices, and physical traces diverge inside
     /// a reservation. Cross-owner commits call this before mutating structure or another owner.
     pub(crate) fn assert_well_formed(&self) {

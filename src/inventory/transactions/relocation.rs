@@ -205,10 +205,7 @@ pub(crate) fn validate_material_relocation_from_selection(
     let source_after = source_record
         .stored_mass()
         .checked_sub(total_consumed)
-        .ok_or(MaterialRelocationError::StaleSelection {
-            expected: expected_revision,
-            actual: inventories.revision(),
-        })?;
+        .unwrap_or_else(|| panic!("validated material relocation exceeds source stored mass"));
     let structural = validate_stockpile_stored_mass_changes(
         registries,
         state,
@@ -257,7 +254,7 @@ fn validate_relocation_endpoints(
     }
     let source_record = inventories
         .get_stockpile(source)
-        .ok_or(MaterialRelocationError::UnknownSource { stockpile: source })?;
+        .unwrap_or_else(|| panic!("validated material relocation source disappeared"));
     let destination_record = inventories.get_stockpile(destination).ok_or(
         MaterialRelocationError::UnknownDestination {
             stockpile: destination,

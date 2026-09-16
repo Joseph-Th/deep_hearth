@@ -14,9 +14,6 @@ pub(crate) enum MaterialReformError {
         expected: u64,
         actual: u64,
     },
-    UnknownSource {
-        stockpile: StockpileId,
-    },
     UnknownDestination {
         stockpile: StockpileId,
     },

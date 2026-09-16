@@ -64,6 +64,24 @@ impl ValidatedMaterialEgress {
         &self.consumed_inputs
     }
 
+    /// Projects the source's stored mass after this already-validated withdrawal.
+    ///
+    /// Cross-owner validators use this instead of reconstructing inventory withdrawal arithmetic.
+    /// The exact selection proof guarantees that the withdrawal cannot underflow stored mass.
+    pub(crate) fn source_stored_mass_after(&self, state: &InventoryState) -> Mass {
+        assert_eq!(
+            state.revision(),
+            self.expected_revision,
+            "material egress projection must use its validated inventory revision"
+        );
+        state
+            .get_stockpile(self.source)
+            .unwrap_or_else(|| panic!("validated material egress source disappeared"))
+            .stored_mass()
+            .checked_sub(self.total_consumed())
+            .unwrap_or_else(|| panic!("validated material egress exceeds source stored mass"))
+    }
+
     /// Fails closed if the aggregate withdrawal and its exact lot/trace representation diverge.
     pub(crate) fn assert_well_formed(&self) {
         assert_consumption_parts_well_formed(&self.inputs, &self.lot_slices, &self.consumed_inputs);

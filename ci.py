@@ -327,11 +327,17 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             ):
                 metabolic_wins += 1
         reduction_span = f"{min(reductions)}..{max(reductions)}ppm" if reductions else "n/a"
+        crank_build_span = (
+            f"{min(crank_builds)}..{max(crank_builds)}mg" if crank_builds else "n/a"
+        )
+        treadle_build_span = (
+            f"{min(treadle_builds)}..{max(treadle_builds)}mg" if treadle_builds else "n/a"
+        )
         summaries.append(
             "POWER DIVERSITY "
             f"samples={len(power)} "
             f"charge-attention-reduction={reduction_span} "
-            f"build=[crank:{min(crank_builds, default=0)}mg treadle:{min(treadle_builds, default=0)}mg] "
+            f"build-mass=[crank:{crank_build_span} treadle:{treadle_build_span}] "
             f"metabolic-lower-treadle:{metabolic_wins}"
         )
     return summaries

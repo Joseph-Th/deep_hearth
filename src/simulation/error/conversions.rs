@@ -25,9 +25,6 @@ impl From<CompletionPlanError> for TickError {
                 current,
                 remaining,
             },
-            CompletionPlanError::DestinationMassOverflow { stockpile } => {
-                Self::DestinationMassOverflow { stockpile }
-            }
             CompletionPlanError::StructuralLoad(error) => Self::StructuralLoad(error),
         }
     }

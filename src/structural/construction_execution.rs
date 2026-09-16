@@ -9,9 +9,8 @@ use crate::core::quantity::{AggregateMass, Force, Mass};
 use crate::core::state::AppState;
 use crate::inventory::{
     ConsumedMaterialTrace, ConsumptionSelection, MaterialEgressError, StockpileStoredMassChange,
-    StockpileStructuralLoadError, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
-    apply_material_egress, validate_material_egress_from_selection,
-    validate_stockpile_stored_mass_changes,
+    ValidatedMaterialEgress, ValidatedStockpileStructuralLoad, apply_material_egress,
+    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
 use crate::material::MaterialId;
 use crate::registry::Registries;
@@ -166,7 +165,6 @@ fn validate_structural_construction_material(
 fn validate_structural_construction_egress(
     registries: &Registries,
     state: &AppState,
-    element: StructuralElementId,
     required_mass: Mass,
     selection: ConsumptionSelection,
 ) -> Result<
@@ -193,19 +191,7 @@ fn validate_structural_construction_egress(
         required_mass,
         "validated structural construction must consume its exact geometry-derived material mass"
     );
-    let source_record = state.inventory().get_stockpile(source).ok_or(
-        StructuralConstructionError::StructuralLoad(
-            StockpileStructuralLoadError::UnknownStockpile { stockpile: source },
-        ),
-    )?;
-    let source_after = source_record
-        .stored_mass()
-        .checked_sub(required_mass)
-        .ok_or(StructuralConstructionError::MaterialQuantityMismatch {
-            element,
-            required: required_mass,
-            selected: source_record.stored_mass(),
-        })?;
+    let source_after = egress.source_stored_mass_after(state.inventory());
     let stockpile_load = validate_stockpile_stored_mass_changes(
         registries,
         state,
@@ -260,7 +246,6 @@ pub fn validate_structural_construction(
     let (egress, stockpile_load) = validate_structural_construction_egress(
         registries,
         state,
-        element,
         required_mass,
         resolution.into_selection(),
     )?;

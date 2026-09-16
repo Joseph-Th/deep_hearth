@@ -16,9 +16,6 @@ pub(crate) enum MaterialRelocationError {
         expected: u64,
         actual: u64,
     },
-    UnknownSource {
-        stockpile: StockpileId,
-    },
     UnknownDestination {
         stockpile: StockpileId,
     },
@@ -46,11 +43,6 @@ impl Display for MaterialRelocationError {
             Self::StaleSelection { expected, actual } => write!(
                 formatter,
                 "exact material relocation expected inventory revision {expected} but current revision is {actual}"
-            ),
-            Self::UnknownSource { stockpile } => write!(
-                formatter,
-                "exact material relocation source stockpile {} does not exist",
-                stockpile.value()
             ),
             Self::UnknownDestination { stockpile } => write!(
                 formatter,
@@ -103,7 +95,6 @@ impl Error for MaterialRelocationError {
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::StaleSelection { .. }
-            | Self::UnknownSource { .. }
             | Self::UnknownDestination { .. }
             | Self::SameStockpile { .. }
             | Self::DestinationMassOverflow { .. }

@@ -27,8 +27,10 @@ mod tick;
 pub use errors::{StorageEnclosureDismantlingCommitError, StorageEnclosureDismantlingError};
 pub use tick::StorageEnclosureDismantlingOutcome;
 pub(crate) use tick::{
-    StorageEnclosureDismantlingTickError, StorageEnclosureDismantlingTickPlan,
-    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_tick,
+    StorageEnclosureDismantlingCancellationPlan, StorageEnclosureDismantlingTickError,
+    StorageEnclosureDismantlingTickPlan, apply_storage_enclosure_dismantling_cancellation,
+    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_cancellation,
+    decide_storage_enclosure_dismantling_tick,
 };
 
 fn map_recovery_ingress_error(error: MaterialIngressError) -> StorageEnclosureDismantlingError {

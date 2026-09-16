@@ -81,6 +81,48 @@ fn split_transfer_fixture() -> (Registries, AppState, StockpileId, StockpileId) 
 }
 
 #[test]
+fn validated_withdrawal_mass_projections_reject_stale_inventory_revision() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2005));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("stale projection source fixture failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("stale projection source deposit failed: {error}"));
+    let inputs = [MaterialInputSpec::new(wood_log(), Mass::from_milligrams(5))];
+    let reservation_selection = validate_consumption_selection(state.inventory(), source, &inputs)
+        .unwrap_or_else(|error| panic!("reservation selection failed: {error:?}"));
+    let reservation = validate_consumption_reservation_from_selection(
+        state.inventory(),
+        reservation_selection,
+        BTreeMap::new(),
+    )
+    .unwrap_or_else(|error| panic!("reservation validation failed: {error:?}"));
+    let egress_selection = validate_consumption_selection(state.inventory(), source, &inputs)
+        .unwrap_or_else(|error| panic!("egress selection failed: {error:?}"));
+    let egress = validate_material_egress_from_selection(state.inventory(), egress_selection)
+        .unwrap_or_else(|error| panic!("egress validation failed: {error:?}"));
+
+    add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale projection revision advance failed: {error}"));
+
+    assert!(
+        std::panic::catch_unwind(|| reservation.source_stored_mass_after(state.inventory()))
+            .is_err(),
+        "consumption reservation projection must reject a different inventory revision"
+    );
+    assert!(
+        std::panic::catch_unwind(|| egress.source_stored_mass_after(state.inventory())).is_err(),
+        "material egress projection must reject a different inventory revision"
+    );
+}
+
+#[test]
 fn split_transfer_rejects_exhausted_lot_id_without_mutation() {
     let (registries, state, source, destination) = split_transfer_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -1159,6 +1201,11 @@ fn consumption_reservation_and_reserved_deposit_preserve_final_quantity() {
         inbound_by_destination,
     )
     .unwrap_or_else(|error| panic!("reservation failed: {error:?}"));
+    assert_eq!(
+        reservation.source_stored_mass_after(state.inventory()),
+        Mass::ZERO,
+        "consumption reservation must own source post-withdrawal mass projection"
+    );
     apply_consumption_reservation(state.inventory_state_mut(), reservation)
         .unwrap_or_else(|error| panic!("reservation commit failed: {error:?}"));
     assert_lot_aggregate_agreement(&registries, &state, "after reservation");
@@ -1255,6 +1302,11 @@ fn egress_and_ingress_round_trip_preserves_exact_quantity() {
     let egress = validate_material_egress_from_selection(state.inventory(), selection)
         .unwrap_or_else(|error| panic!("egress failed: {error:?}"));
     assert_eq!(egress.total_consumed(), Mass::from_milligrams(7));
+    assert_eq!(
+        egress.source_stored_mass_after(state.inventory()),
+        Mass::from_milligrams(3),
+        "egress must own the authoritative post-withdrawal stored-mass projection"
+    );
     let traces = egress.consumed_inputs().to_vec();
     apply_material_egress(state.inventory_state_mut(), egress);
     assert_lot_aggregate_agreement(&registries, &state, "after egress");

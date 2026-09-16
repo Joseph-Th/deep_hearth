@@ -25,12 +25,86 @@ fn add_test_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
     }
 }
 
+#[test]
+fn validated_ingress_mass_projection_rejects_stale_inventory_revision() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A61_0007));
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    let current_tick = state.tick();
+    let ingress = validate_material_ingress(
+        &registries,
+        state.inventory(),
+        destination,
+        [MaterialIngressEntry::from_lot_spec(
+            wood_log_spec(Mass::from_milligrams(2)),
+            current_tick,
+        )],
+        current_tick,
+    )
+    .unwrap_or_else(|error| panic!("stale ingress validation failed: {error:?}"));
+
+    let _ = add_test_stockpile(&mut state, Mass::from_milligrams(1));
+
+    assert!(
+        std::panic::catch_unwind(|| ingress.destination_stored_mass_after(state.inventory()))
+            .is_err(),
+        "material ingress projection must reject a different inventory revision"
+    );
+}
+
 fn wood_log_spec(mass: Mass) -> MaterialLotSpec {
     MaterialLotSpec::new(
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         mass,
         Temperature::from_millikelvin(293_150),
     )
+}
+
+#[test]
+fn projected_exchange_mass_projection_rejects_stale_inventory_revision() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A61_0008));
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        wood_log_spec(Mass::from_milligrams(4)).commodity(),
+        Mass::from_milligrams(4),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("stale exchange source lot failed: {error}"));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        destination,
+        &[crate::material::MaterialInputSpec::new(
+            wood_log_spec(Mass::from_milligrams(4)).commodity(),
+            Mass::from_milligrams(4),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("stale exchange selection failed: {error:?}"));
+    let egress = validate_material_egress_from_selection(state.inventory(), selection)
+        .unwrap_or_else(|error| panic!("stale exchange egress failed: {error:?}"));
+    let traces = egress.consumed_inputs().to_vec();
+    let ingress = validate_material_ingress_after_egress(
+        &registries,
+        state.inventory(),
+        &egress,
+        destination,
+        traces.iter().map(MaterialIngressEntry::from_consumed_trace),
+        state.tick(),
+    )
+    .unwrap_or_else(|error| panic!("stale exchange ingress failed: {error:?}"));
+
+    let _ = add_test_stockpile(&mut state, Mass::from_milligrams(1));
+
+    assert!(
+        std::panic::catch_unwind(|| {
+            ingress.destination_stored_mass_after_egress(state.inventory(), &egress)
+        })
+        .is_err(),
+        "projected material exchange must reject a different inventory revision"
+    );
 }
 
 #[test]
@@ -171,6 +245,11 @@ fn compatible_ingress_reuses_existing_identity_without_advancing_lot_cursor() {
         current_tick,
     )
     .unwrap_or_else(|error| panic!("second ingress validation failed: {error:?}"));
+    assert_eq!(
+        second.destination_stored_mass_after(state.inventory()),
+        Mass::from_milligrams(5),
+        "validated ingress must own destination post-admission mass projection"
+    );
     let second_lots = apply_material_ingress(state.inventory_state_mut(), second);
 
     assert_eq!(second_lots.as_slice(), &[*first_lot]);
@@ -252,6 +331,11 @@ fn projected_post_egress_ingress_excludes_fully_consumed_source_identity() {
         state.tick(),
     )
     .unwrap_or_else(|error| panic!("projected-ingress validation failed: {error:?}"));
+    assert_eq!(
+        ingress.destination_stored_mass_after_egress(state.inventory(), &egress),
+        Mass::from_milligrams(10),
+        "projected ingress must own post-exchange destination mass"
+    );
 
     apply_material_egress(state.inventory_state_mut(), egress);
     let returned_lots = apply_material_ingress(state.inventory_state_mut(), ingress);

@@ -57,6 +57,10 @@ impl ConsumptionReservation {
         self.expected_revision
     }
 
+    pub(crate) const fn source(&self) -> StockpileId {
+        self.source
+    }
+
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
     }

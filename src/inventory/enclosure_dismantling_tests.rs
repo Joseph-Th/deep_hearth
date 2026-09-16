@@ -9,7 +9,7 @@ use crate::content::{
     STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST, STORAGE_TIMBER_PROVISIONS_CHEST,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{AggregateMass, Area, Length, Mass, Temperature};
+use crate::core::quantity::{AggregateMass, Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -31,7 +31,9 @@ use crate::structural::{
     calculate_aggregate_weight_force_ceiling, materialize_structural_element_for_test,
     validate_activate_structural_element,
 };
-use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_survival};
+use crate::survival::{
+    FoodFreshness, Vitality, assess_food_freshness, initialize_player_survival, player_record,
+};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
@@ -73,6 +75,151 @@ fn fixture() -> (
     let recovery = add_solid_stockpile_for_test(&mut state, CHEST_MASS)
         .unwrap_or_else(|error| panic!("dismantle recovery fixture failed: {error}"));
     (registries, state, target, construction, recovery, food)
+}
+
+fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
+    let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal dismantling fixture player disappeared"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+}
+
+#[test]
+fn fatal_tick_cancels_unfinished_dismantling_and_releases_recovery_capacity() {
+    let (registries, mut state, target, construction, recovery, _food) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("fatal dismantling enclosure build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal dismantling enclosure build commit failed: {error}"));
+    let start = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+        .unwrap_or_else(|error| panic!("fatal dismantling start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fatal dismantling start commit failed: {error}"));
+    assert!(
+        start.completes_at().value() > state.tick().value() + 1,
+        "fatal dismantling proof requires unfinished work after the next tick"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovery)
+            .map(|record| record.reserved_inbound()),
+        Some(start.recovered_mass())
+    );
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal dismantling tick failed: {error}"));
+
+    assert!(outcome.storage_enclosure_dismantling().is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .is_some_and(|record| record.enclosure().is_some()),
+        "canceled dismantling must leave the enclosure installed"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovery)
+            .map(|record| record.reserved_inbound()),
+        Some(Mass::ZERO),
+        "canceled dismantling must return its unused recovery reservation"
+    );
+    validate_loaded_state(&registries, &state).unwrap_or_else(|error| {
+        panic!("fatal dismantling state failed trusted-load audit: {error}")
+    });
+}
+
+#[test]
+fn fatal_tick_allows_dismantling_due_that_tick_to_complete() {
+    let (registries, mut state, target, construction, recovery, _food) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("fatal due dismantling enclosure build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal due dismantling enclosure build commit failed: {error}"));
+    let start = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+        .unwrap_or_else(|error| panic!("fatal due dismantling start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fatal due dismantling start commit failed: {error}"));
+    while state.tick().value() + 1 < start.completes_at().value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fatal due dismantling setup tick failed: {error}"));
+        assert!(outcome.storage_enclosure_dismantling().is_none());
+    }
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal due dismantling completion tick failed: {error}"));
+
+    let completed = outcome
+        .storage_enclosure_dismantling()
+        .unwrap_or_else(|| panic!("fatal due dismantling did not complete"));
+    assert_eq!(completed.target(), target);
+    assert!(!completed.recovered_lots().is_empty());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .is_some_and(|record| record.enclosure().is_none()),
+        "dismantling due on the fatal tick must remove the enclosure"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovery)
+            .map(|record| record.reserved_inbound()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovery)
+            .map(|record| record.stored_mass()),
+        Some(CHEST_MASS),
+        "dismantling due on the fatal tick must recover exact enclosure matter"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("fatal due dismantling state invalid: {error}"));
 }
 
 #[test]

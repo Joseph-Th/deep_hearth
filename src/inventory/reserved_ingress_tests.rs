@@ -37,6 +37,12 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
     .unwrap_or_else(|error| panic!("reserved ingress planning failed: {error:?}"));
     assert_eq!(plan.expected_revision(), expected_revision);
     assert_eq!(state.inventory().revision(), expected_revision);
+    assert_eq!(
+        plan.stored_mass_after_by_destination(state.inventory())
+            .get(&destination),
+        Some(&Mass::from_milligrams(10)),
+        "reserved deposit plan must own destination post-deposit mass projection"
+    );
 
     let receipts = apply_reserved_deposits(state.inventory_state_mut(), plan);
 
@@ -56,6 +62,39 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
         .unwrap_or_else(|| panic!("reserved ingress did not use inventory-owned lot cursor"));
     assert_eq!(lot.stockpile(), destination);
     assert_eq!(lot.temperature(), Temperature::from_millikelvin(500_000));
+}
+
+#[test]
+fn reserved_deposit_mass_projection_rejects_stale_inventory_revision() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_3008));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("stale reserved projection stockpile failed: {error}"));
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(10);
+    let output = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(500_000),
+    );
+    let plan = decide_reserved_deposits(
+        &registries,
+        state.inventory(),
+        state.tick(),
+        state.tick(),
+        vec![ReservedDepositRequest::new(destination, vec![output], 0)],
+    )
+    .unwrap_or_else(|error| panic!("stale reserved projection planning failed: {error:?}"));
+
+    add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)).unwrap_or_else(|error| {
+        panic!("stale reserved projection revision advance failed: {error}")
+    });
+
+    assert!(
+        std::panic::catch_unwind(|| plan.stored_mass_after_by_destination(state.inventory()))
+            .is_err(),
+        "reserved deposit projection must reject a different inventory revision"
+    );
 }
 
 #[test]

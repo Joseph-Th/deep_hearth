@@ -155,7 +155,6 @@ pub(crate) fn deposit_lot_spec_for_fixture(
     stockpile: StockpileId,
     specification: MaterialLotSpec,
 ) -> Result<MaterialLotId, MaterialFixtureError> {
-    let mass = specification.mass();
     let created_at = state.tick();
     let entry = MaterialIngressEntry::from_lot_spec(specification, created_at);
     let ingress = validate_material_ingress(
@@ -166,14 +165,7 @@ pub(crate) fn deposit_lot_spec_for_fixture(
         created_at,
     )
     .map_err(MaterialFixtureError::Ingress)?;
-    let record = state
-        .inventory()
-        .get_stockpile(stockpile)
-        .unwrap_or_else(|| panic!("validated fixture ingress destination disappeared"));
-    let stored_after = record
-        .stored_mass()
-        .checked_add(mass)
-        .unwrap_or_else(|| panic!("validated fixture ingress overflowed stored mass"));
+    let stored_after = ingress.destination_stored_mass_after(state.inventory());
     let structural = validate_stockpile_stored_mass_changes(
         registries,
         state,

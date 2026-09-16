@@ -12,6 +12,26 @@ use super::{
 };
 
 impl ValidatedMaterialIngress {
+    /// Projects destination stored mass after this already-validated ingress.
+    pub(crate) fn destination_stored_mass_after(&self, state: &InventoryState) -> Mass {
+        assert_eq!(
+            state.revision(),
+            self.expected_revision,
+            "material ingress projection must use its validated inventory revision"
+        );
+        let destination_record = state.get_stockpile(self.destination).unwrap_or_else(|| {
+            panic!(
+                "validated material ingress destination {} disappeared before projection",
+                self.destination.value()
+            )
+        });
+        let summary = summarize_planned_ingress_mass(&self.entries, self.current_tick);
+        destination_record
+            .stored_mass()
+            .checked_add(summary.total)
+            .unwrap_or_else(|| panic!("validated material ingress exceeds destination stored mass"))
+    }
+
     /// Fails closed if an internally produced ingress token no longer binds exactly one identity
     /// and merge policy to every parcel. Cross-owner commits call this before any mutation.
     pub(crate) fn assert_well_formed(&self) {

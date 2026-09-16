@@ -142,6 +142,60 @@ impl MiningState {
         );
     }
 
+    pub(crate) fn assert_working_job_cancellable(
+        &self,
+        id: MiningJobId,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let record = self
+            .jobs
+            .get(&id)
+            .unwrap_or_else(|| panic!("validated mining cancellation job disappeared"));
+        assert!(record.is_working());
+        assert!(
+            self.due_jobs
+                .get(&record.completes_at())
+                .is_some_and(|jobs| jobs.contains(&id)),
+            "working mining cancellation job is missing from its due index"
+        );
+        assert_eq!(self.equipment_occupancy.get(&record.equipment()), Some(&id));
+    }
+
+    pub(crate) fn cancel_working_job(
+        &mut self,
+        id: MiningJobId,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        self.assert_working_job_cancellable(id, expected_revision, next_revision);
+        let record = self
+            .jobs
+            .get(&id)
+            .unwrap_or_else(|| unreachable!("mining cancellation job was prechecked"));
+        let due = record.completes_at();
+        let equipment = record.equipment();
+        let remove_due_bucket = {
+            let jobs = self
+                .due_jobs
+                .get_mut(&due)
+                .unwrap_or_else(|| unreachable!("mining cancellation due bucket was prechecked"));
+            assert!(jobs.remove(&id));
+            jobs.is_empty()
+        };
+        if remove_due_bucket {
+            self.due_jobs.remove(&due);
+        }
+        assert_eq!(self.equipment_occupancy.remove(&equipment), Some(id));
+        assert!(
+            self.jobs.remove(&id).is_some(),
+            "prechecked mining cancellation job disappeared"
+        );
+        self.revision = next_revision;
+    }
+
     pub(crate) fn remove_ready_job(
         &mut self,
         id: MiningJobId,

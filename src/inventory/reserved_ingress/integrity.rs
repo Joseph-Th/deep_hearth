@@ -11,6 +11,63 @@ use crate::inventory::state::{
 use super::ReservedDepositPlan;
 
 impl ReservedDepositPlan {
+    fn planned_mass_by_destination(&self) -> BTreeMap<StockpileId, Mass> {
+        let mut planned = BTreeMap::<StockpileId, Mass>::new();
+        for entry in &self.entries {
+            let entry_mass = entry.outputs.iter().fold(Mass::ZERO, |total, output| {
+                total
+                    .checked_add(output.mass())
+                    .unwrap_or_else(|| panic!("reserved deposit output mass overflowed"))
+            });
+            let current = planned
+                .get(&entry.destination)
+                .copied()
+                .unwrap_or(Mass::ZERO);
+            let combined = current
+                .checked_add(entry_mass)
+                .unwrap_or_else(|| panic!("reserved deposit destination mass overflowed"));
+            planned.insert(entry.destination, combined);
+        }
+        planned
+    }
+
+    /// Returns authoritative post-deposit stored mass for every destination touched by this plan.
+    ///
+    /// Reserved deposit plans already own exact destination and mass. Cross-owner structural
+    /// planning consumes this projection instead of maintaining parallel deposit-mass ledgers.
+    pub(crate) fn stored_mass_after_by_destination(
+        &self,
+        state: &InventoryState,
+    ) -> BTreeMap<StockpileId, Mass> {
+        assert_eq!(
+            state.revision(),
+            self.expected_revision,
+            "reserved deposit projection must use its planned inventory revision"
+        );
+        self.planned_mass_by_destination()
+            .into_iter()
+            .map(|(destination, deposited)| {
+                let record = state.get_stockpile(destination).unwrap_or_else(|| {
+                    panic!(
+                        "reserved deposit destination {} disappeared before projection",
+                        destination.value()
+                    )
+                });
+                let stored_after =
+                    record
+                        .stored_mass()
+                        .checked_add(deposited)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "validated reserved deposit overflows destination {} stored mass",
+                                destination.value()
+                            )
+                        });
+                (destination, stored_after)
+            })
+            .collect()
+    }
+
     /// Fails closed if an internally produced deposit plan no longer has one identity and merge
     /// policy for every material output. Cross-owner transactions call this before any mutation.
     pub(crate) fn assert_well_formed(&self) {
@@ -65,23 +122,7 @@ impl ReservedDepositPlan {
             return;
         }
 
-        let mut reserved_by_destination = BTreeMap::<StockpileId, Mass>::new();
-        for entry in &self.entries {
-            let entry_mass = entry.outputs.iter().fold(Mass::ZERO, |total, output| {
-                total
-                    .checked_add(output.mass())
-                    .unwrap_or_else(|| panic!("reserved deposit output mass overflowed"))
-            });
-            let current = reserved_by_destination
-                .get(&entry.destination)
-                .copied()
-                .unwrap_or(Mass::ZERO);
-            let combined = current
-                .checked_add(entry_mass)
-                .unwrap_or_else(|| panic!("reserved deposit destination mass overflowed"));
-            reserved_by_destination.insert(entry.destination, combined);
-        }
-        for (destination, planned_mass) in reserved_by_destination {
+        for (destination, planned_mass) in self.planned_mass_by_destination() {
             let destination_record = state.get_stockpile(destination).unwrap_or_else(|| {
                 panic!(
                     "reserved deposit destination {} disappeared before commit",

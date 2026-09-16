@@ -1,21 +1,20 @@
 //! Read-only planning for due production jobs and their crossed-owner completion effects.
 
-use std::collections::BTreeMap;
-
-use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::energy::ReleasedEnergyTrace;
 use crate::equipment::EquipmentOperationConditionOutcome;
 use crate::inventory::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, ReservedDepositPlanError, ReservedDepositRequest,
-    StockpileId, StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, ReservedDepositPlan, ReservedDepositPlanError,
+    ReservedDepositRequest, StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
     decide_reserved_deposits, validate_stockpile_stored_mass_changes,
 };
+use crate::labor::PlayerWork;
 use crate::registry::Registries;
 
-use super::super::super::resolution::sum_lot_spec_mass;
-use super::super::super::state::{ProductionJobId, ProductionJobRecord};
+use super::super::super::state::{
+    ProductionJobId, ProductionJobRecord, ProductionSuspensionReason,
+};
 use super::availability::decide_availability_changes;
 use super::{
     CompletionPlan, CompletionPlanError, CompletionRevisionPlan, PlayerLaborRevisionDependencies,
@@ -27,7 +26,6 @@ struct DueCompletionPlanning {
     deposit_requests: Vec<ReservedDepositRequest>,
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
     released_energy_outcomes: Vec<ReleasedEnergyTrace>,
-    deposited_mass_by_destination: BTreeMap<StockpileId, Mass>,
 }
 
 impl DueCompletionPlanning {
@@ -37,28 +35,7 @@ impl DueCompletionPlanning {
             deposit_requests: Vec::new(),
             equipment_outcomes: Vec::new(),
             released_energy_outcomes: Vec::new(),
-            deposited_mass_by_destination: BTreeMap::new(),
         }
-    }
-
-    fn add_deposited_mass(
-        &mut self,
-        destination: StockpileId,
-        mass: Mass,
-    ) -> Result<(), CompletionPlanError> {
-        let current = self
-            .deposited_mass_by_destination
-            .get(&destination)
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        let next =
-            current
-                .checked_add(mass)
-                .ok_or(CompletionPlanError::DestinationMassOverflow {
-                    stockpile: destination,
-                })?;
-        self.deposited_mass_by_destination.insert(destination, next);
-        Ok(())
     }
 }
 
@@ -106,6 +83,68 @@ fn build_completion_revision_plan(
     })
 }
 
+/// Adds the end-of-tick suspension required when fatal survival resolution releases unfinished
+/// direct player production. A job completing on the fatal tick is allowed to finish normally.
+pub(crate) fn plan_player_death_suspension(
+    state: &AppState,
+    tick: SimulationTick,
+    plan: &mut CompletionPlan,
+) -> Result<(), CompletionPlanError> {
+    let Some(PlayerWork::ManualProduction { job }) = state.player_work().active() else {
+        return Ok(());
+    };
+    if plan.jobs.contains(&job) {
+        return Ok(());
+    }
+    if let Some(change) = plan
+        .availability_changes
+        .iter()
+        .copied()
+        .find(|change| change.job() == job)
+    {
+        assert!(
+            matches!(change, ProductionAvailabilityChange::Suspended { .. }),
+            "active manual production can only have a planned suspension transition"
+        );
+        return Ok(());
+    }
+    let record = state.production().get_job(job).unwrap_or_else(|| {
+        panic!("player manual-production job disappeared before death suspension")
+    });
+    assert!(
+        record.suspension().is_none(),
+        "active manual production cannot already be suspended"
+    );
+    let remaining_active_time = record
+        .completes_at()
+        .checked_duration_since(tick)
+        .unwrap_or_else(|| panic!("manual production became overdue before death suspension"));
+    assert!(
+        !remaining_active_time.is_zero(),
+        "manual production due on the fatal tick must complete instead of suspending"
+    );
+    plan.availability_changes
+        .push(ProductionAvailabilityChange::Suspended {
+            job,
+            reason: ProductionSuspensionReason::PlayerLaborUnavailable,
+            suspended_at: tick,
+            remaining_active_time,
+        });
+    plan.availability_changes.sort_by_key(|change| change.job());
+    if plan.revisions.next_production_revision == plan.revisions.expected_production_revision {
+        plan.revisions.next_production_revision = plan
+            .revisions
+            .expected_production_revision
+            .checked_add(1)
+            .ok_or(CompletionPlanError::ProductionRevision)?;
+    }
+    plan.revisions.player_labor_dependencies = Some(PlayerLaborRevisionDependencies {
+        expected_player_work_revision: state.player_work().revision(),
+        expected_survival_revision: Some(state.survival().revision()),
+    });
+    Ok(())
+}
+
 /// Decides provider availability transitions and all jobs due on one exact tick without mutating
 /// production, inventory, equipment, energy, or structure.
 pub(crate) fn decide_due_completions(
@@ -126,7 +165,7 @@ pub(crate) fn decide_due_completions(
                 job_id.value()
             ),
         };
-        plan_due_job(state, tick, job, &mut planning)?;
+        plan_due_job(state, tick, job, &mut planning);
     }
     let revisions = build_completion_revision_plan(
         state,
@@ -134,8 +173,6 @@ pub(crate) fn decide_due_completions(
         &planning,
         player_labor_dependencies,
     )?;
-    let structural_load =
-        plan_completion_structural_load(registries, state, planning.deposited_mass_by_destination)?;
     let inventory_deposits = decide_reserved_deposits(
         registries,
         state.inventory(),
@@ -147,6 +184,7 @@ pub(crate) fn decide_due_completions(
         ReservedDepositPlanError::LotIdExhausted => CompletionPlanError::MaterialLotIds,
         ReservedDepositPlanError::RevisionExhausted => CompletionPlanError::InventoryRevision,
     })?;
+    let structural_load = plan_completion_structural_load(registries, state, &inventory_deposits)?;
 
     Ok(CompletionPlan {
         revisions,
@@ -187,7 +225,7 @@ fn plan_due_job(
     tick: SimulationTick,
     job: &ProductionJobRecord,
     planning: &mut DueCompletionPlanning,
-) -> Result<(), CompletionPlanError> {
+) {
     let storage_age_parts = job
         .material_storage_history()
         .project(tick, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
@@ -197,35 +235,26 @@ fn plan_due_job(
                 job.id().value()
             )
         });
-    plan_due_job_outputs(job, storage_age_parts, planning)?;
+    plan_due_job_outputs(job, storage_age_parts, planning);
     planning.jobs.push(job.id());
     plan_due_job_equipment(state, job, &mut planning.equipment_outcomes);
     if let Some(released) = job.released_energy() {
         planning.released_energy_outcomes.push(released);
     }
-    Ok(())
 }
 
 fn plan_due_job_outputs(
     job: &ProductionJobRecord,
     storage_age_parts: u128,
     planning: &mut DueCompletionPlanning,
-) -> Result<(), CompletionPlanError> {
+) {
     for stream in job.output_streams() {
-        let reserved_mass = sum_lot_spec_mass(stream.outputs()).unwrap_or_else(|| {
-            panic!(
-                "runtime invariant broken: production job {} output stream mass overflows",
-                job.id().value()
-            )
-        });
         planning.deposit_requests.push(ReservedDepositRequest::new(
             stream.destination(),
             stream.outputs().to_vec(),
             storage_age_parts,
         ));
-        planning.add_deposited_mass(stream.destination(), reserved_mass)?;
     }
-    Ok(())
 }
 
 fn plan_due_job_equipment(
@@ -270,26 +299,15 @@ fn plan_due_job_equipment(
 fn plan_completion_structural_load(
     registries: &Registries,
     state: &AppState,
-    deposited_mass_by_destination: BTreeMap<StockpileId, Mass>,
+    deposits: &ReservedDepositPlan,
 ) -> Result<Option<ValidatedStockpileStructuralLoad>, CompletionPlanError> {
-    let mut mass_changes = Vec::with_capacity(deposited_mass_by_destination.len());
-    for (destination, deposited) in deposited_mass_by_destination {
-        let record = state
-            .inventory()
-            .get_stockpile(destination)
-            .unwrap_or_else(|| {
-                panic!(
-                    "due production destination {} disappeared",
-                    destination.value()
-                )
-            });
-        let stored_after = record.stored_mass().checked_add(deposited).ok_or(
-            CompletionPlanError::DestinationMassOverflow {
-                stockpile: destination,
-            },
-        )?;
-        mass_changes.push(StockpileStoredMassChange::new(destination, stored_after));
-    }
+    let mass_changes = deposits
+        .stored_mass_after_by_destination(state.inventory())
+        .into_iter()
+        .map(|(destination, stored_after)| {
+            StockpileStoredMassChange::new(destination, stored_after)
+        })
+        .collect::<Vec<_>>();
     if mass_changes.is_empty() {
         return Ok(None);
     }

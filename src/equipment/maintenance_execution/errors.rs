@@ -76,9 +76,6 @@ pub enum EquipmentMaintenanceMaterialError {
         expected: u64,
         actual: u64,
     },
-    UnknownSource {
-        stockpile: StockpileId,
-    },
     UnknownSpentDestination {
         stockpile: StockpileId,
     },
@@ -129,11 +126,6 @@ impl Display for EquipmentMaintenanceMaterialError {
             Self::StaleSelection { expected, actual } => write!(
                 formatter,
                 "maintenance material selection expected inventory revision {expected} but current revision is {actual}"
-            ),
-            Self::UnknownSource { stockpile } => write!(
-                formatter,
-                "maintenance material source stockpile {} does not exist",
-                stockpile.value()
             ),
             Self::UnknownSpentDestination { stockpile } => write!(
                 formatter,
@@ -231,10 +223,7 @@ impl Error for EquipmentMaintenanceMaterialError {
                 expected: _expected,
                 actual: _actual,
             } => None,
-            Self::UnknownSource {
-                stockpile: _stockpile,
-            }
-            | Self::UnknownSpentDestination {
+            Self::UnknownSpentDestination {
                 stockpile: _stockpile,
             }
             | Self::SpentMassOverflow {

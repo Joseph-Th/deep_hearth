@@ -8,12 +8,15 @@ mod target_resolution;
 mod validation;
 
 pub use definitions::{MiningMethodDefinition, MiningMethodId, MiningRegistry};
+pub(crate) use execution::{
+    MiningCancellationError, MiningCancellationPlan, apply_mining_cancellation, apply_mining_tick,
+    decide_mining_cancellation, decide_mining_tick,
+};
 pub use execution::{
     MiningClaimCommitError, MiningClaimError, MiningClaimReceipt, MiningStartCommitError,
     MiningStartError, ValidatedMiningClaim, ValidatedMiningStart, validate_claim_mining_output,
     validate_start_mining,
 };
-pub(crate) use execution::{apply_mining_tick, decide_mining_tick};
 pub(crate) use physics::resolve_mining_physics;
 pub use state::{MiningJobId, MiningJobRecord, MiningState, MiningValidationError};
 pub(crate) use state::{serialize_mining_state, validate_loaded_mining};

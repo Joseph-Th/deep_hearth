@@ -199,12 +199,11 @@ fn plan_reform_mass_and_structure(
     destination: StockpileId,
     target: CommodityKey,
     total_consumed: Mass,
-    expected_revision: u64,
 ) -> Result<MaterialReformMassPlan, MaterialReformError> {
     let inventories = state.inventory();
     let source_record = inventories
         .get_stockpile(source)
-        .ok_or(MaterialReformError::UnknownSource { stockpile: source })?;
+        .unwrap_or_else(|| panic!("validated material reform source disappeared"));
     let destination_record =
         inventories
             .get_stockpile(destination)
@@ -214,10 +213,7 @@ fn plan_reform_mass_and_structure(
     let source_after = source_record
         .stored_mass()
         .checked_sub(total_consumed)
-        .ok_or(MaterialReformError::StaleSelection {
-            expected: expected_revision,
-            actual: inventories.revision(),
-        })?;
+        .unwrap_or_else(|| panic!("validated material reform exceeds source stored mass"));
     let destination_after = if source == destination {
         source_record.stored_mass()
     } else {
@@ -387,7 +383,7 @@ pub(crate) fn validate_material_reform_from_selection(
     }
     let source_record = inventories
         .get_stockpile(source)
-        .ok_or(MaterialReformError::UnknownSource { stockpile: source })?;
+        .unwrap_or_else(|| panic!("validated material reform source disappeared"));
     let destination_record =
         inventories
             .get_stockpile(destination)
@@ -408,7 +404,6 @@ pub(crate) fn validate_material_reform_from_selection(
         destination,
         target,
         total_consumed,
-        expected_revision,
     )?;
     let outputs = build_reform_outputs(
         state,

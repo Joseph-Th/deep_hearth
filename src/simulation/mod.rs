@@ -1,6 +1,7 @@
 //! Canonical synchronous simulation tick pipeline with active subsystem phases wired in visible order.
 
 mod error;
+mod player_death;
 
 pub use error::TickError;
 
@@ -31,6 +32,8 @@ use crate::registry::Registries;
 use crate::survival::{
     SurvivalAssessment, apply_survival_tick, assess_survival, decide_survival_tick,
 };
+
+use player_death::{apply_player_death_cancellation, decide_player_death_effects};
 
 /// Successful result of one canonical simulation tick.
 #[must_use]
@@ -171,7 +174,7 @@ pub fn advance_tick(
     // and defers same-tick completion effects by one tick. Revision-budget prechecks make that
     // deferral fail-closed (a newly freed store, tool, or calorie is denied this tick rather than
     // admitted against stale facts), so no additional projection is needed for those phases.
-    let completion_plan = decide_due_completions(registries, state, next_tick)?;
+    let mut completion_plan = decide_due_completions(registries, state, next_tick)?;
     let storage_enclosure_dismantling_plan = decide_storage_dismantling_after_completions(
         registries,
         state,
@@ -235,6 +238,12 @@ pub fn advance_tick(
     let player_dead_after_tick = survival_plan
         .as_ref()
         .is_some_and(|plan| plan.player_dead_after_tick());
+    let player_death_cancellation = decide_player_death_effects(
+        state,
+        next_tick,
+        player_dead_after_tick,
+        &mut completion_plan,
+    )?;
     let player_work_plan = decide_player_work_tick(
         registries,
         state,
@@ -254,6 +263,7 @@ pub fn advance_tick(
     let field_prospecting = apply_field_prospecting_tick(state, field_prospecting_plan);
     let storage_enclosure_dismantling =
         apply_storage_enclosure_dismantling_tick(state, storage_enclosure_dismantling_plan);
+    apply_player_death_cancellation(state, player_death_cancellation);
     apply_player_work_tick(state, player_work_plan);
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));

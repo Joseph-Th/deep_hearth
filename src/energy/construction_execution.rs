@@ -245,14 +245,7 @@ pub fn validate_assemble_energy_store(
                 }
             }
         })?;
-    let source_record = state
-        .inventory()
-        .get_stockpile(source)
-        .ok_or(EnergyStoreAssemblyError::UnknownSource { stockpile: source })?;
-    let source_after = source_record
-        .stored_mass()
-        .checked_sub(egress.total_consumed())
-        .ok_or(EnergyStoreAssemblyError::SourceMassOverflow { stockpile: source })?;
+    let source_after = egress.source_stored_mass_after(state.inventory());
     let structural_load = validate_stockpile_stored_mass_changes(
         registries,
         state,

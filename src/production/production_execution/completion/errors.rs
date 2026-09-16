@@ -1,7 +1,7 @@
 //! Diagnostics for production completion planning and revision-bound commit.
 
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::inventory::{StockpileId, StockpileStructuralLoadError};
+use crate::inventory::StockpileStructuralLoadError;
 use crate::production::ProductionJobId;
 use crate::structural::StructuralCommitError;
 
@@ -17,9 +17,6 @@ pub(crate) enum CompletionPlanError {
         job: ProductionJobId,
         current: SimulationTick,
         remaining: TickSpan,
-    },
-    DestinationMassOverflow {
-        stockpile: StockpileId,
     },
     StructuralLoad(StockpileStructuralLoadError),
 }

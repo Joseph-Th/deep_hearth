@@ -220,7 +220,7 @@ fn validate_start_process_routed_internal(
         selection: equipment_use,
         provider: equipment_provider,
     } = validate_equipment_resources(state, resolution)?;
-    let structural_load = validate_source_structural_load(registries, state, resolution)?;
+    let structural_load = validate_source_structural_load(registries, state, &reservation)?;
 
     Ok(ValidatedStartProcess {
         job: ProductionJobRecord {

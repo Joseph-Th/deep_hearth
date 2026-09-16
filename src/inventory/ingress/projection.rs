@@ -14,6 +14,38 @@ use crate::inventory::state::{InventoryState, StockpileId, StockpileRecord};
 use crate::inventory::transactions::ValidatedMaterialEgress;
 
 impl ValidatedMaterialIngress {
+    /// Projects destination stored mass after the preceding validated egress and this ingress.
+    pub(crate) fn destination_stored_mass_after_egress(
+        &self,
+        state: &InventoryState,
+        egress: &ValidatedMaterialEgress,
+    ) -> crate::core::quantity::Mass {
+        assert_eq!(
+            state.revision(),
+            egress.expected_revision(),
+            "material exchange projection must use the egress inventory revision"
+        );
+        assert_eq!(
+            self.expected_revision,
+            egress.next_revision(),
+            "projected material ingress must immediately follow its planned egress"
+        );
+        let destination_record = state.get_stockpile(self.destination).unwrap_or_else(|| {
+            panic!("projected material ingress destination disappeared before mass projection")
+        });
+        let outgoing = if egress.source() == self.destination {
+            egress.total_consumed()
+        } else {
+            crate::core::quantity::Mass::ZERO
+        };
+        let summary = summarize_planned_ingress_mass(&self.entries, self.current_tick);
+        destination_record
+            .stored_mass()
+            .checked_sub(outgoing)
+            .and_then(|after_egress| after_egress.checked_add(summary.total))
+            .unwrap_or_else(|| panic!("validated material exchange stored-mass projection failed"))
+    }
+
     /// Proves a projected ingress against the exact inventory state produced by its preceding egress.
     pub(crate) fn assert_matches_state_after_egress(
         &self,

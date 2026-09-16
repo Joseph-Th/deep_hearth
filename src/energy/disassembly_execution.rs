@@ -188,17 +188,7 @@ pub fn validate_disassemble_energy_store(
         state.tick(),
     )
     .map_err(|error| map_ingress_error(store, error))?;
-    let destination_record = state.inventory().get_stockpile(destination).ok_or(
-        EnergyStoreDisassemblyError::UnknownDestination {
-            stockpile: destination,
-        },
-    )?;
-    let destination_after = destination_record
-        .stored_mass()
-        .checked_add(record.embodied_mass())
-        .ok_or(EnergyStoreDisassemblyError::DestinationMassOverflow {
-            stockpile: destination,
-        })?;
+    let destination_after = ingress.destination_stored_mass_after(state.inventory());
     let structural_load = validate_stockpile_stored_mass_changes(
         registries,
         state,

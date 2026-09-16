@@ -6,7 +6,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::inventory::{StockpileId, StockpileStructuralLoadError};
+use crate::inventory::StockpileStructuralLoadError;
 use crate::production::ProductionJobId;
 use crate::structural::StructuralCommitError;
 
@@ -47,8 +47,6 @@ pub enum TickError {
         current: SimulationTick,
         remaining: TickSpan,
     },
-    /// Due output mass cannot be aggregated in its destination stockpile.
-    DestinationMassOverflow { stockpile: StockpileId },
     /// Due output weight cannot be resolved against its structural support.
     StructuralLoad(StockpileStructuralLoadError),
     /// Inventory changed after completion planning and before commit.
@@ -126,11 +124,6 @@ impl Display for TickError {
             Self::EnergyRevisionExhausted => {
                 formatter.write_str("energy revision space is exhausted")
             }
-            Self::DestinationMassOverflow { stockpile } => write!(
-                formatter,
-                "due production output mass overflows stockpile {}",
-                stockpile.value()
-            ),
             Self::StructuralLoad(error) => {
                 write!(
                     formatter,
@@ -182,7 +175,6 @@ impl Error for TickError {
             Self::Structure(error) => Some(error),
             Self::ClockExhausted { .. }
             | Self::ProductionResumeTickOverflow { .. }
-            | Self::DestinationMassOverflow { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleProductionRevision { .. }
             | Self::StaleEquipmentRevision { .. }

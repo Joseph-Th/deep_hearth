@@ -19,15 +19,16 @@ mod structural_integration;
 mod test_support;
 mod transactions;
 
+pub(crate) use enclosure_dismantling::{
+    StorageEnclosureDismantlingCancellationPlan, StorageEnclosureDismantlingTickError,
+    StorageEnclosureDismantlingTickPlan, apply_storage_enclosure_dismantling_cancellation,
+    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_cancellation,
+    decide_storage_enclosure_dismantling_tick, validate_storage_dismantling_target_for_completion,
+};
 pub use enclosure_dismantling::{
     StorageEnclosureDismantlingCommitError, StorageEnclosureDismantlingError,
     StorageEnclosureDismantlingOutcome, StorageEnclosureDismantlingStartOutcome,
     ValidatedStorageEnclosureDismantlingStart, validate_start_storage_enclosure_dismantling,
-};
-pub(crate) use enclosure_dismantling::{
-    StorageEnclosureDismantlingTickError, StorageEnclosureDismantlingTickPlan,
-    apply_storage_enclosure_dismantling_tick, decide_storage_enclosure_dismantling_tick,
-    validate_storage_dismantling_target_for_completion,
 };
 pub use enclosure_execution::{
     StorageEnclosureCommitError, StorageEnclosureConstructionError,
@@ -40,7 +41,9 @@ pub(crate) use fixture::add_stockpile;
 #[cfg(feature = "test-gameplay")]
 pub(crate) use fixture::{deposit_composed_lot_for_fixture, deposit_lot_for_fixture};
 pub(crate) use inbound_reservation::{
-    InboundReservationError, ValidatedInboundReservation, validate_inbound_reservation,
+    InboundReservationError, InboundReservationReleaseError, ValidatedInboundReservation,
+    ValidatedInboundReservationRelease, validate_inbound_reservation,
+    validate_inbound_reservation_release,
 };
 pub(crate) use ingress::{
     MaterialIngressEntry, MaterialIngressError, ValidatedMaterialIngress, apply_material_ingress,

@@ -23,7 +23,6 @@ pub enum MiningClaimError {
     LotIdExhausted,
     InventoryRevisionExhausted,
     MiningRevisionExhausted,
-    DestinationMassOverflow { stockpile: StockpileId },
     StructuralLoad(StockpileStructuralLoadError),
 }
 
@@ -80,11 +79,6 @@ impl Display for MiningClaimError {
             Self::MiningRevisionExhausted => {
                 formatter.write_str("mining revision space is exhausted")
             }
-            Self::DestinationMassOverflow { stockpile } => write!(
-                formatter,
-                "claimed mining output overflows destination stockpile {} mass",
-                stockpile.value()
-            ),
             Self::StructuralLoad(error) => {
                 write!(
                     formatter,
@@ -103,8 +97,7 @@ impl Error for MiningClaimError {
             | Self::NotReady { .. }
             | Self::LotIdExhausted
             | Self::InventoryRevisionExhausted
-            | Self::MiningRevisionExhausted
-            | Self::DestinationMassOverflow { .. } => None,
+            | Self::MiningRevisionExhausted => None,
         }
     }
 }
@@ -229,7 +222,6 @@ pub fn validate_claim_mining_output(
         return Err(MiningClaimError::NotReady { job });
     }
     let output = record.output().clone();
-    let mass = output.mass();
     let unclaimed_ticks = state
         .tick()
         .checked_duration_since(record.completes_at())
@@ -254,24 +246,16 @@ pub fn validate_claim_mining_output(
         ReservedDepositPlanError::LotIdExhausted => MiningClaimError::LotIdExhausted,
         ReservedDepositPlanError::RevisionExhausted => MiningClaimError::InventoryRevisionExhausted,
     })?;
-    let destination = state
-        .inventory()
-        .get_stockpile(record.destination())
-        .ok_or(MiningClaimError::DestinationMassOverflow {
-            stockpile: record.destination(),
-        })?;
-    let stored_after = destination.stored_mass().checked_add(mass).ok_or(
-        MiningClaimError::DestinationMassOverflow {
-            stockpile: record.destination(),
-        },
-    )?;
+    let destination = record.destination();
+    let stored_after = inventory
+        .stored_mass_after_by_destination(state.inventory())
+        .get(&destination)
+        .copied()
+        .unwrap_or_else(|| panic!("mining claim deposit plan omitted its destination"));
     let structural_load = validate_stockpile_stored_mass_changes(
         registries,
         state,
-        [StockpileStoredMassChange::new(
-            record.destination(),
-            stored_after,
-        )],
+        [StockpileStoredMassChange::new(destination, stored_after)],
     )
     .map_err(MiningClaimError::StructuralLoad)?;
     let expected_mining_revision = state.mining().revision();

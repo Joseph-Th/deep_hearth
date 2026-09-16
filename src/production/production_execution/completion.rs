@@ -22,7 +22,7 @@ mod planning;
 
 pub(crate) use application::apply_completion_plan;
 pub(crate) use errors::{CompletionCommitError, CompletionPlanError};
-pub(crate) use planning::decide_due_completions;
+pub(crate) use planning::{decide_due_completions, plan_player_death_suspension};
 
 /// Observable active-time scheduling change caused by a production provider becoming unavailable or
 /// usable again. Work-in-process remains owned by the same job across both transitions.

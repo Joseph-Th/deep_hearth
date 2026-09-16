@@ -8,7 +8,7 @@ use crate::content::{
     MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE,
     STORAGE_TIMBER_PROVISIONS_CHEST, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Area, Force, Length, Mass, Pressure, Temperature, Volume};
+use crate::core::quantity::{Area, Energy, Force, Length, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::{SimulationTick, WorldSeed};
 use crate::crafting::{
@@ -51,7 +51,7 @@ use crate::structural::{
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_set_structural_load,
 };
-use crate::survival::{assess_survival, initialize_player_survival};
+use crate::survival::{Vitality, assess_survival, initialize_player_survival, player_record};
 
 fn deposit_spec() -> GeneratedDepositSpec {
     deposit_spec_with_mass(Mass::from_milligrams(1_000_000))
@@ -69,6 +69,204 @@ fn deposit_spec_with_mass(mass: Mass) -> GeneratedDepositSpec {
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("mining test deposit failed: {error}"))
+}
+
+fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
+    let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal mining fixture player disappeared"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+}
+
+#[test]
+fn fatal_tick_cancels_unfinished_mining_without_extracting_or_wearing_tool() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0112));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal mining survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200_000))
+        .unwrap_or_else(|error| panic!("fatal mining destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("fatal mining deposit failed: {error}"));
+    let remaining_before = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.remaining_mass())
+        .unwrap_or_else(|| panic!("fatal mining deposit disappeared before start"));
+    let condition_before = state
+        .equipment()
+        .get_equipment(pick)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("fatal mining pick disappeared before start"));
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("fatal mining start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal mining start commit failed: {error}"));
+    let record = state
+        .mining()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("fatal mining job disappeared after start"));
+    assert!(
+        record.completes_at().value() > state.tick().value() + 1,
+        "fatal mining proof requires unfinished work after the next tick"
+    );
+    let reserved_output = record.output().mass();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(reserved_output)
+    );
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal mining tick failed: {error}"));
+
+    assert!(outcome.ready_mining_jobs().is_empty());
+    assert!(state.mining().get_job(job).is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(Mass::ZERO),
+        "canceled mining must return its unused output reservation"
+    );
+    assert_eq!(
+        state
+            .geology()
+            .get_deposit(deposit)
+            .map(|record| record.remaining_mass()),
+        Some(remaining_before),
+        "unfinished canceled mining must not extract geological matter"
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(pick)
+            .map(|record| record.condition()),
+        Some(condition_before),
+        "unfinished canceled mining must not apply completion wear"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("fatal mining state failed trusted-load audit: {error}"));
+}
+
+#[test]
+fn fatal_tick_allows_mining_due_that_tick_to_finish_work() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0113));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal due mining survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200_000))
+        .unwrap_or_else(|error| panic!("fatal due mining destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("fatal due mining deposit failed: {error}"));
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("fatal due mining start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fatal due mining start commit failed: {error}"));
+    let record = state
+        .mining()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("fatal due mining job disappeared after start"));
+    let completes_at = record.completes_at();
+    let output_mass = record.output().mass();
+    let condition_after = record.equipment_condition_after();
+    let remaining_before = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.remaining_mass())
+        .unwrap_or_else(|| panic!("fatal due mining deposit disappeared before work"));
+    while state.tick().value() + 1 < completes_at.value() {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fatal due mining setup tick failed: {error}"));
+        assert!(outcome.ready_mining_jobs().is_empty());
+    }
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal due mining completion tick failed: {error}"));
+
+    assert_eq!(outcome.ready_mining_jobs(), &[job]);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert!(
+        state
+            .mining()
+            .get_job(job)
+            .is_some_and(|record| record.is_ready_to_claim()),
+        "mining due on the fatal tick must enter claim custody"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(output_mass),
+        "ready mining output must retain its reserved claim destination"
+    );
+    assert_eq!(
+        state
+            .geology()
+            .get_deposit(deposit)
+            .map(|record| record.remaining_mass()),
+        remaining_before.checked_sub(output_mass),
+        "mining due on the fatal tick must extract its bound output"
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(pick)
+            .map(|record| record.condition()),
+        Some(condition_after),
+        "mining due on the fatal tick must apply its completion wear"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("fatal due mining state invalid: {error}"));
 }
 
 #[test]

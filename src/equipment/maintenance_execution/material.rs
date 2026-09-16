@@ -178,9 +178,6 @@ fn map_reform_error(error: MaterialReformError) -> EquipmentMaintenanceMaterialE
         MaterialReformError::StaleSelection { expected, actual } => {
             EquipmentMaintenanceMaterialError::StaleSelection { expected, actual }
         }
-        MaterialReformError::UnknownSource { stockpile } => {
-            EquipmentMaintenanceMaterialError::UnknownSource { stockpile }
-        }
         MaterialReformError::UnknownDestination { stockpile } => {
             EquipmentMaintenanceMaterialError::UnknownSpentDestination { stockpile }
         }
@@ -288,24 +285,9 @@ fn validate_component_exchange(
     let structural = if source == spent_destination {
         None
     } else {
-        let source_record = state
-            .inventory()
-            .get_stockpile(source)
-            .ok_or(EquipmentMaintenanceMaterialError::UnknownSource { stockpile: source })?;
-        let spent_record = state.inventory().get_stockpile(spent_destination).ok_or(
-            EquipmentMaintenanceMaterialError::UnknownSpentDestination {
-                stockpile: spent_destination,
-            },
-        )?;
-        let source_after = source_record
-            .stored_mass()
-            .checked_sub(required)
-            .ok_or(EquipmentMaintenanceMaterialError::SpentMassOverflow { stockpile: source })?;
-        let spent_after = spent_record.stored_mass().checked_add(required).ok_or(
-            EquipmentMaintenanceMaterialError::SpentMassOverflow {
-                stockpile: spent_destination,
-            },
-        )?;
+        let source_after = egress.source_stored_mass_after(state.inventory());
+        let spent_after =
+            worn_ingress.destination_stored_mass_after_egress(state.inventory(), &egress);
         validate_stockpile_stored_mass_changes(
             registries,
             state,

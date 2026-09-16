@@ -284,8 +284,7 @@ fn map_transfer_relocation_error(error: MaterialRelocationError) -> MaterialTran
                 "material transfer selection revision {expected} cannot become stale at revision {actual} between synchronous selection and relocation validation"
             )
         }
-        MaterialRelocationError::UnknownSource { stockpile }
-        | MaterialRelocationError::UnknownDestination { stockpile } => {
+        MaterialRelocationError::UnknownDestination { stockpile } => {
             MaterialTransferError::UnknownStockpile { stockpile }
         }
         MaterialRelocationError::SameStockpile { stockpile } => {
