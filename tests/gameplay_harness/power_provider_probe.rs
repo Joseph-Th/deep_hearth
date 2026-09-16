@@ -364,8 +364,23 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         treadle_build_mass_mg > crank_build_mass_mg,
         "the treadle route must remain a heavier material investment than the crank route"
     );
+    // Lifetime economics: the treadle costs more build attention once and saves charge
+    // attention on every flywheel job. Break-even charges tell a settlement planner how
+    // many full charges it takes before the heavier frame pays for itself.
+    let charge_saving_per_job_ticks = crank_charge
+        .attention_ticks
+        .checked_sub(treadle_charge.attention_ticks)
+        .unwrap_or_else(|| {
+            panic!("power provider treadle must save charge attention on the same job")
+        });
+    assert!(
+        charge_saving_per_job_ticks > 0,
+        "the treadle's higher charging throughput must repay attention on the same flywheel job"
+    );
+    let build_attention_delta_ticks = treadle_build_attention.saturating_sub(crank_build_attention);
+    let break_even_charges = build_attention_delta_ticks.div_ceil(charge_saving_per_job_ticks);
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] crank=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] crank=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t break-even-charges:{}] matter=conserved",
         focused_probe_role_label(case.role()),
         capacity_nj,
         crank_build_mass_mg,
@@ -385,5 +400,11 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         treadle_build_mass_mg,
         crank_charge.metabolic_nj,
         treadle_charge.metabolic_nj,
+        crank_build_attention,
+        treadle_build_attention,
+        crank_charge.attention_ticks,
+        treadle_charge.attention_ticks,
+        charge_saving_per_job_ticks,
+        break_even_charges,
     );
 }

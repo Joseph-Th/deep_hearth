@@ -170,6 +170,12 @@ fn discover_primitive_progression(
         }
     }
     let trace_surface_bounds = observed_copper_bounds(state, trace_target);
+    // The information path is observed, not assumed from the generation flag. Deferred-flag
+    // worlds always leave the trace clue unresolved (50-90k ppm never clears cheap-inspection
+    // uncertainty). Surface-flag worlds usually resolve all four, but a boundary trace near
+    // the bottom of the 125-200k ppm surface range can still fail cheap inspection; that is a
+    // legitimate observed refinement, handled by the same revisit-after-shortage path below,
+    // not a harness failure.
     if deferred_trace_refinement {
         assert_eq!(
             surface_resolved_clues, 3,
@@ -180,14 +186,20 @@ fn discover_primitive_progression(
             Some(trace_target),
             "maintained information path lost its deferred trace-copper clue"
         );
-    } else {
+    } else if refinement.is_none() {
         assert_eq!(
             surface_resolved_clues, 4,
             "surface-resolved organic information path should make every visible clue actionable after cheap inspection"
         );
-        assert!(
-            refinement.is_none(),
-            "surface-resolved organic information path must not manufacture a redundant survey"
+    } else {
+        assert_eq!(
+            surface_resolved_clues, 3,
+            "boundary-trace organic information path should leave only the poor trace clue unresolved after cheap inspection"
+        );
+        assert_eq!(
+            refinement.map(|(request, _, _)| request),
+            Some(trace_target),
+            "boundary-trace organic refinement must target the poor trace-copper clue"
         );
     }
     let information_refinement_required = refinement.is_some();

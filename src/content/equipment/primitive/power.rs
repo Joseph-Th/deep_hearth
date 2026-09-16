@@ -81,8 +81,11 @@ pub(super) fn copper_reinforced_hand_crank() -> EquipmentDefinition {
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_HAND_CRANK))
 }
 
-/// A leg-powered alternative to the compact hand crank. It converts a much larger timber frame
+/// A leg-powered alternative to the compact hand crank. It converts a larger timber frame
 /// into higher copper-free charging throughput and slightly better metabolic efficiency.
+/// The frame stays a real material commitment (heavier than the crank route) without
+/// pricing the treadle out of plausible settlement use: break-even sits at dozens of
+/// charges on the large flywheel rather than hundreds.
 pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
     assembled_definition_with_condition_curves(
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
@@ -94,11 +97,11 @@ pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-                Mass::from_milligrams(1_600_000),
+                Mass::from_milligrams(800_000),
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(400_000),
+                Mass::from_milligrams(200_000),
             ),
         ]),
         profile([(

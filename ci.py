@@ -229,10 +229,19 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
         )
     if progression:
         count = lambda marker: sum(marker in line for line in progression)
+        hard_leads = [
+            int(match.group(1))
+            for line in progression
+            if (match := re.search(r"hard-access-lead:(\d+)t", line)) is not None
+        ]
+        hard_lead_span = (
+            f"{min(hard_leads)}..{max(hard_leads)}t" if hard_leads else "n/a"
+        )
         summaries.append(
             "PROGRESSION DIVERSITY "
             f"samples={len(progression)} "
             f"local-copper=[pick-first:{count('local-copper-sequence=pick-first')} crank-counterfactual:{count('counterfactual=[crank-first-tradeoff')}] "
+            f"hard-access-lead={hard_lead_span} "
             f"information=[surface-resolved:{count('information=surface-resolved')} deferred-refinement:{count('information=deferred-refinement')}] "
             f"automation=[setup-repaid:{count('economics:setup-repaid')} opportunity-ended-before-payback:{count('economics:opportunity-ended-before-payback')}] "
             f"reinvestment=[available:{count('next-reinvestment=[available')} known-target-supply:{count('next-reinvestment=[blocked:known-target-supply]')}]"
@@ -334,11 +343,20 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
         treadle_build_span = (
             f"{min(treadle_builds)}..{max(treadle_builds)}mg" if treadle_builds else "n/a"
         )
+        break_evens = [
+            int(match.group(1))
+            for line in power
+            if (match := re.search(r"break-even-charges:(\d+)", line)) is not None
+        ]
+        break_even_span = (
+            f"{min(break_evens)}..{max(break_evens)}charges" if break_evens else "n/a"
+        )
         summaries.append(
             "POWER DIVERSITY "
             f"samples={len(power)} "
             f"charge-attention-reduction={reduction_span} "
             f"build-mass=[crank:{crank_build_span} treadle:{treadle_build_span}] "
+            f"break-even={break_even_span} "
             f"metabolic-lower-treadle:{metabolic_wins}"
         )
     return summaries

@@ -109,7 +109,7 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
         (
             EQUIPMENT_TIMBER_TREADLE_DRIVE,
             CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(400_000),
+            Mass::from_milligrams(200_000),
         ),
         (
             EQUIPMENT_STONE_CRUSHER,
@@ -603,7 +603,7 @@ fn timber_treadle_is_a_bulk_material_alternative_between_stone_and_copper_cranks
         .get_equipment(EQUIPMENT_TIMBER_TREADLE_DRIVE)
         .and_then(|definition| definition.assembly_profile())
         .unwrap_or_else(|| panic!("timber treadle lost its assembly profile"));
-    assert_eq!(assembly.input_mass(), Mass::from_milligrams(4_000_000));
+    assert_eq!(assembly.input_mass(), Mass::from_milligrams(3_000_000));
     assert_eq!(
         assembly
             .inputs()
@@ -618,7 +618,7 @@ fn timber_treadle_is_a_bulk_material_alternative_between_stone_and_copper_cranks
             .iter()
             .find(|input| input.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
             .map(|input| input.mass()),
-        Some(Mass::from_milligrams(1_600_000))
+        Some(Mass::from_milligrams(800_000))
     );
     assert!(
         assembly

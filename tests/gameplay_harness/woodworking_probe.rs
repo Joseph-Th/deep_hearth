@@ -728,6 +728,10 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         _ => Mass::from_milligrams(200_000),
     };
     let saw_fundable = copper_available >= blade_input;
+    // Two future 20 g copper reinforcements (pick, crank, adze, crusher, separator, quern:
+    // every primitive copper upgrade costs COPPER_REINFORCEMENT_MASS). The actor cannot
+    // prospect or mine inside this episode, so the reserve stands in for that opportunity
+    // cost rather than implying a production rule.
     let protected_copper_reserve = Mass::from_milligrams(40_000);
 
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x574F_4F44_574F_524C));
@@ -892,8 +896,11 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
     let adze_total_attention = adze_route.active_ticks();
     let saw_attention_payback =
         saw_total_attention.is_some_and(|ticks| ticks < adze_total_attention);
+    // Timber-neutral with an attention win is weakly dominant under either preference:
+    // same timber, less attention. Gate conserve-timber on `<=` so the exact-amortization
+    // pipeline invests instead of rejecting a free attention saving.
     let saw_net_timber_payback =
-        saw_total_timber.is_some_and(|mass| mass < adze_route.project_timber);
+        saw_total_timber.is_some_and(|mass| mass <= adze_route.project_timber);
     let saw_copper_consumed = saw_counterfactual
         .as_ref()
         .map_or(Mass::ZERO, |(_, _, route)| {
@@ -930,7 +937,9 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         }
         (FocusedProbeRole::MaintainedCoverage, 4) => assert_eq!(
             reason,
-            WoodworkingInvestmentReason::PipelineTooShortForNetTimberPayback
+            // Exactly amortized: same net timber as the adze route while saving attention.
+            // The weakly-dominant pipeline invests rather than rejecting a free saving.
+            WoodworkingInvestmentReason::PipelineNetTimberPayback
         ),
         (FocusedProbeRole::MaintainedCoverage, 6) => {
             assert_eq!(reason, WoodworkingInvestmentReason::CopperReserveProtected);
