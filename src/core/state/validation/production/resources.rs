@@ -1,7 +1,6 @@
 //! Trusted-load validation for production process, energy, equipment, and topology bindings.
 
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
 use crate::energy::{
     EnergySinkCapacityError, EnergyValidationError, validate_energy_sink_capacity_at_release,
 };
@@ -156,14 +155,11 @@ pub(super) fn validate_job_released_energy(
     }
     let release_after = job.suspension().map_or_else(
         || {
-            TickSpan::new(
-                job.completes_at()
-                    .value()
-                    .checked_sub(state.tick().value())
-                    .unwrap_or_else(|| {
-                        unreachable!("production schedule was validated before energy release")
-                    }),
-            )
+            job.completes_at()
+                .checked_duration_since(state.tick())
+                .unwrap_or_else(|| {
+                    unreachable!("production schedule was validated before energy release")
+                })
         },
         |suspension| suspension.remaining_active_time(),
     );

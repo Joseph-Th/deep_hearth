@@ -94,7 +94,12 @@ pub(crate) fn player_work_exertion(
                 .unwrap_or_else(|| {
                     panic!("runtime invariant broken: player power work has no method definition")
                 });
-            let duration = TickSpan::new(work.completes_at().value() - work.started_at().value());
+            let duration = work
+                .completes_at()
+                .checked_duration_since(work.started_at())
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: manual power completes before it starts")
+                });
             resolve_manual_power_exertion(
                 work.output().energy(),
                 duration,

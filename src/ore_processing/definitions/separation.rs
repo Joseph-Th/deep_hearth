@@ -13,8 +13,9 @@ pub use powered::ConstituentSeparationProcessDefinition;
 
 /// Authored selectivity of one constituent-separation pass.
 ///
-/// Target recovery must be nonzero and strictly exceed non-target recovery so the operation always
-/// enriches target content rather than merely relabeling an arbitrary split of the feed.
+/// Target recovery must be nonzero, and non-target recovery may be at most half of target recovery.
+/// That selectivity margin guarantees target enrichment even after each recovered constituent is
+/// conservatively floored to the authoritative whole-milligram mass boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConstituentRecoveryProfile {
     target_ppm: u32,
@@ -29,8 +30,8 @@ impl ConstituentRecoveryProfile {
             "constituent separation target recovery must be within 1..=1,000,000 ppm"
         );
         assert!(
-            non_target_ppm < target_ppm,
-            "constituent separation non-target recovery must be below target recovery"
+            (non_target_ppm as u64) * 2 <= target_ppm as u64,
+            "constituent separation non-target recovery must be at most half of target recovery so whole-milligram rounding cannot erase target enrichment"
         );
         Self {
             target_ppm,

@@ -73,8 +73,8 @@ fn project_active_work_schedule(
         return None;
     }
     Some(ActiveWorkSchedule {
-        duration: TickSpan::new(completes_at.value().checked_sub(started_at.value())?),
-        remaining: TickSpan::new(completes_at.value().checked_sub(current.value())?),
+        duration: completes_at.checked_duration_since(started_at)?,
+        remaining: completes_at.checked_duration_since(current)?,
     })
 }
 

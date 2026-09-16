@@ -2146,7 +2146,9 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .unwrap_or_else(|error| panic!("suspension fixture first active tick failed: {error}"));
     let suspended_at = state.tick();
     fail_support(&registries, &mut state, failed_support);
-    let expected_remaining = TickSpan::new(original_due.value() - suspended_at.value());
+    let expected_remaining = original_due
+        .checked_duration_since(suspended_at)
+        .unwrap_or_else(|| panic!("suspension fixture due tick precedes suspension"));
     let outcome = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("suspension transition tick failed: {error}"));
     assert_eq!(
@@ -2412,7 +2414,10 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .get_job(job)
         .map(|record| record.started_at())
         .unwrap_or_else(|| panic!("resumed schedule job disappeared before history tamper"));
-    let elapsed = TickSpan::new(state.tick().value() - started_at.value());
+    let elapsed = state
+        .tick()
+        .checked_duration_since(started_at)
+        .unwrap_or_else(|| panic!("resumed schedule started after current tick"));
     let forged_completed = TickSpan::new(elapsed.value() + 1);
     let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("suspension history tamper serialization failed: {error}"));
@@ -2852,7 +2857,10 @@ fn due_heating_completion_rejects_stale_equipment_revision_atomically() {
             panic!("completion-race pre-due tick failed: {error}");
         }
     }
-    assert_eq!(state.tick(), SimulationTick::new(duration.value() - 1));
+    assert_eq!(
+        state.tick().checked_duration_since(SimulationTick::ZERO),
+        duration.checked_sub(TickSpan::new(1))
+    );
     let due = match state.production().get_job(job) {
         Some(record) => record.completes_at(),
         None => panic!("completion-race job disappeared before due planning"),

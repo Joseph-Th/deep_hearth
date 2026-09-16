@@ -24,7 +24,9 @@ fn validate_pending_schedule(
     if started_at > current || completes_at <= current || completes_at <= started_at {
         return Err(SurvivalValidationError::PendingConsumptionScheduleInvalid);
     }
-    Ok(TickSpan::new(completes_at.value() - started_at.value()))
+    Ok(completes_at
+        .checked_duration_since(started_at)
+        .unwrap_or_else(|| unreachable!("validated pending consumption completes after it starts")))
 }
 
 fn validate_pending_meal_envelope(

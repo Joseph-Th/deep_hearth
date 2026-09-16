@@ -232,12 +232,11 @@ pub fn validate_claim_mining_output(
     let mass = output.mass();
     let unclaimed_ticks = state
         .tick()
-        .value()
-        .checked_sub(record.completes_at().value())
+        .checked_duration_since(record.completes_at())
         .unwrap_or_else(|| {
             panic!("validated ready mining output cannot complete after current time")
         });
-    let storage_age_parts = u128::from(unclaimed_ticks)
+    let storage_age_parts = u128::from(unclaimed_ticks.value())
         .checked_mul(STORAGE_AGE_PARTS_PER_TICK)
         .unwrap_or_else(|| unreachable!("u64 unclaimed ticks times storage age parts fits u128"));
     let inventory = decide_reserved_deposits(

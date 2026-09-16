@@ -105,17 +105,16 @@ pub(super) fn validate_durable_schedule_history(
     current: SimulationTick,
 ) -> Result<(), ProductionValidationError> {
     let elapsed = current
-        .value()
-        .checked_sub(job.schedule.started_at.value())
+        .checked_duration_since(job.schedule.started_at)
         .unwrap_or_else(|| {
             unreachable!("future production start was rejected before schedule replay")
         });
-    if job.schedule.completed_suspension_time.value() > elapsed {
+    if job.schedule.completed_suspension_time > elapsed {
         return Err(
             ProductionValidationError::CompletedSuspensionTimeExceedsElapsed {
                 job: id,
                 completed: job.schedule.completed_suspension_time,
-                elapsed: crate::core::time::TickSpan::new(elapsed),
+                elapsed,
             },
         );
     }

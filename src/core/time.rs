@@ -240,6 +240,15 @@ impl TickSpan {
     pub const fn is_zero(self) -> bool {
         self.0 == 0
     }
+
+    /// Subtracts a relative duration without underflowing the authoritative tick-span domain.
+    #[must_use]
+    pub const fn checked_sub(self, other: Self) -> Option<Self> {
+        match self.0.checked_sub(other.0) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
 }
 
 /// Monotonic authoritative simulation tick.
@@ -269,6 +278,18 @@ impl SimulationTick {
     pub const fn checked_add_span(self, span: TickSpan) -> Option<Self> {
         match self.0.checked_add(span.0) {
             Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    /// Returns the elapsed duration since an earlier authoritative tick.
+    ///
+    /// Returns `None` when `earlier` is after `self`, keeping monotonic tick subtraction inside the
+    /// time owner instead of exposing unchecked integer arithmetic at call sites.
+    #[must_use]
+    pub const fn checked_duration_since(self, earlier: Self) -> Option<TickSpan> {
+        match self.0.checked_sub(earlier.0) {
+            Some(value) => Some(TickSpan::new(value)),
             None => None,
         }
     }

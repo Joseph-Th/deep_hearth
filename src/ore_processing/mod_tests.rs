@@ -8,10 +8,22 @@ use crate::content::{
 use crate::production::{ProcessDefinition, ProductionRegistry};
 
 use super::{
-    ConstituentSeparationProcessDefinition, ManualComminutionProcessDefinition,
-    ManualOreProcessProfile, OreProcessingRegistry, PoweredOreProcessProfile,
-    ScreeningProcessDefinition,
+    ConstituentRecoveryProfile, ConstituentSeparationProcessDefinition,
+    ManualComminutionProcessDefinition, ManualOreProcessProfile, OreProcessingRegistry,
+    PoweredOreProcessProfile, ScreeningProcessDefinition,
 };
+
+#[test]
+fn recovery_profile_requires_rounding_safe_selectivity_margin() {
+    let boundary = ConstituentRecoveryProfile::new(900_000, 450_000);
+    assert_eq!(boundary.target_ppm(), 900_000);
+    assert_eq!(boundary.non_target_ppm(), 450_000);
+
+    assert!(
+        std::panic::catch_unwind(|| ConstituentRecoveryProfile::new(900_000, 450_001)).is_err(),
+        "a weaker selectivity margin can fail to enrich small whole-milligram batches"
+    );
+}
 
 #[test]
 fn registry_rejects_manual_comminution_and_screening_process_collision() {

@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentDefinition, EquipmentOccupancy, equipment_occupancy};
 use crate::geology::GeologicalDepositId;
 use crate::inventory::{StockpileRecord, validate_stockpile_storage};
@@ -262,13 +261,11 @@ fn validate_mining_job_physics(
         job.requested_mass(),
     )
     .map_err(|error| map_physics_error(job.id(), error))?;
-    let stored_duration = TickSpan::new(
-        job.completes_at()
-            .value()
-            .checked_sub(job.started_at().value())
-            .filter(|duration| *duration > 0)
-            .ok_or(MiningJobValidationError::InvalidSchedule { job: job.id() })?,
-    );
+    let stored_duration = job
+        .completes_at()
+        .checked_duration_since(job.started_at())
+        .filter(|duration| !duration.is_zero())
+        .ok_or(MiningJobValidationError::InvalidSchedule { job: job.id() })?;
     if stored_duration != physics.duration() {
         return Err(MiningJobValidationError::DurationMismatch {
             job: job.id(),

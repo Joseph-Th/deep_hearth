@@ -278,11 +278,11 @@ fn maximum_sink_feasible_mass(
     let mut duration = maximum_duration;
     loop {
         let transfer_capacity = integrated_energy(transfer_power, duration, registries);
-        let previous_transfer_capacity = integrated_energy(
-            transfer_power,
-            TickSpan::new(duration.value() - 1),
-            registries,
-        );
+        let previous_duration = duration.checked_sub(TickSpan::new(1)).unwrap_or_else(|| {
+            unreachable!("positive transfer energy requires at least one active tick")
+        });
+        let previous_transfer_capacity =
+            integrated_energy(transfer_power, previous_duration, registries);
         let minimum_mass = Mass::from_milligrams(
             mass_capacity_from_energy(previous_transfer_capacity, unit_energy)
                 .milligrams()

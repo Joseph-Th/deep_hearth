@@ -1,7 +1,7 @@
 //! Read-only provider and player-labor availability decisions for in-flight production jobs.
 
 use crate::core::state::AppState;
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::SimulationTick;
 use crate::inventory::StockpileId;
 use crate::labor::{PlayerWorkTickError, decide_manual_production_player_work_start};
 use crate::registry::Registries;
@@ -151,8 +151,7 @@ fn plan_availability_change(
         (None, Some(reason)) => {
             let remaining = job
                 .completes_at()
-                .value()
-                .checked_sub(current.value())
+                .checked_duration_since(current)
                 .unwrap_or_else(|| {
                     panic!(
                         "runtime invariant broken: running production job {} is already overdue",
@@ -160,14 +159,14 @@ fn plan_availability_change(
                     )
                 });
             assert!(
-                remaining != 0,
+                !remaining.is_zero(),
                 "runtime invariant broken: running job cannot suspend with zero active time"
             );
             Ok(Some(ProductionAvailabilityChange::Suspended {
                 job: job.id(),
                 reason,
                 suspended_at: current,
-                remaining_active_time: TickSpan::new(remaining),
+                remaining_active_time: remaining,
             }))
         }
         (Some(suspension), None) => {

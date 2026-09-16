@@ -2086,14 +2086,23 @@ fn freshness_remaining_horizon_preserves_storage_projection_phase() {
         })
     );
 
-    let one_before_spoilage =
-        SimulationTick::new(state.tick().value() + expected_remaining.value() - 1);
+    let one_before_spoilage = state
+        .tick()
+        .checked_add_span(
+            expected_remaining
+                .checked_sub(TickSpan::new(1))
+                .unwrap_or_else(|| panic!("fresh food must have at least one remaining tick")),
+        )
+        .unwrap_or_else(|| panic!("food spoilage projection overflowed world time"));
     apply_clock_advance(&mut state, one_before_spoilage);
     assert!(matches!(
         assess_food_freshness(&registries, &state, lot),
         Ok(FoodFreshness::Fresh { remaining, .. }) if remaining == TickSpan::new(1)
     ));
-    let spoilage_tick = SimulationTick::new(state.tick().value() + 1);
+    let spoilage_tick = state
+        .tick()
+        .checked_add_span(TickSpan::new(1))
+        .unwrap_or_else(|| panic!("food spoilage tick overflowed world time"));
     apply_clock_advance(&mut state, spoilage_tick);
     assert!(matches!(
         assess_food_freshness(&registries, &state, lot),

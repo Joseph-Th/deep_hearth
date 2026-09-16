@@ -76,8 +76,8 @@ impl ProductionState {
             "runtime invariant broken: already-suspended job received another suspension"
         );
         assert_eq!(
-            due.value().checked_sub(suspended_at.value()),
-            Some(remaining_active_time.value()),
+            due.checked_duration_since(suspended_at),
+            Some(remaining_active_time),
             "production suspension must preserve the remaining active-time schedule"
         );
         assert!(
@@ -131,8 +131,7 @@ impl ProductionState {
             )
         });
         let paused_ticks = resumed_at
-            .value()
-            .checked_sub(suspension.suspended_at().value())
+            .checked_duration_since(suspension.suspended_at())
             .unwrap_or_else(|| {
                 panic!(
                     "runtime invariant broken: production job {} resumed before it suspended",
@@ -143,7 +142,7 @@ impl ProductionState {
             .schedule
             .completed_suspension_time
             .value()
-            .checked_add(paused_ticks)
+            .checked_add(paused_ticks.value())
             .unwrap_or_else(|| {
                 panic!(
                     "prevalidated production job {} completed suspension time overflowed",

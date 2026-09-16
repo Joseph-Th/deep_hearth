@@ -1626,7 +1626,9 @@ fn loaded_ready_mining_job_reconstructs_authored_duration() {
         Err(LoadError::InvalidState(StateValidationError::MiningJob(
             MiningJobValidationError::DurationMismatch {
                 job,
-                stored: crate::core::time::TickSpan::new(required.value() - 1),
+                stored: required
+                    .checked_sub(crate::core::time::TickSpan::new(1))
+                    .unwrap_or_else(|| panic!("mining duration fixture must exceed one tick")),
                 required,
             }
         )))
@@ -1844,8 +1846,10 @@ fn active_mining_save_requires_enough_hydration_to_finish_remaining_work() {
         .mining()
         .get_job(job)
         .unwrap_or_else(|| panic!("mining save reserve job disappeared"));
-    let remaining =
-        crate::core::time::TickSpan::new(record.completes_at().value() - state.tick().value());
+    let remaining = record
+        .completes_at()
+        .checked_duration_since(state.tick())
+        .unwrap_or_else(|| panic!("mining completion precedes current tick"));
     let exertion = registries
         .mining()
         .get_method(MINING_METHOD_HAND_PICK)

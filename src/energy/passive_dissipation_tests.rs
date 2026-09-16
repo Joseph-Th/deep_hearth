@@ -96,7 +96,9 @@ fn passive_emptying_projection_matches_runtime_loss_boundary() {
             &registries,
             definition,
             stored,
-            crate::core::time::TickSpan::new(ticks.value() - 1),
+            ticks
+                .checked_sub(crate::core::time::TickSpan::new(1))
+                .unwrap_or_else(|| panic!("finite dissipation horizon must exceed zero ticks")),
         )
         .is_zero()
     );

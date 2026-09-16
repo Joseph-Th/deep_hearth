@@ -61,7 +61,7 @@ impl MatterAccounting {
         self.stored
     }
 
-    /// Matter currently owned by durable production-job output snapshots.
+    /// Matter currently owned by durable production jobs or ready-to-claim mining output.
     #[must_use]
     pub const fn in_process(self) -> AggregateMass {
         self.in_process

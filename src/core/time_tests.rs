@@ -15,6 +15,35 @@ fn absolute_tick_and_relative_span_add_without_wraparound() {
 }
 
 #[test]
+fn tick_spans_subtract_without_underflow() {
+    assert_eq!(
+        TickSpan::new(7).checked_sub(TickSpan::new(3)),
+        Some(TickSpan::new(4))
+    );
+    assert_eq!(
+        TickSpan::new(3).checked_sub(TickSpan::new(3)),
+        Some(TickSpan::ZERO)
+    );
+    assert_eq!(TickSpan::new(3).checked_sub(TickSpan::new(7)), None);
+}
+
+#[test]
+fn absolute_ticks_subtract_into_relative_spans_without_underflow() {
+    assert_eq!(
+        SimulationTick::new(17).checked_duration_since(SimulationTick::new(10)),
+        Some(TickSpan::new(7))
+    );
+    assert_eq!(
+        SimulationTick::new(10).checked_duration_since(SimulationTick::new(10)),
+        Some(TickSpan::ZERO)
+    );
+    assert_eq!(
+        SimulationTick::new(10).checked_duration_since(SimulationTick::new(17)),
+        None
+    );
+}
+
+#[test]
 fn calendar_projects_four_equal_seasons_without_state() {
     let calendar = CalendarDefinition::new(100, 86_400, 2, 8);
 

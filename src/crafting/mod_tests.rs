@@ -1568,7 +1568,10 @@ fn active_manual_craft_save_requires_enough_metabolic_energy_to_finish() {
         .production()
         .get_job(job)
         .unwrap_or_else(|| panic!("manual craft save reserve job disappeared"));
-    let remaining = TickSpan::new(record.completes_at().value() - state.tick().value());
+    let remaining = record
+        .completes_at()
+        .checked_duration_since(state.tick())
+        .unwrap_or_else(|| panic!("manual craft completion precedes current tick"));
     let exertion = registries
         .crafting()
         .get_manual(PROCESS_KNAP_STONE_TOOL)

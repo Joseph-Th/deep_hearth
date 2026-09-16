@@ -82,8 +82,8 @@ impl MaterialStorageHistory {
         at: SimulationTick,
         preservation_multiplier_ppm: u32,
     ) -> Option<u128> {
-        let elapsed = at.value().checked_sub(self.last_transition_at.value())?;
-        let numerator = u128::from(elapsed) * MAX_STORAGE_AGE_PARTS_PER_TICK;
+        let elapsed = at.checked_duration_since(self.last_transition_at)?;
+        let numerator = u128::from(elapsed.value()) * MAX_STORAGE_AGE_PARTS_PER_TICK;
         let increment = numerator.div_ceil(u128::from(preservation_multiplier_ppm));
         self.ambient_age_parts.checked_add(increment)
     }
@@ -142,9 +142,11 @@ impl MaterialStorageHistory {
         if period == 1 {
             return Some(true);
         }
-        let self_elapsed = at.value().checked_sub(self.last_transition_at.value())?;
-        let other_elapsed = at.value().checked_sub(other.last_transition_at.value())?;
-        Some(u128::from(self_elapsed) % period == u128::from(other_elapsed) % period)
+        let self_elapsed = at.checked_duration_since(self.last_transition_at)?;
+        let other_elapsed = at.checked_duration_since(other.last_transition_at)?;
+        Some(
+            u128::from(self_elapsed.value()) % period == u128::from(other_elapsed.value()) % period,
+        )
     }
 
     /// Returns the first number of future ticks at which projected ambient-equivalent exposure
@@ -171,7 +173,7 @@ impl MaterialStorageHistory {
             .checked_sub(1)?
             .checked_mul(preservation)?;
         let threshold_elapsed = threshold_numerator / age_numerator_per_tick + 1;
-        let elapsed = u128::from(at.value().checked_sub(self.last_transition_at.value())?);
+        let elapsed = u128::from(at.checked_duration_since(self.last_transition_at)?.value());
         let remaining = threshold_elapsed.checked_sub(elapsed)?;
         Some(TickSpan::new(u64::try_from(remaining).ok()?))
     }
