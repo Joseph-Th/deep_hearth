@@ -205,8 +205,10 @@ code-generate every `#[test]` reachable from that focused crate.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, independently varied finite stored work, canonical per-stage stopping behavior, and terminal current-tier tailings. Capability-only industrial benchmark. |
 | `foundry` | Installed room-temperature pure-copper heating/melting/casting with a same-furnace/same-electrical-source sensible-preheat energy-partition counterfactual, currently dominated rather than claimed as an active strategy, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. A thermal-capacity-limited retry waits only until the complete retained molten batch is canonically castable again, rather than requiring an unnecessarily empty sink. Capability-only. |
 
-Routine focused gates run only maintained deterministic regression/coverage cases. An explicit variation or
-behavior root may add one bounded replay case when deliberately reproducing or extending a gate.
+Routine focused gates run maintained deterministic regression/coverage cases plus one bounded
+deterministic organic-variation case per probe, so the repair loop exercises organic gameplay without turning
+into a soak. An explicit variation or behavior root reseeds that bounded case when deliberately reproducing or
+extending a gate.
 `python ci.py report` owns fresh organic sampling for broader exploration without turning the ordinary repair loop
 into a soak. Full episodes are reserved for behavior that requires executed cross-system consequences. A world
 may succeed, adapt, or stop at a canonical constraint; every partial or blocked outcome must preserve trusted-load

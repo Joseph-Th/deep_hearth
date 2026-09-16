@@ -344,8 +344,13 @@ pub(super) fn largest_manual_recovery(
         };
     }
 
-    let minimum_probe =
-        probe_manual_recovery_option(registries, state, ids, Mass::from_milligrams(1), preference);
+    let minimum_probe = probe_manual_recovery_option(
+        registries,
+        state,
+        ids,
+        production_minimum_batch_mass(registries, PROCESS_CRUSH_ORE),
+        preference,
+    );
     if minimum_probe.policy_declined || desired_probe.policy_declined {
         ManualRecoverySearch::DeclinedForSurvival
     } else if minimum_probe.survival_limited || desired_probe.survival_limited {

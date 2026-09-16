@@ -21,7 +21,7 @@ use deep_hearth::energy::EnergySupplyError;
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::maintenance::Condition;
-use deep_hearth::material::MaterialComposition;
+use deep_hearth::material::{COMPOSITION_PARTS_PER_MILLION, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
     ComminutionBatchError, ComminutionRequest, ComminutionResolutionError,

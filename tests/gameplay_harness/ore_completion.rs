@@ -118,7 +118,8 @@ pub(super) fn finalize_completed_ore_probe(
             .lot_ids(ids.concentrate_storage)
             .any(|lot| {
                 state.inventory().get_lot(lot).is_some_and(|lot| {
-                    lot.composition().parts_per_million(MATERIAL_COPPER) < 1_000_000
+                    lot.composition().parts_per_million(MATERIAL_COPPER)
+                        < COMPOSITION_PARTS_PER_MILLION
                 })
             });
     let concentrate_distribution_is_fine =
@@ -244,7 +245,8 @@ pub(super) fn finalize_completed_ore_probe(
         "concentration must produce physical tailings"
     );
     assert!(
-        concentrate_grade_ppm > episode.input_copper_ppm && concentrate_grade_ppm < 1_000_000,
+        concentrate_grade_ppm > episode.input_copper_ppm
+            && concentrate_grade_ppm < COMPOSITION_PARTS_PER_MILLION,
         "industrial concentration must improve feed grade without fabricating pure copper"
     );
 

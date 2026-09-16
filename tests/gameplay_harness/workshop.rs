@@ -63,7 +63,7 @@ use deep_hearth::labor::{
     ValidatedManualPowerStart, validate_start_manual_power,
 };
 use deep_hearth::maintenance::{Condition, MaintenanceBand};
-use deep_hearth::material::CommodityKey;
+use deep_hearth::material::{COMPOSITION_PARTS_PER_MILLION, CommodityKey};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
     ComminutionRequest, ComminutionResolutionError, PoweredOreBottleneck, PoweredOreMassConstraint,
@@ -95,6 +95,44 @@ use manual_recovery::*;
 #[path = "workshop/structure.rs"]
 mod structure;
 use structure::*;
+
+/// Smallest batch mass the authored production definition admits for `process`.
+///
+/// Boundary probes size their minimum-mass case from this canonical threshold instead of
+/// repeating the authored 1 mg floor, so a content rebalance of the resolver minimum moves
+/// the harness boundary with it rather than silently probing below the legal range.
+fn production_minimum_batch_mass(
+    registries: &Registries,
+    process: deep_hearth::production::ProcessId,
+) -> Mass {
+    use deep_hearth::capability::{CapabilityComparison, CapabilityValue};
+
+    let definition = registries
+        .production()
+        .get_process(process)
+        .unwrap_or_else(|| {
+            panic!(
+                "canonical production definition {} disappeared",
+                process.value()
+            )
+        });
+    let minimum = definition
+        .capability_requirements()
+        .iter()
+        .filter_map(
+            |requirement| match (requirement.comparison(), requirement.threshold()) {
+                (CapabilityComparison::AtLeast, CapabilityValue::Mass(mass)) => Some(mass),
+                _ => None,
+            },
+        )
+        .max();
+    minimum.unwrap_or_else(|| {
+        panic!(
+            "canonical production definition {} has no authored minimum batch mass",
+            process.value()
+        )
+    })
+}
 
 fn advance_running_production_to_tick(
     registries: &Registries,
@@ -260,7 +298,7 @@ fn stored_work_from_nominal_batches(
     let partial = batch_energy
         .nanojoules()
         .checked_mul(u128::from(partial_batch_ppm))
-        .map(|scaled| scaled / 1_000_000)
+        .map(|scaled| scaled / u128::from(COMPOSITION_PARTS_PER_MILLION))
         .unwrap_or_else(|| panic!("gameplay stored-work partial-batch scaling overflowed"));
     Energy::from_nanojoules(
         full.checked_add(partial)
@@ -431,10 +469,17 @@ fn setup_workshop(
         variation.ore.nominal_batch_mass,
         comminution.specific_energy(),
     );
-    let small_drive_energy = stored_work_from_nominal_batches(
-        batch_energy,
-        variation.crusher.small_drive_batch_budget,
-        variation.crusher.small_drive_partial_batch_ppm,
+    let small_drive_energy = std::cmp::min(
+        stored_work_from_nominal_batches(
+            batch_energy,
+            variation.crusher.small_drive_batch_budget,
+            variation.crusher.small_drive_partial_batch_ppm,
+        ),
+        registries
+            .energy()
+            .get_store(ENERGY_MECHANICAL_SMALL_DRIVE)
+            .map(|definition| definition.capacity())
+            .unwrap_or_else(|| panic!("canonical small-drive definition disappeared")),
     );
     let small_drive = seed_capability_only_energy_store(
         registries,
@@ -442,10 +487,17 @@ fn setup_workshop(
         ENERGY_MECHANICAL_SMALL_DRIVE,
         small_drive_energy,
     );
-    let large_drive_energy = stored_work_from_nominal_batches(
-        batch_energy,
-        variation.crusher.large_drive_batch_budget,
-        variation.crusher.large_drive_partial_batch_ppm,
+    let large_drive_energy = std::cmp::min(
+        stored_work_from_nominal_batches(
+            batch_energy,
+            variation.crusher.large_drive_batch_budget,
+            variation.crusher.large_drive_partial_batch_ppm,
+        ),
+        registries
+            .energy()
+            .get_store(ENERGY_MECHANICAL_LARGE_DRIVE)
+            .map(|definition| definition.capacity())
+            .unwrap_or_else(|| panic!("canonical large-drive definition disappeared")),
     );
     let large_drive = seed_capability_only_energy_store(
         registries,

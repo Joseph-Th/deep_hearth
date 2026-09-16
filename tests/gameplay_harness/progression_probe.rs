@@ -101,12 +101,16 @@ fn autonomous_target_resolution_stop(error: MiningTargetResolutionError) -> Auto
         MiningTargetResolutionError::EvidenceInsufficientToResolveTarget { .. } => {
             AutonomousWorkStop::TargetSupply
         }
-        unexpected @ MiningTargetResolutionError::NoEvidence { .. }
-        | unexpected @ MiningTargetResolutionError::SpatiallyIncomparableEvidence { .. }
-        | unexpected @ MiningTargetResolutionError::ConflictingEvidence { .. }
-        | unexpected @ MiningTargetResolutionError::EvidenceRulesOutMaterial { .. } => panic!(
-            "primitive progression autonomous-window mining lost target evidence unexpectedly: {unexpected}"
-        ),
+        // Evidence that no longer resolves a live target (lost, incomparable, conflicting,
+        // or ruling out material) means the known supply opportunity ended. It is an
+        // observed supply stop, not a harness failure, so organic variation that exhausts
+        // or invalidates its target reports `TargetSupply` like the reinvestment leg does.
+        MiningTargetResolutionError::NoEvidence { .. }
+        | MiningTargetResolutionError::SpatiallyIncomparableEvidence { .. }
+        | MiningTargetResolutionError::ConflictingEvidence { .. }
+        | MiningTargetResolutionError::EvidenceRulesOutMaterial { .. } => {
+            AutonomousWorkStop::TargetSupply
+        }
     }
 }
 
@@ -214,11 +218,20 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
             AutonomousWorkStop::FeedBufferCapacity
         }
         MiningStartError::TargetNoLongerResolved => AutonomousWorkStop::TargetSupply,
+        // Acquired hardness evidence gates extraction: losing that evidence mid-window
+        // means the known supply opportunity ended, so report `TargetSupply` rather
+        // than failing the harness. A seam harder than the owned tool is a tooling
+        // limit, matching the existing condition/throughput stop family.
+        MiningStartError::MissingExcavationHardnessEvidence { .. } => {
+            AutonomousWorkStop::TargetSupply
+        }
+        MiningStartError::ExcavationHardnessEvidenceExceedsCapability { .. } => {
+            AutonomousWorkStop::ToolCondition
+        }
         MiningStartError::ConditionDuration(_) | MiningStartError::ZeroThroughput => {
             AutonomousWorkStop::ToolCondition
         }
         unexpected @ MiningStartError::UnknownMethod { .. }
-        | unexpected @ MiningStartError::MissingExcavationHardnessEvidence { .. }
         | unexpected @ MiningStartError::ZeroMass
         | unexpected @ MiningStartError::Equipment(_)
         | unexpected @ MiningStartError::EquipmentMounted { .. }
@@ -228,7 +241,6 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
         | unexpected @ MiningStartError::MissingCapability { .. }
         | unexpected @ MiningStartError::CapabilityKindMismatch { .. }
         | unexpected @ MiningStartError::BatchTooLarge { .. }
-        | unexpected @ MiningStartError::ExcavationHardnessEvidenceExceedsCapability { .. }
         | unexpected @ MiningStartError::Duration(_)
         | unexpected @ MiningStartError::CompletionTickOverflow
         | unexpected @ MiningStartError::InvalidOutput(_)

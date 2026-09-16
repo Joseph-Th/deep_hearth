@@ -201,8 +201,19 @@ fn lifecycle_obligations_captured(review: &PrimitiveProgressionReview) -> bool {
         && review.component_service_preserved_reinforcement
 }
 
-fn completed_reinvestment_captured(reinvestment: &PrimitiveReinvestmentExperience) -> bool {
-    reinvestment.invested_copper_mass == Mass::from_milligrams(60_000)
+fn expected_mature_reinvestment_copper(registries: &Registries) -> Mass {
+    multiply_mass(
+        native_input_for_upgrade(registries, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK),
+        3,
+        "mature reinvestment copper",
+    )
+}
+
+fn completed_reinvestment_captured(
+    registries: &Registries,
+    reinvestment: &PrimitiveReinvestmentExperience,
+) -> bool {
+    reinvestment.invested_copper_mass == expected_mature_reinvestment_copper(registries)
         && reinvestment.base_crush_ticks > reinvestment.reinforced_crush_ticks
         && reinvestment.crusher_time_reduction_ppm > 0
         && reinvestment.base_separator_ticks >= reinvestment.reinforced_separator_ticks
@@ -228,12 +239,13 @@ fn completed_reinvestment_captured(reinvestment: &PrimitiveReinvestmentExperienc
 }
 
 fn reinvestment_captured(
+    registries: &Registries,
     review: &PrimitiveProgressionReview,
     maintained_reinvestment_required: bool,
 ) -> bool {
     match &review.reinvestment {
         PrimitiveReinvestmentOutcome::Completed(reinvestment) => {
-            completed_reinvestment_captured(reinvestment)
+            completed_reinvestment_captured(registries, reinvestment)
         }
         PrimitiveReinvestmentOutcome::TargetSupplyLimited
         | PrimitiveReinvestmentOutcome::StorageCapacityLimited { .. } => {
@@ -1093,7 +1105,7 @@ fn report_primitive_progression_review(
             maintained_payback_required,
         )
         && lifecycle_obligations_captured(review)
-        && reinvestment_captured(review, maintained_payback_required);
+        && reinvestment_captured(registries, review, maintained_payback_required);
     assert!(
         fantasy_captured,
         "primitive progression must turn uncertainty into a paid information choice, make an observation-grounded scarce-copper decision produce reciprocal physical leverage, demonstrate useful delegated work, and expose a legitimate post-work reinvestment opportunity or blocker"

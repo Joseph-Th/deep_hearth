@@ -82,7 +82,7 @@ pub(crate) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
     let varied_budget_nj = drive_capacity
         .nanojoules()
         .checked_mul(u128::from(fill_ppm))
-        .map(|value| value / 1_000_000)
+        .map(|value| value / u128::from(COMPOSITION_PARTS_PER_MILLION))
         .unwrap_or_else(|| panic!("ore preparation drive-fill projection overflowed"));
     let drive_energy = Energy::from_nanojoules(varied_budget_nj.max(1));
     OrePreparationSetup {

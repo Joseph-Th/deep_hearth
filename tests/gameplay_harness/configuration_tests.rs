@@ -90,11 +90,11 @@ fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
 }
 
 #[test]
-fn default_gate_is_exactly_the_maintained_deterministic_anchor_set() {
+fn default_gate_is_maintained_anchors_plus_one_bounded_organic_case() {
     let plan = plan(ScenarioPlanMode::Gate, None, None, None)
         .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
-    assert_eq!(plan.source_label(), "maintained");
+    assert_eq!(plan.source_label(), "anchor+variation");
     assert_eq!(
         MaintainedAnchor::ALL.map(|anchor| anchor.label()),
         [
@@ -115,16 +115,19 @@ fn default_gate_is_exactly_the_maintained_deterministic_anchor_set() {
         EXPECTED_MAINTAINED_ANCHORS
     );
     assert_eq!(plan.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
-    assert_eq!(plan.variation_seed_count(), 0);
+    assert_eq!(plan.variation_seed_count(), 1);
     assert_eq!(plan.custom_seed_count(), 0);
-    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len());
-    assert_eq!(plan.variation_label(), "n/a");
-    assert_eq!(plan.behavior_label(), "0x0000000000000001");
-    assert!(plan.cases().iter().all(|case| case.anchor.is_some()));
+    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len() + 1);
+    assert!(plan.cases().iter().all(|case| case.anchor.is_some()) == false);
+    assert!(
+        plan.cases()
+            .last()
+            .is_some_and(|case| case.anchor.is_none())
+    );
 }
 
 #[test]
-fn explicit_gate_variation_root_adds_one_replay_case_without_changing_maintained_anchors() {
+fn explicit_gate_variation_roots_reseed_the_bounded_case_without_changing_maintained_anchors() {
     let first = scenario_seeds_from(
         ScenarioPlanMode::Gate,
         None,
@@ -143,6 +146,8 @@ fn explicit_gate_variation_root_adds_one_replay_case_without_changing_maintained
         0xBBBB,
     )
     .unwrap_or_else(|error| panic!("second gate-default plan failed: {error:?}"));
+    let default = plan(ScenarioPlanMode::Gate, None, None, None)
+        .unwrap_or_else(|error| panic!("default gate plan failed: {error:?}"));
 
     assert_eq!(first.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
     assert_eq!(
@@ -156,6 +161,11 @@ fn explicit_gate_variation_root_adds_one_replay_case_without_changing_maintained
         &first.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()],
         &second.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()]
     );
+    assert_eq!(
+        &first.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()],
+        &default.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()],
+        "reseeding the bounded gate case must not change maintained anchors"
+    );
     assert_ne!(first.cases().last(), second.cases().last());
     assert_eq!(first.variation_label(), "0x0000000000001111");
     assert_eq!(first.behavior_label(), "0x0000000000002222");
@@ -165,7 +175,7 @@ fn explicit_gate_variation_root_adds_one_replay_case_without_changing_maintained
     assert_eq!(
         plan(ScenarioPlanMode::Gate, None, None, Some("ignored")),
         Err(GameplayHarnessConfigError::InvalidBehaviorSeed),
-        "an explicit gate behavior root opts into one bounded variation case"
+        "an invalid gate behavior root is still rejected"
     );
 
     let exploratory =

@@ -50,7 +50,7 @@ fn seed_list_reports_empty_and_exact_invalid_position() {
 }
 
 #[test]
-fn focused_gate_is_only_the_maintained_deterministic_case_set() {
+fn focused_gate_is_maintained_plus_one_bounded_organic_case() {
     let first = focused_probe_cases_from(
         GATE_VARIATION_COUNT,
         None,
@@ -72,21 +72,21 @@ fn focused_gate_is_only_the_maintained_deterministic_case_set() {
     )
     .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
 
-    assert_eq!(GATE_VARIATION_COUNT, 0);
-    assert_eq!(first, second);
-    assert_eq!(first.len(), 3);
+    assert_eq!(GATE_VARIATION_COUNT, 1);
+    assert_eq!(first.len(), 4);
     assert_eq!(first[0].seed(), 0x1111);
     assert_eq!(first[0].role(), FocusedProbeRole::MaintainedAnchor);
     assert_eq!(first[1].seed(), 0xAAAA);
     assert_eq!(first[1].role(), FocusedProbeRole::MaintainedCoverage);
     assert_eq!(first[2].seed(), 0xBBBB);
     assert_eq!(first[2].role(), FocusedProbeRole::MaintainedCoverage);
-    assert!(
-        first
-            .iter()
-            .all(|case| case.role() != FocusedProbeRole::OrganicVariation),
-        "routine focused gates must not depend on generated organic worlds"
+    assert_eq!(first[3].role(), FocusedProbeRole::OrganicVariation);
+    assert_ne!(
+        first[3].seed(),
+        second[3].seed(),
+        "the bounded gate organic case must follow its variation root"
     );
+    assert_eq!(&first[..3], &second[..3]);
 }
 
 #[test]

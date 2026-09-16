@@ -25,7 +25,7 @@ use deep_hearth::core::state::validate_loaded_state;
 use deep_hearth::core::time::TickSpan;
 use deep_hearth::energy::EnergySupplyError;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::material::MaterialComposition;
+use deep_hearth::material::{COMPOSITION_PARTS_PER_MILLION, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::validate_start_process;
 use deep_hearth::registry::Registries;
@@ -134,7 +134,7 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         required_electrical
             .nanojoules()
             .checked_mul(u128::from(energy_budget_ppm))
-            .map(|scaled| scaled / 1_000_000)
+            .map(|scaled| scaled / u128::from(COMPOSITION_PARTS_PER_MILLION))
             .unwrap_or_else(|| panic!("foundry electrical budget scaling overflowed")),
     );
     let electrical_energy = std::cmp::min(electrical_budget, electrical_capacity);
@@ -160,7 +160,7 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         thermal_capacity
             .nanojoules()
             .checked_mul(u128::from(thermal_pressure_ppm))
-            .map(|scaled| scaled / 1_000_000)
+            .map(|scaled| scaled / u128::from(COMPOSITION_PARTS_PER_MILLION))
             .unwrap_or_else(|| panic!("foundry thermal pressure scaling overflowed")),
     );
     FoundrySetup {

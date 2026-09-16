@@ -956,7 +956,10 @@ pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> Provisio
             .div_ceil(balanced_indices.len() as u128)
             .max(1),
     );
-    let supply_margin_ppm = 1_000_000 + (mix64(seed ^ 0x5355_5050_4C59_4D47) % 300_001) as u32;
+    // Supply margin spans genuine scarcity through oversupply so organic worlds exercise
+    // both tight provisioning and comfortable reserves. The seed-derived band runs from
+    // 80% (must stretch food, preservation matters) to 130% (comfortable buffer).
+    let supply_margin_ppm = 800_000 + (mix64(seed ^ 0x5355_5050_4C59_4D47) % 500_001) as u32;
     let offered_masses = foods
         .iter()
         .enumerate()
@@ -1046,7 +1049,10 @@ pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> Provisio
     let age_limit = (witness_food.shelf_life().value() / 4)
         .max(1)
         .min(provisioning_wait_ticks.saturating_sub(1).max(1));
-    let age_ticks = (256 + mix64(seed ^ 0x4147_455F_464F_4F44) % 512).min(age_limit);
+    // Inherited food age spans the full freshness range: young parcels, mid-life stores,
+    // and parcels near the quarter-shelf boundary. Organic worlds must exercise preservation
+    // payoff on genuinely aged food, not only on young parcels.
+    let age_ticks = mix64(seed ^ 0x4147_455F_464F_4F44) % age_limit.saturating_add(1);
     assert!(provisioning_wait_ticks > age_ticks);
     let mut drinks = registries.survival().drinks().copied().collect::<Vec<_>>();
     drinks.sort_by_key(|drink| drink.fluid());

@@ -91,8 +91,6 @@ pub(super) fn run_focused_probe_with_registries(
         .flatten();
     let variation_count = if explore {
         EXPLORATORY_VARIATION_COUNT
-    } else if variation_raw.is_some() || behavior_raw.is_some() {
-        1
     } else {
         GATE_VARIATION_COUNT
     };

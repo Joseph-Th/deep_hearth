@@ -35,8 +35,9 @@ default compile. `audit` checkpoints add `quick` to the selected runtime surface
 
 While code is unstable, use `cargo check-fast` or `run_test.py --check`, then one exact/suite or focused proof.
 Reuse warm artifacts; never prebuild all targets. Broad gameplay builds one `gameplay_audit` crate. Routine gates
-run only maintained deterministic regression/coverage cases. Explicit replay roots may add one bounded variation
-case when needed; `report` owns fresh organic exploration.
+run maintained deterministic regression/coverage cases plus one bounded deterministic organic-variation case per
+probe, so the repair loop exercises organic gameplay without becoming a soak. Explicit replay roots reseed that
+bounded case; `report` owns fresh organic exploration.
 
 Without `--target`, `run_test.py` resolves tests from source without Cargo and chooses the smallest complete
 explicit target. Pin `--target` only to reuse a warm failed binary or force an integration boundary. `--check`

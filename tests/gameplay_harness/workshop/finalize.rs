@@ -98,7 +98,7 @@ pub(super) fn finalize_scenario(
             crushed_mass.milligrams(),
             crushed_lots.len(),
             input_copper_ppm,
-            1_000_000 - input_copper_ppm,
+            COMPOSITION_PARTS_PER_MILLION - input_copper_ppm,
             contained_copper_floor.milligrams(),
             particle_distribution.classes().len(),
             particle_envelope.minimum_diameter().micrometers(),
@@ -113,7 +113,8 @@ pub(super) fn finalize_scenario(
             );
         }
         report.progress.ore_frontier_visible = crushed_lots.iter().all(|lot| {
-            let mixed_selection = [MaterialLotSelection::new(*lot, Mass::from_milligrams(1))];
+            let minimum_probe_mass = production_minimum_batch_mass(registries, PROCESS_CRUSH_ORE);
+            let mixed_selection = [MaterialLotSelection::new(*lot, minimum_probe_mass)];
             matches!(
                 resolve_melting_process(
                     registries,

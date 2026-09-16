@@ -85,8 +85,8 @@ impl CrushEnvelopes {
         )
     }
 
-    fn minimum_is_maintenance_only(self) -> bool {
-        let minimum = Mass::from_milligrams(1);
+    fn minimum_is_maintenance_only(self, registries: &Registries) -> bool {
+        let minimum = production_minimum_batch_mass(registries, PROCESS_CRUSH_ORE);
         [
             self.small.constraint_for(minimum),
             self.large.constraint_for(minimum),
@@ -237,7 +237,7 @@ pub(super) fn largest_safe_powered_crush_batch(
     let envelopes = assess_crush_envelopes(registries, state, ids);
     let powered_mass = std::cmp::min(desired, envelopes.maximum_mass());
     if powered_mass.is_zero() {
-        return if envelopes.minimum_is_maintenance_only() {
+        return if envelopes.minimum_is_maintenance_only(registries) {
             CrushBatchSearch::MaintenanceBlocked
         } else {
             CrushBatchSearch::EnergyUnavailable
