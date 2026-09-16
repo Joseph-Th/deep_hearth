@@ -61,6 +61,16 @@ impl ProspectingResolution {
             excavation_hardness: None,
         }
     }
+
+    /// Adds deliberately synthetic acquired hardness evidence for focused knowledge/mining tests.
+    #[cfg(test)]
+    pub(crate) fn with_excavation_hardness_for_fixture(
+        mut self,
+        excavation_hardness: ExcavationHardnessEstimate,
+    ) -> Self {
+        self.excavation_hardness = Some(excavation_hardness);
+        self
+    }
 }
 
 /// Failure while validating a resolved observation before it becomes durable knowledge.

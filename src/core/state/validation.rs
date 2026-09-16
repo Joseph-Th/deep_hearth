@@ -91,6 +91,11 @@ pub fn validate_loaded_state(
         state.tick(),
     )
     .map_err(StateValidationError::GeologicalKnowledge)?;
+    crate::geology::validate_loaded_hardness_against_live_geology(
+        &state.systems.geology,
+        &state.systems.geological_knowledge,
+    )
+    .map_err(StateValidationError::GeologicalKnowledge)?;
     validate_loaded_production(&state.systems.production, state.tick())
         .map_err(StateValidationError::Production)?;
     validate_loaded_mining(&state.systems.mining, state.tick())

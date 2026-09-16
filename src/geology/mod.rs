@@ -33,7 +33,9 @@ pub(crate) use prospecting_execution::{
 pub(crate) use state::GeneratedDepositSpec;
 pub use state::{GeologicalDepositId, GeologicalDepositLifecycle, GeologyValidationError};
 
-pub(crate) use knowledge::validate_loaded_geological_knowledge;
+pub(crate) use knowledge::{
+    validate_loaded_geological_knowledge, validate_loaded_hardness_against_live_geology,
+};
 pub(crate) use prospecting_action::{
     FieldProspectingTickError, apply_field_prospecting_tick, decide_field_prospecting_tick,
 };

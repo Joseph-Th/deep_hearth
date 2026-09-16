@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::core::quantity::Pressure;
 use crate::core::time::SimulationTick;
 use crate::material::{MaterialId, MaterialRegistry};
 
@@ -11,6 +12,7 @@ use super::{
     GeologicalObservationId, GeologicalObservationRecord, PARTS_PER_MILLION, total_lower_bound_ppm,
     validate_excavation_hardness_context,
 };
+use crate::geology::{GeologicalDepositId, GeologicalDepositLifecycle, GeologyState};
 
 /// Persistent invariant failure for acquired geological knowledge.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +54,13 @@ pub enum GeologicalKnowledgeValidationError {
     ExcavationHardnessWithoutDefinitePresence {
         observation: GeologicalObservationId,
         material: MaterialId,
+    },
+    ExcavationHardnessContradictsLiveDeposit {
+        observation: GeologicalObservationId,
+        deposit: GeologicalDepositId,
+        lower: Pressure,
+        upper: Pressure,
+        actual: Pressure,
     },
     ObservedInFuture {
         observation: GeologicalObservationId,
@@ -153,6 +162,21 @@ impl Display for GeologicalKnowledgeValidationError {
                 observation.value(),
                 material.value()
             ),
+            Self::ExcavationHardnessContradictsLiveDeposit {
+                observation,
+                deposit,
+                lower,
+                upper,
+                actual,
+            } => write!(
+                formatter,
+                "geological observation {} records excavation hardness {}..{} Pa but live matching deposit {} has {} Pa",
+                observation.value(),
+                lower.pascals(),
+                upper.pascals(),
+                deposit.value(),
+                actual.pascals()
+            ),
             Self::ObservedInFuture {
                 observation,
                 observed_at,
@@ -217,6 +241,47 @@ pub(crate) fn validate_loaded_geological_knowledge(
         validate_observation(materials, state, *id, record, current)?;
     }
     validate_material_observation_index(materials, state)
+}
+
+/// Validates persisted physical hardness evidence against geological bodies that are still live.
+///
+/// Historical abundance may legitimately diverge after extraction, and depleted bodies no longer
+/// need to remain observable. Excavation hardness is immutable for a deposit's lifetime, however,
+/// so every still-available matching body inside a sampled region must remain inside the acquired
+/// physical band. This prevents malformed persistence from turning actor-visible evidence into an
+/// authorization value that canonical sampling could never have produced.
+pub(crate) fn validate_loaded_hardness_against_live_geology(
+    geology: &GeologyState,
+    knowledge: &GeologicalKnowledgeState,
+) -> Result<(), GeologicalKnowledgeValidationError> {
+    for (observation, record) in &knowledge.observations {
+        let Some(hardness) = record.excavation_hardness else {
+            continue;
+        };
+        let [finding] = record.findings.as_slice() else {
+            continue;
+        };
+        let material = finding.material();
+        for deposit in geology.deposits().filter(|deposit| {
+            deposit.lifecycle() == GeologicalDepositLifecycle::Available
+                && deposit.bounds().has_intersection(record.region)
+                && deposit.composition().parts_per_million(material) > 0
+        }) {
+            let actual = deposit.excavation_hardness();
+            if actual < hardness.lower() || actual > hardness.upper() {
+                return Err(
+                    GeologicalKnowledgeValidationError::ExcavationHardnessContradictsLiveDeposit {
+                        observation: *observation,
+                        deposit: deposit.id(),
+                        lower: hardness.lower(),
+                        upper: hardness.upper(),
+                        actual,
+                    },
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_observation_cursor(

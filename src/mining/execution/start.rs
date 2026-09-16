@@ -22,7 +22,8 @@ use super::errors::{MiningStartCommitError, MiningStartError};
 use crate::mining::physics::resolve_mining_physics;
 use crate::mining::state::{MiningJobIdentity, MiningJobResources, MiningJobSchedule};
 use crate::mining::{
-    MiningJobId, MiningJobRecord, MiningMethodDefinition, MiningMethodId, MiningTargetResolution,
+    MiningJobId, MiningJobRecord, MiningMethodDefinition, MiningMethodId, MiningTargetRequest,
+    MiningTargetResolution, resolve_mining_target,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,9 +49,21 @@ fn validate_mining_target(
     state: &AppState,
     target: MiningTargetResolution,
 ) -> Result<MiningTargetPlan, MiningStartError> {
-    if !target.still_resolves(state) {
+    let current = resolve_mining_target(
+        state,
+        MiningTargetRequest::new(target.region(), target.material()),
+    )
+    .map_err(|_| MiningStartError::TargetNoLongerResolved)?;
+    if current != target {
         return Err(MiningStartError::TargetNoLongerResolved);
     }
+    let excavation_hardness = current
+        .excavation_hardness()
+        .ok_or(MiningStartError::MissingExcavationHardnessEvidence {
+            material: current.material(),
+            region: current.region(),
+        })?
+        .upper();
     let deposit = target.deposit;
     let record = state
         .geology()
@@ -58,7 +71,7 @@ fn validate_mining_target(
         .unwrap_or_else(|| panic!("re-resolved mining target deposit disappeared"));
     Ok(MiningTargetPlan {
         deposit,
-        excavation_hardness: record.excavation_hardness(),
+        excavation_hardness,
         deposit_mass_before: record.remaining_mass(),
     })
 }

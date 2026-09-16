@@ -3,10 +3,12 @@
 use std::collections::BTreeSet;
 
 use super::*;
-use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
-use crate::core::quantity::Pressure;
-use crate::core::time::SimulationTick;
-use crate::material::MaterialId;
+use crate::content::{FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
+use crate::core::quantity::{Mass, Pressure, Temperature};
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+use crate::core::time::{SimulationTick, WorldSeed};
+use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::material::{CommodityKey, MaterialComposition, MaterialId};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
 fn bounds() -> VoxelBounds {
@@ -109,6 +111,44 @@ fn loaded_validation_rejects_ambiguous_multi_material_hardness() {
                 count: 2,
             }
         )
+    );
+}
+
+#[test]
+fn loaded_state_rejects_hardness_band_that_excludes_live_matching_deposit() {
+    let registries = build_registries();
+    let mut app = AppState::new(WorldSeed::new(0x6B00_00A2));
+    let deposit = insert_generated_deposit(
+        &registries,
+        &mut app,
+        GeneratedDepositSpec::new(
+            bounds(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(1_000_000),
+            Temperature::from_millikelvin(293_150),
+            Pressure::from_pascals(500_000_000),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap_or_else(|error| panic!("knowledge/live-geology deposit fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("knowledge/live-geology deposit insertion failed: {error}"));
+    let (knowledge, observation) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ExcavationHardnessContradictsLiveDeposit {
+                observation,
+                deposit,
+                lower: Pressure::from_pascals(300_000_000),
+                upper: Pressure::from_pascals(350_000_000),
+                actual: Pressure::from_pascals(500_000_000),
+            }
+        ))
     );
 }
 

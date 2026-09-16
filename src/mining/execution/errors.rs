@@ -10,8 +10,9 @@ use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::maintenance::ActiveConditionDurationError;
-use crate::material::MaterialLotSpecError;
+use crate::material::{MaterialId, MaterialLotSpecError};
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
+use crate::spatial::VoxelBounds;
 
 use super::super::physics::MiningPhysicsError;
 use super::super::{MiningJobId, MiningMethodId};
@@ -22,6 +23,10 @@ pub enum MiningStartError {
         method: MiningMethodId,
     },
     TargetNoLongerResolved,
+    MissingExcavationHardnessEvidence {
+        material: MaterialId,
+        region: VoxelBounds,
+    },
     ZeroMass,
     Equipment(EquipmentProviderError),
     EquipmentMounted {
@@ -51,7 +56,8 @@ pub enum MiningStartError {
         maximum: Mass,
         requested: Mass,
     },
-    TargetTooHard {
+    ExcavationHardnessEvidenceExceedsCapability {
+        observed_upper: Pressure,
         maximum: Pressure,
     },
     ZeroThroughput,
@@ -92,6 +98,11 @@ impl Display for MiningStartError {
             }
             Self::TargetNoLongerResolved => formatter.write_str(
                 "resolved mining target is no longer uniquely supported by current local evidence and geology",
+            ),
+            Self::MissingExcavationHardnessEvidence { material, .. } => write!(
+                formatter,
+                "mining target for material {} lacks acquired excavation-hardness evidence; perform physical sampling before extraction",
+                material.value()
             ),
             Self::ZeroMass => formatter.write_str("mining request mass must be nonzero"),
             Self::Equipment(error) => write!(formatter, "mining equipment failed: {error}"),
@@ -141,9 +152,13 @@ impl Display for MiningStartError {
                 requested.milligrams(),
                 maximum.milligrams()
             ),
-            Self::TargetTooHard { maximum } => write!(
+            Self::ExcavationHardnessEvidenceExceedsCapability {
+                observed_upper,
+                maximum,
+            } => write!(
                 formatter,
-                "resolved mining target exceeds equipment maximum excavation hardness {} Pa",
+                "acquired excavation-hardness upper bound {} Pa exceeds equipment maximum {} Pa",
+                observed_upper.pascals(),
                 maximum.pascals()
             ),
             Self::ZeroThroughput => formatter.write_str("resolved mining throughput is zero"),
@@ -222,6 +237,7 @@ impl Error for MiningStartError {
             Self::Work(error) => Some(error),
             Self::UnknownMethod { .. }
             | Self::TargetNoLongerResolved
+            | Self::MissingExcavationHardnessEvidence { .. }
             | Self::ZeroMass
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
@@ -230,7 +246,7 @@ impl Error for MiningStartError {
             | Self::MissingCapability { .. }
             | Self::CapabilityKindMismatch { .. }
             | Self::BatchTooLarge { .. }
-            | Self::TargetTooHard { .. }
+            | Self::ExcavationHardnessEvidenceExceedsCapability { .. }
             | Self::ZeroThroughput
             | Self::CompletionTickOverflow
             | Self::UnknownDestination { .. }
@@ -264,7 +280,12 @@ impl From<MiningPhysicsError> for MiningStartError {
             MiningPhysicsError::BatchTooLarge { maximum, requested } => {
                 Self::BatchTooLarge { maximum, requested }
             }
-            MiningPhysicsError::DepositTooHard { maximum, .. } => Self::TargetTooHard { maximum },
+            MiningPhysicsError::DepositTooHard { hardness, maximum } => {
+                Self::ExcavationHardnessEvidenceExceedsCapability {
+                    observed_upper: hardness,
+                    maximum,
+                }
+            }
             MiningPhysicsError::ZeroThroughput => Self::ZeroThroughput,
             MiningPhysicsError::Duration(error) => Self::Duration(error),
             MiningPhysicsError::ConditionDuration(error) => Self::ConditionDuration(error),

@@ -218,6 +218,7 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
             AutonomousWorkStop::ToolCondition
         }
         unexpected @ MiningStartError::UnknownMethod { .. }
+        | unexpected @ MiningStartError::MissingExcavationHardnessEvidence { .. }
         | unexpected @ MiningStartError::ZeroMass
         | unexpected @ MiningStartError::Equipment(_)
         | unexpected @ MiningStartError::EquipmentMounted { .. }
@@ -227,7 +228,7 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
         | unexpected @ MiningStartError::MissingCapability { .. }
         | unexpected @ MiningStartError::CapabilityKindMismatch { .. }
         | unexpected @ MiningStartError::BatchTooLarge { .. }
-        | unexpected @ MiningStartError::TargetTooHard { .. }
+        | unexpected @ MiningStartError::ExcavationHardnessEvidenceExceedsCapability { .. }
         | unexpected @ MiningStartError::Duration(_)
         | unexpected @ MiningStartError::CompletionTickOverflow
         | unexpected @ MiningStartError::InvalidOutput(_)
@@ -1014,27 +1015,6 @@ fn strongest_observed_copper_clue(
         .unwrap_or_else(|| panic!("primitive progression has no eligible observed copper clue"))
 }
 
-fn preview_stone_pick_mining(
-    registries: &Registries,
-    state: &AppState,
-    clue: ObservedCopperClue,
-    destination: deep_hearth::inventory::StockpileId,
-    pick: deep_hearth::equipment::EquipmentId,
-    mass: Mass,
-) -> Result<(), MiningStartError> {
-    let target = resolve_progression_mining_target(state, clue.request);
-    validate_start_mining(
-        registries,
-        state,
-        MINING_METHOD_HAND_PICK,
-        target,
-        destination,
-        pick,
-        mass,
-    )
-    .map(|_| ())
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PrimitivePriority {
     PickFirst,
@@ -1065,6 +1045,7 @@ struct PrimitiveProgressionExperience {
     regional_recon_ticks: u64,
     regional_upper_bounds_ppm: [u32; PROGRESSION_REGIONAL_ZONE_COUNT],
     surface_prospecting_ticks: u64,
+    hardness_sampling_ticks: u64,
     detailed_survey_ticks: u64,
     surface_clue_count: u8,
     surface_resolved_clue_count: u8,

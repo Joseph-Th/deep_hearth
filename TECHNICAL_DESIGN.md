@@ -212,7 +212,7 @@ then read the owning section/source for exact semantics and errors.
 | Registries and built-in content | `Registries` plus domain registries; `build_registries` validates cross-references | public immutable `Registries::*()` accessors; derived authored topology may provide goal-directed reverse lookup | callers inspect authored possibilities; topology never claims current legality or ordinary reachability | none; registries and derived definition indexes are immutable after construction |
 | Inventory and storage | material/form/storage definitions | `AppState::inventory()`, stockpile/lot records and stable iterators | feature owners construct explicit lot selections; enclosure validators derive storage consequences | no generic public transport command; feature-specific validators own ingress/egress/reform, enclosure, and support transitions |
 | Geological knowledge | prospecting methods plus hidden finite geology | `AppState::geological_knowledge()`, `assess_geological_knowledge`, knowledge map | field prospecting authorization; evidence combination remains actor-safe | `validate_start_field_prospecting` -> tick records observations |
-| Mining | `MiningRegistry` methods and physical hardness/tool constraints | `AppState::mining()` plus acquired geological knowledge; hidden `GeologyState` is not public | `resolve_mining_target` | `validate_start_mining` -> tick -> `validate_claim_mining_output` |
+| Mining | `MiningRegistry` methods and physical hardness/tool constraints | `AppState::mining()` plus acquired geological knowledge; hidden `GeologyState` is not public | `resolve_mining_target` binds localized evidence and the best acquired physical hardness band when present | `validate_start_mining` requires acquired hardness evidence and uses its conservative upper bound -> tick -> `validate_claim_mining_output` |
 | Production | `ProductionRegistry`, `ProcessDefinition` | `AppState::production()`, job records, reservations/occupancy | operation-specific resolvers produce `ProcessResolution` / `Resolved*` | `validate_start_process` / `validate_start_process_routed` -> tick completion |
 | Equipment | `EquipmentRegistry`, capability/maintenance/upgrade profiles | `AppState::equipment()`, equipment records | `resolve_equipment_provider`, `resolve_equipment_maintenance` | assembly, upgrade, maintenance, disassembly, mount/unmount/relocate validators |
 | Player labor | `LaborRegistry`, manual-power/prospecting definitions | `AppState::player_work()` | owner commands calculate/bind required attention and resource budget | manual power/prospecting/manual production commands -> tick; attention lifecycle is crate-owned |
@@ -494,7 +494,16 @@ authorization. Resolution rejects absent, contradictory, spatially incomparable,
 ambiguous evidence. Querying a smaller region cannot create precision that was not acquired. Hidden geology is
 never a public tie-breaker.
 
-Mining start validates authorization, tool, labor, capability, wear, destination, and reservation constraints.
+Physical sampling is also the information boundary for extraction resistance. A resolved target carries the best
+acquired excavation-hardness band that covers its localized evidence region. Mining start rejects a target with
+no acquired hardness band rather than probing hidden geological resistance, and compares the selected tool only
+against the conservative acquired upper bound. The exact hidden hardness remains authoritative physical truth for
+geology ownership and trusted continuation validation, but it is not a read-only planning oracle. Trusted load
+rejects a persisted physical hardness band that excludes any still-live matching deposit in its sampled region;
+depleted historical observations remain valid because they can no longer authorize extraction.
+
+Mining start validates authorization, acquired hardness, tool, labor, capability, wear, destination, and
+reservation constraints.
 Geology retains ownership of the selected batch during labor. Completion removes the batch from geology,
 applies wear, releases player work, and creates an explicit durable claim boundary. Completed output remains
 mining-owned with its destination capacity reserved until claim succeeds, so unrelated simulation time and work

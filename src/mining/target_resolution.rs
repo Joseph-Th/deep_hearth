@@ -6,8 +6,8 @@ use std::fmt::{Debug, Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::geology::{
-    GeologicalDepositId, GeologicalDepositLifecycle, GeologicalEvidenceConsistency,
-    assess_geological_knowledge,
+    ExcavationHardnessEstimate, GeologicalDepositId, GeologicalDepositLifecycle,
+    GeologicalEvidenceConsistency, assess_geological_knowledge,
 };
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
@@ -40,13 +40,14 @@ impl MiningTargetRequest {
 ///
 /// The exact deposit identity remains crate-private. Mining re-resolves the evidence locality when
 /// this proof is consumed so unrelated geological or knowledge changes do not invalidate it while
-/// new local ambiguity or contradiction still does.
+/// any authorization-relevant local evidence change does.
 #[must_use]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct MiningTargetResolution {
     pub(super) deposit: GeologicalDepositId,
     region: VoxelBounds,
     material: MaterialId,
+    excavation_hardness: Option<ExcavationHardnessEstimate>,
 }
 
 impl Debug for MiningTargetResolution {
@@ -55,6 +56,7 @@ impl Debug for MiningTargetResolution {
             .debug_struct("MiningTargetResolution")
             .field("region", &self.region)
             .field("material", &self.material)
+            .field("excavation_hardness", &self.excavation_hardness)
             .finish_non_exhaustive()
     }
 }
@@ -70,9 +72,18 @@ impl MiningTargetResolution {
         self.material
     }
 
+    /// Returns the best acquired excavation-resistance evidence for this target, when available.
+    ///
+    /// This is acquired player knowledge, not hidden geological truth. Mining admission requires
+    /// this evidence before it evaluates extraction-tool hardness capability.
+    #[must_use]
+    pub const fn excavation_hardness(self) -> Option<ExcavationHardnessEstimate> {
+        self.excavation_hardness
+    }
+
     pub(super) fn still_resolves(self, state: &AppState) -> bool {
         resolve_mining_target(state, MiningTargetRequest::new(self.region, self.material))
-            .is_ok_and(|current| current.deposit == self.deposit)
+            .is_ok_and(|current| current == self)
     }
 }
 
@@ -260,6 +271,7 @@ pub fn resolve_mining_target(
         deposit: deposit.id(),
         region: acquired_region,
         material: request.material,
+        excavation_hardness: assessment.excavation_hardness(),
     })
 }
 

@@ -21,7 +21,9 @@ pub(super) use observation::{
     ExcavationHardnessContextError, PARTS_PER_MILLION, total_lower_bound_ppm,
     validate_excavation_hardness_context,
 };
-pub(crate) use validation::validate_loaded_geological_knowledge;
+pub(crate) use validation::{
+    validate_loaded_geological_knowledge, validate_loaded_hardness_against_live_geology,
+};
 
 #[cfg(test)]
 #[path = "knowledge_tests.rs"]

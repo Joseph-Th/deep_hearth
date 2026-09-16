@@ -22,8 +22,8 @@ use crate::equipment::{
 #[cfg(feature = "test-soak")]
 use crate::geology::GeologicalDepositLifecycle;
 use crate::geology::{
-    GeneratedDepositSpec, GeologicalDepositId, GeologicalEvidenceKind, MaterialAbundanceEstimate,
-    ProspectingResolution, record_prospecting_for_test,
+    ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalDepositId, GeologicalEvidenceKind,
+    MaterialAbundanceEstimate, ProspectingResolution, record_prospecting_for_test,
 };
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotSelection, STORAGE_AGE_PARTS_PER_TICK,
@@ -36,7 +36,7 @@ use crate::labor::{
     calculate_player_work_resource_budget,
 };
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
 use crate::matter::calculate_matter_accounting;
 use crate::mining::{
     MiningJobId, MiningJobRecord, MiningJobValidationError, MiningMethodId, MiningTargetRequest,
@@ -264,6 +264,7 @@ fn insert_known_deposit(
     spec: GeneratedDepositSpec,
 ) -> Result<GeologicalDepositId, crate::geology::InsertGeneratedDepositError> {
     let region = spec.bounds();
+    let excavation_hardness = spec.excavation_hardness();
     let min = region.min();
     let localized = VoxelBounds::new(min, VoxelCoord::new(min.x() + 1, min.y() + 1, min.z() + 1))
         .unwrap_or_else(|error| panic!("mining known-deposit localized bounds failed: {error}"));
@@ -275,10 +276,61 @@ fn insert_known_deposit(
         localized,
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate],
+    )
+    .with_excavation_hardness_for_fixture(
+        ExcavationHardnessEstimate::new(excavation_hardness, excavation_hardness).unwrap_or_else(
+            |error| panic!("mining known-deposit hardness evidence failed: {error}"),
+        ),
     );
     record_prospecting_for_test(registries, state, evidence)
         .unwrap_or_else(|error| panic!("mining known-deposit evidence failed: {error}"));
     Ok(deposit)
+}
+
+fn insert_surface_known_deposit(
+    registries: &Registries,
+    state: &mut AppState,
+    spec: GeneratedDepositSpec,
+) -> Result<GeologicalDepositId, crate::geology::InsertGeneratedDepositError> {
+    let region = spec.bounds();
+    let min = region.min();
+    let localized = VoxelBounds::new(min, VoxelCoord::new(min.x() + 1, min.y() + 1, min.z() + 1))
+        .unwrap_or_else(|error| panic!("surface-known mining bounds failed: {error}"));
+    let material = spec.commodity().material();
+    let abundance = spec.composition().parts_per_million(material);
+    let deposit = crate::geology::insert_generated_deposit(registries, state, spec)?;
+    let estimate = MaterialAbundanceEstimate::new(material, abundance, abundance)
+        .unwrap_or_else(|error| panic!("surface-known mining estimate failed: {error}"));
+    let evidence = ProspectingResolution::new_for_fixture(
+        localized,
+        GeologicalEvidenceKind::SurfaceExposure,
+        vec![estimate],
+    );
+    record_prospecting_for_test(registries, state, evidence)
+        .unwrap_or_else(|error| panic!("surface-known mining evidence failed: {error}"));
+    Ok(deposit)
+}
+
+fn record_local_hardness_evidence(
+    registries: &Registries,
+    state: &mut AppState,
+    region: VoxelBounds,
+    material: MaterialId,
+    lower: Pressure,
+    upper: Pressure,
+) {
+    let estimate = MaterialAbundanceEstimate::new(material, 1, 1_000_000)
+        .unwrap_or_else(|error| panic!("local hardness abundance fixture failed: {error}"));
+    let hardness = ExcavationHardnessEstimate::new(lower, upper)
+        .unwrap_or_else(|error| panic!("local hardness band fixture failed: {error}"));
+    let evidence = ProspectingResolution::new_for_fixture(
+        region,
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate],
+    )
+    .with_excavation_hardness_for_fixture(hardness);
+    record_prospecting_for_test(registries, state, evidence)
+        .unwrap_or_else(|error| panic!("local hardness evidence failed: {error}"));
 }
 
 fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
@@ -810,6 +862,63 @@ fn resolved_mining_target_is_invalidated_by_new_local_ambiguity() {
 }
 
 #[test]
+fn resolved_mining_target_is_invalidated_by_better_local_hardness_evidence() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0034));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("hardness-stale target survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("hardness-stale target destination failed: {error}"));
+    let deposit = insert_surface_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("hardness-stale target deposit failed: {error}"));
+    let deposit_record = state
+        .geology()
+        .get_deposit(deposit)
+        .unwrap_or_else(|| panic!("hardness-stale target deposit disappeared"));
+    let region = deposit_record.bounds();
+    let material = deposit_record.commodity().material();
+    record_local_hardness_evidence(
+        &registries,
+        &mut state,
+        region,
+        material,
+        Pressure::from_pascals(300_000_000),
+        Pressure::from_pascals(500_000_000),
+    );
+    let target = resolve_mining_target(&state, MiningTargetRequest::new(region, material))
+        .unwrap_or_else(|error| panic!("hardness-stale target resolution failed: {error}"));
+    record_local_hardness_evidence(
+        &registries,
+        &mut state,
+        region,
+        material,
+        Pressure::from_pascals(340_000_000),
+        Pressure::from_pascals(360_000_000),
+    );
+    let current = resolve_mining_target(&state, MiningTargetRequest::new(region, material))
+        .unwrap_or_else(|error| panic!("hardness-stale target re-resolution failed: {error}"));
+    assert_eq!(current.deposit, target.deposit);
+    assert_ne!(current, target);
+    let before = state.clone();
+
+    assert_eq!(
+        super::validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            target,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::TargetNoLongerResolved)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_0032));
@@ -868,6 +977,61 @@ fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
             .map(|record| record.remaining_mass()),
         Some(Mass::from_milligrams(1_000_000))
     );
+}
+
+#[test]
+fn validated_mining_start_is_invalidated_by_better_local_hardness_evidence() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0035));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("hardness-stale start survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("hardness-stale start destination failed: {error}"));
+    let deposit = insert_surface_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("hardness-stale start deposit failed: {error}"));
+    let deposit_record = state
+        .geology()
+        .get_deposit(deposit)
+        .unwrap_or_else(|| panic!("hardness-stale start deposit disappeared"));
+    let region = deposit_record.bounds();
+    let material = deposit_record.commodity().material();
+    record_local_hardness_evidence(
+        &registries,
+        &mut state,
+        region,
+        material,
+        Pressure::from_pascals(300_000_000),
+        Pressure::from_pascals(500_000_000),
+    );
+    let target = resolve_mining_target(&state, MiningTargetRequest::new(region, material))
+        .unwrap_or_else(|error| panic!("hardness-stale start target failed: {error}"));
+    let start = super::validate_start_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("hardness-stale start validation failed: {error}"));
+    record_local_hardness_evidence(
+        &registries,
+        &mut state,
+        region,
+        material,
+        Pressure::from_pascals(340_000_000),
+        Pressure::from_pascals(360_000_000),
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        start.commit(&mut state),
+        Err(MiningStartCommitError::TargetNoLongerResolved)
+    );
+    assert_eq!(state, before);
+    assert_eq!(state.player_work().active(), None);
 }
 
 #[test]
@@ -1150,7 +1314,8 @@ fn deposit_excavation_hardness_is_independent_of_assay_composition() {
     .unwrap_or_else(|| panic!("stone pick unexpectedly ignored deposit excavation hardness"));
     assert_eq!(
         error,
-        MiningStartError::TargetTooHard {
+        MiningStartError::ExcavationHardnessEvidenceExceedsCapability {
+            observed_upper: Pressure::from_pascals(600_000_000),
             maximum: Pressure::from_pascals(500_000_000),
         }
     );
@@ -1727,7 +1892,7 @@ fn assemble_reinforced_pick_for_test(registries: &Registries, state: &mut AppSta
 }
 
 #[test]
-fn stone_pick_refuses_deposit_above_authored_excavation_hardness() {
+fn stone_pick_refuses_acquired_hardness_above_authored_capability() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_0002));
     initialize_player_survival(&registries, &mut state)
@@ -1765,7 +1930,8 @@ fn stone_pick_refuses_deposit_above_authored_excavation_hardness() {
     .unwrap_or_else(|| panic!("stone pick unexpectedly mined deposit above its hardness"));
     assert_eq!(
         error,
-        MiningStartError::TargetTooHard {
+        MiningStartError::ExcavationHardnessEvidenceExceedsCapability {
+            observed_upper: Pressure::from_pascals(700_000_000),
             maximum: Pressure::from_pascals(500_000_000),
         }
     );
@@ -1777,6 +1943,63 @@ fn stone_pick_refuses_deposit_above_authored_excavation_hardness() {
             .unwrap_or_else(|| panic!("hardness deposit disappeared"))
             .remaining_mass(),
         Mass::from_milligrams(100_000)
+    );
+}
+
+#[test]
+fn mining_requires_acquired_hardness_without_revealing_hidden_resistance() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0012));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("hardness-evidence survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("hardness-evidence destination failed: {error}"));
+    let bounds = VoxelBounds::new(VoxelCoord::new(8, -8, 0), VoxelCoord::new(9, -7, 1))
+        .unwrap_or_else(|error| panic!("hardness-evidence bounds failed: {error}"));
+    let deposit = insert_surface_known_deposit(
+        &registries,
+        &mut state,
+        GeneratedDepositSpec::new(
+            bounds,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(100_000),
+            Temperature::from_millikelvin(300_000),
+            Pressure::from_pascals(700_000_000),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap_or_else(|error| panic!("hardness-evidence deposit fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("hardness-evidence deposit insertion failed: {error}"));
+    let target = resolve_mining_target(&state, MiningTargetRequest::new(bounds, MATERIAL_STONE))
+        .unwrap_or_else(|error| panic!("surface-known mining target failed: {error}"));
+    assert_eq!(target.excavation_hardness(), None);
+    let before = state.clone();
+
+    assert_eq!(
+        super::validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            target,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::MissingExcavationHardnessEvidence {
+            material: MATERIAL_STONE,
+            region: bounds,
+        }),
+        "read-only mining admission must request physical sampling instead of revealing hidden hardness"
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        state
+            .geology()
+            .get_deposit(deposit)
+            .map(|record| record.remaining_mass()),
+        Some(Mass::from_milligrams(100_000))
     );
 }
 

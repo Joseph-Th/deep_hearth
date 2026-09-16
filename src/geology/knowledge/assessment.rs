@@ -7,8 +7,8 @@ use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
 use super::{
-    GeologicalKnowledgeState, GeologicalObservationId, GeologicalObservationRecord,
-    MaterialAbundanceEstimate, PARTS_PER_MILLION,
+    ExcavationHardnessEstimate, GeologicalKnowledgeState, GeologicalObservationId,
+    GeologicalObservationRecord, MaterialAbundanceEstimate, PARTS_PER_MILLION,
 };
 
 /// Deterministic regional projection suitable for geological-map presentation and planning.
@@ -57,6 +57,7 @@ pub struct GeologicalKnowledgeAssessment {
     envelope: Option<(u32, u32)>,
     common_evidence_region: Option<VoxelBounds>,
     common_acquired_region: Option<VoxelBounds>,
+    excavation_hardness: Option<ExcavationHardnessEstimate>,
     most_precise: Option<GeologicalObservationId>,
     latest_observed_at: Option<SimulationTick>,
 }
@@ -99,6 +100,17 @@ impl GeologicalKnowledgeAssessment {
         self.common_acquired_region
     }
 
+    /// Best acquired excavation-resistance band covering this assessment region.
+    ///
+    /// Hardness is actor-visible only when a physical observation measured it. When several
+    /// acquired samples overlap the requested region, prefer the narrowest band, then the smallest
+    /// sampled region, latest observation, and stable lowest identity. This keeps later planning
+    /// deterministic without combining independent bands into precision the actor never measured.
+    #[must_use]
+    pub const fn excavation_hardness(&self) -> Option<ExcavationHardnessEstimate> {
+        self.excavation_hardness
+    }
+
     #[must_use]
     pub const fn most_precise(&self) -> Option<GeologicalObservationId> {
         self.most_precise
@@ -117,6 +129,13 @@ type EvidencePrecisionRank = (
     Reverse<GeologicalObservationId>,
 );
 
+type HardnessPrecisionRank = (
+    Reverse<u64>,
+    Reverse<u128>,
+    SimulationTick,
+    Reverse<GeologicalObservationId>,
+);
+
 struct GeologicalEvidenceAggregate {
     observations: Vec<GeologicalObservationId>,
     highest_lower_ppm: u32,
@@ -125,6 +144,7 @@ struct GeologicalEvidenceAggregate {
     envelope_upper_ppm: u32,
     common_evidence_region: Option<VoxelBounds>,
     common_acquired_region: Option<VoxelBounds>,
+    excavation_hardness: Option<(HardnessPrecisionRank, ExcavationHardnessEstimate)>,
     most_precise: Option<EvidencePrecisionRank>,
     latest_observed_at: Option<SimulationTick>,
 }
@@ -139,6 +159,7 @@ impl GeologicalEvidenceAggregate {
             envelope_upper_ppm: 0,
             common_evidence_region: Some(region),
             common_acquired_region: None,
+            excavation_hardness: None,
             most_precise: None,
             latest_observed_at: None,
         }
@@ -171,6 +192,33 @@ impl GeologicalEvidenceAggregate {
                     current.max(record.observed_at())
                 }),
         );
+
+        if let Some(hardness) = record.excavation_hardness() {
+            let hardness_precision = (
+                Reverse(
+                    hardness
+                        .upper()
+                        .pascals()
+                        .checked_sub(hardness.lower().pascals())
+                        .unwrap_or_else(|| {
+                            unreachable!("validated hardness estimate cannot have inverted bounds")
+                        }),
+                ),
+                Reverse(record.region().voxel_count().unwrap_or(u128::MAX)),
+                record.observed_at(),
+                Reverse(id),
+            );
+            self.excavation_hardness = Some(self.excavation_hardness.map_or(
+                (hardness_precision, hardness),
+                |current| {
+                    if hardness_precision > current.0 {
+                        (hardness_precision, hardness)
+                    } else {
+                        current
+                    }
+                },
+            ));
+        }
 
         let precision = (
             Reverse(finding.width_ppm()),
@@ -219,6 +267,7 @@ impl GeologicalEvidenceAggregate {
             envelope: has_evidence.then_some((self.envelope_lower_ppm, self.envelope_upper_ppm)),
             common_evidence_region,
             common_acquired_region,
+            excavation_hardness: self.excavation_hardness.map(|(_, hardness)| hardness),
             most_precise: self.most_precise.map(|rank| rank.3.0),
             latest_observed_at: self.latest_observed_at,
         }

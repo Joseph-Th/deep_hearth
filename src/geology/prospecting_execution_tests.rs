@@ -237,6 +237,51 @@ fn precision_ranking_uses_width_then_footprint_then_recency_then_identity() {
 }
 
 #[test]
+fn hardness_assessment_prefers_the_most_precise_acquired_physical_band() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_0011));
+    let query = bounds(4, 6);
+    let finding = vec![estimate(MATERIAL_COPPER, 400_000, 500_000)];
+    let broad = ExcavationHardnessEstimate::new(
+        Pressure::from_pascals(300_000_000),
+        Pressure::from_pascals(400_000_000),
+    )
+    .unwrap_or_else(|error| panic!("broad hardness fixture failed: {error}"));
+    let precise = ExcavationHardnessEstimate::new(
+        Pressure::from_pascals(325_000_000),
+        Pressure::from_pascals(375_000_000),
+    )
+    .unwrap_or_else(|error| panic!("precise hardness fixture failed: {error}"));
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution {
+            region: bounds(0, 10),
+            evidence: GeologicalEvidenceKind::ExcavationSample,
+            findings: finding.clone(),
+            excavation_hardness: Some(broad),
+        },
+    );
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution {
+            region: query,
+            evidence: GeologicalEvidenceKind::ExcavationSample,
+            findings: finding,
+            excavation_hardness: Some(precise),
+        },
+    );
+
+    assert_eq!(
+        assess_geological_knowledge(state.geological_knowledge(), query, MATERIAL_COPPER)
+            .excavation_hardness(),
+        Some(precise),
+        "mining planning must use the narrowest acquired hardness band instead of hidden truth"
+    );
+}
+
+#[test]
 fn contradictory_surveys_remain_visible_instead_of_being_averaged() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x6B00_0002));

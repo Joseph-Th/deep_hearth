@@ -6,8 +6,9 @@ use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::WorldSeed;
 use crate::geology::{
-    GeneratedDepositSpec, GeologicalEvidenceKind, MaterialAbundanceEstimate, ProspectingResolution,
-    insert_generated_deposit, record_prospecting_for_test,
+    ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
+    MaterialAbundanceEstimate, ProspectingResolution, insert_generated_deposit,
+    record_prospecting_for_test,
 };
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::registry::Registries;
@@ -50,6 +51,27 @@ fn record_copper_evidence(
         .unwrap_or_else(|error| panic!("mining target evidence failed: {error}"));
 }
 
+fn record_copper_hardness_evidence(
+    registries: &Registries,
+    state: &mut AppState,
+    region: VoxelBounds,
+    lower: Pressure,
+    upper: Pressure,
+) {
+    let estimate = MaterialAbundanceEstimate::new(MATERIAL_COPPER, 900_000, 1_000_000)
+        .unwrap_or_else(|error| panic!("mining target hardness abundance failed: {error}"));
+    let hardness = ExcavationHardnessEstimate::new(lower, upper)
+        .unwrap_or_else(|error| panic!("mining target hardness fixture failed: {error}"));
+    let resolution = ProspectingResolution::new_for_fixture(
+        region,
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate],
+    )
+    .with_excavation_hardness_for_fixture(hardness);
+    record_prospecting_for_test(registries, state, resolution)
+        .unwrap_or_else(|error| panic!("mining target hardness evidence failed: {error}"));
+}
+
 #[test]
 fn mining_target_requires_acquired_evidence() {
     let registries = build_registries();
@@ -78,6 +100,33 @@ fn compatible_local_evidence_resolves_one_opaque_target() {
         .unwrap_or_else(|error| panic!("local mining target resolution failed: {error}"));
     assert_eq!(target.region(), region);
     assert_eq!(target.material(), MATERIAL_COPPER);
+    assert_eq!(
+        target.excavation_hardness(),
+        None,
+        "surface evidence must not acquire excavation resistance from hidden geology"
+    );
+}
+
+#[test]
+fn physical_sample_hardness_is_carried_as_actor_visible_target_evidence() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_1012));
+    let region = bounds(0, 1);
+    insert_copper_deposit(&registries, &mut state, region);
+    let lower = Pressure::from_pascals(325_000_000);
+    let upper = Pressure::from_pascals(375_000_000);
+    record_copper_hardness_evidence(&registries, &mut state, region, lower, upper);
+
+    let target = resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER))
+        .unwrap_or_else(|error| panic!("hardness-backed target resolution failed: {error}"));
+
+    assert_eq!(
+        target.excavation_hardness(),
+        Some(
+            ExcavationHardnessEstimate::new(lower, upper)
+                .unwrap_or_else(|error| panic!("hardness assertion fixture failed: {error}"))
+        )
+    );
 }
 
 #[test]

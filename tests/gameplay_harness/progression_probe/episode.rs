@@ -30,6 +30,7 @@ struct ProgressionDiscovery {
     regional_recon_ticks: u64,
     regional_upper_bounds_ppm: [u32; PROGRESSION_REGIONAL_ZONE_COUNT],
     surface_prospecting_ticks: u64,
+    hardness_sampling_ticks: u64,
     clue_count: usize,
     surface_resolved_clues: u8,
     mineable_clue_count: usize,
@@ -216,25 +217,58 @@ fn discover_primitive_progression(
         .unwrap_or_else(|error| {
             panic!("primitive progression pick assembly commit failed: {error}")
         });
+    craft_for_profile(
+        registries,
+        state,
+        raw,
+        native_storage,
+        shaped,
+        equipment_assembly_profile(registries, EQUIPMENT_STONE_GEOLOGICAL_HAMMER),
+    );
+    let sampling_hammer =
+        validate_assemble_equipment(registries, state, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, shaped)
+            .unwrap_or_else(|error| {
+                panic!("primitive progression sampling-hammer assembly failed: {error}")
+            })
+            .commit(state)
+            .unwrap_or_else(|error| {
+                panic!("primitive progression sampling-hammer assembly commit failed: {error}")
+            });
     let mut mineable_clues = Vec::new();
     let mut hardness_blocked_clues = Vec::new();
+    let mut hardness_sampling_ticks = 0_u64;
     for clue in surface_clues {
-        match preview_stone_pick_mining(
+        let sample_ticks = acquire_copper_evidence_with_equipment(
             registries,
             state,
-            clue,
-            ore_storage,
-            pick,
-            refined_clue_sample_mass,
-        ) {
-            Ok(()) => mineable_clues.push(clue),
-            Err(MiningStartError::TargetTooHard { maximum }) => {
-                assert_eq!(maximum, stone_hardness_limit);
-                hardness_blocked_clues.push(clue);
-            }
-            Err(error) => panic!("unexpected observed mining affordance blocker: {error}"),
+            PROSPECTING_DETAILED_FIELD_SURVEY,
+            clue.request.region(),
+            Some(sampling_hammer),
+        );
+        hardness_sampling_ticks = hardness_sampling_ticks
+            .checked_add(sample_ticks)
+            .unwrap_or_else(|| {
+                panic!("primitive progression hardness-sampling duration overflowed")
+            });
+        let sampled_clue = observed_resolved_copper_clue(state, clue.request);
+        let hardness = resolve_progression_mining_target(state, clue.request)
+            .excavation_hardness()
+            .unwrap_or_else(|| {
+                panic!(
+                    "physical sampling produced no excavation-hardness evidence for {:?}",
+                    clue.request.region()
+                )
+            });
+        if hardness.upper() <= stone_hardness_limit {
+            mineable_clues.push(sampled_clue);
+        } else {
+            hardness_blocked_clues.push(sampled_clue);
         }
     }
+    assert!(
+        hardness_sampling_ticks > 0,
+        "primitive progression must pay physical-sampling work before classifying extraction hardness"
+    );
     assert!(
         mineable_clues
             .iter()
@@ -278,7 +312,7 @@ fn discover_primitive_progression(
     );
     assert_eq!(
         hard_clue.request, hard_ore_target,
-        "canonical stone-pick preview no longer discovers the intended hardness gate"
+        "acquired hardness evidence no longer identifies the intended stone-pick blocker"
     );
     if !information_refinement_required {
         let trace_clue = observed_resolved_copper_clue(state, trace_target);
@@ -297,6 +331,10 @@ fn discover_primitive_progression(
         mined_mass,
     );
     let blocked_hard_target = resolve_progression_mining_target(state, hard_clue.request);
+    let blocked_hardness_upper = blocked_hard_target
+        .excavation_hardness()
+        .unwrap_or_else(|| panic!("known hard seam lost acquired hardness evidence"))
+        .upper();
     assert_eq!(
         validate_start_mining(
             registries,
@@ -308,9 +346,12 @@ fn discover_primitive_progression(
             mined_mass,
         )
         .err(),
-        Some(MiningStartError::TargetTooHard {
-            maximum: stone_hardness_limit,
-        }),
+        Some(
+            MiningStartError::ExcavationHardnessEvidenceExceedsCapability {
+                observed_upper: blocked_hardness_upper,
+                maximum: stone_hardness_limit,
+            }
+        ),
         "the known hard seam must be a real blocked affordance before pick reinforcement"
     );
     let initial_direct_copper_mining_ticks = mine_total_and_claim(
@@ -392,27 +433,6 @@ fn discover_primitive_progression(
             refinement_started_at, direct_supply_blocked_at,
             "the actor should revisit unresolved evidence as the immediate response to exhausting the clear direct-copper option"
         );
-        craft_for_profile(
-            registries,
-            state,
-            raw,
-            native_storage,
-            shaped,
-            equipment_assembly_profile(registries, EQUIPMENT_STONE_GEOLOGICAL_HAMMER),
-        );
-        let sampling_hammer = validate_assemble_equipment(
-            registries,
-            state,
-            EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
-            shaped,
-        )
-        .unwrap_or_else(|error| {
-            panic!("primitive progression sampling-hammer assembly failed: {error}")
-        })
-        .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("primitive progression sampling-hammer assembly commit failed: {error}")
-        });
         let detailed_survey_ticks = acquire_copper_evidence_with_equipment(
             registries,
             state,
@@ -489,6 +509,7 @@ fn discover_primitive_progression(
     };
     let prospecting_ticks = regional_recon_ticks
         .checked_add(surface_prospecting_ticks)
+        .and_then(|ticks| ticks.checked_add(hardness_sampling_ticks))
         .and_then(|ticks| ticks.checked_add(detailed_survey_ticks))
         .unwrap_or_else(|| panic!("primitive progression prospecting duration overflowed"));
 
@@ -498,6 +519,7 @@ fn discover_primitive_progression(
         regional_recon_ticks,
         regional_upper_bounds_ppm,
         surface_prospecting_ticks,
+        hardness_sampling_ticks,
         clue_count: clue_requests.len(),
         surface_resolved_clues,
         mineable_clue_count: mineable_clues.len(),
@@ -772,6 +794,7 @@ pub(super) fn run_primitive_progression_case(
         surface_prospecting_ticks,
         clue_count,
         surface_resolved_clues,
+        hardness_sampling_ticks,
         mineable_clue_count,
         hardness_blocked_clue_count,
         hard_clue,
@@ -1544,6 +1567,7 @@ pub(super) fn run_primitive_progression_case(
         regional_recon_ticks,
         regional_upper_bounds_ppm,
         surface_prospecting_ticks,
+        hardness_sampling_ticks,
         detailed_survey_ticks,
         surface_clue_count: u8::try_from(clue_count)
             .unwrap_or_else(|_| unreachable!("primitive clue count fits u8")),
@@ -1668,13 +1692,14 @@ pub(super) fn run_primitive_progression_case(
             "surface-resolved"
         };
         println!(
-            "PLAYABLE PROGRESSION seed=0x{seed:016X} branch={} local-copper-policy=pick-first-vs-crank world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-regional-geological-clue-zones+local-follow-up-regions,empty-storage] discovery=[path:{information_path} regional-recon:{}t regional-upper:[{},{}]ppm local-inspection:{}t clues:{} coarse-resolved:{} refinement-triggered-by-direct-shortage:{} detailed-survey:{}t alternative-bounds:{}..{}->{}..{}ppm alternative-sample:{}mg/{}t sample-observed:{} sample-grade:{}ppm bulk-grade:{}ppm evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[current-primitive-route-actions-useful] canonical=recon-regional-clue-zones->prioritize-local-inspection->act-on-resolved-evidence->shape+assemble-pick->preview-resolved-mining-affordances->mine-best-bulk-feed->encounter-hardness-gate->mine-strongest-copper-clue->observe-native-metal->spend-local-copper-parcel-on-pick->sample-hard-seam->reassess-feed->build-processing-line->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-crank-upgrade->repeat fantasy=read-world->infer-affordances->respond-to-constraints-with-information->survive->craft-tools->turn-scarce-matter-into-new-access->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
+            "PLAYABLE PROGRESSION seed=0x{seed:016X} branch={} local-copper-policy=pick-first-vs-crank world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-regional-geological-clue-zones+local-follow-up-regions,empty-storage] discovery=[path:{information_path} regional-recon:{}t regional-upper:[{},{}]ppm local-inspection:{}t hardness-sampling:{}t clues:{} coarse-resolved:{} refinement-triggered-by-direct-shortage:{} deferred-refinement:{}t alternative-bounds:{}..{}->{}..{}ppm alternative-sample:{}mg/{}t sample-observed:{} sample-grade:{}ppm bulk-grade:{}ppm evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[current-primitive-route-actions-useful] canonical=recon-regional-clue-zones->prioritize-local-inspection->physically-sample-resolved-targets->classify-tool-fit-from-acquired-hardness->mine-best-bulk-feed->confirm-known-hardness-gate->mine-strongest-copper-clue->observe-native-metal->spend-local-copper-parcel-on-pick->sample-hard-seam->reassess-feed->build-processing-line->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-crank-upgrade->repeat fantasy=read-world->infer-affordances->respond-to-constraints-with-information->survive->craft-tools->turn-scarce-matter-into-new-access->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
             priority.label(),
             raw_surplus.milligrams(),
             regional_recon_ticks,
             regional_upper_bounds_ppm[0],
             regional_upper_bounds_ppm[1],
             surface_prospecting_ticks,
+            hardness_sampling_ticks,
             clue_count,
             surface_resolved_clues,
             refinement_triggered_by_direct_shortage,
@@ -1690,7 +1715,7 @@ pub(super) fn run_primitive_progression_case(
             bulk_sample.copper_ppm,
         );
         println!(
-            "PROGRESSION DECISION observed-affordances=[surface-mineable:{} hardness-blocked:{} strongest-copper:{}..{}ppm bulk-clue:{}..{}ppm strongest-output:native-metal direct-follow-up:insufficient-target-mass initial-processing-choice:[bulk:{}ppm alternative-sample:{}ppm sampled:{} selected:bulk] post-investment-feed:[source:{} grade:{}ppm]] sequence=[first:{}:{}mg@{}t second:{}:{}mg@{}t separated-copper:{}mg@{}t] milestones=[pick-upgrade:{} hard-access:{} machine-start:{}t first-crushed-output:{}t] tool-limits=[stone:{}Pa reinforced:{}Pa blocker-discovered-by-validator:true]",
+            "PROGRESSION DECISION observed-affordances=[sampled-mineable:{} hardness-blocked:{} strongest-copper:{}..{}ppm bulk-clue:{}..{}ppm strongest-output:native-metal direct-follow-up:insufficient-target-mass initial-processing-choice:[bulk:{}ppm alternative-sample:{}ppm sampled:{} selected:bulk] post-investment-feed:[source:{} grade:{}ppm]] sequence=[first:{}:{}mg@{}t second:{}:{}mg@{}t separated-copper:{}mg@{}t] milestones=[pick-upgrade:{} hard-access:{} machine-start:{}t first-crushed-output:{}t] tool-limits=[stone:{}Pa reinforced:{}Pa blocker-known-from-acquired-sample:true]",
             mineable_clue_count,
             hardness_blocked_clue_count,
             direct_copper_clue.lower_ppm,
@@ -1718,8 +1743,9 @@ pub(super) fn run_primitive_progression_case(
             reinforced_hardness_limit.pascals(),
         );
         println!(
-            "PROGRESSION SYSTEMS knowledge=[surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ passive-loss-before-reserve:{}nJ reserve-recharge:{}t banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm productive-setup-payback:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-plan:{} work:{}t jobs:{} mined:{}mg stop:{} initial-overlap:{}t primary-productive-overlap:{}t primary-unfilled:{}t reserve:{}t reserve-mining:{}t/{}jobs stop:{} reserve-productive-overlap:{}t reserve-unfilled:{}t steady-machine:{}t steady-mining:{}jobs buffer-limited:{}cycles steady-productive-overlap:{}t steady-unfilled:{}t total-productive-overlap:{}t total-unfilled:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick-service:condition:{}->{}ppm component:{}mg prep:{}t service:{}t reinforcement-preserved:{}] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
+            "PROGRESSION SYSTEMS knowledge=[surface:{}t hardness-sampling:{}t deferred-refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ passive-loss-before-reserve:{}nJ reserve-recharge:{}t banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm productive-setup-payback:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-plan:{} work:{}t jobs:{} mined:{}mg stop:{} initial-overlap:{}t primary-productive-overlap:{}t primary-unfilled:{}t reserve:{}t reserve-mining:{}t/{}jobs stop:{} reserve-productive-overlap:{}t reserve-unfilled:{}t steady-machine:{}t steady-mining:{}jobs buffer-limited:{}cycles steady-productive-overlap:{}t steady-unfilled:{}t total-productive-overlap:{}t total-unfilled:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick-service:condition:{}->{}ppm component:{}mg prep:{}t service:{}t reinforcement-preserved:{}] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             surface_prospecting_ticks,
+            hardness_sampling_ticks,
             detailed_survey_ticks,
             refined_clue_sample_mass.milligrams(),
             refined_clue_mining_ticks,

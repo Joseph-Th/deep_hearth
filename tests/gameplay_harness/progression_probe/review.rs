@@ -10,6 +10,7 @@ pub(crate) struct PrimitiveProgressionReview {
     regional_recon_ticks: u64,
     regional_upper_bounds_ppm: [u32; PROGRESSION_REGIONAL_ZONE_COUNT],
     surface_prospecting_ticks: u64,
+    hardness_sampling_ticks: u64,
     detailed_survey_ticks: u64,
     surface_clue_count: u8,
     surface_resolved_clue_count: u8,
@@ -101,6 +102,9 @@ pub(crate) struct PrimitiveProgressionReview {
 }
 
 fn information_path_captured(review: &PrimitiveProgressionReview) -> bool {
+    if review.hardness_sampling_ticks == 0 {
+        return false;
+    }
     if review.information_refinement_required {
         review.surface_resolved_clue_count < review.surface_clue_count
             && review.surface_resolved_clue_count > 0
@@ -871,6 +875,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
         regional_recon_ticks: extraction.regional_recon_ticks,
         regional_upper_bounds_ppm: extraction.regional_upper_bounds_ppm,
         surface_prospecting_ticks: extraction.surface_prospecting_ticks,
+        hardness_sampling_ticks: extraction.hardness_sampling_ticks,
         detailed_survey_ticks: extraction.detailed_survey_ticks,
         surface_clue_count: extraction.surface_clue_count,
         surface_resolved_clue_count: extraction.surface_resolved_clue_count,
@@ -1241,7 +1246,7 @@ fn report_primitive_progression_review(
     );
     let reinvestment_review = detailed_reinvestment_summary(&review.reinvestment);
     reviewln!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] local-copper=[policy:pick-first scope:pick-vs-crank-sequencing global-portfolio:not-claimed owned-bulk:{}ppm hard-evidence:{}..{}ppm counterfactual:crank-first] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[pick-feed:{} pick-grade:{}ppm crank-first-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} hard-access-lead:{}t hard-window:{}t/{}mg crank-output-window:{}t autonomy-lead:{}t eventual-convergence:{:+}t converged:{}] strategy-timing=[pick-first=[pick:{}t hard-sample:{}t machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t]] manual-second-counterfactual=[isolated:{}t pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} hard-info-lead-vs-crank-first:{}t automation-delay:+{}t manual-recovery:{}ppm powered-recovery:{}ppm] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm setup-recovery:{}ppm gap:{}t post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] next-reinvestment-counterfactual=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t service:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t hardness-sampling:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} deferred-refinement:{}t alternative-evidence:{}..{}ppm] local-copper=[policy:pick-first scope:pick-vs-crank-sequencing global-portfolio:not-claimed owned-bulk:{}ppm hard-evidence:{}..{}ppm counterfactual:crank-first] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[pick-feed:{} pick-grade:{}ppm crank-first-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} hard-access-lead:{}t hard-window:{}t/{}mg crank-output-window:{}t autonomy-lead:{}t eventual-convergence:{:+}t converged:{}] strategy-timing=[pick-first=[pick:{}t hard-sample:{}t machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t]] manual-second-counterfactual=[isolated:{}t pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} hard-info-lead-vs-crank-first:{}t automation-delay:+{}t manual-recovery:{}ppm powered-recovery:{}ppm] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm setup-recovery:{}ppm gap:{}t post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] next-reinvestment-counterfactual=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t service:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
         } else {
@@ -1253,6 +1258,7 @@ fn report_primitive_progression_review(
         review.regional_upper_bounds_ppm[1],
         regional_priority,
         review.surface_prospecting_ticks,
+        review.hardness_sampling_ticks,
         review.surface_clue_count,
         review.surface_resolved_clue_count,
         unresolved_surface_clues,
