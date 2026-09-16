@@ -32,15 +32,26 @@ pub(in super::super) fn validate_job_allocation(
         .checked_add(1)
         .ok_or(StartProcessError::JobIdExhausted)?;
     let expected_production_revision = state.production().revision();
-    // Admission inserts the durable job and its scheduled completion removes or transitions it.
-    // Require both deterministic owner mutations up front so starting a job cannot consume the
-    // final production revision and make its first due transition impossible.
-    expected_production_revision
-        .checked_add(2)
-        .ok_or(StartProcessError::ProductionRevisionExhausted)?;
     let next_production_revision = expected_production_revision
         .checked_add(1)
-        .unwrap_or_else(|| unreachable!("two-step production revision budget includes admission"));
+        .ok_or(StartProcessError::ProductionRevisionExhausted)?;
+    // Admission consumes one revision and may add one due bucket. Preserve enough headroom for
+    // every already-scheduled bucket as well as this job so a new start cannot steal revisions
+    // already required by previously admitted work.
+    if !state
+        .production()
+        .has_revision_capacity_for_scheduled_ticks(
+            next_production_revision,
+            state
+                .production()
+                .jobs()
+                .filter(|job| !job.is_suspended())
+                .map(crate::production::ProductionJobRecord::completes_at)
+                .chain(std::iter::once(completes_at)),
+        )
+    {
+        return Err(StartProcessError::ProductionRevisionExhausted);
+    }
     Ok(ValidatedJobAllocation {
         current,
         completes_at,

@@ -9,6 +9,7 @@ use crate::inventory::{
     MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
     StockpileStoredMassChange, ValidatedMaterialIngress, ValidatedStockpileStructuralLoad,
     apply_material_ingress, validate_material_ingress, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::registry::Registries;
 
@@ -198,10 +199,18 @@ pub fn validate_disassemble_energy_store(
         )],
     )
     .map_err(EnergyStoreDisassemblyError::StoredMatterLoad)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, structural_load.as_ref())
+        .map_err(EnergyStoreDisassemblyError::StoredMatterLoad)?;
     let expected_energy_revision = state.energy().revision();
-    let next_energy_revision = expected_energy_revision
-        .checked_add(1)
-        .ok_or(EnergyStoreDisassemblyError::EnergyRevisionExhausted)?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(EnergyStoreDisassemblyError::InventoryRevisionExhausted);
+    }
+    if !state.can_spend_energy_revisions(1) {
+        return Err(EnergyStoreDisassemblyError::EnergyRevisionExhausted);
+    }
+    let next_energy_revision = expected_energy_revision.checked_add(1).unwrap_or_else(|| {
+        unreachable!("energy headroom check includes store disassembly revision")
+    });
 
     Ok(ValidatedEnergyStoreDisassembly {
         store,

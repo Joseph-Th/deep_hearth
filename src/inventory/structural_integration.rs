@@ -163,6 +163,22 @@ pub(crate) fn validate_stockpile_stored_mass_changes(
     validate_stockpile_structural_load_plan(registries, state, loads).map(Some)
 }
 
+/// Preserves structural revision space already owed to admitted future work before an unrelated
+/// immediate stockpile-load mutation is accepted.
+pub(crate) fn validate_unreserved_stockpile_structural_load_headroom(
+    state: &AppState,
+    structural: Option<&ValidatedStockpileStructuralLoad>,
+) -> Result<(), StockpileStructuralLoadError> {
+    let immediate_steps = structural.map_or(0, ValidatedStockpileStructuralLoad::revision_delta);
+    if state.can_spend_structure_revisions(immediate_steps) {
+        Ok(())
+    } else {
+        Err(StockpileStructuralLoadError::Structure(
+            StructuralMutationError::RevisionExhausted,
+        ))
+    }
+}
+
 /// Successful support assignment change plus any resulting structural damage.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
@@ -241,9 +257,12 @@ impl ValidatedStockpileSupportChange {
 
 fn next_inventory_revision(state: &AppState) -> Result<(u64, u64), StockpileSupportError> {
     let current = state.inventory().revision();
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(StockpileSupportError::InventoryRevisionExhausted);
+    }
     let next = current
         .checked_add(1)
-        .ok_or(StockpileSupportError::InventoryRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("inventory headroom check includes support revision"));
     Ok((current, next))
 }
 
@@ -310,6 +329,8 @@ pub fn validate_mount_stockpile(
         BTreeMap::from([(element, next_load)]),
     )
     .map_err(StockpileSupportError::Load)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, Some(&structural))
+        .map_err(StockpileSupportError::Load)?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {
         stockpile,
@@ -352,6 +373,8 @@ pub fn validate_unmount_stockpile(
         BTreeMap::from([(element, next_load)]),
     )
     .map_err(StockpileSupportError::Load)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, Some(&structural))
+        .map_err(StockpileSupportError::Load)?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {
         stockpile,

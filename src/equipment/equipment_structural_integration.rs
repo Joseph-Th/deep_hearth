@@ -86,6 +86,19 @@ fn validate_equipment_structural_change(
         .map_err(EquipmentSupportError::Structure)
 }
 
+fn validate_unreserved_structural_headroom(
+    state: &AppState,
+    structural: &ValidatedStructuralLoadChange,
+) -> Result<(), EquipmentSupportError> {
+    if state.can_spend_structure_revisions(structural.revision_delta()) {
+        Ok(())
+    } else {
+        Err(EquipmentSupportError::Structure(
+            StructuralMutationError::RevisionExhausted,
+        ))
+    }
+}
+
 impl ValidatedEquipmentSupportChange {
     /// Returns the precomputed structural consequence when the represented equipment load changes.
     #[must_use]
@@ -244,9 +257,12 @@ fn validate_not_busy(
 
 fn next_equipment_revision(state: &AppState) -> Result<(u64, u64), EquipmentSupportError> {
     let current = state.equipment().revision();
+    if !state.can_spend_equipment_revisions(1) {
+        return Err(EquipmentSupportError::EquipmentRevisionExhausted);
+    }
     let next = current
         .checked_add(1)
-        .ok_or(EquipmentSupportError::EquipmentRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("equipment headroom check includes support revision"));
     Ok((current, next))
 }
 
@@ -294,6 +310,7 @@ pub fn validate_mount_equipment(
         state,
         BTreeMap::from([(element, next_load)]),
     )?;
+    validate_unreserved_structural_headroom(state, &structural)?;
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {
@@ -335,6 +352,7 @@ pub fn validate_unmount_equipment(
         state,
         BTreeMap::from([(element, next_load)]),
     )?;
+    validate_unreserved_structural_headroom(state, &structural)?;
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {
@@ -400,6 +418,7 @@ pub fn validate_relocate_equipment(
         state,
         BTreeMap::from([(source, source_load), (target, target_load)]),
     )?;
+    validate_unreserved_structural_headroom(state, &structural)?;
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {

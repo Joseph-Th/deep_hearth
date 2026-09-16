@@ -45,6 +45,10 @@ pub enum ProductionValidationError {
         due: SimulationTick,
         current: SimulationTick,
     },
+    ScheduledRevisionCapacityExhausted {
+        revision: u64,
+        completion_buckets: u64,
+    },
     ZeroActiveDuration {
         job: ProductionJobId,
     },
@@ -258,6 +262,13 @@ impl Display for ProductionValidationError {
                 job.value(),
                 due.value(),
                 current.value()
+            ),
+            Self::ScheduledRevisionCapacityExhausted {
+                revision,
+                completion_buckets,
+            } => write!(
+                formatter,
+                "production revision {revision} cannot reserve {completion_buckets} scheduled completion revisions"
             ),
             Self::ZeroActiveDuration { job } => write!(
                 formatter,

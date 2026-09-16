@@ -26,7 +26,19 @@ pub(crate) fn validate_loaded_production(
         validate_job_due_membership(state, *id, job)?;
     }
     validate_due_index(state)?;
-    validate_occupancy_indexes(state)
+    validate_occupancy_indexes(state)?;
+    if !state.has_scheduled_revision_capacity() {
+        let completion_buckets = u64::try_from(state.indexes.due_jobs.len()).unwrap_or_else(|_| {
+            unreachable!("production due-bucket count fits represented memory")
+        });
+        return Err(
+            ProductionValidationError::ScheduledRevisionCapacityExhausted {
+                revision: state.revision,
+                completion_buckets,
+            },
+        );
+    }
+    Ok(())
 }
 
 /// Replays the durable wall-clock schedule after operation-specific validators have established

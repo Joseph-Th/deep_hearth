@@ -6,6 +6,7 @@ use crate::inventory::{
     ConsumedMaterialTrace, StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
     ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::registry::Registries;
 
@@ -227,10 +228,18 @@ pub fn validate_upgrade_equipment(
         [StockpileStoredMassChange::new(source, source_after)],
     )
     .map_err(EquipmentUpgradeError::StructuralLoad)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, structural_load.as_ref())
+        .map_err(EquipmentUpgradeError::StructuralLoad)?;
     let expected_equipment_revision = state.equipment().revision();
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(EquipmentUpgradeError::InventoryRevisionExhausted);
+    }
+    if !state.can_spend_equipment_revisions(1) {
+        return Err(EquipmentUpgradeError::EquipmentRevisionExhausted);
+    }
     let next_equipment_revision = expected_equipment_revision
         .checked_add(1)
-        .ok_or(EquipmentUpgradeError::EquipmentRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("equipment headroom check includes upgrade revision"));
 
     Ok(ValidatedEquipmentUpgrade {
         equipment,

@@ -146,7 +146,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             "paired stone flywheel accumulator",
             EnergyCarrier::Mechanical,
             Energy::from_nanojoules(1_000_000_000_000),
-            Power::from_microwatts(100_000_000),
+            Power::from_microwatts(150_000_000),
             Power::from_microwatts(500_000_000),
         )
         .with_passive_dissipation_power(PAIRED_STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER)

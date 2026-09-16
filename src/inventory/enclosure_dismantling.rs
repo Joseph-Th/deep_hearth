@@ -305,7 +305,16 @@ fn validate_dismantling_inventory_capacity(
     enclosure: &StockpileEnclosureRecord,
     recovery_destination: StockpileId,
 ) -> Result<ValidatedInboundReservation, StorageEnclosureDismantlingError> {
-    if state.inventory().revision().checked_add(3).is_none() {
+    let required_revisions = state
+        .production()
+        .scheduled_completion_bucket_count()
+        .saturating_add(3);
+    if state
+        .inventory()
+        .revision()
+        .checked_add(required_revisions)
+        .is_none()
+    {
         return Err(StorageEnclosureDismantlingError::InventoryRevisionExhausted);
     }
     // Admission precheck only: the returned ingress plan is intentionally discarded. Full

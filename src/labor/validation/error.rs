@@ -97,6 +97,7 @@ pub enum PlayerWorkValidationError {
     EquipmentMaintenanceScheduleInvalid,
     EquipmentMaintenanceDurationMismatch,
     EquipmentMaintenanceResourceDoubleBooked,
+    EquipmentMaintenanceEquipmentRevisionExhausted,
     StorageDismantlingTargetMissing,
     StorageDismantlingEnclosureMissing,
     StorageDismantlingDefinitionMissing,
@@ -113,9 +114,11 @@ pub enum PlayerWorkValidationError {
     StorageDismantlingTargetContentsIncompatible {
         lot: MaterialLotId,
     },
+    StorageDismantlingRecoveryLotIdExhausted,
     StorageDismantlingScheduleInvalid,
     StorageDismantlingDurationMismatch,
     StorageDismantlingResourceDoubleBooked,
+    StorageDismantlingInventoryRevisionExhausted,
     PendingDirectConsumptionWithoutWork,
     EatingConsumptionMissing,
     EatingConsumptionMismatch,
@@ -341,6 +344,9 @@ impl Display for PlayerWorkValidationError {
             Self::EquipmentMaintenanceResourceDoubleBooked => formatter.write_str(
                 "equipment under maintenance is simultaneously occupied by another operation",
             ),
+            Self::EquipmentMaintenanceEquipmentRevisionExhausted => formatter.write_str(
+                "active equipment maintenance cannot reserve its completion equipment revision",
+            ),
             Self::StorageDismantlingTargetMissing => formatter
                 .write_str("storage dismantling work references a missing target stockpile"),
             Self::StorageDismantlingEnclosureMissing => formatter
@@ -380,6 +386,9 @@ impl Display for PlayerWorkValidationError {
                 "storage dismantling target lot {} cannot remain in ambient storage at completion",
                 lot.value()
             ),
+            Self::StorageDismantlingRecoveryLotIdExhausted => formatter.write_str(
+                "active storage dismantling cannot reserve its recovery material lot identities",
+            ),
             Self::StorageDismantlingScheduleInvalid => {
                 formatter.write_str("storage dismantling work has an invalid persisted schedule")
             }
@@ -387,6 +396,9 @@ impl Display for PlayerWorkValidationError {
                 .write_str("storage dismantling duration disagrees with its authored definition"),
             Self::StorageDismantlingResourceDoubleBooked => formatter.write_str(
                 "storage dismantling labor is simultaneously owned by another active job",
+            ),
+            Self::StorageDismantlingInventoryRevisionExhausted => formatter.write_str(
+                "active storage dismantling cannot reserve its completion inventory revisions",
             ),
             Self::PendingDirectConsumptionWithoutWork => formatter.write_str(
                 "pending direct consumption exists without matching eating or drinking work",
@@ -504,6 +516,7 @@ impl Error for PlayerWorkValidationError {
             | Self::EquipmentMaintenanceScheduleInvalid
             | Self::EquipmentMaintenanceDurationMismatch
             | Self::EquipmentMaintenanceResourceDoubleBooked
+            | Self::EquipmentMaintenanceEquipmentRevisionExhausted
             | Self::StorageDismantlingTargetMissing
             | Self::StorageDismantlingEnclosureMissing
             | Self::StorageDismantlingDefinitionMissing
@@ -517,9 +530,11 @@ impl Error for PlayerWorkValidationError {
             | Self::StorageDismantlingRecoveryMounted
             | Self::StorageDismantlingStorageProfileMismatch
             | Self::StorageDismantlingTargetContentsIncompatible { .. }
+            | Self::StorageDismantlingRecoveryLotIdExhausted
             | Self::StorageDismantlingScheduleInvalid
             | Self::StorageDismantlingDurationMismatch
             | Self::StorageDismantlingResourceDoubleBooked
+            | Self::StorageDismantlingInventoryRevisionExhausted
             | Self::PendingDirectConsumptionWithoutWork
             | Self::EatingConsumptionMissing
             | Self::EatingConsumptionMismatch

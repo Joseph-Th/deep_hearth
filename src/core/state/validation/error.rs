@@ -247,6 +247,38 @@ pub enum StateValidationError {
     JobOutputMassOverflow {
         job: ProductionJobId,
     },
+    ProductionInventoryRevisionCapacityExhausted {
+        revision: u64,
+        completion_buckets: u64,
+    },
+    ProductionEquipmentRevisionCapacityExhausted {
+        revision: u64,
+        completion_buckets: u64,
+    },
+    ProductionEnergyRevisionCapacityExhausted {
+        revision: u64,
+        completion_buckets: u64,
+    },
+    ProductionStructureRevisionCapacityExhausted {
+        revision: u64,
+        completion_buckets: u64,
+    },
+    FutureInventoryRevisionCapacityExhausted {
+        revision: u64,
+        required: u64,
+    },
+    FutureEnergyRevisionCapacityExhausted {
+        revision: u64,
+        required: u64,
+    },
+    FutureEquipmentRevisionCapacityExhausted {
+        revision: u64,
+        required: u64,
+    },
+    FutureStructureRevisionCapacityExhausted {
+        revision: u64,
+        required: u64,
+    },
     ReservedInboundMismatch {
         stockpile: StockpileId,
         reserved: Mass,
@@ -642,6 +674,50 @@ impl Display for StateValidationError {
                 "production job {} output mass overflows authoritative quantity storage",
                 job.value()
             ),
+            Self::ProductionInventoryRevisionCapacityExhausted {
+                revision,
+                completion_buckets,
+            } => write!(
+                formatter,
+                "inventory revision {revision} cannot reserve {completion_buckets} scheduled production completion revisions"
+            ),
+            Self::ProductionEquipmentRevisionCapacityExhausted {
+                revision,
+                completion_buckets,
+            } => write!(
+                formatter,
+                "equipment revision {revision} cannot reserve {completion_buckets} scheduled production wear revisions"
+            ),
+            Self::ProductionEnergyRevisionCapacityExhausted {
+                revision,
+                completion_buckets,
+            } => write!(
+                formatter,
+                "energy revision {revision} cannot reserve {completion_buckets} scheduled production release revisions"
+            ),
+            Self::ProductionStructureRevisionCapacityExhausted {
+                revision,
+                completion_buckets,
+            } => write!(
+                formatter,
+                "structural revision {revision} cannot reserve {completion_buckets} scheduled supported-output revisions"
+            ),
+            Self::FutureInventoryRevisionCapacityExhausted { revision, required } => write!(
+                formatter,
+                "inventory revision {revision} cannot reserve {required} already-admitted future revisions"
+            ),
+            Self::FutureEnergyRevisionCapacityExhausted { revision, required } => write!(
+                formatter,
+                "energy revision {revision} cannot reserve {required} already-admitted future revisions"
+            ),
+            Self::FutureEquipmentRevisionCapacityExhausted { revision, required } => write!(
+                formatter,
+                "equipment revision {revision} cannot reserve {required} already-admitted future revisions"
+            ),
+            Self::FutureStructureRevisionCapacityExhausted { revision, required } => write!(
+                formatter,
+                "structural revision {revision} cannot reserve {required} already-admitted future revisions"
+            ),
             Self::ReservedInboundMismatch {
                 stockpile,
                 reserved,
@@ -838,6 +914,14 @@ impl Error for StateValidationError {
                 commodity: _commodity,
             } => None,
             Self::JobOutputMassOverflow { job: _job } => None,
+            Self::ProductionInventoryRevisionCapacityExhausted { .. }
+            | Self::ProductionEquipmentRevisionCapacityExhausted { .. }
+            | Self::ProductionEnergyRevisionCapacityExhausted { .. }
+            | Self::ProductionStructureRevisionCapacityExhausted { .. }
+            | Self::FutureInventoryRevisionCapacityExhausted { .. }
+            | Self::FutureEnergyRevisionCapacityExhausted { .. }
+            | Self::FutureEquipmentRevisionCapacityExhausted { .. }
+            | Self::FutureStructureRevisionCapacityExhausted { .. } => None,
             Self::ReservedInboundMismatch {
                 stockpile: _stockpile,
                 reserved: _reserved,

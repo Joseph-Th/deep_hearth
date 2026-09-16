@@ -153,7 +153,6 @@ impl ValidatedStructuralLoadChange {
             .map(ValidatedStructuralLoadBatch::analysis)
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
     #[must_use]
     pub(crate) const fn revision_delta(&self) -> u64 {
         if self.structural.is_some() { 1 } else { 0 }

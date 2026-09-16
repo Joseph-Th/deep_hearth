@@ -26,6 +26,7 @@ use admission::{
     ValidatedEnergyReservations, ValidatedEquipmentResources, ValidatedJobAllocation,
     ValidatedMaterialReservation, validate_energy_reservations, validate_equipment_resources,
     validate_job_allocation, validate_material_reservation, validate_source_structural_load,
+    validate_structural_revision_budget,
 };
 use routing::{ValidatedOutputRouting, validate_output_routing};
 
@@ -215,12 +216,18 @@ fn validate_start_process_routed_internal(
         ingress: energy_ingress_reservation,
         consumed: consumed_energy,
         released: released_energy,
-    } = validate_energy_reservations(registries, state, resolution)?;
+    } = validate_energy_reservations(registries, state, resolution, completes_at)?;
     let ValidatedEquipmentResources {
         selection: equipment_use,
         provider: equipment_provider,
-    } = validate_equipment_resources(state, resolution)?;
+    } = validate_equipment_resources(state, resolution, completes_at)?;
     let structural_load = validate_source_structural_load(registries, state, &reservation)?;
+    validate_structural_revision_budget(
+        state,
+        structural_load.as_ref(),
+        destination_structure_revision,
+        completes_at,
+    )?;
 
     Ok(ValidatedStartProcess {
         job: ProductionJobRecord {

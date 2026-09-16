@@ -506,7 +506,7 @@ fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
     let finding = record
         .finding(MATERIAL_COPPER)
         .unwrap_or_else(|| panic!("field prospecting copper finding disappeared"));
-    assert_eq!(finding.lower_ppm(), 900_000);
+    assert_eq!(finding.lower_ppm(), 850_000);
     assert_eq!(finding.upper_ppm(), 1_000_000);
     let survival_after = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("field prospecting final survival state disappeared"));
@@ -550,7 +550,7 @@ fn empty_ground_produces_uncertain_negative_evidence_without_hidden_presence_ora
         .and_then(|record| record.finding(MATERIAL_COPPER))
         .unwrap_or_else(|| panic!("empty prospecting finding disappeared"));
     assert_eq!(finding.lower_ppm(), 0);
-    assert_eq!(finding.upper_ppm(), 100_000);
+    assert_eq!(finding.upper_ppm(), 150_000);
 }
 
 #[test]
@@ -686,7 +686,7 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     let surface = surface_record
         .finding(MATERIAL_COPPER)
         .unwrap_or_else(|| panic!("surface refinement finding disappeared"));
-    assert_eq!((surface.lower_ppm(), surface.upper_ppm()), (0, 175_000));
+    assert_eq!((surface.lower_ppm(), surface.upper_ppm()), (0, 225_000));
     assert_eq!(
         surface_record.excavation_hardness(),
         None,

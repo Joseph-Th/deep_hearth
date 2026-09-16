@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::time::SimulationTick;
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
-use crate::inventory::StockpileId;
+use crate::inventory::{InventoryState, StockpileId};
 
 mod indexes;
 mod job;
@@ -73,6 +73,105 @@ impl ProductionState {
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
         self.indexes.earliest_due_tick()
+    }
+
+    /// Whether the supplied owner revision leaves enough monotonic revision space for every
+    /// distinct scheduled completion tick. Jobs sharing a due tick commit in one owner batch.
+    pub(in crate::production) fn has_revision_capacity_for_scheduled_ticks(
+        &self,
+        revision: u64,
+        due_ticks: impl IntoIterator<Item = SimulationTick>,
+    ) -> bool {
+        let distinct = due_ticks.into_iter().collect::<BTreeSet<_>>();
+        let Ok(required) = u64::try_from(distinct.len()) else {
+            return false;
+        };
+        revision.checked_add(required).is_some()
+    }
+
+    pub(crate) fn has_scheduled_revision_capacity_from(&self, revision: u64) -> bool {
+        self.has_revision_capacity_for_scheduled_ticks(
+            revision,
+            self.jobs
+                .values()
+                .filter(|job| !job.is_suspended())
+                .map(ProductionJobRecord::completes_at),
+        )
+    }
+
+    pub(crate) fn scheduled_completion_bucket_count(&self) -> u64 {
+        self.scheduled_completion_bucket_count_where(|_| true)
+    }
+
+    pub(in crate::production) fn has_scheduled_revision_capacity(&self) -> bool {
+        self.has_scheduled_revision_capacity_from(self.revision)
+    }
+
+    pub(crate) fn has_scheduled_equipment_revision_capacity_from(&self, revision: u64) -> bool {
+        revision
+            .checked_add(self.scheduled_equipment_revision_bucket_count())
+            .is_some()
+    }
+
+    pub(crate) fn scheduled_equipment_revision_bucket_count(&self) -> u64 {
+        self.scheduled_completion_bucket_count_where(|job| {
+            let (Some(provider), Some(after)) =
+                (job.equipment_provider(), job.equipment_condition_after())
+            else {
+                return false;
+            };
+            after != provider.condition()
+        })
+    }
+
+    pub(crate) fn has_scheduled_released_energy_revision_capacity_from(
+        &self,
+        revision: u64,
+    ) -> bool {
+        revision
+            .checked_add(self.scheduled_released_energy_revision_bucket_count())
+            .is_some()
+    }
+
+    pub(crate) fn scheduled_released_energy_revision_bucket_count(&self) -> u64 {
+        self.scheduled_completion_bucket_count_where(|job| job.released_energy().is_some())
+    }
+
+    pub(crate) fn has_scheduled_supported_output_revision_capacity_from(
+        &self,
+        revision: u64,
+        inventory: &InventoryState,
+    ) -> bool {
+        revision
+            .checked_add(self.scheduled_supported_output_revision_bucket_count(inventory))
+            .is_some()
+    }
+
+    pub(crate) fn scheduled_supported_output_revision_bucket_count(
+        &self,
+        inventory: &InventoryState,
+    ) -> u64 {
+        self.scheduled_completion_bucket_count_where(|job| {
+            job.output_streams().iter().any(|stream| {
+                inventory
+                    .get_stockpile(stream.destination())
+                    .is_some_and(|stockpile| stockpile.supported_by().is_some())
+            })
+        })
+    }
+
+    fn scheduled_completion_bucket_count_where(
+        &self,
+        mut predicate: impl FnMut(&ProductionJobRecord) -> bool,
+    ) -> u64 {
+        let distinct = self
+            .jobs
+            .values()
+            .filter(|job| !job.is_suspended() && predicate(job))
+            .map(ProductionJobRecord::completes_at)
+            .collect::<BTreeSet<_>>();
+        u64::try_from(distinct.len())
+            .unwrap_or_else(|_| unreachable!("production completion bucket count fits memory"))
     }
 
     pub(super) fn jobs_due_at(&self, tick: SimulationTick) -> BTreeSet<ProductionJobId> {

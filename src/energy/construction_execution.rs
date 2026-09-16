@@ -9,6 +9,7 @@ use crate::inventory::{
     StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
     ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -252,6 +253,8 @@ pub fn validate_assemble_energy_store(
         [StockpileStoredMassChange::new(source, source_after)],
     )
     .map_err(EnergyStoreAssemblyError::StructuralLoad)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, structural_load.as_ref())
+        .map_err(EnergyStoreAssemblyError::StructuralLoad)?;
 
     let id_value = state.energy().next_store_id();
     let next_store_id = id_value
@@ -259,9 +262,15 @@ pub fn validate_assemble_energy_store(
         .ok_or(EnergyStoreAssemblyError::StoreIdExhausted)?;
     let id = EnergyStoreId::new(id_value);
     let expected_energy_revision = state.energy().revision();
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(EnergyStoreAssemblyError::InventoryRevisionExhausted);
+    }
+    if !state.can_spend_energy_revisions(1) {
+        return Err(EnergyStoreAssemblyError::EnergyRevisionExhausted);
+    }
     let next_energy_revision = expected_energy_revision
         .checked_add(1)
-        .ok_or(EnergyStoreAssemblyError::EnergyRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("energy headroom check includes store assembly revision"));
     Ok(ValidatedEnergyStoreAssembly {
         record: EnergyStoreRecord {
             id,

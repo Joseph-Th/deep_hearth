@@ -9,6 +9,7 @@ use super::FluidStoreId;
 use super::state::{FluidContents, FluidStoreRecord};
 use super::structural_integration::{
     FluidContentsChange, ValidatedFluidStructuralLoad, validate_fluid_contents_changes,
+    validate_unreserved_fluid_structural_load_headroom,
 };
 
 mod errors;
@@ -110,6 +111,8 @@ pub(crate) fn validate_fluid_egress(
         [FluidContentsChange::new(store, after)],
     )
     .map_err(FluidEgressError::StructuralLoad)?;
+    validate_unreserved_fluid_structural_load_headroom(state, structural.as_ref())
+        .map_err(FluidEgressError::StructuralLoad)?;
     let next_revision = fluid
         .revision()
         .checked_add(1)

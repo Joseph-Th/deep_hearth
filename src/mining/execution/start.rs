@@ -379,9 +379,27 @@ pub fn validate_start_mining(
 
     let expected_equipment_revision = state.equipment().revision();
     if equipment_plan.condition_after != equipment_plan.trace.condition()
-        && expected_equipment_revision.checked_add(1).is_none()
+        && expected_equipment_revision
+            .checked_add(
+                state
+                    .production()
+                    .scheduled_equipment_revision_bucket_count()
+                    .saturating_add(1),
+            )
+            .is_none()
     {
         return Err(MiningStartError::EquipmentRevisionExhausted);
+    }
+    let post_inventory_admission = destination_plan
+        .reservation
+        .expected_revision()
+        .checked_add(1)
+        .ok_or(MiningStartError::InventoryRevisionExhausted)?;
+    if !state
+        .production()
+        .has_scheduled_revision_capacity_from(post_inventory_admission)
+    {
+        return Err(MiningStartError::InventoryRevisionExhausted);
     }
     state
         .geology()

@@ -159,4 +159,8 @@ fn shape_wood_handle() -> ManualCraftDefinition {
             ),
         ],
     )
+    .with_equipment_profile(ManualCraftEquipmentProfile::new(
+        CAPABILITY_WOODWORKING_FLOW,
+        1_000,
+    ))
 }

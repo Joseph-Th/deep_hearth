@@ -22,6 +22,9 @@ pub(super) fn validate_equipment_maintenance_work(
     if active_jobs.has_any() {
         return Err(PlayerWorkValidationError::EquipmentMaintenanceResourceDoubleBooked);
     }
+    if state.equipment().revision().checked_add(1).is_none() {
+        return Err(PlayerWorkValidationError::EquipmentMaintenanceEquipmentRevisionExhausted);
+    }
     let record = state
         .equipment()
         .get_equipment(work.equipment())

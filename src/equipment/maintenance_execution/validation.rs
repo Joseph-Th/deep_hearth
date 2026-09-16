@@ -114,7 +114,12 @@ pub fn validate_equipment_maintenance(
     // consuming material or player attention so an accepted service cannot become permanently
     // stranded at its due tick solely because revision space was exhausted at admission.
     expected_equipment_revision
-        .checked_add(2)
+        .checked_add(
+            state
+                .production()
+                .scheduled_equipment_revision_bucket_count()
+                .saturating_add(2),
+        )
         .ok_or(EquipmentMaintenanceError::EquipmentRevisionExhausted)?;
     let next_equipment_revision = expected_equipment_revision
         .checked_add(1)

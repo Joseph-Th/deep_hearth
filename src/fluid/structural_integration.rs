@@ -202,6 +202,20 @@ pub(crate) fn validate_fluid_contents_changes(
     validate_structural_load_plan(registries, state, loads).map(Some)
 }
 
+pub(crate) fn validate_unreserved_fluid_structural_load_headroom(
+    state: &AppState,
+    structural: Option<&ValidatedFluidStructuralLoad>,
+) -> Result<(), FluidStructuralLoadError> {
+    let immediate_steps = structural.map_or(0, ValidatedFluidStructuralLoad::revision_delta);
+    if state.can_spend_structure_revisions(immediate_steps) {
+        Ok(())
+    } else {
+        Err(FluidStructuralLoadError::Structure(
+            StructuralMutationError::RevisionExhausted,
+        ))
+    }
+}
+
 /// Successful fluid-store support change plus any resulting structural damage.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
@@ -328,6 +342,8 @@ pub fn validate_mount_fluid_store(
     let structural =
         validate_structural_load_plan(registries, state, BTreeMap::from([(element, load)]))
             .map_err(FluidSupportError::Load)?;
+    validate_unreserved_fluid_structural_load_headroom(state, Some(&structural))
+        .map_err(FluidSupportError::Load)?;
     let (expected_fluid_revision, next_fluid_revision) = next_fluid_revision(state)?;
     Ok(ValidatedFluidSupportChange {
         store,
@@ -365,6 +381,8 @@ pub fn validate_unmount_fluid_store(
     let structural =
         validate_structural_load_plan(registries, state, BTreeMap::from([(element, load)]))
             .map_err(FluidSupportError::Load)?;
+    validate_unreserved_fluid_structural_load_headroom(state, Some(&structural))
+        .map_err(FluidSupportError::Load)?;
     let (expected_fluid_revision, next_fluid_revision) = next_fluid_revision(state)?;
     Ok(ValidatedFluidSupportChange {
         store,

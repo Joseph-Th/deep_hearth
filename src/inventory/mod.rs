@@ -77,6 +77,7 @@ pub(crate) use structural_integration::{
     StockpileStoredMassChange, StockpileStructuralLoadConsistencyError,
     ValidatedStockpileStructuralLoad, validate_existing_stockpile_structural_load,
     validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 pub use structural_integration::{
     StockpileStructuralLoadError, StockpileSupportCommitError, StockpileSupportError,

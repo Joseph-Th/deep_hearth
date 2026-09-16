@@ -563,6 +563,10 @@ universal reflection API or generic command bus.
 | authored registration | `register_*` |
 | predicate | `is_*`, `has_*`, `can_*` |
 | read-only decision | `decide_*` returning `*Plan` / `*Outcome` / `*Delta` |
+| observable assessment | `assess_*` returning a canonical read-only assessment or feasibility envelope |
+| read-only reconciliation | `calculate_*` recomputing authoritative totals without mutation |
+| structural derivation | `analyze_*` deriving a structural or diagnostic model from current state |
+| future-state projection | `project_*` deriving a disposable future consequence without mutation |
 | decided mutation | `apply_*` |
 | checked command | `validate_*` returning `Validated*` when appropriate |
 | validated mutation | consuming `commit` |

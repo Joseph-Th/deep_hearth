@@ -50,12 +50,14 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             ),
         ],
         [
+            // Fast coarse single-voxel check: cheaper than one transect voxel in total time
+            // but coarser, so the transect remains the efficient fine-grained multi-voxel route.
             ProspectingDefinition::new(
                 PROSPECTING_FIELD_INSPECTION,
                 GeologicalEvidenceKind::SurfaceExposure,
                 TickSpan::new(24),
                 1,
-                100_000,
+                150_000,
                 SurvivalExertion::new(
                     Energy::from_nanojoules(500_000_000_000),
                     Volume::from_microliters(125),

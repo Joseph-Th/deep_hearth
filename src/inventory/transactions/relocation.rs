@@ -18,7 +18,7 @@ use super::super::state::{
 use super::super::storage_validation::validate_stockpile_storage;
 use super::super::structural_integration::{
     StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
-    validate_stockpile_stored_mass_changes,
+    validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
 };
 
 mod errors;
@@ -215,6 +215,8 @@ pub(crate) fn validate_material_relocation_from_selection(
         ],
     )
     .map_err(MaterialRelocationError::StructuralLoad)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, structural.as_ref())
+        .map_err(MaterialRelocationError::StructuralLoad)?;
     let (transfers, next_lot_id_after) = plan_lot_transfers(
         registries,
         state,
@@ -223,10 +225,13 @@ pub(crate) fn validate_material_relocation_from_selection(
         destination_record,
         &lot_slices,
     )?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(MaterialRelocationError::RevisionExhausted);
+    }
     let next_revision = inventories
         .revision()
         .checked_add(1)
-        .ok_or(MaterialRelocationError::RevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("inventory headroom check includes relocation revision"));
 
     Ok(ValidatedMaterialRelocation {
         expected_revision,

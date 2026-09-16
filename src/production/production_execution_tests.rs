@@ -6,10 +6,11 @@ use super::*;
 use crate::content::{
     FORM_CRUSHED, FORM_FOOD, FORM_INGOT, FORM_LOG, MATERIAL_BERRIES, MATERIAL_COPPER,
     MATERIAL_WOOD, STANDARD_TEST_HEATER, STANDARD_TEST_HEATING_ENERGY, STANDARD_TEST_SCREEN,
-    STANDARD_TEST_SCREENING_ENERGY, make_test_registries_with_standard_screening,
+    STANDARD_TEST_SCREENING_ENERGY, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    make_test_registries_with_standard_screening,
     make_test_registries_with_standard_sensible_heating,
 };
-use crate::core::quantity::{Energy, Length, Mass, Temperature};
+use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
@@ -17,8 +18,9 @@ use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
 use crate::energy::{EnergyStoreId, add_energy_store_with_initial_for_fixture};
 use crate::equipment::{EquipmentId, add_equipment};
 use crate::inventory::{
-    MaterialLotSelection, StockpileId, StockpileStorageProfile, add_solid_stockpile_for_test,
-    add_stockpile, deposit_bulk_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
+    MaterialLotSelection, MaterialTransferError, StockpileId, StockpileStorageProfile,
+    add_solid_stockpile_for_test, add_stockpile, deposit_bulk_for_test, deposit_lot_for_test,
+    deposit_lot_spec_for_test, validate_material_transfer_for_test, validate_mount_stockpile,
 };
 use crate::maintenance::Condition;
 use crate::material::{
@@ -35,6 +37,11 @@ use crate::production::{
 };
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
+use crate::spatial::{VoxelBounds, VoxelCoord};
+use crate::structural::{
+    StructuralElementId, add_structural_element, materialize_structural_element_for_test,
+    validate_activate_structural_element,
+};
 use crate::survival::{FoodFreshness, assess_food_freshness};
 use crate::thermal::{
     ResolvedSensibleHeating, SensibleHeatingRequest, ThermalJobValidationError,
@@ -258,6 +265,34 @@ fn unstarted_process_fixture() -> (Registries, AppState, StockpileId, StockpileI
     (registries, state, source, destination)
 }
 
+fn add_active_stockpile_support(
+    registries: &Registries,
+    state: &mut AppState,
+    x: i64,
+) -> StructuralElementId {
+    let bounds = VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1))
+        .unwrap_or_else(|error| panic!("production support bounds failed: {error}"));
+    let support = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        crate::structural::make_test_structural_geometry(
+            bounds,
+            Length::from_micrometers(1),
+            Area::from_square_millimeters(1_000),
+        ),
+        true,
+    )
+    .unwrap_or_else(|error| panic!("production support fixture failed: {error}"));
+    materialize_structural_element_for_test(registries, state, support, FORM_LOG);
+    let _ = validate_activate_structural_element(registries, state, support)
+        .unwrap_or_else(|error| panic!("production support activation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("production support activation commit failed: {error}"));
+    support
+}
+
 #[test]
 fn process_start_rejects_exhausted_job_id_without_consuming_material() {
     let (registries, state, source, destination) = unstarted_process_fixture();
@@ -330,6 +365,411 @@ fn process_start_reserves_revision_capacity_for_admission_and_completion() {
         );
         assert_eq!(loaded, before);
     }
+}
+
+#[test]
+fn trusted_load_rejects_running_production_without_scheduled_completion_revision_capacity() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("production load-budget validation failed: {error}"));
+    let _ = commit_process_for_test(token, &mut state);
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("production load-budget serialization failed: {error}"));
+    encoded["state"]["systems"]["production"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production load-budget decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            ProductionValidationError::ScheduledRevisionCapacityExhausted {
+                revision: u64::MAX,
+                completion_buckets: 1,
+            }
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_running_production_without_inventory_completion_revision_capacity() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| {
+            panic!("production inventory load-budget validation failed: {error}")
+        });
+    let _ = commit_process_for_test(token, &mut state);
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production inventory load-budget serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production inventory load-budget decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionInventoryRevisionCapacityExhausted {
+                revision: u64::MAX,
+                completion_buckets: 1,
+            }
+        ))
+    );
+}
+
+#[test]
+fn process_start_preserves_inventory_revisions_owed_to_existing_due_buckets() {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_E002));
+    let first_source = add_test_stockpile(&mut state, 100);
+    let first_destination = add_test_stockpile(&mut state, 100);
+    let second_source = add_test_stockpile(&mut state, 100);
+    let second_destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, first_source, 20);
+    deposit_test_wood(&registries, &mut state, second_source, 20);
+
+    let first_resolution = make_test_resolution(&registries, &mut state, first_source);
+    let first = validate_start_process(
+        &registries,
+        &state,
+        &first_resolution,
+        first_source,
+        first_destination,
+    )
+    .unwrap_or_else(|error| panic!("existing production validation failed: {error}"));
+    let first_job = commit_process_for_test(first, &mut state);
+    let first_due = state
+        .production()
+        .get_job(first_job)
+        .map(ProductionJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("existing production job disappeared"));
+    let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+        panic!("existing production pre-second-start tick failed: {error}")
+    });
+    assert!(
+        state.tick() < first_due,
+        "fixture requires the first production job to remain running after one tick"
+    );
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production inventory headroom serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX - 2);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production inventory headroom decode failed: {error}"));
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("one scheduled completion must fit at inventory revision MAX-2: {error}")
+    });
+    let second_resolution = make_test_resolution(&registries, &mut loaded, second_source);
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_start_process(
+            &registries,
+            &loaded,
+            &second_resolution,
+            second_source,
+            second_destination,
+        )
+        .err(),
+        Some(StartProcessError::InventoryRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn unrelated_inventory_transfer_cannot_spend_revision_owed_to_running_production() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let unrelated_source = add_test_stockpile(&mut state, 100);
+    let unrelated_destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, unrelated_source, 10);
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("revision-theft production validation failed: {error}"));
+    let _ = commit_process_for_test(token, &mut state);
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("revision-theft serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("revision-theft decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("one production completion must fit at inventory revision MAX-1: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_material_transfer_for_test(
+            &registries,
+            &loaded,
+            unrelated_source,
+            unrelated_destination,
+            wood_log(),
+            Mass::from_milligrams(1),
+        )
+        .err(),
+        Some(MaterialTransferError::RevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn trusted_load_rejects_running_production_without_equipment_completion_revision_capacity() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| {
+            panic!("production equipment load-budget validation failed: {error}")
+        });
+    let _ = commit_process_for_test(token, &mut state);
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production equipment load-budget serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production equipment load-budget decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionEquipmentRevisionCapacityExhausted {
+                revision: u64::MAX,
+                completion_buckets: 1,
+            }
+        ))
+    );
+}
+
+#[test]
+fn process_start_preserves_equipment_revisions_owed_to_existing_wear_buckets() {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_E003));
+    let first_source = add_test_stockpile(&mut state, 100);
+    let first_destination = add_test_stockpile(&mut state, 100);
+    let second_source = add_test_stockpile(&mut state, 100);
+    let second_destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, first_source, 20);
+    deposit_test_wood(&registries, &mut state, second_source, 20);
+    let first_resources = add_test_heating_resources(&registries, &mut state);
+    let second_resources = add_test_heating_resources(&registries, &mut state);
+
+    let first_resolution = resolve_test_heating(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        first_source,
+        first_resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    let first = validate_start_process(
+        &registries,
+        &state,
+        &first_resolution,
+        first_source,
+        first_destination,
+    )
+    .unwrap_or_else(|error| panic!("existing wear production validation failed: {error}"));
+    let first_job = commit_process_for_test(first, &mut state);
+    let first_due = state
+        .production()
+        .get_job(first_job)
+        .map(ProductionJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("existing wear production job disappeared"));
+    let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+        panic!("existing wear production pre-second-start tick failed: {error}")
+    });
+    assert!(
+        state.tick() < first_due,
+        "fixture requires the first wear-bearing production job to remain running after one tick"
+    );
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production equipment headroom serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production equipment headroom decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("one scheduled wear completion must fit at equipment revision MAX-1: {error}")
+    });
+    let second_resolution = resolve_test_heating(
+        &registries,
+        &loaded,
+        TEST_PROCESS,
+        second_source,
+        second_resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_start_process(
+            &registries,
+            &loaded,
+            &second_resolution,
+            second_source,
+            second_destination,
+        )
+        .err(),
+        Some(StartProcessError::EquipmentRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn process_start_reserves_completion_structure_revision_for_supported_output() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let support = add_active_stockpile_support(&registries, &mut state, 0);
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap_or_else(|error| panic!("production destination mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("production destination mount commit failed: {error}"));
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production structure-budget serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production structure-budget decode failed: {error}"));
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("idle exhausted production structure owner should load: {error}")
+    });
+    let resolution = make_test_resolution(&registries, &mut loaded, source);
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_start_process(&registries, &loaded, &resolution, source, destination).err(),
+        Some(StartProcessError::StructureRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn trusted_load_rejects_supported_output_without_structure_completion_revision_capacity() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let support = add_active_stockpile_support(&registries, &mut state, 0);
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap_or_else(|error| panic!("production supported-load mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("production supported-load mount commit failed: {error}"));
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("production supported-load validation failed: {error}"));
+    let _ = commit_process_for_test(token, &mut state);
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("production supported-load serialization failed: {error}"));
+    encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production supported-load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionStructureRevisionCapacityExhausted {
+                revision: u64::MAX,
+                completion_buckets: 1,
+            }
+        ))
+    );
+}
+
+#[test]
+fn process_start_preserves_structure_revisions_owed_to_existing_supported_output_buckets() {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_E004));
+    let first_source = add_test_stockpile(&mut state, 100);
+    let first_destination = add_test_stockpile(&mut state, 100);
+    let second_source = add_test_stockpile(&mut state, 100);
+    let second_destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, first_source, 20);
+    deposit_test_wood(&registries, &mut state, second_source, 20);
+    let first_support = add_active_stockpile_support(&registries, &mut state, 0);
+    let second_support = add_active_stockpile_support(&registries, &mut state, 2);
+    let _ = validate_mount_stockpile(&registries, &state, first_destination, first_support)
+        .unwrap_or_else(|error| panic!("first supported destination mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("first supported destination mount commit failed: {error}"));
+    let _ = validate_mount_stockpile(&registries, &state, second_destination, second_support)
+        .unwrap_or_else(|error| panic!("second supported destination mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("second supported destination mount commit failed: {error}")
+        });
+    let first_resources = add_test_heating_resources(&registries, &mut state);
+    let second_resources = add_test_heating_resources(&registries, &mut state);
+
+    let first_resolution = resolve_test_heating(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        first_source,
+        first_resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    let first = validate_start_process(
+        &registries,
+        &state,
+        &first_resolution,
+        first_source,
+        first_destination,
+    )
+    .unwrap_or_else(|error| panic!("existing supported production validation failed: {error}"));
+    let first_job = commit_process_for_test(first, &mut state);
+    let first_due = state
+        .production()
+        .get_job(first_job)
+        .map(ProductionJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("existing supported production job disappeared"));
+    let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+        panic!("existing supported production pre-second-start tick failed: {error}")
+    });
+    assert!(
+        state.tick() < first_due,
+        "fixture requires the first supported production job to remain running after one tick"
+    );
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production structure headroom serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production structure headroom decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("one supported completion must fit at structural revision MAX-1: {error}")
+    });
+    let second_resolution = resolve_test_heating(
+        &registries,
+        &loaded,
+        TEST_PROCESS,
+        second_source,
+        second_resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_start_process(
+            &registries,
+            &loaded,
+            &second_resolution,
+            second_source,
+            second_destination,
+        )
+        .err(),
+        Some(StartProcessError::StructureRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
 }
 
 #[test]

@@ -1,6 +1,7 @@
 //! Equipment binding, support, and cross-owner occupancy admission.
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::equipment::{
     EquipmentId, EquipmentOccupancy, EquipmentOperationTrace, ValidatedEquipmentUse,
     equipment_occupancy,
@@ -19,6 +20,7 @@ pub(in super::super) struct ValidatedEquipmentResources {
 pub(in super::super) fn validate_equipment_resources(
     state: &AppState,
     resolution: &ProcessResolution,
+    completes_at: SimulationTick,
 ) -> Result<ValidatedEquipmentResources, StartProcessError> {
     let Some(selection) = resolution.equipment_use() else {
         return Ok(ValidatedEquipmentResources {
@@ -50,10 +52,41 @@ pub(in super::super) fn validate_equipment_resources(
             equipment: trace.equipment(),
         });
     }
-    if resolution
+    let changes_condition = resolution
         .equipment_condition_after()
-        .is_some_and(|after| after != trace.condition())
-        && actual.checked_add(1).is_none()
+        .is_some_and(|after| after != trace.condition());
+    let post_nonproduction_revision = actual
+        .checked_add(state.future_nonproduction_equipment_revision_demand())
+        .ok_or(StartProcessError::EquipmentRevisionExhausted)?;
+    if changes_condition
+        && !state
+            .production()
+            .has_revision_capacity_for_scheduled_ticks(
+                post_nonproduction_revision,
+                state
+                    .production()
+                    .jobs()
+                    .filter(|job| {
+                        if job.is_suspended() {
+                            return false;
+                        }
+                        let (Some(provider), Some(after)) =
+                            (job.equipment_provider(), job.equipment_condition_after())
+                        else {
+                            return false;
+                        };
+                        after != provider.condition()
+                    })
+                    .map(crate::production::ProductionJobRecord::completes_at)
+                    .chain(std::iter::once(completes_at)),
+            )
+    {
+        return Err(StartProcessError::EquipmentRevisionExhausted);
+    }
+    if !changes_condition
+        && !state
+            .production()
+            .has_scheduled_equipment_revision_capacity_from(post_nonproduction_revision)
     {
         return Err(StartProcessError::EquipmentRevisionExhausted);
     }

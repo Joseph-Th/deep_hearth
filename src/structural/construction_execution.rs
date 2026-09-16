@@ -208,9 +208,12 @@ fn resolve_structural_construction_revision(
     let expected = state.structures().revision();
     let revision_steps =
         1_u64 + stockpile_load.map_or(0, ValidatedStockpileStructuralLoad::revision_delta);
-    let next = expected
-        .checked_add(revision_steps)
-        .ok_or(StructuralConstructionError::StructureRevisionExhausted)?;
+    if !state.can_spend_structure_revisions(revision_steps) {
+        return Err(StructuralConstructionError::StructureRevisionExhausted);
+    }
+    let next = expected.checked_add(revision_steps).unwrap_or_else(|| {
+        unreachable!("structural headroom check includes construction revisions")
+    });
     Ok((expected, next))
 }
 
@@ -249,6 +252,9 @@ pub fn validate_structural_construction(
         required_mass,
         resolution.into_selection(),
     )?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(StructuralConstructionError::InventoryRevisionExhausted);
+    }
     let (expected_structure_revision, next_structure_revision) =
         resolve_structural_construction_revision(state, stockpile_load.as_ref())?;
     let self_weight = calculate_aggregate_weight_force_ceiling(

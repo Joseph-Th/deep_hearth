@@ -245,12 +245,22 @@ pub fn validate_start_manual_power(
     state
         .equipment()
         .revision()
-        .checked_add(1)
+        .checked_add(
+            state
+                .production()
+                .scheduled_equipment_revision_bucket_count()
+                .saturating_add(1),
+        )
         .ok_or(ManualPowerError::EquipmentRevisionExhausted)?;
     state
         .energy()
         .revision()
-        .checked_add(1)
+        .checked_add(
+            state
+                .production()
+                .scheduled_released_energy_revision_bucket_count()
+                .saturating_add(1),
+        )
         .ok_or(ManualPowerError::EnergyRevisionExhausted)?;
     let work = ManualPowerWork::new(
         request.method,

@@ -271,7 +271,12 @@ pub fn validate_start_field_prospecting(
         state
             .equipment()
             .revision()
-            .checked_add(1)
+            .checked_add(
+                state
+                    .production()
+                    .scheduled_equipment_revision_bucket_count()
+                    .saturating_add(1),
+            )
             .ok_or(FieldProspectingStartError::EquipmentRevisionExhausted)?;
     }
     let completes_at = state

@@ -9,6 +9,7 @@ use crate::inventory::{
     ValidatedStockpileStructuralLoad, apply_material_egress, apply_material_ingress,
     validate_material_egress_from_selection, validate_material_ingress_after_egress,
     validate_material_reform_from_selection, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::material::CommodityKey;
 use crate::registry::Registries;
@@ -281,6 +282,9 @@ fn validate_component_exchange(
         state.tick(),
     )
     .map_err(|error| map_ingress_error(record.id(), error))?;
+    if !state.can_spend_inventory_revisions(2) {
+        return Err(EquipmentMaintenanceMaterialError::InventoryRevisionExhausted);
+    }
 
     let structural = if source == spent_destination {
         None
@@ -298,6 +302,8 @@ fn validate_component_exchange(
         )
         .map_err(EquipmentMaintenanceMaterialError::StructuralLoad)?
     };
+    validate_unreserved_stockpile_structural_load_headroom(state, structural.as_ref())
+        .map_err(EquipmentMaintenanceMaterialError::StructuralLoad)?;
 
     Ok(ValidatedMaintenanceMaterial::Component {
         component,

@@ -9,7 +9,7 @@ use crate::equipment::EquipmentState;
 use crate::fluid::FluidState;
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
 use crate::inventory::InventoryState;
-use crate::labor::PlayerWorkState;
+use crate::labor::{PlayerWork, PlayerWorkState};
 use crate::mining::MiningState;
 use crate::production::ProductionState;
 use crate::structural::StructureState;
@@ -285,6 +285,112 @@ impl AppState {
 
     pub(crate) fn player_work_state_mut(&mut self) -> &mut PlayerWorkState {
         &mut self.systems.player_work
+    }
+
+    pub(crate) fn future_inventory_revision_demand(&self) -> u64 {
+        let production = self.systems.production.scheduled_completion_bucket_count();
+        production.saturating_add(self.future_nonproduction_inventory_revision_demand())
+    }
+
+    pub(crate) fn future_nonproduction_inventory_revision_demand(&self) -> u64 {
+        u64::from(matches!(
+            self.systems.player_work.active(),
+            Some(PlayerWork::StorageEnclosureDismantling { .. })
+        ))
+        .saturating_mul(2)
+    }
+
+    pub(crate) fn future_energy_revision_demand(&self) -> u64 {
+        let production = self
+            .systems
+            .production
+            .scheduled_released_energy_revision_bucket_count();
+        production.saturating_add(self.future_nonproduction_energy_revision_demand())
+    }
+
+    pub(crate) fn future_nonproduction_energy_revision_demand(&self) -> u64 {
+        u64::from(matches!(
+            self.systems.player_work.active(),
+            Some(PlayerWork::ManualPower { .. })
+        ))
+    }
+
+    pub(crate) fn future_equipment_revision_demand(&self) -> u64 {
+        let production = self
+            .systems
+            .production
+            .scheduled_equipment_revision_bucket_count();
+        production.saturating_add(self.future_nonproduction_equipment_revision_demand())
+    }
+
+    pub(crate) fn future_nonproduction_equipment_revision_demand(&self) -> u64 {
+        let mining = u64::try_from(
+            self.systems
+                .mining
+                .jobs()
+                .filter(|job| {
+                    job.is_working()
+                        && job.equipment_condition_after() != job.equipment_condition_before()
+                })
+                .count(),
+        )
+        .unwrap_or(u64::MAX);
+        let direct_player_work = match self.systems.player_work.active() {
+            Some(PlayerWork::ManualPower { .. } | PlayerWork::EquipmentMaintenance { .. }) => 1,
+            Some(PlayerWork::Prospecting { work }) if work.equipment().is_some() => 1,
+            Some(
+                PlayerWork::ManualProduction { .. }
+                | PlayerWork::Mining { .. }
+                | PlayerWork::Prospecting { .. }
+                | PlayerWork::Eating { .. }
+                | PlayerWork::Drinking { .. }
+                | PlayerWork::StorageEnclosureDismantling { .. },
+            )
+            | None => 0,
+        };
+        mining.saturating_add(direct_player_work)
+    }
+
+    pub(crate) fn future_structure_revision_demand(&self) -> u64 {
+        self.systems
+            .production
+            .scheduled_supported_output_revision_bucket_count(&self.systems.inventory)
+    }
+
+    pub(crate) fn can_spend_inventory_revisions(&self, immediate_steps: u64) -> bool {
+        self.systems
+            .inventory
+            .revision()
+            .checked_add(self.future_inventory_revision_demand())
+            .and_then(|revision| revision.checked_add(immediate_steps))
+            .is_some()
+    }
+
+    pub(crate) fn can_spend_energy_revisions(&self, immediate_steps: u64) -> bool {
+        self.systems
+            .energy
+            .revision()
+            .checked_add(self.future_energy_revision_demand())
+            .and_then(|revision| revision.checked_add(immediate_steps))
+            .is_some()
+    }
+
+    pub(crate) fn can_spend_equipment_revisions(&self, immediate_steps: u64) -> bool {
+        self.systems
+            .equipment
+            .revision()
+            .checked_add(self.future_equipment_revision_demand())
+            .and_then(|revision| revision.checked_add(immediate_steps))
+            .is_some()
+    }
+
+    pub(crate) fn can_spend_structure_revisions(&self, immediate_steps: u64) -> bool {
+        self.systems
+            .structures
+            .revision()
+            .checked_add(self.future_structure_revision_demand())
+            .and_then(|revision| revision.checked_add(immediate_steps))
+            .is_some()
     }
 
     /// Returns read-only authoritative player survival state.

@@ -19,11 +19,12 @@ use crate::inventory::{
 };
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
     ProcessId, ProcessResolution, ProductionAvailabilityChange, ProductionSuspensionReason,
     StartProcessError, validate_start_process,
 };
-use crate::simulation::advance_tick;
+use crate::simulation::{TickError, advance_tick};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralCommitError, StructuralLifecycle, StructuralMutationError, add_structural_element,
@@ -46,6 +47,80 @@ impl Deref for StructuralHeatingResolution {
     fn deref(&self) -> &Self::Target {
         self.0.process_resolution()
     }
+}
+
+#[test]
+fn suspended_production_rechecks_inventory_revision_capacity_before_resume() {
+    let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_013));
+    let mut state = AppState::new(WorldSeed::new(0x1A71_0013));
+    let support = active_support(&registries, &mut state, 0);
+    let recovery_support = active_support(&registries, &mut state, 2);
+    let source = seeded_stockpile(
+        &registries,
+        &mut state,
+        Mass::from_milligrams(20),
+        Mass::from_milligrams(10),
+    );
+    let destination = seeded_stockpile(
+        &registries,
+        &mut state,
+        Mass::from_milligrams(20),
+        Mass::ZERO,
+    );
+    let _ = mount(&registries, &mut state, destination, support);
+    let resolution = resolve_structural_heating(
+        &registries,
+        &mut state,
+        ProcessId::new(971_013),
+        source,
+        Mass::from_milligrams(10),
+        STRUCTURAL_TEST_TARGET,
+    );
+    let _ = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("resume-budget production start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("resume-budget production commit failed: {error}"));
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("resume-budget support overload failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("resume-budget support overload commit failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("resume-budget suspension tick failed: {error}"));
+    assert!(
+        state
+            .production()
+            .jobs()
+            .next()
+            .is_some_and(|job| job.is_suspended())
+    );
+
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("resume-budget destination unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("resume-budget destination unmount commit failed: {error}"));
+    let _ = mount(&registries, &mut state, destination, recovery_support);
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("resume-budget serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("resume-budget decode failed: {error}"));
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("suspended work should not reserve an unscheduled completion revision: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        advance_tick(&registries, &mut loaded),
+        Err(TickError::InventoryRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
 }
 
 fn active_support(registries: &Registries, state: &mut AppState, x: i64) -> StructuralElementId {

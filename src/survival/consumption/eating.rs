@@ -13,7 +13,7 @@ use crate::inventory::{
     StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
     ValidatedStockpileStructuralLoad, apply_material_egress,
     validate_explicit_consumption_selection, validate_material_egress_from_selection,
-    validate_stockpile_stored_mass_changes,
+    validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::labor::{
     EatingWork, PlayerAttentionError, PlayerWork, ValidatedPlayerAttentionHold,
@@ -247,6 +247,9 @@ pub fn validate_eat(
             } => unreachable!("synchronous eating selection cannot become stale before validation"),
             MaterialEgressError::RevisionExhausted => EatError::InventoryRevisionExhausted,
         })?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(EatError::InventoryRevisionExhausted);
+    }
     let source_after = egress.source_stored_mass_after(state.inventory());
     let structural = validate_stockpile_stored_mass_changes(
         registries,
@@ -254,6 +257,8 @@ pub fn validate_eat(
         [StockpileStoredMassChange::new(source, source_after)],
     )
     .map_err(EatError::StructuralLoad)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, structural.as_ref())
+        .map_err(EatError::StructuralLoad)?;
     let expected_survival_revision = state.survival().revision();
     let required_survival_revisions = duration
         .value()

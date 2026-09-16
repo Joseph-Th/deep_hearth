@@ -980,6 +980,51 @@ fn dismantling_prechecks_inventory_revision_and_lot_id_exhaustion_without_mutati
 }
 
 #[test]
+fn trusted_load_rejects_active_dismantling_without_both_completion_inventory_revisions() {
+    let (registries, mut state, target, construction, recovery, _) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("dismantle load-budget build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("dismantle load-budget build commit failed: {error}"));
+    let _ = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+        .unwrap_or_else(|error| panic!("dismantle load-budget validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dismantle load-budget commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("dismantle load-budget serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("dismantle load-budget decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::StorageDismantlingInventoryRevisionExhausted,
+        )))
+    );
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("dismantle lot-budget serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("dismantle lot-budget decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::StorageDismantlingRecoveryLotIdExhausted,
+        )))
+    );
+}
+
+#[test]
 fn stale_dismantling_token_cannot_overwrite_later_inventory_mutation() {
     let (registries, mut state, target, construction, recovery, _) = fixture();
     validate_build_storage_enclosure(

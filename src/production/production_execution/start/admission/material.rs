@@ -31,13 +31,30 @@ pub(in super::super) fn validate_material_reservation(
         inbound_by_destination,
     )
     .map_err(map_reservation_error)?;
-    // Production consumes/reserves inventory at admission and deterministically lands the reserved
-    // output at completion. The generic reservation owns only the admission mutation, so budget the
-    // second production-specific inventory mutation here.
-    reservation
+    let next_inventory_revision = reservation
         .expected_revision()
-        .checked_add(2)
+        .checked_add(1)
         .ok_or(StartProcessError::InventoryRevisionExhausted)?;
+    // Admission consumes one inventory revision. Every running production due bucket later lands
+    // its reserved matter in one inventory batch, so preserve the headroom already owed to
+    // existing work as well as this new completion.
+    let post_nonproduction_revision = next_inventory_revision
+        .checked_add(state.future_nonproduction_inventory_revision_demand())
+        .ok_or(StartProcessError::InventoryRevisionExhausted)?;
+    if !state
+        .production()
+        .has_revision_capacity_for_scheduled_ticks(
+            post_nonproduction_revision,
+            state
+                .production()
+                .jobs()
+                .filter(|job| !job.is_suspended())
+                .map(crate::production::ProductionJobRecord::completes_at)
+                .chain(std::iter::once(completes_at)),
+        )
+    {
+        return Err(StartProcessError::InventoryRevisionExhausted);
+    }
     let storage_history = reservation
         .oldest_storage_history_at(state.inventory(), state.tick())
         .unwrap_or_else(|| {

@@ -10,6 +10,7 @@ use super::{
     StockpileStoredMassChange, StorageDefinition, StorageDefinitionId, ValidatedMaterialEgress,
     ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 
 mod errors;
@@ -115,10 +116,20 @@ pub fn validate_build_storage_enclosure(
     let next_profile = definition_record.storage_profile();
     validate_enclosure_contents(registries, state, target_record, &selection, next_profile)?;
     let material_plan = plan_enclosure_materials(registries, state, source, selection)?;
+    validate_unreserved_stockpile_structural_load_headroom(
+        state,
+        material_plan.structural_load.as_ref(),
+    )
+    .map_err(StorageEnclosureConstructionError::StructuralLoad)?;
     let expected_inventory_revision = state.inventory().revision();
+    if !state.can_spend_inventory_revisions(2) {
+        return Err(StorageEnclosureConstructionError::InventoryRevisionExhausted);
+    }
     let next_inventory_revision = expected_inventory_revision
         .checked_add(2)
-        .ok_or(StorageEnclosureConstructionError::InventoryRevisionExhausted)?;
+        .unwrap_or_else(|| {
+            unreachable!("inventory headroom check includes enclosure construction revisions")
+        });
     Ok(ValidatedStorageEnclosureConstruction {
         target,
         expected_inventory_revision,

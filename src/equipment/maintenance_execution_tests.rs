@@ -15,7 +15,7 @@ use crate::content::{
 use crate::core::quantity::{
     AggregateMass, Area, Energy, Force, Length, Power, Temperature, Volume,
 };
-use crate::core::state::validate_loaded_state;
+use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{
@@ -32,10 +32,11 @@ use crate::inventory::{
     MaterialLotSelection, StockpileId, add_solid_stockpile_for_test, deposit_composed_lot_for_test,
     deposit_lot_for_test, validate_explicit_consumption_selection, validate_mount_stockpile,
 };
+use crate::labor::PlayerWorkValidationError;
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
     ProcessDefinition, ProcessId, StartProcessCommitError, validate_start_process,
 };
@@ -1027,6 +1028,223 @@ fn maintenance_rejects_revision_budget_that_cannot_complete_before_any_mutation(
         Some(EquipmentMaintenanceError::EquipmentRevisionExhausted)
     );
     assert_eq!(loaded, before);
+}
+
+#[test]
+fn trusted_load_rejects_active_maintenance_without_completion_equipment_revision() {
+    let registries = registries_with_service_duration(TickSpan::new(6));
+    let mut state = AppState::new(WorldSeed::new(0x8120_0012));
+    initialize_service_player(&registries, &mut state);
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, Condition::FAILED)
+        .unwrap_or_else(|error| panic!("maintenance load-budget equipment failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("maintenance load-budget source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("maintenance load-budget spent failed: {error}"));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("maintenance load-budget resolution failed: {error}"));
+    let _ = validate_equipment_maintenance(&registries, &state, resolution)
+        .unwrap_or_else(|error| panic!("maintenance load-budget validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("maintenance load-budget commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("maintenance load-budget serialization failed: {error}"));
+    encoded["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("maintenance load-budget decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::EquipmentMaintenanceEquipmentRevisionExhausted,
+        )))
+    );
+}
+
+#[test]
+fn maintenance_start_preserves_equipment_revision_owed_to_running_production() {
+    let registries = occupied_registries();
+    let mut state = AppState::new(WorldSeed::new(0x8120_0013));
+    initialize_service_player(&registries, &mut state);
+    let production_equipment =
+        add_equipment(&registries, &mut state, TEST_DEFINITION, condition(700_000))
+            .unwrap_or_else(|error| panic!("shared-budget production equipment failed: {error}"));
+    let maintenance_equipment =
+        add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+            .unwrap_or_else(|error| panic!("shared-budget maintenance equipment failed: {error}"));
+    let process_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("shared-budget process source failed: {error}"));
+    let process_destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("shared-budget process destination failed: {error}"));
+    let maintenance_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2))
+        .unwrap_or_else(|error| panic!("shared-budget maintenance source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2))
+        .unwrap_or_else(|error| panic!("shared-budget spent destination failed: {error}"));
+    let process_lot = add_material(
+        &registries,
+        &mut state,
+        process_source,
+        Mass::from_milligrams(10),
+    );
+    add_material(
+        &registries,
+        &mut state,
+        maintenance_source,
+        Mass::from_milligrams(2),
+    );
+    let energy_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_DEFINITION,
+        Energy::from_nanojoules(1_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("shared-budget production energy failed: {error}"));
+    let heating = resolve_sensible_heating_process(
+        &registries,
+        &state,
+        SensibleHeatingRequest::new(
+            HEATING_PROCESS,
+            process_source,
+            &[MaterialLotSelection::new(
+                process_lot,
+                Mass::from_milligrams(10),
+            )],
+            production_equipment,
+            energy_store,
+            Temperature::from_millikelvin(301_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("shared-budget heating resolution failed: {error}"));
+    validate_start_process(
+        &registries,
+        &state,
+        heating.process_resolution(),
+        process_source,
+        process_destination,
+    )
+    .unwrap_or_else(|error| panic!("shared-budget production start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("shared-budget production commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("shared-budget maintenance serialization failed: {error}"));
+    encoded["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX - 2);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("shared-budget maintenance decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("one running production wear revision must fit at equipment MAX-2: {error}")
+    });
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &loaded,
+        EquipmentMaintenanceRequest::new(maintenance_equipment, maintenance_source, spent),
+    )
+    .unwrap_or_else(|error| panic!("shared-budget maintenance resolution failed: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_equipment_maintenance(&registries, &loaded, resolution).err(),
+        Some(EquipmentMaintenanceError::EquipmentRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn trusted_load_rejects_combined_production_and_maintenance_equipment_revision_overcommit() {
+    let registries = occupied_registries();
+    let mut state = AppState::new(WorldSeed::new(0x8120_0014));
+    initialize_service_player(&registries, &mut state);
+    let production_equipment =
+        add_equipment(&registries, &mut state, TEST_DEFINITION, condition(700_000))
+            .unwrap_or_else(|error| panic!("combined-load production equipment failed: {error}"));
+    let maintenance_equipment =
+        add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+            .unwrap_or_else(|error| panic!("combined-load maintenance equipment failed: {error}"));
+    let process_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("combined-load process source failed: {error}"));
+    let process_destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("combined-load process destination failed: {error}"));
+    let maintenance_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2))
+        .unwrap_or_else(|error| panic!("combined-load maintenance source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2))
+        .unwrap_or_else(|error| panic!("combined-load spent destination failed: {error}"));
+    let process_lot = add_material(
+        &registries,
+        &mut state,
+        process_source,
+        Mass::from_milligrams(10),
+    );
+    add_material(
+        &registries,
+        &mut state,
+        maintenance_source,
+        Mass::from_milligrams(2),
+    );
+    let energy_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_DEFINITION,
+        Energy::from_nanojoules(1_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("combined-load production energy failed: {error}"));
+    let heating = resolve_sensible_heating_process(
+        &registries,
+        &state,
+        SensibleHeatingRequest::new(
+            HEATING_PROCESS,
+            process_source,
+            &[MaterialLotSelection::new(
+                process_lot,
+                Mass::from_milligrams(10),
+            )],
+            production_equipment,
+            energy_store,
+            Temperature::from_millikelvin(301_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("combined-load heating resolution failed: {error}"));
+    validate_start_process(
+        &registries,
+        &state,
+        heating.process_resolution(),
+        process_source,
+        process_destination,
+    )
+    .unwrap_or_else(|error| panic!("combined-load production start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("combined-load production commit failed: {error}"));
+    let maintenance = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(maintenance_equipment, maintenance_source, spent),
+    )
+    .unwrap_or_else(|error| panic!("combined-load maintenance resolution failed: {error}"));
+    let _ = validate_equipment_maintenance(&registries, &state, maintenance)
+        .unwrap_or_else(|error| panic!("combined-load maintenance validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("combined-load maintenance commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("combined-load serialization failed: {error}"));
+    encoded["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("combined-load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::FutureEquipmentRevisionCapacityExhausted {
+                revision: u64::MAX - 1,
+                required: 2,
+            }
+        ))
+    );
 }
 
 #[test]

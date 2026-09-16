@@ -9,6 +9,7 @@ use crate::inventory::{
     STORAGE_AGE_PARTS_PER_TICK, StockpileId, StockpileStoredMassChange,
     StockpileStructuralLoadError, ValidatedStockpileStructuralLoad, apply_reserved_deposits,
     decide_reserved_deposits, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
@@ -246,6 +247,9 @@ pub fn validate_claim_mining_output(
         ReservedDepositPlanError::LotIdExhausted => MiningClaimError::LotIdExhausted,
         ReservedDepositPlanError::RevisionExhausted => MiningClaimError::InventoryRevisionExhausted,
     })?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(MiningClaimError::InventoryRevisionExhausted);
+    }
     let destination = record.destination();
     let stored_after = inventory
         .stored_mass_after_by_destination(state.inventory())
@@ -258,6 +262,8 @@ pub fn validate_claim_mining_output(
         [StockpileStoredMassChange::new(destination, stored_after)],
     )
     .map_err(MiningClaimError::StructuralLoad)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, structural_load.as_ref())
+        .map_err(MiningClaimError::StructuralLoad)?;
     let expected_mining_revision = state.mining().revision();
     let next_mining_revision = expected_mining_revision
         .checked_add(1)

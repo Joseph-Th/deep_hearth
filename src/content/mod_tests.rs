@@ -713,7 +713,11 @@ fn primitive_power_content_exposes_distinct_copper_and_bulk_material_routes() {
         .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
         .unwrap_or_else(|| panic!("paired stone flywheel disappeared"));
     assert!(bulk.capacity() > compact.capacity());
-    assert!(bulk.max_input_power() < compact.max_input_power());
+    assert_eq!(
+        bulk.max_input_power(),
+        compact.max_input_power(),
+        "paired flywheels share one shaft speed, so doubling the wheels doubles capacity without changing the input power limit"
+    );
     assert!(bulk.passive_dissipation_power() > compact.passive_dissipation_power());
     assert!(timber.capacity() < stone.capacity());
     assert!(timber.max_output_power() < stone.max_output_power());

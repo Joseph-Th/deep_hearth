@@ -1,6 +1,7 @@
 //! Finite-energy reservation and cross-owner occupancy admission.
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::energy::{
     ConsumedEnergyTrace, EnergyConsumptionReservation, EnergyIngressReservation,
     EnergyIngressReservationError, EnergyReservationError, EnergyStoreId, EnergyStoreOccupancy,
@@ -24,6 +25,7 @@ pub(in super::super) fn validate_energy_reservations(
     registries: &Registries,
     state: &AppState,
     resolution: &ProcessResolution,
+    completes_at: SimulationTick,
 ) -> Result<ValidatedEnergyReservations, StartProcessError> {
     let consumption = match resolution.energy_supply() {
         Some(selection) => Some(
@@ -48,12 +50,34 @@ pub(in super::super) fn validate_energy_reservations(
         .as_ref()
         .map(EnergyConsumptionReservation::trace);
     let released = ingress.map(EnergyIngressReservation::trace);
-    let energy_revision_steps = u64::from(consumption.is_some()) + u64::from(released.is_some());
-    if state
+    let post_admission_revision = state
         .energy()
         .revision()
-        .checked_add(energy_revision_steps)
-        .is_none()
+        .checked_add(u64::from(consumption.is_some()))
+        .ok_or(StartProcessError::EnergyRevisionExhausted)?;
+    let post_nonproduction_revision = post_admission_revision
+        .checked_add(state.future_nonproduction_energy_revision_demand())
+        .ok_or(StartProcessError::EnergyRevisionExhausted)?;
+    if (consumption.is_some() || released.is_some())
+        && !state
+            .production()
+            .has_revision_capacity_for_scheduled_ticks(
+                post_nonproduction_revision,
+                state
+                    .production()
+                    .jobs()
+                    .filter(|job| !job.is_suspended() && job.released_energy().is_some())
+                    .map(crate::production::ProductionJobRecord::completes_at)
+                    .chain(released.map(|_| completes_at)),
+            )
+    {
+        return Err(StartProcessError::EnergyRevisionExhausted);
+    }
+    if consumption.is_none()
+        && released.is_none()
+        && !state
+            .production()
+            .has_scheduled_released_energy_revision_capacity_from(post_nonproduction_revision)
     {
         return Err(StartProcessError::EnergyRevisionExhausted);
     }

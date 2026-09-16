@@ -1219,6 +1219,44 @@ fn casting_start_rejects_exhausted_completion_owner_revisions() {
     }
 }
 
+#[test]
+fn trusted_load_rejects_active_casting_without_released_energy_revision_capacity() {
+    let mut fixture = make_fixture(Mass::from_milligrams(10), MELTING_POINT);
+    let resolved = resolve_selected(
+        &fixture.registries,
+        &fixture.state,
+        fixture.ids,
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("casting energy load-budget resolution failed: {error}"));
+    let _ = validate_start_process(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.ids.source,
+        fixture.ids.destination,
+    )
+    .unwrap_or_else(|error| panic!("casting energy load-budget validation failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("casting energy load-budget commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("casting energy load-budget serialization failed: {error}"));
+    encoded["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("casting energy load-budget decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&fixture.registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ProductionEnergyRevisionCapacityExhausted {
+                revision: u64::MAX,
+                completion_buckets: 1,
+            }
+        ))
+    );
+}
+
 #[cfg(feature = "test-soak")]
 #[test]
 #[ignore = "long-horizon soak"]

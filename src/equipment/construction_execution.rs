@@ -9,6 +9,7 @@ use crate::inventory::{
     StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
     ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::maintenance::Condition;
 use crate::registry::Registries;
@@ -262,6 +263,8 @@ pub fn validate_assemble_equipment(
         [StockpileStoredMassChange::new(source, source_after)],
     )
     .map_err(EquipmentAssemblyError::StructuralLoad)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, structural_load.as_ref())
+        .map_err(EquipmentAssemblyError::StructuralLoad)?;
 
     let id_value = state.equipment().next_equipment_id();
     let next_equipment_id = id_value
@@ -269,9 +272,15 @@ pub fn validate_assemble_equipment(
         .ok_or(EquipmentAssemblyError::EquipmentIdExhausted)?;
     let id = EquipmentId::new(id_value);
     let expected_equipment_revision = state.equipment().revision();
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(EquipmentAssemblyError::InventoryRevisionExhausted);
+    }
+    if !state.can_spend_equipment_revisions(1) {
+        return Err(EquipmentAssemblyError::EquipmentRevisionExhausted);
+    }
     let next_equipment_revision = expected_equipment_revision
         .checked_add(1)
-        .ok_or(EquipmentAssemblyError::EquipmentRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("equipment headroom check includes assembly revision"));
     Ok(ValidatedEquipmentAssembly {
         record: EquipmentRecord {
             id,

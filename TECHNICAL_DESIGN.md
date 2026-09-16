@@ -688,7 +688,7 @@ state, and nonfuture provenance.
 Disassembly remains the inverse exact-custody route for empty, idle stores.
 
 The built-in copper-banded stone flywheel adds one 20 g copper reinforcement to the ordinary 900 g stone plus
-200 g wood accumulator. It keeps the base 150 W input limit, 500 W output limit, and 0.05 W passive loss but
+200 g wood accumulator. It keeps the base 150 W input limit, 500 W output limit, and 1 W passive loss but
 raises stored-work capacity from 500 J to 750 J. That reserve is directly usable by primitive processing: the
 built-in crusher requires 1 J per gram, so a fully charged upgraded flywheel can cover a 750 g crushing charge
 that cannot fit in the base accumulator.

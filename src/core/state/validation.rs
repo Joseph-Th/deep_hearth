@@ -116,7 +116,52 @@ pub fn validate_loaded_state(
     validate_reserved_inbound(state, expected_reservations)?;
     validate_loaded_player_work(registries, state, &state.systems.player_work)
         .map_err(StateValidationError::PlayerWork)?;
+    validate_shared_future_revision_capacity(state)?;
 
+    Ok(())
+}
+
+fn validate_shared_future_revision_capacity(state: &AppState) -> Result<(), StateValidationError> {
+    let inventory_required = state.future_inventory_revision_demand();
+    let inventory_revision = state.inventory().revision();
+    if inventory_revision.checked_add(inventory_required).is_none() {
+        return Err(
+            StateValidationError::FutureInventoryRevisionCapacityExhausted {
+                revision: inventory_revision,
+                required: inventory_required,
+            },
+        );
+    }
+    let energy_required = state.future_energy_revision_demand();
+    let energy_revision = state.energy().revision();
+    if energy_revision.checked_add(energy_required).is_none() {
+        return Err(
+            StateValidationError::FutureEnergyRevisionCapacityExhausted {
+                revision: energy_revision,
+                required: energy_required,
+            },
+        );
+    }
+    let equipment_required = state.future_equipment_revision_demand();
+    let equipment_revision = state.equipment().revision();
+    if equipment_revision.checked_add(equipment_required).is_none() {
+        return Err(
+            StateValidationError::FutureEquipmentRevisionCapacityExhausted {
+                revision: equipment_revision,
+                required: equipment_required,
+            },
+        );
+    }
+    let structure_required = state.future_structure_revision_demand();
+    let structure_revision = state.structures().revision();
+    if structure_revision.checked_add(structure_required).is_none() {
+        return Err(
+            StateValidationError::FutureStructureRevisionCapacityExhausted {
+                revision: structure_revision,
+                required: structure_required,
+            },
+        );
+    }
     Ok(())
 }
 

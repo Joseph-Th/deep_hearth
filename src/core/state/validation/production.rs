@@ -26,6 +26,70 @@ pub(super) fn validate_production_references(
     for job in state.systems.production.jobs() {
         validate_production_job(registries, state, job, &mut expected_reservations)?;
     }
+    let inventory_revision = state.systems.inventory.revision();
+    if !state
+        .systems
+        .production
+        .has_scheduled_revision_capacity_from(inventory_revision)
+    {
+        return Err(
+            StateValidationError::ProductionInventoryRevisionCapacityExhausted {
+                revision: inventory_revision,
+                completion_buckets: state.systems.production.scheduled_completion_bucket_count(),
+            },
+        );
+    }
+    let equipment_revision = state.systems.equipment.revision();
+    if !state
+        .systems
+        .production
+        .has_scheduled_equipment_revision_capacity_from(equipment_revision)
+    {
+        return Err(
+            StateValidationError::ProductionEquipmentRevisionCapacityExhausted {
+                revision: equipment_revision,
+                completion_buckets: state
+                    .systems
+                    .production
+                    .scheduled_equipment_revision_bucket_count(),
+            },
+        );
+    }
+    let energy_revision = state.systems.energy.revision();
+    if !state
+        .systems
+        .production
+        .has_scheduled_released_energy_revision_capacity_from(energy_revision)
+    {
+        return Err(
+            StateValidationError::ProductionEnergyRevisionCapacityExhausted {
+                revision: energy_revision,
+                completion_buckets: state
+                    .systems
+                    .production
+                    .scheduled_released_energy_revision_bucket_count(),
+            },
+        );
+    }
+    let structure_revision = state.systems.structures.revision();
+    if !state
+        .systems
+        .production
+        .has_scheduled_supported_output_revision_capacity_from(
+            structure_revision,
+            &state.systems.inventory,
+        )
+    {
+        return Err(
+            StateValidationError::ProductionStructureRevisionCapacityExhausted {
+                revision: structure_revision,
+                completion_buckets: state
+                    .systems
+                    .production
+                    .scheduled_supported_output_revision_bucket_count(&state.systems.inventory),
+            },
+        );
+    }
     Ok(expected_reservations)
 }
 

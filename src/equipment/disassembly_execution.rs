@@ -10,6 +10,7 @@ use crate::inventory::{
     ConsumedMaterialTrace, MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
     StockpileStoredMassChange, ValidatedMaterialIngress, ValidatedStockpileStructuralLoad,
     apply_material_ingress, validate_material_ingress, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId};
@@ -305,10 +306,18 @@ pub fn validate_disassemble_equipment(
         )],
     )
     .map_err(EquipmentDisassemblyError::StoredMatterLoad)?;
+    validate_unreserved_stockpile_structural_load_headroom(state, structural_load.as_ref())
+        .map_err(EquipmentDisassemblyError::StoredMatterLoad)?;
     let expected_equipment_revision = state.equipment().revision();
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(EquipmentDisassemblyError::InventoryRevisionExhausted);
+    }
+    if !state.can_spend_equipment_revisions(1) {
+        return Err(EquipmentDisassemblyError::EquipmentRevisionExhausted);
+    }
     let next_equipment_revision = expected_equipment_revision
         .checked_add(1)
-        .ok_or(EquipmentDisassemblyError::EquipmentRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("equipment headroom check includes disassembly revision"));
 
     Ok(ValidatedEquipmentDisassembly {
         equipment,

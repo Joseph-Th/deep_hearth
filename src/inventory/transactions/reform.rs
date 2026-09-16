@@ -19,7 +19,7 @@ use super::super::storage_validation::{
 };
 use super::super::{
     StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
-    validate_stockpile_stored_mass_changes,
+    validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
 };
 
 mod errors;
@@ -405,6 +405,8 @@ pub(crate) fn validate_material_reform_from_selection(
         target,
         total_consumed,
     )?;
+    validate_unreserved_stockpile_structural_load_headroom(state, mass_plan.structural.as_ref())
+        .map_err(MaterialReformError::StructuralLoad)?;
     let outputs = build_reform_outputs(
         state,
         source_record,
@@ -421,10 +423,13 @@ pub(crate) fn validate_material_reform_from_selection(
         &lot_slices,
         &outputs,
     )?;
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(MaterialReformError::RevisionExhausted);
+    }
     let next_revision = inventories
         .revision()
         .checked_add(1)
-        .ok_or(MaterialReformError::RevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("inventory headroom check includes reform revision"));
 
     Ok(ValidatedMaterialReform {
         expected_revision,

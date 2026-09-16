@@ -4,7 +4,8 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::{
-    StockpileEnclosureRecord, StockpileRecord, StorageDefinition, StorageEnclosureDismantlingError,
+    MaterialIngressEntry, MaterialIngressError, StockpileEnclosureRecord, StockpileRecord,
+    StorageDefinition, StorageEnclosureDismantlingError, validate_reserved_material_ingress,
     validate_stockpile_storage, validate_storage_dismantling_target_for_completion,
 };
 use crate::labor::StorageEnclosureDismantlingWork;
@@ -140,7 +141,54 @@ fn validate_completion_replay(
         | StorageEnclosureDismantlingError::PlayerWork(_) => unreachable!(
             "storage dismantling trusted-load target was fully checked before completion replay"
         ),
-    })
+    })?;
+
+    let enclosure = state
+        .inventory()
+        .get_stockpile(work.target())
+        .and_then(StockpileRecord::enclosure)
+        .unwrap_or_else(|| {
+            unreachable!("storage dismantling target and enclosure were validated before ingress")
+        });
+    let ingress = validate_reserved_material_ingress(
+        registries,
+        state.inventory(),
+        work.recovery_destination(),
+        enclosure
+            .embodied_material()
+            .iter()
+            .map(MaterialIngressEntry::from_consumed_trace),
+        work.completes_at(),
+        work.recovered_mass(),
+    )
+    .map_err(|error| match error {
+        MaterialIngressError::LotIdExhausted => {
+            PlayerWorkValidationError::StorageDismantlingRecoveryLotIdExhausted
+        }
+        MaterialIngressError::RevisionExhausted => {
+            PlayerWorkValidationError::StorageDismantlingInventoryRevisionExhausted
+        }
+        MaterialIngressError::Empty
+        | MaterialIngressError::UnknownStockpile { .. }
+        | MaterialIngressError::UnknownMaterial { .. }
+        | MaterialIngressError::UnknownForm { .. }
+        | MaterialIngressError::UnknownCompositionMaterial { .. }
+        | MaterialIngressError::ZeroMass
+        | MaterialIngressError::InvalidComposition { .. }
+        | MaterialIngressError::CompositionMissingHost { .. }
+        | MaterialIngressError::Storage(_)
+        | MaterialIngressError::ProvenanceInFuture { .. }
+        | MaterialIngressError::MassOverflow { .. }
+        | MaterialIngressError::CapacityExceeded { .. }
+        | MaterialIngressError::ReservationMismatch { .. } => unreachable!(
+            "storage dismantling trusted-load ingress facts were validated before completion replay: {error:?}"
+        ),
+    })?;
+    ingress
+        .next_revision()
+        .checked_add(1)
+        .ok_or(PlayerWorkValidationError::StorageDismantlingInventoryRevisionExhausted)?;
+    Ok(())
 }
 
 pub(super) fn validate_storage_enclosure_dismantling_work(
