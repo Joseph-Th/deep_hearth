@@ -8,11 +8,15 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use crate::content::capabilities::{
     CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_POWER_OUTPUT,
 };
+use crate::content::crafted_parts::{STONE_FLYWHEEL_MASS, TIMBER_FLYWHEEL_MASS};
 use crate::content::materials::{
     FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
-use super::super::authoring::{component_maintenance, power_condition_curve, profile, thresholds};
+use super::super::authoring::{
+    EquipmentDefinitionAuthoringExt, assembled_definition_with_condition_curves,
+    power_condition_curve, profile, thresholds,
+};
 use super::super::{
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_TIMBER_TREADLE_DRIVE,
@@ -20,10 +24,19 @@ use super::super::{
 use super::{copper_reinforcement_input, copper_upgrade};
 
 pub(super) fn stone_hand_crank() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_STONE_HAND_CRANK,
         "stone hand crank",
-        Mass::from_milligrams(1_100_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                STONE_FLYWHEEL_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ]),
         profile([(
             CAPABILITY_MANUAL_POWER_OUTPUT,
             CapabilityValue::Power(Power::from_microwatts(50_000_000)),
@@ -35,27 +48,24 @@ pub(super) fn stone_hand_crank() -> EquipmentDefinition {
             Power::from_microwatts(25_000_000),
         )],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(900_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-        Mass::from_milligrams(200_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE))
 }
 
 pub(super) fn copper_reinforced_hand_crank() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
         "copper-reinforced stone hand crank",
-        Mass::from_milligrams(1_120_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                STONE_FLYWHEEL_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+            copper_reinforcement_input(),
+        ]),
         profile([(
             CAPABILITY_MANUAL_POWER_OUTPUT,
             CapabilityValue::Power(Power::from_microwatts(150_000_000)),
@@ -67,31 +77,30 @@ pub(super) fn copper_reinforced_hand_crank() -> EquipmentDefinition {
             Power::from_microwatts(75_000_000),
         )],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(900_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-        copper_reinforcement_input(),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-        Mass::from_milligrams(200_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE))
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_HAND_CRANK))
 }
 
 /// A leg-powered alternative to the compact hand crank. It converts a much larger timber frame
 /// into higher copper-free charging throughput and slightly better metabolic efficiency.
 pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
         "timber foot-treadle drive",
-        Mass::from_milligrams(4_000_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
+                TIMBER_FLYWHEEL_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+        ]),
         profile([(
             CAPABILITY_TREADLE_POWER_OUTPUT,
             CapabilityValue::Power(Power::from_microwatts(100_000_000)),
@@ -103,22 +112,5 @@ pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
             Power::from_microwatts(50_000_000),
         )],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
-            Mass::from_milligrams(2_000_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            Mass::from_milligrams(1_600_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(400_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-        Mass::from_milligrams(400_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE))
 }

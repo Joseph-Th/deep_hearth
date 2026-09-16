@@ -198,6 +198,52 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
 }
 
 #[test]
+fn constructible_equipment_uses_assembly_as_its_physical_mass_authority() {
+    let registry = build_equipment_registry();
+    let mut constructible = 0_usize;
+
+    for definition in registry.definitions() {
+        let Some(assembly) = definition.assembly_profile() else {
+            continue;
+        };
+        constructible += 1;
+        assert_eq!(
+            definition.mass(),
+            assembly.input_mass(),
+            "constructible equipment {} must derive total mass from its assembly",
+            definition.id().value()
+        );
+
+        let maintenance = definition
+            .maintenance_profile()
+            .unwrap_or_else(|| panic!("constructible equipment lost authored maintenance"));
+        if maintenance.is_component_replacement() {
+            let replacement = maintenance.replacement();
+            let embodied_mass = assembly
+                .inputs()
+                .iter()
+                .find(|input| input.commodity() == replacement)
+                .map(|input| input.mass())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "equipment {} service component {} is absent from its assembly",
+                        definition.id().value(),
+                        replacement.value()
+                    )
+                });
+            assert_eq!(
+                maintenance.full_service_replacement_mass(),
+                embodied_mass,
+                "equipment {} service mass must come from its embodied replacement component",
+                definition.id().value()
+            );
+        }
+    }
+
+    assert_eq!(constructible, 20);
+}
+
+#[test]
 fn saw_bench_is_a_distinct_high_throughput_woodworking_provider() {
     let registry = build_equipment_registry();
     let saw = registry

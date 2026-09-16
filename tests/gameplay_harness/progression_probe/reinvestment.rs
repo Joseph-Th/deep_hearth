@@ -610,26 +610,30 @@ fn try_evaluate_mature_reinvestment(
     )
     .unwrap_or_else(|_| unreachable!("primitive separator throughput gain fits u32"));
 
-    let residual_energy = state
+    if state
         .energy()
         .get_store(machine.drive)
-        .map(|store| store.stored())
-        .unwrap_or_else(|| {
-            panic!("primitive reinvestment flywheel disappeared after crusher work")
-        });
-    if !residual_energy.is_zero() {
+        .is_some_and(|store| !store.stored().is_zero())
+    {
         let crusher_process = registries
             .ore_processing()
             .get_comminution(PROCESS_CRUSH_ORE)
             .unwrap_or_else(|| panic!("primitive reinvestment crusher process disappeared"));
-        let per_milligram =
-            u128::from(crusher_process.specific_energy().nanojoules_per_milligram());
-        let productive_milligrams = residual_energy.nanojoules() / per_milligram;
-        if productive_milligrams > 0 {
-            let drain_mass =
-                Mass::from_milligrams(u64::try_from(productive_milligrams).unwrap_or_else(|_| {
-                    panic!("primitive reinvestment drain mass exceeds authoritative range")
-                }));
+        loop {
+            let envelope = assess_powered_ore_mass_envelope(
+                registries,
+                &state,
+                PROCESS_CRUSH_ORE,
+                machine.crusher,
+                machine.drive,
+            )
+            .unwrap_or_else(|error| {
+                panic!("primitive reinvestment residual-work planning failed: {error}")
+            });
+            let drain_mass = envelope.maximum_mass();
+            if drain_mass.is_zero() {
+                break;
+            }
             let drain_energy =
                 calculate_mass_specific_energy(drain_mass, crusher_process.specific_energy());
             require_reinvestment_ore(
@@ -654,14 +658,20 @@ fn try_evaluate_mature_reinvestment(
                 },
             );
         }
-        let unusable_tail = state
-            .energy()
-            .get_store(machine.drive)
-            .map(|store| store.stored())
-            .unwrap_or_else(|| panic!("primitive reinvestment flywheel disappeared during drain"));
-        assert!(
-            unusable_tail.nanojoules() < per_milligram,
-            "productive drain must leave less energy than the smallest represented crusher feed"
+        assert_eq!(
+            assess_powered_ore_mass_envelope(
+                registries,
+                &state,
+                PROCESS_CRUSH_ORE,
+                machine.crusher,
+                machine.drive,
+            )
+            .unwrap_or_else(|error| {
+                panic!("primitive reinvestment residual-work stop projection failed: {error}")
+            })
+            .maximum_mass(),
+            Mass::ZERO,
+            "residual-work drain must stop only when canonical powered-ore planning finds no executable mass"
         );
         while state
             .energy()

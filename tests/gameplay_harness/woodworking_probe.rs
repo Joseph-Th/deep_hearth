@@ -356,6 +356,10 @@ fn execute_adze_pipeline(
     let mut production_ticks = 0_u64;
     let mut maintenance_ticks = 0_u64;
     let mut maintenance_services = 0_u64;
+    let board_process = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("woodworking adze board process disappeared"));
     for _ in 0..batches {
         if let Some(ticks) =
             service_adze_if_critical(registries, state, raw, replacement, spent, adze)
@@ -397,11 +401,7 @@ fn execute_adze_pipeline(
         production_ticks,
         maintenance_ticks,
         maintenance_services,
-        project_timber: checked_mass_times(
-            Mass::from_milligrams(1_000_000),
-            batches,
-            "adze project",
-        ),
+        project_timber: checked_mass_times(board_process.input_mass(), batches, "adze project"),
         boards: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
         chips: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
         final_condition_ppm: condition.parts_per_million(),
@@ -449,6 +449,14 @@ fn execute_saw_pipeline(
     let mut saw_services = 0_u64;
     let mut saw_batches = 0_u64;
     let mut fallback_due_to_copper = false;
+    let saw_board_process = registries
+        .crafting()
+        .get_manual(PROCESS_SAW_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("woodworking saw board process disappeared"));
+    let adze_board_process = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("woodworking fallback board process disappeared"));
     let saw_definition = registries
         .equipment()
         .get_equipment(EQUIPMENT_TIMBER_FRAME_SAW_BENCH)
@@ -591,19 +599,25 @@ fn execute_saw_pipeline(
         .get_equipment(saw)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("woodworking saw disappeared after pipeline"));
+    let saw_project_timber = checked_mass_times(
+        saw_board_process.input_mass(),
+        saw_batches,
+        "saw-assisted project",
+    );
+    let adze_project_timber = checked_mass_times(
+        adze_board_process.input_mass(),
+        adze_batches,
+        "adze fallback project",
+    );
     WoodworkingRouteOutcome {
         production_ticks,
         maintenance_ticks,
         maintenance_services: saw_services
             .checked_add(adze_tail.map_or(0, |tail| tail.maintenance_services))
             .unwrap_or_else(|| panic!("woodworking hybrid service count overflowed")),
-        project_timber: checked_mass_times(
-            Mass::from_milligrams(1_000_000),
-            saw_batches
-                .checked_add(adze_batches)
-                .unwrap_or_else(|| panic!("woodworking hybrid batch count overflowed")),
-            "saw-assisted project",
-        ),
+        project_timber: saw_project_timber
+            .checked_add(adze_project_timber)
+            .unwrap_or_else(|| panic!("woodworking hybrid project timber overflowed")),
         boards: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
         chips: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
         final_condition_ppm: condition.parts_per_million(),

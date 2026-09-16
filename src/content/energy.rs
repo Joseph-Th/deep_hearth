@@ -7,6 +7,7 @@ use crate::energy::{
 };
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
+use super::crafted_parts::{COPPER_REINFORCEMENT_MASS, STONE_FLYWHEEL_MASS, TIMBER_FLYWHEEL_MASS};
 use super::materials::{
     FORM_FLYWHEEL, FORM_HANDLE, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
@@ -84,7 +85,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(900_000),
+                STONE_FLYWHEEL_MASS,
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
@@ -103,7 +104,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
-                Mass::from_milligrams(2_000_000),
+                TIMBER_FLYWHEEL_MASS,
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
@@ -122,7 +123,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(900_000),
+                STONE_FLYWHEEL_MASS,
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
@@ -130,14 +131,14 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-                Mass::from_milligrams(20_000),
+                COPPER_REINFORCEMENT_MASS,
             ),
         ]))
         .with_upgrade_profile(EnergyStoreUpgradeProfile::new(
             ENERGY_STONE_FLYWHEEL_DRIVE,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-                Mass::from_milligrams(20_000),
+                COPPER_REINFORCEMENT_MASS,
             )]),
         )),
         EnergyStoreDefinition::new_with_transfer_limits(
@@ -152,7 +153,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(1_800_000),
+                Mass::from_milligrams(STONE_FLYWHEEL_MASS.milligrams() * 2),
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),

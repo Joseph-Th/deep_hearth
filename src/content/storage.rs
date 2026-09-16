@@ -8,6 +8,11 @@ use crate::inventory::{
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use crate::survival::SurvivalExertion;
 
+use super::crafted_parts::{
+    BULK_TIMBER_PROVISIONS_CRATE_BODY_MASS, DOUBLE_WALL_TIMBER_PROVISIONS_CHEST_BODY_MASS,
+    INSULATED_TIMBER_PANTRY_BODY_MASS, ROUGH_TIMBER_FIELD_BOX_BODY_MASS,
+    STONE_PROVISIONS_CROCK_BODY_MASS, TIMBER_PROVISIONS_CHEST_BODY_MASS,
+};
 use super::{
     FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_DOUBLE_WALL_CHEST_BODY, FORM_INSULATED_PANTRY_BODY,
     FORM_ROUGH_BOX_BODY, FORM_STONE_CROCK_BODY, MATERIAL_STONE, MATERIAL_WOOD,
@@ -37,13 +42,26 @@ const fn dismantle_duration(body_mass: Mass) -> TickSpan {
     TickSpan::new(if ticks == 0 { 1 } else { ticks })
 }
 
+fn storage_definition(
+    id: StorageDefinitionId,
+    name: &'static str,
+    maximum_stockpile_capacity: Mass,
+    storage_profile: StockpileStorageProfile,
+    assembly_profile: MaterialAssemblyProfile,
+) -> StorageDefinition {
+    let duration = dismantle_duration(assembly_profile.input_mass());
+    StorageDefinition::new(
+        id,
+        name,
+        maximum_stockpile_capacity,
+        storage_profile,
+        assembly_profile,
+        duration,
+        storage_dismantle_exertion(),
+    )
+}
+
 pub(crate) fn build_storage_registry() -> StorageRegistry {
-    let timber_body_mass = Mass::from_milligrams(2_400_000);
-    let double_wall_body_mass = Mass::from_milligrams(4_000_000);
-    let bulk_crate_body_mass = Mass::from_milligrams(3_200_000);
-    let insulated_pantry_body_mass = Mass::from_milligrams(4_800_000);
-    let rough_box_body_mass = Mass::from_milligrams(1_600_000);
-    let stone_crock_body_mass = Mass::from_milligrams(2_400_000);
     let lidded_preservation = StockpileStorageProfile::with_preservation(
         true,
         false,
@@ -91,77 +109,65 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
         panic!("carved stone provisions crock storage profile failed: {error}")
     });
     StorageRegistry::new([
-        StorageDefinition::new(
+        storage_definition(
             STORAGE_ROUGH_TIMBER_FIELD_BOX,
             "rough timber field box",
             Mass::from_milligrams(10_000_000),
             rough_box_preservation,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
-                rough_box_body_mass,
+                ROUGH_TIMBER_FIELD_BOX_BODY_MASS,
             )]),
-            dismantle_duration(rough_box_body_mass),
-            storage_dismantle_exertion(),
         ),
-        StorageDefinition::new(
+        storage_definition(
             STORAGE_TIMBER_PROVISIONS_CHEST,
             "lidded timber provisions chest",
             Mass::from_milligrams(20_000_000),
             lidded_preservation,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
-                timber_body_mass,
+                TIMBER_PROVISIONS_CHEST_BODY_MASS,
             )]),
-            dismantle_duration(timber_body_mass),
-            storage_dismantle_exertion(),
         ),
-        StorageDefinition::new(
+        storage_definition(
             STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
             "double-wall timber provisions chest",
             Mass::from_milligrams(20_000_000),
             double_wall_preservation,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
-                double_wall_body_mass,
+                DOUBLE_WALL_TIMBER_PROVISIONS_CHEST_BODY_MASS,
             )]),
-            dismantle_duration(double_wall_body_mass),
-            storage_dismantle_exertion(),
         ),
-        StorageDefinition::new(
+        storage_definition(
             STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
             "slatted timber bulk provisions crate",
             Mass::from_milligrams(50_000_000),
             bulk_crate_preservation,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
-                bulk_crate_body_mass,
+                BULK_TIMBER_PROVISIONS_CRATE_BODY_MASS,
             )]),
-            dismantle_duration(bulk_crate_body_mass),
-            storage_dismantle_exertion(),
         ),
-        StorageDefinition::new(
+        storage_definition(
             STORAGE_INSULATED_TIMBER_PANTRY,
             "compact insulated timber pantry",
             Mass::from_milligrams(8_000_000),
             insulated_pantry_preservation,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_INSULATED_PANTRY_BODY),
-                insulated_pantry_body_mass,
+                INSULATED_TIMBER_PANTRY_BODY_MASS,
             )]),
-            dismantle_duration(insulated_pantry_body_mass),
-            storage_dismantle_exertion(),
         ),
-        StorageDefinition::new(
+        storage_definition(
             STORAGE_CARVED_STONE_PROVISIONS_CROCK,
             "carved stone provisions crock",
             Mass::from_milligrams(6_000_000),
             stone_crock_preservation,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
-                stone_crock_body_mass,
+                STONE_PROVISIONS_CROCK_BODY_MASS,
             )]),
-            dismantle_duration(stone_crock_body_mass),
-            storage_dismantle_exertion(),
         ),
     ])
 }

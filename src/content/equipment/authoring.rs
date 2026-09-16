@@ -4,10 +4,11 @@ use crate::capability::{CapabilityId, CapabilityProfile, CapabilityValue};
 use crate::core::quantity::{Energy, Mass, MassFlow, Power, Volume};
 use crate::core::time::TickSpan;
 use crate::equipment::{
-    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentMaintenanceProfile,
+    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
+    EquipmentMaintenanceProfile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MaterialAssemblyProfile};
 use crate::survival::SurvivalExertion;
 
 use super::super::materials::{FORM_INGOT, FORM_SCRAP, MATERIAL_COPPER};
@@ -15,6 +16,64 @@ use super::super::materials::{FORM_INGOT, FORM_SCRAP, MATERIAL_COPPER};
 pub(super) const INDUSTRIAL_MAINTENANCE_MASS_DIVISOR: u64 = 1_000;
 const COMPONENT_MAINTENANCE_MILLIGRAMS_PER_TICK: u64 = 20_000;
 const INDUSTRIAL_MAINTENANCE_MILLIGRAMS_PER_TICK: u64 = 1_000;
+
+pub(super) trait EquipmentDefinitionAuthoringExt {
+    fn with_assembly_component_maintenance(self, replacement: CommodityKey) -> Self;
+}
+
+impl EquipmentDefinitionAuthoringExt for EquipmentDefinition {
+    fn with_assembly_component_maintenance(self, replacement: CommodityKey) -> Self {
+        let component_mass = self
+            .assembly_profile()
+            .and_then(|assembly| {
+                assembly
+                    .inputs()
+                    .iter()
+                    .find(|input| input.commodity() == replacement)
+            })
+            .map(crate::material::MaterialInputSpec::mass)
+            .unwrap_or_else(|| {
+                panic!(
+                    "built-in equipment {} maintenance component {} is absent from its assembly",
+                    self.id().value(),
+                    replacement.value()
+                )
+            });
+        self.with_maintenance_profile(component_maintenance(replacement, component_mass))
+    }
+}
+
+pub(super) fn assembled_definition(
+    id: EquipmentDefinitionId,
+    name: impl Into<String>,
+    assembly: MaterialAssemblyProfile,
+    capabilities: CapabilityProfile,
+    maintenance_thresholds: MaintenanceThresholds,
+) -> EquipmentDefinition {
+    let mass = assembly.input_mass();
+    EquipmentDefinition::new(id, name, mass, capabilities, maintenance_thresholds)
+        .with_assembly_profile(assembly)
+}
+
+pub(super) fn assembled_definition_with_condition_curves(
+    id: EquipmentDefinitionId,
+    name: impl Into<String>,
+    assembly: MaterialAssemblyProfile,
+    capabilities: CapabilityProfile,
+    maintenance_thresholds: MaintenanceThresholds,
+    capability_condition_curves: Vec<CapabilityConditionCurve>,
+) -> EquipmentDefinition {
+    let mass = assembly.input_mass();
+    EquipmentDefinition::new_with_capability_condition_curves(
+        id,
+        name,
+        mass,
+        capabilities,
+        maintenance_thresholds,
+        capability_condition_curves,
+    )
+    .with_assembly_profile(assembly)
+}
 
 const fn maintenance_exertion() -> SurvivalExertion {
     SurvivalExertion::new(
@@ -47,7 +106,7 @@ pub(super) fn mass_condition_curve(
     )
 }
 
-pub(super) fn component_maintenance(
+fn component_maintenance(
     replacement: CommodityKey,
     component_mass: Mass,
 ) -> EquipmentMaintenanceProfile {

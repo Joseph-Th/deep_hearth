@@ -22,6 +22,24 @@ use crate::registry::Registries;
 
 const RECOVERY_SCALE: u128 = 1_000_000_000_000;
 
+#[test]
+fn storage_dismantle_duration_is_derived_from_embodied_assembly_mass() {
+    let registry = build_storage_registry();
+    let mut definitions = 0_usize;
+
+    for definition in registry.definitions() {
+        definitions += 1;
+        assert_eq!(
+            definition.dismantle_duration(),
+            dismantle_duration(definition.assembly_profile().input_mass()),
+            "storage {} dismantle duration must derive from its embodied assembly mass",
+            definition.id().value()
+        );
+    }
+
+    assert_eq!(definitions, 6);
+}
+
 fn transitive_manual_recovery_upper_bounds(
     registries: &Registries,
     material: MaterialId,

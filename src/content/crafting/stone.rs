@@ -6,6 +6,7 @@ use crate::crafting::{ManualCraftDefinition, ManualCraftOutput};
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
+use crate::content::crafted_parts::{STONE_FLYWHEEL_MASS, STONE_PROVISIONS_CROCK_BODY_MASS};
 use crate::content::materials::{
     FORM_CHIP, FORM_FLYWHEEL, FORM_LUMP, FORM_SCRAP, FORM_STONE_CROCK_BODY, FORM_TOOL,
     MATERIAL_STONE,
@@ -36,7 +37,7 @@ fn shape_stone_provisions_crock() -> ManualCraftDefinition {
         vec![
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
-                Mass::from_milligrams(2_400_000),
+                STONE_PROVISIONS_CROCK_BODY_MASS,
             ),
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
@@ -50,12 +51,12 @@ fn salvage_stone_provisions_crock_body() -> ManualCraftDefinition {
     ManualCraftDefinition::new(
         PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
         CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
-        Mass::from_milligrams(2_400_000),
+        STONE_PROVISIONS_CROCK_BODY_MASS,
         TickSpan::new(70),
         stone_exertion(),
         vec![ManualCraftOutput::new(
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
-            Mass::from_milligrams(2_400_000),
+            STONE_PROVISIONS_CROCK_BODY_MASS,
         )],
     )
 }
@@ -117,7 +118,7 @@ fn shape_stone_flywheel() -> ManualCraftDefinition {
         vec![
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(900_000),
+                STONE_FLYWHEEL_MASS,
             ),
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_CHIP),

@@ -1,6 +1,7 @@
 //! Builds immutable built-in registries and exports stable content identities.
 
 mod capabilities;
+mod crafted_parts;
 mod crafting;
 mod energy;
 mod equipment;

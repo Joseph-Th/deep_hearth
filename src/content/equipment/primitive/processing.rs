@@ -10,13 +10,15 @@ use crate::content::capabilities::{
     CAPABILITY_GRINDER_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
+use crate::content::crafted_parts::{COPPER_SCREEN_PLATE_MASS, TIMBER_RIDDLE_PANEL_MASS};
 use crate::content::materials::{
     FORM_HANDLE, FORM_SCREEN_PLATE, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER,
     MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 use super::super::authoring::{
-    component_maintenance, mass_condition_curve, mass_flow_condition_curve, profile, thresholds,
+    EquipmentDefinitionAuthoringExt, assembled_definition_with_condition_curves,
+    mass_condition_curve, mass_flow_condition_curve, profile, thresholds,
 };
 use super::super::{
     EQUIPMENT_COPPER_PLATE_SIZING_SCREEN, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
@@ -27,10 +29,19 @@ use super::super::{
 use super::{copper_reinforcement_input, copper_upgrade};
 
 pub(super) fn stone_crusher() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_STONE_CRUSHER,
         "stone toggle crusher",
-        Mass::from_milligrams(2_000_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+        ]),
         profile([
             (
                 CAPABILITY_CRUSHER_FLOW,
@@ -55,27 +66,23 @@ pub(super) fn stone_crusher() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(400_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(1_600_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
 }
 
 pub(super) fn stone_separator() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_STONE_SEPARATOR,
         "stone rocking separator",
-        Mass::from_milligrams(1_200_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+        ]),
         profile([
             (
                 CAPABILITY_SEPARATOR_FLOW,
@@ -100,27 +107,23 @@ pub(super) fn stone_separator() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(800_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(400_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(800_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
 }
 
 pub(super) fn stone_rotary_quern() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_STONE_ROTARY_QUERN,
         "stone rotary quern",
-        Mass::from_milligrams(1_800_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ]),
         profile([
             (
                 CAPABILITY_GRINDER_FLOW,
@@ -145,30 +148,26 @@ pub(super) fn stone_rotary_quern() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(1_600_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
 }
 
 /// A low-tech mechanically shaken riddle with a replaceable slatted timber sizing panel. It opens
 /// the same physical grind/screen/regrind loop as later screens without consuming scarce copper,
 /// but pays for that accessibility with smaller batches, lower throughput, and a heavy wear part.
 pub(super) fn timber_riddle_sizing_screen() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
         "timber riddle sizing screen",
-        Mass::from_milligrams(1_600_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+                TIMBER_RIDDLE_PANEL_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ]),
         profile([
             (
                 CAPABILITY_SCREEN_FLOW,
@@ -193,27 +192,27 @@ pub(super) fn timber_riddle_sizing_screen() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
-            Mass::from_milligrams(1_400_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
-        Mass::from_milligrams(1_400_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL))
 }
 
 pub(super) fn copper_plate_sizing_screen() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
         "timber-framed copper shaker screen",
-        Mass::from_milligrams(1_618_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+                TIMBER_RIDDLE_PANEL_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
+                COPPER_SCREEN_PLATE_MASS,
+            ),
+        ]),
         profile([
             (
                 CAPABILITY_SCREEN_FLOW,
@@ -238,38 +237,31 @@ pub(super) fn copper_plate_sizing_screen() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
-            Mass::from_milligrams(1_400_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
-            Mass::from_milligrams(18_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
-        Mass::from_milligrams(1_400_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL))
     .with_upgrade_profile(EquipmentUpgradeProfile::new(
         EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
         MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
             CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
-            Mass::from_milligrams(18_000),
+            COPPER_SCREEN_PLATE_MASS,
         )]),
     ))
 }
 
 pub(super) fn copper_reinforced_stone_crusher() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
         "copper-reinforced stone toggle crusher",
-        Mass::from_milligrams(2_020_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+            copper_reinforcement_input(),
+        ]),
         profile([
             (
                 CAPABILITY_CRUSHER_FLOW,
@@ -294,29 +286,25 @@ pub(super) fn copper_reinforced_stone_crusher() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(400_000),
-        ),
-        copper_reinforcement_input(),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(1_600_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_CRUSHER))
 }
 
 pub(super) fn copper_reinforced_stone_rotary_quern() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
         "copper-reinforced stone rotary quern",
-        Mass::from_milligrams(1_820_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+            copper_reinforcement_input(),
+        ]),
         profile([
             (
                 CAPABILITY_GRINDER_FLOW,
@@ -341,29 +329,25 @@ pub(super) fn copper_reinforced_stone_rotary_quern() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-        copper_reinforcement_input(),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(1_600_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_ROTARY_QUERN))
 }
 
 pub(super) fn copper_reinforced_stone_separator() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
         "copper-reinforced stone rocking separator",
-        Mass::from_milligrams(1_220_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+            copper_reinforcement_input(),
+        ]),
         profile([
             (
                 CAPABILITY_SEPARATOR_FLOW,
@@ -388,20 +372,6 @@ pub(super) fn copper_reinforced_stone_separator() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(800_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(400_000),
-        ),
-        copper_reinforcement_input(),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(800_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_SEPARATOR))
 }

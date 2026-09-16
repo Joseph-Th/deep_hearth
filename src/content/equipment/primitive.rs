@@ -1,17 +1,15 @@
 //! Portable primitive equipment and additive copper upgrade definitions.
 
-use crate::core::quantity::Mass;
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, EquipmentUpgradeProfile};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
+use crate::content::crafted_parts::COPPER_REINFORCEMENT_MASS;
 use crate::content::materials::{FORM_REINFORCEMENT, MATERIAL_COPPER};
 
 mod mining;
 mod power;
 mod processing;
 mod woodworking;
-
-const COPPER_REINFORCEMENT_MASS: Mass = Mass::from_milligrams(20_000);
 
 pub(super) fn definitions() -> Vec<EquipmentDefinition> {
     vec![

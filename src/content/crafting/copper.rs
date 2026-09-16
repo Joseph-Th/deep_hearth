@@ -6,6 +6,9 @@ use crate::crafting::{ManualCraftDefinition, ManualCraftOutput};
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
+use crate::content::crafted_parts::{
+    COPPER_REINFORCEMENT_MASS, COPPER_SAW_BLADE_MASS, COPPER_SCREEN_PLATE_MASS,
+};
 use crate::content::materials::{
     FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE,
     MATERIAL_COPPER,
@@ -14,8 +17,6 @@ use crate::content::processes::{
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
     PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_PIERCE_COPPER_SCREEN_PLATE,
 };
-
-const REINFORCEMENT_MASS: Mass = Mass::from_milligrams(20_000);
 
 pub(super) fn definitions() -> [ManualCraftDefinition; 4] {
     [
@@ -43,7 +44,7 @@ fn cold_work_copper_saw_blade() -> ManualCraftDefinition {
         vec![
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
-                Mass::from_milligrams(54_000),
+                COPPER_SAW_BLADE_MASS,
             ),
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
@@ -57,12 +58,12 @@ fn cold_work_native_copper() -> ManualCraftDefinition {
     ManualCraftDefinition::new(
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        REINFORCEMENT_MASS,
+        COPPER_REINFORCEMENT_MASS,
         TickSpan::new(40),
         copper_work_exertion(),
         vec![ManualCraftOutput::new(
             CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-            REINFORCEMENT_MASS,
+            COPPER_REINFORCEMENT_MASS,
         )],
     )
 }
@@ -71,13 +72,13 @@ fn pierce_copper_screen_plate() -> ManualCraftDefinition {
     ManualCraftDefinition::new(
         PROCESS_PIERCE_COPPER_SCREEN_PLATE,
         CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-        REINFORCEMENT_MASS,
+        COPPER_REINFORCEMENT_MASS,
         TickSpan::new(50),
         copper_work_exertion(),
         vec![
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
-                Mass::from_milligrams(18_000),
+                COPPER_SCREEN_PLATE_MASS,
             ),
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
@@ -91,12 +92,12 @@ fn cold_work_copper_scrap() -> ManualCraftDefinition {
     ManualCraftDefinition::new(
         PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-        REINFORCEMENT_MASS,
+        COPPER_REINFORCEMENT_MASS,
         TickSpan::new(50),
         copper_work_exertion(),
         vec![ManualCraftOutput::new(
             CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-            REINFORCEMENT_MASS,
+            COPPER_REINFORCEMENT_MASS,
         )],
     )
 }

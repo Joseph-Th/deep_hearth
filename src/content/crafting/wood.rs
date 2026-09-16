@@ -7,6 +7,7 @@ use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
 use crate::content::capabilities::{CAPABILITY_SAWING_FLOW, CAPABILITY_WOODWORKING_FLOW};
+use crate::content::crafted_parts::{TIMBER_FLYWHEEL_MASS, TIMBER_RIDDLE_PANEL_MASS};
 use crate::content::materials::{
     FORM_BOARD, FORM_CHIP, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_TIMBER_RIDDLE_PANEL,
     MATERIAL_WOOD,
@@ -45,7 +46,7 @@ fn shape_timber_flywheel() -> ManualCraftDefinition {
         vec![
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
-                Mass::from_milligrams(2_000_000),
+                TIMBER_FLYWHEEL_MASS,
             ),
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
@@ -71,7 +72,7 @@ fn shape_timber_riddle_panel() -> ManualCraftDefinition {
         vec![
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
-                Mass::from_milligrams(1_400_000),
+                TIMBER_RIDDLE_PANEL_MASS,
             ),
             ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),

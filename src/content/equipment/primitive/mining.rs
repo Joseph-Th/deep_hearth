@@ -11,7 +11,8 @@ use crate::content::capabilities::{
 use crate::content::materials::{FORM_HANDLE, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD};
 
 use super::super::authoring::{
-    component_maintenance, mass_flow_condition_curve, profile, thresholds,
+    EquipmentDefinitionAuthoringExt, assembled_definition,
+    assembled_definition_with_condition_curves, mass_flow_condition_curve, profile, thresholds,
 };
 use super::super::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_COPPER_REINFORCED_PICK,
@@ -21,10 +22,19 @@ use super::super::{
 use super::{copper_reinforcement_input, copper_upgrade};
 
 pub(super) fn stone_pick() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_STONE_PICK,
         "knapped stone pick",
-        Mass::from_milligrams(1_000_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ]),
         profile([
             (
                 CAPABILITY_MINING_FLOW,
@@ -46,27 +56,24 @@ pub(super) fn stone_pick() -> EquipmentDefinition {
             MassFlow::from_milligrams_per_second(10_000),
         )],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(800_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(800_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
 }
 
 pub(super) fn copper_reinforced_pick() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_COPPER_REINFORCED_PICK,
         "copper-reinforced stone pick",
-        Mass::from_milligrams(1_020_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+            copper_reinforcement_input(),
+        ]),
         profile([
             (
                 CAPABILITY_MINING_FLOW,
@@ -88,21 +95,7 @@ pub(super) fn copper_reinforced_pick() -> EquipmentDefinition {
             MassFlow::from_milligrams_per_second(15_000),
         )],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(800_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-        copper_reinforcement_input(),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(800_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_PICK))
 }
 
@@ -110,10 +103,19 @@ pub(super) fn copper_reinforced_pick() -> EquipmentDefinition {
 /// timber but does not raise the stone tool-head hardness ceiling, so the lighter copper-reinforced
 /// pick remains the ordinary route into harder seams.
 pub(super) fn stone_quarry_pick() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_STONE_QUARRY_PICK,
         "heavy stone quarry pick",
-        Mass::from_milligrams(2_000_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+        ]),
         profile([
             (
                 CAPABILITY_MINING_FLOW,
@@ -135,27 +137,24 @@ pub(super) fn stone_quarry_pick() -> EquipmentDefinition {
             MassFlow::from_milligrams_per_second(17_500),
         )],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(400_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(1_600_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
 }
 
 pub(super) fn copper_reinforced_stone_quarry_pick() -> EquipmentDefinition {
-    EquipmentDefinition::new_with_capability_condition_curves(
+    assembled_definition_with_condition_curves(
         EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
         "copper-reinforced heavy quarry pick",
-        Mass::from_milligrams(2_020_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+            copper_reinforcement_input(),
+        ]),
         profile([
             (
                 CAPABILITY_MINING_FLOW,
@@ -177,21 +176,7 @@ pub(super) fn copper_reinforced_stone_quarry_pick() -> EquipmentDefinition {
             MassFlow::from_milligrams_per_second(22_500),
         )],
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(400_000),
-        ),
-        copper_reinforcement_input(),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(1_600_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_QUARRY_PICK))
 }
 
@@ -199,51 +184,43 @@ pub(super) fn copper_reinforced_stone_quarry_pick() -> EquipmentDefinition {
 /// Its value is not a generic prospecting score: the labor method explicitly authors this physical
 /// instrument as an accepted tool and owns the information quality of the resulting observation.
 pub(super) fn stone_geological_hammer() -> EquipmentDefinition {
-    EquipmentDefinition::new(
+    assembled_definition(
         EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
         "stone geological sampling hammer",
-        Mass::from_milligrams(650_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(500_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(150_000),
+            ),
+        ]),
         CapabilityProfile::default(),
         thresholds(),
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(500_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(150_000),
-        ),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(500_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
 }
 
 pub(super) fn copper_reinforced_geological_hammer() -> EquipmentDefinition {
-    EquipmentDefinition::new(
+    assembled_definition(
         EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
         "copper-reinforced geological sampling hammer",
-        Mass::from_milligrams(670_000),
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(500_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(150_000),
+            ),
+            copper_reinforcement_input(),
+        ]),
         CapabilityProfile::default(),
         thresholds(),
     )
-    .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(500_000),
-        ),
-        MaterialInputSpec::pure(
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(150_000),
-        ),
-        copper_reinforcement_input(),
-    ]))
-    .with_maintenance_profile(component_maintenance(
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        Mass::from_milligrams(500_000),
-    ))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_GEOLOGICAL_HAMMER))
 }

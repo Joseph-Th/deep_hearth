@@ -64,7 +64,7 @@ use deep_hearth::mining::{
 };
 use deep_hearth::ore_processing::{
     ComminutionRequest, ComminutionResolutionError, ConstituentSeparationProcessDefinition,
-    ConstituentSeparationRequest, resolve_comminution_process,
+    ConstituentSeparationRequest, assess_powered_ore_mass_envelope, resolve_comminution_process,
     resolve_constituent_separation_process,
 };
 use deep_hearth::production::{
