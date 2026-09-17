@@ -592,6 +592,25 @@ fn localize_target(
     panic!("fieldwork coarse-to-fine search exhausted the promising channel without a target")
 }
 
+/// Preserves the executed follow-up order after a typed batch-cap adaptation.
+///
+/// The exploration report exposed a capped hard-pick batch silently becoming the whole work
+/// order. This regression keeps the requested mass, not the tool limit, as the player goal.
+#[test]
+fn batch_capped_mining_finishes_the_requested_order() {
+    let registries = deep_hearth::content::build_registries();
+    for seed in [1, 2, 3] {
+        run_fieldwork_probe(
+            &registries,
+            FocusedProbeCase::new(
+                seed,
+                None,
+                super::focused_seeds::FocusedProbeRole::ExplicitReplay,
+            ),
+        );
+    }
+}
+
 pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
     let channel_voxels = i64::try_from(
@@ -856,13 +875,13 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         .mining()
         .get_job(job)
         .unwrap_or_else(|| panic!("fieldwork mining job disappeared after start"));
-    let mining_ticks = record
+    let mut mining_ticks = record
         .completes_at()
         .value()
         .checked_sub(record.started_at().value())
         .unwrap_or_else(|| panic!("fieldwork mining duration underflowed"));
     let condition_before = record.equipment_condition_before();
-    let condition_after = record.equipment_condition_after();
+    let mut condition_after = record.equipment_condition_after();
     for elapsed in 1..=mining_ticks {
         let outcome = advance_tick(registries, &mut state)
             .unwrap_or_else(|error| panic!("fieldwork mining tick failed: {error}"));
@@ -883,6 +902,69 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("fieldwork mining claim commit failed: {error}"));
     assert_eq!(receipt.output().mass(), extracted_mass);
+    let first_ore_ticks = state.tick().value() - episode_started_at.value();
+    let first_ore_mass = extracted_mass;
+    let mut extracted_mass = receipt.output().mass();
+    let mut batches = 1_u64;
+    // A tool's batch cap is not the player's work order. Reobserve after each claim and finish
+    // the remaining requested mass, stopping only on an observed shortage, not hidden reserves.
+    while extracted_mass < requested_mine_mass {
+        let remaining = requested_mine_mass
+            .checked_sub(extracted_mass)
+            .unwrap_or_else(|| unreachable!("loop requires unfinished extraction"));
+        let batch = remaining.min(first_ore_mass);
+        let refreshed_target = resolve_mining_target(
+            &state,
+            MiningTargetRequest::new(target.region(), MATERIAL_COPPER),
+        )
+        .unwrap_or_else(|error| panic!("fieldwork follow-up target failed: {error}"));
+        let next = validate_start_mining(
+            registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            refreshed_target,
+            destination,
+            mining_equipment,
+            batch,
+        )
+        .unwrap_or_else(|error| panic!("fieldwork follow-up admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fieldwork follow-up commit failed: {error}"));
+        let next_record = state
+            .mining()
+            .get_job(next)
+            .unwrap_or_else(|| panic!("fieldwork follow-up job disappeared"));
+        let ticks = next_record.completes_at().value() - next_record.started_at().value();
+        condition_after = next_record.equipment_condition_after();
+        for elapsed in 1..=ticks {
+            let outcome = advance_tick(registries, &mut state)
+                .unwrap_or_else(|error| panic!("fieldwork follow-up tick failed: {error}"));
+            assert_eq!(
+                outcome.ready_mining_jobs().contains(&next),
+                elapsed == ticks
+            );
+        }
+        let landed = validate_claim_mining_output(registries, &state, next)
+            .unwrap_or_else(|error| panic!("fieldwork follow-up claim failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("fieldwork follow-up landing failed: {error}"));
+        extracted_mass = extracted_mass
+            .checked_add(landed.output().mass())
+            .unwrap_or_else(|| panic!("fieldwork cumulative output overflowed"));
+        mining_ticks = mining_ticks
+            .checked_add(ticks)
+            .unwrap_or_else(|| panic!("fieldwork cumulative extraction time overflowed"));
+        batches = batches
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("fieldwork batch count overflowed"));
+        if landed.output().mass() < batch {
+            break;
+        }
+    }
+    assert_eq!(
+        extracted_mass, requested_mine_mass,
+        "the finite fieldwork fixture must support the complete order, not merely its first batch"
+    );
     assert_eq!(
         state
             .equipment()
@@ -908,7 +990,7 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         .player()
         .unwrap_or_else(|| panic!("fieldwork final survival record disappeared"));
     // No intake occurs in this episode: reserve deltas include every canonical tick's
-    // basal and work costs, from sampling-tool preparation through the first ore claim.
+    // basal and work costs, from sampling-tool preparation through the completed extraction order.
     let metabolic_energy_spent = survival_before
         .metabolic_energy()
         .checked_sub(survival_after.metabolic_energy())
@@ -944,15 +1026,21 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     let tool_prep_time = format_physical_duration(registries, tool_prep_ticks);
     let mining_time = format_physical_duration(registries, mining_ticks);
     let total_ticks = state.tick().value() - episode_started_at.value();
+    let first_ore_time = format_physical_duration(registries, first_ore_ticks);
     assert_eq!(
         total_ticks,
         sampling_setup_ticks + search_ticks + tool_prep_ticks + mining_ticks,
         "fieldwork pacing must account for every elapsed tick, not only extraction"
     );
+    assert!(
+        batches > 1 || first_ore_mass >= requested_mine_mass,
+        "a capped first batch must be followed by real follow-up extraction work"
+    );
     let search_time = format_physical_duration(registries, search_ticks);
     let total_time = format_physical_duration(registries, total_ticks);
     reviewln!(
-        "FIELDWORK PACING seed=0x{seed:016X} search={search_ticks}t/{search_time} sampling-tool={sampling_setup_ticks}t/{sampling_setup_time} extraction-tool={tool_prep_ticks}t/{tool_prep_time} extraction={mining_ticks}t/{mining_time} first-ore={total_ticks}t/{total_time} output={}mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade={output_grade_ppm}ppm",
+        "FIELDWORK PACING seed=0x{seed:016X} search={search_ticks}t/{search_time} sampling-tool={sampling_setup_ticks}t/{sampling_setup_time} extraction-tool={tool_prep_ticks}t/{tool_prep_time} extraction={mining_ticks}t/{mining_time} batches={batches} first-ore={first_ore_ticks}t/{first_ore_time} full-order={}t/{total_time} output={}mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade={output_grade_ppm}ppm",
+        total_ticks,
         extracted_mass.milligrams(),
     );
 

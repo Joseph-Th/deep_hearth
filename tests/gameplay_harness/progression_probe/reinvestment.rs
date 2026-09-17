@@ -858,6 +858,7 @@ fn try_evaluate_mature_reinvestment(
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("primitive reinvestment state audit failed: {error}"));
     Ok(PrimitiveReinvestmentExperience {
+        elapsed_ticks: state.tick().value() - decision_state.tick().value(),
         stockpile_demand_executed: true,
         stockpile_before_demand: remaining_primary_crushed,
         stockpile_after_demand,

@@ -681,16 +681,18 @@ def fieldwork_pacing_summary(lines: list[str]) -> list[str]:
         for line in pacing
         if (match := re.search(
             r"search=(\d+)t/\S+ sampling-tool=(\d+)t/\S+ "
-            r"extraction-tool=(\d+)t/\S+ extraction=(\d+)t/\S+ "
-            r"first-ore=(\d+)t/\S+ output=(\d+)mg", line
+            r"extraction-tool=(\d+)t/\S+ extraction=(\d+)t/\S+ batches=(\d+) "
+            r"first-ore=(\d+)t/\S+ full-order=(\d+)t/\S+ output=(\d+)mg", line
         )) is not None
     ]
     if not rows:
         return ["FIELDWORK PACING SUMMARY measured=0 evidence=insufficient-data"]
     span = lambda column: f"{min(row[column] for row in rows)}..{max(row[column] for row in rows)}"
+    batches = [row[4] for row in rows]
     return [
         f"FIELDWORK PACING SUMMARY measured={len(rows)}/{len(pacing)} "
-        f"search={span(0)}t first-ore={span(4)}t extraction={span(3)}t output={span(5)}mg "
+        f"search={span(0)}t first-ore={span(5)}t full-order={span(6)}t extraction={span(3)}t "
+        f"output={span(7)}mg batches={min(batches)}..{max(batches)} "
         "scope=raw-tools-and-preowned-copper-to-first-ore "
         "read=discovery-and-tool-preparation-dominate-first-ore-not-repeat-extraction"
     ]
@@ -761,6 +763,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     selected.extend(woodworking_baseline_summary(lines))
     selected.extend(woodworking_feedback_summary(lines))
     selected.extend(progression_demand_summary(lines))
+    selected.extend(line for line in lines if line.startswith("PROGRESSION GOAL "))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)
 
@@ -1095,6 +1098,8 @@ def report_stage(
                 else result.stdout.rstrip()
             )
             if output:
+                # Successful reports are evidence: keep all selected output, including replay inputs.
+                # Transcript bounds belong only to the failure diagnostics below.
                 print(output)
         return elapsed
 

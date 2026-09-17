@@ -1417,6 +1417,26 @@ pub(super) fn run_primitive_progression_case(
         .automation_preparation_ticks
         .saturating_sub(machine_useful_overlap_ticks)
         .saturating_sub(reserve_useful_overlap_ticks);
+    // Compare the actual investment goal against speculative stockpiling from this same
+    // observable state. The existing buffer may already fund upgrades; machine activity alone
+    // is not a reason to postpone them. This is completion-cost evidence, not a policy oracle.
+    let demand_decision_at = state.tick().value();
+    let reinvestment_plan = MatureReinvestmentPlan {
+        raw,
+        shaped,
+        ore_storage,
+        crushed_storage,
+        native_storage,
+        residue_storage: separation_residue_storage,
+        machine,
+        pick,
+        mining_target: post_convergence_mining_target,
+        primary_batch_mass: mined_mass,
+        separation_feed_mass: selected_separation_feed_mass,
+        reinforcement_mass: crank_upgrade_native,
+    };
+    let immediate_reinvestment =
+        evaluate_mature_reinvestment(registries, &state, reinvestment_plan);
     let steady_state = run_steady_state_crushing(
         registries,
         &mut state,
@@ -1438,24 +1458,8 @@ pub(super) fn run_primitive_progression_case(
     // Reinvestment is a forward-looking counterfactual from the state the actor actually reaches
     // after repeated autonomous work and service. Evaluating it earlier would let a shallow world
     // advertise an upgrade opportunity that later observable target exhaustion has already erased.
-    let reinvestment = evaluate_mature_reinvestment(
-        registries,
-        &state,
-        MatureReinvestmentPlan {
-            raw,
-            shaped,
-            ore_storage,
-            crushed_storage,
-            native_storage,
-            residue_storage: separation_residue_storage,
-            machine,
-            pick,
-            mining_target: post_convergence_mining_target,
-            primary_batch_mass: mined_mass,
-            separation_feed_mass: selected_separation_feed_mass,
-            reinforcement_mass: crank_upgrade_native,
-        },
-    );
+    let reinvestment = evaluate_mature_reinvestment(registries, &state, reinvestment_plan);
+    let stockpiling_delay_ticks = state.tick().value() - demand_decision_at;
     let drive_remaining = state
         .energy()
         .get_store(machine.drive)
@@ -1684,6 +1688,8 @@ pub(super) fn run_primitive_progression_case(
         metabolic_energy_spent_nj,
         hydration_spent_ul,
         reinvestment,
+        immediate_reinvestment,
+        stockpiling_delay_ticks,
     };
     let (first_upgrade, second_upgrade) = match priority {
         PrimitivePriority::PickFirst => ("pick", "hand-crank"),

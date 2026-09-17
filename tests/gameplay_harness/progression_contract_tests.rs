@@ -311,6 +311,15 @@ fn completed_reinvestment_consumes_post_order_stockpile_for_upgrade_demand() {
     assert!(!work.stockpile_demand_feed.is_zero());
     assert!(!work.stockpile_demand_energy.is_zero());
     assert!(work.stockpile_demand_separation_ticks > 0);
+    let PrimitiveReinvestmentOutcome::Completed(immediate) = review.immediate_reinvestment else {
+        panic!("the already-owned buffer must fund the same goal without speculative stockpiling");
+    };
+    assert!(immediate.stockpile_before_demand < work.stockpile_before_demand);
+    assert_eq!(
+        immediate.stockpile_demand_copper,
+        work.stockpile_demand_copper
+    );
+    assert!(immediate.elapsed_ticks < review.stockpiling_delay_ticks + work.elapsed_ticks);
 }
 
 #[test]

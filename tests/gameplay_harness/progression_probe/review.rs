@@ -99,6 +99,8 @@ pub(crate) struct PrimitiveProgressionReview {
     mechanization_player_free_delta_ticks: i128,
     mechanization_elapsed_delta_ticks: i128,
     pub(crate) reinvestment: PrimitiveReinvestmentOutcome,
+    pub(crate) immediate_reinvestment: PrimitiveReinvestmentOutcome,
+    pub(crate) stockpiling_delay_ticks: u64,
 }
 
 fn information_path_captured(review: &PrimitiveProgressionReview) -> bool {
@@ -984,6 +986,8 @@ pub(crate) fn evaluate_primitive_progression_probe(
             mechanization.elapsed_ticks,
         ),
         reinvestment: natural.reinvestment.clone(),
+        immediate_reinvestment: natural.immediate_reinvestment.clone(),
+        stockpiling_delay_ticks: natural.stockpiling_delay_ticks,
     };
     report_primitive_progression_review(
         registries,
@@ -1187,6 +1191,24 @@ fn report_primitive_progression_review(
         .saturating_sub(natural.machine_useful_overlap_ticks);
     let reinvestment_summary = concise_reinvestment_summary(&review.reinvestment);
     let stockpile_demand = stockpile_demand_summary(&review.reinvestment);
+    if let PrimitiveReinvestmentOutcome::Completed(immediate) = &review.immediate_reinvestment {
+        let delayed_ticks = match &review.reinvestment {
+            PrimitiveReinvestmentOutcome::Completed(delayed) => format!(
+                "{}t",
+                review.stockpiling_delay_ticks + delayed.elapsed_ticks
+            ),
+            _ => "blocked".to_owned(),
+        };
+        reviewln!(
+            "PROGRESSION GOAL seed=0x{seed:016X} basis=matched-start-completion-cost goal=three-machine-upgrades+expanded-batch immediate={}t delayed={} buffered-feed={}mg consumed-before-new-crushing={}mg invested-copper={}mg stockpiling-delay={}t terminal-reserves=unequal read=use-existing-feed-before-speculative-stockpiling",
+            immediate.elapsed_ticks,
+            delayed_ticks,
+            immediate.stockpile_before_demand.milligrams(),
+            immediate.stockpile_demand_feed.milligrams(),
+            immediate.invested_copper_mass.milligrams(),
+            review.stockpiling_delay_ticks,
+        );
+    }
     report_maintained_manual_fallback(seed, manual_fallback);
     reviewln!(
         "PROGRESSION BUFFER seed=0x{seed:016X} policy=two-upcoming-batches work-order={}cycles mining=[steady:{}jobs buffer-stops:{}cycles] machine={}t replenishment={}t available-attention={}t payback=not-established outcome=stockpile-order demand=[{stockpile_demand}]",

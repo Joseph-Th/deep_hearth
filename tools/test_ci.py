@@ -11,6 +11,7 @@ import re
 import sys
 import tomllib
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1300,6 +1301,67 @@ class LocalCiPlanTests(unittest.TestCase):
             ("0xAA", "0xBB"),
         )
 
+    def test_report_cli_preserves_large_success_evidence_but_bounds_failures(self) -> None:
+        opening = "PLAYER FANTASY scope=current-ordinary fixture=opening"
+        replay = (
+            "PROBE INPUT name=survival-provisioning mode=explore samples=2 organic=1 "
+            "world_root=0x111 behavior_root=0x222 replay=anchor:0xA@0x1,organic:0xB@0x2"
+        )
+        ending = "EVIDENCE CONTRACT fixture=report-end"
+        lines = [
+            opening,
+            replay,
+            *[f"SURVIVAL REVIEW fixture-row={index} {'x' * 200}" for index in range(1000)],
+            ending,
+        ]
+        transcript = "\n".join(lines) + "\n"
+        self.assertGreater(len(lines), ci.FAILURE_HEAD_LINES + ci.FAILURE_TAIL_LINES)
+        self.assertGreater(len(transcript), 200_000)
+        command = ci.report_plan()[0][1]
+        for mode in (None, "DEEP_HEARTH_GAMEPLAY_VERBOSE", "DEEP_HEARTH_GAMEPLAY_TRACE"):
+            for returncode in (0, 1):
+                with self.subTest(mode=mode, returncode=returncode):
+                    environment = {
+                        "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x111",
+                        "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x222",
+                    }
+                    if mode is not None:
+                        environment[mode] = "1"
+                    result = ci.subprocess.CompletedProcess(
+                        command, returncode, transcript, transcript if returncode else ""
+                    )
+                    with (
+                        mock.patch.dict(ci.os.environ, environment, clear=True),
+                        mock.patch.object(sys, "argv", ["ci.py", "report"]),
+                        mock.patch.object(ci.subprocess, "run", return_value=result) as run,
+                        contextlib.redirect_stdout(io.StringIO()) as stdout,
+                        contextlib.redirect_stderr(io.StringIO()) as stderr,
+                    ):
+                        self.assertEqual(ci.main(), returncode)
+                    run.assert_called_once()
+                    self.assertEqual(run.call_args.args[0], command)
+                    self.assertTrue(run.call_args.kwargs["capture_output"])
+                    if returncode == 0:
+                        self.assertEqual(stderr.getvalue(), "")
+                        self.assertIn("roots=0x111/0x222", stdout.getvalue())
+                        # Compare the entire body, not only markers that a head/tail limiter keeps.
+                        body = "\n".join(stdout.getvalue().splitlines()[2:-1]) + "\n"
+                        expected = transcript if mode else f"{opening}\n{ending}\n"
+                        self.assertEqual(body, expected)
+                        self.assertIn("PASS total", stdout.getvalue())
+                    else:
+                        self.assertNotIn(opening, stdout.getvalue())
+                        bounded = "\n".join([
+                            *lines[:ci.FAILURE_HEAD_LINES],
+                            f"... {len(lines) - ci.FAILURE_HEAD_LINES - ci.FAILURE_TAIL_LINES} line(s) omitted ...",
+                            *lines[-ci.FAILURE_TAIL_LINES:],
+                        ])
+                        self.assertEqual(
+                            stderr.getvalue(),
+                            f"reproduce: {' '.join(command)}\n{bounded}\n{bounded}\n",
+                        )
+                        self.assertNotIn("PASS total", stdout.getvalue())
+
     def test_default_gameplay_report_filters_probe_noise_but_verbose_keeps_it(self) -> None:
         output = "\n".join(
             [
@@ -1400,18 +1462,34 @@ class LocalCiPlanTests(unittest.TestCase):
         )
 
     def test_fieldwork_pacing_summary_preserves_complete_first_ore_cost(self) -> None:
-        line = (
+        single = (
             "FIELDWORK PACING seed=0x1 search=216t/12.9m sampling-tool=70t/4.2m "
-            "extraction-tool=180t/10.8m extraction=3t/10.8s first-ore=469t/28.1m "
-            "output=458842mg"
+            "extraction-tool=180t/10.8m extraction=3t/10.8s batches=1 first-ore=469t/28.1m "
+            "full-order=469t/28.1m output=458842mg"
         )
-        summary = ci.concise_gameplay_report(line, {})
-        self.assertIn("measured=1/1 search=216..216t first-ore=469..469t extraction=3..3t", summary)
-        self.assertIn("output=458842..458842mg", summary)
+        multi = (
+            "FIELDWORK PACING seed=0x3 search=240t/14.4m sampling-tool=70t/4.2m "
+            "extraction-tool=110t/6.6m extraction=4t/14.4s batches=2 first-ore=423t/25.3m "
+            "full-order=424t/25.4m output=373718mg"
+        )
+        summary = ci.concise_gameplay_report("\n".join([single, multi]), {})
+        self.assertIn(
+            "measured=2/2 search=216..240t first-ore=423..469t full-order=424..469t "
+            "extraction=3..4t",
+            summary,
+        )
+        self.assertIn("output=373718..458842mg batches=1..2", summary)
         self.assertEqual(ci.fieldwork_pacing_summary([]), [])
         self.assertIn("insufficient-data", ci.fieldwork_pacing_summary(["FIELDWORK PACING malformed"])[0])
-        mixed = ci.fieldwork_pacing_summary([line, "FIELDWORK PACING malformed"])[0]
+        mixed = ci.fieldwork_pacing_summary([single, "FIELDWORK PACING malformed"])[0]
         self.assertIn("measured=1/2", mixed)
+
+    def test_concise_report_keeps_goal_completion_counterfactual(self) -> None:
+        line = (
+            "PROGRESSION GOAL seed=0x1 basis=matched-start-completion-cost "
+            "immediate=265t delayed=741t terminal-reserves=unequal"
+        )
+        self.assertIn(line, ci.concise_gameplay_report(line, {}))
 
     def test_woodworking_baseline_reports_signed_full_lifecycle_savings(self) -> None:
         lines = [

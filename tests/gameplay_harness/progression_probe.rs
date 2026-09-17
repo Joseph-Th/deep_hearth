@@ -1156,6 +1156,8 @@ struct PrimitiveProgressionExperience {
     metabolic_energy_spent_nj: u128,
     hydration_spent_ul: u64,
     reinvestment: PrimitiveReinvestmentOutcome,
+    immediate_reinvestment: PrimitiveReinvestmentOutcome,
+    stockpiling_delay_ticks: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1170,6 +1172,7 @@ pub(super) enum PrimitiveReinvestmentOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PrimitiveReinvestmentExperience {
+    pub(crate) elapsed_ticks: u64,
     pub(crate) stockpile_demand_executed: bool,
     pub(crate) stockpile_before_demand: Mass,
     pub(crate) stockpile_after_demand: Mass,

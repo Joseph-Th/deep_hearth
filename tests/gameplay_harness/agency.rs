@@ -89,6 +89,7 @@ enum AgencyFocus {
     SurvivalRecovery,
     MaintenanceTiming,
     OrganicVariation,
+    OrganicPressureSearch,
 }
 
 impl AgencyFocus {
@@ -98,7 +99,8 @@ impl AgencyFocus {
             Self::PowerAndStructure => "power+structure",
             Self::SurvivalRecovery => "survival-recovery",
             Self::MaintenanceTiming => "maintenance-timing",
-            Self::OrganicVariation => "organic-variation",
+            Self::OrganicVariation => "organic-unfiltered",
+            Self::OrganicPressureSearch => "organic-pressure-qualified",
         }
     }
 }
@@ -291,7 +293,11 @@ fn classify_agency_evidence(
     AgencyEvidence::DormantPolicyPressure
 }
 
-fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
+// Exploration budgets constrain evidence only; they never authorize or prohibit production.
+const ORGANIC_SEARCH_LIMIT: usize = 24;
+const ORGANIC_QUALIFIED_TARGET: usize = 2;
+
+fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) -> Vec<u64> {
     let policies = agency_probe_policies();
     let mut worlds_with_distinct_paths = 0_usize;
     let mut worlds_with_work_difference = 0_usize;
@@ -304,7 +310,17 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     let mut organic_objective_resolved_worlds = 0_usize;
     let mut organic_terminal_worlds = 0_usize;
     let mut organic_dormant_worlds = 0_usize;
+    let mut search_attempts = 0_usize;
+    let mut qualified_seeds = Vec::new();
     for world in worlds {
+        if world.focus == AgencyFocus::OrganicPressureSearch {
+            if search_attempts == ORGANIC_SEARCH_LIMIT
+                || qualified_seeds.len() == ORGANIC_QUALIFIED_TARGET
+            {
+                continue;
+            }
+            search_attempts += 1;
+        }
         #[cfg(not(test))]
         let focus = world.focus.label();
         let world_seed = world.world_seed;
@@ -488,12 +504,6 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             .iter()
             .map(|(_, report)| AgencyPathSignature::from_report(report))
             .collect::<BTreeSet<_>>();
-        if signatures.len() > 1 {
-            worlds_with_distinct_paths += 1;
-        }
-        if processed_min != processed_max {
-            worlds_with_work_difference += 1;
-        }
         let baseline = agency_report(&reports, AgencyPolicyVariant::Baseline);
         let finish_sooner = agency_report(&reports, AgencyPolicyVariant::FinishSooner);
         let spend_survival = agency_report(&reports, AgencyPolicyVariant::SpendSurvival);
@@ -504,11 +514,30 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         let survival_effect = survival_counterfactual_changed(baseline, spend_survival);
         let maintenance_effect = maintenance_counterfactual_changed(baseline, delay_maintenance);
         let structure_effect = structure_counterfactual_changed(baseline, failure_only_structure);
+        let actionable = power_effect || survival_effect || maintenance_effect || structure_effect;
+        if world.focus == AgencyFocus::OrganicPressureSearch {
+            if !actionable {
+                #[cfg(not(test))]
+                if has_verbose_output() {
+                    std::println!(
+                        "AGENCY SEARCH world=0x{world_seed:016X} qualification=unqualified evidence={}",
+                        classify_agency_evidence(&reports, false).label(),
+                    );
+                }
+                continue;
+            }
+            qualified_seeds.push(world_seed);
+        }
+        if signatures.len() > 1 {
+            worlds_with_distinct_paths += 1;
+        }
+        if processed_min != processed_max {
+            worlds_with_work_difference += 1;
+        }
         observed_power_effect |= power_effect;
         observed_survival_effect |= survival_effect;
         observed_maintenance_effect |= maintenance_effect;
         observed_structure_effect |= structure_effect;
-        let actionable = power_effect || survival_effect || maintenance_effect || structure_effect;
         match world.focus {
             AgencyFocus::PowerAndStructure => {
                 assert!(
@@ -534,6 +563,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             AgencyFocus::OrganicVariation => {
                 organic_worlds += 1;
             }
+            AgencyFocus::OrganicPressureSearch => {}
         }
         let evidence = classify_agency_evidence(&reports, actionable);
         if world.focus == AgencyFocus::OrganicVariation {
@@ -625,8 +655,12 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         "organic agency evidence classes must partition sampled worlds"
     );
     std::println!(
-        "AGENCY SUMMARY worlds={} distinct-physical-paths={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] organic=[actionable:{}/{} objective-resolved:{} terminal-constraint:{} dormant-policy-pressure:{}] basis=matched-world-one-factor-counterfactual+shared-observation-horizon+reason-specific-absence-classification",
-        worlds.len(),
+        "AGENCY SUMMARY worlds={} worlds-with-multiple-signatures={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] organic-unfiltered=[actionable:{}/{} objective-resolved:{} terminal-constraint:{} dormant-policy-pressure:{}] organic-search=[qualified:{} target:{} unqualified:{} attempted:{} limit:{}] search-basis=outcome-selected-not-prevalence search-bound=evidence-not-production-legality basis=matched-world-one-factor-counterfactual+shared-observation-horizon+reason-specific-absence-classification",
+        worlds
+            .iter()
+            .filter(|world| world.focus != AgencyFocus::OrganicPressureSearch)
+            .count()
+            + qualified_seeds.len(),
         worlds_with_distinct_paths,
         worlds_with_work_difference,
         observed_power_effect,
@@ -638,7 +672,13 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         organic_objective_resolved_worlds,
         organic_terminal_worlds,
         organic_dormant_worlds,
+        qualified_seeds.len(),
+        ORGANIC_QUALIFIED_TARGET,
+        search_attempts - qualified_seeds.len(),
+        search_attempts,
+        ORGANIC_SEARCH_LIMIT,
     );
+    qualified_seeds
 }
 
 fn organic_agency_worlds(variation_root: u64, count: usize) -> Vec<AgencyWorld> {
@@ -657,6 +697,24 @@ fn organic_agency_worlds(variation_root: u64, count: usize) -> Vec<AgencyWorld> 
             anchor: None,
         });
     }
+    worlds
+}
+
+fn exploratory_agency_worlds(variation_root: u64) -> Vec<AgencyWorld> {
+    let mut worlds = maintained_agency_worlds();
+    // Keep the original three unfiltered seeds, then search the continuation of the
+    // same deterministic stream. No fixture mutation or fresh entropy during search.
+    worlds.extend(
+        organic_agency_worlds(variation_root, 3 + ORGANIC_SEARCH_LIMIT)
+            .into_iter()
+            .enumerate()
+            .map(|(index, mut world)| {
+                if index >= 3 {
+                    world.focus = AgencyFocus::OrganicPressureSearch;
+                }
+                world
+            }),
+    );
     worlds
 }
 
@@ -717,11 +775,38 @@ pub(super) fn run_gameplay_agency_counterfactuals() {
 pub(super) fn run_exploratory_agency_counterfactuals() {
     let registries = build_registries();
     let variation_root = exploratory_agency_root();
-    std::println!("AGENCY INPUT mode=explore organic=3 variation_root=0x{variation_root:016X}");
-    let organic = organic_agency_worlds(variation_root, 3);
-    let mut worlds = maintained_agency_worlds();
-    worlds.extend(organic);
+    std::println!(
+        "AGENCY INPUT mode=explore organic=3 variation_root=0x{variation_root:016X} organic-kind=unfiltered search-target={ORGANIC_QUALIFIED_TARGET} search-limit={ORGANIC_SEARCH_LIMIT}"
+    );
+    let worlds = exploratory_agency_worlds(variation_root);
     run_agency_probe(&registries, &worlds);
+}
+
+#[test]
+fn gameplay_agency_bounded_search_preserves_unfiltered_replay() {
+    let registries = build_registries();
+    let root = 0x16F6_C93F_A53A_1C98;
+    let worlds = exploratory_agency_worlds(root);
+    let unfiltered = organic_agency_worlds(root, 3);
+    for (actual, original) in worlds.iter().skip(3).take(3).zip(&unfiltered) {
+        assert_eq!(actual.world_seed, original.world_seed);
+        assert_eq!(actual.focus, AgencyFocus::OrganicVariation);
+        assert_eq!(actual.anchor, None);
+    }
+    assert_eq!(worlds.len(), 6 + ORGANIC_SEARCH_LIMIT);
+    let selected = run_agency_probe(&registries, &worlds);
+    assert_eq!(selected.len(), ORGANIC_QUALIFIED_TARGET);
+    assert!(selected.iter().all(|seed| {
+        worlds
+            .iter()
+            .skip(6)
+            .any(|world| world.world_seed == *seed && world.anchor.is_none())
+    }));
+    assert_eq!(selected, run_agency_probe(&registries, &worlds));
+    // Exhaustion is an evidence gap, not an assertion of production unavailability.
+    let exhausted = run_agency_probe(&registries, &worlds[..7]);
+    assert_eq!(exhausted, selected[..1]);
+    assert!(exhausted.len() < ORGANIC_QUALIFIED_TARGET);
 }
 
 #[test]
