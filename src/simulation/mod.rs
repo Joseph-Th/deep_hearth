@@ -169,7 +169,6 @@ pub fn advance_tick(
 
     // Due jobs are indexed by exact authoritative tick. Downstream enclosure dismantling uses the
     // projected inventory after those deposits because the completion phase commits first.
-    //
     // Snapshot isolation is intentional: every other phase decides against the pre-tick snapshot
     // and defers same-tick completion effects by one tick. Revision-budget prechecks make that
     // deferral fail-closed (a newly freed store, tool, or calorie is denied this tick rather than

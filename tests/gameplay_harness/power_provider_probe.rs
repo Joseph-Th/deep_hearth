@@ -1,13 +1,4 @@
-//! Report-only ordinary-play manual power provider comparison.
-//!
-//! The stone hand crank and the timber foot-treadle drive are both copper-free ordinary
-//! builds, yet no maintained episode ever decides between them: progression hard-wires the
-//! crank and liberation hard-wires the treadle. This episode branches from one actor-visible raw
-//! starting state, builds one provider plus one ordinary flywheel per arm through canonical manual
-//! craft, charges each flywheel to full capacity under survival pressure, and reports the
-//! build/attention/bodily-cost tradeoff the same physical job exposes. The copper-reinforced
-//! crank stays catalog context: it needs mined native copper, so it cannot join this copper-free
-//! comparison.
+//! Copper-free crank-vs-treadle provider comparison through canonical manual craft.
 
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_lot;

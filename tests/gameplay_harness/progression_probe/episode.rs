@@ -170,12 +170,7 @@ fn discover_primitive_progression(
         }
     }
     let trace_surface_bounds = observed_copper_bounds(state, trace_target);
-    // The information path is observed, not assumed from the generation flag. Deferred-flag
-    // worlds always leave the trace clue unresolved (50-90k ppm never clears cheap-inspection
-    // uncertainty). Surface-flag worlds usually resolve all four, but a boundary trace near
-    // the bottom of the 125-200k ppm surface range can still fail cheap inspection; that is a
-    // legitimate observed refinement, handled by the same revisit-after-shortage path below,
-    // not a harness failure.
+    // Resolve trace/surface clues from observation; boundary traces may need revisit-after-shortage.
     if deferred_trace_refinement {
         assert_eq!(
             surface_resolved_clues, 3,
@@ -901,13 +896,7 @@ pub(super) fn run_primitive_progression_case(
         .checked_add(manual_bridge.total_attention_ticks)
         .unwrap_or_else(|| panic!("primitive manual-bridge milestone overflowed"));
 
-    // Exercise the strongest obvious bootstrap alternative rather than merely timing its isolated
-    // hand-processing leg. Spend the directly mined parcel on the already-owned pick, sample the
-    // newly accessible hard seam, hand-process one second reinforcement from the best owned feed
-    // actually observed, then build and fully charge the primitive line with both upgrades
-    // available. This branch is a
-    // matched player counterfactual: it starts from the exact same observed state and uses only
-    // canonical runtime actions, but it does not alter the infrastructure-first episode below.
+    // Replay the manual bootstrap route on a clone; the infrastructure-first episode below is unchanged.
     let mut manual_bootstrap_state = state.clone();
     reinforce_pick(
         registries,
@@ -1439,8 +1428,7 @@ pub(super) fn run_primitive_progression_case(
         separation_feed_mass: selected_separation_feed_mass,
         reinforcement_mass: crank_upgrade_native,
     };
-    // Freeze the authored three-upgrade goal and its observed feed sizing before either
-    // continuation runs. The twelve-cycle order is coverage, never a selection oracle.
+    // Freeze the authored three-upgrade goal and observed feed sizing before either continuation runs.
     let mut stockpiling_state = state.clone();
     let reinvestment = run_mature_reinvestment(registries, &mut state, reinvestment_plan);
     let selected_survival = assess_survival(registries, &state)
@@ -1527,8 +1515,7 @@ pub(super) fn run_primitive_progression_case(
     let stockpiling_delay_ticks = stockpiling_state.tick().value() - demand_decision_at;
     let stockpiling_reinvestment =
         evaluate_mature_reinvestment(registries, &stockpiling_state, reinvestment_plan);
-    // All legacy throughput/lifecycle metrics below describe this coverage endpoint.
-    // Primary continuation values live exclusively in selected_end.
+    // Metrics below describe this coverage endpoint; primary continuation values live in selected_end.
     let state = stockpiling_state;
     let drive_remaining = state
         .energy()

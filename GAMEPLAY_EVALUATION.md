@@ -87,13 +87,9 @@ counterfactual comparison can explain the choice without rereading hidden state 
 When the same missing production projection forces several actors/probes to reconstruct the same meaning, treat
 that as control-surface debt rather than standard harness infrastructure.
 
-Freeze investment intent before evaluating comparison branches. Full-lifecycle counterfactual costs, future
-replacement consumption, and terminal inventory may assess the decision afterward, but must not select it or
-retroactively decide whether its reserve policy was satisfied. A pre-action estimate must retain its assumptions
-and uncertainty; an unexpectedly costly decision is useful feedback, not permission to choose a better past.
-During execution, refresh the observable resource and condition checks before each service or fallback.
-Report summaries preserve disagreement between pre-action estimates and executed lifecycle outcomes rather
-than silently selecting the best future.
+Freeze investment intent before evaluating comparison branches. Later lifecycle costs and terminal inventory assess
+the decision afterward; they do not reselect it. A pre-action estimate retains its assumptions and uncertainty.
+During execution, refresh observable resource and condition checks before each service or fallback.
 
 For chained production/mining work, consume the exact contribution plus destination-owned landing identity from
 `ProcessCompletion::landings()` / `ProcessParcelLanding` or `MiningClaimReceipt`. A landing may name a
@@ -198,172 +194,34 @@ remain the repair-loop surfaces. `python ci.py report` is a separate explicit Ca
 does not participate in routine test builds.
 
 Each focused target contains exactly one executable gate/probe. Generator, topology, counterfactual, and other
-cross-cutting contracts stay in the broad contract/audit targets even when they exercise the same helper code.
-This is a build-performance boundary: filtering a test at runtime is not sufficient because Rust would still
-code-generate every `#[test]` reachable from that focused crate.
+cross-cutting contracts stay in the broad contract/audit targets.
 
 | Scope | Contract |
 | --- | --- |
-| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, world-seeded inherited reserve history independent of actor behavior, value-sensitive storage investment from one finite disclosed raw-material opportunity using projected edible-horizon return versus actor attention tolerance, physical-frontier and actor-policy-reachability diagnostics over the same feasible candidates, survival-owned prospective freshness across a future authored enclosure transition, ordinary raw-material -> manual-shaping -> enclosure-body -> preservation construction, timed player-work enclosure dismantling with exact matter recovery and ambient-storage restoration, matched storage counterfactuals at one wall-clock endpoint, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, varied prospecting-work cost, reserve recovery, mid-wait lived-time reprovisioning when a full-day full-reserve wait carries canonical thirst to its authored warning boundary, an integrated hydration-warning -> provision -> prospect -> stored-work sequence, and actual diet-supported vitality recovery. |
-| `progression` | Coarse-to-fine evidence and information-value decisions; material-backed physical sampling before extraction-tool hardness classification; primitive crafting/mining/power/processing; a local scarce-copper pick-vs-crank sequencing counterfactual; direct-labor fallback versus mechanization; delegated work; finite recovery, stored-work loss/recharge, maintenance, and later reinvestment; ordinary quern/sizing-screen liberation through concentration; and finite organic opportunity. Resolved surface clues must pay canonical sampling work before the actor classifies them as mineable or hardness-blocked; mining validation may confirm legality from the acquired conservative band but must never serve as a free hidden-hardness probe. Once the matched counterfactual has legitimately sampled the hard seam, its second-reinforcement hand-processing leg must execute the best owned feed actually observed at that decision point, so reported feed choice, required mass, and attention all describe the same production path rather than a diagnostic-only assay. Separate contracts verify the reinforced sampling hammer and ordinary woodworking investments. The adze must improve attention without changing its canonical recovery stream. The dedicated frame saw must remain a copper-bearing investment with better timber recovery, real wear, typed capability gating, conservation, and deterministic mid-job save/load continuation; exact timing and yield values remain owned by production/content tests rather than duplicated here. |
-| report `woodworking` | Replayable visible board-demand pipelines and owned-copper pressure across the ordinary adze/frame-saw decision. The episode includes an executed equipment-free board route and compares full construction-plus-work attention, so short jobs can skip tool investment. No-tool outcomes retain raw tool materials and report condition as not applicable. A maintained long-order comparison requires the adze's returned attention, after all setup and service, to exceed another setup-and-service budget; pristine speed alone cannot establish durable tool value. The episode amortizes the saw's timber frame and copper blade over queued work, executes real wear and maintenance, falls back to the maintained stone adze when replacement copper is unavailable, and reports both attention payback and net timber payback against a canonical all-adze counterfactual. A fast saw route that has not yet repaid its embodied timber therefore remains a real tradeoff rather than masquerading as a simple upgrade. |
-| report `fieldwork` | Replayable hidden channel, within-channel location, grade, gangue, hardness, and extraction mass. The actor starts with a disclosed finite pre-owned native-copper opportunity derived from the authored competing reinforcement additions; the report prints both starting and retained copper so upgrade consumption is visible rather than implied. The actor compares only acquired transect evidence, uses cheap inspections before one detailed physical sample, then compares four raw-build extraction tools whose authored hardness limits cover the acquired 50 MPa band. Current raw inputs constrain feasibility; ranking minimizes canonical preparation time plus wear-adjusted whole-order extraction time, then copper consumption and raw mass, with explicit light-first ties. `resolve_mining_order` projects sequential batch effort and condition through the same physics as admission, bounded to 256 batches per candidate. The choice freezes before crafting; projections exclude service and hidden reserve and do not authorize extraction. Candidate and executed-cost feedback remain visible. Report orders vary independently of hidden geology between 250–500 g samples and 16–24 kg explicit extraction orders against independently seeded finite supply; this is not evidence of downstream consumption. A short canonical claim or loss of the previously resolved target stops the order without refunding investment or extraction effort. Reports retain requested, extracted, and missing mass and distinguish the episode endpoint from full-order completion. Partial orders are not comparable with full-order timing forecasts and never count as faster success or a physics-estimate error. Quarry investment and projected-versus-executed cost are visible alongside light-tool choices. Maintained cases include short orders favoring light tools, a 20 kg order favoring the lighter reinforced pick after pricing wear, a longer order justifying reinforced quarry investment, and a shallow seam stopping an unfinished order. Mining admission remains the canonical legality proof and the hard-rock specialist may still adapt to its smaller typed batch limit. First-ore pacing accounts for every elapsed tick across sampling-tool construction, actual search, extraction-tool preparation, and extraction; repeat mining speed must not masquerade as discovery cost. A batch-cap adaptation does not shrink the requested work order: the actor refreshes acquired target evidence and executes follow-up batches to finish it. Reporting separates first ore from full-order completion and includes batch count, cumulative output, wear, and survival cost. Hidden geological truth is diagnostic-only and never feeds policy. The reinforced indexed survey separately proves a real four-cell per-voxel information payoff, including hardness only on cells whose acquired abundance evidence establishes definite material presence. |
-| report `power-provider` | Replayable ordinary-build crank-vs-treadle charging comparison over the same flywheel job from matched copies of one actor-visible raw starting state. Each arm shapes every required component through canonical manual craft; current-route planning considers only recipes whose exact input is actually present, so the treadle uses the authored hand-board fallback instead of inventing enclosure salvage or paying for an unnecessary adze bootstrap. Each arm assembles its provider plus store and charges to full capacity under survival pressure without inheriting depletion from the other arm. Reported raw build mass is the executed withdrawal from the starting raw stockpile, not just assembly mass; it reconciles the provider, flywheel, surplus shaped components, and shaping residue. Build attention covers the full route-specific provider and flywheel. A human-scaled build bill pairs kilograms, joules, and physical durations with the exact diagnostics. Break-even charges are an initial-charge-rate estimate excluding future wear and service, not demonstrated lifetime payback. The episode reports charge attention, bodily cost, and wear across the 500 J stone and 1,000 J paired ordinary stores, with matter conservation and trusted-load validity in each arm. The copper-reinforced crank stays catalog context: it needs mined native copper and cannot join this copper-free comparison. |
-| `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. Warning maintenance uses a rolling next-batch comparison: a canonical safe batch shorter than current authored service is performed first, then reassessed. This is not a whole-order forecast; the critical-condition safety floor remains actor policy. An energy-unavailable next batch routes to canonical recharge or survival-policy stop before warning service is reconsidered; energy shortage alone does not justify preventive maintenance. No service is performed merely because the order ended. Matched short-order policies may rationally agree without manufacturing a maintenance-choice effect; critical service and missing-stock blockage remain separately exercised. |
-| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, independently varied finite stored work, canonical per-stage stopping behavior, and terminal current-tier tailings. Capability-only industrial benchmark. |
-| `foundry` | Installed room-temperature pure-copper heating/melting/casting with a same-furnace/same-electrical-source sensible-preheat energy-partition counterfactual, currently dominated rather than claimed as an active strategy, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. A thermal-capacity-limited retry waits only until the complete retained molten batch is canonically castable again, rather than requiring an unnecessarily empty sink. Capability-only. |
+| `survival` | Ordinary hunger/thirst pressure, diet-supported recovery, preservation investment, enclosure construction and timed dismantling with exact recovery, matched storage counterfactuals, and integrated provision/prospect/stored-work sequencing. |
+| `progression` | Ordinary coarse-to-fine evidence, sampling-gated mining, primitive crafting/mining/power/processing, fallback versus mechanization, maintenance/recovery/reinvestment, and liberation through concentration. Sampling work precedes hardness classification; validation confirms legality without probing hidden hardness. |
+| report `woodworking` | Ordinary adze/frame-saw board pipeline with full construction-plus-work attention, wear, maintenance, and timber/copper payback against equipment-free and all-adze baselines. |
+| report `fieldwork` | Sample-then-extract mining orders with wear-aware tool choice, projected versus executed cost, partial-order and supply-stop accounting, and indexed-survey information payoff. Policy uses acquired evidence only; hidden truth is diagnostic-only. |
+| report `power-provider` | Copper-free crank-vs-treadle charging comparison with full build, charge, bodily cost, wear, conservation, and trusted-load validity per arm. |
+| `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, and recovery. Capability-only. |
+| `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
+| `foundry` | Installed pure-copper heating/melting/casting with finite energy, adaptive batches, remelting coverage, and sink recovery. Capability-only; ore and concentrate require reduction/smelting. |
 
-Routine focused gates run maintained deterministic regression/coverage cases plus one bounded
-deterministic organic-variation case per probe, so the repair loop exercises organic gameplay without turning
-into a soak. An explicit variation or behavior root reseeds that bounded case when deliberately reproducing or
-extending a gate.
-`python ci.py report` owns fresh organic sampling for broader exploration without turning the ordinary repair loop
-into a soak. Full episodes are reserved for behavior that requires executed cross-system consequences. A world
-may succeed, adapt, or stop at a canonical constraint; every partial or blocked outcome must preserve trusted-load
-validity and relevant conservation.
+Routine focused gates run maintained deterministic cases plus one bounded deterministic organic-variation case
+per probe. An explicit variation or behavior root reseeds that bounded case when reproducing or extending a gate.
+`python ci.py report` owns fresh organic sampling. Full episodes are reserved for behavior that requires executed
+cross-system consequences. A world may succeed, adapt, or stop at a canonical constraint; every partial or blocked
+outcome must preserve trusted-load validity and relevant conservation.
 
-### Primitive liberation cost evidence
+### Coverage contracts
 
-The liberation episode starts with disclosed pre-owned ore and authored assembly parts; its measured processing
-cost excludes acquiring those inputs. It executes both batch-demand and full-buffer charging from the same
-starting state through the same canonical production chain. Batch demand comes from the production-owned powered
-ore mass envelope and is resolved again after charging; no harness energy formula or safety multiplier is used.
-The comparison proves identical primary/scavenger recovery and conserved matter, and checks trusted-load validity
-for both branches. It reports charging attention, generated work, bodily cost, remaining stored work, primary
-processing time, and marginal scavenger time. These are completion costs of one finite pipeline, not matched-time
-terminal reserves: leftover full-buffer work may fund later jobs and must not all be described as waste. Processing
-time is not automatically useful returned attention; this episode does not execute parallel work. Concentrate
-remains distinct from usable copper, and the scavenger leg is exercised coverage rather than an actor investment
-recommendation while the ordinary smelting outlet is absent.
+These contracts state what gameplay evidence must prove; harness module docs own step-by-step execution.
 
-### Catalog continuity contract
-
-The catalog contract checks ordinary acquisition-graph continuity that should not depend on one actor-policy
-branch. Copper reinforcement coverage derives the canonical reinforcement input from the authored pick upgrade
-and requires that same input to reach the geological sampling hammer, woodworking adze, hand crank, stone crusher,
-stone separator, and stone rotary quern, while allowing new compatible upgrade targets to be added. The ordinary mature reinvestment branch must execute the crusher and separator
-upgrades, including a separator batch above the base 500 g envelope, rather than treating those edges as catalog
-facts only. The same reinforcement must also increase the material-backed stone flywheel's stored-work capacity
-through the energy owner without regressing carrier, transfer limits, passive loss, or disassembly recovery; the
-expanded stored-work envelope must fund a real larger primitive-processing batch.
-
-Woodworking continuity keeps the hewing and sawing routes physically distinct. The adze may accelerate the
-ordinary hewing process without changing that process's canonical recovery stream, but it cannot satisfy the
-dedicated sawing capability. The frame-saw process has no equipment-free fallback and must remain reachable only
-after its authored copper blade and timber frame are assembled. Its better board recovery therefore spends scarce
-copper and a replaceable wear component rather than becoming a hidden free efficiency multiplier. Gameplay
-evaluation must include the frame's embodied timber, blade lifecycle copper, and maintenance attention when
-claiming payback. A finite-copper route may rationally use the saw until its blade becomes unproductive and then
-finish the visible pipeline with the still-maintainable stone adze. The woodworking actor freezes its initial
-investment before branch execution: it compares nominal authored timber demand and a conservative willingness
-budget (bare-work attention at least twice equipment-free construction attention), with a current copper-reserve
-check. This budget is policy, not a prediction of full-lifecycle payback. Replacement service rechecks the reserve;
-executed lifecycle counterfactuals assess, but never revise, the initial choice. The report retains estimate
-mismatches, and regression coverage includes a declined saw that hindsight reveals would have been cheaper.
-Exact current input masses, yields, and timings remain content/production facts rather than gameplay-evaluation policy.
-
-Preservation coverage requires every authored enclosure to remain ordinarily producible and recoverable while
-retaining a distinct practical tradeoff in capacity, preservation, raw material, or construction attention.
-Candidate ranking first respects physical feasibility: an enclosure that cannot hold the protected reserve or
-cannot be produced from the disclosed raw-material opportunity is not an actor option. The actor's candidate
-projection, fastest/strongest references, selected branch, and executed construction must all use that same finite
-world-seeded opportunity; evaluation must not silently fund a route the decision frame said was unavailable.
-Report diagnostics distinguish the physical Pareto frontier from definitions that can actually win the actor's
-authored attention-value rule, so a situational capacity option is not mislabeled as dead content merely because
-it is dominated for the current reserve. A single capacity/material-feasible enclosure is an enclosure singleton, not a forced investment.
-The actor may decline it when projected remaining edible lifetime does not pay its attention cost;
-equal value favors no construction. Best-enclosure comparisons are separate from commitment. Identical
-fastest/strongest references are not distinct counterfactuals. Explain storage comparisons once in the experience
-summary; the detailed review retains the candidate frontier and executed infrastructure evidence. Diet comparisons
-whose category supply cannot support the authored diet set are labeled supply-collapsed rather than repeating
-degenerate policy branches and zero recovery tradeoffs; verbose raw provisioning evidence remains available. Maintained coverage includes a true intermediate timber-frontier choice
-and a stone-only crock opportunity in addition to endpoint cases. Inherited reserve history
-is generated only from the world seed; actor policy must never rewrite which enclosure existed before admission
-or how old retained food already is. The matched freshness-return experiment intentionally compares the fastest
-and strongest feasible construction branches at one wall-clock endpoint. Its signed effective-age result is
-intentional: extra construction delay can make stronger preservation temporarily worse. The report also compares
-the exact remaining edible lifetime from the survival owner, so slower construction can still demonstrate a
-longer-horizon advantage without an invented break-even approximation. Each branch must first project its selected
-food lot through the planned authored storage transition using the survival-owned freshness projection, then prove
-that forecast exactly against the later canonical construction and tick outcome. The projection is planning
-evidence only and never substitutes for construction validation. Separate bounded contracts require medium and
-bulk reserves to eliminate undersized candidates before ranking and require material-constrained opportunities to
-exclude enclosure routes whose raw inputs are unavailable.
-Each current preservation body must expose at least one exact same-material manual salvage route into a different
-reusable form; timber bodies recover as boards plus explicit chip residue, while the carved stone crock returns
-reworkable stone scrap. Additional legitimate salvage routes may coexist, and reverse routes must not create a
-cheaper construction cycle.
-The runtime experience must first dismantle the installed enclosure through the production player-work path: the
-enclosure remains authoritative until its authored completion tick, survival reserves pay the authored exertion,
-ambient storage is restored only on completion, and the complete embodied body mass returns to inventory before
-any later manual salvage interpretation.
-
-Primitive stone maintenance recovery must remain a zero-machine manual path from pure stone scrap to nonzero
-reusable tool matter plus explicit chip residue with exact mass conservation and more attention than fresh lump
-knapping. Unit evidence also requires contaminated or mixed-temperature scrap to reject atomically and an executed
-maintenance loop to use recovered stone for a later service. Bounded survival behavior must vary preservation
-willingness without choosing infrastructure independently of observed payoff. The actor projects every feasible
-authored enclosure to one common future endpoint through the survival-owned freshness projection, values remaining
-edible lifetime against a replayable behavior-root attention price, and may therefore select an intermediate
-capacity/preservation/attention compromise rather than only the fastest or strongest endpoint. The fastest and
-strongest branches remain matched reference cases for interpreting the selected frontier result. Investment intent
-is frozen before those branches execute. A matched no-build branch advances canonical ticks to the observable
-ambient spoilage endpoint, retaining all raw materials and validating conservation and trusted load. Reports
-separate actual build/decline costs from best-enclosure construction and dismantling coverage; no-build does not
-claim the food remains edible. Policy reachability excludes enclosures that never beat abstention. The progression
-episode's matched local copper counterfactual remains balance evidence, not actor-policy variation
-or a claim about the player's global copper portfolio. It compares only the pick and hand-crank opportunities
-present in that decision state: current authored timing must show why pick-first is rational there while
-crank-first retains a measurable early-autonomy benefit. Woodworking, sampling, quarrying, sizing, and later
-machine upgrades are separate ordinary copper sinks and must not be erased by wording that calls this local
-comparison "the first copper choice." If future content or tuning makes the matched pick/crank benefits genuinely
-reciprocal, the harness may promote that local counterfactual back into actor policy only after the executed
-comparison demonstrates the change.
-
-Primitive automation coverage distinguishes scheduling from economics. The actor replenishes a two-upcoming-batch
-feed buffer, then leaves attention available instead of mining solely to fill the machine's runtime. The buffer
-uses the largest declared primary, reserve, or mining batch and may overshoot by one indivisible extraction;
-`policy-feed-buffer-ready` is distinct from a production capacity rejection. The steady stockpiling work order is
-12 cycles, bounded independently of measured overlap and hidden reserve. Maintained deep worlds must execute
-later reinvestment; organic worlds may finish the stockpiling order or stop on observed supply/condition limits.
-Replenishment overlap equal to setup time is only a scheduling equivalence, **not economic payback**: the episode
-does not compare avoided hand-processing costs or demonstrate downstream demand for every stockpiled output.
-Available attention, mining-job counts, and buffer stops must remain visible in reporting. The existing
-post-order reinvestment counterfactual also records the exact stockpiled feed consumed by its first two copper
-recoveries before any new crushing, the recovered upgrade copper, processing/charging cost, and retained
-stockpile. That demonstrates a limited downstream use, not demand for the entire order or economic payback.
-A matched-start completion-cost comparison also executes the same reinvestment and expanded-batch goal directly
-from the buffer available before steady stockpiling. It reports immediate completion, stockpiling/service delay,
-and later completion or blockage. Both arms use canonical operations and conserve matter; terminal inventories
-are unequal, so earlier goal completion is not a claim of universal economic dominance. The primary continuation executes the three-upgrade and expanded-batch goal immediately from the existing
-buffer, with intent frozen before comparison branches run. Its committed endpoint records actual upgrades,
-inventory, pick wear, elapsed time, and survival cost. The twelve-cycle stockpile order and forced post-order
-pick replacement run only on a separate coverage branch; their throughput and maintenance metrics must not be
-attributed to selected play. Normal batch-sized replenishment replaces tiny copper-parcel-sized mining orders.
-The finite stockpile order remains an explicit throughput exercise, not a recommendation to postpone useful upgrades.
-No gate requires the
-actor to manufacture busywork to make an investment appear profitable. The actor may discover that an investment
-was premature because
-the available evidence does not expose hidden total deposit mass; hidden reserve truth must not become policy
-input merely to make the investment look optimal in hindsight. Mining validation therefore must not reject an
-otherwise feasible request merely because hidden remaining reserve is smaller. The actor learns shortage only
-after committing the requested extraction effort and observing a smaller canonical claim, or after later
-evidence can no longer resolve an extractable target. The mature reinvestment counterfactual is
-resolved only from the post-delegation, post-service state the actor actually reaches. Maintained deep worlds must
-still execute that branch, while an organic branch that has canonically exhausted its known target reports
-`known-target-supply` rather than receiving fixture ore or advertising an opportunity that later experience has
-erased. Residual-work planning is refreshed after acquiring missing feed, because that mining advances time and
-consumes flywheel energy through passive drag; a pre-mining feasible envelope is not current authorization.
-Progression reporting records replacement-component preparation and the authored maintenance service interval
-separately. Service occupies exclusive player work, consumes survival reserves through ordinary tick advancement,
-and restores equipment condition only at its scheduled completion; missing world-space tool/access mechanics in
-`STATUS.md` must not be described as missing maintenance labor.
-
-Actor policy reads these values from production registries and state. Mechanized work reports scheduling facts
-(feed-replenishment overlap, available attention, buffer stops) and explicitly labels economic payback
-not-established; no harness prose may restate an overlap threshold as an avoided-labor claim. The prose above owns
-required coverage,
-not a second copy of the formulas or selection thresholds used to make actor decisions.
+- **Liberation cost:** the episode starts from disclosed pre-owned ore and parts, so measured cost excludes acquiring them. Batch-demand and full-buffer charging run from the same state through the same canonical chain and must show identical recovery, conserved matter, and trusted-load validity. Leftover buffered work may fund later jobs. Concentrate is distinct from usable copper; the scavenger leg is coverage, not an investment recommendation.
+- **Catalog continuity:** the authored reinforcement input must reach sampling, woodworking, power, crushing, grinding, and separation equipment. The reinvestment branch executes crusher and separator upgrades, including an above-base separator batch. The same reinforcement raises flywheel capacity through the energy owner without regressing carrier, limits, loss, or recovery, and the expanded envelope funds a larger processing batch.
+- **Woodworking continuity:** hewing and sawing stay physically distinct. The adze accelerates hewing without changing its recovery stream and cannot satisfy sawing. The frame saw needs its authored blade and frame, has no equipment-free fallback, and its payback includes embodied timber, blade copper, wear, and maintenance. Investment intent freezes before branches run; executed counterfactuals assess but never revise that choice. Exact masses, yields, and timings live in content/production definitions.
+- **Preservation continuity:** every authored enclosure stays ordinarily producible and recoverable with a distinct capacity/preservation/material/attention tradeoff. Feasibility precedes ranking; projection, selection, and execution share one finite disclosed opportunity. The actor may decline construction when edible-horizon return does not pay attention cost. Each branch projects its food lot through the survival-owned freshness projection, then proves that forecast against canonical construction and ticks. Dismantling runs through the timed player-work path before salvage; each body exposes a same-material salvage route without creating a cheaper construction cycle.
+- **Maintenance and automation:** stone scrap reknaps through a manual zero-machine path with exact conservation; contaminated or mixed-temperature scrap rejects atomically. The progression pick-vs-crank counterfactual compares only opportunities present in that decision state. Automation reports feed-buffer scheduling facts and labels economic payback not-established. Mining learns shortage only from committed claims or exhausted evidence; hidden reserve never feeds policy. Service occupies exclusive player work and restores condition only at completion.
 
 ## Counterfactual and replay discipline
 
@@ -379,24 +237,18 @@ and deterministic. Supplying a variation or behavior root explicitly opts a gate
 while maintained anchors stay fixed. Failure output must retain replay input.
 
 `python ci.py report` is the bounded exploration surface. Its default concise view includes aggregate ordinary
-survival, primitive progression, woodworking, fieldwork, and power-provider diversity, including preservation material/frontier
-breadth, woodworking attention/timber/lifecycle payback plus pre-action-estimate disagreement,
-post-order stockpile demand breadth, and crank-vs-treadle charge/build tradeoffs, live content counts, the ordinary
+survival, primitive progression, woodworking, fieldwork, and power-provider diversity, live content counts, the ordinary
 acquisition frontier, and compact summaries of the controlled workshop/ore/foundry evidence. Controlled summaries stay explicitly labeled
-and do not imply ordinary reachability; hiding them entirely would make a cold reader miss important interaction,
-recovery, and finite-capacity behavior that already exists in the simulation. `DEEP_HEARTH_GAMEPLAY_VERBOSE`
+and do not imply ordinary reachability. `DEEP_HEARTH_GAMEPLAY_VERBOSE`
 restores full capability diagnostics, blockers, tradeoffs, and counterfactual detail. Goal-completion comparisons
-aggregate all measured worlds (including blocked selected continuations, blocked alternatives, and signed cost
-differences) and retain one seeded example in the concise view; verbose output retains every comparison. Blocked
+aggregate all measured worlds and retain one seeded example in the concise view; verbose output retains every comparison. Blocked
 selected continuations retain their actual elapsed time, inventory, and partial upgrades rather than rolling back
-to the decision state. Fieldwork feedback aggregates wear-adjusted projection error only for completed orders and prefers
-an estimate-disagreement example when present, rather than hiding long-order wear behind the first short order.
-Supply-stopped orders retain actual investment, effort, output, and shortfall separately; shorter partial execution
-is neither a timing prediction error nor fast completion. The concise view retains a seeded shortage example. Physical-duration summaries use the
-report's registry-derived tick duration, never an independent assumed clock. Missing or conflicting clock evidence
-is reported as unknown rather than silently converted.
+to the decision state. Fieldwork feedback aggregates wear-adjusted projection error only for completed orders.
+Supply-stopped orders retain actual investment, effort, output, and shortfall separately. Physical-duration summaries use the
+report's registry-derived tick duration. Missing or conflicting clock evidence
+is reported as unknown.
 `DEEP_HEARTH_GAMEPLAY_TRACE` adds operation-level workshop narration. Increase breadth through explicit
-report/replay inputs rather than turning the edit loop into a multi-seed soak.
+report/replay inputs.
 
 Agency exploration retains its three unfiltered organic worlds, then searches at most 24 further deterministic
 worlds for up to two with executed policy differences. The report separates unfiltered outcomes, qualified

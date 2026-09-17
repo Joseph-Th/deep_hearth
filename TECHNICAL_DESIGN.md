@@ -37,10 +37,8 @@ constraints are:
 | Capacity/exclusivity | reservations and occupancy bind future outputs/resources so delayed work cannot double-book them |
 | Time | persisted schedules and active/suspended durations make future consequences replayable rather than implicit |
 
-When debugging or extending a cross-system mechanic, start from the changed flow and follow custody from owner
-to owner. A valid implementation should make every handoff visible as a canonical operation or durable work
-record. If a quantity or authorization appears to jump between endpoints without an owner at the boundary, the
-model is incomplete.
+When extending a cross-system mechanic, start from the changed flow and follow custody from owner
+to owner. Every handoff is a canonical operation or durable work record.
 
 ### Truth classes
 
@@ -103,23 +101,13 @@ callers to rediscover whether an edge means material transformation, provider co
 or recovery.
 
 Likewise, shared planning constraints belong at the narrowest physical abstraction that actually shares them.
-Powered ore operations reuse `PoweredOreProcessProfile` concepts such as throughput capability, maximum batch,
-carrier/work demand, and wear. `assess_powered_ore_mass_envelope` derives their current monotonic scale bounds
-from condition-adjusted equipment capacity, finite stored work, delivery power, and usable condition lifetime.
-The result deliberately does not inspect a selected material batch, so process-specific form, composition,
-particle-state, and output legality still belongs to the canonical comminution/screening/separation resolver.
-Callers may also apply a strict caller-chosen condition floor through the envelope without moving maintenance
-policy into ore physics. Destination storage remains an inventory-owned constraint: `StockpileRecord::available_capacity()`
-reports capacity not already occupied by stored matter or committed inbound reservations so actor policy can
-size a candidate from legitimate current state, while canonical reservation/ingress validation remains the
-authorization because the observation can become stale. Homogeneous pure-material melting and casting use separate thermal lot-mass envelopes
-that reuse canonical phase-change energy, condition-adjusted equipment, finite energy, and transfer timing.
-Melting has monotonic scale bounds. Casting additionally evaluates exact transfer-duration buckets against the
-same deferred sink-capacity projection used by canonical admission, because a longer cast can gain more
-guaranteed passive sink recovery and therefore make feasibility non-monotonic across nearby masses. The
-envelopes remain disposable planning evidence; canonical melting/casting resolution still binds exact selected
-matter before authorization. Mining supply, hardness, destination capacity, and player-work blockers remain
-mining semantics even when an actor maps them into a similar high-level strategy such as resize or replenish.
+Powered ore operations share throughput, batch, carrier/work, and wear profile concepts; the powered-ore mass
+envelope derives their current scale bounds without inspecting the selected material batch. Process-specific form,
+composition, particle-state, and output legality remain with the canonical comminution/screening/separation
+resolver. Destination storage remains an inventory-owned constraint observed through available capacity; canonical
+reservation/ingress validation remains the authorization. Homogeneous melting and casting use separate thermal
+lot-mass envelopes over canonical phase-change energy, equipment, finite energy, and transfer timing. All envelopes
+remain disposable planning evidence; canonical resolution still binds exact selected matter before authorization.
 
 Use claim-strength terms consistently when exposing or interpreting this topology:
 
@@ -427,24 +415,11 @@ material-phase, and particle-state containment rules. Existing lots checkpoint a
 new preservation multiplier takes effect, so improved storage affects future spoilage only. Trusted load
 validates enclosure definition, construction time, storage profile, and embodied traces.
 
-Built-in ordinary provisions storage deliberately separates construction cost, usable capacity, preservation,
-and raw-material family instead of forming a linear upgrade ladder. All six definitions retain the same 333.15 K
-solid-containment ceiling, so none acts as high-temperature containment. Their current ordinary acquisition
-contracts are:
-
-| Enclosure | Capacity | Preservation | Embodied body | Raw route | Attention |
-| --- | ---: | ---: | ---: | --- | ---: |
-| rough timber field box | 10 kg | 1.25x | 1.6 kg wood | 2 kg logs -> 1.6 kg boards + 0.4 kg chips | 150 ticks |
-| lidded timber chest | 20 kg | 2x | 2.4 kg wood | 3 kg logs -> 2.4 kg boards + 0.6 kg chips | 230 ticks |
-| slatted timber bulk crate | 50 kg | 1.5x | 3.2 kg wood | 4 kg logs -> 3.2 kg boards + 0.8 kg chips | 290 ticks |
-| double-wall timber chest | 20 kg | 3x | 4.0 kg wood | 5 kg logs -> 4.0 kg boards + 1.0 kg chips | 370 ticks |
-| compact insulated timber pantry | 8 kg | 4x | 4.8 kg wood | 6 kg logs -> 4.8 kg boards + 1.2 kg chips | 440 ticks |
-| carved stone provisions crock | 6 kg | 2.5x | 2.4 kg stone | 3 kg stone -> 2.4 kg crock + 0.6 kg chips | 180 ticks |
-
-Capacity and disclosed raw-material availability are physical feasibility constraints before any actor-side
-preference ranking. Because construction delay occurs before the improved storage rate begins, stronger
-preservation can still be worse at a short matched endpoint; the prospective freshness projection lets legitimate
-callers inspect that break-even effect without cloning a future world or duplicating storage-aging formulas.
+Built-in ordinary provisions storage separates construction cost, usable capacity, preservation,
+and raw-material family instead of forming a linear upgrade ladder. Exact capacities, preservation factors,
+embodied bodies, raw routes, and attention costs live in the authored content definitions. Capacity and available
+raw material constrain feasibility before actor preference. Construction delay precedes the improved storage rate,
+so the prospective freshness projection lets callers inspect that tradeoff without duplicating storage-aging rules.
 
 Enclosure dismantling is the inverse custody transition for that exact embodied matter, not generic demolition.
 The target and recovery stockpiles must be unmounted; the target must have no reserved inbound work and remain
@@ -457,13 +432,9 @@ delayed-output ownership are validated before admission/completion mutation. Gen
 access, and dismantling tools remain outside this transition.
 
 Detached enclosure bodies may then be reused intact or entered into explicit manual salvage. Timber salvage
-always conserves the full body mass as boards plus represented chips: rough field box 1.6 kg -> 0.8/0.8 kg in
-50 ticks, standard chest 2.4 kg -> 1.6/0.8 kg in 70 ticks, bulk crate 3.2 kg -> 2.4/0.8 kg in 80 ticks,
-double-wall chest 4.0 kg -> 3.2/0.8 kg in 100 ticks, and insulated pantry 4.8 kg -> 4.0/0.8 kg in 120 ticks.
-Recovered boards immediately feed ordinary timber joinery, while chip residue remains represented matter rather
-than disappearing as an abstract efficiency loss. The carved stone crock has a separate 70-tick salvage route
-that converts its exact 2.4 kg body into 2.4 kg of stone scrap; that scrap enters the existing slower reknapping
-route. Recovery therefore preserves material ownership without pretending destructive reconfiguration is free.
+conserves the full body mass as boards plus represented chips; the stone crock converts its exact body into
+reworkable stone scrap for the reknapping route. Exact salvage yields and attention costs live in the authored
+definitions.
 
 Structural support links require positive-area voxel contact: overlapping bounds are admissible, as are bounds
 that abut on one axis while overlapping on the other two. Edge-only and corner-only contact cannot carry a load
@@ -541,18 +512,15 @@ equipment profile. Optional profiles retain the authored fixed attention duratio
 required profiles reject equipment-less work. A supplied provider resolves condition-adjusted throughput through
 the normal equipment boundary, becomes production-occupied, wears for the exact active duration, and persists
 its validated post-condition with the job. Equipment never mutates a process's yield: materially different yields
-are separate authored transformations, as with 80/20 hewn boards versus 90/10 frame-sawn boards. Particulate
+are separate authored transformations. Particulate
 output requires an owner that defines particle-size state. `chip` and `scrap` outputs remain represented matter; no owner may reinterpret them as fuel or fresh
 components without an explicit recovery process. Clean built-in copper scrap has two such routes: a slower
 manual cold-work process reforms an exact reinforcement mass without phase change, while pure-copper melting
 accepts authored copper ingot, reinforcement, native-metal, and scrap forms and resolves all of them through the
-same conserved fusion physics. Pure stone scrap has a separate cold reknapping route: one 1 kg batch produces
-0.8 kg consolidated stone tooling plus 0.2 kg stone chips in 60 attention ticks, compared with 40 ticks when
-starting from a fresh 1 kg lump. Reknapping preserves the selected scrap temperature and cannot combine lots at
-different temperatures because no thermal-mixing owner exists. This does not make wood scrap or stone/wood chips
-fresh components; those remain represented terminal matter in the current ordinary loop. Nor does it make ore,
-crushed ore, or concentrate meltable; those feeds still require a separate reduction/smelting owner that is not
-implemented.
+same conserved fusion physics. Pure stone scrap has a separate cold reknapping route with slower attention than
+fresh lump knapping. Reknapping preserves the selected scrap temperature and cannot combine lots at
+different temperatures because no thermal-mixing owner exists. Wood scrap and stone/wood chips remain
+represented terminal matter; ore, crushed ore, and concentrate require a separate reduction/smelting owner.
 
 Loss of required equipment or output support may suspend a job. Suspension preserves work-in-process,
 reservations, and exact remaining active time. Production schedules also persist completed wall-clock suspension
@@ -631,12 +599,9 @@ authored capability without replacing the instance or prior wear; processors may
 capacity. Their condition curves degrade both productive flow and safe batch capacity;
 component service replaces only the authored working component and leaves unrelated handles, frames, and copper
 reinforcement embodied. Worn disassembly follows that same component ownership: the worn component enters its
-authored spent form while unrelated embodied traces are recovered exactly. This prevents a worn saw blade from
-destroying its timber frame, or a worn stone head from destroying intact copper reinforcement, without allowing
-the wear-bearing component to reset into reusable stock. Stone working-component service and disassembly emit
-the exact worn mass as stone scrap. Once at least 1 kg of compatible pure scrap has accumulated, manual reknapping
-can produce another exact 0.8 kg pick/separator component. The remaining scrap and produced chips stay represented,
-so repeated service reduces but does not eliminate fresh stone demand.
+authored spent form while unrelated embodied traces are recovered exactly. Stone working-component service and disassembly emit
+the exact worn mass as stone scrap. Compatible pure scrap reknaps into reusable tool components through an authored
+route; remaining scrap and chips stay represented.
 
 ### Player work and survival
 
@@ -651,9 +616,8 @@ resumption must reacquire it and revalidate the exact remaining budget.
 Direct manual power requires portable unmounted equipment and a compatible finite energy destination. Duration
 is limited by provider capability, destination input power, sustainable metabolic output, and requested work.
 Energy creation, physiological cost, and equipment wear share one validated operation. Generated work remains
-in player-work custody until completion. Sink-capacity admission therefore credits passive dissipation guaranteed
-before the release tick, but never the completion tick itself because same-tick ingress is applied before passive
-loss. Trusted load reprojects the same rule from current stored energy and the exact remaining work interval.
+in player-work custody until completion. Sink-capacity admission credits only passive dissipation guaranteed
+before the release tick. Trusted load reprojects the same rule from current stored energy and remaining work.
 
 `SurvivalState` owns metabolic energy, hydration, vitality, recent nutrition, terminal consumed matter/fluid
 totals, and exact pending direct-consumption custody. Eating and drinking transfer selected physical quantities
@@ -694,11 +658,10 @@ along the current definition's upgrade ancestry, while still requiring the exact
 state, and nonfuture provenance.
 Disassembly remains the inverse exact-custody route for empty, idle stores.
 
-The built-in copper-banded stone flywheel adds one 20 g copper reinforcement to the ordinary 900 g stone plus
-200 g wood accumulator. It keeps the base 150 W input limit, 500 W output limit, and 1 W passive loss but
-raises stored-work capacity from 500 J to 750 J. That reserve is directly usable by primitive processing: the
-built-in crusher requires 1 J per gram, so a fully charged upgraded flywheel can cover a 750 g crushing charge
-that cannot fit in the base accumulator.
+The built-in copper-banded stone flywheel adds authored copper reinforcement to the ordinary stone-plus-wood
+accumulator. It preserves carrier, transfer limits, and passive loss while raising stored-work capacity; exact
+masses and capacities live in the authored definitions. The expanded reserve funds larger primitive-processing
+batches through the same canonical energy path.
 
 Fluid stores own identity, volume, temperature, capacity, revision, and optional structural support. A material
 has at most one fluid identity in the current homogeneous-fluid model. Runtime supports exact withdrawal and
@@ -707,9 +670,8 @@ represented volume and authored density to exact micrograms; structural loading 
 that same physical projection rather than re-deriving density arithmetic independently. Stored-fluid sensible
 energy is projected exactly from represented mass, temperature, and specific heat; when the backing material has
 authored fusion properties, the ledger also includes liquid latent heat without rounding sub-nanojoule remainders. Passive fluid heat transport
-remains absent. The thermal fate of food or fluid after either crosses the terminal survival-consumption boundary
-remains outside the explicit-energy ledger; biological transformation, body heat, and waste streams are not yet
-modeled.
+is absent. The thermal fate of food or fluid after either crosses the terminal survival-consumption boundary
+is outside the explicit-energy ledger.
 
 ## Structures
 

@@ -1,12 +1,4 @@
-//! Controlled starting-state construction for gameplay evaluation.
-//!
-//! General loose-matter/fluid acquisition, broad construction/haulage, and acquisition for every
-//! industrial energy carrier are outside current runtime scope. This module may establish only those
-//! unavailable prerequisites before actor admission. Reachable mechanics, including primitive
-//! energy-store assembly and survival-costed manual generation, use their canonical runtime paths.
-//!
-//! After setup, gameplay evaluation uses production resolvers, validators, commits, and simulation
-//! ticks. Setup-only mutation stays in this module so fixture authority cannot become actor authority.
+//! Controlled pre-admission starting-state construction; setup-only mutation stays here.
 
 use crate::core::quantity::{Energy, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};

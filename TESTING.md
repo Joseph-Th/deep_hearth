@@ -33,16 +33,14 @@ Use the smallest lane that completely proves the changed contract.
 `quick` is build-free. `gate` runs one build lane and does not repeat `quick`; specialized flags replace its
 default compile. `audit` checkpoints add `quick` to the selected runtime surface.
 
-While code is unstable, use `cargo check-fast` or `run_test.py --check`, then one exact/suite or focused proof.
-Reuse warm artifacts; never prebuild all targets. Broad gameplay builds one `gameplay_audit` crate. Routine gates
-run maintained deterministic regression/coverage cases plus one bounded deterministic organic-variation case per
-probe, so the repair loop exercises organic gameplay without becoming a soak. Explicit replay roots reseed that
-bounded case; `report` owns fresh organic exploration.
+During edits, use `cargo check-fast` or `run_test.py --check`, then one exact/suite or focused proof.
+Reuse warm artifacts. Routine gates run maintained deterministic cases plus one bounded deterministic
+organic-variation case per probe; explicit replay roots reseed that bounded case and `report` owns fresh exploration.
 
 Without `--target`, `run_test.py` resolves tests from source without Cargo and chooses the smallest complete
 explicit target. Pin `--target` only to reuse a warm failed binary or force an integration boundary. `--check`
-always requires an explicit integration target. Exact tests are quiet by default; `--verbose` implies `--nocapture`. Detailed gameplay narration is report-only,
-so focused test binaries do not code-generate review/trace formatting that the repair loop normally discards.
+always requires an explicit integration target. Exact tests are quiet by default; `--verbose` implies `--nocapture`.
+Detailed gameplay narration is report-only.
 
 ## Evidence ladder
 
@@ -62,7 +60,7 @@ verification as a proof graph: reuse stronger evidence. A proof receipt names co
 result, replay input, and relevant freshness basis, mapped to the task control coordinate.
 
 A new production projection/envelope that replaces caller reconstruction must agree with canonical semantics on
-representative feasible, limiting, infeasible, and stale cases. The harness is not its oracle.
+representative feasible, limiting, infeasible, and stale cases.
 
 ### Diagnostic contract
 
@@ -92,9 +90,8 @@ another owner or runtime boundary.
 | Caller searches nearby feasible requests | owning resolver/envelope | monotonic bound agreement without copied formulas |
 | Complexity regressed | BCA changed-source review and owner shape | specific branch/ownership cost, not only a score |
 
-Repair direct tooling failures before behavioral probes. Use `python ci.py gate --gameplay <scope>` rather than
-reconstructing gameplay Cargo flags. For an individual failure, prefer target-free `run_test.py`; a broad CI
-failure hint may deliberately retain `--target` so the already-built failing binary stays warm.
+Repair direct tooling failures before behavioral probes. Use `python ci.py gate --gameplay <scope>` for gameplay
+failures. For an individual failure, prefer target-free `run_test.py`.
 
 ## Complexity review
 
@@ -136,14 +133,10 @@ Focused gameplay targets are compile surfaces, not contract collections. Each fo
 gate/probe and imports only support needed by that episode. Default gates are deterministic and do not generate
 fresh worlds; use explicit replay roots for one additional bounded case or `report` for organic exploration. Cheap
 cross-cutting contracts belong in `gameplay_contracts`; broad gameplay contracts belong in the consolidated
-`gameplay_audit` target. This prevents Cargo from code-generating unrelated tests when one gameplay loop is under
-repair. The default report is an aggregate experience summary; use `DEEP_HEARTH_GAMEPLAY_VERBOSE=1 python ci.py
-report` when judging individual preservation frontiers, woodworking lifecycle/payback, or fieldwork decisions.
-Verbose ordinary traces pair exact ticks with physical durations where attention cost is part of the player
-tradeoff. Aggregate time uses the registry-derived clock. Concise goal comparisons retain one seeded example;
-verbose output retains all examples. The broad audit includes `fieldwork_probe::batch_capped_mining_finishes_the_requested_order` for
-ordinary extraction-order continuation; the fieldwork exploration episode remains report-driven. Successful
-verbose reports retain complete selected evidence rather than applying failure-transcript head/tail limits.
+`gameplay_audit` target. The default report is an aggregate experience summary; use `DEEP_HEARTH_GAMEPLAY_VERBOSE=1 python ci.py
+report` for preservation frontiers, woodworking lifecycle/payback, or fieldwork decisions.
+Aggregate time uses the registry-derived clock. The broad audit includes `fieldwork_probe::batch_capped_mining_finishes_the_requested_order` for
+ordinary extraction-order continuation; the fieldwork exploration episode remains report-driven.
 
 ## Completion
 

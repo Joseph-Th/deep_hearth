@@ -225,10 +225,9 @@ decisions or world coherence.
 
 ## Development direction
 
-The design preference is a dense connected simulation: close useful control loops before multiplying
-disconnected content, and prefer reusable physical dimensions over feature-specific exceptions. The concrete
-future integration sequence and vertical-slice completion criteria live in [`DIRECTION.md`](DIRECTION.md) so
-product intent does not become mixed with current implementation priority.
+Prefer a dense connected simulation: close useful control loops before multiplying disconnected content, and
+prefer reusable physical dimensions over feature-specific exceptions. [`DIRECTION.md`](DIRECTION.md) owns the
+integration sequence and slice completion criteria.
 
 ## Boundary
 

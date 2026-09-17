@@ -98,12 +98,12 @@ instead of pushing them into individual definitions.
 
 Use concrete callers to distinguish useful future work from theoretical API symmetry:
 
-| Signal | Current evidence | Direction |
-| --- | --- | --- |
-| Some `()` commits are already semantically complete | storage-enclosure construction changes the caller-named stockpile immediately; controlled structural materialization changes the caller-named element. | Preserve `()` where no new continuation fact is created; do not add signature ceremony solely for API symmetry. |
-| Canonical time advancement is repeatedly wrapped by caller loops | progression, survival, thermal, ore, and workshop code repeatedly loop `advance_tick`; workshop's job advance helper already consumes typed completion/suspension outcomes, while many `advance_exact` helpers discard outcomes. | Prefer one bounded batch/stop abstraction only if it serves multiple legitimate callers. It must call canonical ticks and preserve outcome order. Do not treat known schedules as permission for semantic fast-forward. |
-| Structural relocation can be inspected before mutation | validated equipment relocation exposes the resulting structural analysis when the represented load changes; force-rounded load no-ops are still revision-bound but expose no synthetic analysis. The workshop actor consumes the real analysis before committing load-changing relocation. | Preserve this pattern: prediction and authorization share production semantics, and the actor does not clone or mutate the world to preview legality. |
-| Deterministic lot choice remains harness policy | `tests/gameplay_harness/material_selection.rs` chooses exact lots from observable stockpile order to satisfy an actor-selected mass. | Do not move this into production merely for reuse. The inventory owner supplies authoritative lots; tie-breaking among otherwise legal observable inputs belongs to actor policy unless product semantics require a canonical choice. |
+| Signal | Direction |
+| --- | --- |
+| A commit creates no new continuation fact | Preserve `()`; do not add signature ceremony solely for API symmetry. |
+| Several callers loop canonical ticks with their own stop logic | Prefer one bounded batch/stop abstraction only if it serves multiple legitimate callers. It must call canonical ticks and preserve outcome order. |
+| A prediction can share production semantics before mutation | Preserve prediction/authorization sharing; the actor previews legality without cloning or mutating the world. |
+| Tie-breaking among otherwise legal observable inputs | Keep tie-breaking in actor policy; the inventory owner supplies authoritative lots unless product semantics require a canonical choice. |
 
 Keep this table small. Remove a signal when its underlying friction disappears; it is a planning aid, not a
 second status page.
@@ -113,19 +113,14 @@ second status page.
 When an authorized implementation slice exposes these debts, prefer the least-semantic-cost improvement first:
 
 1. **Consume existing semantics correctly.** Replace caller rescans or duplicated checks with already-available
-   typed outcomes/projections before adding production API. Example: use `TickOutcome` completion identity rather
-   than polling for job disappearance.
+   typed outcomes/projections before adding production API.
 2. **Propagate discarded owner results.** If a lower owner already computes a continuation fact, carry it through
-   the crossed edge. Current examples are the inventory-owned landing identities now propagated through
-   production completion/mining claim and the direct-consumption completion schedule returned by admission.
+   the crossed edge.
 3. **Compress immutable topology.** Add typed registry-derived reverse indexes for repeated producer/provider/
    construction/upgrade/recovery discovery. Prove exact derivation from definitions; do not add mutable world
    availability or actor preference.
 4. **Expose production-owned feasible projections.** Replace repeated request probing with domain-specific
-   bounds where production already derives the limiting dimensions. Powered ore follows this pattern through
-   `PoweredOreMassEnvelope`. Homogeneous pure-material melting and casting now use thermal lot-mass envelopes;
-   casting evaluates exact transfer-duration buckets because deferred passive sink recovery makes global mass
-   feasibility non-monotonic. Do not simplify a coupled physical constraint merely to obtain a searchable scalar.
+   bounds where production already derives the limiting dimensions. Do not simplify a coupled physical constraint merely to obtain a searchable scalar.
 5. **Batch canonical continuation.** If multiple legitimate callers still hand-roll time loops, provide bounded
    stepping that executes `advance_tick` and preserves ordered outcomes. Do not implement semantic fast-forward
    as a convenience optimization.
@@ -218,10 +213,8 @@ each slice when concrete friction is exposed, so the repository becomes easier t
 Before opening major new domains, preferentially finish ordinary authorization around already-modeled physical
 transitions and capability-only systems where a small missing edge is the blocker. High-value examples are
 player-authorized construction/deconstruction or recovery steps, ordinary acquisition paths, and production
-read surfaces that currently require controlled setup or specialized harness knowledge. The existing copper
-progression also has a high-connectivity material gap between prepared ore and pure copper; a physically explicit
-reduction/smelting route belongs here when its required heat, reductant, byproduct, and equipment ownership can
-be modeled coherently through existing or deliberately introduced owners.
+read surfaces that currently require controlled setup. The copper progression gap between prepared ore and pure
+copper belongs here when its heat, reductant, byproduct, and equipment ownership can be modeled coherently.
 
 Completion criterion: the capability can move from controlled/capability-only evidence toward ordinary play
 without adding an alternate semantic path.

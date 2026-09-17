@@ -41,10 +41,9 @@ automated actors can read, but consequential writes must return through owner-co
 the canonical tick orchestrator. Do not add a public `*_mut` escape hatch to make an adapter, harness, or agent
 integration convenient.
 
-Ordinary builds also do not expose whole-state cloning or equality for `AppState`: both would include hidden
-authoritative facts and make speculative future forks or whole-state diffs an accidental caller interface.
-Unit tests and the explicit `test-gameplay` evaluation feature may derive those traits for atomicity,
-determinism, replay, and matched-counterfactual evidence only; they are not actor observation surfaces.
+Ordinary builds expose no whole-state cloning or equality for `AppState`. Unit tests and the explicit
+`test-gameplay` evaluation feature may derive those traits for atomicity, determinism, replay, and
+matched-counterfactual evidence only; they are not actor observation surfaces.
 
 A value type may expose mutation when it is independently ownable and mutation is its own complete contract,
 such as an explicitly owned deterministic RNG. That does not authorize bypassing `AppState` ownership for
@@ -167,13 +166,8 @@ inventory ingress already determines which persistent lot identity survives inse
 is the inventory owner's semantic result. A production completion, mining claim, salvage operation, or future
 logistics delivery may compose that receipt with its own job/route identity instead of inventing a separate
 "produced lot" concept. The receipt should describe contribution-to-surviving-identity, not imply that a new
-record was allocated when the matter merged into an existing one.
-
-Current examples follow that rule: reserved inventory deposits return surviving lot identities; production
-completion pairs each exact output contribution with its surviving identity per stream, and mining claim pairs
-its exact claimed output with its surviving identity. Direct food/fluid admission similarly returns its
-already-resolved completion tick so the caller can continue without rereading work state solely to rediscover
-the schedule.
+record was allocated when the matter merged into an existing one. The concrete receipt shapes live in
+[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#destination-landing-identity).
 
 A receipt or dependency stamp is evidence about authoritative state, not another state owner. Callers may cache
 it as disposable working memory. If a later command or tick can affect a dependency, refresh the relevant
@@ -280,11 +274,8 @@ encode actor preference, hidden runtime truth, or mutable availability into them
 
 When topology spans several validated registries, the aggregate `Registries` assembly boundary is the natural
 owner of the derived cross-registry index. Domain registries continue to own their definitions; the aggregate
-may cache relationships already established by cross-validation. `Registries::process_topology()` binds each
-physically resolvable `ProcessId` to exactly one execution family, its typed energy role, nominal matching
-equipment definitions, and compatible energy-store definitions without making any claim about runtime instances
-or ordinary acquisition. `CraftingRegistry` similarly owns direct producer/consumer reverse indexes for manual
-material edges so callers do not rescan every craft definition.
+may cache relationships already established by cross-validation. [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#planning-topology)
+owns the concrete topology projection contract.
 
 ### Claim-strength vocabulary
 
@@ -307,26 +298,9 @@ must not be interpreted as transitive or ordinary reachability.
 ### Temporal control and batching
 
 `advance_tick` is the authoritative temporal transition. Agent ergonomics does not justify a second clock path.
-Distinguish two very different optimizations:
-
-- **Batched stepping** executes the canonical tick repeatedly inside one bounded call and returns the ordered
-  outcomes, selected matching outcomes, or a deterministic summary sufficient for the caller's declared stop
-  condition. This can reduce caller loops, transport/tool calls, and repeated state inspection without changing
-  simulation semantics.
-- **Semantic fast-forward** computes the state after an interval without executing every canonical tick. This is
-  a new simulation algorithm, not an API convenience. It is valid only when equivalence is proved for every
-  affected phase, threshold crossing, random draw, passive loss, survival effect, suspension/resume transition,
-  and externally observable outcome ordering.
-
-Prefer batching before fast-forward. A batch must have an explicit maximum tick/horizon bound and must not hide
-an outcome the caller needs to make an intervention. When the caller asks to stop on a domain event, evaluate
-that stop condition only from legitimate ordered `TickOutcome` data or other actor-visible facts, never hidden
-future state. If no such common caller exists, a local adapter/harness loop is sufficient and no production API
-is needed.
-
-Known schedules are planning aids, not permission to jump over intervening semantics. A completion receipt may
-let a caller choose an upper bound such as `completes_at`, while canonical ticking still determines whether an
-earlier death, support loss, suspension, passive depletion, or other observable event changes the plan.
+[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract) owns the batching versus fast-forward
+equivalence contract: batching wraps canonical ticks with an explicit horizon bound, while fast-forward requires
+proved equivalence across every skipped phase.
 
 ## Abstraction and dependency direction
 
@@ -364,8 +338,7 @@ reuse vocabulary
     -> update the single authority page whose truth changed
 ```
 
-This ordering is not a mandatory implementation sequence. It is a pressure against semantic entropy. A change
-that requires a new owner, new generic action shape, new cache, new status vocabulary, new harness legality
+A change that requires a new owner, new generic action shape, new cache, new status vocabulary, new harness legality
 model, and new broad test lane for one local behavior is probably attached at the wrong abstraction level.
 
 Accretive work should leave the next change cheaper to understand than an equivalent change would have been

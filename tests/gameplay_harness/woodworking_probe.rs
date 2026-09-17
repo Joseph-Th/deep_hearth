@@ -782,10 +782,7 @@ fn evaluate_woodworking_probe(
         _ => Mass::from_milligrams(200_000),
     };
     let saw_fundable = copper_available >= blade_input;
-    // Two future 20 g copper reinforcements (pick, crank, adze, crusher, separator, quern:
-    // every primitive copper upgrade costs COPPER_REINFORCEMENT_MASS). The actor cannot
-    // prospect or mine inside this episode, so the reserve stands in for that opportunity
-    // cost rather than implying a production rule.
+    // Reserve covers two future copper reinforcements; it stands in for opportunity cost.
     let protected_copper_reserve = Mass::from_milligrams(40_000);
 
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x574F_4F44_574F_524C));
@@ -845,9 +842,7 @@ fn evaluate_woodworking_probe(
     )
     .unwrap_or_else(|error| panic!("woodworking bare pipeline planning failed: {error}"));
     let bare_attention = bare_pipeline_projection.duration().value();
-    // Freeze intent from the current raw inventory and authored construction routes BEFORE
-    // executing any branch. Workload budgets below are actor willingness, not forecasts of
-    // future wear/service or promises of economic payback.
+    // Freeze intent from current inventory and authored routes before branching; budgets below are actor willingness.
     let construction_budget = |equipment| {
         let profile = registries
             .equipment()
@@ -1389,8 +1384,8 @@ fn woodworking_policy_prices_observed_budget_and_copper_before_execution() {
 fn woodworking_keeps_pre_action_choice_when_future_saw_is_cheaper() {
     let registries = deep_hearth::content::build_registries();
     // A finite intermediate order with sufficient copper: the conservative actor will
-    // not spend its construction budget. The completed saw route is cheaper nevertheless.
-    // The old hindsight picker chooses the saw, so this regression distinguishes the leak.
+    // not spend its construction budget even though the completed saw route is cheaper.
+    // Reject the saw when pre-action intent cannot fund it.
     let (choice, selected_attention, saw_attention) = evaluate_woodworking_probe(
         &registries,
         FocusedProbeCase::new(80, Some(2), FocusedProbeRole::OrganicVariation),
