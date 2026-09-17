@@ -365,6 +365,8 @@ fn industrial_maintenance_replacement_mass_scales_with_machine_mass() {
                 equipment.value()
             )
         });
+        assert!(!maintenance.is_component_replacement());
+        assert!(maintenance.full_service_replacement_mass() > Mass::ZERO);
         assert_eq!(
             maintenance.full_service_replacement_mass().milligrams(),
             definition
@@ -381,6 +383,98 @@ fn industrial_maintenance_replacement_mass_scales_with_machine_mass() {
             maintenance.spent(),
             CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)
         );
+    }
+}
+
+#[test]
+fn industrial_service_preserves_steady_life_attention_savings() {
+    use crate::content::processes::{
+        PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_HEAT_MATERIAL_BATCH,
+        PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS,
+        PROCESS_SCREEN_CRUSHED_ORE,
+    };
+
+    let registries = crate::content::build_registries();
+    let ore = registries.ore_processing();
+    let thermal = registries.thermal();
+    // Use the highest-wear authored route for machines with multiple processing routes.
+    let machine_wear = [
+        (
+            EQUIPMENT_JAW_CRUSHER,
+            ore.get_comminution(PROCESS_CRUSH_ORE)
+                .unwrap_or_else(|| panic!("crusher process disappeared"))
+                .condition_wear_ppm_per_active_tick(),
+        ),
+        (
+            EQUIPMENT_GRINDING_MILL,
+            ore.get_comminution(PROCESS_REGRIND_COPPER_TAILINGS)
+                .unwrap_or_else(|| panic!("tailings regrind process disappeared"))
+                .condition_wear_ppm_per_active_tick(),
+        ),
+        (
+            EQUIPMENT_DRY_SCREEN,
+            ore.get_screening(PROCESS_SCREEN_CRUSHED_ORE)
+                .unwrap_or_else(|| panic!("screening process disappeared"))
+                .condition_wear_ppm_per_active_tick(),
+        ),
+        (
+            EQUIPMENT_GRAVITY_SEPARATOR,
+            ore.get_constituent_separation(PROCESS_SCAVENGE_COPPER_TAILINGS)
+                .unwrap_or_else(|| panic!("tailings scavenging process disappeared"))
+                .condition_wear_ppm_per_active_tick(),
+        ),
+        (
+            EQUIPMENT_ELECTRIC_FURNACE,
+            thermal
+                .get_sensible_heating(PROCESS_HEAT_MATERIAL_BATCH)
+                .unwrap_or_else(|| panic!("heating process disappeared"))
+                .condition_wear_ppm_per_active_tick(),
+        ),
+        (
+            EQUIPMENT_CASTING_MOLD,
+            thermal
+                .get_casting(PROCESS_CAST_PURE_COPPER)
+                .unwrap_or_else(|| panic!("casting process disappeared"))
+                .condition_wear_ppm_per_active_tick(),
+        ),
+    ];
+    let component_service = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_PICK)
+        .and_then(|definition| definition.maintenance_profile())
+        .unwrap_or_else(|| panic!("stone pick component service disappeared"));
+
+    for (equipment, wear_per_active_tick) in machine_wear {
+        let service = registries
+            .equipment()
+            .get_equipment(equipment)
+            .and_then(|definition| definition.maintenance_profile())
+            .unwrap_or_else(|| panic!("industrial service {} disappeared", equipment.value()));
+        let duration = u128::from(service.full_service_duration().value());
+        let restored = u128::from(service.restored_condition().parts_per_million());
+        // Service/work = duration / (restored condition / wear), without floating-point rounding.
+        let attention_numerator = duration * u128::from(wear_per_active_tick);
+        assert!(
+            attention_numerator > 0,
+            "industrial upkeep must not be free"
+        );
+        assert!(
+            attention_numerator * 5 < restored,
+            "machine {} must spend less than one fifth of its productive lifetime in manual service",
+            equipment.value()
+        );
+        assert!(
+            duration
+                * u128::from(
+                    component_service
+                        .full_service_replacement_mass()
+                        .milligrams()
+                )
+                > u128::from(component_service.full_service_duration().value())
+                    * u128::from(service.full_service_replacement_mass().milligrams()),
+            "bulk industrial service must remain slower per mass than component replacement"
+        );
+        assert_eq!(service.exertion(), component_service.exertion());
     }
 }
 

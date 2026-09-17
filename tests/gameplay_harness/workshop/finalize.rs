@@ -186,7 +186,7 @@ pub(super) fn finalize_scenario(
     report.resources.final_hand_crank_condition_ppm =
         final_hand_crank_condition.parts_per_million();
     println!(
-        "  outcome: ore={}/{}mg operations={} adaptive=[total:{} condition:{} stored-work:{}] before_event={} choices=[policy:{} single-source:{} manual-recharges:{}] suspended={} stranded_wip={} equipment=[crusher:{}ppm/{:?} crank:{}ppm] maintenance=[services:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] manual_generation=[energy:{}nJ ticks:{} body:{}nJ/{}uL] survival=[spent-energy:{}nJ spent-hydration:{}uL vitality:{}ppm] active_support={:?}/cracked:{} ticks={}",
+        "  outcome: ore={}/{}mg operations={} adaptive=[total:{} condition:{} stored-work:{}] before_event={} choices=[policy:{} single-source:{} manual-recharges:{}] suspended={} stranded_wip={} equipment=[crusher:{}ppm/{:?} crank:{}ppm] maintenance=[services:{} warning-deferred:{} critical-required:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] manual_generation=[energy:{}nJ ticks:{} body:{}nJ/{}uL] survival=[spent-energy:{}nJ spent-hydration:{}uL vitality:{}ppm] active_support={:?}/cracked:{} ticks={}",
         report.progress.processed_mass.milligrams(),
         report.progress.target_mass.milligrams(),
         report.progress.operations_completed,
@@ -203,6 +203,8 @@ pub(super) fn finalize_scenario(
         thresholds.classify(final_condition),
         final_hand_crank_condition.parts_per_million(),
         report.maintenance.services,
+        report.maintenance.warning_deferrals,
+        report.maintenance.critical_services,
         report.maintenance.replacement_spent.milligrams(),
         maintenance_remaining.milligrams(),
         small_remaining.nanojoules(),
@@ -219,7 +221,7 @@ pub(super) fn finalize_scenario(
         state.tick().value(),
     );
     println!(
-        "  report: structural_change={} damage_debt={} support_block={} relocation={} structural_stop={} production_suspension={} stranded_wip={} machine_ops=[small:{} large:{}] manual_recharges={} power_choices=[policy:{} single-source:{}] bottlenecks=[energy:{} throughput:{} balanced:{}] maintenance_warning={} maintenance_services={} maintenance_ticks={} maintenance_supply_exhausted={} maintenance_labor_unavailable={} stops=[maintenance:{} energy:{} recovery_declined:{} recovery_survival_limited:{}] ore_frontier={}",
+        "  report: structural_change={} damage_debt={} support_block={} relocation={} structural_stop={} production_suspension={} stranded_wip={} machine_ops=[small:{} large:{}] manual_recharges={} power_choices=[policy:{} single-source:{}] bottlenecks=[energy:{} throughput:{} balanced:{}] maintenance_warning={} maintenance_services={} maintenance_ticks={} maintenance_supply_exhausted={} maintenance_labor_unavailable={} stops=[maintenance-required:{} energy:{} recovery_declined:{} recovery_survival_limited:{}] ore_frontier={}",
         report.structure.structural_consequence,
         report.structure.structural_damage_debt,
         report.structure.support_failure_blocked_production,

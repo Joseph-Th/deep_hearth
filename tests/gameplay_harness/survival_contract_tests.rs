@@ -52,7 +52,11 @@ fn survival_explanation_marks_physically_forced_preservation_without_zero_tradeo
         PreservationComparison, preservation_comparison_explanation,
     };
     let registries = build_registries();
-    let food = *registries.survival().foods().next().expect("authored food");
+    let food = *registries
+        .survival()
+        .foods()
+        .next()
+        .unwrap_or_else(|| panic!("authored food"));
     let stone_only = [(
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         Mass::from_milligrams(3_000_000),

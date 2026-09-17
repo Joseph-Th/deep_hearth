@@ -36,11 +36,21 @@ use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft_batches;
 use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_power_timing::finish_manual_power_work;
+use super::physical_time::format_physical_duration;
 use super::seed::mix64;
 
 struct ShapedBuild {
     attention_ticks: u64,
     input_mass_mg: u64,
+    embodied_mass_mg: u64,
+}
+
+fn stockpile_mass(state: &AppState, raw: StockpileId) -> Mass {
+    state
+        .inventory()
+        .get_stockpile(raw)
+        .unwrap_or_else(|| panic!("power build stockpile disappeared"))
+        .stored_mass()
 }
 
 fn shape_assembly_inputs(
@@ -107,7 +117,16 @@ fn build_provider(
                 definition.value()
             )
         });
+    let raw_before = stockpile_mass(state, raw);
     let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
+    let input_mass_mg = raw_before
+        .checked_sub(stockpile_mass(state, raw))
+        .unwrap_or_else(|| panic!("power build must withdraw raw matter"))
+        .milligrams();
+    assert!(
+        input_mass_mg >= inputs.0.milligrams(),
+        "raw bill must cover embodied matter"
+    );
     let equipment = validate_assemble_equipment(registries, state, definition, shaped)
         .unwrap_or_else(|error| panic!("power provider equipment assembly failed: {error}"))
         .commit(state)
@@ -116,7 +135,8 @@ fn build_provider(
         equipment,
         ShapedBuild {
             attention_ticks,
-            input_mass_mg: inputs.0.milligrams(),
+            input_mass_mg,
+            embodied_mass_mg: inputs.0.milligrams(),
         },
     )
 }
@@ -144,7 +164,16 @@ fn build_flywheel(
             )
         })
         .unwrap_or_else(|| panic!("power provider flywheel lost authored assembly"));
+    let raw_before = stockpile_mass(state, raw);
     let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
+    let input_mass_mg = raw_before
+        .checked_sub(stockpile_mass(state, raw))
+        .unwrap_or_else(|| panic!("power build must withdraw raw matter"))
+        .milligrams();
+    assert!(
+        input_mass_mg >= inputs.0.milligrams(),
+        "raw bill must cover embodied matter"
+    );
     let store = validate_assemble_energy_store(registries, state, definition, shaped)
         .unwrap_or_else(|error| panic!("power provider flywheel assembly failed: {error}"))
         .commit(state)
@@ -153,7 +182,8 @@ fn build_flywheel(
         store,
         ShapedBuild {
             attention_ticks,
-            input_mass_mg: inputs.0.milligrams(),
+            input_mass_mg,
+            embodied_mass_mg: inputs.0.milligrams(),
         },
     )
 }
@@ -397,9 +427,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         treadle_build_mass_mg > crank_build_mass_mg,
         "the treadle route must remain a heavier material investment than the crank route"
     );
-    // Lifetime economics: the treadle costs more build attention once and saves charge
-    // attention on every flywheel job. Break-even charges tell a settlement planner how
-    // many full charges it takes before the heavier frame pays for itself.
+    // Initial-rate estimate, not executed lifetime payback: repeat charges incur wear and
+    // eventually service. Keep that uncertainty visible rather than projecting one fresh
+    // charge into a guaranteed lifetime result.
     let charge_saving_per_job_ticks = crank_charge
         .attention_ticks
         .checked_sub(treadle_charge.attention_ticks)
@@ -412,6 +442,41 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     let build_attention_delta_ticks = treadle_build_attention.saturating_sub(crank_build_attention);
     let break_even_charges = build_attention_delta_ticks.div_ceil(charge_saving_per_job_ticks);
+    let crank_embodied = crank_build.embodied_mass_mg + crank_drive_build.embodied_mass_mg;
+    let treadle_embodied = treadle_build.embodied_mass_mg + treadle_drive_build.embodied_mass_mg;
+    let crank_residual = stockpile_mass(&crank_state, shaped).milligrams();
+    let treadle_residual = stockpile_mass(&treadle_state, shaped).milligrams();
+    assert_eq!(
+        crank_build_mass_mg,
+        crank_embodied + crank_residual,
+        "crank raw bill must reconcile equipment, flywheel, surplus and shaping residue"
+    );
+    assert_eq!(
+        treadle_build_mass_mg,
+        treadle_embodied + treadle_residual,
+        "treadle raw bill must reconcile equipment, flywheel, surplus and shaping residue"
+    );
+    assert!(
+        crank_residual > 0 && treadle_residual > 0,
+        "these shaped builds must expose their real surplus/residue rather than just assembly mass"
+    );
+    reviewln!(
+        "POWER BUILD BILL seed=0x{seed:016X} basis=executed-raw-withdrawal crank=[raw:{:.3}kg embodied:{:.3}kg residual:{:.3}kg build:{} charge:{} charge-body:{:.2}kJ] treadle=[raw:{:.3}kg embodied:{:.3}kg residual:{:.3}kg build:{} charge:{} charge-body:{:.2}kJ] buffer:{:.0}J break-even:{}charges estimate=initial-charge-rate-excludes-future-wear-and-service",
+        crank_build_mass_mg as f64 / 1_000_000.0,
+        crank_embodied as f64 / 1_000_000.0,
+        crank_residual as f64 / 1_000_000.0,
+        format_physical_duration(registries, crank_build_attention),
+        format_physical_duration(registries, crank_charge.attention_ticks),
+        crank_charge.metabolic_nj as f64 / 1_000_000_000_000.0,
+        treadle_build_mass_mg as f64 / 1_000_000.0,
+        treadle_embodied as f64 / 1_000_000.0,
+        treadle_residual as f64 / 1_000_000.0,
+        format_physical_duration(registries, treadle_build_attention),
+        format_physical_duration(registries, treadle_charge.attention_ticks),
+        treadle_charge.metabolic_nj as f64 / 1_000_000_000_000.0,
+        capacity_nj as f64 / 1_000_000_000.0,
+        break_even_charges,
+    );
     reviewln!(
         "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] crank=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t break-even-charges:{}] matter=conserved",
         focused_probe_role_label(case.role()),

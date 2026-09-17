@@ -570,7 +570,8 @@ def player_takeaways(lines: list[str]) -> list[str]:
             f"treadle-saves-charge-attention break-even={min(break_evens)}..{max(break_evens)}-full-charges "
             f"treadle-cheaper-metabolically={metabolic_wins}/{len(power)} "
             f"{copper_clause}"
-            "read=heavier-frame-pays-back-over-dozens-of-charges-not-hundreds"
+            "estimate=initial-charge-rate-excludes-future-wear-and-service "
+            "read=weigh-extra-raw-material-and-build-time-against-repeated-charge-savings"
             if break_evens
             else "PLAYER TAKEAWAY probe=power-provider break-even=n/a"
         )
@@ -763,6 +764,8 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     selected.extend(woodworking_baseline_summary(lines))
     selected.extend(woodworking_feedback_summary(lines))
     selected.extend(progression_demand_summary(lines))
+    # One concrete human-scaled bill grounds the aggregate; verbose retains every arm/world.
+    selected.extend([line for line in lines if line.startswith("POWER BUILD BILL ")][:1])
     selected.extend(line for line in lines if line.startswith("PROGRESSION GOAL "))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)

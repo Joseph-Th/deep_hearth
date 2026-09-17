@@ -255,6 +255,7 @@ enum PreBatchTransition {
 fn handle_pre_batch_maintenance(
     registries: &Registries,
     context: &mut BatchSelectionContext<'_>,
+    defer_warning: bool,
 ) -> PreBatchTransition {
     let current_condition = context
         .state
@@ -274,9 +275,10 @@ fn handle_pre_batch_maintenance(
         && context.variation.policy.maintenance_preference
             == MaintenancePreference::ServiceAtWarning
         && !context.report.maintenance.supply_exhausted
+        && !defer_warning
     {
         println!(
-            "  decision: service crusher in warning condition because player policy favors preventive maintenance"
+            "  decision: preventive service at warning; no cheap safe next-batch candidate under current policy"
         );
         match service_crusher(
             registries,
@@ -525,6 +527,83 @@ fn choose_powered_batch(
     }
 }
 
+/// Compare only the next safe nominal-bounded batch with service now, then refresh next time.
+/// Even zero-time production after service cannot repay service longer than this batch.
+fn warning_demand_plan(
+    registries: &Registries,
+    context: &mut BatchSelectionContext<'_>,
+) -> Option<SelectedBatch> {
+    let condition = context
+        .state
+        .equipment()
+        .get_equipment(context.ids.crusher)
+        .unwrap_or_else(|| panic!("workshop crusher disappeared"))
+        .condition();
+    if context.variation.policy.maintenance_preference != MaintenancePreference::ServiceAtWarning
+        || context.thresholds.classify(condition) != MaintenanceBand::Warning
+    {
+        return None;
+    }
+    let remaining = context
+        .report
+        .progress
+        .target_mass
+        .checked_sub(context.report.progress.processed_mass)
+        .unwrap_or_else(|| panic!("workshop processed mass exceeded its work order"));
+    let profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_JAW_CRUSHER)
+        .and_then(|definition| definition.maintenance_profile())
+        .unwrap_or_else(|| panic!("workshop maintenance profile disappeared"));
+    let planned_mass = std::cmp::min(remaining, context.variation.ore.nominal_batch_mass);
+    let service_duration = profile.required_service_duration(condition);
+    let plan = match largest_safe_powered_crush_batch(
+        registries,
+        context.state,
+        context.ids,
+        planned_mass,
+        context.thresholds,
+    ) {
+        CrushBatchSearch::Available(plan) => plan,
+        CrushBatchSearch::EnergyUnavailable | CrushBatchSearch::MaintenanceBlocked => return None,
+    };
+    let (option, reason, choice_basis) = choose_crush_option(
+        plan.small,
+        plan.large,
+        CrushChoiceContext {
+            thresholds: context.thresholds,
+            preference: context.variation.policy.power_preference,
+        },
+    );
+    let duration = option.resolved.process_resolution().duration();
+    let defer = duration < service_duration;
+    println!(
+        "  maintenance frame: remaining={}mg scope=next-batch planned={}mg executable={}mg duration={}t service-now=[material:{}mg duration:{}t] choice={} full-order-forecast=not-claimed",
+        remaining.milligrams(),
+        planned_mass.milligrams(),
+        plan.mass.milligrams(),
+        duration.value(),
+        profile.required_replacement_mass(condition).milligrams(),
+        service_duration.value(),
+        if defer {
+            "defer-warning-reassess-next-batch"
+        } else {
+            "preventive-service"
+        },
+    );
+    defer.then_some(SelectedBatch {
+        mass: plan.mass,
+        option,
+        reason,
+        choice_basis,
+        adaptive: plan.mass < planned_mass,
+        condition_adaptive: plan.equipment_capacity_limited
+            || plan.condition_lifetime_limited
+            || plan.maintenance_limited,
+        energy_adaptive: plan.energy_limited,
+    })
+}
+
 fn select_next_batch(
     registries: &Registries,
     mut context: BatchSelectionContext<'_>,
@@ -540,12 +619,17 @@ fn select_next_batch(
         ) {
             return BatchSelection::MaintenanceActive;
         }
-        match handle_pre_batch_maintenance(registries, &mut context) {
+        let deferred_plan = warning_demand_plan(registries, &mut context);
+        match handle_pre_batch_maintenance(registries, &mut context, deferred_plan.is_some()) {
             PreBatchTransition::Proceed => {}
             PreBatchTransition::Retry => continue,
             PreBatchTransition::Stop => return BatchSelection::Stop,
         }
 
+        if let Some(plan) = deferred_plan {
+            context.report.maintenance.warning_deferrals += 1;
+            return BatchSelection::Ready(Box::new(plan));
+        }
         let remaining = context
             .report
             .progress

@@ -118,7 +118,7 @@ fn default_gate_is_maintained_anchors_plus_one_bounded_organic_case() {
     assert_eq!(plan.variation_seed_count(), 1);
     assert_eq!(plan.custom_seed_count(), 0);
     assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len() + 1);
-    assert!(plan.cases().iter().all(|case| case.anchor.is_some()) == false);
+    assert!(!plan.cases().iter().all(|case| case.anchor.is_some()));
     assert!(
         plan.cases()
             .last()

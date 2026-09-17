@@ -308,8 +308,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     // Use exact constituent numerators, not rounded concentrate grades. Keep any fractional
     // milligrams as decimal digits without floating point or truncating represented copper.
     let copper_mg = |numerator: u128| {
-        let whole = numerator.checked_div(1_000_000).expect("nonzero ppm scale");
-        let fraction = numerator.checked_rem(1_000_000).expect("nonzero ppm scale");
+        let whole = numerator / 1_000_000;
+        let fraction = numerator % 1_000_000;
         if fraction == 0 {
             whole.to_string()
         } else {
@@ -336,16 +336,13 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     // The concentrate stockpile has no ordinary sink yet: reduction/smelting into pure metal is
     // still the STATUS.md frontier, so the scavenger leg reads as future-proofing rather than
     // immediate copper. Report its share of recovered copper alongside that boundary.
-    let scavenger_share_ppm = if recovered_copper_ppm_mg == 0 {
-        0
-    } else {
-        (scavenged
-            .additional_recovered_copper_ppm_mg
-            .checked_mul(1_000_000)
-            .unwrap_or_else(|| panic!("primitive liberation scavenger-share audit overflowed"))
-            / recovered_copper_ppm_mg)
-            .min(1_000_000)
-    };
+    let scavenger_share_ppm = scavenged
+        .additional_recovered_copper_ppm_mg
+        .checked_mul(1_000_000)
+        .unwrap_or_else(|| panic!("primitive liberation scavenger-share audit overflowed"))
+        .checked_div(recovered_copper_ppm_mg)
+        .unwrap_or(0)
+        .min(1_000_000);
     reviewln!(
         "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
         focused_probe_role_label(case.role()),

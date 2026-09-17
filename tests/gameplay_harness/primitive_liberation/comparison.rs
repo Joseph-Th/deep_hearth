@@ -28,13 +28,13 @@ pub(super) fn review(
     scavenged: &ScavengingOutcome,
 ) {
     validate_loaded_state(registries, &full.state)
-        .expect("full-buffer branch must remain loadable");
+        .unwrap_or_else(|error| panic!("full-buffer branch must remain loadable: {error}"));
     assert_eq!(
         calculate_matter_accounting(&full.state)
-            .expect("full-buffer matter audit")
+            .unwrap_or_else(|error| panic!("full-buffer matter audit: {error}"))
             .total(),
         calculate_matter_accounting(&demand.state)
-            .expect("batch-demand matter audit")
+            .unwrap_or_else(|error| panic!("batch-demand matter audit: {error}"))
             .total(),
     );
     let body_cost = |scenario: &PrimitiveLiberationScenario| -> (u128, u64) {
@@ -73,7 +73,7 @@ pub(super) fn review(
             .state
             .energy()
             .get_store(scenario.drive)
-            .expect("comparison drive exists")
+            .unwrap_or_else(|| panic!("comparison drive exists"))
             .stored()
             .nanojoules()
     };

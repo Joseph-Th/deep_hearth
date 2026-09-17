@@ -1410,11 +1410,15 @@ class LocalCiPlanTests(unittest.TestCase):
                 "POWER COPPER-CONTEXT seed=0x0000000000000001 sample=anchor job=[flywheel:1000000000000nJ] provider-power=[stone-crank:50000000uW copper-crank:150000000uW treadle:100000000uW] labor=[crank-efficiency:200000ppm wear:25ppm/t treadle-efficiency:230000ppm wear:15ppm/t] observed=[crank-charge:3t treadle-charge:2t] catalog-note=copper-crank-needs-mined-native-copper-not-in-copper-free-start reachability-authority=STATUS.md",
                 "CAPABILITY FOUNDRY seed=0x1 outcome=full-order-complete melt-limit=offered-batch cast-limit=offered-batch recovery-cast=0mg",
                 "CAPABILITY FOUNDRY seed=0x2 outcome=partial-order-melt-limited melt-limit=finite-energy cast-limit=thermal-sink-capacity recovery-cast=500mg",
+                "POWER BUILD BILL seed=0x1 basis=executed-raw-withdrawal raw:3.000kg",
+                "POWER BUILD BILL seed=0x2 basis=executed-raw-withdrawal raw:4.000kg",
                 "AGENCY PATHS focus=noisy-detail",
                 "test result: ok. 1 passed",
             ]
         )
         concise = ci.concise_gameplay_report(output, {})
+        self.assertIn("POWER BUILD BILL seed=0x1", concise)
+        self.assertNotIn("POWER BUILD BILL seed=0x2", concise)
         for expected in (
             "PLAYER FANTASY ",
             "EVALUATION SCOPE kind=ordinary-play ",
@@ -1429,7 +1433,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "PLAYER TAKEAWAY probe=liberation completed=2/2 scavenger-extra=7000..8000mg share=100000..110000ppm-of-recovered-copper concentrate-awaits-smelting sink=none-ordinary",
             "PLAYER TAKEAWAY probe=woodworking saw=1/3 adze=2/3 bare=0/3 blocked-by-copper=1 reserve-protected=1 fundable=2 attention-payback=2 net-timber-payback=1 read=compare-full-build-cost-short-jobs-can-skip-tools-long-jobs-price-copper-and-wear",
             "PLAYER TAKEAWAY probe=fieldwork inspections=1..3 tools=[soft-quarry:1 reinforced-quarry:1 hard-pick:1] read=transects-rank-inspections-filter-one-survey-prices-the-tool",
-            "PLAYER TAKEAWAY probe=power-provider treadle-saves-charge-attention break-even=67..200-full-charges treadle-cheaper-metabolically=2/2 post-copper=copper-crank-150000000uW-vs-treadle-100000000uW-vs-stone-50000000uW treadle-keeps-metabolic-efficiency-edge read=heavier-frame-pays-back-over-dozens-of-charges-not-hundreds",
+            "PLAYER TAKEAWAY probe=power-provider treadle-saves-charge-attention break-even=67..200-full-charges treadle-cheaper-metabolically=2/2 post-copper=copper-crank-150000000uW-vs-treadle-100000000uW-vs-stone-50000000uW treadle-keeps-metabolic-efficiency-edge estimate=initial-charge-rate-excludes-future-wear-and-service read=weigh-extra-raw-material-and-build-time-against-repeated-charge-savings",
             "PLAYER TAKEAWAY probe=survival binds-thirst=2/3 binds-hunger=1/3 diet=[balanced:1 compact:2] preservation=[efficient:1 forced:1 frontier:0 maximum:1] read=water-is-the-clock-food-breadth-buys-recovery-stronger-storage-can-lose-at-short-horizons",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt",

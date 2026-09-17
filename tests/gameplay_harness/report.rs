@@ -90,7 +90,7 @@ pub(super) enum MaintenancePreference {
 impl MaintenancePreference {
     pub(super) const fn label(self) -> &'static str {
         match self {
-            Self::ServiceAtWarning => "service-warning",
+            Self::ServiceAtWarning => "service-warning-demand-aware",
             Self::ServiceAtCritical => "service-critical",
         }
     }
@@ -168,6 +168,8 @@ impl ScenarioReport {
             choices: ScenarioChoiceReport::default(),
             maintenance: ScenarioMaintenanceReport {
                 services: 0,
+                warning_deferrals: 0,
+                critical_services: 0,
                 service_ticks: 0,
                 replacement_spent: Mass::ZERO,
                 supply_exhausted: false,
@@ -232,6 +234,8 @@ pub(super) struct ScenarioInputReport {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ScenarioMaintenanceReport {
     pub(super) services: u8,
+    pub(super) warning_deferrals: u16,
+    pub(super) critical_services: u8,
     pub(super) service_ticks: u64,
     pub(super) replacement_spent: Mass,
     pub(super) supply_exhausted: bool,
@@ -688,7 +692,7 @@ mod exploratory_output {
                 )
             };
             std::println!(
-                "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-spent=[energy:{}nJ hydration:{}uL] vitality:{}ppm] outcome={}",
+                "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance=[services:{} warning-deferred:{} critical-required:{}] relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-spent=[energy:{}nJ hydration:{}uL] vitality:{}ppm] outcome={}",
                 report.world_seed,
                 report.behavior_seed,
                 report.inputs.initial_maintenance_band,
@@ -715,6 +719,8 @@ mod exploratory_output {
                 report.resources.manually_generated_energy.nanojoules(),
                 report.resources.manual_power_ticks,
                 report.maintenance.services,
+                report.maintenance.warning_deferrals,
+                report.maintenance.critical_services,
                 report.structure.support_relocation,
                 report.structure.production_suspension,
                 report.structure.stranded_work_in_process,
@@ -982,6 +988,15 @@ mod exploratory_output {
             .iter()
             .map(|report| u32::from(report.maintenance.services))
             .sum();
+        let warning_deferrals: u32 = reports
+            .iter()
+            .map(|report| u32::from(report.maintenance.warning_deferrals))
+            .sum();
+        let critical_services: u32 = reports
+            .iter()
+            .map(|report| u32::from(report.maintenance.critical_services))
+            .sum();
+
         let mixed_ore_melt_rejections = reports
             .iter()
             .filter(|report| report.progress.ore_frontier_visible)
@@ -1197,7 +1212,7 @@ mod exploratory_output {
             reports.len() - compact_deliveries,
         );
         std::println!(
-            "WORKSHOP CAPABILITY mode={mode} scenarios={} orders=[complete:{completed_orders} partial:{partial_orders} productive:{productive_orders}/{}] ore={processed_mass_mg}/{target_mass_mg}mg operations={completed_operations} adaptive=[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}] events=[reached:{controlled_deliveries}/{} operations-before-reached:{operations_before_delivery}] stops=[structural:{} maintenance:{} energy:{} declined-manual:{} survival-limited-manual:{}] manual-recovery=[charges:{manual_recharges} generated:{manually_generated_energy}nJ ticks:{manual_power_ticks} metabolic:{manual_metabolic_energy}nJ hydration:{manual_hydration}uL] material=[mixed-ore-melt-rejected:{mixed_ore_melt_rejections}/{}]",
+            "WORKSHOP CAPABILITY mode={mode} scenarios={} orders=[complete:{completed_orders} partial:{partial_orders} productive:{productive_orders}/{}] ore={processed_mass_mg}/{target_mass_mg}mg operations={completed_operations} adaptive=[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}] events=[reached:{controlled_deliveries}/{} operations-before-reached:{operations_before_delivery}] stops=[structural:{} maintenance-required:{} energy:{} declined-manual:{} survival-limited-manual:{}] manual-recovery=[charges:{manual_recharges} generated:{manually_generated_energy}nJ ticks:{manual_power_ticks} metabolic:{manual_metabolic_energy}nJ hydration:{manual_hydration}uL] material=[mixed-ore-melt-rejected:{mixed_ore_melt_rejections}/{}]",
             reports.len(),
             reports.len(),
             reports.len(),
@@ -1225,7 +1240,7 @@ mod exploratory_output {
         );
         let observation_stats = harness_observation_stats(reports);
         std::println!(
-            "CAPABILITY SYSTEMS policy=[power:reserve:{} speed:{} recovery:protect:{} spend:{} maintenance:warning:{} critical:{} structure:margin:{} failure-only:{}] machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive:[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}]] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
+            "CAPABILITY SYSTEMS policy=[power:reserve:{} speed:{} recovery:protect:{} spend:{} maintenance:warning-demand-aware:{} critical-immediate:{} structure:margin:{} failure-only:{}] machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive:[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}]] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services} warning-deferred:{warning_deferrals} critical-required:{critical_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
             reports
                 .iter()
                 .filter(|report| report.policy.power_preference == PowerPreference::PreserveReserve)

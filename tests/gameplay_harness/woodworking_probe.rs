@@ -853,7 +853,7 @@ fn evaluate_woodworking_probe(
             .equipment()
             .get_equipment(equipment)
             .and_then(|definition| definition.assembly_profile())
-            .expect("woodworking equipment has an assembly route");
+            .unwrap_or_else(|| panic!("woodworking equipment has an assembly route"));
         profile
             .inputs()
             .iter()
@@ -878,7 +878,7 @@ fn evaluate_woodworking_probe(
                         "woodworking pre-investment budget",
                     ),
                 )
-                .expect("available construction input resolves");
+                .unwrap_or_else(|error| panic!("available construction input resolves: {error}"));
                 let input_timber = if craft.input().material() == MATERIAL_WOOD {
                     checked_mass_times(craft.input_mass(), batches, "construction budget")
                 } else {
@@ -887,10 +887,10 @@ fn evaluate_woodworking_probe(
                 (
                     ticks
                         .checked_add(resolution.duration().value())
-                        .expect("construction time fits"),
+                        .unwrap_or_else(|| panic!("construction time fits")),
                     timber
                         .checked_add(input_timber)
-                        .expect("construction timber fits"),
+                        .unwrap_or_else(|| panic!("construction timber fits")),
                 )
             })
     };
@@ -903,7 +903,7 @@ fn evaluate_woodworking_probe(
                 saw_batches,
                 "nominal saw work",
             ))
-            .expect("nominal saw timber fits")
+            .unwrap_or_else(|| panic!("nominal saw timber fits"))
     });
     let nominal_adze_timber = checked_mass_times(
         adze_board_definition.input_mass(),
@@ -918,7 +918,7 @@ fn evaluate_woodworking_probe(
             >= ticks
                 .checked_add(adze_budget)
                 .and_then(|ticks| ticks.checked_mul(2))
-                .expect("investment willingness budget fits")
+                .unwrap_or_else(|| panic!("investment willingness budget fits"))
     });
     let (invest_in_saw, saw_reason) = woodworking_investment_decision(
         preference,
@@ -931,7 +931,7 @@ fn evaluate_woodworking_probe(
         && bare_attention
             < adze_budget
                 .checked_mul(2)
-                .expect("adze willingness budget fits");
+                .unwrap_or_else(|| panic!("adze willingness budget fits"));
     let reason = if use_bare_hands {
         WoodworkingInvestmentReason::BareHandsAvoidsInvestmentCost
     } else {

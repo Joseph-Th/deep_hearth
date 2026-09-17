@@ -145,13 +145,9 @@ fn job_has_supported_output(state: &AppState, job: &ProductionJobRecord) -> bool
 fn validate_resumed_job_revision_capacity(
     state: &AppState,
     due_ids: &BTreeSet<ProductionJobId>,
-    availability_changes: &[ProductionAvailabilityChange],
-    revisions: &CompletionRevisionPlan,
-    inventory_deposits: &ReservedDepositPlan,
-    equipment_changed: bool,
-    released_energy_changed: bool,
-    structural_load: Option<&ValidatedStockpileStructuralLoad>,
+    plan: &CompletionPlan,
 ) -> Result<(), CompletionPlanError> {
+    let availability_changes = &plan.availability_changes;
     if !availability_changes
         .iter()
         .any(|change| matches!(change, ProductionAvailabilityChange::Resumed { .. }))
@@ -181,7 +177,7 @@ fn validate_resumed_job_revision_capacity(
     }
 
     if !checked_revision_capacity(
-        revisions.next_production_revision,
+        plan.revisions.next_production_revision,
         [bucket_count(&completion_ticks)],
     ) {
         return Err(CompletionPlanError::ProductionRevision);
@@ -189,7 +185,7 @@ fn validate_resumed_job_revision_capacity(
     if !checked_revision_capacity(
         state.inventory().revision(),
         [
-            u64::from(!inventory_deposits.is_empty()),
+            u64::from(!plan.inventory_deposits.is_empty()),
             state.future_nonproduction_inventory_revision_demand(),
             bucket_count(&completion_ticks),
         ],
@@ -199,7 +195,7 @@ fn validate_resumed_job_revision_capacity(
     if !checked_revision_capacity(
         state.equipment().revision(),
         [
-            u64::from(equipment_changed),
+            u64::from(!plan.equipment_outcomes.is_empty()),
             state.future_nonproduction_equipment_revision_demand(),
             bucket_count(&equipment_ticks),
         ],
@@ -209,7 +205,7 @@ fn validate_resumed_job_revision_capacity(
     if !checked_revision_capacity(
         state.energy().revision(),
         [
-            u64::from(released_energy_changed),
+            u64::from(!plan.released_energy_outcomes.is_empty()),
             state.future_nonproduction_energy_revision_demand(),
             bucket_count(&energy_ticks),
         ],
@@ -219,7 +215,9 @@ fn validate_resumed_job_revision_capacity(
     if !checked_revision_capacity(
         state.structures().revision(),
         [
-            structural_load.map_or(0, ValidatedStockpileStructuralLoad::revision_delta),
+            plan.structural_load
+                .as_ref()
+                .map_or(0, ValidatedStockpileStructuralLoad::revision_delta),
             bucket_count(&structure_ticks),
         ],
     ) {
@@ -320,8 +318,6 @@ pub(crate) fn decide_due_completions(
         &planning,
         player_labor_dependencies,
     )?;
-    let equipment_changed = !planning.equipment_outcomes.is_empty();
-    let released_energy_changed = !planning.released_energy_outcomes.is_empty();
     let inventory_deposits = decide_reserved_deposits(
         registries,
         state.inventory(),
@@ -334,18 +330,7 @@ pub(crate) fn decide_due_completions(
         ReservedDepositPlanError::RevisionExhausted => CompletionPlanError::InventoryRevision,
     })?;
     let structural_load = plan_completion_structural_load(registries, state, &inventory_deposits)?;
-    validate_resumed_job_revision_capacity(
-        state,
-        &due_ids,
-        &availability_changes,
-        &revisions,
-        &inventory_deposits,
-        equipment_changed,
-        released_energy_changed,
-        structural_load.as_ref(),
-    )?;
-
-    Ok(CompletionPlan {
+    let plan = CompletionPlan {
         revisions,
         inventory_deposits,
         availability_changes,
@@ -353,7 +338,9 @@ pub(crate) fn decide_due_completions(
         equipment_outcomes: planning.equipment_outcomes,
         released_energy_outcomes: planning.released_energy_outcomes,
         structural_load,
-    })
+    };
+    validate_resumed_job_revision_capacity(state, &due_ids, &plan)?;
+    Ok(plan)
 }
 
 fn adjust_due_ids_for_availability(

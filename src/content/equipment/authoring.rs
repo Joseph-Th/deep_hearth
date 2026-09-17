@@ -15,7 +15,8 @@ use super::super::materials::{FORM_INGOT, FORM_SCRAP, MATERIAL_COPPER};
 
 pub(super) const INDUSTRIAL_MAINTENANCE_MASS_DIVISOR: u64 = 1_000;
 const COMPONENT_MAINTENANCE_MILLIGRAMS_PER_TICK: u64 = 20_000;
-const INDUSTRIAL_MAINTENANCE_MILLIGRAMS_PER_TICK: u64 = 1_000;
+// Bulk service is slower per mass than component swaps, but must preserve industrial attention savings.
+const INDUSTRIAL_MAINTENANCE_MILLIGRAMS_PER_TICK: u64 = 10_000;
 
 pub(super) trait EquipmentDefinitionAuthoringExt {
     fn with_assembly_component_maintenance(self, replacement: CommodityKey) -> Self;

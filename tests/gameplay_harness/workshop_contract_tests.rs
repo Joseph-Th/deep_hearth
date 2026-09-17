@@ -16,6 +16,71 @@ fn condition(parts_per_million: u32) -> Condition {
 }
 
 #[test]
+fn short_warning_order_defers_service_until_safe_completion() {
+    use super::report::MaintenancePreference;
+    use deep_hearth::content::EQUIPMENT_JAW_CRUSHER;
+    use deep_hearth::maintenance::MaintenanceBand;
+
+    let registries = build_registries();
+    let definition = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_JAW_CRUSHER)
+        .unwrap_or_else(|| panic!("authored crusher disappeared"));
+    let mut variation = scenario::ScenarioVariation::from_seeds(
+        &registries,
+        4,
+        1,
+        Some(MaintainedAnchor::WarningMaintenance),
+    );
+    variation.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
+    let profile = definition
+        .maintenance_profile()
+        .unwrap_or_else(|| panic!("authored service disappeared"));
+    let service_duration_value = profile
+        .required_service_duration(variation.crusher.initial_crusher_condition)
+        .value();
+    assert_eq!(
+        definition
+            .maintenance_thresholds()
+            .classify(variation.crusher.initial_crusher_condition),
+        MaintenanceBand::Warning
+    );
+
+    // run_scenario uses canonical starts/ticks/service and audits total matter and trusted load.
+    let report = workshop::runner::run_scenario(&registries, variation, None);
+    std::println!(
+        "WARNING ANCHOR order={}mg nominal={}mg processed={}mg batches={} services={} service_ticks={} elapsed={} final_condition={}ppm retained_stock={}mg deferrals={}",
+        variation.ore.order_mass.milligrams(),
+        variation.ore.nominal_batch_mass.milligrams(),
+        report.progress.processed_mass.milligrams(),
+        report.progress.operations_completed,
+        report.maintenance.services,
+        report.maintenance.service_ticks,
+        report.resources.elapsed_ticks,
+        report.resources.final_condition_ppm,
+        report.resources.maintenance_stock_remaining.milligrams(),
+        report.maintenance.warning_deferrals
+    );
+    assert_eq!(report.progress.processed_mass, variation.ore.order_mass);
+    assert_eq!(report.progress.operations_completed, 6);
+    assert_eq!(report.maintenance.services, 0);
+    assert_eq!(report.maintenance.critical_services, 0);
+    assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
+    assert_eq!(report.maintenance.warning_deferrals, 6);
+    assert_eq!(
+        report.maintenance.service_ticks, 0,
+        "deferral policy must not pay authored service time during the order"
+    );
+    let thresholds = definition.maintenance_thresholds();
+    let critical = thresholds.critical_below().parts_per_million();
+    let warning = thresholds.warning_below().parts_per_million();
+    assert!(report.resources.final_condition_ppm >= critical);
+    assert!(report.resources.final_condition_ppm < warning);
+    assert!(report.resources.maintenance_stock_remaining.milligrams() > 0);
+    assert!(report.resources.elapsed_ticks < service_duration_value);
+}
+
+#[test]
 fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hidden_event() {
     let registries = build_registries();
     let mut variation = scenario::ScenarioVariation::from_seeds(&registries, 4, 1, None);
@@ -35,25 +100,24 @@ fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hid
 }
 
 #[test]
-fn prework_labor_stop_does_not_misclassify_available_maintenance_stock() {
+fn critical_service_is_affordable_from_warning_hydration_reserves() {
     let registries = build_registries();
     let mut variation = scenario::ScenarioVariation::from_seeds(&registries, 4, 1, None);
     variation.crusher.initial_crusher_condition = condition(41_036);
     variation.crusher.maintenance_replacement_units = 2;
+    variation.survival.start_at_hydration_warning_boundary = true;
     variation.delivery.delivery_at_tick = 64;
 
     let report = workshop::runner::run_scenario(&registries, variation, None);
 
-    assert!(report.limits.maintenance_stop);
-    assert!(report.maintenance.labor_unavailable);
+    assert!(!report.limits.maintenance_stop);
+    assert!(!report.maintenance.labor_unavailable);
     assert!(!report.maintenance.supply_exhausted);
-    assert_eq!(report.maintenance.services, 0);
-    assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
-    assert!(
-        !report.resources.maintenance_stock_remaining.is_zero(),
-        "labor-limited maintenance must not consume or relabel available replacement stock"
-    );
-    assert_eq!(report.progress.operations_completed, 0);
+    assert_eq!(report.maintenance.services, 1);
+    assert_eq!(report.maintenance.critical_services, 1);
+    assert!(report.maintenance.replacement_spent > Mass::ZERO);
+    assert!(!report.resources.maintenance_stock_remaining.is_zero());
+    assert_eq!(report.progress.processed_mass, report.progress.target_mass);
 }
 
 #[test]

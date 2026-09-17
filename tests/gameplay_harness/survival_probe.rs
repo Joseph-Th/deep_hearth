@@ -201,7 +201,13 @@ fn advance_lived_wait(
             .maximum_hydration()
             .checked_sub(assessment.hydration())
             .unwrap_or_else(|| panic!("survival lived-wait hydration exceeded authored maximum"));
-        let drink_volume = deficit.min(physiology.direct_consumption().maximum_drink_volume());
+        let drink_volume = world
+            .drink
+            .minimum_volume_for_hydration(deficit)
+            .unwrap_or_else(|| {
+                panic!("survival lived-wait drink volume exceeds authoritative range")
+            })
+            .min(physiology.direct_consumption().maximum_drink_volume());
         if drink_volume.is_zero() {
             continue;
         }

@@ -93,17 +93,17 @@ pub(super) fn prepare_stage(
     let store = state
         .energy()
         .get_store(drive)
-        .expect("liberation drive exists");
+        .unwrap_or_else(|| panic!("liberation drive exists"));
     let stored = store.stored();
     let capacity = registries
         .energy()
         .get_store(store.definition())
-        .expect("drive definition exists")
+        .unwrap_or_else(|| panic!("drive definition exists"))
         .capacity();
     let mass = state
         .inventory()
         .get_stockpile(feed)
-        .expect("stage feed exists")
+        .unwrap_or_else(|| panic!("stage feed exists"))
         .stored_mass();
     let envelope = deep_hearth::ore_processing::assess_powered_ore_mass_envelope(
         registries, state, process, equipment, drive,
@@ -114,13 +114,15 @@ pub(super) fn prepare_stage(
         .unwrap_or_else(|| panic!("{label} cannot fit its provider even after charging"));
     let requested = match policy {
         ChargePolicy::BatchDemand => shortfall,
-        ChargePolicy::FullBuffer => capacity.checked_sub(stored).expect("store within capacity"),
+        ChargePolicy::FullBuffer => capacity
+            .checked_sub(stored)
+            .unwrap_or_else(|| panic!("store within capacity")),
     };
     if requested.is_zero() {
         return ChargeReport::zero(stored);
     }
     let before = deep_hearth::survival::assess_survival(registries, state)
-        .expect("liberation player exists before charging");
+        .unwrap_or_else(|| panic!("liberation player exists before charging"));
     let charge = validate_start_manual_power(
         registries,
         state,
@@ -142,12 +144,12 @@ pub(super) fn prepare_stage(
         "{label} recharge must increase stored mechanical work"
     );
     let after = deep_hearth::survival::assess_survival(registries, state)
-        .expect("liberation player exists after charging");
+        .unwrap_or_else(|| panic!("liberation player exists after charging"));
     assert!(
         deep_hearth::ore_processing::assess_powered_ore_mass_envelope(
             registries, state, process, equipment, drive,
         )
-        .expect("stage remains assessable after charging")
+        .unwrap_or_else(|error| panic!("stage remains assessable after charging: {error}"))
         .maximum_mass()
             >= mass,
         "{label} charge must fund the actual batch"

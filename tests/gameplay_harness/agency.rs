@@ -556,8 +556,20 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) -> Vec<u64>
             }
             AgencyFocus::MaintenanceTiming => {
                 assert!(
-                    maintenance_effect,
-                    "maintained maintenance-timing agency world must make preventive versus delayed service consequential"
+                    !maintenance_effect,
+                    "in this short world safe batches are shorter than authored service, so warning-deferral and critical-only policies must rationally agree"
+                );
+                assert_eq!(
+                    baseline.progress.processed_mass, baseline.progress.target_mass,
+                    "maintained maintenance-timing agency world must still complete its demand"
+                );
+                assert_eq!(
+                    baseline.maintenance.services, 0,
+                    "warning-deferral policy must not pay authored service during a short order"
+                );
+                assert!(
+                    baseline.maintenance.replacement_spent.is_zero(),
+                    "deferred warning service must preserve replacement stock"
                 );
             }
             AgencyFocus::OrganicVariation => {
@@ -803,8 +815,16 @@ fn gameplay_agency_bounded_search_preserves_unfiltered_replay() {
             .any(|world| world.world_seed == *seed && world.anchor.is_none())
     }));
     assert_eq!(selected, run_agency_probe(&registries, &worlds));
-    // Exhaustion is an evidence gap, not an assertion of production unavailability.
-    let exhausted = run_agency_probe(&registries, &worlds[..7]);
+    // Exhaustion is an evidence gap, not an assertion of production unavailability. Cutting the
+    // deterministic stream right after the first qualified world must reproduce exactly that
+    // seed; the second qualification lives past the cut and is honestly missing.
+    let first_qualified_index = worlds
+        .iter()
+        .position(|world| world.world_seed == selected[0])
+        .unwrap_or_else(|| {
+            unreachable!("qualified agency seed must come from the searched worlds")
+        });
+    let exhausted = run_agency_probe(&registries, &worlds[..first_qualified_index + 1]);
     assert_eq!(exhausted, selected[..1]);
     assert!(exhausted.len() < ORGANIC_QUALIFIED_TARGET);
 }

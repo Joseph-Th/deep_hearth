@@ -1197,7 +1197,8 @@ fn report_primitive_progression_review(
                 "{}t",
                 review.stockpiling_delay_ticks + delayed.elapsed_ticks
             ),
-            _ => "blocked".to_owned(),
+            PrimitiveReinvestmentOutcome::TargetSupplyLimited
+            | PrimitiveReinvestmentOutcome::StorageCapacityLimited { .. } => "blocked".to_owned(),
         };
         reviewln!(
             "PROGRESSION GOAL seed=0x{seed:016X} basis=matched-start-completion-cost goal=three-machine-upgrades+expanded-batch immediate={}t delayed={} buffered-feed={}mg consumed-before-new-crushing={}mg invested-copper={}mg stockpiling-delay={}t terminal-reserves=unequal read=use-existing-feed-before-speculative-stockpiling",

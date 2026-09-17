@@ -627,6 +627,14 @@ fn service_crusher(
     assert_eq!(outcome.condition_before(), before);
     assert_eq!(outcome.target_condition(), after);
     assert_eq!(outcome.material_mass(), material_mass);
+    let thresholds = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_JAW_CRUSHER)
+        .unwrap_or_else(|| panic!("workshop crusher definition disappeared"))
+        .maintenance_thresholds();
+    if thresholds.classify(before) == MaintenanceBand::Critical {
+        maintenance.critical_services += 1;
+    }
     maintenance.services = maintenance
         .services
         .checked_add(1)
