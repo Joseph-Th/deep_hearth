@@ -11,7 +11,8 @@ use super::preservation_evaluation::{
     PreservationCandidateProjection, PreservationInfrastructureReview,
     evaluate_preservation_infrastructure_definition_with_raw_opportunity,
     preservation_physical_frontier, preservation_policy_reachable_definitions,
-    project_preservation_candidates_with_raw_opportunity, select_preservation_projection,
+    project_preservation_candidates_with_raw_opportunity, select_preservation_investment,
+    select_preservation_projection,
 };
 use super::{
     FoodDefinition, Mass, PreservationInvestmentPolicy, Registries, StorageDefinitionId,
@@ -51,11 +52,20 @@ impl Display for SignedResourceDelta {
     }
 }
 
-pub(super) struct PreservationDecisionReview {
+#[derive(Clone, Copy, Debug)]
+pub(in super::super) struct PreservationNoBuildReview {
+    pub(in super::super) elapsed_ticks: u64,
+    pub(in super::super) retained_raw_mg: u64,
+    pub(in super::super) remaining_fresh_ticks: u64,
+}
+
+pub(in super::super) struct PreservationDecisionReview {
     pub(super) opportunity: PreservationRawOpportunity,
     pub(super) attention: PreservationInfrastructureReview,
     pub(super) protection: PreservationInfrastructureReview,
-    pub(super) selected: PreservationInfrastructureReview,
+    pub(super) best_enclosure: PreservationInfrastructureReview,
+    pub(in super::super) investment: Option<StorageDefinitionId>,
+    pub(in super::super) no_build: PreservationNoBuildReview,
     pub(super) projections: Vec<PreservationCandidateProjection>,
     pub(super) physical_frontier: BTreeSet<StorageDefinitionId>,
     pub(super) policy_reachable: BTreeSet<StorageDefinitionId>,
@@ -82,7 +92,101 @@ impl PreservationDecisionReview {
     }
 }
 
-pub(super) fn evaluate_preservation_decision(
+fn evaluate_no_build(
+    registries: &Registries,
+    seed: u64,
+    food: FoodDefinition,
+    food_mass: Mass,
+    available: &[(super::CommodityKey, Mass)],
+    reference: &PreservationInfrastructureReview,
+) -> PreservationNoBuildReview {
+    use super::*;
+    let mut state = AppState::new(WorldSeed::new(seed ^ 0x5052_4553_4552_5643));
+    let stockpile = seed_stockpile(
+        &mut state,
+        food_mass,
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let lot = seed_lot(
+        registries,
+        &mut state,
+        stockpile,
+        food.commodity(),
+        food_mass,
+        ROOM_TEMPERATURE,
+    );
+    seed_preexisting_world_age(
+        &mut state,
+        SimulationTick::new(reference.bootstrap_age_ticks),
+    );
+    let mut retained_raw_mg = 0_u64;
+    for (commodity, mass) in available {
+        let raw = seed_stockpile(
+            &mut state,
+            *mass,
+            StockpileStorageProfile::unbounded_solid_only(),
+        );
+        seed_lot(
+            registries,
+            &mut state,
+            raw,
+            *commodity,
+            *mass,
+            ROOM_TEMPERATURE,
+        );
+        retained_raw_mg = retained_raw_mg
+            .checked_add(mass.milligrams())
+            .expect("bounded raw mass");
+    }
+    initialize_player_survival(registries, &mut state).expect("no-build player admission");
+    let before = state.clone();
+    let elapsed_ticks = reference
+        .production_ticks
+        .checked_add(reference.observation_ticks)
+        .expect("bounded preservation horizon");
+    assert!(
+        matches!(assess_food_freshness(registries, &state, lot),
+        Ok(FoodFreshness::Fresh { remaining, .. }) if remaining.value() == elapsed_ticks),
+        "the declared comparison horizon must be the observable ambient edible lifetime"
+    );
+    advance_idle_ticks(
+        registries,
+        &mut state,
+        elapsed_ticks,
+        "preservation no-build",
+    );
+    assert_eq!(
+        state.inventory(),
+        before.inventory(),
+        "no-build must retain food and raw materials without construction"
+    );
+    assert_eq!(state.equipment(), before.equipment());
+    assert_eq!(state.production(), before.production());
+    assert_eq!(state.player_work(), before.player_work());
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .expect("no-build matter")
+            .total(),
+        calculate_matter_accounting(&before)
+            .expect("initial matter")
+            .total()
+    );
+    assert!(
+        matches!(
+            assess_food_freshness(registries, &state, lot),
+            Ok(super::FoodFreshness::Spoiled { .. })
+        ),
+        "no-build must reach the same ambient spoilage endpoint, not receive free preservation"
+    );
+    validate_loaded_state(registries, &state).expect("no-build trusted load");
+    PreservationNoBuildReview {
+        elapsed_ticks,
+        retained_raw_mg,
+        remaining_fresh_ticks: 0,
+    }
+}
+
+pub(in super::super) fn evaluate_preservation_decision(
     registries: &Registries,
     seed: u64,
     behavior_seed: u64,
@@ -103,6 +207,20 @@ pub(super) fn evaluate_preservation_decision(
         protected_reserve_mass,
         Some(available),
     );
+    // Freeze intent from observable projections before executing any comparison branch.
+    // The common scenario endpoint is ambient spoilage, so the no-build value is zero.
+    let projections = project_preservation_candidates_with_raw_opportunity(
+        registries,
+        seed,
+        protected_food,
+        protected_reserve_mass,
+        Some(available),
+    );
+    let preservation_return_threshold_ppm =
+        preservation_freshness_return_threshold_ppm(behavior_seed);
+    let investment =
+        select_preservation_investment(preservation_return_threshold_ppm, &projections)
+            .map(|projection| projection.definition);
     let attention = evaluate_preservation_infrastructure_definition_with_raw_opportunity(
         registries,
         seed,
@@ -163,16 +281,6 @@ pub(super) fn evaluate_preservation_decision(
         )
         .unwrap_or(u32::MAX)
     };
-    let preservation_return_threshold_ppm =
-        preservation_freshness_return_threshold_ppm(behavior_seed);
-
-    let projections = project_preservation_candidates_with_raw_opportunity(
-        registries,
-        seed,
-        protected_food,
-        protected_reserve_mass,
-        Some(available),
-    );
     let selected_projection = select_preservation_projection(behavior_seed, &projections);
     let physical_frontier = preservation_physical_frontier(&projections);
     let policy_reachable = preservation_policy_reachable_definitions(&projections);
@@ -202,11 +310,21 @@ pub(super) fn evaluate_preservation_decision(
     )
     .unwrap_or_else(|_| panic!("preservation capacity utilization exceeded normalized range"));
 
+    let no_build_review = evaluate_no_build(
+        registries,
+        seed,
+        protected_food,
+        protected_reserve_mass,
+        available,
+        &selected,
+    );
     PreservationDecisionReview {
         opportunity,
         attention,
         protection,
-        selected,
+        best_enclosure: selected,
+        investment,
+        no_build: no_build_review,
         projections,
         physical_frontier,
         policy_reachable,

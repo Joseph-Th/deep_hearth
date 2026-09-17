@@ -4,15 +4,15 @@ use deep_hearth::inventory::StorageDefinitionId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) enum PreservationComparison {
-    ForcedSingleton,
+    EnclosureSingleton,
     SharedReference,
     DistinctReferences,
 }
 
 impl PreservationComparison {
     pub(in super::super) fn selection_label(self, selected_policy: &'static str) -> &'static str {
-        if self == Self::ForcedSingleton {
-            "physically-forced"
+        if self == Self::EnclosureSingleton {
+            "enclosure-singleton"
         } else {
             selected_policy
         }
@@ -32,7 +32,7 @@ impl PreservationComparison {
                 fastest, strongest,
                 "singleton references must identify the same enclosure"
             );
-            Self::ForcedSingleton
+            Self::EnclosureSingleton
         } else if fastest == strongest {
             Self::SharedReference
         } else {
@@ -46,8 +46,8 @@ pub(in super::super) fn preservation_comparison_explanation(
     tradeoff: impl FnOnce() -> String,
 ) -> String {
     match comparison {
-        PreservationComparison::ForcedSingleton =>
-            "choice:physically-forced reason:capacity-or-raw-material-singleton comparison:not-applicable".to_string(),
+        PreservationComparison::EnclosureSingleton =>
+            "choice:enclosure-singleton reason:capacity-or-raw-material-singleton comparison:not-applicable".to_string(),
         PreservationComparison::SharedReference =>
             "choice:shared-reference reason:fastest-and-strongest-are-the-same-enclosure comparison:not-applicable".to_string(),
         PreservationComparison::DistinctReferences => tradeoff(),

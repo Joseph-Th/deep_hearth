@@ -206,6 +206,24 @@ pub(in super::super) fn select_preservation_projection(
     select_preservation_projection_for_attention_value(attention_value_ppm, projections)
 }
 
+/// Compares construction against abstention at this episode's ambient-spoilage endpoint (zero
+/// remaining edible lifetime without construction). Equal value favors retaining time and raw
+/// materials. This is an actor attention budget, not a prediction of how much food will be eaten.
+pub(in super::super) fn select_preservation_investment(
+    attention_value_ppm: u32,
+    projections: &[PreservationCandidateProjection],
+) -> Option<PreservationCandidateProjection> {
+    let selected =
+        select_preservation_projection_for_attention_value(attention_value_ppm, projections);
+    let benefit = i128::from(selected.remaining_fresh_ticks)
+        .checked_mul(1_000_000)
+        .unwrap_or_else(|| panic!("preservation projected freshness value overflowed"));
+    let cost = i128::from(selected.production_ticks)
+        .checked_mul(i128::from(attention_value_ppm))
+        .unwrap_or_else(|| panic!("preservation projected attention value overflowed"));
+    (benefit > cost).then_some(selected)
+}
+
 pub(in super::super) fn select_preservation_projection_for_attention_value(
     attention_value_ppm: u32,
     projections: &[PreservationCandidateProjection],
@@ -314,9 +332,9 @@ pub(in super::super) fn preservation_policy_reachable_definitions(
 ) -> BTreeSet<StorageDefinitionId> {
     attention_value_probe_points(projections)
         .into_iter()
-        .map(|attention_value| {
-            select_preservation_projection_for_attention_value(attention_value, projections)
-                .definition
+        .filter_map(|attention_value| {
+            select_preservation_investment(attention_value, projections)
+                .map(|projection| projection.definition)
         })
         .collect()
 }

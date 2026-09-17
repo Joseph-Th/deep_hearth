@@ -26,6 +26,55 @@ use super::survival_probe::preservation_evaluation::{
 };
 
 #[test]
+fn preservation_can_decline_a_low_benefit_singleton() {
+    use super::survival_probe::preservation_evaluation::{
+        PreservationCandidateProjection, select_preservation_investment,
+    };
+    let candidate = PreservationCandidateProjection {
+        definition: STORAGE_TIMBER_PROVISIONS_CHEST,
+        production_ticks: 150,
+        raw_material_mass_mg: 2_000_000,
+        remaining_fresh_ticks: 125,
+    };
+    assert_eq!(
+        select_preservation_investment(1_000_000, &[candidate]),
+        None
+    );
+    let worthwhile = PreservationCandidateProjection {
+        remaining_fresh_ticks: 600,
+        ..candidate
+    };
+    assert_eq!(
+        select_preservation_investment(1_000_000, &[worthwhile]),
+        Some(worthwhile)
+    );
+    assert_eq!(
+        select_preservation_investment(4_000_000, &[worthwhile]),
+        None
+    );
+}
+
+#[test]
+fn preservation_decline_executes_without_spending_the_raw_opportunity() {
+    use super::survival_probe::preservation_decision::evaluate_preservation_decision;
+    let registries = build_registries();
+    // Report anchor: an almost-expired reserve and only one affordable enclosure.
+    let seed = 0x0000_D33F_C01D_5A70;
+    let world = provisioning_world(&registries, seed);
+    let decision = evaluate_preservation_decision(
+        &registries,
+        seed,
+        0x1141_25D1_1CEE_9F89,
+        world.foods[world.witness_index],
+        world.preserved_reserve_mass,
+    );
+    assert_eq!(decision.investment, None);
+    assert!(decision.no_build.elapsed_ticks > 0);
+    assert!(decision.no_build.retained_raw_mg > 0);
+    assert_eq!(decision.no_build.remaining_fresh_ticks, 0);
+}
+
+#[test]
 fn preservation_raw_bootstrap_is_explicit_not_inferred_from_missing_producers() {
     assert!(is_disclosed_preservation_raw_material(CommodityKey::new(
         MATERIAL_WOOD,
@@ -47,7 +96,7 @@ use super::survival_probe::{
 };
 
 #[test]
-fn survival_explanation_marks_physically_forced_preservation_without_zero_tradeoffs() {
+fn survival_explanation_marks_singleton_enclosure_without_forcing_investment() {
     use super::survival_probe::explanation::{
         PreservationComparison, preservation_comparison_explanation,
     };
@@ -74,15 +123,15 @@ fn survival_explanation_marks_physically_forced_preservation_without_zero_tradeo
         projections[0].definition,
         projections[0].definition,
     );
-    assert_eq!(comparison, PreservationComparison::ForcedSingleton);
+    assert_eq!(comparison, PreservationComparison::EnclosureSingleton);
     assert_eq!(
         comparison.selection_label("attention-efficient"),
-        "physically-forced"
+        "enclosure-singleton"
     );
     let explanation = preservation_comparison_explanation(comparison, || {
         panic!("a singleton must not format a counterfactual against itself")
     });
-    assert!(explanation.contains("choice:physically-forced"));
+    assert!(explanation.contains("choice:enclosure-singleton"));
     assert!(explanation.contains("comparison:not-applicable"));
     assert!(!explanation.contains("stronger-tradeoff"));
 }
@@ -118,7 +167,7 @@ fn survival_explanation_preserves_real_comparisons_and_distinguishes_shared_refe
     assert_eq!(shared, PreservationComparison::SharedReference);
     assert!(
         !preservation_comparison_explanation(shared, || panic!("same reference"))
-            .contains("physically-forced")
+            .contains("enclosure-singleton")
     );
 }
 

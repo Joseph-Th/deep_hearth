@@ -270,8 +270,9 @@ projection, fastest/strongest references, selected branch, and executed construc
 world-seeded opportunity; evaluation must not silently fund a route the decision frame said was unavailable.
 Report diagnostics distinguish the physical Pareto frontier from definitions that can actually win the actor's
 authored attention-value rule, so a situational capacity option is not mislabeled as dead content merely because
-it is dominated for the current reserve. A single capacity/material-feasible enclosure is a physically forced
-choice, not evidence of an attention-policy preference or a zero-valued stronger-storage tradeoff. Identical
+it is dominated for the current reserve. A single capacity/material-feasible enclosure is an enclosure singleton, not a forced investment.
+The actor may decline it when projected remaining edible lifetime does not pay its attention cost;
+equal value favors no construction. Best-enclosure comparisons are separate from commitment. Identical
 fastest/strongest references are not distinct counterfactuals. Explain storage comparisons once in the experience
 summary; the detailed review retains the candidate frontier and executed infrastructure evidence. Diet comparisons
 whose category supply cannot support the authored diet set are labeled supply-collapsed rather than repeating
@@ -305,7 +306,11 @@ willingness without choosing infrastructure independently of observed payoff. Th
 authored enclosure to one common future endpoint through the survival-owned freshness projection, values remaining
 edible lifetime against a replayable behavior-root attention price, and may therefore select an intermediate
 capacity/preservation/attention compromise rather than only the fastest or strongest endpoint. The fastest and
-strongest branches remain matched reference cases for interpreting the selected frontier result. The progression
+strongest branches remain matched reference cases for interpreting the selected frontier result. Investment intent
+is frozen before those branches execute. A matched no-build branch advances canonical ticks to the observable
+ambient spoilage endpoint, retaining all raw materials and validating conservation and trusted load. Reports
+separate actual build/decline costs from best-enclosure construction and dismantling coverage; no-build does not
+claim the food remains edible. Policy reachability excludes enclosures that never beat abstention. The progression
 episode's matched local copper counterfactual remains balance evidence, not actor-policy variation
 or a claim about the player's global copper portfolio. It compares only the pick and hand-crank opportunities
 present in that decision state: current authored timing must show why pick-first is rational there while

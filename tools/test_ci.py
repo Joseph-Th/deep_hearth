@@ -1362,6 +1362,18 @@ class LocalCiPlanTests(unittest.TestCase):
                         )
                         self.assertNotIn("PASS total", stdout.getvalue())
 
+    def test_preservation_summary_counts_decline_not_counterfactual_construction(self) -> None:
+        lines = [
+            "SURVIVAL EXPERIENCE seed=0x1 storage-policy:decline commitment:none best-enclosure-counterfactual=[policy:enclosure-singleton build:150t]",
+            "SURVIVAL EXPERIENCE seed=0x2 storage-policy:enclosure-singleton commitment:1",
+        ]
+        summary = "\n".join(ci.ordinary_gameplay_diversity(lines))
+        self.assertIn("declined:1", summary)
+        self.assertIn("enclosure-singleton:1", summary)
+        takeaway = "\n".join(ci.player_takeaways(lines))
+        self.assertIn("declined:1", takeaway)
+        self.assertIn("singleton:1", takeaway)
+
     def test_default_gameplay_report_filters_probe_noise_but_verbose_keeps_it(self) -> None:
         output = "\n".join(
             [
@@ -1396,7 +1408,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
                 "SURVIVAL EXPERIENCE seed=0x0000000000000001 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] separate-investment-scenario=[protected-reserve:6500000mg raw-opportunity=[origin:4:compact-insulated-timber-pantry mode:choice-rich-timber inputs:65537:wood/log:6000000mg] storage-policy:maximum-protection candidates:5 frontier=[physical:4/5 policy-reachable:1/5 selected-physical:true selected-policy:true]]",
                 "SURVIVAL EXPERIENCE seed=0x00000000000000AA sample=organic pressure=energy choice=[state:supply-constrained diet:compact-calories] separate-investment-scenario=[protected-reserve:18000000mg raw-opportunity=[origin:2:double-wall-timber-provisions-chest mode:scarce-timber inputs:65537:wood/log:5000000mg] storage-policy:attention-efficient candidates:3 frontier=[physical:2/3 policy-reachable:2/3 selected-physical:true selected-policy:true]]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000CC sample=organic pressure=hydration choice=[state:policy-sensitive diet:compact-calories] separate-investment-scenario=[protected-reserve:50000000mg raw-opportunity=[origin:6:carved-stone-provisions-crock mode:alternate-material inputs:589826:stone/lump:3000000mg] storage-policy:physically-forced candidates:1 frontier=[physical:1/1 policy-reachable:1/1 selected-physical:true selected-policy:true]]",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000CC sample=organic pressure=hydration choice=[state:policy-sensitive diet:compact-calories] separate-investment-scenario=[protected-reserve:50000000mg raw-opportunity=[origin:6:carved-stone-provisions-crock mode:alternate-material inputs:589826:stone/lump:3000000mg] storage-policy:enclosure-singleton candidates:1 frontier=[physical:1/1 policy-reachable:1/1 selected-physical:true selected-policy:true]]",
                 "SURVIVAL REVIEW seed=0x00000000000000AA accounting-detail",
                 "PROBE INPUT name=woodworking mode=explore samples=3 organic=1 world_root=0x111 behavior_root=0x222 replay=anchor:0x0000000000000001@0x1,coverage:0x0000000000000003@0x2,organic:0x00000000000000AA@0x3",
                 "WOODWORKING EXPERIENCE seed=0x0000000000000001 behavior=0x1 sample=anchor preference=conserve-timber routes=[adze:12logs; saw-assisted:min-saw-logs:11 fundable:true actual=[saw:11 adze-fallback:0 fallback-copper:true saw-services:1 adze-services:0] attention-payback:true net-timber-payback:true] choice=frame-saw reason=pipeline-net-timber-payback",
@@ -1424,7 +1436,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "PLAYER FANTASY ",
             "EVALUATION SCOPE kind=ordinary-play ",
             "EVALUATION SCOPE kind=controlled-capability ",
-            "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[attention-efficient:1 physically-forced:1 balanced-frontier:0 maximum-protection:1] reserve=6500000..50000000mg raw-opportunities:3 raw-material=[timber:2 stone:1] raw-mode=[choice-rich:1 scarce:1 alternate:1] candidates=1..5 physical-frontier=1..4 policy-reachable=1..2 capacity-or-material-singleton:1",
+            "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[declined:0 attention-efficient:1 enclosure-singleton:1 balanced-frontier:0 maximum-protection:1] reserve=6500000..50000000mg raw-opportunities:3 raw-material=[timber:2 stone:1] raw-mode=[choice-rich:1 scarce:1 alternate:1] candidates=1..5 physical-frontier=1..4 policy-reachable=1..2 capacity-or-material-singleton:1",
             "PROGRESSION DIVERSITY samples=2 local-copper=[pick-first:2 crank-counterfactual:2] hard-access-lead=478..478t",
             "LIBERATION DIVERSITY samples=2 varied-inputs=2 completed=2",
             "WOODWORKING DIVERSITY samples=3 choice=[bare:0 adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 attention-payback:2 net-timber-payback:1] lifecycle=[copper-fallback:1 saw-service:1] decision=[bare-hands:0 copper-blocked:1 reserve-protected:1 timber-horizon:0 attention-horizon:0 attention-invest:0 timber-invest:1]",
@@ -1435,7 +1447,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "PLAYER TAKEAWAY probe=woodworking saw=1/3 adze=2/3 bare=0/3 blocked-by-copper=1 reserve-protected=1 fundable=2 attention-payback=2 net-timber-payback=1 read=compare-full-build-cost-short-jobs-can-skip-tools-long-jobs-price-copper-and-wear",
             "PLAYER TAKEAWAY probe=fieldwork inspections=1..3 tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:1 hard-pick:1] read=transects-rank-inspections-filter-one-survey-prices-the-tool",
             "PLAYER TAKEAWAY probe=power-provider treadle-saves-charge-attention break-even=67..200-full-charges treadle-cheaper-metabolically=2/2 post-copper=copper-crank-150000000uW-vs-treadle-100000000uW-vs-stone-50000000uW treadle-keeps-metabolic-efficiency-edge estimate=initial-charge-rate-excludes-future-wear-and-service read=weigh-extra-raw-material-and-build-time-against-repeated-charge-savings",
-            "PLAYER TAKEAWAY probe=survival binds-thirst=2/3 binds-hunger=1/3 diet=[balanced:1 compact:2] preservation=[efficient:1 forced:1 frontier:0 maximum:1] read=water-is-the-clock-food-breadth-buys-recovery-stronger-storage-can-lose-at-short-horizons",
+            "PLAYER TAKEAWAY probe=survival binds-thirst=2/3 binds-hunger=1/3 diet=[balanced:1 compact:2] preservation=[declined:0 efficient:1 singleton:1 frontier:0 maximum:1] read=water-is-the-clock-food-breadth-buys-recovery-stronger-storage-can-lose-at-short-horizons",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt",
             "AGENCY SUMMARY worlds=3",
