@@ -1,5 +1,8 @@
 //! Shared deterministic mining physics used by admission and persistence validation.
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
 use super::MiningMethodDefinition;
 use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::{Mass, MassFlow, Pressure};
@@ -10,8 +13,9 @@ use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
 
+/// A physical capability, duration, or remaining tool-lifetime limit on mining effort.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MiningPhysicsError {
+pub enum MiningPhysicsError {
     MissingCapability {
         capability: CapabilityId,
     },
@@ -31,6 +35,56 @@ pub(crate) enum MiningPhysicsError {
     ZeroThroughput,
     Duration(MassFlowDurationError),
     ConditionDuration(ActiveConditionDurationError),
+}
+
+impl Display for MiningPhysicsError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingCapability { capability } => write!(
+                formatter,
+                "mining equipment lacks usable capability {}",
+                capability.value()
+            ),
+            Self::CapabilityKindMismatch {
+                capability,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "mining capability {} requires {expected:?}, found {found:?}",
+                capability.value()
+            ),
+            Self::BatchTooLarge { maximum, requested } => write!(
+                formatter,
+                "mining batch requests {} mg, exceeding {} mg capacity",
+                requested.milligrams(),
+                maximum.milligrams()
+            ),
+            Self::DepositTooHard { hardness, maximum } => write!(
+                formatter,
+                "mining hardness {} Pa exceeds equipment limit {} Pa",
+                hardness.pascals(),
+                maximum.pascals()
+            ),
+            Self::ZeroThroughput => formatter.write_str("mining throughput must be nonzero"),
+            Self::Duration(error) => Display::fmt(error, formatter),
+            Self::ConditionDuration(error) => Display::fmt(error, formatter),
+        }
+    }
+}
+
+impl Error for MiningPhysicsError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Duration(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
+            Self::MissingCapability { .. }
+            | Self::CapabilityKindMismatch { .. }
+            | Self::BatchTooLarge { .. }
+            | Self::DepositTooHard { .. }
+            | Self::ZeroThroughput => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

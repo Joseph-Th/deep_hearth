@@ -1491,9 +1491,9 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_fieldwork_feedback_keeps_signed_errors_and_a_disagreement_example(self) -> None:
         rows = [
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x1 pristine-order-estimate=5t extraction-actual=5t estimate-matched=true",
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x2 pristine-order-estimate=160t extraction-actual=175t estimate-matched=false",
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x3 pristine-order-estimate=20t extraction-actual=18t estimate-matched=false",
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x1 wear-adjusted-order-estimate=5t extraction-actual=5t estimate-matched=true",
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x2 wear-adjusted-order-estimate=160t extraction-actual=175t estimate-matched=false",
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x3 wear-adjusted-order-estimate=20t extraction-actual=18t estimate-matched=false",
             "FIELDWORK ESTIMATE FEEDBACK malformed",
         ]
         summary = ci.fieldwork_feedback_summary(rows)

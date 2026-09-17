@@ -503,6 +503,13 @@ geology ownership and trusted continuation validation, but it is not a read-only
 rejects a persisted physical hardness band that excludes any still-live matching deposit in its sampled region;
 depleted historical observations remain valid because they can no longer authorize extraction.
 
+`resolve_mining_order` is a bounded read-only effort projection over authored method/equipment definitions,
+initial condition, an acquired hardness upper bound, requested mass, caller-selected batch mass, and a maximum
+batch count. It reuses admission physics sequentially, including wear, remainder batches, per-batch tick rounding,
+and checked total duration. It rejects invalid inputs, exceeded search bounds, and typed batch physics failures.
+It neither reads hidden reserves nor promises supply, survival, destination capacity, or authorization; callers
+must refresh inputs after changes and admit each actual batch normally.
+
 Mining start validates authorization, acquired hardness, tool, labor, capability, wear, destination, and
 reservation constraints.
 Geology retains ownership of the selected batch during labor. Completion removes the batch from geology,

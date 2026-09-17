@@ -409,6 +409,111 @@ fn assemble_quarry_pick_for_test(registries: &Registries, state: &mut AppState) 
 }
 
 #[test]
+fn mining_order_projection_matches_executed_quarry_batches() {
+    use crate::mining::{MiningOrderRequest, resolve_mining_order};
+
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(2));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("order survival setup failed: {error}"));
+    let pick = assemble_quarry_pick_for_test(&registries, &mut state);
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("mining method missing"));
+    let equipment = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_QUARRY_PICK)
+        .unwrap_or_else(|| panic!("quarry definition missing"));
+    let crate::capability::CapabilityValue::Mass(batch) = equipment
+        .capabilities()
+        .get_capability(method.max_batch_mass_capability())
+        .unwrap_or_else(|| panic!("batch capability missing"))
+    else {
+        panic!("batch kind changed")
+    };
+    let order = Mass::from_milligrams(batch.milligrams() * 40 + batch.milligrams() / 2);
+    let destination = add_solid_stockpile_for_test(&mut state, order)
+        .unwrap_or_else(|error| panic!("order destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec_with_mass(order))
+        .unwrap_or_else(|error| panic!("order deposit failed: {error}"));
+    let target = resolve_mining_target(
+        &state,
+        MiningTargetRequest::new(deposit_spec().bounds(), MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("order target failed: {error}"));
+    let hardness = target
+        .excavation_hardness()
+        .unwrap_or_else(|| panic!("acquired hardness missing"))
+        .upper();
+    let projection = resolve_mining_order(
+        registries.core().physical_tick_duration(),
+        method,
+        equipment,
+        MiningOrderRequest::new(Condition::PRISTINE, hardness, order, batch, 41),
+    )
+    .unwrap_or_else(|error| panic!("order projection failed: {error}"));
+    let started = state.tick();
+    let mut remaining = order;
+    let mut batches = 0;
+    while !remaining.is_zero() {
+        let requested = remaining.min(batch);
+        let job = validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            requested,
+        )
+        .unwrap_or_else(|error| panic!("order admission failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("order commit failed: {error}"));
+        let completes = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("order job missing"))
+            .completes_at();
+        while state.tick() < completes {
+            let outcome = advance_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("order tick failed: {error}"));
+            assert_eq!(
+                outcome.ready_mining_jobs().contains(&job),
+                state.tick() == completes
+            );
+        }
+        let receipt = validate_claim_mining_output(&registries, &state, job)
+            .unwrap_or_else(|error| panic!("order claim failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("order landing failed: {error}"));
+        assert_eq!(receipt.output().mass(), requested);
+        remaining = remaining
+            .checked_sub(requested)
+            .unwrap_or_else(|| panic!("order remainder underflow"));
+        batches += 1;
+    }
+    assert_eq!(
+        projection.duration(),
+        state
+            .tick()
+            .checked_duration_since(started)
+            .unwrap_or_else(|| panic!("order duration underflow"))
+    );
+    assert_eq!(projection.batches(), batches);
+    assert_eq!(
+        Some(projection.condition_after()),
+        state
+            .equipment()
+            .get_equipment(pick)
+            .map(|record| record.condition())
+    );
+    assert!(projection.condition_after() < Condition::PRISTINE);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("executed order invalid: {error}"));
+}
+
+#[test]
 fn heavy_quarry_pick_reduces_bulk_soft_rock_attention_through_canonical_mining() {
     let registries = build_registries();
     let mass = Mass::from_milligrams(200_000);

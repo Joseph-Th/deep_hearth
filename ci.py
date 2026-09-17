@@ -715,14 +715,14 @@ def fieldwork_pacing_summary(lines: list[str]) -> list[str]:
 
 
 def fieldwork_feedback_summary(lines: list[str]) -> list[str]:
-    """Do not hide long-order wear behind the first, usually short, matching estimate."""
+    """Keep pre-action wear-adjusted planning honest by comparing it with executed extraction."""
     feedback = [line for line in lines if line.startswith("FIELDWORK ESTIMATE FEEDBACK ")]
     if not feedback:
         return []
     errors = [
         int(match.group(2)) - int(match.group(1))
         for line in feedback
-        if (match := re.search(r"pristine-order-estimate=(\d+)t extraction-actual=(\d+)t", line))
+        if (match := re.search(r"wear-adjusted-order-estimate=(\d+)t extraction-actual=(\d+)t", line))
         is not None
     ]
     if not errors:
@@ -732,8 +732,8 @@ def fieldwork_feedback_summary(lines: list[str]) -> list[str]:
         f"FIELDWORK FEEDBACK SUMMARY measured={len(errors)}/{len(feedback)} "
         f"extraction-estimate-error={min(errors):+d}..{max(errors):+d}t "
         f"disagreements={sum(error != 0 for error in errors)} "
-        "basis=actual-minus-pristine policy=pre-action-full-order hindsight-selection=false "
-        "read=short-orders-price-preparation-long-orders-also-pay-wear",
+        "basis=actual-minus-wear-adjusted policy=pre-action-full-order hindsight-selection=false "
+        "read=projection-shares-admission-physics-disagreements-require-investigation",
         disagreements[0] if disagreements else feedback[0],
     ]
 

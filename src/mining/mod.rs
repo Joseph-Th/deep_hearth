@@ -2,6 +2,7 @@
 
 mod definitions;
 mod execution;
+mod order;
 mod physics;
 mod state;
 mod target_resolution;
@@ -17,6 +18,10 @@ pub use execution::{
     MiningStartError, ValidatedMiningClaim, ValidatedMiningStart, validate_claim_mining_output,
     validate_start_mining,
 };
+pub use order::{
+    MiningOrderError, MiningOrderRequest, MiningOrderResolution, resolve_mining_order,
+};
+pub use physics::MiningPhysicsError;
 pub(crate) use physics::resolve_mining_physics;
 pub use state::{MiningJobId, MiningJobRecord, MiningState, MiningValidationError};
 pub(crate) use state::{serialize_mining_state, validate_loaded_mining};

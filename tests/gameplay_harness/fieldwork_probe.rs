@@ -14,7 +14,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass, Pressure, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::throughput::calculate_mass_flow_duration_ceiling;
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::resolve_manual_craft;
 use deep_hearth::equipment::{
@@ -28,8 +27,9 @@ use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{
-    MiningStartError, MiningTargetRequest, MiningTargetResolution, MiningTargetResolutionError,
-    resolve_mining_target, validate_claim_mining_output, validate_start_mining,
+    MiningOrderRequest, MiningStartError, MiningTargetRequest, MiningTargetResolution,
+    MiningTargetResolutionError, resolve_mining_order, resolve_mining_target,
+    validate_claim_mining_output, validate_start_mining,
 };
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -285,7 +285,7 @@ const FIELDWORK_TOOLS: [FieldworkTool; 4] = [
 struct FieldworkToolEstimate {
     tool: FieldworkTool,
     preparation_ticks: u64,
-    pristine_order_ticks: u64,
+    order_ticks: u64,
     batch: Mass,
     raw: BTreeMap<CommodityKey, Mass>,
 }
@@ -293,7 +293,7 @@ struct FieldworkToolEstimate {
 impl FieldworkToolEstimate {
     fn total_ticks(&self) -> u64 {
         self.preparation_ticks
-            .checked_add(self.pristine_order_ticks)
+            .checked_add(self.order_ticks)
             .unwrap_or_else(|| panic!("fieldwork estimated attention overflowed"))
     }
 
@@ -323,6 +323,7 @@ enum FieldworkToolBlocker {
         commodity: CommodityKey,
         required: Mass,
     },
+    Order(deep_hearth::mining::MiningOrderError),
 }
 
 fn estimate_tool_preparation(
@@ -434,31 +435,26 @@ fn estimate_fieldwork_tool(
     else {
         panic!("fieldwork batch kind changed")
     };
-    let CapabilityValue::MassFlow(flow) = capabilities
-        .get_capability(method.mass_flow_capability())
-        .unwrap_or_else(|| panic!("fieldwork candidate flow disappeared"))
-    else {
-        panic!("fieldwork flow kind changed")
-    };
-    assert!(!batch.is_zero() && !order.is_zero());
-    // Public production throughput arithmetic, rounded per batch. This is deliberately a
-    // pristine estimate, not a duplicate of private mining wear physics or future execution.
-    let duration = |mass| {
-        calculate_mass_flow_duration_ceiling(flow, mass, registries.core().physical_tick_duration())
-            .unwrap_or_else(|error| panic!("fieldwork nominal duration failed: {error}"))
-            .value()
-    };
-    let full_batches = order.milligrams() / batch.milligrams();
-    let remainder = Mass::from_milligrams(order.milligrams() % batch.milligrams());
-    let pristine_order_ticks = duration(batch)
-        .checked_mul(full_batches)
-        .and_then(|ticks| ticks.checked_add(duration(remainder)))
-        .unwrap_or_else(|| panic!("fieldwork extraction estimate overflowed"));
+    // Planning uses the same sequential wear and per-batch rounding as mining admission.
+    // The bounded projection promises effort, not hidden supply or current authorization.
+    let projection = resolve_mining_order(
+        registries.core().physical_tick_duration(),
+        method,
+        definition,
+        MiningOrderRequest::new(
+            deep_hearth::maintenance::Condition::PRISTINE,
+            observed_upper,
+            order,
+            batch,
+            256,
+        ),
+    )
+    .map_err(FieldworkToolBlocker::Order)?;
     let (preparation_ticks, raw) = estimate_tool_preparation(registries, state, raw, tool)?;
     Ok(FieldworkToolEstimate {
         tool,
         preparation_ticks,
-        pristine_order_ticks,
+        order_ticks: projection.duration().value(),
         batch,
         raw,
     })
@@ -475,7 +471,7 @@ fn choose_fieldwork_tool(
     for tool in FIELDWORK_TOOLS {
         let estimate = estimate_fieldwork_tool(registries, state, raw, tool, observed_upper, order);
         reviewln!(
-            "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=pristine-per-batch,no-service,unknown-deposit-reserve",
+            "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=no-service,unknown-deposit-reserve",
             state.tick().value(),
             tool.label,
             observed_upper.pascals(),
@@ -818,10 +814,10 @@ fn batch_capped_mining_finishes_the_requested_order() {
     let registries = deep_hearth::content::build_registries();
     for (seed, expected) in [
         (1, EQUIPMENT_COPPER_REINFORCED_PICK),
-        (2, EQUIPMENT_STONE_QUARRY_PICK),
+        (2, EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK),
         (3, EQUIPMENT_COPPER_REINFORCED_PICK),
     ] {
-        let (tool, _, pristine_ticks, actual_ticks, batches, _) = run_fieldwork_order(
+        let (tool, _, projected_ticks, actual_ticks, batches, _) = run_fieldwork_order(
             &registries,
             FocusedProbeCase::new(
                 seed,
@@ -835,9 +831,10 @@ fn batch_capped_mining_finishes_the_requested_order() {
             batches > 1,
             "the requested order must outlive its first claim"
         );
-        assert!(actual_ticks >= pristine_ticks);
-        // Tick rounding can hide a small wear penalty even on a long order. The dedicated
-        // quarry regression below distinguishes an actual overrun from merely worn condition.
+        assert_eq!(
+            actual_ticks, projected_ticks,
+            "wear-adjusted effort must match execution"
+        );
     }
 }
 
@@ -932,7 +929,7 @@ fn candidate_frame_respects_visible_hardness_and_finite_copper() {
 }
 
 #[test]
-fn larger_order_amortizes_quarry_preparation_with_real_wear() {
+fn wear_adjusted_order_can_favor_the_lighter_reinforced_tool() {
     let registries = deep_hearth::content::build_registries();
     // An explicit visible work order, not an inference from hidden deposit reserves.
     let order = multiplied_mass(
@@ -940,7 +937,7 @@ fn larger_order_amortizes_quarry_preparation_with_real_wear() {
         40,
         "large-order regression",
     );
-    let (tool, preparation_ticks, pristine_order_ticks, mining_ticks, batches, condition_after) =
+    let (tool, preparation_ticks, projected_order_ticks, mining_ticks, batches, condition_after) =
         run_fieldwork_order(
             &registries,
             FocusedProbeCase::new(
@@ -950,11 +947,22 @@ fn larger_order_amortizes_quarry_preparation_with_real_wear() {
             ),
             order,
         );
-    assert_eq!(tool, EQUIPMENT_STONE_QUARRY_PICK);
+    assert_eq!(tool, EQUIPMENT_COPPER_REINFORCED_PICK);
     assert!(mining_ticks > preparation_ticks);
+    assert_eq!(mining_ticks, projected_order_ticks);
+    let (state, raw) = fieldwork_planning_fixture(&registries, true);
+    let quarry = estimate_fieldwork_tool(
+        &registries,
+        &state,
+        raw,
+        FIELDWORK_TOOLS[2],
+        fieldwork_mining_limits(&registries).base_quarry_hardness,
+        order,
+    )
+    .unwrap_or_else(|error| panic!("quarry comparison failed: {error:?}"));
     assert!(
-        mining_ticks > pristine_order_ticks,
-        "long-order feedback must expose wear omitted by the pristine estimate"
+        preparation_ticks + mining_ticks < quarry.total_ticks(),
+        "the selected lighter tool must finish sooner than the old pristine-policy quarry choice"
     );
     assert!(condition_after < deep_hearth::maintenance::Condition::PRISTINE);
     assert!(batches > 1);
@@ -989,7 +997,7 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     run_fieldwork_order(registries, case, fieldwork_order(registries, case.seed()));
 }
 
-/// Returns (tool, preparation, pristine-order estimate, actual extraction, batches, condition).
+/// Returns (tool, preparation, wear-adjusted order estimate, actual extraction, batches, condition).
 fn run_fieldwork_order(
     registries: &Registries,
     case: FocusedProbeCase,
@@ -1150,11 +1158,11 @@ fn run_fieldwork_order(
         panic!("fieldwork bounded raw-tool family has no candidate for the acquired evidence")
     });
     reviewln!(
-        "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-pristine-order,then-native-copper,then-raw-mass,ties-light-first preparation={}t pristine-order={}t total={}t authorization=not-yet",
+        "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-wear-adjusted-order,then-native-copper,then-raw-mass,ties-light-first preparation={}t projected-order={}t total={}t authorization=not-yet",
         state.tick().value(),
         estimate.tool.label,
         estimate.preparation_ticks,
-        estimate.pristine_order_ticks,
+        estimate.order_ticks,
         estimate.total_ticks()
     );
     let raw_before: BTreeMap<_, _> = estimate
@@ -1385,19 +1393,19 @@ fn run_fieldwork_order(
     let search_time = format_physical_duration(registries, search_ticks);
     let total_time = format_physical_duration(registries, total_ticks);
     reviewln!(
-        "FIELDWORK ESTIMATE FEEDBACK seed=0x{seed:016X} selected={} order-horizon={order_horizon} requested={}mg preparation-estimate={}t preparation-actual={}t pristine-order-estimate={}t extraction-actual={}t extraction-error={:+}t actual-build-plus-order={}t/{} condition={}ppm->{}ppm estimate-matched={} choice-frozen-before-action=true service=none",
+        "FIELDWORK ESTIMATE FEEDBACK seed=0x{seed:016X} selected={} order-horizon={order_horizon} requested={}mg preparation-estimate={}t preparation-actual={}t wear-adjusted-order-estimate={}t extraction-actual={}t extraction-error={:+}t actual-build-plus-order={}t/{} condition={}ppm->{}ppm estimate-matched={} choice-frozen-before-action=true service=none",
         estimate.tool.label,
         requested_mine_mass.milligrams(),
         estimate.preparation_ticks,
         tool_prep_ticks,
-        estimate.pristine_order_ticks,
+        estimate.order_ticks,
         mining_ticks,
-        i128::from(mining_ticks) - i128::from(estimate.pristine_order_ticks),
+        i128::from(mining_ticks) - i128::from(estimate.order_ticks),
         tool_prep_ticks + mining_ticks,
         format_physical_duration(registries, tool_prep_ticks + mining_ticks),
         condition_before.parts_per_million(),
         condition_after.parts_per_million(),
-        estimate.pristine_order_ticks == mining_ticks
+        estimate.order_ticks == mining_ticks
     );
     reviewln!(
         "FIELDWORK PACING seed=0x{seed:016X} search={search_ticks}t/{search_time} sampling-tool={sampling_setup_ticks}t/{sampling_setup_time} extraction-tool={tool_prep_ticks}t/{tool_prep_time} extraction={mining_ticks}t/{mining_time} batches={batches} first-ore={first_ore_ticks}t/{first_ore_time} full-order={}t/{total_time} output={}mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade={output_grade_ppm}ppm",
@@ -1429,7 +1437,7 @@ fn run_fieldwork_order(
     (
         estimate.tool.target,
         tool_prep_ticks,
-        estimate.pristine_order_ticks,
+        estimate.order_ticks,
         mining_ticks,
         batches,
         condition_after,
