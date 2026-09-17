@@ -87,6 +87,14 @@ counterfactual comparison can explain the choice without rereading hidden state 
 When the same missing production projection forces several actors/probes to reconstruct the same meaning, treat
 that as control-surface debt rather than standard harness infrastructure.
 
+Freeze investment intent before evaluating comparison branches. Full-lifecycle counterfactual costs, future
+replacement consumption, and terminal inventory may assess the decision afterward, but must not select it or
+retroactively decide whether its reserve policy was satisfied. A pre-action estimate must retain its assumptions
+and uncertainty; an unexpectedly costly decision is useful feedback, not permission to choose a better past.
+During execution, refresh the observable resource and condition checks before each service or fallback.
+Report summaries preserve disagreement between pre-action estimates and executed lifecycle outcomes rather
+than silently selecting the best future.
+
 For chained production/mining work, consume the exact contribution plus destination-owned landing identity from
 `ProcessCompletion::landings()` / `ProcessParcelLanding` or `MiningClaimReceipt`. A landing may name a
 pre-existing lot when inventory coalesces compatible matter; the paired `MaterialLotSpec` preserves what this
@@ -246,8 +254,13 @@ after its authored copper blade and timber frame are assembled. Its better board
 copper and a replaceable wear component rather than becoming a hidden free efficiency multiplier. Gameplay
 evaluation must include the frame's embodied timber, blade lifecycle copper, and maintenance attention when
 claiming payback. A finite-copper route may rationally use the saw until its blade becomes unproductive and then
-finish the visible pipeline with the still-maintainable stone adze. Exact current input masses, yields, and timings
-remain content/production facts rather than gameplay-evaluation policy.
+finish the visible pipeline with the still-maintainable stone adze. The woodworking actor freezes its initial
+investment before branch execution: it compares nominal authored timber demand and a conservative willingness
+budget (bare-work attention at least twice equipment-free construction attention), with a current copper-reserve
+check. This budget is policy, not a prediction of full-lifecycle payback. Replacement service rechecks the reserve;
+executed lifecycle counterfactuals assess, but never revise, the initial choice. The report retains estimate
+mismatches, and regression coverage includes a declined saw that hindsight reveals would have been cheaper.
+Exact current input masses, yields, and timings remain content/production facts rather than gameplay-evaluation policy.
 
 Preservation coverage requires every authored enclosure to remain ordinarily producible and recoverable while
 retaining a distinct practical tradeoff in capacity, preservation, raw material, or construction attention.
@@ -310,7 +323,10 @@ uses the largest declared primary, reserve, or mining batch and may overshoot by
 later reinvestment; organic worlds may finish the stockpiling order or stop on observed supply/condition limits.
 Replenishment overlap equal to setup time is only a scheduling equivalence, **not economic payback**: the episode
 does not compare avoided hand-processing costs or demonstrate downstream demand for every stockpiled output.
-Available attention, mining-job counts, and buffer stops must remain visible in reporting. No gate requires the
+Available attention, mining-job counts, and buffer stops must remain visible in reporting. The existing
+post-order reinvestment counterfactual also records the exact stockpiled feed consumed by its first two copper
+recoveries before any new crushing, the recovered upgrade copper, processing/charging cost, and retained
+stockpile. That demonstrates a limited downstream use, not demand for the entire order or economic payback. No gate requires the
 actor to manufacture busywork to make an investment appear profitable. The actor may discover that an investment
 was premature because
 the available evidence does not expose hidden total deposit mass; hidden reserve truth must not become policy
@@ -349,7 +365,8 @@ while maintained anchors stay fixed. Failure output must retain replay input.
 
 `python ci.py report` is the bounded exploration surface. Its default concise view includes aggregate ordinary
 survival, primitive progression, woodworking, fieldwork, and power-provider diversity, including preservation material/frontier
-breadth, woodworking attention/timber/lifecycle payback, and crank-vs-treadle charge/build tradeoffs, live content counts, the ordinary
+breadth, woodworking attention/timber/lifecycle payback plus pre-action-estimate disagreement,
+post-order stockpile demand breadth, and crank-vs-treadle charge/build tradeoffs, live content counts, the ordinary
 acquisition frontier, and compact summaries of the controlled workshop/ore/foundry evidence. Controlled summaries stay explicitly labeled
 and do not imply ordinary reachability; hiding them entirely would make a cold reader miss important interaction,
 recovery, and finite-capacity behavior that already exists in the simulation. `DEEP_HEARTH_GAMEPLAY_VERBOSE`

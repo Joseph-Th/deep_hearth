@@ -301,8 +301,24 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .get_store(drive)
         .map(|record| record.stored())
         .unwrap_or_else(|| panic!("primitive liberation drive disappeared after completion"));
+    let recovered_copper_ppm_mg = primary
+        .concentrate_copper_ppm_mg
+        .checked_add(scavenged.additional_recovered_copper_ppm_mg)
+        .unwrap_or_else(|| panic!("primitive liberation recovered-copper audit overflowed"));
+    // Use exact constituent numerators, not rounded concentrate grades. Keep any fractional
+    // milligrams as decimal digits without floating point or truncating represented copper.
+    let copper_mg = |numerator: u128| {
+        let whole = numerator.checked_div(1_000_000).expect("nonzero ppm scale");
+        let fraction = numerator.checked_rem(1_000_000).expect("nonzero ppm scale");
+        if fraction == 0 {
+            whole.to_string()
+        } else {
+            let digits = format!("{fraction:06}");
+            format!("{whole}.{}", digits.trim_end_matches('0'))
+        }
+    };
     reviewln!(
-        "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} route=treadle+paired-flywheel->crusher->quern->copper-screen->regrind->separator->tailings-regrind->scavenger input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm additional-copper:{}ppm-mg] exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
+        "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} route=treadle+paired-flywheel->crusher->quern->copper-screen->regrind->separator->tailings-regrind->scavenger input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),
         copper_ppm,
@@ -311,17 +327,15 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         primary.concentrate_grade_ppm,
         scavenged.concentrate_mass.milligrams(),
         scavenged.concentrate_grade_ppm,
-        scavenged.additional_recovered_copper_ppm_mg,
+        copper_mg(primary.concentrate_copper_ppm_mg),
+        copper_mg(recovered_copper_ppm_mg),
+        copper_mg(scavenged.additional_recovered_copper_ppm_mg),
         scavenged.exhausted_tailings_mass.milligrams(),
         final_energy.nanojoules(),
     );
     // The concentrate stockpile has no ordinary sink yet: reduction/smelting into pure metal is
     // still the STATUS.md frontier, so the scavenger leg reads as future-proofing rather than
     // immediate copper. Report its share of recovered copper alongside that boundary.
-    let recovered_copper_ppm_mg = primary
-        .concentrate_copper_ppm_mg
-        .checked_add(scavenged.additional_recovered_copper_ppm_mg)
-        .unwrap_or_else(|| panic!("primitive liberation recovered-copper audit overflowed"));
     let scavenger_share_ppm = if recovered_copper_ppm_mg == 0 {
         0
     } else {

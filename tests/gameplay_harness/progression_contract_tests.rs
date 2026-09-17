@@ -286,6 +286,34 @@ fn autonomous_crushing_does_not_fill_idle_time_with_unbounded_feed_mining() {
 }
 
 #[test]
+fn completed_reinvestment_consumes_post_order_stockpile_for_upgrade_demand() {
+    let registries = build_registries();
+    let review = evaluate_primitive_progression_probe(
+        &registries,
+        FocusedProbeCase::new(0xD33F_C01D_5052, None, FocusedProbeRole::MaintainedAnchor),
+    );
+    assert_eq!(review.steady_state_cycles, 12);
+    assert_eq!(
+        review.steady_state_stop,
+        PrimitiveSteadyStop::StockpileOrderComplete
+    );
+    assert_eq!(review.overlap_setup_equivalent_cycles, None);
+    let PrimitiveReinvestmentOutcome::Completed(work) = review.reinvestment else {
+        panic!("maintained post-order stockpile must support executed upgrade demand");
+    };
+    assert!(work.stockpile_demand_executed);
+    assert_eq!(work.stockpile_demand_copper, Mass::from_milligrams(40_000));
+    assert_eq!(
+        work.stockpile_before_demand
+            .checked_sub(work.stockpile_after_demand),
+        Some(work.stockpile_demand_feed)
+    );
+    assert!(!work.stockpile_demand_feed.is_zero());
+    assert!(!work.stockpile_demand_energy.is_zero());
+    assert!(work.stockpile_demand_separation_ticks > 0);
+}
+
+#[test]
 fn bounded_stockpiling_preserves_shallow_supply_until_reinvestment() {
     let registries = build_registries();
     let case = FocusedProbeCase::new(

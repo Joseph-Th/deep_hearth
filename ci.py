@@ -696,6 +696,47 @@ def fieldwork_pacing_summary(lines: list[str]) -> list[str]:
     ]
 
 
+def woodworking_feedback_summary(lines: list[str]) -> list[str]:
+    """Keep mistaken estimates visible instead of silently choosing the best future."""
+    rows = [line for line in lines if line.startswith("WOODWORKING FEEDBACK ")]
+    if not rows:
+        return []
+    mismatches = lambda field: sum(
+        (match.group(1) != match.group(2))
+        for line in rows
+        if (match := re.search(field, line)) is not None
+    )
+    return [
+        f"WOODWORKING FEEDBACK SUMMARY samples={len(rows)} "
+        f"attention-estimate-disagreements={mismatches(r'attention=\[budget-met:(true|false) actual-payback:(true|false)\]')} "
+        f"timber-estimate-disagreements={mismatches(r'timber=\[nominal-payback:(true|false) actual-payback:(true|false)\]')} "
+        "policy=pre-action-budget actual=executed-lifecycle hindsight-selection=false"
+    ]
+
+
+def progression_demand_summary(lines: list[str]) -> list[str]:
+    """Show how little of a stockpile actually funds the demonstrated upgrade demand."""
+    buffers = [line for line in lines if line.startswith("PROGRESSION BUFFER ")]
+    rows = [
+        tuple(map(int, match.groups()))
+        for line in buffers
+        if (match := re.search(
+            r"feed:(\d+)mg stockpile:(\d+)->(\d+)mg recovered:(\d+)mg", line
+        )) is not None
+    ]
+    if not rows:
+        return []
+    span = lambda values: f"{min(values)}..{max(values)}"
+    return [
+        f"PROGRESSION DEMAND SUMMARY measured={len(rows)}/{len(buffers)} "
+        f"feed={span([row[0] for row in rows])}mg "
+        f"stockpile-retained={span([row[2] for row in rows])}mg "
+        f"upgrade-copper={span([row[3] for row in rows])}mg "
+        "basis=executed-post-order-counterfactual payback=not-established "
+        "read=some-stockpile-has-use-most-remains-inventory-not-demonstrated-demand"
+    ]
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
     """Keep aggregate player/capability evidence; verbose retains the per-case transcript."""
 
@@ -718,6 +759,8 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     selected.extend(liberation_cost_summary(lines))
     selected.extend(fieldwork_pacing_summary(lines))
     selected.extend(woodworking_baseline_summary(lines))
+    selected.extend(woodworking_feedback_summary(lines))
+    selected.extend(progression_demand_summary(lines))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)
 

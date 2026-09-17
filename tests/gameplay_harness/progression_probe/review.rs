@@ -412,6 +412,26 @@ fn concise_reinvestment_summary(outcome: &PrimitiveReinvestmentOutcome) -> Strin
     )
 }
 
+fn stockpile_demand_summary(outcome: &PrimitiveReinvestmentOutcome) -> String {
+    match outcome {
+        PrimitiveReinvestmentOutcome::Completed(work) => format!(
+            "executed:{} basis:post-order-reinvestment-counterfactual purpose:upgrade-copper feed:{}mg stockpile:{}->{}mg recovered:{}mg separation:{}t charge:{}t process-energy:{}nJ scope:first-two-recoveries-before-new-crushing",
+            work.stockpile_demand_executed,
+            work.stockpile_demand_feed.milligrams(),
+            work.stockpile_before_demand.milligrams(),
+            work.stockpile_after_demand.milligrams(),
+            work.stockpile_demand_copper.milligrams(),
+            work.stockpile_demand_separation_ticks,
+            work.stockpile_demand_charge_ticks,
+            work.stockpile_demand_energy.nanojoules(),
+        ),
+        PrimitiveReinvestmentOutcome::TargetSupplyLimited
+        | PrimitiveReinvestmentOutcome::StorageCapacityLimited { .. } => {
+            "evidence:not-established basis:incomplete-reinvestment-counterfactual".to_string()
+        }
+    }
+}
+
 fn detailed_reinvestment_summary(outcome: &PrimitiveReinvestmentOutcome) -> String {
     let reinvestment = match outcome {
         PrimitiveReinvestmentOutcome::Completed(reinvestment) => reinvestment,
@@ -1166,9 +1186,10 @@ fn report_primitive_progression_review(
         .automation_preparation_ticks
         .saturating_sub(natural.machine_useful_overlap_ticks);
     let reinvestment_summary = concise_reinvestment_summary(&review.reinvestment);
+    let stockpile_demand = stockpile_demand_summary(&review.reinvestment);
     report_maintained_manual_fallback(seed, manual_fallback);
     reviewln!(
-        "PROGRESSION BUFFER seed=0x{seed:016X} policy=two-upcoming-batches work-order={}cycles mining=[steady:{}jobs buffer-stops:{}cycles] machine={}t replenishment={}t available-attention={}t payback=not-established outcome=stockpile-not-final-demand",
+        "PROGRESSION BUFFER seed=0x{seed:016X} policy=two-upcoming-batches work-order={}cycles mining=[steady:{}jobs buffer-stops:{}cycles] machine={}t replenishment={}t available-attention={}t payback=not-established outcome=stockpile-order demand=[{stockpile_demand}]",
         STOCKPILE_WORK_ORDER_CYCLES,
         review.steady_mining_jobs,
         review.steady_feed_buffer_limited_cycles,

@@ -12,7 +12,7 @@ use deep_hearth::content::{
     FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
     PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION, PROSPECTING_LOCAL_TRANSECT,
 };
-use deep_hearth::core::quantity::{Mass, Pressure};
+use deep_hearth::core::quantity::{Energy, Mass, Pressure, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::equipment::{
@@ -716,6 +716,10 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         .unwrap_or_else(|error| panic!("fieldwork survival setup failed: {error}"));
 
     let episode_started_at = state.tick();
+    let survival_before = *state
+        .survival()
+        .player()
+        .unwrap_or_else(|| panic!("fieldwork initial survival record disappeared"));
     let (hammer, sampling_setup_ticks) =
         assemble_sampling_hammer(registries, &mut state, raw, parts);
     let search_started_at = state.tick();
@@ -899,6 +903,43 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         .get_stockpile(raw)
         .map(|stockpile| stockpile.get_mass(native_copper))
         .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared"));
+    let survival_after = state
+        .survival()
+        .player()
+        .unwrap_or_else(|| panic!("fieldwork final survival record disappeared"));
+    // No intake occurs in this episode: reserve deltas include every canonical tick's
+    // basal and work costs, from sampling-tool preparation through the first ore claim.
+    let metabolic_energy_spent = survival_before
+        .metabolic_energy()
+        .checked_sub(survival_after.metabolic_energy())
+        .unwrap_or_else(|| panic!("fieldwork metabolic reserve increased without intake"));
+    let hydration_spent = survival_before
+        .hydration()
+        .checked_sub(survival_after.hydration())
+        .unwrap_or_else(|| panic!("fieldwork hydration reserve increased without intake"));
+    assert!(metabolic_energy_spent > Energy::ZERO);
+    assert!(hydration_spent > Volume::ZERO);
+    assert!(
+        survival_after.metabolic_energy() > Energy::ZERO
+            && survival_after.hydration() > Volume::ZERO,
+        "fieldwork cost evidence must not clip at exhausted survival reserves"
+    );
+    assert_eq!(
+        survival_after
+            .metabolic_energy()
+            .checked_add(metabolic_energy_spent),
+        Some(survival_before.metabolic_energy()),
+        "fieldwork reported metabolic cost must reconcile with canonical player reserves"
+    );
+    assert_eq!(
+        survival_after.hydration().checked_add(hydration_spent),
+        Some(survival_before.hydration()),
+        "fieldwork reported hydration cost must reconcile with canonical player reserves"
+    );
+    let output_grade_ppm = receipt
+        .output()
+        .composition()
+        .parts_per_million(MATERIAL_COPPER);
     let sampling_setup_time = format_physical_duration(registries, sampling_setup_ticks);
     let tool_prep_time = format_physical_duration(registries, tool_prep_ticks);
     let mining_time = format_physical_duration(registries, mining_ticks);
@@ -911,12 +952,12 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     let search_time = format_physical_duration(registries, search_ticks);
     let total_time = format_physical_duration(registries, total_ticks);
     reviewln!(
-        "FIELDWORK PACING seed=0x{seed:016X} search={search_ticks}t/{search_time} sampling-tool={sampling_setup_ticks}t/{sampling_setup_time} extraction-tool={tool_prep_ticks}t/{tool_prep_time} extraction={mining_ticks}t/{mining_time} first-ore={total_ticks}t/{total_time} output={}mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true",
+        "FIELDWORK PACING seed=0x{seed:016X} search={search_ticks}t/{search_time} sampling-tool={sampling_setup_ticks}t/{sampling_setup_time} extraction-tool={tool_prep_ticks}t/{tool_prep_time} extraction={mining_ticks}t/{mining_time} first-ore={total_ticks}t/{total_time} output={}mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade={output_grade_ppm}ppm",
         extracted_mass.milligrams(),
     );
 
     reviewln!(
-        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={}ppm matter=conserved",
+        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={output_grade_ppm}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
         focused_probe_role_label(case.role()),
         CHANNEL_COUNT,
         transects,
@@ -933,9 +974,7 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         mining_ticks,
         condition_before.parts_per_million(),
         condition_after.parts_per_million(),
-        receipt
-            .output()
-            .composition()
-            .parts_per_million(MATERIAL_COPPER),
+        metabolic_energy_spent.nanojoules(),
+        hydration_spent.microliters(),
     );
 }

@@ -386,8 +386,10 @@ fn try_evaluate_mature_reinvestment(
             .unwrap_or_else(|| panic!("primitive reinvestment crusher process disappeared"))
             .specific_energy(),
     );
-    fill_primitive_accumulator(registries, &mut state, machine, primary_energy)
-        .unwrap_or_else(|error| panic!("primitive reinvestment baseline charge failed: {error}"));
+    let baseline_charge_ticks =
+        fill_primitive_accumulator(registries, &mut state, machine, primary_energy).unwrap_or_else(
+            |error| panic!("primitive reinvestment baseline charge failed: {error}"),
+        );
     let base_crush_ticks = resolve_crush_ticks(
         registries,
         &state,
@@ -398,6 +400,8 @@ fn try_evaluate_mature_reinvestment(
         "base crusher comparison",
     );
 
+    // These first two upgrade parcels consume the post-order stockpile before this branch
+    // executes any new crushing. Keep that actual demand separate from later comparison batches.
     let remaining_primary_crushed = state
         .inventory()
         .get_stockpile(crushed_storage)
@@ -477,6 +481,34 @@ fn try_evaluate_mature_reinvestment(
             .checked_add(reinforcement_mass)
             .unwrap_or_else(|| panic!("primitive reinvestment reinforcement mass overflowed"))
     );
+
+    let stockpile_after_demand = state
+        .inventory()
+        .get_stockpile(crushed_storage)
+        .unwrap_or_else(|| panic!("primitive reinvestment stockpile disappeared after demand"))
+        .stored_mass();
+    let stockpile_demand_feed = first_recovery
+        .feed_mass
+        .checked_add(second_recovery.feed_mass)
+        .unwrap_or_else(|| panic!("primitive reinvestment stockpile demand overflowed"));
+    assert_eq!(
+        remaining_primary_crushed.checked_sub(stockpile_after_demand),
+        Some(stockpile_demand_feed),
+        "upgrade recovery must consume exactly its feed from the existing post-order stockpile"
+    );
+    let stockpile_demand_energy = first_recovery
+        .required_energy
+        .checked_add(second_recovery.required_energy)
+        .unwrap_or_else(|| panic!("primitive reinvestment demand energy overflowed"));
+    // Include the baseline fill: its stored work also supplies these recovery jobs.
+    let stockpile_demand_charge_ticks = baseline_charge_ticks
+        .checked_add(first_recovery.charge_ticks)
+        .and_then(|ticks| ticks.checked_add(second_recovery.charge_ticks))
+        .unwrap_or_else(|| panic!("primitive reinvestment demand charge time overflowed"));
+    let stockpile_demand_separation_ticks = first_recovery
+        .ticks
+        .checked_add(second_recovery.ticks)
+        .unwrap_or_else(|| panic!("primitive reinvestment demand separation time overflowed"));
 
     fill_primitive_accumulator(registries, &mut state, machine, primary_energy).unwrap_or_else(
         |error| panic!("primitive reinvestment upgraded crusher charge failed: {error}"),
@@ -826,6 +858,14 @@ fn try_evaluate_mature_reinvestment(
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("primitive reinvestment state audit failed: {error}"));
     Ok(PrimitiveReinvestmentExperience {
+        stockpile_demand_executed: true,
+        stockpile_before_demand: remaining_primary_crushed,
+        stockpile_after_demand,
+        stockpile_demand_feed,
+        stockpile_demand_copper: first_two_reinvestment_copper,
+        stockpile_demand_energy,
+        stockpile_demand_charge_ticks,
+        stockpile_demand_separation_ticks,
         invested_copper_mass,
         base_crush_ticks,
         reinforced_crush_ticks,

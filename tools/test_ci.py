@@ -1423,6 +1423,27 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(ci.woodworking_baseline_summary([]), [])
         self.assertIn("insufficient-data", ci.woodworking_baseline_summary(["WOODWORKING BASELINE malformed"])[0])
 
+    def test_woodworking_feedback_preserves_estimate_disagreement(self) -> None:
+        lines = [
+            "WOODWORKING FEEDBACK seed=0x50 attention=[budget-met:false actual-payback:true] timber=[nominal-payback:false actual-payback:false]",
+            "WOODWORKING FEEDBACK seed=0x1 attention=[budget-met:true actual-payback:true] timber=[nominal-payback:true actual-payback:false]",
+        ]
+        summary = ci.concise_gameplay_report("\n".join(lines), {})
+        self.assertIn("attention-estimate-disagreements=1", summary)
+        self.assertIn("timber-estimate-disagreements=1", summary)
+        self.assertIn("hindsight-selection=false", summary)
+        self.assertEqual(ci.woodworking_feedback_summary([]), [])
+
+    def test_progression_demand_does_not_claim_entire_stockpile_use(self) -> None:
+        line = (
+            "PROGRESSION BUFFER seed=0x1 demand=[executed:true "
+            "feed:50000mg stockpile:2500000->2450000mg recovered:40000mg]"
+        )
+        summary = ci.concise_gameplay_report(line, {})
+        self.assertIn("feed=50000..50000mg stockpile-retained=2450000..2450000mg", summary)
+        self.assertIn("basis=executed-post-order-counterfactual payback=not-established", summary)
+        self.assertEqual(ci.progression_demand_summary([]), [])
+
     def test_woodworking_summary_does_not_lose_no_tool_choices(self) -> None:
         summary = ci.concise_gameplay_report(
             "WOODWORKING EXPERIENCE seed=0xFA choice=bare-hands reason=bare-hands-avoids-investment-cost", {}
@@ -1434,11 +1455,17 @@ class LocalCiPlanTests(unittest.TestCase):
         line = (
             "PROGRESSION BUFFER seed=0x1 policy=two-upcoming-batches work-order=12cycles "
             "mining=[steady:12jobs buffer-stops:12cycles] machine=400t "
-            "replenishment=30t available-attention=370t payback=not-established"
+            "replenishment=30t available-attention=370t payback=not-established "
+            "outcome=stockpile-order demand=[executed:true "
+            "basis:post-order-reinvestment-counterfactual purpose:upgrade-copper "
+            "feed:90000mg stockpile:2000000->1910000mg recovered:40000mg "
+            "separation:40t charge:5t process-energy:36000000000nJ "
+            "scope:first-two-recoveries-before-new-crushing]"
         )
         summary = ci.concise_gameplay_report(line, {})
         self.assertIn("mining=12..12jobs", summary)
         self.assertIn("available-attention=370..370t", summary)
+        self.assertIn("available-attention-is-not-a-failure", summary)
         self.assertIn("payback=not-established", summary)
         self.assertEqual(ci.progression_buffer_summary([]), [])
         self.assertIn("insufficient-data", ci.progression_buffer_summary(["PROGRESSION BUFFER malformed"])[0])

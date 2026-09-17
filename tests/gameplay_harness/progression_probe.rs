@@ -1170,6 +1170,14 @@ pub(super) enum PrimitiveReinvestmentOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PrimitiveReinvestmentExperience {
+    pub(crate) stockpile_demand_executed: bool,
+    pub(crate) stockpile_before_demand: Mass,
+    pub(crate) stockpile_after_demand: Mass,
+    pub(crate) stockpile_demand_feed: Mass,
+    pub(crate) stockpile_demand_copper: Mass,
+    pub(crate) stockpile_demand_energy: Energy,
+    pub(crate) stockpile_demand_charge_ticks: u64,
+    pub(crate) stockpile_demand_separation_ticks: u64,
     invested_copper_mass: Mass,
     base_crush_ticks: u64,
     reinforced_crush_ticks: u64,
