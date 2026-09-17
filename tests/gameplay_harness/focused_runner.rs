@@ -44,7 +44,7 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
         ),
         // Anchor selects the light reinforced pick; coverage adds the stone quarry route and
         // hard-rock specialist evidence. Organic worlds remain free to land in any tier.
-        "fieldwork" => (1, &[2, 3], 0x4649_454C_4450_5242),
+        "fieldwork" => (1, &[2, 3, 6], 0x4649_454C_4450_5242),
         // Report-only crank-vs-treadle charging comparison needs no gate: the probe asserts its
         // own comparative contracts inline and organic variation owns broad exploration.
         "power-provider" => (0xD33F_C01D_907E, &[7, 11], 0x504F_5752_5052_4F42),

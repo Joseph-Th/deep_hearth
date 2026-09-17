@@ -527,12 +527,19 @@ fn choose_powered_batch(
     }
 }
 
+enum WarningDemandPlan {
+    EvaluateMaintenance,
+    ExecuteBatch(Box<SelectedBatch>),
+    RecoverEnergy,
+}
+
 /// Compare only the next safe nominal-bounded batch with service now, then refresh next time.
 /// Even zero-time production after service cannot repay service longer than this batch.
+/// An energy blocker is not evidence for service: recharge or stop before reassessing warning wear.
 fn warning_demand_plan(
     registries: &Registries,
-    context: &mut BatchSelectionContext<'_>,
-) -> Option<SelectedBatch> {
+    context: &BatchSelectionContext<'_>,
+) -> WarningDemandPlan {
     let condition = context
         .state
         .equipment()
@@ -542,7 +549,7 @@ fn warning_demand_plan(
     if context.variation.policy.maintenance_preference != MaintenancePreference::ServiceAtWarning
         || context.thresholds.classify(condition) != MaintenanceBand::Warning
     {
-        return None;
+        return WarningDemandPlan::EvaluateMaintenance;
     }
     let remaining = context
         .report
@@ -565,7 +572,17 @@ fn warning_demand_plan(
         context.thresholds,
     ) {
         CrushBatchSearch::Available(plan) => plan,
-        CrushBatchSearch::EnergyUnavailable | CrushBatchSearch::MaintenanceBlocked => return None,
+        CrushBatchSearch::EnergyUnavailable => {
+            println!(
+                "  maintenance frame: crusher={} condition={}ppm remaining={}mg scope=next-batch planned={}mg blocker=EnergyUnavailable choice=recover-energy-before-warning-service; service does not replenish stored work",
+                context.ids.crusher.value(),
+                condition.parts_per_million(),
+                remaining.milligrams(),
+                planned_mass.milligrams(),
+            );
+            return WarningDemandPlan::RecoverEnergy;
+        }
+        CrushBatchSearch::MaintenanceBlocked => return WarningDemandPlan::EvaluateMaintenance,
     };
     let (option, reason, choice_basis) = choose_crush_option(
         plan.small,
@@ -591,7 +608,10 @@ fn warning_demand_plan(
             "preventive-service"
         },
     );
-    defer.then_some(SelectedBatch {
+    if !defer {
+        return WarningDemandPlan::EvaluateMaintenance;
+    }
+    WarningDemandPlan::ExecuteBatch(Box::new(SelectedBatch {
         mass: plan.mass,
         option,
         reason,
@@ -601,7 +621,7 @@ fn warning_demand_plan(
             || plan.condition_lifetime_limited
             || plan.maintenance_limited,
         energy_adaptive: plan.energy_limited,
-    })
+    }))
 }
 
 fn select_next_batch(
@@ -619,16 +639,17 @@ fn select_next_batch(
         ) {
             return BatchSelection::MaintenanceActive;
         }
-        let deferred_plan = warning_demand_plan(registries, &mut context);
-        match handle_pre_batch_maintenance(registries, &mut context, deferred_plan.is_some()) {
+        let warning_plan = warning_demand_plan(registries, &context);
+        let defer_warning = !matches!(warning_plan, WarningDemandPlan::EvaluateMaintenance);
+        match handle_pre_batch_maintenance(registries, &mut context, defer_warning) {
             PreBatchTransition::Proceed => {}
             PreBatchTransition::Retry => continue,
             PreBatchTransition::Stop => return BatchSelection::Stop,
         }
 
-        if let Some(plan) = deferred_plan {
+        if let WarningDemandPlan::ExecuteBatch(plan) = warning_plan {
             context.report.maintenance.warning_deferrals += 1;
-            return BatchSelection::Ready(Box::new(plan));
+            return BatchSelection::Ready(plan);
         }
         let remaining = context
             .report

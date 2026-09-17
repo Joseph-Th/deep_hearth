@@ -80,6 +80,190 @@ fn short_warning_order_defers_service_until_safe_completion() {
     assert!(report.resources.elapsed_ticks < service_duration_value);
 }
 
+fn warning_workshop_with_one_stored_batch(
+    registries: &deep_hearth::registry::Registries,
+) -> scenario::ScenarioVariation {
+    use super::report::{EnergyRecoveryPreference, MaintenancePreference};
+
+    let mut variation = scenario::ScenarioVariation::from_seeds(
+        registries,
+        4,
+        1,
+        Some(MaintainedAnchor::WarningMaintenance),
+    );
+    variation.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
+    variation.policy.energy_recovery_preference = EnergyRecoveryPreference::ProtectSurvival;
+    variation.ore.order_mass = variation
+        .ore
+        .nominal_batch_mass
+        .checked_add(variation.ore.nominal_batch_mass)
+        .unwrap_or_else(|| panic!("depletion fixture order overflowed"));
+    variation.crusher.small_drive_batch_budget = 1;
+    variation.crusher.small_drive_partial_batch_ppm = 0;
+    variation.crusher.large_drive_batch_budget = 0;
+    variation.crusher.large_drive_partial_batch_ppm = 0;
+    variation.crusher.maintenance_replacement_units = 1;
+    // Keep the production delivery path without introducing a second blocking constraint.
+    variation.delivery.mass = Mass::from_milligrams(1);
+    variation
+}
+
+#[test]
+fn depleted_warning_workshop_recharges_without_wasteful_service() {
+    use deep_hearth::content::EQUIPMENT_JAW_CRUSHER;
+    use deep_hearth::maintenance::MaintenanceBand;
+
+    let registries = build_registries();
+    let variation = warning_workshop_with_one_stored_batch(&registries);
+    let report = workshop::runner::run_scenario(&registries, variation, None);
+    let definition = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_JAW_CRUSHER)
+        .unwrap_or_else(|| panic!("authored crusher disappeared"));
+
+    assert_eq!(
+        report.inputs.initial_maintenance_band,
+        MaintenanceBand::Warning
+    );
+    assert_eq!(report.progress.processed_mass, variation.ore.order_mass);
+    assert!(report.choices.manual_recharges > 0);
+    assert!(report.resources.manually_generated_energy.nanojoules() > 0);
+    assert_eq!(report.maintenance.services, 0);
+    assert_eq!(report.maintenance.service_ticks, 0);
+    assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
+    assert_eq!(
+        report.resources.maintenance_stock_remaining,
+        definition
+            .maintenance_profile()
+            .unwrap()
+            .full_service_replacement_mass()
+    );
+    assert_eq!(
+        definition
+            .maintenance_thresholds()
+            .classify(condition(report.resources.final_condition_ppm)),
+        MaintenanceBand::Warning,
+        "recharged work must still preserve the critical-condition floor"
+    );
+    assert!(!report.limits.energy_stop);
+    assert!(!report.limits.maintenance_stop);
+}
+
+#[test]
+fn depleted_warning_workshop_preserves_stock_when_recharge_is_declined() {
+    let registries = build_registries();
+    let mut variation = warning_workshop_with_one_stored_batch(&registries);
+    variation.survival.start_at_hydration_warning_boundary = true;
+    let report = workshop::runner::run_scenario(&registries, variation, None);
+
+    assert_eq!(
+        report.progress.processed_mass,
+        variation.ore.nominal_batch_mass
+    );
+    assert!(report.limits.manual_recovery_declined);
+    assert!(report.limits.energy_stop);
+    assert!(!report.limits.maintenance_stop);
+    assert_eq!(report.choices.manual_recharges, 0);
+    assert_eq!(report.resources.manually_generated_energy.nanojoules(), 0);
+    assert_eq!(report.maintenance.services, 0);
+    assert_eq!(report.maintenance.service_ticks, 0);
+    assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
+    assert!(!report.resources.maintenance_stock_remaining.is_zero());
+}
+
+#[test]
+fn organic_warning_energy_shortfalls_do_not_manufacture_service_costs() {
+    use super::report::{
+        EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
+        StructuralPreference,
+    };
+    use deep_hearth::maintenance::MaintenanceBand;
+
+    let registries = build_registries();
+    // Fixed discoveries from the 0xE1B76C1750B8BA0A / 0x57A9B15C0A1F2C8F report.
+    for world_seed in [0x2426_1F4A_8649_4594, 0x018E_36B3_6C91_CFFF] {
+        let mut variation =
+            scenario::ScenarioVariation::from_seeds(&registries, world_seed, 1, None);
+        variation.policy = ScenarioPolicyVariation {
+            power_preference: PowerPreference::PreserveReserve,
+            energy_recovery_preference: EnergyRecoveryPreference::ProtectSurvival,
+            maintenance_preference: MaintenancePreference::ServiceAtWarning,
+            structural_preference: StructuralPreference::PreserveMargin,
+        };
+        let warning = workshop::runner::run_scenario(&registries, variation, None);
+        variation.policy.maintenance_preference = MaintenancePreference::ServiceAtCritical;
+        let critical_only = workshop::runner::run_scenario(&registries, variation, None);
+
+        std::println!(
+            "WARNING ENERGY REPLAY world=0x{world_seed:016X} warning=[ore:{}mg elapsed:{}t services:{} recharges:{}] critical-only=[ore:{}mg elapsed:{}t services:{} recharges:{}]",
+            warning.progress.processed_mass.milligrams(),
+            warning.resources.episode_end_tick,
+            warning.maintenance.services,
+            warning.choices.manual_recharges,
+            critical_only.progress.processed_mass.milligrams(),
+            critical_only.resources.episode_end_tick,
+            critical_only.maintenance.services,
+            critical_only.choices.manual_recharges,
+        );
+        assert_eq!(
+            warning.inputs.initial_maintenance_band,
+            MaintenanceBand::Warning
+        );
+        assert_eq!(warning.progress.processed_mass, variation.ore.order_mass);
+        assert!(warning.choices.manual_recharges > 0);
+        assert_eq!(warning.maintenance.services, 0);
+        assert_eq!(warning.maintenance.replacement_spent, Mass::ZERO);
+        assert_eq!(
+            warning.progress.processed_mass,
+            critical_only.progress.processed_mass
+        );
+        assert_eq!(
+            warning.resources.episode_end_tick,
+            critical_only.resources.episode_end_tick
+        );
+        assert_eq!(
+            warning.resources.final_condition_ppm,
+            critical_only.resources.final_condition_ppm
+        );
+        assert_eq!(
+            warning.resources.maintenance_stock_remaining,
+            critical_only.resources.maintenance_stock_remaining
+        );
+    }
+}
+
+#[test]
+fn depleted_workshop_still_pays_mandatory_critical_service() {
+    use deep_hearth::content::EQUIPMENT_JAW_CRUSHER;
+
+    let registries = build_registries();
+    let mut variation = warning_workshop_with_one_stored_batch(&registries);
+    let thresholds = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_JAW_CRUSHER)
+        .unwrap_or_else(|| panic!("authored crusher disappeared"))
+        .maintenance_thresholds();
+    variation.crusher.initial_crusher_condition =
+        condition(thresholds.critical_below().parts_per_million() / 2);
+    variation.survival.start_at_hydration_warning_boundary = true;
+    let report = workshop::runner::run_scenario(&registries, variation, None);
+
+    assert_eq!(report.maintenance.services, 1);
+    assert_eq!(report.maintenance.critical_services, 1);
+    assert!(report.maintenance.service_ticks > 0);
+    assert!(report.maintenance.replacement_spent > Mass::ZERO);
+    assert_eq!(
+        report.progress.processed_mass,
+        variation.ore.nominal_batch_mass
+    );
+    assert!(report.limits.energy_stop);
+    assert!(report.limits.manual_recovery_declined);
+    assert!(!report.limits.maintenance_stop);
+    assert!(
+        report.resources.final_condition_ppm >= thresholds.critical_below().parts_per_million()
+    );
+}
+
 #[test]
 fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hidden_event() {
     let registries = build_registries();

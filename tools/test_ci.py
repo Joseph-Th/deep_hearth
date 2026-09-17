@@ -1482,16 +1482,16 @@ class LocalCiPlanTests(unittest.TestCase):
         single = (
             "FIELDWORK PACING seed=0x1 search=216t/12.9m sampling-tool=70t/4.2m "
             "extraction-tool=180t/10.8m extraction=3t/10.8s batches=1 first-ore=469t/28.1m "
-            "full-order=469t/28.1m output=458842mg"
+            "episode-end=469t/28.1m output=458842mg"
         )
         multi = (
             "FIELDWORK PACING seed=0x3 search=240t/14.4m sampling-tool=70t/4.2m "
             "extraction-tool=110t/6.6m extraction=4t/14.4s batches=2 first-ore=423t/25.3m "
-            "full-order=424t/25.4m output=373718mg"
+            "episode-end=424t/25.4m output=373718mg"
         )
         summary = ci.concise_gameplay_report("\n".join([single, multi]), {})
         self.assertIn(
-            "measured=2/2 search=216..240t first-ore=423..469t full-order=424..469t "
+            "measured=2/2 search=216..240t first-ore=423..469t episode-end=424..469t "
             "extraction=3..4t",
             summary,
         )
@@ -1503,9 +1503,9 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_fieldwork_feedback_keeps_signed_errors_and_a_disagreement_example(self) -> None:
         rows = [
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x1 wear-adjusted-order-estimate=5t extraction-actual=5t estimate-matched=true",
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x2 wear-adjusted-order-estimate=160t extraction-actual=175t estimate-matched=false",
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x3 wear-adjusted-order-estimate=20t extraction-actual=18t estimate-matched=false",
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x1 outcome=completed wear-adjusted-order-estimate=5t extraction-actual=5t estimate-matched=true",
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x2 outcome=completed wear-adjusted-order-estimate=160t extraction-actual=175t estimate-matched=false",
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x3 outcome=completed wear-adjusted-order-estimate=20t extraction-actual=18t estimate-matched=false",
             "FIELDWORK ESTIMATE FEEDBACK malformed",
         ]
         summary = ci.fieldwork_feedback_summary(rows)
@@ -1516,6 +1516,47 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(ci.fieldwork_feedback_summary([]), [])
         self.assertIn("insufficient-data", ci.fieldwork_feedback_summary([rows[-1]])[0])
         self.assertIn(rows[1], ci.concise_gameplay_report("\n".join(rows), {}))
+
+    def test_fieldwork_partial_order_is_not_a_faster_completed_order(self) -> None:
+        complete = (
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x1 outcome=completed "
+            "wear-adjusted-order-estimate=160t extraction-actual=160t estimate-matched=true"
+        )
+        partial = (
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x2 outcome=known-target-supply "
+            "wear-adjusted-order-estimate=160t extraction-actual=20t "
+            "estimate-matched=not-applicable comparison=partial-order-not-comparable"
+        )
+        summary = ci.fieldwork_feedback_summary([complete, partial])
+        self.assertIn("measured=1/2", summary[0])
+        self.assertIn("extraction-estimate-error=+0..+0t disagreements=0", summary[0])
+        self.assertIn("partial-orders=1", summary[0])
+        self.assertEqual(summary[1], partial)
+        only_partial = ci.fieldwork_feedback_summary([partial])
+        self.assertIn("measured=0 evidence=insufficient-data partial-orders=1", only_partial[0])
+        unknown = complete.replace("outcome=completed", "outcome=unknown")
+        self.assertIn("measured=0 evidence=insufficient-data", ci.fieldwork_feedback_summary([unknown])[0])
+
+    def test_fieldwork_supply_summary_distinguishes_investment_from_completed_orders(self) -> None:
+        complete = (
+            "FIELDWORK SUPPLY seed=0x1 outcome=completed requested=16287251mg "
+            "extracted=16287251mg shortfall=0mg stop=order-complete effort=559t investment=70t"
+        )
+        partial = (
+            "FIELDWORK SUPPLY seed=0x2 outcome=known-target-supply requested=22272740mg "
+            "extracted=375000mg shortfall=21897740mg stop=short-claim effort=495t investment=70t"
+        )
+        diagnostic = "FIELDWORK SUPPLY DIAGNOSTIC seed=0x2 initial-reserve=375000mg policy-input=false"
+        summary = ci.fieldwork_supply_summary([complete, partial, diagnostic])
+        self.assertIn(
+            "measured=2/2 completed=1 supply-stopped=1 requested=38559991mg "
+            "extracted=16662251mg shortfall=21897740mg",
+            summary[0],
+        )
+        self.assertEqual(summary[1], partial)
+        self.assertEqual(ci.fieldwork_supply_summary([]), [])
+        malformed = ci.fieldwork_supply_summary(["FIELDWORK SUPPLY malformed"])
+        self.assertIn("measured=0 evidence=insufficient-data", malformed[0])
 
     def test_concise_report_keeps_goal_completion_counterfactual(self) -> None:
         line = (

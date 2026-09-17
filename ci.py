@@ -695,7 +695,7 @@ def fieldwork_pacing_summary(lines: list[str]) -> list[str]:
         if (match := re.search(
             r"search=(\d+)t/\S+ sampling-tool=(\d+)t/\S+ "
             r"extraction-tool=(\d+)t/\S+ extraction=(\d+)t/\S+ batches=(\d+) "
-            r"first-ore=(\d+)t/\S+ full-order=(\d+)t/\S+ output=(\d+)mg", line
+            r"first-ore=(\d+)t/\S+ episode-end=(\d+)t/\S+ output=(\d+)mg", line
         )) is not None
     ]
     if not rows:
@@ -704,7 +704,7 @@ def fieldwork_pacing_summary(lines: list[str]) -> list[str]:
     batches = [row[4] for row in rows]
     return [
         f"FIELDWORK PACING SUMMARY measured={len(rows)}/{len(pacing)} "
-        f"search={span(0)}t first-ore={span(5)}t full-order={span(6)}t extraction={span(3)}t "
+        f"search={span(0)}t first-ore={span(5)}t episode-end={span(6)}t extraction={span(3)}t "
         f"output={span(7)}mg batches={min(batches)}..{max(batches)} "
         f"physical-first-ore={ticks_minutes(min(row[5] for row in rows), physical_tick_us(lines))}.."
         f"{ticks_minutes(max(row[5] for row in rows), physical_tick_us(lines))} "
@@ -719,23 +719,58 @@ def fieldwork_feedback_summary(lines: list[str]) -> list[str]:
     feedback = [line for line in lines if line.startswith("FIELDWORK ESTIMATE FEEDBACK ")]
     if not feedback:
         return []
+    partial = [line for line in feedback if "outcome=known-target-supply" in line]
+    comparable = [line for line in feedback if "outcome=completed" in line]
     errors = [
         int(match.group(2)) - int(match.group(1))
-        for line in feedback
+        for line in comparable
         if (match := re.search(r"wear-adjusted-order-estimate=(\d+)t extraction-actual=(\d+)t", line))
         is not None
     ]
     if not errors:
-        return ["FIELDWORK FEEDBACK SUMMARY measured=0 evidence=insufficient-data"]
-    disagreements = [line for line in feedback if "estimate-matched=false" in line]
+        summary = "FIELDWORK FEEDBACK SUMMARY measured=0 evidence=insufficient-data"
+        if partial:
+            return [summary + f" partial-orders={len(partial)}", partial[0]]
+        return [summary]
+    disagreements = [line for line in comparable if "estimate-matched=false" in line]
     return [
         f"FIELDWORK FEEDBACK SUMMARY measured={len(errors)}/{len(feedback)} "
         f"extraction-estimate-error={min(errors):+d}..{max(errors):+d}t "
         f"disagreements={sum(error != 0 for error in errors)} "
+        f"partial-orders={len(partial)} "
         "basis=actual-minus-wear-adjusted policy=pre-action-full-order hindsight-selection=false "
         "read=projection-shares-admission-physics-disagreements-require-investigation",
-        disagreements[0] if disagreements else feedback[0],
+        disagreements[0] if disagreements else (partial[0] if partial else comparable[0]),
     ]
+
+
+def fieldwork_supply_summary(lines: list[str]) -> list[str]:
+    """Retain failed investments without mistaking an early supply stop for fast success."""
+    supply = [
+        line for line in lines
+        if line.startswith("FIELDWORK SUPPLY ") and not line.startswith("FIELDWORK SUPPLY DIAGNOSTIC ")
+    ]
+    if not supply:
+        return []
+    rows = [
+        (line, match.group(1), *map(int, match.groups()[1:]))
+        for line in supply
+        if (match := re.search(
+            r"outcome=(completed|known-target-supply) requested=(\d+)mg "
+            r"extracted=(\d+)mg shortfall=(\d+)mg", line
+        )) is not None
+    ]
+    if not rows:
+        return ["FIELDWORK SUPPLY SUMMARY measured=0 evidence=insufficient-data"]
+    partial = [row for row in rows if row[1] == "known-target-supply"]
+    summary = (
+        f"FIELDWORK SUPPLY SUMMARY measured={len(rows)}/{len(supply)} "
+        f"completed={len(rows) - len(partial)} supply-stopped={len(partial)} "
+        f"requested={sum(row[2] for row in rows)}mg extracted={sum(row[3] for row in rows)}mg "
+        f"shortfall={sum(row[4] for row in rows)}mg "
+        "read=grade-and-hardness-do-not-promise-reserve-investment-can-outlive-the-seam"
+    )
+    return [summary, (partial[0] if partial else rows[0])[0]]
 
 
 def woodworking_feedback_summary(lines: list[str]) -> list[str]:
@@ -850,6 +885,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     selected.extend(progression_goal_summary(lines))
     selected.extend([line for line in lines if line.startswith("PROGRESSION SELECTED ")][:1])
     selected.extend(fieldwork_feedback_summary(lines))
+    selected.extend(fieldwork_supply_summary(lines))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)
 
