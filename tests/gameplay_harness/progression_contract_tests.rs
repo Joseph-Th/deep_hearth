@@ -298,7 +298,7 @@ fn completed_reinvestment_consumes_post_order_stockpile_for_upgrade_demand() {
         PrimitiveSteadyStop::StockpileOrderComplete
     );
     assert_eq!(review.overlap_setup_equivalent_cycles, None);
-    let PrimitiveReinvestmentOutcome::Completed(work) = review.reinvestment else {
+    let PrimitiveReinvestmentOutcome::Completed(work) = review.stockpiling_reinvestment else {
         panic!("maintained post-order stockpile must support executed upgrade demand");
     };
     assert!(work.stockpile_demand_executed);
@@ -311,7 +311,7 @@ fn completed_reinvestment_consumes_post_order_stockpile_for_upgrade_demand() {
     assert!(!work.stockpile_demand_feed.is_zero());
     assert!(!work.stockpile_demand_energy.is_zero());
     assert!(work.stockpile_demand_separation_ticks > 0);
-    let PrimitiveReinvestmentOutcome::Completed(immediate) = review.immediate_reinvestment else {
+    let PrimitiveReinvestmentOutcome::Completed(immediate) = review.reinvestment else {
         panic!("the already-owned buffer must fund the same goal without speculative stockpiling");
     };
     assert!(immediate.stockpile_before_demand < work.stockpile_before_demand);
@@ -320,6 +320,21 @@ fn completed_reinvestment_consumes_post_order_stockpile_for_upgrade_demand() {
         work.stockpile_demand_copper
     );
     assert!(immediate.elapsed_ticks < review.stockpiling_delay_ticks + work.elapsed_ticks);
+    let selected = review.selected_end;
+    assert_eq!(
+        selected.completed_at - selected.decision_at,
+        immediate.elapsed_ticks
+    );
+    assert!(
+        selected.crusher_reinforced && selected.separator_reinforced && selected.drive_reinforced
+    );
+    assert!(
+        selected.pick_condition_ppm < 1_000_000,
+        "primary state must not receive coverage-only pick replacement"
+    );
+    assert!(selected.crushed_mass < work.stockpile_after_demand);
+    assert!(!selected.native_copper.is_zero());
+    assert!(selected.metabolic_energy_spent_nj > 0 && selected.hydration_spent_ul > 0);
 }
 
 #[test]
@@ -345,7 +360,7 @@ fn bounded_stockpiling_preserves_shallow_supply_until_reinvestment() {
         PrimitiveSteadyStop::StockpileOrderComplete
     );
     assert_eq!(
-        review.reinvestment,
+        review.stockpiling_reinvestment,
         PrimitiveReinvestmentOutcome::TargetSupplyLimited
     );
 }

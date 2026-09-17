@@ -243,8 +243,8 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             f"local-copper=[pick-first:{count('local-copper-sequence=pick-first')} crank-counterfactual:{count('counterfactual=[crank-first-tradeoff')}] "
             f"hard-access-lead={hard_lead_span} "
             f"information=[surface-resolved:{count('information=surface-resolved')} deferred-refinement:{count('information=deferred-refinement')}] "
-            f"automation=[stockpile-order-complete:{count('economics:finite-stockpile-order-complete')} supply-ended:{count('economics:supply-ended')}] payback=not-established "
-            f"reinvestment=[available:{count('next-reinvestment=[available')} known-target-supply:{count('next-reinvestment=[blocked:known-target-supply]')}]"
+            f"stockpiling-coverage=[stockpile-order-complete:{count('economics:finite-stockpile-order-complete')} supply-ended:{count('economics:supply-ended')}] payback=not-established "
+            f"selected-reinvestment=[completed:{count('selected-reinvestment=[completed')} blocked:{count('selected-reinvestment=[blocked:')}]"
         )
     if liberation:
         inputs = {
@@ -306,8 +306,8 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             f"targeted-detail:{count('detailed-surveys=1')} "
             f"observed-hardness={hardness_span} "
             f"geology=[soft:{count('geology=quarry-soft')} quarry-upgrade:{count('geology=quarry-reinforcement')} hard-pick:{count('geology=hard-pick-specialist')}] "
-            f"tool=[stone-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} hard-pick:{count('tool=copper-reinforced-hard-pick')}] "
-            f"selection=[base:{count('adaptation=sampled-hardness-base-quarry')} quarry-upgrade:{count('adaptation=sampled-hardness-quarry-upgrade')} hard-pick:{count('adaptation=sampled-hardness-hard-pick')} batch-limit:{count('adaptation=sampled-hardness-hard-pick+batch-limit')}] "
+            f"tool=[stone-pick:{count('tool=stone-pick')} stone-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} hard-pick:{count('tool=copper-reinforced-hard-pick')}] "
+            f"selection=[preparation-plus-order:{count('adaptation=preparation-plus-order')} batch-limit:{count('adaptation=preparation-plus-order+batch-limit')}] "
             f"retained-copper={retained_span}"
         )
     if power:
@@ -415,10 +415,22 @@ def controlled_gameplay_summary(lines: list[str]) -> list[str]:
     return summaries
 
 
-def ticks_minutes(ticks: int) -> str:
-    """Render authoritative tick spans as game minutes (one tick is 3.6 seconds)."""
+def physical_tick_us(lines: list[str]) -> int | None:
+    """Use the report's registry-derived clock; missing metadata is not a guessed clock."""
+    values = {
+        int(match.group(1))
+        for line in lines
+        if (match := re.fullmatch(r"SIMULATION TIME physical-tick-us=([1-9]\d*)", line))
+        is not None
+    }
+    return next(iter(values)) if len(values) == 1 else None
 
-    return f"{ticks * 3.6 / 60:.1f}m"
+
+def ticks_minutes(ticks: int, tick_us: int | None) -> str:
+    """Render a physical duration only when its authoritative time basis is available."""
+    if tick_us is None:
+        return "unknown-clock"
+    return f"{ticks * tick_us / 60_000_000:.1f}m"
 
 
 def player_takeaways(lines: list[str]) -> list[str]:
@@ -444,7 +456,7 @@ def player_takeaways(lines: list[str]) -> list[str]:
         ]
         hard_span = f"{min(hard_leads)}..{max(hard_leads)}t" if hard_leads else "n/a"
         hard_minutes = (
-            f"{ticks_minutes(min(hard_leads))}..{ticks_minutes(max(hard_leads))}"
+            f"{ticks_minutes(min(hard_leads), physical_tick_us(lines))}..{ticks_minutes(max(hard_leads), physical_tick_us(lines))}"
             if hard_leads
             else "n/a"
         )
@@ -455,10 +467,10 @@ def player_takeaways(lines: list[str]) -> list[str]:
             "PLAYER TAKEAWAY probe=primitive-progression "
             f"pick-first={sum('local-copper-sequence=pick-first' in line for line in progression)}/{len(progression)} "
             f"hard-access-lead={hard_span}(~{hard_minutes}) crank-autonomy-window={autonomy_span} "
-            f"stockpile-order=[complete:{sum('economics:finite-stockpile-order-complete' in line for line in progression)} "
+            f"stockpiling-coverage=[complete:{sum('economics:finite-stockpile-order-complete' in line for line in progression)} "
             f"supply-ended:{sum('economics:supply-ended' in line for line in progression)}] payback=not-established "
-            f"reinvestment=[available:{sum('next-reinvestment=[available' in line for line in progression)} "
-            f"blocked:{sum('next-reinvestment=[blocked:known-target-supply]' in line for line in progression)}] "
+            f"selected-reinvestment=[completed:{sum('selected-reinvestment=[completed' in line for line in progression)} "
+            f"blocked:{sum('selected-reinvestment=[blocked:' in line for line in progression)}] "
             "read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge"
         )
     liberation = [line for line in lines if line.startswith("LIBERATION EXPERIENCE ")]
@@ -519,7 +531,7 @@ def player_takeaways(lines: list[str]) -> list[str]:
         takeaways.append(
             "PLAYER TAKEAWAY probe=fieldwork "
             f"inspections={min(inspections)}..{max(inspections)} "
-            f"tools=[soft-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} "
+            f"tools=[stone-pick:{count('tool=stone-pick')} soft-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} "
             f"hard-pick:{count('tool=copper-reinforced-hard-pick')}] "
             "read=transects-rank-inspections-filter-one-survey-prices-the-tool"
             if inspections
@@ -694,8 +706,35 @@ def fieldwork_pacing_summary(lines: list[str]) -> list[str]:
         f"FIELDWORK PACING SUMMARY measured={len(rows)}/{len(pacing)} "
         f"search={span(0)}t first-ore={span(5)}t full-order={span(6)}t extraction={span(3)}t "
         f"output={span(7)}mg batches={min(batches)}..{max(batches)} "
+        f"physical-first-ore={ticks_minutes(min(row[5] for row in rows), physical_tick_us(lines))}.."
+        f"{ticks_minutes(max(row[5] for row in rows), physical_tick_us(lines))} "
+        f"sampling-tool={span(1)}t extraction-tool={span(2)}t "
         "scope=raw-tools-and-preowned-copper-to-first-ore "
         "read=discovery-and-tool-preparation-dominate-first-ore-not-repeat-extraction"
+    ]
+
+
+def fieldwork_feedback_summary(lines: list[str]) -> list[str]:
+    """Do not hide long-order wear behind the first, usually short, matching estimate."""
+    feedback = [line for line in lines if line.startswith("FIELDWORK ESTIMATE FEEDBACK ")]
+    if not feedback:
+        return []
+    errors = [
+        int(match.group(2)) - int(match.group(1))
+        for line in feedback
+        if (match := re.search(r"pristine-order-estimate=(\d+)t extraction-actual=(\d+)t", line))
+        is not None
+    ]
+    if not errors:
+        return ["FIELDWORK FEEDBACK SUMMARY measured=0 evidence=insufficient-data"]
+    disagreements = [line for line in feedback if "estimate-matched=false" in line]
+    return [
+        f"FIELDWORK FEEDBACK SUMMARY measured={len(errors)}/{len(feedback)} "
+        f"extraction-estimate-error={min(errors):+d}..{max(errors):+d}t "
+        f"disagreements={sum(error != 0 for error in errors)} "
+        "basis=actual-minus-pristine policy=pre-action-full-order hindsight-selection=false "
+        "read=short-orders-price-preparation-long-orders-also-pay-wear",
+        disagreements[0] if disagreements else feedback[0],
     ]
 
 
@@ -740,6 +779,47 @@ def progression_demand_summary(lines: list[str]) -> list[str]:
     ]
 
 
+def progression_goal_summary(lines: list[str]) -> list[str]:
+    """Lead with useful goal completion, not the volume of speculative machine work."""
+    goals = [line for line in lines if line.startswith("PROGRESSION GOAL ")]
+    if not goals:
+        return []
+    rows = [
+        match.groups()
+        for line in goals
+        if (match := re.search(r"immediate=(\d+t|blocked(?::[\w-]+)?) .*?delayed=(\d+t|blocked(?::[\w-]+)?)", line))
+        is not None
+    ]
+    if not rows:
+        return ["PROGRESSION GOAL SUMMARY measured=0 evidence=insufficient-data", goals[0]]
+    immediate_times = [int(value[:-1]) for value, _ in rows if not value.startswith("blocked")]
+    delayed_times = [int(value[:-1]) for _, value in rows if not value.startswith("blocked")]
+    completed = [
+        (int(immediate[:-1]), int(delayed[:-1])) for immediate, delayed in rows
+        if not immediate.startswith("blocked") and not delayed.startswith("blocked")
+    ]
+    span = lambda values: f"{min(values)}..{max(values)}"
+    savings = (
+        f"delay-avoided={span([delayed - immediate for immediate, delayed in completed])}t"
+        if completed else "delay-avoided=not-comparable"
+    )
+    immediate_span = f"{span(immediate_times)}t" if immediate_times else "no-completion"
+    physical_span = (
+        f"{ticks_minutes(min(immediate_times), physical_tick_us(lines))}.."
+        f"{ticks_minutes(max(immediate_times), physical_tick_us(lines))}"
+        if immediate_times else "no-completion"
+    )
+    return [
+        f"PROGRESSION GOAL SUMMARY measured={len(rows)}/{len(goals)} "
+        f"immediate={immediate_span} immediate-blocked={len(rows) - len(immediate_times)} "
+        f"stockpile-first=[completed:{len(delayed_times)} blocked:{len(rows) - len(delayed_times)}] "
+        f"{savings} physical-immediate={physical_span} "
+        "terminal-reserves=unequal "
+        "read=judge-progress-by-the-capability-delivered-not-the-stockpile-produced",
+        goals[0],
+    ]
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
     """Keep aggregate player/capability evidence; verbose retains the per-case transcript."""
 
@@ -753,6 +833,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         line
         for line in lines
         if line.startswith(ORDINARY_GAMEPLAY_REPORT_PREFIXES)
+        or line.startswith("SIMULATION TIME ")
         or line.startswith("EVALUATION SCOPE kind=ordinary-play ")
         or line.startswith("EVALUATION SCOPE kind=controlled-capability ")
     ]
@@ -766,7 +847,9 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     selected.extend(progression_demand_summary(lines))
     # One concrete human-scaled bill grounds the aggregate; verbose retains every arm/world.
     selected.extend([line for line in lines if line.startswith("POWER BUILD BILL ")][:1])
-    selected.extend(line for line in lines if line.startswith("PROGRESSION GOAL "))
+    selected.extend(progression_goal_summary(lines))
+    selected.extend([line for line in lines if line.startswith("PROGRESSION SELECTED ")][:1])
+    selected.extend(fieldwork_feedback_summary(lines))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)
 

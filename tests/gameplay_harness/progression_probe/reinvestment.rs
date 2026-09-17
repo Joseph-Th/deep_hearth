@@ -334,9 +334,9 @@ fn require_expanded_batch(
     }
 }
 
-fn try_evaluate_mature_reinvestment(
+fn try_run_mature_reinvestment(
     registries: &Registries,
-    decision_state: &AppState,
+    state: &mut AppState,
     plan: MatureReinvestmentPlan,
 ) -> Result<PrimitiveReinvestmentExperience, ReinvestmentBlocker> {
     let MatureReinvestmentPlan {
@@ -353,16 +353,16 @@ fn try_evaluate_mature_reinvestment(
         separation_feed_mass,
         reinforcement_mass,
     } = plan;
-    let mut state = decision_state.clone();
-    let matter_before = calculate_matter_accounting(&state)
+    let started_at = state.tick().value();
+    let matter_before = calculate_matter_accounting(state)
         .unwrap_or_else(|error| panic!("primitive reinvestment matter setup failed: {error}"))
         .total();
-    let survival_before = assess_survival(registries, &state)
+    let survival_before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("primitive reinvestment player disappeared at decision point"));
     // Reinvestment is a current opportunity, not merely a use for buffered ore. Once acquired
     // evidence no longer resolves a live target, the actor has already observed that this local
     // supply opportunity ended and must not advertise further investment against hidden reserve.
-    require_current_reinvestment_target(&state, mining_target)?;
+    require_current_reinvestment_target(state, mining_target)?;
     let capacity_envelope = reinvestment_capacity_envelope(registries);
     let base_drive_capacity = capacity_envelope.base_drive;
     let upgraded_drive_capacity = capacity_envelope.upgraded_drive;
@@ -370,7 +370,7 @@ fn try_evaluate_mature_reinvestment(
     let upgraded_separator_batch_capacity = capacity_envelope.upgraded_separator_batch;
     require_reinvestment_ore(
         registries,
-        &mut state,
+        state,
         mining_target,
         ore_storage,
         pick,
@@ -387,12 +387,12 @@ fn try_evaluate_mature_reinvestment(
             .specific_energy(),
     );
     let baseline_charge_ticks =
-        fill_primitive_accumulator(registries, &mut state, machine, primary_energy).unwrap_or_else(
+        fill_primitive_accumulator(registries, state, machine, primary_energy).unwrap_or_else(
             |error| panic!("primitive reinvestment baseline charge failed: {error}"),
         );
     let base_crush_ticks = resolve_crush_ticks(
         registries,
-        &state,
+        state,
         ore_storage,
         machine,
         primary_batch_mass,
@@ -400,7 +400,7 @@ fn try_evaluate_mature_reinvestment(
         "base crusher comparison",
     );
 
-    // These first two upgrade parcels consume the post-order stockpile before this branch
+    // These first two upgrade parcels consume the owned stockpile before this branch
     // executes any new crushing. Keep that actual demand separate from later comparison batches.
     let remaining_primary_crushed = state
         .inventory()
@@ -414,7 +414,7 @@ fn try_evaluate_mature_reinvestment(
     );
     let first_recovery = separate_native_copper(
         registries,
-        &mut state,
+        state,
         PrimitiveSeparationPlan {
             crushed_storage,
             native_storage,
@@ -426,7 +426,7 @@ fn try_evaluate_mature_reinvestment(
     );
     craft_for_profile(
         registries,
-        &mut state,
+        state,
         raw,
         native_storage,
         shaped,
@@ -439,13 +439,13 @@ fn try_evaluate_mature_reinvestment(
         .condition();
     validate_upgrade_equipment(
         registries,
-        &state,
+        state,
         machine.crusher,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
         shaped,
     )
     .unwrap_or_else(|error| panic!("primitive reinvestment crusher upgrade failed: {error}"))
-    .commit(&mut state)
+    .commit(state)
     .unwrap_or_else(|error| {
         panic!("primitive reinvestment crusher upgrade commit failed: {error}")
     });
@@ -461,7 +461,7 @@ fn try_evaluate_mature_reinvestment(
 
     let second_recovery = separate_native_copper(
         registries,
-        &mut state,
+        state,
         PrimitiveSeparationPlan {
             crushed_storage,
             native_storage,
@@ -494,7 +494,7 @@ fn try_evaluate_mature_reinvestment(
     assert_eq!(
         remaining_primary_crushed.checked_sub(stockpile_after_demand),
         Some(stockpile_demand_feed),
-        "upgrade recovery must consume exactly its feed from the existing post-order stockpile"
+        "upgrade recovery must consume exactly its feed from the existing owned stockpile"
     );
     let stockpile_demand_energy = first_recovery
         .required_energy
@@ -510,12 +510,12 @@ fn try_evaluate_mature_reinvestment(
         .checked_add(second_recovery.ticks)
         .unwrap_or_else(|| panic!("primitive reinvestment demand separation time overflowed"));
 
-    fill_primitive_accumulator(registries, &mut state, machine, primary_energy).unwrap_or_else(
+    fill_primitive_accumulator(registries, state, machine, primary_energy).unwrap_or_else(
         |error| panic!("primitive reinvestment upgraded crusher charge failed: {error}"),
     );
     let reinforced_crush_ticks = run_uninterrupted_crush(
         registries,
-        &mut state,
+        state,
         UninterruptedCrushPlan {
             source: ore_storage,
             destination: crushed_storage,
@@ -537,7 +537,7 @@ fn try_evaluate_mature_reinvestment(
 
     let separator_upgrade_recovery = run_reinvestment_separation(
         registries,
-        &mut state,
+        state,
         PrimitiveSeparationPlan {
             crushed_storage,
             native_storage,
@@ -554,7 +554,7 @@ fn try_evaluate_mature_reinvestment(
     );
     craft_for_profile(
         registries,
-        &mut state,
+        state,
         raw,
         native_storage,
         shaped,
@@ -568,13 +568,13 @@ fn try_evaluate_mature_reinvestment(
     let mut base_separator_comparison_state = state.clone();
     validate_upgrade_equipment(
         registries,
-        &state,
+        state,
         machine.separator,
         EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
         shaped,
     )
     .unwrap_or_else(|error| panic!("primitive reinvestment separator upgrade failed: {error}"))
-    .commit(&mut state)
+    .commit(state)
     .unwrap_or_else(|error| {
         panic!("primitive reinvestment separator upgrade commit failed: {error}")
     });
@@ -603,7 +603,7 @@ fn try_evaluate_mature_reinvestment(
     );
     let reinforced_separator_work = run_reinvestment_separation(
         registries,
-        &mut state,
+        state,
         separator_comparison_plan,
         "matched reinforced separator comparison",
     );
@@ -654,7 +654,7 @@ fn try_evaluate_mature_reinvestment(
         loop {
             let envelope = assess_powered_ore_mass_envelope(
                 registries,
-                &state,
+                state,
                 PROCESS_CRUSH_ORE,
                 machine.crusher,
                 machine.drive,
@@ -668,7 +668,7 @@ fn try_evaluate_mature_reinvestment(
             }
             require_reinvestment_ore(
                 registries,
-                &mut state,
+                state,
                 mining_target,
                 ore_storage,
                 pick,
@@ -678,7 +678,7 @@ fn try_evaluate_mature_reinvestment(
             // Acquiring feed advances time: flywheel drag makes the prior envelope stale.
             let drain_mass = assess_powered_ore_mass_envelope(
                 registries,
-                &state,
+                state,
                 PROCESS_CRUSH_ORE,
                 machine.crusher,
                 machine.drive,
@@ -695,7 +695,7 @@ fn try_evaluate_mature_reinvestment(
                 calculate_mass_specific_energy(drain_mass, crusher_process.specific_energy());
             run_uninterrupted_crush(
                 registries,
-                &mut state,
+                state,
                 UninterruptedCrushPlan {
                     source: ore_storage,
                     destination: crushed_storage,
@@ -709,7 +709,7 @@ fn try_evaluate_mature_reinvestment(
         assert_eq!(
             assess_powered_ore_mass_envelope(
                 registries,
-                &state,
+                state,
                 PROCESS_CRUSH_ORE,
                 machine.crusher,
                 machine.drive,
@@ -726,7 +726,7 @@ fn try_evaluate_mature_reinvestment(
             .get_store(machine.drive)
             .is_some_and(|store| !store.stored().is_zero())
         {
-            let outcome = advance_tick(registries, &mut state).unwrap_or_else(|error| {
+            let outcome = advance_tick(registries, state).unwrap_or_else(|error| {
                 panic!("primitive reinvestment residual-loss tick failed: {error}")
             });
             assert!(
@@ -763,7 +763,7 @@ fn try_evaluate_mature_reinvestment(
     );
     craft_for_profile(
         registries,
-        &mut state,
+        state,
         raw,
         native_storage,
         shaped,
@@ -771,13 +771,13 @@ fn try_evaluate_mature_reinvestment(
     );
     validate_upgrade_energy_store(
         registries,
-        &state,
+        state,
         machine.drive,
         ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
         shaped,
     )
     .unwrap_or_else(|error| panic!("primitive reinvestment flywheel upgrade failed: {error}"))
-    .commit(&mut state)
+    .commit(state)
     .unwrap_or_else(|error| {
         panic!("primitive reinvestment flywheel upgrade commit failed: {error}")
     });
@@ -791,13 +791,13 @@ fn try_evaluate_mature_reinvestment(
     );
 
     let expanded_batch =
-        require_expanded_batch(registries, &state, crushed_storage, capacity_envelope)?;
+        require_expanded_batch(registries, state, crushed_storage, capacity_envelope)?;
     let expanded_batch_mass = expanded_batch.mass;
     let expanded_batch_energy = expanded_batch.expected_energy;
     let base_flywheel_batch_mass = crush_mass_for_exact_energy(registries, base_drive_capacity);
     require_reinvestment_ore(
         registries,
-        &mut state,
+        state,
         mining_target,
         ore_storage,
         pick,
@@ -805,10 +805,10 @@ fn try_evaluate_mature_reinvestment(
         "expanded-batch",
     )?;
     let expanded_charge_ticks =
-        charge_exact_reinvestment_energy(registries, &mut state, machine, expanded_batch_energy);
+        charge_exact_reinvestment_energy(registries, state, machine, expanded_batch_energy);
     let expanded_crush_ticks = run_uninterrupted_crush(
         registries,
-        &mut state,
+        state,
         UninterruptedCrushPlan {
             source: ore_storage,
             destination: crushed_storage,
@@ -829,7 +829,7 @@ fn try_evaluate_mature_reinvestment(
     );
     let expanded_separator = run_reinvestment_separation(
         registries,
-        &mut state,
+        state,
         PrimitiveSeparationPlan {
             crushed_storage,
             native_storage,
@@ -841,7 +841,7 @@ fn try_evaluate_mature_reinvestment(
         "expanded reinforced-separator batch",
     );
     assert!(!expanded_separator.target_mass.is_zero());
-    let survival_after = assess_survival(registries, &state)
+    let survival_after = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("primitive reinvestment player disappeared after branch"));
     let survival_energy_spent_nj = survival_before.metabolic_energy().nanojoules()
         - survival_after.metabolic_energy().nanojoules();
@@ -849,16 +849,16 @@ fn try_evaluate_mature_reinvestment(
         survival_before.hydration().microliters() - survival_after.hydration().microliters();
     assert!(survival_energy_spent_nj > 0 && survival_hydration_spent_ul > 0);
     assert_eq!(
-        calculate_matter_accounting(&state)
+        calculate_matter_accounting(state)
             .unwrap_or_else(|error| panic!("primitive reinvestment matter audit failed: {error}"))
             .total(),
         matter_before,
         "mature primitive reinvestment must conserve represented matter"
     );
-    validate_loaded_state(registries, &state)
+    validate_loaded_state(registries, state)
         .unwrap_or_else(|error| panic!("primitive reinvestment state audit failed: {error}"));
     Ok(PrimitiveReinvestmentExperience {
-        elapsed_ticks: state.tick().value() - decision_state.tick().value(),
+        elapsed_ticks: duration(started_at, state.tick().value()),
         stockpile_demand_executed: true,
         stockpile_before_demand: remaining_primary_crushed,
         stockpile_after_demand,
@@ -894,12 +894,42 @@ fn try_evaluate_mature_reinvestment(
     })
 }
 
+/// Evaluate this continuation from a decision state without advancing the caller's state.
+///
+/// Counterfactual comparisons clone; the selected path calls `run_mature_reinvestment` on the
+/// primary state instead.
 pub(super) fn evaluate_mature_reinvestment(
     registries: &Registries,
     decision_state: &AppState,
     plan: MatureReinvestmentPlan,
 ) -> PrimitiveReinvestmentOutcome {
-    match try_evaluate_mature_reinvestment(registries, decision_state, plan) {
+    run_mature_reinvestment(registries, &mut decision_state.clone(), plan)
+}
+
+/// Execute this continuation in-place on the given state.
+///
+/// A supply stop preserves real partial progress there; it is not a speculative transaction that
+/// rolls the player back to the decision point. Pass a clone to evaluate a counterfactual, or the
+/// primary state to commit the selected continuation.
+pub(super) fn run_mature_reinvestment(
+    registries: &Registries,
+    state: &mut AppState,
+    plan: MatureReinvestmentPlan,
+) -> PrimitiveReinvestmentOutcome {
+    let matter_before = calculate_matter_accounting(state)
+        .unwrap_or_else(|error| panic!("reinvestment initial matter audit failed: {error}"))
+        .total();
+    let result = try_run_mature_reinvestment(registries, state, plan);
+    assert_eq!(
+        calculate_matter_accounting(state)
+            .unwrap_or_else(|error| panic!("reinvestment terminal matter audit failed: {error}"))
+            .total(),
+        matter_before,
+    );
+    validate_loaded_state(registries, state)
+        .unwrap_or_else(|error| panic!("reinvestment terminal state audit failed: {error}"));
+    assert_eq!(state.player_work().active(), None);
+    match result {
         Ok(experience) => PrimitiveReinvestmentOutcome::Completed(Box::new(experience)),
         Err(blocker) => blocker.into_outcome(),
     }

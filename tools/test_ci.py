@@ -1366,6 +1366,7 @@ class LocalCiPlanTests(unittest.TestCase):
         output = "\n".join(
             [
                 "running 1 test",
+                "SIMULATION TIME physical-tick-us=3600000",
                 "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified",
                 "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
                 "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000CC",
@@ -1386,10 +1387,10 @@ class LocalCiPlanTests(unittest.TestCase):
                 "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
                 "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
                 "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
-                "PROGRESSION EXPERIENCE seed=0x0000000000000001 sample=anchor information=deferred-refinement local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] next-reinvestment=[available] economics:finite-stockpile-order-complete",
+                "PROGRESSION EXPERIENCE seed=0x0000000000000001 sample=anchor information=deferred-refinement local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] selected-reinvestment=[completed] economics:finite-stockpile-order-complete",
                 "LIBERATION EXPERIENCE seed=0x0000000000000001 sample=anchor input=[100000mg 400000ppm-Cu] concentrate=[first:50000mg/700000ppm final:60000mg/680000ppm additional-copper:7000000000ppm-mg] matter=conserved",
                 "LIBERATION FRONTIER seed=0x0000000000000001 sample=anchor input=[100000mg 400000ppm-Cu] concentrate=[final:60000mg/680000ppm] scavenger=[extra-copper:7000mg share:100000ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
-                "PROGRESSION EXPERIENCE seed=0x00000000000000AA sample=organic information=surface-resolved local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:supply-ended",
+                "PROGRESSION EXPERIENCE seed=0x00000000000000AA sample=organic information=surface-resolved local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] selected-reinvestment=[blocked:known-target-supply] economics:supply-ended",
                 "LIBERATION EXPERIENCE seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] concentrate=[first:55000mg/720000ppm final:66000mg/700000ppm additional-copper:8000000000ppm-mg] matter=conserved",
                 "LIBERATION FRONTIER seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] concentrate=[final:66000mg/700000ppm] scavenger=[extra-copper:8000mg share:110000ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
                 "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
@@ -1402,9 +1403,9 @@ class LocalCiPlanTests(unittest.TestCase):
                 "WOODWORKING EXPERIENCE seed=0x0000000000000003 behavior=0x2 sample=coverage preference=conserve-scarce-copper routes=[adze:9logs; saw-assisted:min-saw-logs:8 fundable:true actual=[saw:8 adze-fallback:0 fallback-copper:false saw-services:0 adze-services:0] attention-payback:true net-timber-payback:false] choice=stone-adze reason=copper-reserve-protected",
                 "WOODWORKING EXPERIENCE seed=0x00000000000000AA behavior=0x3 sample=organic preference=conserve-timber routes=[adze:9logs; saw-assisted:min-saw-logs:8 fundable:false actual=[saw:0 adze-fallback:0 fallback-copper:false saw-services:0 adze-services:0] attention-payback:false net-timber-payback:false] choice=stone-adze reason=copper-supply-limited",
                 "PROBE INPUT name=fieldwork mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,coverage:0x0000000000000004,organic:0x00000000000000AA",
-                "FIELDWORK EXPERIENCE seed=0x0000000000000001 sample=anchor transects=2 selected-channel=observed-strongest field-inspections=3 detailed-surveys=1 observed-hardness=450000000..500000000Pa geology=quarry-soft tool=stone-quarry adaptation=sampled-hardness-base-quarry retained-native-copper=40000mg requested=450000mg mining=450000mg",
-                "FIELDWORK EXPERIENCE seed=0x0000000000000004 sample=coverage transects=2 selected-channel=observed-strongest field-inspections=1 detailed-surveys=1 observed-hardness=550000000..600000000Pa geology=quarry-reinforcement tool=copper-reinforced-quarry adaptation=sampled-hardness-quarry-upgrade retained-native-copper=20000mg requested=450000mg mining=450000mg",
-                "FIELDWORK EXPERIENCE seed=0x00000000000000AA sample=organic transects=2 selected-channel=observed-strongest field-inspections=2 detailed-surveys=1 observed-hardness=600000000..650000000Pa geology=hard-pick-specialist tool=copper-reinforced-hard-pick adaptation=sampled-hardness-hard-pick+batch-limit retained-native-copper=20000mg requested=450000mg mining=300000mg",
+                "FIELDWORK EXPERIENCE seed=0x0000000000000001 sample=anchor transects=2 selected-channel=observed-strongest field-inspections=3 detailed-surveys=1 observed-hardness=450000000..500000000Pa geology=quarry-soft tool=stone-quarry adaptation=preparation-plus-order retained-native-copper=40000mg requested=450000mg mining=450000mg",
+                "FIELDWORK EXPERIENCE seed=0x0000000000000004 sample=coverage transects=2 selected-channel=observed-strongest field-inspections=1 detailed-surveys=1 observed-hardness=550000000..600000000Pa geology=quarry-reinforcement tool=copper-reinforced-quarry adaptation=preparation-plus-order retained-native-copper=20000mg requested=450000mg mining=450000mg",
+                "FIELDWORK EXPERIENCE seed=0x00000000000000AA sample=organic transects=2 selected-channel=observed-strongest field-inspections=2 detailed-surveys=1 observed-hardness=600000000..650000000Pa geology=hard-pick-specialist tool=copper-reinforced-hard-pick adaptation=preparation-plus-order+batch-limit retained-native-copper=20000mg requested=450000mg mining=300000mg",
                 "POWER PROVIDER EXPERIENCE seed=0x0000000000000001 sample=anchor comparison=[basis:matched-starting-state charge-attention-reduction:333333ppm build-mass-crank:2200000mg build-mass-treadle:5100000mg metabolic-crank:900nJ metabolic-treadle:600nJ build-attention-crank:200t build-attention-treadle:400t charge-crank:3t charge-treadle:2t charge-saving:1t break-even-charges:200] matter=conserved",
                 "POWER PROVIDER EXPERIENCE seed=0x00000000000000AA sample=organic comparison=[basis:matched-starting-state charge-attention-reduction:500000ppm build-mass-crank:3300000mg build-mass-treadle:6200000mg metabolic-crank:800nJ metabolic-treadle:400nJ build-attention-crank:300t build-attention-treadle:500t charge-crank:6t charge-treadle:3t charge-saving:3t break-even-charges:67] matter=conserved",
                 "POWER COPPER-CONTEXT seed=0x0000000000000001 sample=anchor job=[flywheel:1000000000000nJ] provider-power=[stone-crank:50000000uW copper-crank:150000000uW treadle:100000000uW] labor=[crank-efficiency:200000ppm wear:25ppm/t treadle-efficiency:230000ppm wear:15ppm/t] observed=[crank-charge:3t treadle-charge:2t] catalog-note=copper-crank-needs-mined-native-copper-not-in-copper-free-start reachability-authority=STATUS.md",
@@ -1427,12 +1428,12 @@ class LocalCiPlanTests(unittest.TestCase):
             "PROGRESSION DIVERSITY samples=2 local-copper=[pick-first:2 crank-counterfactual:2] hard-access-lead=478..478t",
             "LIBERATION DIVERSITY samples=2 varied-inputs=2 completed=2",
             "WOODWORKING DIVERSITY samples=3 choice=[bare:0 adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 attention-payback:2 net-timber-payback:1] lifecycle=[copper-fallback:1 saw-service:1] decision=[bare-hands:0 copper-blocked:1 reserve-protected:1 timber-horizon:0 attention-horizon:0 attention-invest:0 timber-invest:1]",
-            "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 observed-hardness=450000000..650000000Pa geology=[soft:1 quarry-upgrade:1 hard-pick:1] tool=[stone-quarry:1 reinforced-quarry:1 hard-pick:1] selection=[base:1 quarry-upgrade:1 hard-pick:1 batch-limit:1] retained-copper=20000..40000mg",
+            "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 observed-hardness=450000000..650000000Pa geology=[soft:1 quarry-upgrade:1 hard-pick:1] tool=[stone-pick:0 stone-quarry:1 reinforced-quarry:1 hard-pick:1] selection=[preparation-plus-order:3 batch-limit:1] retained-copper=20000..40000mg",
             "POWER DIVERSITY samples=2 charge-attention-reduction=333333..500000ppm build-mass=[crank:2200000..3300000mg treadle:5100000..6200000mg] break-even=67..200charges metabolic-lower-treadle:2",
-            "PLAYER TAKEAWAY probe=primitive-progression pick-first=2/2 hard-access-lead=478..478t(~28.7m..28.7m) crank-autonomy-window=n/a stockpile-order=[complete:1 supply-ended:1] payback=not-established reinvestment=[available:1 blocked:1] read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge",
+            "PLAYER TAKEAWAY probe=primitive-progression pick-first=2/2 hard-access-lead=478..478t(~28.7m..28.7m) crank-autonomy-window=n/a stockpiling-coverage=[complete:1 supply-ended:1] payback=not-established selected-reinvestment=[completed:1 blocked:1] read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge",
             "PLAYER TAKEAWAY probe=liberation completed=2/2 scavenger-extra=7000..8000mg share=100000..110000ppm-of-recovered-copper concentrate-awaits-smelting sink=none-ordinary",
             "PLAYER TAKEAWAY probe=woodworking saw=1/3 adze=2/3 bare=0/3 blocked-by-copper=1 reserve-protected=1 fundable=2 attention-payback=2 net-timber-payback=1 read=compare-full-build-cost-short-jobs-can-skip-tools-long-jobs-price-copper-and-wear",
-            "PLAYER TAKEAWAY probe=fieldwork inspections=1..3 tools=[soft-quarry:1 reinforced-quarry:1 hard-pick:1] read=transects-rank-inspections-filter-one-survey-prices-the-tool",
+            "PLAYER TAKEAWAY probe=fieldwork inspections=1..3 tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:1 hard-pick:1] read=transects-rank-inspections-filter-one-survey-prices-the-tool",
             "PLAYER TAKEAWAY probe=power-provider treadle-saves-charge-attention break-even=67..200-full-charges treadle-cheaper-metabolically=2/2 post-copper=copper-crank-150000000uW-vs-treadle-100000000uW-vs-stone-50000000uW treadle-keeps-metabolic-efficiency-edge estimate=initial-charge-rate-excludes-future-wear-and-service read=weigh-extra-raw-material-and-build-time-against-repeated-charge-savings",
             "PLAYER TAKEAWAY probe=survival binds-thirst=2/3 binds-hunger=1/3 diet=[balanced:1 compact:2] preservation=[efficient:1 forced:1 frontier:0 maximum:1] read=water-is-the-clock-food-breadth-buys-recovery-stronger-storage-can-lose-at-short-horizons",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
@@ -1488,12 +1489,71 @@ class LocalCiPlanTests(unittest.TestCase):
         mixed = ci.fieldwork_pacing_summary([single, "FIELDWORK PACING malformed"])[0]
         self.assertIn("measured=1/2", mixed)
 
+    def test_fieldwork_feedback_keeps_signed_errors_and_a_disagreement_example(self) -> None:
+        rows = [
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x1 pristine-order-estimate=5t extraction-actual=5t estimate-matched=true",
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x2 pristine-order-estimate=160t extraction-actual=175t estimate-matched=false",
+            "FIELDWORK ESTIMATE FEEDBACK seed=0x3 pristine-order-estimate=20t extraction-actual=18t estimate-matched=false",
+            "FIELDWORK ESTIMATE FEEDBACK malformed",
+        ]
+        summary = ci.fieldwork_feedback_summary(rows)
+        self.assertIn("measured=3/4", summary[0])
+        self.assertIn("extraction-estimate-error=-2..+15t disagreements=2", summary[0])
+        self.assertEqual(summary[1], rows[1])
+        self.assertEqual(len(summary), 2)
+        self.assertEqual(ci.fieldwork_feedback_summary([]), [])
+        self.assertIn("insufficient-data", ci.fieldwork_feedback_summary([rows[-1]])[0])
+        self.assertIn(rows[1], ci.concise_gameplay_report("\n".join(rows), {}))
+
     def test_concise_report_keeps_goal_completion_counterfactual(self) -> None:
         line = (
             "PROGRESSION GOAL seed=0x1 basis=matched-start-completion-cost "
             "immediate=265t delayed=741t terminal-reserves=unequal"
         )
         self.assertIn(line, ci.concise_gameplay_report(line, {}))
+
+    def test_goal_summary_bounds_noise_and_preserves_blocked_and_signed_outcomes(self) -> None:
+        goals = [
+            "PROGRESSION GOAL seed=0x1 immediate=265t delayed=741t",
+            "PROGRESSION GOAL seed=0x2 immediate=280t delayed=270t",
+            "PROGRESSION GOAL seed=0x3 immediate=300t delayed=blocked:known-target-supply",
+            "PROGRESSION GOAL malformed",
+        ]
+        lines = ["SIMULATION TIME physical-tick-us=2000000", *goals]
+        summary = ci.progression_goal_summary(lines)
+        self.assertEqual(len(summary), 2)
+        self.assertEqual(summary[1], goals[0])
+        self.assertIn("measured=3/4", summary[0])
+        self.assertIn("stockpile-first=[completed:2 blocked:1]", summary[0])
+        self.assertIn("delay-avoided=-10..476t", summary[0])
+        self.assertIn("physical-immediate=8.8m..10.0m", summary[0])
+        self.assertEqual(ci.progression_goal_summary([]), [])
+        self.assertIn("insufficient-data", ci.progression_goal_summary([goals[-1]])[0])
+        blocked = ci.progression_goal_summary([
+            "PROGRESSION GOAL seed=0x4 immediate=10t delayed=blocked:budget",
+        ])[0]
+        self.assertIn("completed:0 blocked:1", blocked)
+        self.assertIn("delay-avoided=not-comparable", blocked)
+        selected_blocked = ci.progression_goal_summary([
+            "PROGRESSION GOAL seed=0x5 immediate=blocked:known-target-supply delayed=blocked:known-target-supply",
+            "PROGRESSION GOAL seed=0x6 immediate=blocked:crushed-storage available:1mg requires-more-than:2mg delayed=20t",
+        ])[0]
+        self.assertIn("measured=2/2 immediate=no-completion immediate-blocked=2", selected_blocked)
+        self.assertIn("stockpile-first=[completed:1 blocked:1]", selected_blocked)
+        self.assertIn("delay-avoided=not-comparable", selected_blocked)
+        verbose = "\n".join(lines)
+        self.assertEqual(ci.concise_gameplay_report(verbose, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}), verbose)
+
+    def test_physical_clock_is_report_derived_and_missing_or_conflicting_is_unknown(self) -> None:
+        self.assertEqual(ci.ticks_minutes(30, ci.physical_tick_us([
+            "SIMULATION TIME physical-tick-us=2000000",
+        ])), "1.0m")
+        for lines in ([], ["SIMULATION TIME physical-tick-us=0"], [
+            "SIMULATION TIME physical-tick-us=2000000",
+            "SIMULATION TIME physical-tick-us=3600000",
+        ]):
+            self.assertIsNone(ci.physical_tick_us(lines))
+            self.assertEqual(ci.ticks_minutes(30, ci.physical_tick_us(lines)), "unknown-clock")
 
     def test_woodworking_baseline_reports_signed_full_lifecycle_savings(self) -> None:
         lines = [

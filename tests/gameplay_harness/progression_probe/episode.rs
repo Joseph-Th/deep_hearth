@@ -687,7 +687,9 @@ pub(super) fn run_primitive_progression_case(
         minimum_sample_mg
             + mix64(seed ^ 0x5341_4D50_4C45_4D47) % (maximum_sample_mg - minimum_sample_mg + 1),
     );
-    let concurrent_soft_mass = pick_upgrade_native;
+    // Replenish in a normal owned-tool batch, not a tiny copper-upgrade parcel.
+    // mined_mass is bounded by the stone pick, so both sequence branches can admit it.
+    let concurrent_soft_mass = mined_mass;
     assert!(concurrent_soft_mass <= stone_pick_batch_limit);
     let native_surplus = Mass::from_milligrams(
         1 + mix64(seed ^ 0x4E41_5449_5645_5355) % (pick_upgrade_native.milligrams() - 1),
@@ -1421,6 +1423,8 @@ pub(super) fn run_primitive_progression_case(
     // observable state. The existing buffer may already fund upgrades; machine activity alone
     // is not a reason to postpone them. This is completion-cost evidence, not a policy oracle.
     let demand_decision_at = state.tick().value();
+    let survival_at_decision = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("selected progression decision survival state disappeared"));
     let reinvestment_plan = MatureReinvestmentPlan {
         raw,
         shaped,
@@ -1435,11 +1439,68 @@ pub(super) fn run_primitive_progression_case(
         separation_feed_mass: selected_separation_feed_mass,
         reinforcement_mass: crank_upgrade_native,
     };
-    let immediate_reinvestment =
-        evaluate_mature_reinvestment(registries, &state, reinvestment_plan);
+    // Freeze the authored three-upgrade goal and its observed feed sizing before either
+    // continuation runs. The twelve-cycle order is coverage, never a selection oracle.
+    let mut stockpiling_state = state.clone();
+    let reinvestment = run_mature_reinvestment(registries, &mut state, reinvestment_plan);
+    let selected_survival = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("selected progression survival state disappeared"));
+    let selected_end = PrimitiveSelectedEnd {
+        decision_at: demand_decision_at,
+        completed_at: state.tick().value(),
+        crushed_mass: state
+            .inventory()
+            .get_stockpile(crushed_storage)
+            .unwrap_or_else(|| panic!("selected crushed stockpile disappeared"))
+            .stored_mass(),
+        native_copper: state
+            .inventory()
+            .get_stockpile(native_storage)
+            .unwrap_or_else(|| panic!("selected native stockpile disappeared"))
+            .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)),
+        pick_condition_ppm: state
+            .equipment()
+            .get_equipment(pick)
+            .unwrap_or_else(|| panic!("selected pick disappeared"))
+            .condition()
+            .parts_per_million(),
+        crusher_reinforced: state
+            .equipment()
+            .get_equipment(machine.crusher)
+            .unwrap_or_else(|| panic!("selected crusher disappeared"))
+            .definition()
+            == EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        separator_reinforced: state
+            .equipment()
+            .get_equipment(machine.separator)
+            .unwrap_or_else(|| panic!("selected separator disappeared"))
+            .definition()
+            == EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+        drive_reinforced: state
+            .energy()
+            .get_store(machine.drive)
+            .unwrap_or_else(|| panic!("selected drive disappeared"))
+            .definition()
+            == ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        metabolic_energy_spent_nj: survival_at_decision.metabolic_energy().nanojoules()
+            - selected_survival.metabolic_energy().nanojoules(),
+        hydration_spent_ul: survival_at_decision.hydration().microliters()
+            - selected_survival.hydration().microliters(),
+    };
+    if let PrimitiveReinvestmentOutcome::Completed(work) = &reinvestment {
+        assert_eq!(
+            duration(demand_decision_at, state.tick().value()),
+            work.elapsed_ticks
+        );
+        assert!(
+            selected_end.crusher_reinforced
+                && selected_end.separator_reinforced
+                && selected_end.drive_reinforced
+        );
+    }
     let steady_state = run_steady_state_crushing(
         registries,
-        &mut state,
+        &mut stockpiling_state,
         SteadyStateCrushingPlan {
             ore_storage,
             crushed_storage,
@@ -1453,13 +1514,22 @@ pub(super) fn run_primitive_progression_case(
             required_productive_ticks: required_steady_state_productive_ticks,
         },
     );
-    let component_service =
-        service_reinforced_pick(registries, &mut state, raw, native_storage, shaped, pick);
-    // Reinvestment is a forward-looking counterfactual from the state the actor actually reaches
-    // after repeated autonomous work and service. Evaluating it earlier would let a shallow world
-    // advertise an upgrade opportunity that later observable target exhaustion has already erased.
-    let reinvestment = evaluate_mature_reinvestment(registries, &state, reinvestment_plan);
-    let stockpiling_delay_ticks = state.tick().value() - demand_decision_at;
+    // Only the coverage branch forces post-order component replacement. The selected
+    // continuation above retains its worn pick and pays no unnecessary service cost.
+    let component_service = service_reinforced_pick(
+        registries,
+        &mut stockpiling_state,
+        raw,
+        native_storage,
+        shaped,
+        pick,
+    );
+    let stockpiling_delay_ticks = stockpiling_state.tick().value() - demand_decision_at;
+    let stockpiling_reinvestment =
+        evaluate_mature_reinvestment(registries, &stockpiling_state, reinvestment_plan);
+    // All legacy throughput/lifecycle metrics below describe this coverage endpoint.
+    // Primary continuation values live exclusively in selected_end.
+    let state = stockpiling_state;
     let drive_remaining = state
         .energy()
         .get_store(machine.drive)
@@ -1688,8 +1758,9 @@ pub(super) fn run_primitive_progression_case(
         metabolic_energy_spent_nj,
         hydration_spent_ul,
         reinvestment,
-        immediate_reinvestment,
+        stockpiling_reinvestment,
         stockpiling_delay_ticks,
+        selected_end,
     };
     let (first_upgrade, second_upgrade) = match priority {
         PrimitivePriority::PickFirst => ("pick", "hand-crank"),

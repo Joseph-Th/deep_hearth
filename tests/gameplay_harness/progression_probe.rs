@@ -1156,8 +1156,24 @@ struct PrimitiveProgressionExperience {
     metabolic_energy_spent_nj: u128,
     hydration_spent_ul: u64,
     reinvestment: PrimitiveReinvestmentOutcome,
-    immediate_reinvestment: PrimitiveReinvestmentOutcome,
+    stockpiling_reinvestment: PrimitiveReinvestmentOutcome,
     stockpiling_delay_ticks: u64,
+    selected_end: PrimitiveSelectedEnd,
+}
+
+/// Actual primary-state endpoint, never the throughput/service coverage clone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PrimitiveSelectedEnd {
+    pub(crate) decision_at: u64,
+    pub(crate) completed_at: u64,
+    pub(crate) crushed_mass: Mass,
+    pub(crate) native_copper: Mass,
+    pub(crate) pick_condition_ppm: u32,
+    pub(crate) crusher_reinforced: bool,
+    pub(crate) separator_reinforced: bool,
+    pub(crate) drive_reinforced: bool,
+    pub(crate) metabolic_energy_spent_nj: u128,
+    pub(crate) hydration_spent_ul: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2515,7 +2531,7 @@ fn finish_autonomous_crush(
 
 #[path = "progression_probe/reinvestment.rs"]
 mod reinvestment;
-use reinvestment::evaluate_mature_reinvestment;
+use reinvestment::{evaluate_mature_reinvestment, run_mature_reinvestment};
 
 #[path = "progression_probe/episode.rs"]
 mod episode;

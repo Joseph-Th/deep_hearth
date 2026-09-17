@@ -98,6 +98,10 @@ fn main() {
     use seed::MAINTAINED_VARIATION_ROOT;
 
     let registries = build_registries();
+    std::println!(
+        "SIMULATION TIME physical-tick-us={}",
+        registries.core().physical_tick_duration().microseconds()
+    );
     let fallback_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
     let fallback_behavior_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245);
     std::println!(

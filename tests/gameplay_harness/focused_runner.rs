@@ -42,8 +42,8 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             &[3, 4, 6, 12, 250, 0x36F7_E3A2_7870_3A8A],
             0x574F_4F44_5052_4F42,
         ),
-        // Anchor exercises quarry reinforcement; coverage adds ordinary soft rock and the distinct
-        // 750 MPa hard-pick specialist path. Organic worlds remain free to land in any tier.
+        // Anchor selects the light reinforced pick; coverage adds the stone quarry route and
+        // hard-rock specialist evidence. Organic worlds remain free to land in any tier.
         "fieldwork" => (1, &[2, 3], 0x4649_454C_4450_5242),
         // Report-only crank-vs-treadle charging comparison needs no gate: the probe asserts its
         // own comparative contracts inline and organic variation owns broad exploration.

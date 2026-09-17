@@ -14,7 +14,9 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass, Pressure, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::core::throughput::calculate_mass_flow_duration_ceiling;
 use deep_hearth::core::time::WorldSeed;
+use deep_hearth::crafting::resolve_manual_craft;
 use deep_hearth::equipment::{
     EquipmentDefinitionId, EquipmentId, validate_assemble_equipment, validate_upgrade_equipment,
 };
@@ -22,6 +24,7 @@ use deep_hearth::geology::{
     ExcavationHardnessEstimate, FieldProspectingOutcome, FieldProspectingRequest,
     GeologicalEvidenceKind, validate_start_field_prospecting,
 };
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{
@@ -40,6 +43,9 @@ use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft_batches;
 use super::manual_craft_planning::{
     manual_craft_plan_for_available_output, manual_craft_topology_plan_for_output,
+};
+use super::manual_craft_selection::{
+    first_sufficient_pure_temperature, select_manual_craft_request,
 };
 use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
@@ -176,7 +182,6 @@ struct FieldworkMiningLimits {
     reinforced_quarry_hardness: Pressure,
     reinforced_pick_hardness: Pressure,
     base_quarry_batch: Mass,
-    reinforced_pick_batch: Mass,
 }
 
 fn fieldwork_mining_limits(registries: &Registries) -> FieldworkMiningLimits {
@@ -228,13 +233,6 @@ fn fieldwork_mining_limits(registries: &Registries) -> FieldworkMiningLimits {
     else {
         panic!("fieldwork reinforced pick hardness capability changed physical kind")
     };
-    let CapabilityValue::Mass(hard_pick_batch) = hard_pick
-        .capabilities()
-        .get_capability(method.max_batch_mass_capability())
-        .unwrap_or_else(|| panic!("fieldwork reinforced pick lost mining-batch capability"))
-    else {
-        panic!("fieldwork reinforced pick batch capability changed physical kind")
-    };
     assert!(
         reinforced_hardness > base_hardness,
         "fieldwork requires quarry reinforcement to open a harder geological opportunity"
@@ -248,8 +246,250 @@ fn fieldwork_mining_limits(registries: &Registries) -> FieldworkMiningLimits {
         reinforced_quarry_hardness: reinforced_hardness,
         reinforced_pick_hardness: hard_pick_hardness,
         base_quarry_batch: base_batch,
-        reinforced_pick_batch: hard_pick_batch,
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FieldworkTool {
+    base: EquipmentDefinitionId,
+    target: EquipmentDefinitionId,
+    label: &'static str,
+}
+
+// A bounded actor family, not an exhaustive equipment catalog. Equal observable costs prefer
+// the light stone pick, then its reinforcement, then the corresponding heavy quarry tools.
+const FIELDWORK_TOOLS: [FieldworkTool; 4] = [
+    FieldworkTool {
+        base: EQUIPMENT_STONE_PICK,
+        target: EQUIPMENT_STONE_PICK,
+        label: "stone-pick",
+    },
+    FieldworkTool {
+        base: EQUIPMENT_STONE_PICK,
+        target: EQUIPMENT_COPPER_REINFORCED_PICK,
+        label: "copper-reinforced-hard-pick",
+    },
+    FieldworkTool {
+        base: EQUIPMENT_STONE_QUARRY_PICK,
+        target: EQUIPMENT_STONE_QUARRY_PICK,
+        label: "stone-quarry",
+    },
+    FieldworkTool {
+        base: EQUIPMENT_STONE_QUARRY_PICK,
+        target: EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        label: "copper-reinforced-quarry",
+    },
+];
+
+#[derive(Clone, Debug)]
+struct FieldworkToolEstimate {
+    tool: FieldworkTool,
+    preparation_ticks: u64,
+    pristine_order_ticks: u64,
+    batch: Mass,
+    raw: BTreeMap<CommodityKey, Mass>,
+}
+
+impl FieldworkToolEstimate {
+    fn total_ticks(&self) -> u64 {
+        self.preparation_ticks
+            .checked_add(self.pristine_order_ticks)
+            .unwrap_or_else(|| panic!("fieldwork estimated attention overflowed"))
+    }
+
+    fn policy_key(&self) -> (u64, Mass, Mass) {
+        let copper = self
+            .raw
+            .get(&CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL))
+            .copied()
+            .unwrap_or(Mass::ZERO);
+        let raw = self
+            .raw
+            .values()
+            .copied()
+            .try_fold(Mass::ZERO, Mass::checked_add)
+            .unwrap_or_else(|| panic!("fieldwork raw estimate overflowed"));
+        (self.total_ticks(), copper, raw)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum FieldworkToolBlocker {
+    AcquiredHardness {
+        upper: Pressure,
+        maximum: Pressure,
+    },
+    RawInput {
+        commodity: CommodityKey,
+        required: Mass,
+    },
+}
+
+fn estimate_tool_preparation(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    tool: FieldworkTool,
+) -> Result<(u64, BTreeMap<CommodityKey, Mass>), FieldworkToolBlocker> {
+    // Assembly and upgrade execute as separate crafts. Preserve their batch rounding rather
+    // than merging a shared component into one cheaper hypothetical preparation step.
+    let mut requirements: Vec<_> = equipment_component_requirements(registries, &[tool.base])
+        .into_iter()
+        .collect();
+    if tool.target != tool.base {
+        let upgrade = registries
+            .equipment()
+            .get_equipment(tool.target)
+            .and_then(|definition| definition.upgrade_profile())
+            .unwrap_or_else(|| panic!("fieldwork upgrade disappeared"));
+        assert_eq!(upgrade.from(), tool.base);
+        for input in upgrade.additions().inputs() {
+            requirements.push((input.commodity(), input.mass()));
+        }
+    }
+    let mut raw_required = BTreeMap::new();
+    let mut ticks = 0_u64;
+    for (commodity, required) in requirements {
+        // The declared raw-tool family uses its equipment-free topology route. Missing raw
+        // inputs exclude this route; they do not prove that every possible salvage route fails.
+        let (craft, batches) = manual_craft_topology_plan_for_output(
+            registries,
+            commodity,
+            required,
+            "fieldwork pre-action components",
+        );
+        let consumed = multiplied_mass(craft.input_mass(), batches, "planned raw input");
+        add_mass(
+            &mut raw_required,
+            craft.input(),
+            consumed,
+            "planned cumulative raw input",
+        );
+        let cumulative = raw_required[&craft.input()];
+        if first_sufficient_pure_temperature(
+            state,
+            raw,
+            craft.input(),
+            cumulative,
+            "fieldwork pre-action raw availability",
+        )
+        .is_none()
+        {
+            return Err(FieldworkToolBlocker::RawInput {
+                commodity: craft.input(),
+                required: cumulative,
+            });
+        }
+        let request = select_manual_craft_request(
+            registries,
+            state,
+            craft.process(),
+            raw,
+            batches,
+            "fieldwork pre-action craft",
+        );
+        let resolution =
+            resolve_manual_craft(registries, state, &request).unwrap_or_else(|error| {
+                panic!("fieldwork pre-action craft resolution failed: {error}")
+            });
+        ticks = ticks
+            .checked_add(resolution.duration().value())
+            .unwrap_or_else(|| panic!("fieldwork preparation estimate overflowed"));
+    }
+    Ok((ticks, raw_required))
+}
+
+fn estimate_fieldwork_tool(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    tool: FieldworkTool,
+    observed_upper: Pressure,
+    order: Mass,
+) -> Result<FieldworkToolEstimate, FieldworkToolBlocker> {
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("fieldwork mining method disappeared"));
+    let definition = registries
+        .equipment()
+        .get_equipment(tool.target)
+        .unwrap_or_else(|| panic!("fieldwork candidate disappeared"));
+    let capabilities = definition.capabilities();
+    let CapabilityValue::Pressure(maximum) = capabilities
+        .get_capability(method.max_hardness_capability())
+        .unwrap_or_else(|| panic!("fieldwork candidate hardness disappeared"))
+    else {
+        panic!("fieldwork hardness kind changed")
+    };
+    if observed_upper > maximum {
+        return Err(FieldworkToolBlocker::AcquiredHardness {
+            upper: observed_upper,
+            maximum,
+        });
+    }
+    let CapabilityValue::Mass(batch) = capabilities
+        .get_capability(method.max_batch_mass_capability())
+        .unwrap_or_else(|| panic!("fieldwork candidate batch disappeared"))
+    else {
+        panic!("fieldwork batch kind changed")
+    };
+    let CapabilityValue::MassFlow(flow) = capabilities
+        .get_capability(method.mass_flow_capability())
+        .unwrap_or_else(|| panic!("fieldwork candidate flow disappeared"))
+    else {
+        panic!("fieldwork flow kind changed")
+    };
+    assert!(!batch.is_zero() && !order.is_zero());
+    // Public production throughput arithmetic, rounded per batch. This is deliberately a
+    // pristine estimate, not a duplicate of private mining wear physics or future execution.
+    let duration = |mass| {
+        calculate_mass_flow_duration_ceiling(flow, mass, registries.core().physical_tick_duration())
+            .unwrap_or_else(|error| panic!("fieldwork nominal duration failed: {error}"))
+            .value()
+    };
+    let full_batches = order.milligrams() / batch.milligrams();
+    let remainder = Mass::from_milligrams(order.milligrams() % batch.milligrams());
+    let pristine_order_ticks = duration(batch)
+        .checked_mul(full_batches)
+        .and_then(|ticks| ticks.checked_add(duration(remainder)))
+        .unwrap_or_else(|| panic!("fieldwork extraction estimate overflowed"));
+    let (preparation_ticks, raw) = estimate_tool_preparation(registries, state, raw, tool)?;
+    Ok(FieldworkToolEstimate {
+        tool,
+        preparation_ticks,
+        pristine_order_ticks,
+        batch,
+        raw,
+    })
+}
+
+fn choose_fieldwork_tool(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    observed_upper: Pressure,
+    order: Mass,
+) -> Option<FieldworkToolEstimate> {
+    let mut selected: Option<FieldworkToolEstimate> = None;
+    for tool in FIELDWORK_TOOLS {
+        let estimate = estimate_fieldwork_tool(registries, state, raw, tool, observed_upper, order);
+        reviewln!(
+            "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=pristine-per-batch,no-service,unknown-deposit-reserve",
+            state.tick().value(),
+            tool.label,
+            observed_upper.pascals(),
+            order.milligrams()
+        );
+        let Ok(estimate) = estimate else { continue };
+        if selected
+            .as_ref()
+            .is_none_or(|best| estimate.policy_key() < best.policy_key())
+        {
+            selected = Some(estimate);
+        }
+    }
+    selected
 }
 
 fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
@@ -295,42 +535,40 @@ fn craft_equipment_components(
     ticks
 }
 
-fn assemble_reinforced_hard_pick(
+fn assemble_fieldwork_tool(
     registries: &Registries,
     state: &mut AppState,
     raw: deep_hearth::inventory::StockpileId,
     parts: deep_hearth::inventory::StockpileId,
+    tool: FieldworkTool,
 ) -> (EquipmentId, u64) {
     let component_ticks = craft_equipment_components(
         registries,
         state,
         raw,
         parts,
-        &[EQUIPMENT_STONE_PICK],
-        "fieldwork hard-pick components",
+        &[tool.base],
+        "fieldwork selected-tool components",
     );
-    let pick = validate_assemble_equipment(registries, state, EQUIPMENT_STONE_PICK, parts)
+    let pick = validate_assemble_equipment(registries, state, tool.base, parts)
         .unwrap_or_else(|error| panic!("fieldwork hard-pick assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("fieldwork hard-pick assembly commit failed: {error}"));
+    if tool.target == tool.base {
+        return (pick, component_ticks);
+    }
     let reinforcement_ticks = craft_upgrade_additions(
         registries,
         state,
         raw,
         parts,
-        EQUIPMENT_COPPER_REINFORCED_PICK,
-        "fieldwork hard-pick reinforcement",
+        tool.target,
+        "fieldwork selected-tool reinforcement",
     );
-    let upgraded = validate_upgrade_equipment(
-        registries,
-        state,
-        pick,
-        EQUIPMENT_COPPER_REINFORCED_PICK,
-        parts,
-    )
-    .unwrap_or_else(|error| panic!("fieldwork hard-pick upgrade failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("fieldwork hard-pick upgrade commit failed: {error}"));
+    let upgraded = validate_upgrade_equipment(registries, state, pick, tool.target, parts)
+        .unwrap_or_else(|error| panic!("fieldwork hard-pick upgrade failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("fieldwork hard-pick upgrade commit failed: {error}"));
     assert_eq!(upgraded, pick);
     (
         pick,
@@ -362,27 +600,6 @@ fn assemble_sampling_hammer(
                 panic!("fieldwork sampling-hammer assembly commit failed: {error}")
             });
     (hammer, setup_ticks)
-}
-
-fn assemble_quarry_pick(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: deep_hearth::inventory::StockpileId,
-    parts: deep_hearth::inventory::StockpileId,
-) -> (EquipmentId, u64) {
-    let setup_ticks = craft_equipment_components(
-        registries,
-        state,
-        raw,
-        parts,
-        &[EQUIPMENT_STONE_QUARRY_PICK],
-        "fieldwork quarry-pick components",
-    );
-    let quarry = validate_assemble_equipment(registries, state, EQUIPMENT_STONE_QUARRY_PICK, parts)
-        .unwrap_or_else(|error| panic!("fieldwork quarry-pick assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("fieldwork quarry-pick assembly commit failed: {error}"));
-    (quarry, setup_ticks)
 }
 
 fn craft_upgrade_additions(
@@ -599,19 +816,192 @@ fn localize_target(
 #[test]
 fn batch_capped_mining_finishes_the_requested_order() {
     let registries = deep_hearth::content::build_registries();
-    for seed in [1, 2, 3] {
-        run_fieldwork_probe(
+    for (seed, expected) in [
+        (1, EQUIPMENT_COPPER_REINFORCED_PICK),
+        (2, EQUIPMENT_STONE_QUARRY_PICK),
+        (3, EQUIPMENT_COPPER_REINFORCED_PICK),
+    ] {
+        let (tool, _, pristine_ticks, actual_ticks, batches, _) = run_fieldwork_order(
             &registries,
             FocusedProbeCase::new(
                 seed,
                 None,
                 super::focused_seeds::FocusedProbeRole::ExplicitReplay,
             ),
+            fieldwork_order(&registries, seed),
         );
+        assert_eq!(tool, expected, "maintained report seed={seed}");
+        assert!(
+            batches > 1,
+            "the requested order must outlive its first claim"
+        );
+        assert!(actual_ticks >= pristine_ticks);
+        // Tick rounding can hide a small wear penalty even on a long order. The dedicated
+        // quarry regression below distinguishes an actual overrun from merely worn condition.
     }
 }
 
+#[test]
+fn preparation_cost_selects_light_tools_for_short_orders() {
+    let registries = deep_hearth::content::build_registries();
+    for (seed, expected) in [
+        (1, EQUIPMENT_COPPER_REINFORCED_PICK),
+        (2, EQUIPMENT_STONE_PICK),
+        (3, EQUIPMENT_COPPER_REINFORCED_PICK),
+    ] {
+        let (tool, preparation_ticks, _, mining_ticks, batches, _) = run_fieldwork_order(
+            &registries,
+            FocusedProbeCase::new(
+                seed,
+                None,
+                super::focused_seeds::FocusedProbeRole::ExplicitReplay,
+            ),
+            short_fieldwork_order(fieldwork_mining_limits(&registries).base_quarry_batch, seed),
+        );
+        assert_eq!(tool, expected);
+        assert!(preparation_ticks > mining_ticks);
+        assert!(batches > 1);
+    }
+}
+
+#[cfg(test)]
+fn fieldwork_planning_fixture(
+    registries: &Registries,
+    include_copper: bool,
+) -> (AppState, StockpileId) {
+    let mut state = AppState::new(WorldSeed::new(71));
+    let (raw_opportunity, capacity) = fieldwork_raw_opportunity(registries);
+    let raw = add_solid_stockpile(&mut state, capacity);
+    for (commodity, mass) in raw_opportunity {
+        if include_copper || commodity.material() != MATERIAL_COPPER {
+            seed_lot(
+                registries,
+                &mut state,
+                raw,
+                commodity,
+                mass,
+                ROOM_TEMPERATURE,
+            );
+        }
+    }
+    initialize_player_survival(registries, &mut state)
+        .unwrap_or_else(|error| panic!("fieldwork planning survival failed: {error}"));
+    (state, raw)
+}
+
+#[test]
+fn candidate_frame_respects_visible_hardness_and_finite_copper() {
+    let registries = deep_hearth::content::build_registries();
+    let limits = fieldwork_mining_limits(&registries);
+    let (state, raw) = fieldwork_planning_fixture(&registries, false);
+    let before = state.clone();
+    let selected = choose_fieldwork_tool(
+        &registries,
+        &state,
+        raw,
+        limits.base_quarry_hardness,
+        limits.base_quarry_batch,
+    )
+    .unwrap_or_else(|| panic!("stone route remains available"));
+    assert_eq!(selected.tool.target, EQUIPMENT_STONE_PICK);
+    assert!(
+        matches!(estimate_fieldwork_tool(&registries, &state, raw, FIELDWORK_TOOLS[1],
+        limits.reinforced_quarry_hardness, limits.base_quarry_batch),
+        Err(FieldworkToolBlocker::RawInput { commodity, .. }) if commodity.material() == MATERIAL_COPPER)
+    );
+    assert!(
+        matches!(estimate_fieldwork_tool(&registries, &state, raw, FIELDWORK_TOOLS[2],
+        limits.reinforced_quarry_hardness, limits.base_quarry_batch),
+        Err(FieldworkToolBlocker::AcquiredHardness { upper, maximum })
+            if upper == limits.reinforced_quarry_hardness && maximum == limits.base_quarry_hardness)
+    );
+    assert!(
+        choose_fieldwork_tool(
+            &registries,
+            &state,
+            raw,
+            limits.reinforced_quarry_hardness,
+            limits.base_quarry_batch
+        )
+        .is_none()
+    );
+    assert_eq!(
+        state, before,
+        "pre-action comparison must not mutate or execute hypothetical worlds"
+    );
+}
+
+#[test]
+fn larger_order_amortizes_quarry_preparation_with_real_wear() {
+    let registries = deep_hearth::content::build_registries();
+    // An explicit visible work order, not an inference from hidden deposit reserves.
+    let order = multiplied_mass(
+        fieldwork_mining_limits(&registries).base_quarry_batch,
+        40,
+        "large-order regression",
+    );
+    let (tool, preparation_ticks, pristine_order_ticks, mining_ticks, batches, condition_after) =
+        run_fieldwork_order(
+            &registries,
+            FocusedProbeCase::new(
+                2,
+                None,
+                super::focused_seeds::FocusedProbeRole::ExplicitReplay,
+            ),
+            order,
+        );
+    assert_eq!(tool, EQUIPMENT_STONE_QUARRY_PICK);
+    assert!(mining_ticks > preparation_ticks);
+    assert!(
+        mining_ticks > pristine_order_ticks,
+        "long-order feedback must expose wear omitted by the pristine estimate"
+    );
+    assert!(condition_after < deep_hearth::maintenance::Condition::PRISTINE);
+    assert!(batches > 1);
+}
+
+/// Visible scenario demand, sampled independently of hidden geology and never inferred from a
+/// deposit's reserve. The long horizon is an explicit extraction order, not downstream demand
+/// that the ordinary game has yet demonstrated. Both ranges remain below the fixture's supply.
+fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
+    let batch = fieldwork_mining_limits(registries).base_quarry_batch;
+    if mix64(seed ^ 0x4649_454C_4444_454D).is_multiple_of(2) {
+        return short_fieldwork_order(batch, seed);
+    }
+    let minimum = multiplied_mass(batch, 32, "long-order minimum");
+    let span = multiplied_mass(batch, 16, "long-order variation");
+    minimum
+        .checked_add(Mass::from_milligrams(
+            mix64(seed ^ 0x4649_454C_444D_4153) % (span.milligrams() + 1),
+        ))
+        .unwrap_or_else(|| panic!("fieldwork long order overflowed"))
+}
+
+fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
+    let minimum = (batch.milligrams() / 2).max(1);
+    Mass::from_milligrams(
+        minimum + mix64(seed ^ 0x4649_454C_444D_4153) % (batch.milligrams() - minimum + 1),
+    )
+}
+
+#[cfg(not(test))]
 pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCase) {
+    run_fieldwork_order(registries, case, fieldwork_order(registries, case.seed()));
+}
+
+/// Returns (tool, preparation, pristine-order estimate, actual extraction, batches, condition).
+fn run_fieldwork_order(
+    registries: &Registries,
+    case: FocusedProbeCase,
+    requested_mine_mass: Mass,
+) -> (
+    EquipmentDefinitionId,
+    u64,
+    u64,
+    u64,
+    u64,
+    deep_hearth::maintenance::Condition,
+) {
     let seed = case.seed();
     let channel_voxels = i64::try_from(
         registries
@@ -676,16 +1066,15 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     };
     let copper_ppm = 350_000 + (mix64(seed ^ 0x4649_454C_4447_5241) % 300_001) as u32;
     let clay_share_ppm = (mix64(seed ^ 0x4649_454C_4443_4C41) % 600_001) as u32;
-    let minimum_mine_mass = (mining_limits.base_quarry_batch.milligrams() / 2).max(1);
-    let requested_mine_mass = Mass::from_milligrams(
-        minimum_mine_mass
-            + mix64(seed ^ 0x4649_454C_444D_4153)
-                % (mining_limits.base_quarry_batch.milligrams() - minimum_mine_mass + 1),
-    );
-    let deposit_mass = mining_limits
-        .base_quarry_batch
-        .checked_add(mining_limits.base_quarry_batch)
-        .unwrap_or_else(|| panic!("fieldwork deposit mass overflowed"));
+    assert!(!requested_mine_mass.is_zero());
+    // Setup supply is independent of the work order. It is diagnostic-only and never passed to
+    // candidate selection; varying visible demand does not secretly resize the same seam.
+    let deposit_mass = multiplied_mass(mining_limits.base_quarry_batch, 128, "finite deposit");
+    let order_horizon = if requested_mine_mass <= mining_limits.base_quarry_batch {
+        "short"
+    } else {
+        "long"
+    };
 
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x4649_454C_4457_524C));
     let (raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
@@ -750,124 +1139,81 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
             && observed_hardness.upper() >= excavation_hardness,
         "actor-visible hardness band must conservatively contain diagnostic geological truth"
     );
-    let mining_start = if observed_hardness.upper() <= mining_limits.base_quarry_hardness {
-        let (quarry, tool_prep_ticks) = assemble_quarry_pick(registries, &mut state, raw, parts);
-        let start = validate_start_mining(
-            registries,
-            &state,
-            MINING_METHOD_HAND_PICK,
-            target,
-            destination,
-            quarry,
-            requested_mine_mass,
-        )
-        .unwrap_or_else(|error| {
-            panic!("sample-selected stone quarry pick unexpectedly failed mining: {error}")
-        });
-        (
-            start,
-            quarry,
-            "stone-quarry",
-            "sampled-hardness-base-quarry",
-            tool_prep_ticks,
-            requested_mine_mass,
-        )
-    } else if observed_hardness.upper() <= mining_limits.reinforced_quarry_hardness {
-        let (mut quarry, quarry_ticks) = assemble_quarry_pick(registries, &mut state, raw, parts);
-        let reinforcement_ticks = craft_upgrade_additions(
-            registries,
-            &mut state,
-            raw,
-            parts,
-            EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
-            "fieldwork sampled-hardness quarry reinforcement",
+    let estimate = choose_fieldwork_tool(
+        registries,
+        &state,
+        raw,
+        observed_hardness.upper(),
+        requested_mine_mass,
+    )
+    .unwrap_or_else(|| {
+        panic!("fieldwork bounded raw-tool family has no candidate for the acquired evidence")
+    });
+    reviewln!(
+        "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-pristine-order,then-native-copper,then-raw-mass,ties-light-first preparation={}t pristine-order={}t total={}t authorization=not-yet",
+        state.tick().value(),
+        estimate.tool.label,
+        estimate.preparation_ticks,
+        estimate.pristine_order_ticks,
+        estimate.total_ticks()
+    );
+    let raw_before: BTreeMap<_, _> = estimate
+        .raw
+        .keys()
+        .map(|&commodity| {
+            let mass = state
+                .inventory()
+                .get_stockpile(raw)
+                .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared"))
+                .get_mass(commodity);
+            (commodity, mass)
+        })
+        .collect();
+    let (mining_equipment, tool_prep_ticks) =
+        assemble_fieldwork_tool(registries, &mut state, raw, parts, estimate.tool);
+    for (&commodity, &expected) in &estimate.raw {
+        let retained = state
+            .inventory()
+            .get_stockpile(raw)
+            .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared"))
+            .get_mass(commodity);
+        assert_eq!(
+            raw_before[&commodity].checked_sub(retained),
+            Some(expected),
+            "fieldwork executed raw bill must match the candidate's material cost"
         );
-        quarry = validate_upgrade_equipment(
-            registries,
-            &state,
-            quarry,
-            EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
-            parts,
-        )
-        .unwrap_or_else(|error| panic!("fieldwork quarry reinforcement failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("fieldwork quarry reinforcement commit failed: {error}"));
-        let tool_prep_ticks = quarry_ticks
-            .checked_add(reinforcement_ticks)
-            .unwrap_or_else(|| panic!("fieldwork quarry tool-prep duration overflowed"));
-        let start = validate_start_mining(
-            registries,
-            &state,
-            MINING_METHOD_HAND_PICK,
-            target,
-            destination,
-            quarry,
-            requested_mine_mass,
-        )
-        .unwrap_or_else(|error| {
-            panic!("sample-selected reinforced quarry unexpectedly failed mining: {error}")
-        });
-        (
-            start,
-            quarry,
-            "copper-reinforced-quarry",
-            "sampled-hardness-quarry-upgrade",
-            tool_prep_ticks,
-            requested_mine_mass,
-        )
-    } else {
-        assert!(
-            observed_hardness.upper() <= mining_limits.reinforced_pick_hardness,
-            "fieldwork sampled hardness exceeds every ordinary extraction tool in the episode"
-        );
-        let (hard_pick, tool_prep_ticks) =
-            assemble_reinforced_hard_pick(registries, &mut state, raw, parts);
-        match validate_start_mining(
-            registries,
-            &state,
-            MINING_METHOD_HAND_PICK,
-            target,
-            destination,
-            hard_pick,
-            requested_mine_mass,
-        ) {
-            Ok(start) => (
-                start,
-                hard_pick,
-                "copper-reinforced-hard-pick",
-                "sampled-hardness-hard-pick",
-                tool_prep_ticks,
-                requested_mine_mass,
-            ),
-            Err(MiningStartError::BatchTooLarge { maximum, .. }) => {
-                assert_eq!(
-                    maximum, mining_limits.reinforced_pick_batch,
-                    "hard-pick batch blocker must expose the current authored specialist limit"
-                );
-                let start = validate_start_mining(
-                    registries,
-                    &state,
-                    MINING_METHOD_HAND_PICK,
-                    target,
-                    destination,
-                    hard_pick,
-                    maximum,
-                )
-                .unwrap_or_else(|error| panic!("batch-adapted hard-pick mining failed: {error}"));
-                (
-                    start,
-                    hard_pick,
-                    "copper-reinforced-hard-pick",
-                    "sampled-hardness-hard-pick+batch-limit",
-                    tool_prep_ticks,
-                    maximum,
-                )
-            }
-            Err(error) => panic!("sample-selected hard-pick mining failed unexpectedly: {error}"),
+    }
+    assert_eq!(
+        tool_prep_ticks, estimate.preparation_ticks,
+        "fieldwork executed preparation must agree with its pre-action craft resolutions"
+    );
+    let quarry_label = estimate.tool.label;
+    let (start, extracted_mass, adaptation) = match validate_start_mining(
+        registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        mining_equipment,
+        requested_mine_mass,
+    ) {
+        Ok(start) => (start, requested_mine_mass, "preparation-plus-order"),
+        Err(MiningStartError::BatchTooLarge { maximum, .. }) => {
+            assert_eq!(maximum, estimate.batch);
+            let start = validate_start_mining(
+                registries,
+                &state,
+                MINING_METHOD_HAND_PICK,
+                target,
+                destination,
+                mining_equipment,
+                maximum,
+            )
+            .unwrap_or_else(|error| panic!("fieldwork batch-adapted mining failed: {error}"));
+            (start, maximum, "preparation-plus-order+batch-limit")
         }
+        Err(error) => panic!("fieldwork selected-tool mining failed: {error}"),
     };
-    let (start, mining_equipment, quarry_label, adaptation, tool_prep_ticks, extracted_mass) =
-        mining_start;
     let job = start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("fieldwork mining start commit failed: {error}"));
@@ -1039,13 +1385,28 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     let search_time = format_physical_duration(registries, search_ticks);
     let total_time = format_physical_duration(registries, total_ticks);
     reviewln!(
+        "FIELDWORK ESTIMATE FEEDBACK seed=0x{seed:016X} selected={} order-horizon={order_horizon} requested={}mg preparation-estimate={}t preparation-actual={}t pristine-order-estimate={}t extraction-actual={}t extraction-error={:+}t actual-build-plus-order={}t/{} condition={}ppm->{}ppm estimate-matched={} choice-frozen-before-action=true service=none",
+        estimate.tool.label,
+        requested_mine_mass.milligrams(),
+        estimate.preparation_ticks,
+        tool_prep_ticks,
+        estimate.pristine_order_ticks,
+        mining_ticks,
+        i128::from(mining_ticks) - i128::from(estimate.pristine_order_ticks),
+        tool_prep_ticks + mining_ticks,
+        format_physical_duration(registries, tool_prep_ticks + mining_ticks),
+        condition_before.parts_per_million(),
+        condition_after.parts_per_million(),
+        estimate.pristine_order_ticks == mining_ticks
+    );
+    reviewln!(
         "FIELDWORK PACING seed=0x{seed:016X} search={search_ticks}t/{search_time} sampling-tool={sampling_setup_ticks}t/{sampling_setup_time} extraction-tool={tool_prep_ticks}t/{tool_prep_time} extraction={mining_ticks}t/{mining_time} batches={batches} first-ore={first_ore_ticks}t/{first_ore_time} full-order={}t/{total_time} output={}mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade={output_grade_ppm}ppm",
         total_ticks,
         extracted_mass.milligrams(),
     );
 
     reviewln!(
-        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={output_grade_ppm}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
+        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} order-horizon={order_horizon} demand=explicit-extraction-order search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={output_grade_ppm}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
         focused_probe_role_label(case.role()),
         CHANNEL_COUNT,
         transects,
@@ -1065,4 +1426,12 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         metabolic_energy_spent.nanojoules(),
         hydration_spent.microliters(),
     );
+    (
+        estimate.tool.target,
+        tool_prep_ticks,
+        estimate.pristine_order_ticks,
+        mining_ticks,
+        batches,
+        condition_after,
+    )
 }

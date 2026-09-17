@@ -140,7 +140,8 @@ cross-cutting contracts belong in `gameplay_contracts`; broad gameplay contracts
 repair. The default report is an aggregate experience summary; use `DEEP_HEARTH_GAMEPLAY_VERBOSE=1 python ci.py
 report` when judging individual preservation frontiers, woodworking lifecycle/payback, or fieldwork decisions.
 Verbose ordinary traces pair exact ticks with physical durations where attention cost is part of the player
-tradeoff. The broad audit includes `fieldwork_probe::batch_capped_mining_finishes_the_requested_order` for
+tradeoff. Aggregate time uses the registry-derived clock. Concise goal comparisons retain one seeded example;
+verbose output retains all examples. The broad audit includes `fieldwork_probe::batch_capped_mining_finishes_the_requested_order` for
 ordinary extraction-order continuation; the fieldwork exploration episode remains report-driven. Successful
 verbose reports retain complete selected evidence rather than applying failure-transcript head/tail limits.
 
