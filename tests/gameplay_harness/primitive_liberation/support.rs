@@ -70,25 +70,57 @@ pub(super) fn assemble_energy_store_from_authored_parts(
         .unwrap_or_else(|error| panic!("primitive liberation drive commit failed: {error}"))
 }
 
-pub(super) fn replenish_primitive_drive(
+#[derive(Clone, Copy, Debug)]
+pub(super) enum ChargePolicy {
+    BatchDemand,
+    FullBuffer,
+}
+
+pub(super) fn prepare_stage(
     registries: &Registries,
     state: &mut AppState,
-    treadle: EquipmentId,
-    drive: EnergyStoreId,
-    capacity: Energy,
+    stage: (
+        deep_hearth::production::ProcessId,
+        EquipmentId,
+        deep_hearth::inventory::StockpileId,
+    ),
+    power: (EquipmentId, EnergyStoreId),
+    policy: ChargePolicy,
     label: &'static str,
-) {
-    let stored = state
+) -> ChargeReport {
+    let (process, equipment, feed) = stage;
+    let (treadle, drive) = power;
+    let store = state
         .energy()
         .get_store(drive)
-        .map(|record| record.stored())
-        .unwrap_or_else(|| panic!("{label} drive disappeared"));
-    let requested = capacity
-        .checked_sub(stored)
-        .unwrap_or_else(|| panic!("{label} drive exceeded authored capacity"));
+        .expect("liberation drive exists");
+    let stored = store.stored();
+    let capacity = registries
+        .energy()
+        .get_store(store.definition())
+        .expect("drive definition exists")
+        .capacity();
+    let mass = state
+        .inventory()
+        .get_stockpile(feed)
+        .expect("stage feed exists")
+        .stored_mass();
+    let envelope = deep_hearth::ore_processing::assess_powered_ore_mass_envelope(
+        registries, state, process, equipment, drive,
+    )
+    .unwrap_or_else(|error| panic!("{label} planning failed: {error}"));
+    let shortfall = envelope
+        .additional_energy_required_for(mass)
+        .unwrap_or_else(|| panic!("{label} cannot fit its provider even after charging"));
+    let requested = match policy {
+        ChargePolicy::BatchDemand => shortfall,
+        ChargePolicy::FullBuffer => capacity.checked_sub(stored).expect("store within capacity"),
+    };
     if requested.is_zero() {
-        return;
+        return ChargeReport::zero(stored);
     }
+    let before = deep_hearth::survival::assess_survival(registries, state)
+        .expect("liberation player exists before charging");
     let charge = validate_start_manual_power(
         registries,
         state,
@@ -99,14 +131,60 @@ pub(super) fn replenish_primitive_drive(
     charge
         .commit(state)
         .unwrap_or_else(|error| panic!("{label} treadle recharge commit failed: {error}"));
-    finish_manual_power_work(registries, state, work, label);
+    let ticks = finish_manual_power_work(registries, state, work, label);
+    let stored_after = state
+        .energy()
+        .get_store(drive)
+        .map(|record| record.stored())
+        .unwrap_or_else(|| panic!("{label} drive disappeared after recharge"));
     assert!(
-        state
-            .energy()
-            .get_store(drive)
-            .is_some_and(|record| record.stored() > stored),
+        stored_after > stored,
         "{label} recharge must increase stored mechanical work"
     );
+    let after = deep_hearth::survival::assess_survival(registries, state)
+        .expect("liberation player exists after charging");
+    assert!(
+        deep_hearth::ore_processing::assess_powered_ore_mass_envelope(
+            registries, state, process, equipment, drive,
+        )
+        .expect("stage remains assessable after charging")
+        .maximum_mass()
+            >= mass,
+        "{label} charge must fund the actual batch"
+    );
+    ChargeReport {
+        requested,
+        stored_before: stored,
+        stored_after,
+        ticks,
+        metabolic_nj: before.metabolic_energy().nanojoules()
+            - after.metabolic_energy().nanojoules(),
+        hydration_ul: before.hydration().microliters() - after.hydration().microliters(),
+    }
+}
+
+/// Executed cost of one committed manual-power charge, returned by the canonical completion path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ChargeReport {
+    pub(super) requested: Energy,
+    pub(super) stored_before: Energy,
+    pub(super) stored_after: Energy,
+    pub(super) ticks: u64,
+    pub(super) metabolic_nj: u128,
+    pub(super) hydration_ul: u64,
+}
+
+impl ChargeReport {
+    pub(super) fn zero(stored: Energy) -> Self {
+        Self {
+            requested: Energy::ZERO,
+            stored_before: stored,
+            stored_after: stored,
+            ticks: 0,
+            metabolic_nj: 0,
+            hydration_ul: 0,
+        }
+    }
 }
 
 pub(super) fn full_stockpile_selection(

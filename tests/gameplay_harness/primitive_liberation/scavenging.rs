@@ -17,6 +17,7 @@ use super::super::production_timing::finish_uninterrupted_production_job;
 use super::primary::PrimaryLiberationOutcome;
 use super::{PrimitiveLiberationScenario, support};
 
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct ScavengingOutcome {
     pub(super) concentrate_mass: Mass,
     pub(super) concentrate_grade_ppm: u32,
@@ -38,17 +39,18 @@ pub(super) fn run(
     let separator = scenario.separator;
     let treadle = scenario.treadle;
     let drive = scenario.drive;
-    let drive_capacity = scenario.drive_capacity;
     let state = &mut scenario.state;
+    let policy = scenario.charge_policy;
+    let charges = &mut scenario.charges;
 
-    support::replenish_primitive_drive(
+    charges.push(support::prepare_stage(
         registries,
         state,
-        treadle,
-        drive,
-        drive_capacity,
+        (PROCESS_REGRIND_COPPER_TAILINGS, quern, tailings),
+        (treadle, drive),
+        policy,
         "primitive liberation tailings-regrind recharge",
-    );
+    ));
     let regrind_feed = support::full_stockpile_selection(state, tailings);
     let regrind = resolve_comminution_process(
         registries,
@@ -93,14 +95,14 @@ pub(super) fn run(
         Some(primary.tailings_mass)
     );
 
-    support::replenish_primitive_drive(
+    charges.push(support::prepare_stage(
         registries,
         state,
-        treadle,
-        drive,
-        drive_capacity,
+        (PROCESS_SCAVENGE_COPPER_TAILINGS, separator, fine_tailings),
+        (treadle, drive),
+        policy,
         "primitive liberation scavenger recharge",
-    );
+    ));
     let scavenger_feed = support::full_stockpile_selection(state, fine_tailings);
     let scavenged = resolve_constituent_separation_process(
         registries,

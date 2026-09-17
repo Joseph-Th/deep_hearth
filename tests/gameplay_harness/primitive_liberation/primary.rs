@@ -19,6 +19,7 @@ use deep_hearth::registry::Registries;
 use super::super::production_timing::finish_uninterrupted_production_job;
 use super::{PrimitiveLiberationScenario, support};
 
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct PrimaryLiberationOutcome {
     pub(super) concentrate_mass: Mass,
     pub(super) tailings_mass: Mass,
@@ -46,25 +47,18 @@ pub(super) fn run(
     let separator = scenario.separator;
     let treadle = scenario.treadle;
     let drive = scenario.drive;
-    let drive_capacity = scenario.drive_capacity;
+    let policy = scenario.charge_policy;
+    let charges = &mut scenario.charges;
     let state = &mut scenario.state;
 
-    support::replenish_primitive_drive(
+    charges.push(support::prepare_stage(
         registries,
         state,
-        treadle,
-        drive,
-        drive_capacity,
+        (PROCESS_CRUSH_ORE, crusher, ore),
+        (treadle, drive),
+        policy,
         "primitive liberation treadle charge",
-    );
-    assert_eq!(
-        state
-            .energy()
-            .get_store(drive)
-            .map(|record| record.stored()),
-        Some(drive_capacity),
-        "primitive treadle charge must deliver the requested full-drive work before processing"
-    );
+    ));
     let crush = resolve_comminution_process(
         registries,
         state,
@@ -89,14 +83,14 @@ pub(super) fn run(
         "primitive liberation crushing",
     );
 
-    support::replenish_primitive_drive(
+    charges.push(support::prepare_stage(
         registries,
         state,
-        treadle,
-        drive,
-        drive_capacity,
+        (PROCESS_GRIND_CRUSHED_ORE, quern, crushed),
+        (treadle, drive),
+        policy,
         "primitive liberation post-crush recharge",
-    );
+    ));
     let ground_feed = support::full_stockpile_selection(state, crushed);
     let grind = resolve_comminution_process(
         registries,
@@ -127,14 +121,14 @@ pub(super) fn run(
         "primitive rotary-quern grinding",
     );
 
-    support::replenish_primitive_drive(
+    charges.push(support::prepare_stage(
         registries,
         state,
-        treadle,
-        drive,
-        drive_capacity,
+        (PROCESS_SCREEN_CRUSHED_ORE, screen, ground),
+        (treadle, drive),
+        policy,
         "primitive liberation post-grind recharge",
-    );
+    ));
     let screen_feed = support::full_stockpile_selection(state, ground);
     let screened = resolve_screening_process(
         registries,
@@ -168,14 +162,14 @@ pub(super) fn run(
         "primitive copper sizing screen",
     );
 
-    support::replenish_primitive_drive(
+    charges.push(support::prepare_stage(
         registries,
         state,
-        treadle,
-        drive,
-        drive_capacity,
+        (PROCESS_FINE_GRIND_SCREEN_OVERSIZE, quern, oversize),
+        (treadle, drive),
+        policy,
         "primitive liberation post-screen recharge",
-    );
+    ));
     let oversize_mass = state
         .inventory()
         .get_stockpile(oversize)
@@ -212,14 +206,14 @@ pub(super) fn run(
         "primitive rotary-quern regrinding",
     );
 
-    support::replenish_primitive_drive(
+    charges.push(support::prepare_stage(
         registries,
         state,
-        treadle,
-        drive,
-        drive_capacity,
+        (PROCESS_CONCENTRATE_COPPER, separator, undersize),
+        (treadle, drive),
+        policy,
         "primitive liberation post-regrind recharge",
-    );
+    ));
     let concentration_feed = support::full_stockpile_selection(state, undersize);
     let separated = resolve_constituent_separation_process(
         registries,

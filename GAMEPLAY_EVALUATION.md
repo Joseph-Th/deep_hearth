@@ -214,6 +214,20 @@ into a soak. Full episodes are reserved for behavior that requires executed cros
 may succeed, adapt, or stop at a canonical constraint; every partial or blocked outcome must preserve trusted-load
 validity and relevant conservation.
 
+### Primitive liberation cost evidence
+
+The liberation episode starts with disclosed pre-owned ore and authored assembly parts; its measured processing
+cost excludes acquiring those inputs. It executes both batch-demand and full-buffer charging from the same
+starting state through the same canonical production chain. Batch demand comes from the production-owned powered
+ore mass envelope and is resolved again after charging; no harness energy formula or safety multiplier is used.
+The comparison proves identical primary/scavenger recovery and conserved matter, and checks trusted-load validity
+for both branches. It reports charging attention, generated work, bodily cost, remaining stored work, primary
+processing time, and marginal scavenger time. These are completion costs of one finite pipeline, not matched-time
+terminal reserves: leftover full-buffer work may fund later jobs and must not all be described as waste. Processing
+time is not automatically useful returned attention; this episode does not execute parallel work. Concentrate
+remains distinct from usable copper, and the scavenger leg is exercised coverage rather than an actor investment
+recommendation while the ordinary smelting outlet is absent.
+
 ### Catalog continuity contract
 
 The catalog contract checks ordinary acquisition-graph continuity that should not depend on one actor-policy

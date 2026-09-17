@@ -1398,6 +1398,19 @@ class LocalCiPlanTests(unittest.TestCase):
             output,
         )
 
+    def test_liberation_cost_summary_preserves_reserves_and_signed_costs(self) -> None:
+        lines = [
+            "LIBERATION COST seed=0x1 primary=80t scavenger=20t total=100t charge=[demand:7t full:10t] generated=[demand:900000000000nJ full:2500000000000nJ] retained=[demand:0nJ full:940000000000nJ]",
+            "LIBERATION COST seed=0x2 primary=60t scavenger=16t total=76t charge=[demand:8t full:7t] generated=[demand:900000000000nJ full:800000000000nJ] retained=[demand:0nJ full:0nJ]",
+        ]
+        summary = ci.concise_gameplay_report("\n".join(lines), {})
+        self.assertIn("measured=2/2 primary=60..80t scavenger=16..20t", summary)
+        self.assertIn("charge-saved=-1..3t generated-saved=-100..1600J", summary)
+        self.assertIn("full-buffer-retained=0..940J", summary)
+        self.assertIn("not-equal-terminal-reserves setup-cost=excluded", summary)
+        self.assertEqual(ci.liberation_cost_summary([]), [])
+        self.assertIn("insufficient-data", ci.liberation_cost_summary(["LIBERATION COST malformed"])[0])
+
     def test_git_wizard_validation_levels_match_iteration_policy(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         validation = manifest["package"]["metadata"]["git-wizard"]["validation"]

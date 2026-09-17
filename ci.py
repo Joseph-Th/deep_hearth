@@ -590,6 +590,38 @@ def player_takeaways(lines: list[str]) -> list[str]:
     return takeaways
 
 
+def liberation_cost_summary(lines: list[str]) -> list[str]:
+    """Keep measured finite-job costs visible without dumping each matched branch."""
+
+    costs = [line for line in lines if line.startswith("LIBERATION COST ")]
+    rows = [
+        tuple(map(int, match.groups()))
+        for line in costs
+        if (match := re.search(
+            r"primary=(\d+)t scavenger=(\d+)t total=(\d+)t "
+            r"charge=\[demand:(\d+)t full:(\d+)t\] "
+            r"generated=\[demand:(\d+)nJ full:(\d+)nJ\] "
+            r"retained=\[demand:(\d+)nJ full:(\d+)nJ\]", line
+        )) is not None
+    ]
+    if not costs:
+        return []
+    if not rows:
+        return ["LIBERATION COST SUMMARY measured=0 timing=insufficient-data"]
+    span = lambda values: f"{min(values)}..{max(values)}"
+    return [
+        "LIBERATION COST SUMMARY "
+        f"measured={len(rows)}/{len(costs)} "
+        f"primary={span([row[0] for row in rows])}t "
+        f"scavenger={span([row[1] for row in rows])}t "
+        f"charge-saved={span([row[4] - row[3] for row in rows])}t "
+        f"generated-saved={span([(row[6] - row[5]) // 1_000_000_000 for row in rows])}J "
+        f"full-buffer-retained={span([row[8] // 1_000_000_000 for row in rows])}J "
+        "basis=same-finite-job-not-equal-terminal-reserves setup-cost=excluded "
+        "read=charge-for-known-demand-scavenging-spends-more-time-for-concentrate-not-metal"
+    ]
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
     """Keep aggregate player/capability evidence; verbose retains the per-case transcript."""
 
@@ -608,6 +640,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ]
     selected.extend(ordinary_gameplay_diversity(lines))
     selected.extend(player_takeaways(lines))
+    selected.extend(liberation_cost_summary(lines))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)
 

@@ -8,7 +8,7 @@ use deep_hearth::content::{
     FORM_SCREEN_PLATE, MATERIAL_COPPER, PROCESS_GRIND_CRUSHED_ORE,
     PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SCREEN_CRUSHED_ORE,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -30,6 +30,8 @@ use super::ore_fixture::copper_ore_composition;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 
+#[path = "primitive_liberation/comparison.rs"]
+mod comparison;
 #[path = "primitive_liberation/primary.rs"]
 mod primary;
 #[path = "primitive_liberation/scavenging.rs"]
@@ -37,7 +39,10 @@ mod scavenging;
 #[path = "primitive_liberation/support.rs"]
 mod support;
 
+#[derive(Clone)]
 struct PrimitiveLiberationScenario {
+    charge_policy: support::ChargePolicy,
+    charges: Vec<support::ChargeReport>,
     state: AppState,
     batch_mass: Mass,
     copper_ppm: u32,
@@ -57,7 +62,6 @@ struct PrimitiveLiberationScenario {
     separator: EquipmentId,
     treadle: EquipmentId,
     drive: EnergyStoreId,
-    drive_capacity: Energy,
 }
 
 pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: FocusedProbeCase) {
@@ -221,6 +225,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     );
 
     let mut scenario = PrimitiveLiberationScenario {
+        charge_policy: support::ChargePolicy::BatchDemand,
+        charges: Vec::new(),
         state,
         batch_mass,
         copper_ppm,
@@ -240,10 +246,32 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         separator,
         treadle,
         drive,
-        drive_capacity,
     };
+    let mut full_buffer = scenario.clone();
+    full_buffer.charge_policy = support::ChargePolicy::FullBuffer;
+    let started_at = scenario.state.tick().value();
     let primary = primary::run(registries, &mut scenario);
+    let primary_completed_at = scenario.state.tick().value();
     let scavenged = scavenging::run(registries, &mut scenario, &primary);
+    let baseline_primary = primary::run(registries, &mut full_buffer);
+    let baseline_scavenged = scavenging::run(registries, &mut full_buffer, &baseline_primary);
+    assert_eq!(
+        primary, baseline_primary,
+        "charging policy must preserve primary recovery"
+    );
+    assert_eq!(
+        scavenged, baseline_scavenged,
+        "charging policy must preserve scavenger recovery"
+    );
+    comparison::review(
+        registries,
+        seed,
+        started_at,
+        primary_completed_at,
+        &scenario,
+        &full_buffer,
+        &scavenged,
+    );
     let state = &scenario.state;
     assert!(
         state
