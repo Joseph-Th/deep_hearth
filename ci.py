@@ -262,11 +262,11 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
         summaries.append(
             "WOODWORKING DIVERSITY "
             f"samples={len(woodworking)} "
-            f"choice=[adze:{count('choice=stone-adze')} saw:{count('choice=frame-saw')}] "
+            f"choice=[bare:{count('choice=bare-hands')} adze:{count('choice=stone-adze')} saw:{count('choice=frame-saw')}] "
             f"policy=[copper:{count('preference=conserve-scarce-copper')} timber:{count('preference=conserve-timber')}] "
             f"saw=[fundable:{count(' fundable:true ')} attention-payback:{count('attention-payback:true')} net-timber-payback:{count('net-timber-payback:true')}] "
             f"lifecycle=[copper-fallback:{count('fallback-copper:true')} saw-service:{sum(bool(re.search(r'saw-services:[1-9][0-9]*', line)) for line in woodworking)}] "
-            f"decision=[copper-blocked:{count('reason=copper-supply-limited')} reserve-protected:{count('reason=copper-reserve-protected')} timber-horizon:{count('reason=pipeline-too-short-for-net-timber-payback')} attention-horizon:{count('reason=pipeline-too-short-for-attention-payback')} attention-invest:{count('reason=surplus-copper-attention-payback')} timber-invest:{count('reason=pipeline-net-timber-payback')}]"
+            f"decision=[bare-hands:{count('reason=bare-hands-avoids-investment-cost')} copper-blocked:{count('reason=copper-supply-limited')} reserve-protected:{count('reason=copper-reserve-protected')} timber-horizon:{count('reason=pipeline-too-short-for-net-timber-payback')} attention-horizon:{count('reason=pipeline-too-short-for-attention-payback')} attention-invest:{count('reason=surplus-copper-attention-payback')} timber-invest:{count('reason=pipeline-net-timber-payback')}]"
         )
     if fieldwork:
         count = lambda marker: sum(marker in line for line in fieldwork)
@@ -500,13 +500,13 @@ def player_takeaways(lines: list[str]) -> list[str]:
         count = lambda marker: sum(marker in line for line in woodworking)
         takeaways.append(
             "PLAYER TAKEAWAY probe=woodworking "
-            f"saw={count('choice=frame-saw')}/{len(woodworking)} adze={count('choice=stone-adze')}/{len(woodworking)} "
+            f"saw={count('choice=frame-saw')}/{len(woodworking)} adze={count('choice=stone-adze')}/{len(woodworking)} bare={count('choice=bare-hands')}/{len(woodworking)} "
             f"blocked-by-copper={count('reason=copper-supply-limited')} "
             f"reserve-protected={count('reason=copper-reserve-protected')} "
             f"fundable={count(' fundable:true ')} "
             f"attention-payback={count('attention-payback:true')} "
             f"net-timber-payback={count('net-timber-payback:true')} "
-            "read=saw-needs-60g-blade-plus-reserve-discipline-short-pipelines-stay-adze"
+            "read=compare-full-build-cost-short-jobs-can-skip-tools-long-jobs-price-copper-and-wear"
         )
     fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
     if fieldwork:
@@ -647,6 +647,55 @@ def liberation_cost_summary(lines: list[str]) -> list[str]:
     ]
 
 
+def woodworking_baseline_summary(lines: list[str]) -> list[str]:
+    """Expose full lifecycle savings against doing the same job without new tools."""
+    baselines = [line for line in lines if line.startswith("WOODWORKING BASELINE ")]
+    if not baselines:
+        return []
+    rows = [
+        tuple(map(int, match.groups()))
+        for line in baselines
+        if (match := re.search(
+            r"bare=(\d+)t/\S+ adze=(\d+)t/\S+ selected=(\d+)t/\S+", line
+        )) is not None
+    ]
+    if not rows:
+        return ["WOODWORKING BASELINE SUMMARY measured=0 evidence=insufficient-data"]
+    span = lambda values: f"{min(values)}..{max(values)}"
+    return [
+        f"WOODWORKING BASELINE SUMMARY measured={len(rows)}/{len(baselines)} "
+        f"adze-saves={span([bare - adze for bare, adze, _ in rows])}t "
+        f"selected-saves={span([bare - selected for bare, _, selected in rows])}t "
+        "basis=versus-bare-hands-full-lifecycle "
+        "read=tool-speed-alone-overstates-benefit-build-and-maintenance-count"
+    ]
+
+
+def fieldwork_pacing_summary(lines: list[str]) -> list[str]:
+    """Distinguish first-resource discovery investment from repeat extraction speed."""
+    pacing = [line for line in lines if line.startswith("FIELDWORK PACING ")]
+    if not pacing:
+        return []
+    rows = [
+        tuple(map(int, match.groups()))
+        for line in pacing
+        if (match := re.search(
+            r"search=(\d+)t/\S+ sampling-tool=(\d+)t/\S+ "
+            r"extraction-tool=(\d+)t/\S+ extraction=(\d+)t/\S+ "
+            r"first-ore=(\d+)t/\S+ output=(\d+)mg", line
+        )) is not None
+    ]
+    if not rows:
+        return ["FIELDWORK PACING SUMMARY measured=0 evidence=insufficient-data"]
+    span = lambda column: f"{min(row[column] for row in rows)}..{max(row[column] for row in rows)}"
+    return [
+        f"FIELDWORK PACING SUMMARY measured={len(rows)}/{len(pacing)} "
+        f"search={span(0)}t first-ore={span(4)}t extraction={span(3)}t output={span(5)}mg "
+        "scope=raw-tools-and-preowned-copper-to-first-ore "
+        "read=discovery-and-tool-preparation-dominate-first-ore-not-repeat-extraction"
+    ]
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
     """Keep aggregate player/capability evidence; verbose retains the per-case transcript."""
 
@@ -667,6 +716,8 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     selected.extend(player_takeaways(lines))
     selected.extend(progression_buffer_summary(lines))
     selected.extend(liberation_cost_summary(lines))
+    selected.extend(fieldwork_pacing_summary(lines))
+    selected.extend(woodworking_baseline_summary(lines))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)
 

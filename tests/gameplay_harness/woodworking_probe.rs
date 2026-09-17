@@ -199,6 +199,7 @@ enum WoodworkingInvestmentPreference {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WoodworkingInvestmentReason {
+    BareHandsAvoidsInvestmentCost,
     CopperSupplyLimited,
     CopperReserveProtected,
     PipelineTooShortForAttentionPayback,
@@ -210,6 +211,7 @@ enum WoodworkingInvestmentReason {
 impl WoodworkingInvestmentReason {
     const fn label(self) -> &'static str {
         match self {
+            Self::BareHandsAvoidsInvestmentCost => "bare-hands-avoids-investment-cost",
             Self::CopperSupplyLimited => "copper-supply-limited",
             Self::CopperReserveProtected => "copper-reserve-protected",
             Self::PipelineTooShortForAttentionPayback => "pipeline-too-short-for-attention-payback",
@@ -262,7 +264,7 @@ struct WoodworkingRouteOutcome {
     project_timber: Mass,
     boards: Mass,
     chips: Mass,
-    final_condition_ppm: u32,
+    final_condition_ppm: Option<u32>,
     saw_batches: u64,
     adze_batches: u64,
     saw_services: u64,
@@ -275,6 +277,46 @@ impl WoodworkingRouteOutcome {
         self.production_ticks
             .checked_add(self.maintenance_ticks)
             .unwrap_or_else(|| panic!("woodworking route active-time overflowed"))
+    }
+}
+
+fn execute_bare_pipeline(
+    registries: &Registries,
+    state: &mut AppState,
+    raw: StockpileId,
+    output: StockpileId,
+    batches: u64,
+) -> WoodworkingRouteOutcome {
+    let board_process = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("woodworking bare board process disappeared"));
+    let duration = execute_manual_craft_batches(
+        registries,
+        state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        raw,
+        output,
+        batches,
+        "woodworking bare pipeline",
+    );
+    let output_record = state
+        .inventory()
+        .get_stockpile(output)
+        .unwrap_or_else(|| panic!("woodworking bare output stockpile disappeared"));
+    WoodworkingRouteOutcome {
+        production_ticks: duration.value(),
+        maintenance_ticks: 0,
+        maintenance_services: 0,
+        project_timber: checked_mass_times(board_process.input_mass(), batches, "bare project"),
+        boards: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
+        chips: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
+        final_condition_ppm: None,
+        saw_batches: 0,
+        adze_batches: 0,
+        saw_services: 0,
+        adze_services: 0,
+        fallback_due_to_copper: false,
     }
 }
 
@@ -404,7 +446,7 @@ fn execute_adze_pipeline(
         project_timber: checked_mass_times(board_process.input_mass(), batches, "adze project"),
         boards: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
         chips: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
-        final_condition_ppm: condition.parts_per_million(),
+        final_condition_ppm: Some(condition.parts_per_million()),
         saw_batches: 0,
         adze_batches: batches,
         saw_services: 0,
@@ -620,7 +662,7 @@ fn execute_saw_pipeline(
             .unwrap_or_else(|| panic!("woodworking hybrid project timber overflowed")),
         boards: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
         chips: output_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
-        final_condition_ppm: condition.parts_per_million(),
+        final_condition_ppm: Some(condition.parts_per_million()),
         saw_batches,
         adze_batches,
         saw_services,
@@ -775,6 +817,43 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("woodworking survival setup failed: {error}"));
 
+    // Plan the equipment-free candidate from the actual pre-investment state. Unlike a
+    // cloned outcome, this canonical resolution is legitimate current decision evidence.
+    let bare_pipeline_projection = resolve_manual_craft(
+        registries,
+        &state,
+        &select_manual_craft_request(
+            registries,
+            &state,
+            PROCESS_SHAPE_WOOD_BOARDS,
+            raw,
+            adze_batches,
+            "woodworking bare pipeline planning",
+        ),
+    )
+    .unwrap_or_else(|error| panic!("woodworking bare pipeline planning failed: {error}"));
+    let bare_attention = bare_pipeline_projection.duration().value();
+    let mut bare_state = state.clone();
+    let bare_route = execute_bare_pipeline(registries, &mut bare_state, raw, output, adze_batches);
+    assert_eq!(bare_route.active_ticks(), bare_attention);
+    assert_eq!(
+        bare_route.boards,
+        projected_board_mass(&bare_pipeline_projection)
+    );
+    assert!(bare_route.boards >= pipeline_board_demand);
+    assert_eq!(
+        bare_route.boards.checked_add(bare_route.chips),
+        Some(bare_route.project_timber)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&bare_state)
+            .unwrap_or_else(|error| panic!("woodworking bare matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(registries, &bare_state)
+        .unwrap_or_else(|error| panic!("woodworking bare counterfactual state invalid: {error}"));
+
     let (adze, adze_setup) = assemble_adze(registries, &mut state, raw, adze_parts);
     let immediate_adze_request = select_manual_craft_request(
         registries,
@@ -872,7 +951,8 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
     let saw_total_attention = saw_counterfactual.as_ref().map(|(_, setup, route)| {
         setup
             .attention_ticks
-            .checked_add(route.active_ticks())
+            .checked_add(adze_setup)
+            .and_then(|ticks| ticks.checked_add(route.active_ticks()))
             .unwrap_or_else(|| panic!("woodworking saw total attention overflowed"))
     });
     let saw_setup_timber = saw_counterfactual
@@ -893,7 +973,9 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
     let saw_fallback_adze_service_count = saw_counterfactual
         .as_ref()
         .map_or(0, |(_, _, route)| route.adze_services);
-    let adze_total_attention = adze_route.active_ticks();
+    let adze_total_attention = adze_setup
+        .checked_add(adze_route.active_ticks())
+        .unwrap_or_else(|| panic!("woodworking adze lifecycle attention overflowed"));
     let saw_attention_payback =
         saw_total_attention.is_some_and(|ticks| ticks < adze_total_attention);
     // Timber-neutral with an attention win is weakly dominant under either preference:
@@ -917,13 +999,25 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         .checked_sub(saw_copper_consumed)
         .unwrap_or(Mass::ZERO);
     let reserve_safe = saw_fundable && copper_after_saw >= protected_copper_reserve;
-    let (invest_in_saw, reason) = woodworking_investment_decision(
+    // Preserve copper/reserve and timber policy for the saw, but compare its lifecycle
+    // attention against the cheapest equipment-free/adze alternative, not a sunk adze.
+    let saw_beats_hand_attention =
+        saw_total_attention.is_some_and(|ticks| ticks < adze_total_attention.min(bare_attention));
+    let (invest_in_saw, saw_reason) = woodworking_investment_decision(
         preference,
         saw_fundable,
         reserve_safe,
-        saw_attention_payback,
+        saw_beats_hand_attention,
         saw_net_timber_payback,
     );
+    // On equal attention, retain the adze's reusable equipment. Timber policy still
+    // admits a fundable saw with net timber payback, as it did before this candidate.
+    let use_bare_hands = !invest_in_saw && bare_attention < adze_total_attention;
+    let reason = if use_bare_hands {
+        WoodworkingInvestmentReason::BareHandsAvoidsInvestmentCost
+    } else {
+        saw_reason
+    };
     match (case.role(), seed) {
         (FocusedProbeRole::MaintainedAnchor, 1) => {
             assert_eq!(
@@ -943,11 +1037,15 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         ),
         (FocusedProbeRole::MaintainedCoverage, 6) => {
             assert_eq!(reason, WoodworkingInvestmentReason::CopperReserveProtected);
+            assert!(bare_attention >= adze_total_attention);
         }
-        (FocusedProbeRole::MaintainedCoverage, 250) => assert_eq!(
-            reason,
-            WoodworkingInvestmentReason::PipelineTooShortForAttentionPayback
-        ),
+        (FocusedProbeRole::MaintainedCoverage, 250) => {
+            assert_eq!(
+                reason,
+                WoodworkingInvestmentReason::BareHandsAvoidsInvestmentCost
+            );
+            assert!(bare_attention < adze_total_attention);
+        }
         (FocusedProbeRole::MaintainedCoverage, 0x36F7_E3A2_7870_3A8A) => {
             assert_eq!(
                 reason,
@@ -974,6 +1072,14 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
                     .raw_timber
                     .checked_add(route.project_timber)
                     .unwrap_or_else(|| panic!("woodworking selected saw timber overflowed")),
+            )
+        } else if use_bare_hands {
+            (
+                "bare-hands",
+                bare_state,
+                bare_route,
+                0,
+                bare_route.project_timber,
             )
         } else {
             (
@@ -1012,10 +1118,18 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
     let selected_attention = selected_setup_ticks
         .checked_add(selected_route.active_ticks())
         .unwrap_or_else(|| panic!("woodworking selected attention overflowed"));
-    let adze_attention = adze_setup
-        .checked_add(adze_total_attention)
-        .unwrap_or_else(|| panic!("woodworking adze attention overflowed"));
-    let attention_delta = i128::from(selected_attention) - i128::from(adze_attention);
+    assert_eq!(
+        state.tick().value(),
+        selected_attention,
+        "selected woodworking lifecycle must account for every elapsed tick"
+    );
+    if use_bare_hands {
+        assert_eq!(selected_attention, bare_attention);
+        assert!(selected_attention < adze_total_attention);
+        assert_eq!(selected_route.final_condition_ppm, None);
+        assert!(state.equipment().get_equipment(adze).is_none());
+    }
+    let attention_delta = i128::from(selected_attention) - i128::from(adze_total_attention);
     let timber_delta = i128::from(selected_total_timber.milligrams())
         - i128::from(adze_route.project_timber.milligrams());
     let board_surplus = boards
@@ -1041,12 +1155,19 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         }
         _ => "unavailable:copper".to_owned(),
     };
+    let selected_condition = selected_route
+        .final_condition_ppm
+        .map_or_else(|| "no-tool".to_owned(), |ppm| format!("{ppm}ppm"));
+    let bare_time = format_physical_duration(registries, bare_attention);
+    reviewln!(
+        "WOODWORKING BASELINE seed=0x{seed:016X} bare={bare_attention}t/{bare_time} adze={adze_total_attention}t/{adze_route_time} selected={selected_attention}t/{selected_total_time} choice={choice} basis=full-lifecycle-including-tool-construction"
+    );
     let bare_immediate_time =
         format_physical_duration(registries, bare_projection.duration().value());
     let adze_immediate_time =
         format_physical_duration(registries, immediate_adze_projection.duration().value());
     reviewln!(
-        "WOODWORKING EXPERIENCE seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={} demand=[immediate:{}mg queued:{}mg pipeline:{}mg boards] preference={} copper=[available:{}mg blade:{}mg protected-reserve:{}mg lifecycle-spend:{}mg after-saw:{}mg] routes=[adze:{}logs timber:{}mg attention:{}t/{adze_route_time} production:{}t maintenance:{}t/{}services final-condition:{}ppm; saw-assisted:min-saw-logs:{} fundable:{saw_fundable} setup-timber:{}mg actual=[saw:{} adze-fallback:{} fallback-copper:{} saw-services:{} adze-services:{}] timber:{}mg attention:{}t/{saw_route_time} attention-payback:{saw_attention_payback} net-timber-payback:{saw_net_timber_payback} counterfactual-vs-adze=[{saw_counterfactual_tradeoff}]] choice={choice} reason={reason} selected=[setup:{}t/{selected_setup_time} active:{}t/{selected_active_time} total:{}t/{selected_total_time} timber:{}mg project-timber:{}mg boards:{}mg surplus:{}mg chips:{}mg condition:{}ppm] selected-vs-adze=[attention:{:+}t/{attention_delta_time} timber:{:+}mg] immediate-baseline=[bare:{}t/{bare_immediate_time} adze:{}t/{adze_immediate_time}] matter=conserved",
+        "WOODWORKING EXPERIENCE seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={} demand=[immediate:{}mg queued:{}mg pipeline:{}mg boards] preference={} copper=[available:{}mg blade:{}mg protected-reserve:{}mg lifecycle-spend:{}mg after-saw:{}mg] routes=[adze:{}logs timber:{}mg attention:{}t/{adze_route_time} production:{}t maintenance:{}t/{}services final-condition:{}ppm; saw-assisted:min-saw-logs:{} fundable:{saw_fundable} setup-timber:{}mg actual=[saw:{} adze-fallback:{} fallback-copper:{} saw-services:{} adze-services:{}] timber:{}mg attention:{}t/{saw_route_time} attention-payback:{saw_attention_payback} net-timber-payback:{saw_net_timber_payback} counterfactual-vs-adze=[{saw_counterfactual_tradeoff}]] choice={choice} reason={reason} selected=[setup:{}t/{selected_setup_time} active:{}t/{selected_active_time} total:{}t/{selected_total_time} timber:{}mg project-timber:{}mg boards:{}mg surplus:{}mg chips:{}mg condition:{selected_condition}] selected-vs-adze=[attention:{:+}t/{attention_delta_time} timber:{:+}mg] immediate-baseline=[bare:{}t/{bare_immediate_time} adze:{}t/{adze_immediate_time}] matter=conserved",
         focused_probe_role_label(case.role()),
         immediate_board_demand.milligrams(),
         pipeline_board_demand
@@ -1066,7 +1187,7 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         adze_route.production_ticks,
         adze_route.maintenance_ticks,
         adze_route.maintenance_services,
-        adze_route.final_condition_ppm,
+        adze_route.final_condition_ppm.unwrap_or(0),
         saw_batches,
         saw_setup_timber,
         saw_actual_batches,
@@ -1084,7 +1205,6 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
         boards.milligrams(),
         board_surplus.milligrams(),
         chips.milligrams(),
-        selected_route.final_condition_ppm,
         attention_delta,
         timber_delta,
         bare_projection.duration().value(),

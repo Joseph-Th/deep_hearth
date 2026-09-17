@@ -1360,12 +1360,12 @@ class LocalCiPlanTests(unittest.TestCase):
             "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[attention-efficient:1 balanced-frontier:0 maximum-protection:2] reserve=6500000..50000000mg raw-opportunities:3 raw-material=[timber:2 stone:1] raw-mode=[choice-rich:1 scarce:1 alternate:1] candidates=1..5 physical-frontier=1..4 policy-reachable=1..2 capacity-or-material-singleton:1",
             "PROGRESSION DIVERSITY samples=2 local-copper=[pick-first:2 crank-counterfactual:2] hard-access-lead=478..478t",
             "LIBERATION DIVERSITY samples=2 varied-inputs=2 completed=2",
-            "WOODWORKING DIVERSITY samples=3 choice=[adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 attention-payback:2 net-timber-payback:1] lifecycle=[copper-fallback:1 saw-service:1] decision=[copper-blocked:1 reserve-protected:1 timber-horizon:0 attention-horizon:0 attention-invest:0 timber-invest:1]",
+            "WOODWORKING DIVERSITY samples=3 choice=[bare:0 adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 attention-payback:2 net-timber-payback:1] lifecycle=[copper-fallback:1 saw-service:1] decision=[bare-hands:0 copper-blocked:1 reserve-protected:1 timber-horizon:0 attention-horizon:0 attention-invest:0 timber-invest:1]",
             "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 observed-hardness=450000000..650000000Pa geology=[soft:1 quarry-upgrade:1 hard-pick:1] tool=[stone-quarry:1 reinforced-quarry:1 hard-pick:1] selection=[base:1 quarry-upgrade:1 hard-pick:1 batch-limit:1] retained-copper=20000..40000mg",
             "POWER DIVERSITY samples=2 charge-attention-reduction=333333..500000ppm build-mass=[crank:2200000..3300000mg treadle:5100000..6200000mg] break-even=67..200charges metabolic-lower-treadle:2",
             "PLAYER TAKEAWAY probe=primitive-progression pick-first=2/2 hard-access-lead=478..478t(~28.7m..28.7m) crank-autonomy-window=n/a stockpile-order=[complete:1 supply-ended:1] payback=not-established reinvestment=[available:1 blocked:1] read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge",
             "PLAYER TAKEAWAY probe=liberation completed=2/2 scavenger-extra=7000..8000mg share=100000..110000ppm-of-recovered-copper concentrate-awaits-smelting sink=none-ordinary",
-            "PLAYER TAKEAWAY probe=woodworking saw=1/3 adze=2/3 blocked-by-copper=1 reserve-protected=1 fundable=2 attention-payback=2 net-timber-payback=1 read=saw-needs-60g-blade-plus-reserve-discipline-short-pipelines-stay-adze",
+            "PLAYER TAKEAWAY probe=woodworking saw=1/3 adze=2/3 bare=0/3 blocked-by-copper=1 reserve-protected=1 fundable=2 attention-payback=2 net-timber-payback=1 read=compare-full-build-cost-short-jobs-can-skip-tools-long-jobs-price-copper-and-wear",
             "PLAYER TAKEAWAY probe=fieldwork inspections=1..3 tools=[soft-quarry:1 reinforced-quarry:1 hard-pick:1] read=transects-rank-inspections-filter-one-survey-prices-the-tool",
             "PLAYER TAKEAWAY probe=power-provider treadle-saves-charge-attention break-even=67..200-full-charges treadle-cheaper-metabolically=2/2 post-copper=copper-crank-150000000uW-vs-treadle-100000000uW-vs-stone-50000000uW treadle-keeps-metabolic-efficiency-edge read=heavier-frame-pays-back-over-dozens-of-charges-not-hundreds",
             "PLAYER TAKEAWAY probe=survival binds-thirst=2/3 binds-hunger=1/3 diet=[balanced:1 compact:2] preservation=[efficient:1 frontier:0 maximum:2] read=water-is-the-clock-food-breadth-buys-recovery-stronger-storage-can-lose-at-short-horizons",
@@ -1390,6 +1390,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "PROGRESSION EXPERIENCE ",
             "LIBERATION EXPERIENCE ",
             "WOODWORKING EXPERIENCE ",
+            "FIELDWORK PACING ",
             "FIELDWORK EXPERIENCE ",
         ):
             self.assertNotIn(noisy, concise)
@@ -1397,6 +1398,37 @@ class LocalCiPlanTests(unittest.TestCase):
             ci.concise_gameplay_report(output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}),
             output,
         )
+
+    def test_fieldwork_pacing_summary_preserves_complete_first_ore_cost(self) -> None:
+        line = (
+            "FIELDWORK PACING seed=0x1 search=216t/12.9m sampling-tool=70t/4.2m "
+            "extraction-tool=180t/10.8m extraction=3t/10.8s first-ore=469t/28.1m "
+            "output=458842mg"
+        )
+        summary = ci.concise_gameplay_report(line, {})
+        self.assertIn("measured=1/1 search=216..216t first-ore=469..469t extraction=3..3t", summary)
+        self.assertIn("output=458842..458842mg", summary)
+        self.assertEqual(ci.fieldwork_pacing_summary([]), [])
+        self.assertIn("insufficient-data", ci.fieldwork_pacing_summary(["FIELDWORK PACING malformed"])[0])
+        mixed = ci.fieldwork_pacing_summary([line, "FIELDWORK PACING malformed"])[0]
+        self.assertIn("measured=1/2", mixed)
+
+    def test_woodworking_baseline_reports_signed_full_lifecycle_savings(self) -> None:
+        lines = [
+            "WOODWORKING BASELINE seed=0xFA bare=150t/9.0m adze=167t/10.0m selected=150t/9.0m",
+            "WOODWORKING BASELINE seed=0x1 bare=2550t/153.0m adze=2459t/147.5m selected=869t/52.1m",
+        ]
+        summary = ci.concise_gameplay_report("\n".join(lines), {})
+        self.assertIn("measured=2/2 adze-saves=-17..91t selected-saves=0..1681t", summary)
+        self.assertEqual(ci.woodworking_baseline_summary([]), [])
+        self.assertIn("insufficient-data", ci.woodworking_baseline_summary(["WOODWORKING BASELINE malformed"])[0])
+
+    def test_woodworking_summary_does_not_lose_no_tool_choices(self) -> None:
+        summary = ci.concise_gameplay_report(
+            "WOODWORKING EXPERIENCE seed=0xFA choice=bare-hands reason=bare-hands-avoids-investment-cost", {}
+        )
+        self.assertIn("choice=[bare:1 adze:0 saw:0]", summary)
+        self.assertIn("saw=0/1 adze=0/1 bare=1/1", summary)
 
     def test_progression_buffer_summary_preserves_unoccupied_attention(self) -> None:
         line = (

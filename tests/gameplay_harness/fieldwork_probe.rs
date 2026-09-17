@@ -715,10 +715,13 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("fieldwork survival setup failed: {error}"));
 
+    let episode_started_at = state.tick();
     let (hammer, sampling_setup_ticks) =
         assemble_sampling_hammer(registries, &mut state, raw, parts);
+    let search_started_at = state.tick();
     let (target, observed_hardness, transects, field_inspections, detailed_surveys) =
         localize_target(registries, &mut state, hammer, channel_voxels);
+    let search_ticks = state.tick().value() - search_started_at.value();
     assert!(
         observed_hardness.lower() <= excavation_hardness
             && observed_hardness.upper() >= excavation_hardness,
@@ -899,6 +902,18 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
     let sampling_setup_time = format_physical_duration(registries, sampling_setup_ticks);
     let tool_prep_time = format_physical_duration(registries, tool_prep_ticks);
     let mining_time = format_physical_duration(registries, mining_ticks);
+    let total_ticks = state.tick().value() - episode_started_at.value();
+    assert_eq!(
+        total_ticks,
+        sampling_setup_ticks + search_ticks + tool_prep_ticks + mining_ticks,
+        "fieldwork pacing must account for every elapsed tick, not only extraction"
+    );
+    let search_time = format_physical_duration(registries, search_ticks);
+    let total_time = format_physical_duration(registries, total_ticks);
+    reviewln!(
+        "FIELDWORK PACING seed=0x{seed:016X} search={search_ticks}t/{search_time} sampling-tool={sampling_setup_ticks}t/{sampling_setup_time} extraction-tool={tool_prep_ticks}t/{tool_prep_time} extraction={mining_ticks}t/{mining_time} first-ore={total_ticks}t/{total_time} output={}mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true",
+        extracted_mass.milligrams(),
+    );
 
     reviewln!(
         "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={}ppm matter=conserved",
