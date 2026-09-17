@@ -415,6 +415,181 @@ def controlled_gameplay_summary(lines: list[str]) -> list[str]:
     return summaries
 
 
+def ticks_minutes(ticks: int) -> str:
+    """Render authoritative tick spans as game minutes (one tick is 3.6 seconds)."""
+
+    return f"{ticks * 3.6 / 60:.1f}m"
+
+
+def player_takeaways(lines: list[str]) -> list[str]:
+    """Add one plain-language read per ordinary probe on top of the terse diversity counts.
+
+    Every clause parses the same verbose episode lines the diversity summaries use, plus
+    the additive POWER COPPER-CONTEXT and LIBERATION FRONTIER diagnostics. Clauses degrade
+    gracefully when a marker is absent, so older transcripts still produce a takeaway.
+    """
+
+    takeaways: list[str] = []
+    progression = [line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")]
+    if progression:
+        hard_leads = [
+            int(match.group(1))
+            for line in progression
+            if (match := re.search(r"hard-access-lead:(\d+)t", line)) is not None
+        ]
+        autonomy_windows = [
+            int(match.group(1))
+            for line in progression
+            if (match := re.search(r"autonomous-output-window:(\d+)t", line)) is not None
+        ]
+        hard_span = f"{min(hard_leads)}..{max(hard_leads)}t" if hard_leads else "n/a"
+        hard_minutes = (
+            f"{ticks_minutes(min(hard_leads))}..{ticks_minutes(max(hard_leads))}"
+            if hard_leads
+            else "n/a"
+        )
+        autonomy_span = (
+            f"{min(autonomy_windows)}..{max(autonomy_windows)}t" if autonomy_windows else "n/a"
+        )
+        takeaways.append(
+            "PLAYER TAKEAWAY probe=primitive-progression "
+            f"pick-first={sum('local-copper-sequence=pick-first' in line for line in progression)}/{len(progression)} "
+            f"hard-access-lead={hard_span}(~{hard_minutes}) crank-autonomy-window={autonomy_span} "
+            f"setup=[repaid:{sum('economics:setup-repaid' in line for line in progression)} "
+            f"ended-early:{sum('economics:opportunity-ended-before-payback' in line for line in progression)}] "
+            f"reinvestment=[available:{sum('next-reinvestment=[available' in line for line in progression)} "
+            f"blocked:{sum('next-reinvestment=[blocked:known-target-supply]' in line for line in progression)}] "
+            "read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge"
+        )
+    liberation = [line for line in lines if line.startswith("LIBERATION EXPERIENCE ")]
+    frontier = [line for line in lines if line.startswith("LIBERATION FRONTIER ")]
+    if liberation or frontier:
+        extras_mg = [
+            int(match.group(1)) // 1_000_000
+            for line in liberation
+            if (match := re.search(r"additional-copper:(\d+)ppm-mg", line)) is not None
+        ]
+        extras_mg.extend(
+            int(match.group(1))
+            for line in frontier
+            if (match := re.search(r"extra-copper:(\d+)mg", line)) is not None
+        )
+        shares = [
+            int(match.group(1))
+            for line in frontier
+            if (match := re.search(r"share:(\d+)ppm-of-recovered-copper", line)) is not None
+        ]
+        scavenger = (
+            f"scavenger-extra={min(extras_mg)}..{max(extras_mg)}mg "
+            f"share={min(shares)}..{max(shares)}ppm-of-recovered-copper "
+            if extras_mg and shares
+            else (
+                f"scavenger-extra={min(extras_mg)}..{max(extras_mg)}mg "
+                if extras_mg
+                else "scavenger=n/a "
+            )
+        )
+        takeaways.append(
+            "PLAYER TAKEAWAY probe=liberation "
+            f"completed={sum('matter=conserved' in line for line in liberation)}/{len(liberation)} "
+            f"{scavenger}"
+            "concentrate-awaits-smelting sink=none-ordinary"
+        )
+    woodworking = [line for line in lines if line.startswith("WOODWORKING EXPERIENCE ")]
+    if woodworking:
+        count = lambda marker: sum(marker in line for line in woodworking)
+        takeaways.append(
+            "PLAYER TAKEAWAY probe=woodworking "
+            f"saw={count('choice=frame-saw')}/{len(woodworking)} adze={count('choice=stone-adze')}/{len(woodworking)} "
+            f"blocked-by-copper={count('reason=copper-supply-limited')} "
+            f"reserve-protected={count('reason=copper-reserve-protected')} "
+            f"fundable={count(' fundable:true ')} "
+            f"attention-payback={count('attention-payback:true')} "
+            f"net-timber-payback={count('net-timber-payback:true')} "
+            "read=saw-needs-60g-blade-plus-reserve-discipline-short-pipelines-stay-adze"
+        )
+    fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
+    if fieldwork:
+        count = lambda marker: sum(marker in line for line in fieldwork)
+        inspections = [
+            int(match.group(1))
+            for line in fieldwork
+            if (match := re.search(r"\bfield-inspections=(\d+)", line)) is not None
+        ]
+        takeaways.append(
+            "PLAYER TAKEAWAY probe=fieldwork "
+            f"inspections={min(inspections)}..{max(inspections)} "
+            f"tools=[soft-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} "
+            f"hard-pick:{count('tool=copper-reinforced-hard-pick')}] "
+            "read=transects-rank-inspections-filter-one-survey-prices-the-tool"
+            if inspections
+            else "PLAYER TAKEAWAY probe=fieldwork inspections=n/a"
+        )
+    power = [line for line in lines if line.startswith("POWER PROVIDER EXPERIENCE ")]
+    copper_context = [line for line in lines if line.startswith("POWER COPPER-CONTEXT ")]
+    if power or copper_context:
+        break_evens = [
+            int(match.group(1))
+            for line in power
+            if (match := re.search(r"break-even-charges:(\d+)", line)) is not None
+        ]
+        metabolic_wins = 0
+        for line in power:
+            crank_cost = re.search(r"metabolic-crank:(\d+)nJ", line)
+            treadle_cost = re.search(r"metabolic-treadle:(\d+)nJ", line)
+            if (
+                crank_cost is not None
+                and treadle_cost is not None
+                and int(treadle_cost.group(1)) < int(crank_cost.group(1))
+            ):
+                metabolic_wins += 1
+        copper_clause = ""
+        if copper_context:
+            powers = [
+                (
+                    int(match.group(1)),
+                    int(match.group(2)),
+                    int(match.group(3)),
+                )
+                for line in copper_context
+                if (
+                    match := re.search(
+                        r"stone-crank:(\d+)uW copper-crank:(\d+)uW treadle:(\d+)uW", line
+                    )
+                )
+                is not None
+            ]
+            if powers:
+                stone, copper, treadle = powers[0]
+                copper_clause = (
+                    f"post-copper=copper-crank-{copper}uW-vs-treadle-{treadle}uW-vs-stone-{stone}uW "
+                    "treadle-keeps-metabolic-efficiency-edge "
+                )
+        takeaways.append(
+            "PLAYER TAKEAWAY probe=power-provider "
+            f"treadle-saves-charge-attention break-even={min(break_evens)}..{max(break_evens)}-full-charges "
+            f"treadle-cheaper-metabolically={metabolic_wins}/{len(power)} "
+            f"{copper_clause}"
+            "read=heavier-frame-pays-back-over-dozens-of-charges-not-hundreds"
+            if break_evens
+            else "PLAYER TAKEAWAY probe=power-provider break-even=n/a"
+        )
+    survival = [line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")]
+    if survival:
+        count = lambda marker: sum(marker in line for line in survival)
+        takeaways.append(
+            "PLAYER TAKEAWAY probe=survival "
+            f"binds-thirst={count('pressure=hydration')}/{len(survival)} "
+            f"binds-hunger={count('pressure=energy')}/{len(survival)} "
+            f"diet=[balanced:{count('diet:balanced-recovery')} compact:{count('diet:compact-calories')}] "
+            f"preservation=[efficient:{count('storage-policy:attention-efficient')} "
+            f"frontier:{count('storage-policy:balanced-frontier')} "
+            f"maximum:{count('storage-policy:maximum-protection')}] "
+            "read=water-is-the-clock-food-breadth-buys-recovery-stronger-storage-can-lose-at-short-horizons"
+        )
+    return takeaways
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
     """Keep aggregate player/capability evidence; verbose retains the per-case transcript."""
 
@@ -432,6 +607,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         or line.startswith("EVALUATION SCOPE kind=controlled-capability ")
     ]
     selected.extend(ordinary_gameplay_diversity(lines))
+    selected.extend(player_takeaways(lines))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)
 

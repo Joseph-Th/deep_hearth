@@ -9,17 +9,19 @@
 //! crank stays catalog context: it needs mined native copper, so it cannot join this copper-free
 //! comparison.
 
+use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
     ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE, ENERGY_TIMBER_FLYWHEEL_DRIVE,
-    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_LOG, FORM_LUMP,
-    MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK, MATERIAL_STONE, MATERIAL_WOOD,
+    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_LOG, FORM_LUMP, MANUAL_POWER_FOOT_TREADLE,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId, validate_assemble_energy_store};
-use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
+use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{ManualPowerMethodId, ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
@@ -161,6 +163,37 @@ struct ChargeOutcome {
     metabolic_nj: u128,
     hydration_ul: u128,
     condition_after_ppm: u32,
+}
+
+fn provider_power_microwatts(
+    registries: &Registries,
+    method: ManualPowerMethodId,
+    equipment: EquipmentDefinitionId,
+    context: &'static str,
+) -> u128 {
+    let definition = registries
+        .labor()
+        .get_manual_power(method)
+        .unwrap_or_else(|| panic!("power provider {context} lost its manual-power method"));
+    let record = registries
+        .equipment()
+        .get_equipment(equipment)
+        .unwrap_or_else(|| {
+            panic!(
+                "power provider {context} equipment {} disappeared",
+                equipment.value()
+            )
+        });
+    let CapabilityValue::Power(power) = record
+        .capabilities()
+        .get_capability(definition.power_capability())
+        .unwrap_or_else(|| panic!("power provider {context} lost its provider-power capability"))
+    else {
+        panic!("power provider {context} provider-power capability changed physical kind")
+    };
+    power
+        .whole_microwatts()
+        .unwrap_or_else(|| panic!("power provider {context} provider power is sub-microwatt"))
 }
 
 fn charge_to_full(
@@ -406,5 +439,49 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         treadle_charge.attention_ticks,
         charge_saving_per_job_ticks,
         break_even_charges,
+    );
+    // Post-copper catalog context without disturbing the copper-free matched comparison above.
+    // The reinforced crank needs mined native copper, so it cannot join the copper-free arms;
+    // these canonical registry reads plus the observed copper-free charges frame the later
+    // speed-versus-efficiency choice instead of leaving the best provider invisible.
+    let crank_method = registries
+        .labor()
+        .get_manual_power(MANUAL_POWER_HAND_CRANK)
+        .unwrap_or_else(|| panic!("power provider copper context lost the crank method"));
+    let treadle_method = registries
+        .labor()
+        .get_manual_power(MANUAL_POWER_FOOT_TREADLE)
+        .unwrap_or_else(|| panic!("power provider copper context lost the treadle method"));
+    let stone_crank_power_uw = provider_power_microwatts(
+        registries,
+        MANUAL_POWER_HAND_CRANK,
+        EQUIPMENT_STONE_HAND_CRANK,
+        "copper-context stone crank",
+    );
+    let copper_crank_power_uw = provider_power_microwatts(
+        registries,
+        MANUAL_POWER_HAND_CRANK,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        "copper-context reinforced crank",
+    );
+    let treadle_power_uw = provider_power_microwatts(
+        registries,
+        MANUAL_POWER_FOOT_TREADLE,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        "copper-context treadle",
+    );
+    reviewln!(
+        "POWER COPPER-CONTEXT seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] provider-power=[stone-crank:{}uW copper-crank:{}uW treadle:{}uW] labor=[crank-efficiency:{}ppm wear:{}ppm/t treadle-efficiency:{}ppm wear:{}ppm/t] observed=[crank-charge:{}t treadle-charge:{}t] catalog-note=copper-crank-needs-mined-native-copper-not-in-copper-free-start reachability-authority=STATUS.md",
+        focused_probe_role_label(case.role()),
+        capacity_nj,
+        stone_crank_power_uw,
+        copper_crank_power_uw,
+        treadle_power_uw,
+        crank_method.metabolic_efficiency_ppm(),
+        crank_method.condition_wear_ppm_per_active_tick(),
+        treadle_method.metabolic_efficiency_ppm(),
+        treadle_method.condition_wear_ppm_per_active_tick(),
+        crank_charge.attention_ticks,
+        treadle_charge.attention_ticks,
     );
 }

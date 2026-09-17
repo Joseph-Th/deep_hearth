@@ -287,4 +287,31 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         scavenged.exhausted_tailings_mass.milligrams(),
         final_energy.nanojoules(),
     );
+    // The concentrate stockpile has no ordinary sink yet: reduction/smelting into pure metal is
+    // still the STATUS.md frontier, so the scavenger leg reads as future-proofing rather than
+    // immediate copper. Report its share of recovered copper alongside that boundary.
+    let recovered_copper_ppm_mg = primary
+        .concentrate_copper_ppm_mg
+        .checked_add(scavenged.additional_recovered_copper_ppm_mg)
+        .unwrap_or_else(|| panic!("primitive liberation recovered-copper audit overflowed"));
+    let scavenger_share_ppm = if recovered_copper_ppm_mg == 0 {
+        0
+    } else {
+        (scavenged
+            .additional_recovered_copper_ppm_mg
+            .checked_mul(1_000_000)
+            .unwrap_or_else(|| panic!("primitive liberation scavenger-share audit overflowed"))
+            / recovered_copper_ppm_mg)
+            .min(1_000_000)
+    };
+    reviewln!(
+        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
+        focused_probe_role_label(case.role()),
+        batch_mass.milligrams(),
+        copper_ppm,
+        scavenged.concentrate_mass.milligrams(),
+        scavenged.concentrate_grade_ppm,
+        scavenged.additional_recovered_copper_ppm_mg / 1_000_000,
+        scavenger_share_ppm,
+    );
 }
