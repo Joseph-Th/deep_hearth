@@ -76,7 +76,8 @@ use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
-const POST_PAYBACK_OBSERVATION_CYCLES: u64 = 2;
+// A finite stockpiling work order, independent of measured overlap or hidden reserve.
+const STOCKPILE_WORK_ORDER_CYCLES: u64 = 12;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
 pub(super) const SHALLOW_OPPORTUNITY_MIN_BATCHES: u64 = 6;
 pub(super) const SHALLOW_OPPORTUNITY_MAX_BATCHES: u64 = 40;
@@ -114,8 +115,8 @@ fn autonomous_target_resolution_stop(error: MiningTargetResolutionError) -> Auto
     }
 }
 
-pub(super) fn ore_opportunity(seed: u64, maintained_payback_required: bool) -> OreOpportunity {
-    if maintained_payback_required {
+pub(super) fn ore_opportunity(seed: u64, maintained_reinvestment_required: bool) -> OreOpportunity {
+    if maintained_reinvestment_required {
         return OreOpportunity {
             batch_budget: DEEP_OPPORTUNITY_MAX_BATCHES,
         };
@@ -196,6 +197,7 @@ fn regional_zone_for_clue(region: VoxelBounds, zones: &[VoxelBounds]) -> usize {
 enum AutonomousWorkStop {
     #[default]
     MachineCompleted,
+    FeedBufferReady,
     FeedBufferCapacity,
     TargetSupply,
     ToolCondition,
@@ -205,6 +207,7 @@ impl AutonomousWorkStop {
     const fn label(self) -> &'static str {
         match self {
             Self::MachineCompleted => "machine-completed",
+            Self::FeedBufferReady => "policy-feed-buffer-ready",
             Self::FeedBufferCapacity => "feed-buffer-capacity",
             Self::TargetSupply => "target-supply",
             Self::ToolCondition => "tool-condition",
@@ -1107,7 +1110,7 @@ struct PrimitiveProgressionExperience {
     processing_line_preparation_ticks: u64,
     processing_line_preparation_metabolic_cost_nj: u128,
     processing_line_preparation_hydration_cost_ul: u64,
-    productive_payback_cycles: Option<u64>,
+    overlap_setup_equivalent_cycles: Option<u64>,
     steady_state_cycles: u64,
     steady_state_stop: PrimitiveSteadyStop,
     final_crusher_condition_ppm: u32,
@@ -1798,7 +1801,7 @@ fn fill_primitive_accumulator(
 pub(super) enum PrimitiveSteadyStop {
     #[default]
     CycleLimit,
-    ProductivePaybackObserved,
+    StockpileOrderComplete,
     TargetSupply,
     ToolCondition,
     CrusherCondition,
@@ -1809,7 +1812,7 @@ impl PrimitiveSteadyStop {
     const fn label(self) -> &'static str {
         match self {
             Self::CycleLimit => "probe-cycle-limit",
-            Self::ProductivePaybackObserved => "productive-payback-observed",
+            Self::StockpileOrderComplete => "stockpile-order-complete",
             Self::TargetSupply => "known-target-supply",
             Self::ToolCondition => "player-tool-condition-lifetime",
             Self::CrusherCondition => "crusher-condition-lifetime",
@@ -1821,7 +1824,7 @@ impl PrimitiveSteadyStop {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct SteadyStateWork {
     cycles: u64,
-    productive_payback_cycle: Option<u64>,
+    overlap_setup_equivalent_cycle: Option<u64>,
     charge_ticks: u64,
     machine_ticks: u64,
     useful_overlap_ticks: u64,
@@ -1855,7 +1858,7 @@ fn run_steady_state_crushing(
         required_productive_ticks,
     } = plan;
     let mut totals = SteadyStateWork::default();
-    let mut productive_payback_cycle = None;
+    let mut overlap_setup_equivalent_cycle = None;
     for cycle in 1..=MAX_STEADY_STATE_CRUSH_CYCLES {
         let charge_ticks =
             match fill_primitive_accumulator(registries, state, machine, machine.required_energy) {
@@ -1920,16 +1923,19 @@ fn run_steady_state_crushing(
             .mining_jobs
             .checked_add(work.mining_jobs)
             .unwrap_or_else(|| panic!("primitive steady-state mining-job count overflowed"));
-        if work.autonomous_stop == AutonomousWorkStop::FeedBufferCapacity {
+        if matches!(
+            work.autonomous_stop,
+            AutonomousWorkStop::FeedBufferReady | AutonomousWorkStop::FeedBufferCapacity
+        ) {
             totals.feed_buffer_limited_cycles = totals
                 .feed_buffer_limited_cycles
                 .checked_add(1)
                 .unwrap_or_else(|| panic!("primitive steady-state buffer-limit count overflowed"));
         }
-        if productive_payback_cycle.is_none()
+        if overlap_setup_equivalent_cycle.is_none()
             && totals.useful_overlap_ticks >= required_productive_ticks
         {
-            productive_payback_cycle = Some(cycle);
+            overlap_setup_equivalent_cycle = Some(cycle);
         }
         if work.mining_jobs == 0 {
             match work.autonomous_stop {
@@ -1941,17 +1947,17 @@ fn run_steady_state_crushing(
                     totals.stop = PrimitiveSteadyStop::ToolCondition;
                     break;
                 }
-                AutonomousWorkStop::MachineCompleted | AutonomousWorkStop::FeedBufferCapacity => {}
+                AutonomousWorkStop::MachineCompleted
+                | AutonomousWorkStop::FeedBufferReady
+                | AutonomousWorkStop::FeedBufferCapacity => {}
             }
         }
-        if productive_payback_cycle.is_some_and(|payback_cycle| {
-            cycle >= payback_cycle.saturating_add(POST_PAYBACK_OBSERVATION_CYCLES)
-        }) {
-            totals.stop = PrimitiveSteadyStop::ProductivePaybackObserved;
+        if cycle >= STOCKPILE_WORK_ORDER_CYCLES {
+            totals.stop = PrimitiveSteadyStop::StockpileOrderComplete;
             break;
         }
     }
-    totals.productive_payback_cycle = productive_payback_cycle;
+    totals.overlap_setup_equivalent_cycle = overlap_setup_equivalent_cycle;
     totals.terminal_crusher_condition_ppm = state
         .equipment()
         .get_equipment(machine.crusher)
@@ -2340,6 +2346,21 @@ fn crush_while_mining(
             .unwrap_or_else(|| {
                 panic!("primitive crusher completion fell behind authoritative time")
             });
+        // Keep two upcoming batches on hand, not a stockpile sized to occupy every
+        // idle tick. This is actor inventory policy, not a production capacity rule.
+        let feed_buffer = multiply_mass(
+            concurrent.mass.max(crush_mass).max(machine.reserve_mass),
+            2,
+            "concurrent feed buffer",
+        );
+        let stored_feed = state
+            .inventory()
+            .get_stockpile(concurrent.destination)
+            .unwrap_or_else(|| panic!("primitive concurrent feed storage disappeared"))
+            .stored_mass();
+        if stored_feed >= feed_buffer {
+            break AutonomousWorkStop::FeedBufferReady;
+        }
         let concurrent_target = match resolve_mining_target(state, concurrent.target) {
             Ok(target) => target,
             Err(error) => break autonomous_target_resolution_stop(error),

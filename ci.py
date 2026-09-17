@@ -243,7 +243,7 @@ def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
             f"local-copper=[pick-first:{count('local-copper-sequence=pick-first')} crank-counterfactual:{count('counterfactual=[crank-first-tradeoff')}] "
             f"hard-access-lead={hard_lead_span} "
             f"information=[surface-resolved:{count('information=surface-resolved')} deferred-refinement:{count('information=deferred-refinement')}] "
-            f"automation=[setup-repaid:{count('economics:setup-repaid')} opportunity-ended-before-payback:{count('economics:opportunity-ended-before-payback')}] "
+            f"automation=[stockpile-order-complete:{count('economics:finite-stockpile-order-complete')} supply-ended:{count('economics:supply-ended')}] payback=not-established "
             f"reinvestment=[available:{count('next-reinvestment=[available')} known-target-supply:{count('next-reinvestment=[blocked:known-target-supply]')}]"
         )
     if liberation:
@@ -455,8 +455,8 @@ def player_takeaways(lines: list[str]) -> list[str]:
             "PLAYER TAKEAWAY probe=primitive-progression "
             f"pick-first={sum('local-copper-sequence=pick-first' in line for line in progression)}/{len(progression)} "
             f"hard-access-lead={hard_span}(~{hard_minutes}) crank-autonomy-window={autonomy_span} "
-            f"setup=[repaid:{sum('economics:setup-repaid' in line for line in progression)} "
-            f"ended-early:{sum('economics:opportunity-ended-before-payback' in line for line in progression)}] "
+            f"stockpile-order=[complete:{sum('economics:finite-stockpile-order-complete' in line for line in progression)} "
+            f"supply-ended:{sum('economics:supply-ended' in line for line in progression)}] payback=not-established "
             f"reinvestment=[available:{sum('next-reinvestment=[available' in line for line in progression)} "
             f"blocked:{sum('next-reinvestment=[blocked:known-target-supply]' in line for line in progression)}] "
             "read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge"
@@ -590,6 +590,31 @@ def player_takeaways(lines: list[str]) -> list[str]:
     return takeaways
 
 
+def progression_buffer_summary(lines: list[str]) -> list[str]:
+    """Expose attention left available, rather than rewarding busywork utilization."""
+    buffers = [line for line in lines if line.startswith("PROGRESSION BUFFER ")]
+    if not buffers:
+        return []
+    rows = [
+        tuple(map(int, match.groups()))
+        for line in buffers
+        if (match := re.search(
+            r"steady:(\d+)jobs buffer-stops:(\d+)cycles\] machine=(\d+)t "
+            r"replenishment=(\d+)t available-attention=(\d+)t", line
+        )) is not None
+    ]
+    if not rows:
+        return ["PROGRESSION BUFFER SUMMARY measured=0 evidence=insufficient-data"]
+    span = lambda column: f"{min(row[column] for row in rows)}..{max(row[column] for row in rows)}"
+    return [
+        f"PROGRESSION BUFFER SUMMARY measured={len(rows)}/{len(buffers)} "
+        f"mining={span(0)}jobs buffer-stops={span(1)}cycles machine={span(2)}t "
+        f"replenishment={span(3)}t available-attention={span(4)}t "
+        "policy=two-upcoming-batches payback=not-established "
+        "read=stop-mining-when-feed-is-ready-available-attention-is-not-a-failure"
+    ]
+
+
 def liberation_cost_summary(lines: list[str]) -> list[str]:
     """Keep measured finite-job costs visible without dumping each matched branch."""
 
@@ -640,6 +665,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ]
     selected.extend(ordinary_gameplay_diversity(lines))
     selected.extend(player_takeaways(lines))
+    selected.extend(progression_buffer_summary(lines))
     selected.extend(liberation_cost_summary(lines))
     selected.extend(controlled_gameplay_summary(lines))
     return "\n".join(selected)

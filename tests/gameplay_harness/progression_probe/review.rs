@@ -74,7 +74,7 @@ pub(crate) struct PrimitiveProgressionReview {
     processing_line_preparation_ticks: u64,
     processing_line_preparation_metabolic_cost_nj: u128,
     processing_line_preparation_hydration_cost_ul: u64,
-    pub(crate) productive_payback_cycles: Option<u64>,
+    pub(crate) overlap_setup_equivalent_cycles: Option<u64>,
     pub(crate) steady_state_cycles: u64,
     pub(crate) steady_state_stop: PrimitiveSteadyStop,
     final_crusher_condition_ppm: u32,
@@ -89,7 +89,7 @@ pub(crate) struct PrimitiveProgressionReview {
     primary_mining_jobs: u64,
     reserve_mining_jobs: u64,
     steady_mining_jobs: u64,
-    steady_feed_buffer_limited_cycles: u64,
+    pub(crate) steady_feed_buffer_limited_cycles: u64,
     maintenance_material_preparation_ticks: u64,
     component_service_ticks: u64,
     component_service_mass_mg: u64,
@@ -144,28 +144,16 @@ fn manual_bridge_evidence_captured(review: &PrimitiveProgressionReview) -> bool 
         && review.manual_bridge_attention_ticks < review.processing_line_preparation_ticks
 }
 
-fn automation_maturity_captured(
-    review: &PrimitiveProgressionReview,
-    post_productive_payback_cycles: u64,
-    maintained_payback_required: bool,
-) -> bool {
-    if maintained_payback_required {
-        return review.productive_payback_cycles.is_some()
-            && post_productive_payback_cycles >= POST_PAYBACK_OBSERVATION_CYCLES;
-    }
-    match review.productive_payback_cycles {
-        Some(_) => true,
-        None => {
-            review.steady_state_cycles > 0
-                && matches!(
-                    review.steady_state_stop,
-                    PrimitiveSteadyStop::TargetSupply
-                        | PrimitiveSteadyStop::ToolCondition
-                        | PrimitiveSteadyStop::CrusherCondition
-                        | PrimitiveSteadyStop::CrankCondition
-                )
-        }
-    }
+fn automation_maturity_captured(review: &PrimitiveProgressionReview) -> bool {
+    review.steady_state_cycles > 0
+        && matches!(
+            review.steady_state_stop,
+            PrimitiveSteadyStop::StockpileOrderComplete
+                | PrimitiveSteadyStop::TargetSupply
+                | PrimitiveSteadyStop::ToolCondition
+                | PrimitiveSteadyStop::CrusherCondition
+                | PrimitiveSteadyStop::CrankCondition
+        )
 }
 
 fn investment_choice_captured(
@@ -358,9 +346,9 @@ fn relative_power_gain_ppm(base: Power, upgraded: Power) -> u32 {
         .unwrap_or_else(|_| panic!("primitive manual-power gain exceeds report range"))
 }
 
-fn productive_payback_label(review: &PrimitiveProgressionReview) -> String {
+fn overlap_setup_equivalent_label(review: &PrimitiveProgressionReview) -> String {
     review
-        .productive_payback_cycles
+        .overlap_setup_equivalent_cycles
         .map(|cycles| format!("{cycles}cycles"))
         .unwrap_or_else(|| {
             format!(
@@ -371,18 +359,14 @@ fn productive_payback_label(review: &PrimitiveProgressionReview) -> String {
 }
 
 fn automation_economics_label(review: &PrimitiveProgressionReview) -> &'static str {
-    if review.productive_payback_cycles.is_some() {
-        return "setup-repaid";
-    }
+    // Overlap measures scheduling, not avoided manual processing or downstream demand.
     match review.steady_state_stop {
-        PrimitiveSteadyStop::TargetSupply => "opportunity-ended-before-payback",
-        PrimitiveSteadyStop::ToolCondition => "tool-lifetime-ended-before-payback",
-        PrimitiveSteadyStop::CrusherCondition => "crusher-lifetime-ended-before-payback",
-        PrimitiveSteadyStop::CrankCondition => "crank-lifetime-ended-before-payback",
-        PrimitiveSteadyStop::CycleLimit => "observation-ended-before-payback",
-        PrimitiveSteadyStop::ProductivePaybackObserved => {
-            unreachable!("productive-payback stop requires a recorded payback cycle")
-        }
+        PrimitiveSteadyStop::TargetSupply => "supply-ended",
+        PrimitiveSteadyStop::ToolCondition => "tool-lifetime-ended",
+        PrimitiveSteadyStop::CrusherCondition => "crusher-lifetime-ended",
+        PrimitiveSteadyStop::CrankCondition => "crank-lifetime-ended",
+        PrimitiveSteadyStop::CycleLimit => "observation-ended",
+        PrimitiveSteadyStop::StockpileOrderComplete => "finite-stockpile-order-complete",
     }
 }
 
@@ -482,7 +466,7 @@ struct PrimitiveProgressionReportContext<'a> {
     seed: u64,
     sample: &'static str,
     manual_fallback: Option<ManualProcessingFallbackReview>,
-    maintained_payback_required: bool,
+    maintained_reinvestment_required: bool,
     extraction: &'a PrimitiveProgressionExperience,
     mechanization: &'a PrimitiveProgressionExperience,
     natural: &'a PrimitiveProgressionExperience,
@@ -510,11 +494,11 @@ pub(crate) fn evaluate_primitive_progression_probe(
             mix64(seed ^ 0x494E_464F_5F50_4154).is_multiple_of(2)
         }
     };
-    let maintained_payback_required = matches!(
+    let maintained_reinvestment_required = matches!(
         case.role(),
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
     );
-    let opportunity = ore_opportunity(seed, maintained_payback_required);
+    let opportunity = ore_opportunity(seed, maintained_reinvestment_required);
     let ore_opportunity_batch_budget = opportunity.batch_budget();
     let extraction = run_primitive_progression_case(
         registries,
@@ -613,13 +597,6 @@ pub(crate) fn evaluate_primitive_progression_probe(
         assert!(
             branch.steady_state_cycles <= MAX_STEADY_STATE_CRUSH_CYCLES,
             "primitive repeated-work horizon exceeded its bounded observation budget"
-        );
-    }
-    if maintained_payback_required {
-        assert!(
-            extraction.productive_payback_cycles.is_some()
-                && mechanization.productive_payback_cycles.is_some(),
-            "maintained primitive progression cases must retain a deep enough opportunity to demonstrate setup payback in both matched branches"
         );
     }
     assert_eq!(
@@ -849,7 +826,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
     let automation_preparation_ticks = natural.automation_preparation_ticks;
     let separator_preparation_ticks = natural.separator_preparation_ticks;
     let processing_line_preparation_ticks = natural.processing_line_preparation_ticks;
-    let productive_payback_cycles = natural.productive_payback_cycles;
+    let overlap_setup_equivalent_cycles = natural.overlap_setup_equivalent_cycles;
     assert!(
         natural.manual_bridge_attention_ticks < processing_line_preparation_ticks,
         "hand processing should remain the lower-attention immediate bridge while mechanization asks for a larger upfront investment"
@@ -955,7 +932,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
             .processing_line_preparation_metabolic_cost_nj,
         processing_line_preparation_hydration_cost_ul: natural
             .processing_line_preparation_hydration_cost_ul,
-        productive_payback_cycles,
+        overlap_setup_equivalent_cycles,
         steady_state_cycles: natural.steady_state_cycles,
         steady_state_stop: natural.steady_state_stop,
         final_crusher_condition_ppm: natural.final_crusher_condition_ppm,
@@ -995,7 +972,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
             seed,
             sample,
             manual_fallback,
-            maintained_payback_required,
+            maintained_reinvestment_required,
             extraction: &extraction,
             mechanization: &mechanization,
             natural: &natural,
@@ -1019,7 +996,7 @@ fn report_primitive_progression_review(
         seed,
         sample,
         manual_fallback,
-        maintained_payback_required,
+        maintained_reinvestment_required,
         extraction,
         mechanization,
         natural,
@@ -1054,7 +1031,7 @@ fn report_primitive_progression_review(
             extraction.direct_second_upgrade_blocked,
         );
         reviewln!(
-            "PROGRESSION AGENCY seed=0x{seed:016X} matched-world branches=[pick-first,crank-first-counterfactual] milestones=[machine-start:{}vs{}t first-output:{}vs{}t second-upgrade:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm episode-charge:{}vs{}t full-accumulator:stone:{}t reinforced:{}t reduction:{}ppm] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free:{}vs{}t] durability=[pick:{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t]",
+            "PROGRESSION AGENCY seed=0x{seed:016X} matched-world branches=[pick-first,crank-first-counterfactual] milestones=[machine-start:{}vs{}t first-output:{}vs{}t second-upgrade:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm episode-charge:{}vs{}t full-accumulator:stone:{}t reinforced:{}t reduction:{}ppm] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t feed-replenishment-overlap:{}vs{}t reserve-replenishment:{}vs{}t player-free:{}vs{}t] durability=[pick:{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t]",
             extraction.machine_started_at,
             mechanization.machine_started_at,
             extraction.first_processed_output_at,
@@ -1091,26 +1068,22 @@ fn report_primitive_progression_review(
     }
     let choice_windows_are_consequential = review.extraction_hard_material_window_ticks > 0
         && review.mechanization_processed_output_window_ticks > 0;
-    let post_productive_payback_cycles = review
-        .productive_payback_cycles
+    let post_overlap_setup_equivalent_cycles = review
+        .overlap_setup_equivalent_cycles
         .and_then(|payback| review.steady_state_cycles.checked_sub(payback))
         .unwrap_or(0);
     let fantasy_captured = regional_information_captured(review)
         && information_path_captured(review)
         && investment_choice_captured(review, choice_windows_are_consequential)
         && manual_bridge_evidence_captured(review)
-        && automation_maturity_captured(
-            review,
-            post_productive_payback_cycles,
-            maintained_payback_required,
-        )
+        && automation_maturity_captured(review)
         && lifecycle_obligations_captured(review)
-        && reinvestment_captured(registries, review, maintained_payback_required);
+        && reinvestment_captured(registries, review, maintained_reinvestment_required);
     assert!(
         fantasy_captured,
         "primitive progression must turn uncertainty into a paid information choice, make an observation-grounded scarce-copper decision produce reciprocal physical leverage, demonstrate useful delegated work, and expose a legitimate post-work reinvestment opportunity or blocker"
     );
-    let productive_payback = productive_payback_label(review);
+    let overlap_setup_equivalent = overlap_setup_equivalent_label(review);
     let automation_economics = automation_economics_label(review);
     let physiology = registries.survival().physiology();
     let natural_energy_spent_ppm = u32::try_from(
@@ -1195,7 +1168,16 @@ fn report_primitive_progression_review(
     let reinvestment_summary = concise_reinvestment_summary(&review.reinvestment);
     report_maintained_manual_fallback(seed, manual_fallback);
     reviewln!(
-        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:{}t autonomous-output-window:{}t] portfolio-scope=pick-vs-crank-only pick-first=[pick:{}t hard-sample:{}t exclusive-hard-window:{}t/{}:{}mg machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t eventual-convergence:{:+}t] bridge-tradeoff=[manual-second:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; powered-line:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] manual-second-counterfactual=[pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} trade=[hard-info-lead-vs-crank-first:{}t automation-delay:+{}t]] post-upgrade-feed={} delegation=[productive:{}t utilization:{}ppm setup-recovery:{}ppm gap:{}t payback:{productive_payback} post-payback:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] next-reinvestment=[{reinvestment_summary}] obligations=[maintenance-material-prep:{}t maintenance-service:{}t survival:{}ppm/{}ppm]",
+        "PROGRESSION BUFFER seed=0x{seed:016X} policy=two-upcoming-batches work-order={}cycles mining=[steady:{}jobs buffer-stops:{}cycles] machine={}t replenishment={}t available-attention={}t payback=not-established outcome=stockpile-not-final-demand",
+        STOCKPILE_WORK_ORDER_CYCLES,
+        review.steady_mining_jobs,
+        review.steady_feed_buffer_limited_cycles,
+        review.machine_work_ticks,
+        natural.machine_useful_overlap_ticks,
+        review.unfilled_autonomous_ticks,
+    );
+    reviewln!(
+        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:{}t autonomous-output-window:{}t] portfolio-scope=pick-vs-crank-only pick-first=[pick:{}t hard-sample:{}t exclusive-hard-window:{}t/{}:{}mg machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t eventual-convergence:{:+}t] bridge-tradeoff=[manual-second:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; powered-line:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] manual-second-counterfactual=[pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} trade=[hard-info-lead-vs-crank-first:{}t automation-delay:+{}t]] post-upgrade-feed={} delegation=[feed-replenishment:{}t utilization:{}ppm overlap/setup:{}ppm gap:{}t overlap-equivalent:{overlap_setup_equivalent} post-equivalent:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] next-reinvestment=[{reinvestment_summary}] obligations=[maintenance-material-prep:{}t maintenance-service:{}t survival:{}ppm/{}ppm]",
         if review.information_refinement_required {
             "deferred-refinement"
         } else {
@@ -1247,7 +1229,7 @@ fn report_primitive_progression_review(
         review.productive_autonomy_utilization_ppm,
         productive_setup_recovery_ppm,
         productive_setup_gap_ticks,
-        post_productive_payback_cycles,
+        post_overlap_setup_equivalent_cycles,
         review.steady_state_stop.label(),
         review.tool_attention_reduction_ppm,
         review.crank_power_gain_ppm,
@@ -1258,7 +1240,7 @@ fn report_primitive_progression_review(
     );
     let reinvestment_review = detailed_reinvestment_summary(&review.reinvestment);
     reviewln!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t hardness-sampling:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} deferred-refinement:{}t alternative-evidence:{}..{}ppm] local-copper=[policy:pick-first scope:pick-vs-crank-sequencing global-portfolio:not-claimed owned-bulk:{}ppm hard-evidence:{}..{}ppm counterfactual:crank-first] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[pick-feed:{} pick-grade:{}ppm crank-first-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} hard-access-lead:{}t hard-window:{}t/{}mg crank-output-window:{}t autonomy-lead:{}t eventual-convergence:{:+}t converged:{}] strategy-timing=[pick-first=[pick:{}t hard-sample:{}t machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t]] manual-second-counterfactual=[isolated:{}t pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} hard-info-lead-vs-crank-first:{}t automation-delay:+{}t manual-recovery:{}ppm powered-recovery:{}ppm] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm setup-recovery:{}ppm gap:{}t post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] next-reinvestment-counterfactual=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t service:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t hardness-sampling:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} deferred-refinement:{}t alternative-evidence:{}..{}ppm] local-copper=[policy:pick-first scope:pick-vs-crank-sequencing global-portfolio:not-claimed owned-bulk:{}ppm hard-evidence:{}..{}ppm counterfactual:crank-first] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[pick-feed:{} pick-grade:{}ppm crank-first-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} hard-access-lead:{}t hard-window:{}t/{}mg crank-output-window:{}t autonomy-lead:{}t eventual-convergence:{:+}t converged:{}] strategy-timing=[pick-first=[pick:{}t hard-sample:{}t machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t]] manual-second-counterfactual=[isolated:{}t pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} hard-info-lead-vs-crank-first:{}t automation-delay:+{}t manual-recovery:{}ppm powered-recovery:{}ppm] autonomy=[feed-replenishment-overlap:{}t unfilled:{}t utilization:{}ppm overlap/setup:{}ppm gap:{}t post-convergence-target:{} feed-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] overlap-setup-equivalent:{overlap_setup_equivalent} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] next-reinvestment-counterfactual=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t service:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
         } else {
@@ -1339,7 +1321,7 @@ fn report_primitive_progression_review(
         review.steady_mining_jobs,
         review.steady_feed_buffer_limited_cycles,
         review.steady_state_cycles,
-        post_productive_payback_cycles,
+        post_overlap_setup_equivalent_cycles,
         review.steady_state_cycles,
         MAX_STEADY_STATE_CRUSH_CYCLES,
         review.steady_state_stop.label(),
@@ -1386,11 +1368,11 @@ fn report_primitive_progression_review(
             mechanization.hard_ore_mined.milligrams(),
         );
         reviewln!(
-            "PROGRESSION AUTONOMY seed=0x{seed:016X} setup=[automation:{}t separator:{}t line:{}t] productive-setup-equivalent=[{productive_payback} post-equivalent:{}cycles observational-not-required:true] delegated-work=[machine:{}t productive-overlap:{}t reserve-overlap:{}t unfilled:{}t utilization:{}ppm primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[unfilled:{:+}t elapsed:{:+}t]",
+            "PROGRESSION AUTONOMY seed=0x{seed:016X} setup=[automation:{}t separator:{}t line:{}t] overlap-setup-equivalent=[{overlap_setup_equivalent} post-equivalent:{}cycles economic-payback:not-established] delegated-work=[machine:{}t feed-replenishment-overlap:{}t reserve-overlap:{}t unfilled:{}t utilization:{}ppm primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[unfilled:{:+}t elapsed:{:+}t]",
             review.automation_preparation_ticks,
             review.separator_preparation_ticks,
             review.processing_line_preparation_ticks,
-            post_productive_payback_cycles,
+            post_overlap_setup_equivalent_cycles,
             review.machine_work_ticks,
             review.mechanization_useful_overlap_ticks,
             review.reserve_useful_overlap_ticks,

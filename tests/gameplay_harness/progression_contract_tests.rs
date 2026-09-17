@@ -269,7 +269,24 @@ fn primitive_recovery_and_reinforcement_routes_remain_connected() {
 }
 
 #[test]
-fn shallow_opportunity_stops_cleanly() {
+fn autonomous_crushing_does_not_fill_idle_time_with_unbounded_feed_mining() {
+    let registries = build_registries();
+    let review = evaluate_primitive_progression_probe(
+        &registries,
+        FocusedProbeCase::new(0xD33F_C01D_5052, None, FocusedProbeRole::MaintainedAnchor),
+    );
+    assert!(
+        review.steady_feed_buffer_limited_cycles > 0,
+        "the actor must stop replenishing a two-batch feed buffer instead of mining solely to occupy machine time"
+    );
+    assert_eq!(
+        review.overlap_setup_equivalent_cycles, None,
+        "bounded feed replenishment must not masquerade as economic setup payback"
+    );
+}
+
+#[test]
+fn bounded_stockpiling_preserves_shallow_supply_until_reinvestment() {
     let registries = build_registries();
     let case = FocusedProbeCase::new(
         11,
@@ -281,12 +298,15 @@ fn shallow_opportunity_stops_cleanly() {
         "shallow-opportunity regression seed no longer exercises the intended narrow geological reserve"
     );
     let review = evaluate_primitive_progression_probe(&registries, case);
-    assert_eq!(review.productive_payback_cycles, None);
+    assert_eq!(review.overlap_setup_equivalent_cycles, None);
     assert!(
         review.steady_state_cycles > 0,
-        "shallow opportunity should permit some useful machinery before local supply ends"
+        "shallow opportunity should support the bounded stockpiling order before the later reinvestment exhausts it"
     );
-    assert_eq!(review.steady_state_stop, PrimitiveSteadyStop::TargetSupply);
+    assert_eq!(
+        review.steady_state_stop,
+        PrimitiveSteadyStop::StockpileOrderComplete
+    );
     assert_eq!(
         review.reinvestment,
         PrimitiveReinvestmentOutcome::TargetSupplyLimited
@@ -350,7 +370,7 @@ fn progression_generators_cover_distinct_search_and_economic_pressures() {
     );
     assert!(
         ore_opportunity(1, true).batch_budget() >= DEEP_OPPORTUNITY_MIN_BATCHES,
-        "maintained progression must keep a deep automation-payback opportunity"
+        "maintained progression must keep a deep reinvestment opportunity"
     );
 
     let registries = build_registries();

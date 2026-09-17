@@ -1324,10 +1324,10 @@ class LocalCiPlanTests(unittest.TestCase):
                 "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
                 "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
                 "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
-                "PROGRESSION EXPERIENCE seed=0x0000000000000001 sample=anchor information=deferred-refinement local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] next-reinvestment=[available] economics:setup-repaid",
+                "PROGRESSION EXPERIENCE seed=0x0000000000000001 sample=anchor information=deferred-refinement local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] next-reinvestment=[available] economics:finite-stockpile-order-complete",
                 "LIBERATION EXPERIENCE seed=0x0000000000000001 sample=anchor input=[100000mg 400000ppm-Cu] concentrate=[first:50000mg/700000ppm final:60000mg/680000ppm additional-copper:7000000000ppm-mg] matter=conserved",
                 "LIBERATION FRONTIER seed=0x0000000000000001 sample=anchor input=[100000mg 400000ppm-Cu] concentrate=[final:60000mg/680000ppm] scavenger=[extra-copper:7000mg share:100000ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
-                "PROGRESSION EXPERIENCE seed=0x00000000000000AA sample=organic information=surface-resolved local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:opportunity-ended-before-payback",
+                "PROGRESSION EXPERIENCE seed=0x00000000000000AA sample=organic information=surface-resolved local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] next-reinvestment=[blocked:known-target-supply] economics:supply-ended",
                 "LIBERATION EXPERIENCE seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] concentrate=[first:55000mg/720000ppm final:66000mg/700000ppm additional-copper:8000000000ppm-mg] matter=conserved",
                 "LIBERATION FRONTIER seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] concentrate=[final:66000mg/700000ppm] scavenger=[extra-copper:8000mg share:110000ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
                 "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
@@ -1363,7 +1363,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "WOODWORKING DIVERSITY samples=3 choice=[adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 attention-payback:2 net-timber-payback:1] lifecycle=[copper-fallback:1 saw-service:1] decision=[copper-blocked:1 reserve-protected:1 timber-horizon:0 attention-horizon:0 attention-invest:0 timber-invest:1]",
             "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 observed-hardness=450000000..650000000Pa geology=[soft:1 quarry-upgrade:1 hard-pick:1] tool=[stone-quarry:1 reinforced-quarry:1 hard-pick:1] selection=[base:1 quarry-upgrade:1 hard-pick:1 batch-limit:1] retained-copper=20000..40000mg",
             "POWER DIVERSITY samples=2 charge-attention-reduction=333333..500000ppm build-mass=[crank:2200000..3300000mg treadle:5100000..6200000mg] break-even=67..200charges metabolic-lower-treadle:2",
-            "PLAYER TAKEAWAY probe=primitive-progression pick-first=2/2 hard-access-lead=478..478t(~28.7m..28.7m) crank-autonomy-window=n/a setup=[repaid:1 ended-early:1] reinvestment=[available:1 blocked:1] read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge",
+            "PLAYER TAKEAWAY probe=primitive-progression pick-first=2/2 hard-access-lead=478..478t(~28.7m..28.7m) crank-autonomy-window=n/a stockpile-order=[complete:1 supply-ended:1] payback=not-established reinvestment=[available:1 blocked:1] read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge",
             "PLAYER TAKEAWAY probe=liberation completed=2/2 scavenger-extra=7000..8000mg share=100000..110000ppm-of-recovered-copper concentrate-awaits-smelting sink=none-ordinary",
             "PLAYER TAKEAWAY probe=woodworking saw=1/3 adze=2/3 blocked-by-copper=1 reserve-protected=1 fundable=2 attention-payback=2 net-timber-payback=1 read=saw-needs-60g-blade-plus-reserve-discipline-short-pipelines-stay-adze",
             "PLAYER TAKEAWAY probe=fieldwork inspections=1..3 tools=[soft-quarry:1 reinforced-quarry:1 hard-pick:1] read=transects-rank-inspections-filter-one-survey-prices-the-tool",
@@ -1397,6 +1397,19 @@ class LocalCiPlanTests(unittest.TestCase):
             ci.concise_gameplay_report(output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}),
             output,
         )
+
+    def test_progression_buffer_summary_preserves_unoccupied_attention(self) -> None:
+        line = (
+            "PROGRESSION BUFFER seed=0x1 policy=two-upcoming-batches work-order=12cycles "
+            "mining=[steady:12jobs buffer-stops:12cycles] machine=400t "
+            "replenishment=30t available-attention=370t payback=not-established"
+        )
+        summary = ci.concise_gameplay_report(line, {})
+        self.assertIn("mining=12..12jobs", summary)
+        self.assertIn("available-attention=370..370t", summary)
+        self.assertIn("payback=not-established", summary)
+        self.assertEqual(ci.progression_buffer_summary([]), [])
+        self.assertIn("insufficient-data", ci.progression_buffer_summary(["PROGRESSION BUFFER malformed"])[0])
 
     def test_liberation_cost_summary_preserves_reserves_and_signed_costs(self) -> None:
         lines = [

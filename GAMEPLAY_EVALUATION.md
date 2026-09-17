@@ -297,11 +297,17 @@ comparison "the first copper choice." If future content or tuning makes the matc
 reciprocal, the harness may promote that local counterfactual back into actor policy only after the executed
 comparison demonstrates the change.
 
-Primitive automation coverage distinguishes capability from economics. Maintained progression worlds carry a
-deep deterministic geological opportunity and must demonstrate setup-attention payback plus continued useful
-work. Organic worlds vary between shallow and deep finite opportunities independently of the machinery's repeat
-limit. A machine that performs useful canonical work but reaches known target exhaustion before setup payback is
-a valid gameplay outcome, not a harness failure. The actor may discover that an investment was premature because
+Primitive automation coverage distinguishes scheduling from economics. The actor replenishes a two-upcoming-batch
+feed buffer, then leaves attention available instead of mining solely to fill the machine's runtime. The buffer
+uses the largest declared primary, reserve, or mining batch and may overshoot by one indivisible extraction;
+`policy-feed-buffer-ready` is distinct from a production capacity rejection. The steady stockpiling work order is
+12 cycles, bounded independently of measured overlap and hidden reserve. Maintained deep worlds must execute
+later reinvestment; organic worlds may finish the stockpiling order or stop on observed supply/condition limits.
+Replenishment overlap equal to setup time is only a scheduling equivalence, **not economic payback**: the episode
+does not compare avoided hand-processing costs or demonstrate downstream demand for every stockpiled output.
+Available attention, mining-job counts, and buffer stops must remain visible in reporting. No gate requires the
+actor to manufacture busywork to make an investment appear profitable. The actor may discover that an investment
+was premature because
 the available evidence does not expose hidden total deposit mass; hidden reserve truth must not become policy
 input merely to make the investment look optimal in hindsight. Mining validation therefore must not reject an
 otherwise feasible request merely because hidden remaining reserve is smaller. The actor learns shortage only
@@ -310,12 +316,17 @@ evidence can no longer resolve an extractable target. The mature reinvestment co
 resolved only from the post-delegation, post-service state the actor actually reaches. Maintained deep worlds must
 still execute that branch, while an organic branch that has canonically exhausted its known target reports
 `known-target-supply` rather than receiving fixture ore or advertising an opportunity that later experience has
-erased. Progression reporting records replacement-component preparation and the authored maintenance service interval
+erased. Residual-work planning is refreshed after acquiring missing feed, because that mining advances time and
+consumes flywheel energy through passive drag; a pre-mining feasible envelope is not current authorization.
+Progression reporting records replacement-component preparation and the authored maintenance service interval
 separately. Service occupies exclusive player work, consumes survival reserves through ordinary tick advancement,
 and restores equipment condition only at its scheduled completion; missing world-space tool/access mechanics in
 `STATUS.md` must not be described as missing maintenance labor.
 
-Actor policy reads these values from production registries and state. The prose above owns required coverage,
+Actor policy reads these values from production registries and state. Mechanized work reports scheduling facts
+(feed-replenishment overlap, available attention, buffer stops) and explicitly labels economic payback
+not-established; no harness prose may restate an overlap threshold as an avoided-labor claim. The prose above owns
+required coverage,
 not a second copy of the formulas or selection thresholds used to make actor decisions.
 
 ## Counterfactual and replay discipline

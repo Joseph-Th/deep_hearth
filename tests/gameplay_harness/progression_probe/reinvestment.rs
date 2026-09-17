@@ -634,8 +634,6 @@ fn try_evaluate_mature_reinvestment(
             if drain_mass.is_zero() {
                 break;
             }
-            let drain_energy =
-                calculate_mass_specific_energy(drain_mass, crusher_process.specific_energy());
             require_reinvestment_ore(
                 registries,
                 &mut state,
@@ -645,6 +643,24 @@ fn try_evaluate_mature_reinvestment(
                 drain_mass,
                 "residual-work",
             )?;
+            // Acquiring feed advances time: flywheel drag makes the prior envelope stale.
+            let drain_mass = assess_powered_ore_mass_envelope(
+                registries,
+                &state,
+                PROCESS_CRUSH_ORE,
+                machine.crusher,
+                machine.drive,
+            )
+            .unwrap_or_else(|error| {
+                panic!("primitive reinvestment refreshed residual-work planning failed: {error}")
+            })
+            .maximum_mass()
+            .min(drain_mass);
+            if drain_mass.is_zero() {
+                break;
+            }
+            let drain_energy =
+                calculate_mass_specific_energy(drain_mass, crusher_process.specific_energy());
             run_uninterrupted_crush(
                 registries,
                 &mut state,
