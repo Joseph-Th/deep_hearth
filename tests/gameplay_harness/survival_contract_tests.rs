@@ -47,6 +47,106 @@ use super::survival_probe::{
 };
 
 #[test]
+fn survival_explanation_marks_physically_forced_preservation_without_zero_tradeoffs() {
+    use super::survival_probe::explanation::{
+        PreservationComparison, preservation_comparison_explanation,
+    };
+    let registries = build_registries();
+    let food = *registries.survival().foods().next().expect("authored food");
+    let stone_only = [(
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(3_000_000),
+    )];
+    let projections = project_preservation_candidates_with_raw_opportunity(
+        &registries,
+        1,
+        food,
+        Mass::from_milligrams(1),
+        Some(&stone_only),
+    );
+    assert_eq!(projections.len(), 1);
+    let comparison = PreservationComparison::from_candidates(
+        projections.len(),
+        projections[0].definition,
+        projections[0].definition,
+    );
+    assert_eq!(comparison, PreservationComparison::ForcedSingleton);
+    assert_eq!(
+        comparison.selection_label("attention-efficient"),
+        "physically-forced"
+    );
+    let explanation = preservation_comparison_explanation(comparison, || {
+        panic!("a singleton must not format a counterfactual against itself")
+    });
+    assert!(explanation.contains("choice:physically-forced"));
+    assert!(explanation.contains("comparison:not-applicable"));
+    assert!(!explanation.contains("stronger-tradeoff"));
+}
+
+#[test]
+fn survival_explanation_preserves_real_comparisons_and_distinguishes_shared_references() {
+    use super::survival_probe::explanation::{
+        PreservationComparison, diet_comparison_explanation, preservation_comparison_explanation,
+    };
+    let comparison = PreservationComparison::from_candidates(
+        2,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+    );
+    assert_eq!(comparison, PreservationComparison::DistinctReferences);
+    assert_eq!(
+        comparison.selection_label("maximum-protection"),
+        "maximum-protection"
+    );
+    assert_eq!(
+        preservation_comparison_explanation(comparison, || "measured tradeoff".into()),
+        "measured tradeoff"
+    );
+    assert_eq!(
+        diet_comparison_explanation(true, || "measured diet".into()),
+        "measured diet"
+    );
+    let shared = PreservationComparison::from_candidates(
+        2,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+    );
+    assert_eq!(shared, PreservationComparison::SharedReference);
+    assert!(
+        !preservation_comparison_explanation(shared, || panic!("same reference"))
+            .contains("physically-forced")
+    );
+}
+
+#[test]
+fn survival_explanation_collapses_supply_limited_diet_not_policy_preferences() {
+    use super::survival_probe::{explanation::diet_comparison_explanation, selected_food_indices};
+    let registries = build_registries();
+    let world = provisioning_world(&registries, 1);
+    let foods = &world.foods[..2];
+    let compact = selected_food_indices(foods, DietProvisioningPolicy::CompactCalories)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let balanced = selected_food_indices(foods, DietProvisioningPolicy::BalancedRecovery)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        compact, balanced,
+        "two-category supply removes the category choice"
+    );
+    let explanation = diet_comparison_explanation(false, || {
+        panic!("supply collapse must not print duplicate diet branches")
+    });
+    assert!(explanation.contains("comparison:supply-collapsed"));
+    assert!(explanation.contains("recovery-comparison:not-applicable"));
+    assert!(!explanation.contains("tradeoff"));
+    assert_ne!(
+        DietProvisioningPolicy::CompactCalories,
+        DietProvisioningPolicy::BalancedRecovery
+    );
+}
+
+#[test]
 fn preservation_resource_deltas_preserve_comparison_direction() {
     assert_eq!(SignedResourceDelta::between(13, 10).to_string(), "+3");
     assert_eq!(SignedResourceDelta::between(10, 13).to_string(), "-3");

@@ -976,6 +976,18 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
     let adze_total_attention = adze_setup
         .checked_add(adze_route.active_ticks())
         .unwrap_or_else(|| panic!("woodworking adze lifecycle attention overflowed"));
+    // Long timber orders must deliver durable leverage, not just a pristine-tool speedup.
+    // Require a second setup-and-service budget's worth of returned attention after all
+    // actual setup, wear and replacement labor has already been paid. Short work stays
+    // free to favor bare hands; this maintained long-order world spans real service.
+    if case.role() == FocusedProbeRole::MaintainedCoverage && seed == 12 {
+        assert!(adze_route.maintenance_services > 0);
+        assert!(
+            bare_attention.saturating_sub(adze_total_attention)
+                > adze_setup + adze_route.maintenance_ticks,
+            "long-order adze benefit must survive wear and service, not approach bare-hand cost"
+        );
+    }
     let saw_attention_payback =
         saw_total_attention.is_some_and(|ticks| ticks < adze_total_attention);
     // Timber-neutral with an attention win is weakly dominant under either preference:

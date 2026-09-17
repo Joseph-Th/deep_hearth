@@ -72,6 +72,16 @@ pub(super) struct PreservationDecisionReview {
     pub(super) capacity_utilization_ppm: u32,
 }
 
+impl PreservationDecisionReview {
+    pub(super) fn comparison(&self) -> super::explanation::PreservationComparison {
+        super::explanation::PreservationComparison::from_candidates(
+            self.projections.len(),
+            self.attention.storage_definition,
+            self.protection.storage_definition,
+        )
+    }
+}
+
 pub(super) fn evaluate_preservation_decision(
     registries: &Registries,
     seed: u64,
