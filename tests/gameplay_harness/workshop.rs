@@ -507,6 +507,7 @@ fn setup_workshop(
     );
 
     let delivery_authorization = Some(authorize_controlled_material_delivery(
+        registries,
         &state,
         delivery_source,
         delivery_destination,

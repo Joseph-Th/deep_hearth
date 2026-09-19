@@ -9,7 +9,8 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{ConsumedEnergyTrace, ReleasedEnergyTrace};
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::inventory::{
-    ConsumedMaterialTrace, MaterialStorageHistory, StockpileId, checked_consumed_material_mass,
+    ConsumedMaterialTrace, InventoryState, MaterialStorageHistory, StockpileId,
+    checked_consumed_material_mass,
 };
 use crate::maintenance::Condition;
 use crate::material::MaterialLotSpec;
@@ -287,6 +288,54 @@ impl ProductionJobRecord {
     #[must_use]
     pub const fn equipment_condition_after(&self) -> Option<Condition> {
         self.equipment.condition_after
+    }
+
+    /// Whether completing this job changes its occupied equipment condition and therefore consumes
+    /// one equipment-owner revision in its completion bucket.
+    #[must_use]
+    pub(crate) fn requires_equipment_revision_at_completion(&self) -> bool {
+        let (Some(provider), Some(after)) =
+            (self.equipment_provider(), self.equipment_condition_after())
+        else {
+            return false;
+        };
+        after != provider.condition()
+    }
+
+    /// Whether completing this job releases finite energy and therefore consumes one energy-owner
+    /// revision in its completion bucket.
+    #[must_use]
+    pub(crate) const fn requires_energy_revision_at_completion(&self) -> bool {
+        self.resources.released_energy.is_some()
+    }
+
+    /// Whether any output currently targets a structurally supported stockpile and therefore makes
+    /// this completion bucket capable of mutating the structural owner.
+    #[must_use]
+    pub(crate) fn requires_structure_revision_at_completion(
+        &self,
+        inventory: &InventoryState,
+    ) -> bool {
+        self.output_streams().iter().any(|stream| {
+            inventory
+                .get_stockpile(stream.destination())
+                .is_some_and(|stockpile| stockpile.supported_by().is_some())
+        })
+    }
+
+    /// Conservative number of persistent material-lot identities this job could require when its
+    /// outputs eventually enter inventory. Coalescing may reduce the actual allocation, but every
+    /// parcel can require at most one fresh identity.
+    #[must_use]
+    pub(crate) fn future_material_lot_id_demand_upper_bound(&self) -> u64 {
+        self.output_streams
+            .iter()
+            .map(|stream| {
+                u64::try_from(stream.outputs.len())
+                    .unwrap_or_else(|_| unreachable!("production output parcel count fits u64"))
+            })
+            .try_fold(0_u64, u64::checked_add)
+            .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"))
     }
 
     /// Returns exact material streams and their committed destinations.

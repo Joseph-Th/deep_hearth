@@ -115,6 +115,10 @@ impl ValidatedMaterialIngress {
     pub(crate) const fn next_revision(&self) -> u64 {
         self.next_revision
     }
+
+    pub(crate) const fn next_lot_id(&self) -> u64 {
+        self.next_lot_id
+    }
 }
 
 /// Validates all material parcels entering one stockpile under one inventory revision.

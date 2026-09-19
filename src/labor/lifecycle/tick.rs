@@ -2,7 +2,7 @@
 
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::production::ProductionAvailabilityChange;
+use crate::production::{ProductionAvailabilityChange, find_availability_change};
 use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
 
@@ -56,10 +56,7 @@ pub(crate) fn player_work_exertion(
                     "runtime invariant broken: player work references missing manual production job"
                 )
             });
-            let active_this_tick = production_availability
-                .iter()
-                .copied()
-                .find(|change| change.job() == job)
+            let active_this_tick = find_availability_change(production_availability, job)
                 .map_or(!record.is_suspended(), |change| {
                     matches!(change, ProductionAvailabilityChange::Resumed { .. })
                 });
@@ -243,11 +240,7 @@ fn manual_production_releases_now(
     let record = state.production().get_job(job).unwrap_or_else(|| {
         panic!("runtime invariant broken: player work references missing manual production job")
     });
-    match production_availability
-        .iter()
-        .copied()
-        .find(|change| change.job() == job)
-    {
+    match find_availability_change(production_availability, job) {
         Some(ProductionAvailabilityChange::Suspended { .. }) => true,
         Some(ProductionAvailabilityChange::SuspensionReasonChanged { .. }) => false,
         Some(ProductionAvailabilityChange::Resumed {

@@ -18,9 +18,10 @@ use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
 use crate::energy::{EnergyStoreId, add_energy_store_with_initial_for_fixture};
 use crate::equipment::{EquipmentId, add_equipment};
 use crate::inventory::{
-    MaterialLotSelection, MaterialTransferError, StockpileId, StockpileStorageProfile,
-    add_solid_stockpile_for_test, add_stockpile, deposit_bulk_for_test, deposit_lot_for_test,
-    deposit_lot_spec_for_test, validate_material_transfer_for_test, validate_mount_stockpile,
+    MaterialFixtureError, MaterialIngressError, MaterialLotSelection, MaterialTransferError,
+    StockpileId, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
+    deposit_bulk_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
+    validate_material_transfer_for_test, validate_mount_stockpile,
 };
 use crate::maintenance::Condition;
 use crate::material::{
@@ -314,6 +315,120 @@ fn process_start_rejects_exhausted_job_id_without_consuming_material() {
         Some(StartProcessError::JobIdExhausted)
     );
     assert_eq!(loaded, before);
+}
+
+#[test]
+fn process_start_reserves_future_material_lot_identity_capacity() {
+    let (registries, state, source, destination) = unstarted_process_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production lot-id exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production lot-id exhaustion decode failed: {error}"));
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("idle exhausted lot-id fixture should load before production admission: {error}")
+    });
+    let resolution = make_test_resolution(&registries, &mut loaded, source);
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_start_process(&registries, &loaded, &resolution, source, destination).err(),
+        Some(StartProcessError::MaterialLotIdExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn trusted_load_rejects_running_production_without_future_material_lot_identity_capacity() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolution = make_test_resolution(&registries, &mut state, source);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("production lot-budget validation failed: {error}"));
+    let _ = commit_process_for_test(token, &mut state);
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("production lot-budget serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production lot-budget decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::FutureMaterialLotIdCapacityExhausted {
+                next_lot_id: u64::MAX,
+                required: 1,
+            }
+        ))
+    );
+}
+
+#[test]
+fn later_inventory_ingress_cannot_consume_identity_reserved_for_running_production() {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_E006));
+    let source = add_test_stockpile(&mut state, 100);
+    let destination = add_test_stockpile(&mut state, 100);
+    let unrelated_destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, source, 20);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("production lot-reservation serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production lot-reservation decode failed: {error}"));
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("near-exhausted lot-id fixture should load before production admission: {error}")
+    });
+    let resolution = make_test_resolution(&registries, &mut loaded, source);
+    let token = validate_start_process(&registries, &loaded, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("near-exhausted production admission failed: {error}"));
+    let _ = commit_process_for_test(token, &mut loaded);
+    let before = loaded.clone();
+
+    assert_eq!(
+        deposit_lot_for_test(
+            &registries,
+            &mut loaded,
+            unrelated_destination,
+            wood_log(),
+            Mass::from_milligrams(1),
+            Temperature::from_millikelvin(293_150),
+        ),
+        Err(MaterialFixtureError::Ingress(
+            MaterialIngressError::LotIdExhausted
+        ))
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn production_completion_can_consume_the_last_reserved_material_lot_identity() {
+    let (registries, state, source, destination) = unstarted_process_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("last lot-id serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("last lot-id decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("last lot-id fixture should load: {error}"));
+    let resolution = make_test_resolution(&registries, &mut loaded, source);
+    let token = validate_start_process(&registries, &loaded, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("last lot-id production admission failed: {error}"));
+    let job = commit_process_for_test(token, &mut loaded);
+
+    while loaded.production().get_job(job).is_some() {
+        let _ = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("last lot-id production completion failed: {error}"));
+    }
+
+    assert_eq!(loaded.inventory().next_lot_id(), u64::MAX);
+    assert_eq!(loaded.future_material_lot_id_demand(), 0);
+    assert_eq!(loaded.inventory().lot_ids(destination).count(), 1);
+    validate_loaded_state(&registries, &loaded)
+        .unwrap_or_else(|error| panic!("last lot-id completed state failed validation: {error}"));
 }
 
 #[test]

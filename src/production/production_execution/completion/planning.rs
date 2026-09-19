@@ -22,7 +22,7 @@ use super::super::super::state::{
 use super::availability::decide_availability_changes;
 use super::{
     CompletionPlan, CompletionPlanError, CompletionRevisionPlan, PlayerLaborRevisionDependencies,
-    ProductionAvailabilityChange,
+    ProductionAvailabilityChange, find_availability_change,
 };
 
 struct DueCompletionPlanning {
@@ -95,11 +95,7 @@ fn projected_completion_tick(
     if due_ids.contains(&job.id()) {
         return None;
     }
-    match availability_changes
-        .iter()
-        .copied()
-        .find(|change| change.job() == job.id())
-    {
+    match find_availability_change(availability_changes, job.id()) {
         Some(ProductionAvailabilityChange::Resumed {
             scheduled_completion,
             ..
@@ -125,23 +121,6 @@ fn bucket_count(ticks: &BTreeSet<SimulationTick>) -> u64 {
         .unwrap_or_else(|_| unreachable!("projected production bucket count fits memory"))
 }
 
-fn job_changes_equipment_condition(job: &ProductionJobRecord) -> bool {
-    let (Some(provider), Some(after)) = (job.equipment_provider(), job.equipment_condition_after())
-    else {
-        return false;
-    };
-    after != provider.condition()
-}
-
-fn job_has_supported_output(state: &AppState, job: &ProductionJobRecord) -> bool {
-    job.output_streams().iter().any(|stream| {
-        state
-            .inventory()
-            .get_stockpile(stream.destination())
-            .is_some_and(|stockpile| stockpile.supported_by().is_some())
-    })
-}
-
 fn validate_resumed_job_revision_capacity(
     state: &AppState,
     due_ids: &BTreeSet<ProductionJobId>,
@@ -165,13 +144,13 @@ fn validate_resumed_job_revision_capacity(
             continue;
         };
         completion_ticks.insert(completes_at);
-        if job_changes_equipment_condition(job) {
+        if job.requires_equipment_revision_at_completion() {
             equipment_ticks.insert(completes_at);
         }
-        if job.released_energy().is_some() {
+        if job.requires_energy_revision_at_completion() {
             energy_ticks.insert(completes_at);
         }
-        if job_has_supported_output(state, job) {
+        if job.requires_structure_revision_at_completion(state.inventory()) {
             structure_ticks.insert(completes_at);
         }
     }
@@ -241,12 +220,7 @@ pub(crate) fn plan_player_death_suspension(
     if plan.jobs.contains(&job) {
         return Ok(());
     }
-    if let Some(change) = plan
-        .availability_changes
-        .iter()
-        .copied()
-        .find(|change| change.job() == job)
-    {
+    if let Some(change) = find_availability_change(&plan.availability_changes, job) {
         assert!(
             matches!(change, ProductionAvailabilityChange::Suspended { .. }),
             "active manual production can only have a planned suspension transition"
@@ -299,6 +273,12 @@ pub(crate) fn decide_due_completions(
 ) -> Result<CompletionPlan, CompletionPlanError> {
     let (availability_changes, player_labor_dependencies) =
         decide_availability_changes(registries, state)?;
+    debug_assert!(
+        availability_changes
+            .windows(2)
+            .all(|pair| pair[0].job() < pair[1].job()),
+        "production availability changes must be emitted in stable unique job-ID order"
+    );
     let mut due_ids = state.production().jobs_due_at(tick);
     adjust_due_ids_for_availability(&mut due_ids, &availability_changes, tick);
     let mut planning = DueCompletionPlanning::new(due_ids.len());

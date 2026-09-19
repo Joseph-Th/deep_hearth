@@ -40,15 +40,7 @@ pub(in super::super) fn validate_job_allocation(
     // already required by previously admitted work.
     if !state
         .production()
-        .has_revision_capacity_for_scheduled_ticks(
-            next_production_revision,
-            state
-                .production()
-                .jobs()
-                .filter(|job| !job.is_suspended())
-                .map(crate::production::ProductionJobRecord::completes_at)
-                .chain(std::iter::once(completes_at)),
-        )
+        .has_scheduled_revision_capacity_with_tick_from(next_production_revision, completes_at)
     {
         return Err(StartProcessError::ProductionRevisionExhausted);
     }

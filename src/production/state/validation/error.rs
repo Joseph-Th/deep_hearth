@@ -203,6 +203,10 @@ pub enum ProductionValidationError {
     EmptyDueIndex {
         due: SimulationTick,
     },
+    FutureMaterialLotIdDemandIndexMismatch {
+        indexed: u64,
+        expected: u64,
+    },
     EnergyOccupancyIndexMismatch {
         store: EnergyStoreId,
         indexed: Option<ProductionJobId>,
@@ -553,6 +557,10 @@ impl Display for ProductionValidationError {
                 formatter,
                 "production due index contains an empty bucket at tick {}",
                 due.value()
+            ),
+            Self::FutureMaterialLotIdDemandIndexMismatch { indexed, expected } => write!(
+                formatter,
+                "production future material-lot identity demand index stores {indexed} parcels but durable jobs require {expected}"
             ),
             Self::EnergyOccupancyIndexMismatch {
                 store,

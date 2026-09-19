@@ -263,6 +263,10 @@ pub enum StateValidationError {
         revision: u64,
         completion_buckets: u64,
     },
+    FutureMaterialLotIdCapacityExhausted {
+        next_lot_id: u64,
+        required: u64,
+    },
     FutureInventoryRevisionCapacityExhausted {
         revision: u64,
         required: u64,
@@ -702,6 +706,13 @@ impl Display for StateValidationError {
                 formatter,
                 "structural revision {revision} cannot reserve {completion_buckets} scheduled supported-output revisions"
             ),
+            Self::FutureMaterialLotIdCapacityExhausted {
+                next_lot_id,
+                required,
+            } => write!(
+                formatter,
+                "material lot identity cursor {next_lot_id} cannot reserve {required} already-admitted future parcel identities"
+            ),
             Self::FutureInventoryRevisionCapacityExhausted { revision, required } => write!(
                 formatter,
                 "inventory revision {revision} cannot reserve {required} already-admitted future revisions"
@@ -918,6 +929,7 @@ impl Error for StateValidationError {
             | Self::ProductionEquipmentRevisionCapacityExhausted { .. }
             | Self::ProductionEnergyRevisionCapacityExhausted { .. }
             | Self::ProductionStructureRevisionCapacityExhausted { .. }
+            | Self::FutureMaterialLotIdCapacityExhausted { .. }
             | Self::FutureInventoryRevisionCapacityExhausted { .. }
             | Self::FutureEnergyRevisionCapacityExhausted { .. }
             | Self::FutureEquipmentRevisionCapacityExhausted { .. }

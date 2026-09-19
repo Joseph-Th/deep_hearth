@@ -71,7 +71,7 @@ impl InventoryState {
         self.next_stockpile_id
     }
 
-    pub(super) const fn next_lot_id(&self) -> u64 {
+    pub(crate) const fn next_lot_id(&self) -> u64 {
         self.next_lot_id
     }
 

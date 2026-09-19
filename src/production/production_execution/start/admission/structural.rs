@@ -37,26 +37,23 @@ pub(in super::super) fn validate_structural_revision_budget(
         .revision()
         .checked_add(admission_steps)
         .ok_or(StartProcessError::StructureRevisionExhausted)?;
-    if !state
-        .production()
-        .has_revision_capacity_for_scheduled_ticks(
-            post_admission_revision,
-            state
-                .production()
-                .jobs()
-                .filter(|job| {
-                    !job.is_suspended()
-                        && job.output_streams().iter().any(|stream| {
-                            state
-                                .inventory()
-                                .get_stockpile(stream.destination())
-                                .is_some_and(|stockpile| stockpile.supported_by().is_some())
-                        })
-                })
-                .map(crate::production::ProductionJobRecord::completes_at)
-                .chain(destination_structure_revision.map(|_| completes_at)),
-        )
-    {
+    let has_capacity = if destination_structure_revision.is_some() {
+        state
+            .production()
+            .has_scheduled_supported_output_revision_capacity_with_tick_from(
+                post_admission_revision,
+                state.inventory(),
+                completes_at,
+            )
+    } else {
+        state
+            .production()
+            .has_scheduled_supported_output_revision_capacity_from(
+                post_admission_revision,
+                state.inventory(),
+            )
+    };
+    if !has_capacity {
         return Err(StartProcessError::StructureRevisionExhausted);
     }
     Ok(())

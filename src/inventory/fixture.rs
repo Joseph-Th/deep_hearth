@@ -165,6 +165,11 @@ pub(crate) fn deposit_lot_spec_for_fixture(
         created_at,
     )
     .map_err(MaterialFixtureError::Ingress)?;
+    if !state.has_material_lot_id_headroom_from(ingress.next_lot_id(), 0) {
+        return Err(MaterialFixtureError::Ingress(
+            MaterialIngressError::LotIdExhausted,
+        ));
+    }
     let stored_after = ingress.destination_stored_mass_after(state.inventory());
     let structural = validate_stockpile_stored_mass_changes(
         registries,

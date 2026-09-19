@@ -79,6 +79,14 @@ fn validate_due_index_entry(
 pub(super) fn validate_occupancy_indexes(
     state: &ProductionState,
 ) -> Result<(), ProductionValidationError> {
+    if let Some((indexed, expected)) = state
+        .indexes
+        .future_material_lot_id_demand_mismatch(state.jobs.values())
+    {
+        return Err(
+            ProductionValidationError::FutureMaterialLotIdDemandIndexMismatch { indexed, expected },
+        );
+    }
     if let Some((store, indexed, expected)) = state
         .indexes
         .energy_occupancy_mismatch(state.jobs.values())

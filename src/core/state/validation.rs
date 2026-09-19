@@ -116,12 +116,23 @@ pub fn validate_loaded_state(
     validate_reserved_inbound(state, expected_reservations)?;
     validate_loaded_player_work(registries, state, &state.systems.player_work)
         .map_err(StateValidationError::PlayerWork)?;
-    validate_shared_future_revision_capacity(state)?;
+    validate_shared_future_capacity(state)?;
 
     Ok(())
 }
 
-fn validate_shared_future_revision_capacity(state: &AppState) -> Result<(), StateValidationError> {
+fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidationError> {
+    let material_lot_ids_required = state.future_material_lot_id_demand();
+    let next_material_lot_id = state.inventory().next_lot_id();
+    if next_material_lot_id
+        .checked_add(material_lot_ids_required)
+        .is_none()
+    {
+        return Err(StateValidationError::FutureMaterialLotIdCapacityExhausted {
+            next_lot_id: next_material_lot_id,
+            required: material_lot_ids_required,
+        });
+    }
     let inventory_required = state.future_inventory_revision_demand();
     let inventory_revision = state.inventory().revision();
     if inventory_revision.checked_add(inventory_required).is_none() {

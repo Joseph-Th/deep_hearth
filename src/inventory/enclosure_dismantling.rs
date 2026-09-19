@@ -305,17 +305,15 @@ fn validate_dismantling_inventory_capacity(
     enclosure: &StockpileEnclosureRecord,
     recovery_destination: StockpileId,
 ) -> Result<ValidatedInboundReservation, StorageEnclosureDismantlingError> {
-    let required_revisions = state
-        .production()
-        .scheduled_completion_bucket_count()
-        .saturating_add(3);
-    if state
-        .inventory()
-        .revision()
-        .checked_add(required_revisions)
-        .is_none()
-    {
+    if !state.can_spend_inventory_revisions(3) {
         return Err(StorageEnclosureDismantlingError::InventoryRevisionExhausted);
+    }
+    let future_recovery_parcels = u64::try_from(enclosure.embodied_material().len())
+        .unwrap_or_else(|_| unreachable!("resident enclosure trace count fits u64"));
+    if !state
+        .has_material_lot_id_headroom_from(state.inventory().next_lot_id(), future_recovery_parcels)
+    {
+        return Err(StorageEnclosureDismantlingError::RecoveryLotIdExhausted);
     }
     // Admission precheck only: the returned ingress plan is intentionally discarded. Full
     // ingress legality (containment, capacity, lot-ID space) must hold before reserving, while

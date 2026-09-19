@@ -11,6 +11,10 @@ use crate::core::state::AppState;
 /// Finite fluids intentionally use `fluid::calculate_fluid_volume_accounting` instead. Fluid density
 /// can imply sub-milligram mass for an exact microliter volume, so folding that owner into this
 /// whole-milligram ledger would either lose information or manufacture matter through rounding.
+///
+/// This is a diagnostic conservation surface, not actor-safe observation. In particular,
+/// `geological()` and `total()` include hidden finite geology and must not be used to authorize or
+/// choose player actions; actor policy derives geological information only from acquired knowledge.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MatterAccounting {
     geological: AggregateMass,
@@ -232,13 +236,16 @@ fn calculate_total_mass(parts: &[AggregateMass]) -> Result<AggregateMass, Matter
         })
 }
 
-/// Recomputes matter ownership from authoritative records without trusting stockpile caches.
+/// Recomputes diagnostic matter ownership from authoritative records without trusting stockpile
+/// caches.
 ///
 /// Finite geological deposits own extractable matter until mining completion. Completed mining output
 /// is a ready-to-claim owner until claim transfers it into inventory. Structural embodiment remains
 /// structure-owned because no demolition/recovery operation exists. Production start transfers input
 /// matter from inventory to the durable in-process output snapshot until completion. Reservations and
 /// unfinished mining output plans are not matter owners and are excluded from this projection.
+/// Because the result includes hidden geological truth, it is suitable for conservation audits and
+/// post-hoc diagnostics, not as a player-observation surface.
 pub fn calculate_matter_accounting(
     state: &AppState,
 ) -> Result<MatterAccounting, MatterAccountingError> {

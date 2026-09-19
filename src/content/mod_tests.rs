@@ -254,6 +254,46 @@ fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_ro
 }
 
 #[test]
+fn built_in_missing_acquisition_edges_are_exactly_capability_only_infrastructure() {
+    let registries = build_registries();
+    let equipment_without_acquisition = registries
+        .equipment()
+        .definitions()
+        .filter(|definition| !definition.has_authored_acquisition_edge())
+        .map(|definition| definition.id())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        equipment_without_acquisition,
+        BTreeSet::from([
+            EQUIPMENT_JAW_CRUSHER,
+            EQUIPMENT_ELECTRIC_FURNACE,
+            EQUIPMENT_CASTING_MOLD,
+            EQUIPMENT_DRY_SCREEN,
+            EQUIPMENT_GRINDING_MILL,
+            EQUIPMENT_GRAVITY_SEPARATOR,
+        ]),
+        "only controlled industrial workshop equipment may lack an ordinary acquisition edge"
+    );
+
+    let energy_without_assembly = registries
+        .energy()
+        .definitions()
+        .filter(|definition| !definition.has_authored_assembly_edge())
+        .map(|definition| definition.id())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        energy_without_assembly,
+        BTreeSet::from([
+            ENERGY_MECHANICAL_SMALL_DRIVE,
+            ENERGY_MECHANICAL_LARGE_DRIVE,
+            ENERGY_ELECTRICAL_BUFFER,
+            ENERGY_THERMAL_SINK,
+        ]),
+        "only controlled workshop energy infrastructure may lack an ordinary assembly edge"
+    );
+}
+
+#[test]
 fn primitive_flywheel_loses_stored_rotation_without_erasing_short_work_windows() {
     let registries = build_registries();
     for (store, expected_loss) in [

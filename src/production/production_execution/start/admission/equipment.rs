@@ -61,24 +61,9 @@ pub(in super::super) fn validate_equipment_resources(
     if changes_condition
         && !state
             .production()
-            .has_revision_capacity_for_scheduled_ticks(
+            .has_scheduled_equipment_revision_capacity_with_tick_from(
                 post_nonproduction_revision,
-                state
-                    .production()
-                    .jobs()
-                    .filter(|job| {
-                        if job.is_suspended() {
-                            return false;
-                        }
-                        let (Some(provider), Some(after)) =
-                            (job.equipment_provider(), job.equipment_condition_after())
-                        else {
-                            return false;
-                        };
-                        after != provider.condition()
-                    })
-                    .map(crate::production::ProductionJobRecord::completes_at)
-                    .chain(std::iter::once(completes_at)),
+                completes_at,
             )
     {
         return Err(StartProcessError::EquipmentRevisionExhausted);

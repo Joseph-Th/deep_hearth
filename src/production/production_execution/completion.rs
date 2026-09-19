@@ -72,6 +72,21 @@ impl ProductionAvailabilityChange {
     }
 }
 
+/// Finds one availability transition in the canonical stable job-ID ordering.
+///
+/// Completion planning emits at most one transition per job and preserves job ordering. Death
+/// suspension inserts through the same ordering contract. Cross-owner consumers use this helper
+/// instead of repeatedly rescanning the transition slice.
+pub(crate) fn find_availability_change(
+    changes: &[ProductionAvailabilityChange],
+    job: ProductionJobId,
+) -> Option<ProductionAvailabilityChange> {
+    changes
+        .binary_search_by_key(&job, |change| change.job())
+        .ok()
+        .map(|index| changes[index])
+}
+
 /// Observable completion emitted by one simulation tick after authoritative output is committed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessCompletion {

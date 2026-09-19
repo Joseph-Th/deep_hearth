@@ -241,6 +241,45 @@ struct MiningStartRevisions {
     structure: Option<u64>,
 }
 
+fn validate_mining_revision_capacity(
+    state: &AppState,
+    equipment_plan: MiningEquipmentPlan,
+    destination_plan: &MiningDestinationPlan,
+) -> Result<MiningStartRevisions, MiningStartError> {
+    let expected_equipment_revision = state.equipment().revision();
+    if equipment_plan.condition_after != equipment_plan.trace.condition()
+        && !state.can_spend_equipment_revisions(1)
+    {
+        return Err(MiningStartError::EquipmentRevisionExhausted);
+    }
+    if !state.can_spend_inventory_revisions(1) {
+        return Err(MiningStartError::InventoryRevisionExhausted);
+    }
+    state
+        .geology()
+        .revision()
+        .checked_add(1)
+        .ok_or(MiningStartError::GeologyRevisionExhausted)?;
+    let expected_mining_revision = state.mining().revision();
+    // Mining admission inserts a working job and the due tick deterministically transitions that
+    // same record to ready-to-claim. Budget both mutations so admission cannot consume the final
+    // mining revision and strand the scheduled extraction before it becomes claimable.
+    expected_mining_revision
+        .checked_add(2)
+        .ok_or(MiningStartError::MiningRevisionExhausted)?;
+    let next_mining_revision = expected_mining_revision
+        .checked_add(1)
+        .unwrap_or_else(|| unreachable!("two-step mining revision budget includes admission"));
+    Ok(MiningStartRevisions {
+        equipment: expected_equipment_revision,
+        mining: RevisionTransition {
+            expected: expected_mining_revision,
+            next: next_mining_revision,
+        },
+        structure: destination_plan.expected_structure_revision,
+    })
+}
+
 impl ValidatedMiningStart {
     #[cfg(test)]
     pub(super) const fn player_work(&self) -> &ValidatedPlayerWorkStart {
@@ -256,10 +295,7 @@ impl ValidatedMiningStart {
             .get_deposit(self.record.deposit())
             .unwrap_or_else(|| panic!("re-resolved mining target deposit disappeared"));
         if record.remaining_mass() != self.record.deposit_mass_before() {
-            return Err(MiningStartCommitError::TargetMassChanged {
-                expected: self.record.deposit_mass_before(),
-                actual: record.remaining_mass(),
-            });
+            return Err(MiningStartCommitError::TargetChanged);
         }
         Ok(())
     }
@@ -376,46 +412,7 @@ pub fn validate_start_mining(
     let output = resolve_mining_output(state, target_plan, output_mass)?;
     let destination_plan =
         validate_mining_destination(registries, state, destination, &output, mass, output_mass)?;
-
-    let expected_equipment_revision = state.equipment().revision();
-    if equipment_plan.condition_after != equipment_plan.trace.condition()
-        && expected_equipment_revision
-            .checked_add(
-                state
-                    .production()
-                    .scheduled_equipment_revision_bucket_count()
-                    .saturating_add(1),
-            )
-            .is_none()
-    {
-        return Err(MiningStartError::EquipmentRevisionExhausted);
-    }
-    let post_inventory_admission = destination_plan
-        .reservation
-        .expected_revision()
-        .checked_add(1)
-        .ok_or(MiningStartError::InventoryRevisionExhausted)?;
-    if !state
-        .production()
-        .has_scheduled_revision_capacity_from(post_inventory_admission)
-    {
-        return Err(MiningStartError::InventoryRevisionExhausted);
-    }
-    state
-        .geology()
-        .revision()
-        .checked_add(1)
-        .ok_or(MiningStartError::GeologyRevisionExhausted)?;
-    let expected_mining_revision = state.mining().revision();
-    // Mining admission inserts a working job and the due tick deterministically transitions that
-    // same record to ready-to-claim. Budget both mutations so admission cannot consume the final
-    // mining revision and strand the scheduled extraction before it becomes claimable.
-    expected_mining_revision
-        .checked_add(2)
-        .ok_or(MiningStartError::MiningRevisionExhausted)?;
-    let next_mining_revision = expected_mining_revision
-        .checked_add(1)
-        .unwrap_or_else(|| unreachable!("two-step mining revision budget includes admission"));
+    let revisions = validate_mining_revision_capacity(state, equipment_plan, &destination_plan)?;
     let job_value = state.mining().next_job_id();
     let next_mining_job_id = job_value
         .checked_add(1)
@@ -432,14 +429,7 @@ pub fn validate_start_mining(
 
     Ok(ValidatedMiningStart {
         target,
-        revisions: MiningStartRevisions {
-            equipment: expected_equipment_revision,
-            mining: RevisionTransition {
-                expected: expected_mining_revision,
-                next: next_mining_revision,
-            },
-            structure: destination_plan.expected_structure_revision,
-        },
+        revisions,
         next_mining_job_id,
         reservation: destination_plan.reservation,
         work,

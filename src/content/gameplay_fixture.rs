@@ -236,9 +236,10 @@ pub fn seed_composed_lot(
 
 /// Creates the harness-only logistics authorization for one controlled material-delivery event.
 ///
-/// Call this during scenario setup, before the acting policy starts. The fixture does not move matter
-/// or reveal event timing to the actor. Inventory still validates and commits the canonical transfer;
-/// this is a controlled audit authorization because world logistics is outside current production
+/// Call this during scenario setup, before the acting policy starts. Authorization first proves the
+/// exact transfer is physically valid against the setup state, but does not move matter or reveal
+/// event timing to the actor. Event-time commit revalidates the same transfer against live state.
+/// This is a controlled audit authorization because world logistics is outside current production
 /// scope and ordinary runtime cannot create pathless transfers.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
@@ -247,6 +248,7 @@ pub struct ControlledMaterialDelivery {
 }
 
 pub fn authorize_controlled_material_delivery(
+    registries: &Registries,
     state: &AppState,
     source: StockpileId,
     destination: StockpileId,
@@ -254,9 +256,12 @@ pub fn authorize_controlled_material_delivery(
     mass: Mass,
 ) -> ControlledMaterialDelivery {
     assert_pre_admission(state, "controlled-delivery authorization");
-    ControlledMaterialDelivery {
-        resolution: MaterialTransferResolution::new(source, destination, commodity, mass),
-    }
+    let resolution = MaterialTransferResolution::new(source, destination, commodity, mass);
+    let _validated_setup_transfer = validate_material_transfer(registries, state, resolution)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap controlled delivery is not physically valid: {error}")
+        });
+    ControlledMaterialDelivery { resolution }
 }
 
 /// Applies one previously authorized controlled delivery through canonical inventory validation.

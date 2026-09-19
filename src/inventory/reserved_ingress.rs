@@ -97,6 +97,10 @@ impl ReservedDepositPlan {
         self.expected_revision
     }
 
+    pub(crate) const fn next_lot_id(&self) -> u64 {
+        self.next_lot_id
+    }
+
     #[must_use]
     pub(crate) const fn is_empty(&self) -> bool {
         self.entries.is_empty()

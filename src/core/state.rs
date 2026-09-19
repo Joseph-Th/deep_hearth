@@ -9,7 +9,7 @@ use crate::equipment::EquipmentState;
 use crate::fluid::FluidState;
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
 use crate::inventory::InventoryState;
-use crate::labor::{PlayerWork, PlayerWorkState};
+use crate::labor::PlayerWorkState;
 use crate::mining::MiningState;
 use crate::production::ProductionState;
 use crate::structural::StructureState;
@@ -293,11 +293,7 @@ impl AppState {
     }
 
     pub(crate) fn future_nonproduction_inventory_revision_demand(&self) -> u64 {
-        u64::from(matches!(
-            self.systems.player_work.active(),
-            Some(PlayerWork::StorageEnclosureDismantling { .. })
-        ))
-        .saturating_mul(2)
+        self.systems.player_work.future_inventory_revision_demand()
     }
 
     pub(crate) fn future_energy_revision_demand(&self) -> u64 {
@@ -309,10 +305,7 @@ impl AppState {
     }
 
     pub(crate) fn future_nonproduction_energy_revision_demand(&self) -> u64 {
-        u64::from(matches!(
-            self.systems.player_work.active(),
-            Some(PlayerWork::ManualPower { .. })
-        ))
+        self.systems.player_work.future_energy_revision_demand()
     }
 
     pub(crate) fn future_equipment_revision_demand(&self) -> u64 {
@@ -324,30 +317,11 @@ impl AppState {
     }
 
     pub(crate) fn future_nonproduction_equipment_revision_demand(&self) -> u64 {
-        let mining = u64::try_from(
-            self.systems
-                .mining
-                .jobs()
-                .filter(|job| {
-                    job.is_working()
-                        && job.equipment_condition_after() != job.equipment_condition_before()
-                })
-                .count(),
-        )
-        .unwrap_or(u64::MAX);
-        let direct_player_work = match self.systems.player_work.active() {
-            Some(PlayerWork::ManualPower { .. } | PlayerWork::EquipmentMaintenance { .. }) => 1,
-            Some(PlayerWork::Prospecting { work }) if work.equipment().is_some() => 1,
-            Some(
-                PlayerWork::ManualProduction { .. }
-                | PlayerWork::Mining { .. }
-                | PlayerWork::Prospecting { .. }
-                | PlayerWork::Eating { .. }
-                | PlayerWork::Drinking { .. }
-                | PlayerWork::StorageEnclosureDismantling { .. },
-            )
-            | None => 0,
-        };
+        let mining = self
+            .systems
+            .mining
+            .scheduled_equipment_revision_bucket_count();
+        let direct_player_work = self.systems.player_work.future_equipment_revision_demand();
         mining.saturating_add(direct_player_work)
     }
 
@@ -355,6 +329,28 @@ impl AppState {
         self.systems
             .production
             .scheduled_supported_output_revision_bucket_count(&self.systems.inventory)
+    }
+
+    pub(crate) fn future_material_lot_id_demand(&self) -> u64 {
+        self.systems
+            .production
+            .future_material_lot_id_demand()
+            .saturating_add(
+                self.systems
+                    .player_work
+                    .future_material_lot_id_demand(&self.systems.inventory),
+            )
+    }
+
+    pub(crate) fn has_material_lot_id_headroom_from(
+        &self,
+        next_lot_id: u64,
+        additional_future_demand: u64,
+    ) -> bool {
+        next_lot_id
+            .checked_add(self.future_material_lot_id_demand())
+            .and_then(|cursor| cursor.checked_add(additional_future_demand))
+            .is_some()
     }
 
     pub(crate) fn can_spend_inventory_revisions(&self, immediate_steps: u64) -> bool {

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::time::SimulationTick;
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
-use crate::inventory::StockpileId;
+use crate::inventory::{InventoryState, StockpileId};
 
 use super::work::{
     EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
@@ -47,6 +47,45 @@ impl PlayerWorkState {
     #[must_use]
     pub const fn active(&self) -> Option<PlayerWork> {
         self.active
+    }
+
+    #[must_use]
+    pub(crate) const fn future_inventory_revision_demand(&self) -> u64 {
+        match self.active {
+            Some(work) => work.future_inventory_revision_demand(),
+            None => 0,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn future_energy_revision_demand(&self) -> u64 {
+        match self.active {
+            Some(work) => work.future_energy_revision_demand(),
+            None => 0,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn future_equipment_revision_demand(&self) -> u64 {
+        match self.active {
+            Some(work) => work.future_equipment_revision_demand(),
+            None => 0,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn future_material_lot_id_demand(&self, inventory: &InventoryState) -> u64 {
+        let Some(work) = self.active.and_then(PlayerWork::storage_dismantling) else {
+            return 0;
+        };
+        let enclosure = inventory
+            .get_stockpile(work.target())
+            .and_then(crate::inventory::StockpileRecord::enclosure)
+            .unwrap_or_else(|| {
+                panic!("active enclosure dismantling must retain its material-backed enclosure")
+            });
+        u64::try_from(enclosure.embodied_material().len())
+            .unwrap_or_else(|_| unreachable!("resident enclosure trace count fits u64"))
     }
 
     /// Returns the admitted enclosure-dismantling work that completes on `tick`, if any.

@@ -296,6 +296,9 @@ pub fn validate_disassemble_equipment(
         state.tick(),
     )
     .map_err(|error| map_ingress_error(equipment, error))?;
+    if !state.has_material_lot_id_headroom_from(ingress.next_lot_id(), 0) {
+        return Err(EquipmentDisassemblyError::LotIdExhausted);
+    }
     let destination_after = ingress.destination_stored_mass_after(state.inventory());
     let structural_load = validate_stockpile_stored_mass_changes(
         registries,

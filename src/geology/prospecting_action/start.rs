@@ -267,17 +267,8 @@ pub fn validate_start_field_prospecting(
         .revision()
         .checked_add(u64::from(observation_count))
         .ok_or(FieldProspectingStartError::KnowledgeRevisionExhausted)?;
-    if equipment_plan.trace.is_some() {
-        state
-            .equipment()
-            .revision()
-            .checked_add(
-                state
-                    .production()
-                    .scheduled_equipment_revision_bucket_count()
-                    .saturating_add(1),
-            )
-            .ok_or(FieldProspectingStartError::EquipmentRevisionExhausted)?;
+    if equipment_plan.trace.is_some() && !state.can_spend_equipment_revisions(1) {
+        return Err(FieldProspectingStartError::EquipmentRevisionExhausted);
     }
     let completes_at = state
         .tick()

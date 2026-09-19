@@ -712,6 +712,48 @@ fn unstarted_mining_fixture() -> (
 }
 
 #[test]
+fn destination_capacity_rejection_does_not_reveal_short_hidden_reserve() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_E002));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("non-oracular mining survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination_capacity = Mass::from_milligrams(60_000);
+    let destination = add_solid_stockpile_for_test(&mut state, destination_capacity)
+        .unwrap_or_else(|error| panic!("non-oracular mining destination failed: {error}"));
+    let hidden_reserve = Mass::from_milligrams(50_000);
+    let deposit = insert_known_deposit(
+        &registries,
+        &mut state,
+        deposit_spec_with_mass(hidden_reserve),
+    )
+    .unwrap_or_else(|error| panic!("non-oracular mining deposit failed: {error}"));
+    let requested = Mass::from_milligrams(100_000);
+    let before = state.clone();
+
+    assert!(hidden_reserve < destination_capacity);
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            requested,
+        )
+        .err(),
+        Some(MiningStartError::DestinationCapacityExceeded {
+            stockpile: destination,
+            capacity: destination_capacity,
+            committed: Mass::ZERO,
+            requested,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn mining_cannot_reserve_output_into_an_active_dismantling_target() {
     let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
     let construction = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_400_000))
@@ -1280,6 +1322,43 @@ fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
             .map(|record| record.remaining_mass()),
         Some(Mass::from_milligrams(1_000_000))
     );
+}
+
+#[test]
+fn validated_mining_start_rejects_hidden_reserve_change_without_disclosing_amounts() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0036));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("reserve-stale mining survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("reserve-stale mining destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("reserve-stale mining deposit failed: {error}"));
+    let start = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("reserve-stale mining validation failed: {error}"));
+    let geology_revision = state.geology().revision();
+    state.geology_state_mut().apply_extraction(
+        deposit,
+        Mass::from_milligrams(900_000),
+        geology_revision + 1,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        start.commit(&mut state),
+        Err(MiningStartCommitError::TargetChanged)
+    );
+    assert_eq!(state, before);
+    assert_eq!(state.player_work().active(), None);
 }
 
 #[test]

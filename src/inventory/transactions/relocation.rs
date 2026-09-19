@@ -225,6 +225,10 @@ pub(crate) fn validate_material_relocation_from_selection(
         destination_record,
         &lot_slices,
     )?;
+    let cursor_after = next_lot_id_after.unwrap_or_else(|| inventories.next_lot_id());
+    if !state.has_material_lot_id_headroom_from(cursor_after, 0) {
+        return Err(MaterialRelocationError::LotIdExhausted);
+    }
     if !state.can_spend_inventory_revisions(1) {
         return Err(MaterialRelocationError::RevisionExhausted);
     }

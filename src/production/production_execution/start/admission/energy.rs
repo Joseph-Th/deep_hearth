@@ -58,23 +58,17 @@ pub(in super::super) fn validate_energy_reservations(
     let post_nonproduction_revision = post_admission_revision
         .checked_add(state.future_nonproduction_energy_revision_demand())
         .ok_or(StartProcessError::EnergyRevisionExhausted)?;
-    if (consumption.is_some() || released.is_some())
+    if released.is_some()
         && !state
             .production()
-            .has_revision_capacity_for_scheduled_ticks(
+            .has_scheduled_released_energy_revision_capacity_with_tick_from(
                 post_nonproduction_revision,
-                state
-                    .production()
-                    .jobs()
-                    .filter(|job| !job.is_suspended() && job.released_energy().is_some())
-                    .map(crate::production::ProductionJobRecord::completes_at)
-                    .chain(released.map(|_| completes_at)),
+                completes_at,
             )
     {
         return Err(StartProcessError::EnergyRevisionExhausted);
     }
-    if consumption.is_none()
-        && released.is_none()
+    if released.is_none()
         && !state
             .production()
             .has_scheduled_released_energy_revision_capacity_from(post_nonproduction_revision)

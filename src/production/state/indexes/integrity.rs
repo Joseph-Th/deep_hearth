@@ -49,6 +49,18 @@ where
 }
 
 impl ProductionIndexes {
+    pub(in crate::production::state) fn future_material_lot_id_demand_mismatch<'a>(
+        &self,
+        jobs: impl Iterator<Item = &'a ProductionJobRecord>,
+    ) -> Option<(u64, u64)> {
+        let expected = jobs
+            .map(ProductionJobRecord::future_material_lot_id_demand_upper_bound)
+            .try_fold(0_u64, u64::checked_add)
+            .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"));
+        (self.future_material_lot_id_demand != expected)
+            .then_some((self.future_material_lot_id_demand, expected))
+    }
+
     fn expected_energy_occupancy<'a>(
         jobs: impl Iterator<Item = &'a ProductionJobRecord>,
     ) -> Result<BTreeMap<EnergyStoreId, ProductionJobId>, EnergyStoreId> {

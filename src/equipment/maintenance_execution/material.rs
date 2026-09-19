@@ -282,6 +282,9 @@ fn validate_component_exchange(
         state.tick(),
     )
     .map_err(|error| map_ingress_error(record.id(), error))?;
+    if !state.has_material_lot_id_headroom_from(worn_ingress.next_lot_id(), 0) {
+        return Err(EquipmentMaintenanceMaterialError::LotIdExhausted);
+    }
     if !state.can_spend_inventory_revisions(2) {
         return Err(EquipmentMaintenanceMaterialError::InventoryRevisionExhausted);
     }

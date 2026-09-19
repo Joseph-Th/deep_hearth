@@ -242,26 +242,12 @@ pub fn validate_start_manual_power(
         duration,
     )
     .map_err(ManualPowerError::ConditionDuration)?;
-    state
-        .equipment()
-        .revision()
-        .checked_add(
-            state
-                .production()
-                .scheduled_equipment_revision_bucket_count()
-                .saturating_add(1),
-        )
-        .ok_or(ManualPowerError::EquipmentRevisionExhausted)?;
-    state
-        .energy()
-        .revision()
-        .checked_add(
-            state
-                .production()
-                .scheduled_released_energy_revision_bucket_count()
-                .saturating_add(1),
-        )
-        .ok_or(ManualPowerError::EnergyRevisionExhausted)?;
+    if !state.can_spend_equipment_revisions(1) {
+        return Err(ManualPowerError::EquipmentRevisionExhausted);
+    }
+    if !state.can_spend_energy_revisions(1) {
+        return Err(ManualPowerError::EnergyRevisionExhausted);
+    }
     let work = ManualPowerWork::new(
         request.method,
         equipment_use.trace(),

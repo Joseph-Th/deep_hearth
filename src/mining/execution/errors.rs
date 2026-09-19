@@ -296,10 +296,8 @@ impl From<MiningPhysicsError> for MiningStartError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningStartCommitError {
     TargetNoLongerResolved,
-    TargetMassChanged {
-        expected: Mass,
-        actual: Mass,
-    },
+    /// Hidden source state changed after validation. Exact reserve values stay non-oracular.
+    TargetChanged,
     StaleInventory {
         expected: u64,
         actual: u64,
@@ -336,11 +334,8 @@ impl Display for MiningStartCommitError {
             Self::TargetNoLongerResolved => formatter.write_str(
                 "validated mining target is no longer uniquely supported by current local evidence and geology",
             ),
-            Self::TargetMassChanged { expected, actual } => write!(
-                formatter,
-                "validated mining target source mass changed from {} mg to {} mg before commit",
-                expected.milligrams(),
-                actual.milligrams()
+            Self::TargetChanged => formatter.write_str(
+                "validated mining target changed after validation; resolve the target again",
             ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
@@ -388,7 +383,7 @@ impl Error for MiningStartCommitError {
         match self {
             Self::Work(error) => Some(error),
             Self::TargetNoLongerResolved
-            | Self::TargetMassChanged { .. }
+            | Self::TargetChanged
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::StaleMining { .. }

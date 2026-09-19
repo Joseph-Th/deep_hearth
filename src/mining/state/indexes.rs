@@ -35,4 +35,28 @@ impl MiningState {
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
         self.due_jobs.keys().next().copied()
     }
+
+    /// Returns the number of scheduled completion ticks that will mutate equipment condition.
+    ///
+    /// Completed and ready-to-claim jobs remain in durable history, so future revision budgeting
+    /// must use the due-work index rather than rescanning every retained mining record.
+    pub(crate) fn scheduled_equipment_revision_bucket_count(&self) -> u64 {
+        let count = self
+            .due_jobs
+            .values()
+            .filter(|jobs| {
+                jobs.iter().any(|id| {
+                    let job = self.jobs.get(id).unwrap_or_else(|| {
+                        panic!("runtime invariant broken: mining due index references missing job")
+                    });
+                    job.equipment_condition_after() != job.equipment_condition_before()
+                })
+            })
+            .count();
+        u64::try_from(count).unwrap_or(u64::MAX)
+    }
 }
+
+#[cfg(test)]
+#[path = "indexes_tests.rs"]
+mod tests;

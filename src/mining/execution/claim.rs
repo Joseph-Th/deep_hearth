@@ -247,6 +247,9 @@ pub fn validate_claim_mining_output(
         ReservedDepositPlanError::LotIdExhausted => MiningClaimError::LotIdExhausted,
         ReservedDepositPlanError::RevisionExhausted => MiningClaimError::InventoryRevisionExhausted,
     })?;
+    if !state.has_material_lot_id_headroom_from(inventory.next_lot_id(), 0) {
+        return Err(MiningClaimError::LotIdExhausted);
+    }
     if !state.can_spend_inventory_revisions(1) {
         return Err(MiningClaimError::InventoryRevisionExhausted);
     }

@@ -18,6 +18,7 @@ pub(super) struct ProductionJobIndexProjection {
     released_energy_store: Option<EnergyStoreId>,
     equipment: Option<EquipmentId>,
     output_stockpiles: BTreeSet<StockpileId>,
+    future_material_lot_id_demand: u64,
 }
 
 impl ProductionJobIndexProjection {
@@ -34,6 +35,7 @@ impl ProductionJobIndexProjection {
                 .iter()
                 .map(|stream| stream.destination())
                 .collect(),
+            future_material_lot_id_demand: job.future_material_lot_id_demand_upper_bound(),
         }
     }
 
@@ -44,12 +46,17 @@ impl ProductionJobIndexProjection {
     }
 }
 
+#[cfg(test)]
+#[path = "indexes_tests.rs"]
+mod tests;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct ProductionIndexes {
     pub(super) due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
     energy_occupancy: BTreeMap<EnergyStoreId, ProductionJobId>,
     equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
     output_stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
+    future_material_lot_id_demand: u64,
 }
 
 impl ProductionIndexes {
@@ -59,6 +66,7 @@ impl ProductionIndexes {
             energy_occupancy: BTreeMap::new(),
             equipment_occupancy: BTreeMap::new(),
             output_stockpile_occupancy: BTreeMap::new(),
+            future_material_lot_id_demand: 0,
         }
     }
 
@@ -70,6 +78,10 @@ impl ProductionIndexes {
     }
 
     fn insert_rebuilt(&mut self, id: ProductionJobId, projection: &ProductionJobIndexProjection) {
+        self.future_material_lot_id_demand = self
+            .future_material_lot_id_demand
+            .checked_add(projection.future_material_lot_id_demand)
+            .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"));
         if let Some(due_tick) = projection.due_tick {
             self.due_jobs.entry(due_tick).or_default().insert(id);
         }
@@ -87,8 +99,55 @@ impl ProductionIndexes {
         }
     }
 
+    pub(super) const fn future_material_lot_id_demand(&self) -> u64 {
+        self.future_material_lot_id_demand
+    }
+
     pub(super) fn earliest_due_tick(&self) -> Option<SimulationTick> {
         self.due_jobs.keys().next().copied()
+    }
+
+    pub(super) fn scheduled_bucket_count(&self) -> u64 {
+        u64::try_from(self.due_jobs.len())
+            .unwrap_or_else(|_| unreachable!("production due-bucket count fits memory"))
+    }
+
+    pub(super) fn scheduled_bucket_count_where(
+        &self,
+        mut job_matches: impl FnMut(ProductionJobId) -> bool,
+    ) -> u64 {
+        let count = self
+            .due_jobs
+            .values()
+            .filter(|jobs| jobs.iter().copied().any(&mut job_matches))
+            .count();
+        u64::try_from(count)
+            .unwrap_or_else(|_| unreachable!("production filtered due-bucket count fits memory"))
+    }
+
+    pub(super) fn scheduled_bucket_count_with_additional_tick_where(
+        &self,
+        additional_tick: SimulationTick,
+        mut job_matches: impl FnMut(ProductionJobId) -> bool,
+    ) -> u64 {
+        let mut matching_buckets = 0_usize;
+        let mut additional_tick_already_present = false;
+        for (tick, jobs) in &self.due_jobs {
+            if !jobs.iter().copied().any(&mut job_matches) {
+                continue;
+            }
+            matching_buckets = matching_buckets
+                .checked_add(1)
+                .unwrap_or_else(|| unreachable!("production due-bucket count fits memory"));
+            additional_tick_already_present |= *tick == additional_tick;
+        }
+        if !additional_tick_already_present {
+            matching_buckets = matching_buckets
+                .checked_add(1)
+                .unwrap_or_else(|| unreachable!("production due-bucket count fits memory"));
+        }
+        u64::try_from(matching_buckets)
+            .unwrap_or_else(|_| unreachable!("production due-bucket count fits u64"))
     }
 
     pub(super) fn jobs_due_at(&self, tick: SimulationTick) -> BTreeSet<ProductionJobId> {
@@ -243,6 +302,10 @@ impl ProductionIndexes {
         id: ProductionJobId,
         projection: &ProductionJobIndexProjection,
     ) {
+        self.future_material_lot_id_demand = self
+            .future_material_lot_id_demand
+            .checked_add(projection.future_material_lot_id_demand)
+            .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"));
         if let Some(due_tick) = projection.due_tick {
             self.insert_due_job(id, due_tick);
         }
@@ -275,6 +338,10 @@ impl ProductionIndexes {
         id: ProductionJobId,
         projection: &ProductionJobIndexProjection,
     ) {
+        self.future_material_lot_id_demand = self
+            .future_material_lot_id_demand
+            .checked_sub(projection.future_material_lot_id_demand)
+            .unwrap_or_else(|| panic!("production future lot-id demand underflowed"));
         if let Some(due_tick) = projection.due_tick {
             self.remove_due_job(id, due_tick);
         }

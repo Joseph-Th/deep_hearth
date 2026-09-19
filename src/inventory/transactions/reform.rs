@@ -423,6 +423,9 @@ pub(crate) fn validate_material_reform_from_selection(
         &lot_slices,
         &outputs,
     )?;
+    if !state.has_material_lot_id_headroom_from(identity_plan.next_lot_id, 0) {
+        return Err(MaterialReformError::LotIdExhausted);
+    }
     if !state.can_spend_inventory_revisions(1) {
         return Err(MaterialReformError::RevisionExhausted);
     }

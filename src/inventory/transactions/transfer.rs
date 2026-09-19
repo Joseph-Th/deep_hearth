@@ -26,7 +26,7 @@ use super::{
 /// commits exact custody and structural-load consequences, but ordinary runtime cannot manufacture a
 /// pathless logistics event because world logistics is outside the current production scope.
 #[must_use]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct MaterialTransferResolution {
     source: StockpileId,
     destination: StockpileId,

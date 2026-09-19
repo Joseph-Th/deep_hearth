@@ -20,6 +20,10 @@ use fluid::account_fluid_material;
 /// Chemical, gravitational, elastic, kinetic, and environmental thermal energy are not inferred
 /// here. This accounting covers finite stores, stored-fluid sensible heat, plus modeled sensible
 /// and solid/liquid latent energy represented by authoritative material forms.
+///
+/// This is a diagnostic conservation surface, not actor-safe observation. Geological thermal
+/// energy and the aggregate total include hidden finite geology and must not feed player policy;
+/// actor geological decisions use acquired knowledge instead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExplicitEnergyAccounting {
     stored: Energy,

@@ -25,6 +25,20 @@ pub(in super::super) fn validate_material_reservation(
     inbound_by_destination: BTreeMap<StockpileId, Mass>,
     completes_at: SimulationTick,
 ) -> Result<ValidatedMaterialReservation, StartProcessError> {
+    let future_output_parcels = resolution
+        .output_streams()
+        .iter()
+        .map(|stream| {
+            u64::try_from(stream.outputs().len())
+                .unwrap_or_else(|_| unreachable!("resolved production output count fits u64"))
+        })
+        .try_fold(0_u64, u64::checked_add)
+        .unwrap_or_else(|| unreachable!("resident resolved production outputs fit u64"));
+    if !state
+        .has_material_lot_id_headroom_from(state.inventory().next_lot_id(), future_output_parcels)
+    {
+        return Err(StartProcessError::MaterialLotIdExhausted);
+    }
     let reservation = validate_consumption_reservation_from_selection(
         state.inventory(),
         resolution.selection().clone(),
@@ -43,15 +57,7 @@ pub(in super::super) fn validate_material_reservation(
         .ok_or(StartProcessError::InventoryRevisionExhausted)?;
     if !state
         .production()
-        .has_revision_capacity_for_scheduled_ticks(
-            post_nonproduction_revision,
-            state
-                .production()
-                .jobs()
-                .filter(|job| !job.is_suspended())
-                .map(crate::production::ProductionJobRecord::completes_at)
-                .chain(std::iter::once(completes_at)),
-        )
+        .has_scheduled_revision_capacity_with_tick_from(post_nonproduction_revision, completes_at)
     {
         return Err(StartProcessError::InventoryRevisionExhausted);
     }

@@ -74,6 +74,7 @@ pub enum StartProcessError {
         duration_ticks: u64,
     },
     JobIdExhausted,
+    MaterialLotIdExhausted,
     InventoryRevisionExhausted,
     ProductionRevisionExhausted,
     EnergyRevisionExhausted,
@@ -249,6 +250,8 @@ impl Display for StartProcessError {
             Self::JobIdExhausted => {
                 formatter.write_str("production job identifier space is exhausted")
             }
+            Self::MaterialLotIdExhausted => formatter
+                .write_str("material lot identifier space cannot reserve production output"),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
             }
@@ -425,6 +428,7 @@ impl Error for StartProcessError {
             | Self::MassOverflow { .. }
             | Self::CompletionTickOverflow { .. }
             | Self::JobIdExhausted
+            | Self::MaterialLotIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::ProductionRevisionExhausted
             | Self::EnergyRevisionExhausted
