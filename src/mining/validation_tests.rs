@@ -3,6 +3,7 @@
 use super::*;
 
 use crate::content::{EQUIPMENT_JAW_CRUSHER, build_registries};
+use crate::mining::MiningJobId;
 
 #[test]
 fn trusted_replay_rejects_extraction_equipment_that_requires_installation() {

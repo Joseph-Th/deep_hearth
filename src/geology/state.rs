@@ -307,7 +307,7 @@ impl GeologyState {
     pub(crate) fn apply_extraction(
         &mut self,
         deposit: GeologicalDepositId,
-        remaining_after: Mass,
+        extracted: Mass,
         next_revision: u64,
     ) {
         assert_eq!(
@@ -318,6 +318,26 @@ impl GeologyState {
         let record = self.deposits.get_mut(&deposit).unwrap_or_else(|| {
             panic!("validated geological deposit disappeared without revision change")
         });
+        assert_eq!(
+            record.lifecycle,
+            GeologicalDepositLifecycle::Available,
+            "geological extraction cannot mutate an already depleted deposit"
+        );
+        assert!(
+            !extracted.is_zero(),
+            "geological extraction must transfer nonzero finite deposit mass"
+        );
+        let remaining_after = record
+            .remaining_mass
+            .checked_sub(extracted)
+            .unwrap_or_else(|| {
+                panic!(
+                    "geological extraction of {} mg exceeds deposit {} remaining mass {} mg",
+                    extracted.milligrams(),
+                    deposit.value(),
+                    record.remaining_mass.milligrams()
+                )
+            });
         record.remaining_mass = remaining_after;
         if remaining_after.is_zero() {
             record.lifecycle = GeologicalDepositLifecycle::Depleted;

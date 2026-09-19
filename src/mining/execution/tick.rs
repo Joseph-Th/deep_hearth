@@ -11,7 +11,7 @@ use super::super::MiningJobId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct GeologicalExtraction {
     deposit: GeologicalDepositId,
-    remaining_after: Mass,
+    mass: Mass,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,15 +65,9 @@ pub(crate) fn decide_mining_tick(
             record.deposit_mass_before(),
             "runtime invariant broken: working mining source mass changed before completion"
         );
-        let remaining_after = record
-            .deposit_mass_before()
-            .checked_sub(record.output().mass())
-            .unwrap_or_else(|| {
-                panic!("runtime invariant broken: mining output exceeds source trace")
-            });
         extraction = Some(GeologicalExtraction {
             deposit: record.deposit(),
-            remaining_after,
+            mass: record.output().mass(),
         });
         let equipment = state
             .equipment()
@@ -142,7 +136,7 @@ pub(crate) fn apply_mining_tick(
     };
     state.geology_state_mut().apply_extraction(
         plan.extraction.deposit,
-        plan.extraction.remaining_after,
+        plan.extraction.mass,
         next_geology_revision,
     );
     if let Some((expected_equipment_revision, next_equipment_revision)) = equipment_revision {

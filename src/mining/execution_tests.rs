@@ -1348,7 +1348,7 @@ fn validated_mining_start_rejects_hidden_reserve_change_without_disclosing_amoun
     let geology_revision = state.geology().revision();
     state.geology_state_mut().apply_extraction(
         deposit,
-        Mass::from_milligrams(900_000),
+        Mass::from_milligrams(100_000),
         geology_revision + 1,
     );
     let before = state.clone();
