@@ -130,6 +130,24 @@ fn physical_sample_hardness_is_carried_as_actor_visible_target_evidence() {
 }
 
 #[test]
+fn opaque_target_equality_cannot_reveal_hidden_deposit_identity() {
+    let region = bounds(0, 1);
+    let visible = MiningTargetResolution {
+        deposit: GeologicalDepositId::new(1),
+        region,
+        material: MATERIAL_COPPER,
+        excavation_hardness: None,
+    };
+    let same_visible_facts_different_owner = MiningTargetResolution {
+        deposit: GeologicalDepositId::new(2),
+        ..visible
+    };
+
+    assert_eq!(visible, same_visible_facts_different_owner);
+    assert!(!visible.has_same_authorization_binding(same_visible_facts_different_owner));
+}
+
+#[test]
 fn opaque_target_debug_exposes_only_acquired_target_facts() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_100B));

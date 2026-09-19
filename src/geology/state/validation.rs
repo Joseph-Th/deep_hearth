@@ -1,10 +1,11 @@
 //! Validates persisted geological deposit ownership and authored references.
 
 use crate::core::time::SimulationTick;
-use crate::material::{
-    MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy, validate_material_phase_state,
-};
+use crate::material::MaterialRegistry;
 
+use super::super::material_validation::{
+    GeologicalMaterialStateError, validate_geological_material_state,
+};
 use super::{
     GeologicalDepositId, GeologicalDepositLifecycle, GeologicalDepositRecord, GeologyState,
 };
@@ -117,56 +118,45 @@ fn validate_deposit_material_state(
             host: record.commodity.material(),
         });
     }
-    if materials
-        .get_material(record.commodity.material())
-        .is_none()
-    {
-        return Err(GeologyValidationError::UnknownCommodityMaterial {
-            deposit,
-            material: record.commodity.material(),
-        });
-    }
-    let Some(form) = materials.get_form(record.commodity.form()) else {
-        return Err(GeologyValidationError::UnknownCommodityForm {
-            deposit,
-            form: record.commodity.form(),
-        });
-    };
-    if !materials.has_commodity(record.commodity) {
-        return Err(GeologyValidationError::UnsupportedCommodity {
-            deposit,
-            commodity: record.commodity,
-        });
-    }
-    if form.phase() != MaterialPhase::Solid {
-        return Err(GeologyValidationError::UnsupportedCommodityPhase {
-            deposit,
-            form: record.commodity.form(),
-            phase: form.phase(),
-        });
-    }
-    if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
-        return Err(
-            GeologyValidationError::UnsupportedCommodityParticulateForm {
-                deposit,
-                form: record.commodity.form(),
-            },
-        );
-    }
-    for component in record.composition.components() {
-        if materials.get_material(component.material()).is_none() {
-            return Err(GeologyValidationError::UnknownCompositionMaterial {
-                deposit,
-                material: component.material(),
-            });
-        }
-    }
-    validate_material_phase_state(
+    validate_geological_material_state(
         materials,
         record.commodity,
         &record.composition,
         record.temperature,
     )
-    .map_err(|error| GeologyValidationError::InvalidPhaseState { deposit, error })?;
+    .map_err(|error| map_material_state_error(deposit, error))?;
     Ok(())
+}
+
+fn map_material_state_error(
+    deposit: GeologicalDepositId,
+    error: GeologicalMaterialStateError,
+) -> GeologyValidationError {
+    match error {
+        GeologicalMaterialStateError::UnknownCommodityMaterial { material } => {
+            GeologyValidationError::UnknownCommodityMaterial { deposit, material }
+        }
+        GeologicalMaterialStateError::UnknownCommodityForm { form } => {
+            GeologyValidationError::UnknownCommodityForm { deposit, form }
+        }
+        GeologicalMaterialStateError::UnsupportedCommodity { commodity } => {
+            GeologyValidationError::UnsupportedCommodity { deposit, commodity }
+        }
+        GeologicalMaterialStateError::UnsupportedCommodityPhase { form, phase } => {
+            GeologyValidationError::UnsupportedCommodityPhase {
+                deposit,
+                form,
+                phase,
+            }
+        }
+        GeologicalMaterialStateError::UnsupportedCommodityParticulateForm { form } => {
+            GeologyValidationError::UnsupportedCommodityParticulateForm { deposit, form }
+        }
+        GeologicalMaterialStateError::UnknownCompositionMaterial { material } => {
+            GeologyValidationError::UnknownCompositionMaterial { deposit, material }
+        }
+        GeologicalMaterialStateError::InvalidPhaseState(error) => {
+            GeologyValidationError::InvalidPhaseState { deposit, error }
+        }
+    }
 }

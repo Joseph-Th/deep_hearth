@@ -1,14 +1,84 @@
 //! Shared condition-adjusted equipment limits and transfer timing for thermal operations.
 
-use crate::capability::{CapabilityId, CapabilityValue};
+use crate::capability::{
+    CapabilityEvaluationError, CapabilityId, CapabilityValue, evaluate_capabilities,
+};
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
+use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{PowerDurationError, calculate_power_duration_ceiling};
-use crate::equipment::{EquipmentDefinition, resolve_equipment_capability};
+use crate::equipment::{
+    EquipmentDefinition, EquipmentId, EquipmentProviderError, ResolvedEquipmentProvider,
+    ValidatedEquipmentUse, resolve_equipment_capability, resolve_equipment_provider,
+};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
+use crate::production::ProcessId;
 use crate::registry::Registries;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ThermalEquipmentSetupError {
+    UnknownProcess { process: ProcessId },
+    Equipment(EquipmentProviderError),
+    Capability(CapabilityEvaluationError),
+    MissingTransferPower { capability: CapabilityId },
+    MissingMaximumTemperature { capability: CapabilityId },
+    MissingMaximumBatchMass { capability: CapabilityId },
+    BatchMassExceeded { selected: Mass, maximum: Mass },
+}
+
+/// One runtime equipment requirement set for a thermal production operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ThermalEquipmentRequest {
+    process: ProcessId,
+    equipment: EquipmentId,
+    transfer_power_capability: CapabilityId,
+    maximum_temperature_capability: CapabilityId,
+    maximum_batch_mass_capability: CapabilityId,
+    selected_mass: Mass,
+}
+
+impl ThermalEquipmentRequest {
+    pub(super) const fn new(
+        process: ProcessId,
+        equipment: EquipmentId,
+        transfer_power_capability: CapabilityId,
+        maximum_temperature_capability: CapabilityId,
+        maximum_batch_mass_capability: CapabilityId,
+        selected_mass: Mass,
+    ) -> Self {
+        Self {
+            process,
+            equipment,
+            transfer_power_capability,
+            maximum_temperature_capability,
+            maximum_batch_mass_capability,
+            selected_mass,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ResolvedThermalEquipment<'state> {
+    provider: ResolvedEquipmentProvider<'state>,
+    equipment_use: ValidatedEquipmentUse,
+    limits: ThermalPowerTemperatureLimits,
+}
+
+impl<'state> ResolvedThermalEquipment<'state> {
+    pub(super) const fn provider(self) -> ResolvedEquipmentProvider<'state> {
+        self.provider
+    }
+
+    pub(super) const fn equipment_use(self) -> ValidatedEquipmentUse {
+        self.equipment_use
+    }
+
+    pub(super) const fn limits(self) -> ThermalPowerTemperatureLimits {
+        self.limits
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ThermalPowerTemperatureError {
@@ -91,6 +161,70 @@ pub(super) fn validate_thermal_batch_mass(
         });
     }
     Ok(())
+}
+
+/// Resolves the shared runtime equipment contract for one thermal production operation.
+///
+/// This deliberately uses the non-exclusive provider resolver. Production/mining/manual-power
+/// occupancy remains visible to later process admission so resolution does not become
+/// authorization; maintenance and prospecting still retain their direct-custody exclusion.
+pub(super) fn resolve_runtime_thermal_equipment<'state>(
+    registries: &'state Registries,
+    state: &'state AppState,
+    request: ThermalEquipmentRequest,
+) -> Result<ResolvedThermalEquipment<'state>, ThermalEquipmentSetupError> {
+    let provider = resolve_equipment_provider(registries, state, request.equipment)
+        .map_err(ThermalEquipmentSetupError::Equipment)?;
+    let process_definition = registries.production().get_process(request.process).ok_or(
+        ThermalEquipmentSetupError::UnknownProcess {
+            process: request.process,
+        },
+    )?;
+    evaluate_capabilities(
+        registries.capabilities(),
+        &provider,
+        process_definition.capability_requirements(),
+    )
+    .map_err(ThermalEquipmentSetupError::Capability)?;
+    let limits = resolve_thermal_power_temperature_limits(
+        provider.definition(),
+        provider.condition(),
+        request.transfer_power_capability,
+        request.maximum_temperature_capability,
+    )
+    .map_err(|error| match error {
+        ThermalPowerTemperatureError::MissingTransferPower => {
+            ThermalEquipmentSetupError::MissingTransferPower {
+                capability: request.transfer_power_capability,
+            }
+        }
+        ThermalPowerTemperatureError::MissingMaximumTemperature => {
+            ThermalEquipmentSetupError::MissingMaximumTemperature {
+                capability: request.maximum_temperature_capability,
+            }
+        }
+    })?;
+    validate_thermal_batch_mass(
+        provider.definition(),
+        provider.condition(),
+        request.maximum_batch_mass_capability,
+        request.selected_mass,
+    )
+    .map_err(|error| match error {
+        ThermalBatchLimitError::MissingMaximumBatchMass => {
+            ThermalEquipmentSetupError::MissingMaximumBatchMass {
+                capability: request.maximum_batch_mass_capability,
+            }
+        }
+        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
+            ThermalEquipmentSetupError::BatchMassExceeded { selected, maximum }
+        }
+    })?;
+    Ok(ResolvedThermalEquipment {
+        equipment_use: provider.validated_use(),
+        provider,
+        limits,
+    })
 }
 
 /// Resolves the condition-adjusted single-batch mass ceiling without selecting a batch amount.

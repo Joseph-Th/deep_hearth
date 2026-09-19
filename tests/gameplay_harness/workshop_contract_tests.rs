@@ -135,7 +135,7 @@ fn depleted_warning_workshop_recharges_without_wasteful_service() {
         report.resources.maintenance_stock_remaining,
         definition
             .maintenance_profile()
-            .unwrap()
+            .unwrap_or_else(|| panic!("authored crusher profile disappeared"))
             .full_service_replacement_mass()
     );
     assert_eq!(

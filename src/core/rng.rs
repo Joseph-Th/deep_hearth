@@ -120,6 +120,21 @@ impl RandomState {
         }
         Ok(())
     }
+
+    /// Validates the subset of structurally valid RNG state reachable through current `AppState`
+    /// gameplay paths.
+    ///
+    /// Independent stream advancement is intentionally supported by the reusable RNG owner, but no
+    /// current production `AppState` path creates or advances a stream. Trusted load therefore must
+    /// not promote arbitrary valid PRNG continuation as if gameplay had produced it.
+    pub(crate) fn validate_current_app_state_reachability(
+        &self,
+    ) -> Result<(), RandomStateValidationError> {
+        if self != &Self::new(self.root_seed) {
+            return Err(RandomStateValidationError::UnreachableCurrentAppState);
+        }
+        Ok(())
+    }
 }
 
 /// Persistent random-state corruption detected during load validation.
@@ -128,6 +143,7 @@ pub enum RandomStateValidationError {
     MissingCoreStream,
     ZeroStreamId,
     InvalidStreamState { stream: RngStreamId },
+    UnreachableCurrentAppState,
 }
 
 impl Display for RandomStateValidationError {
@@ -141,6 +157,9 @@ impl Display for RandomStateValidationError {
                 formatter,
                 "random stream {} contains invalid PRNG state",
                 stream.value()
+            ),
+            Self::UnreachableCurrentAppState => formatter.write_str(
+                "random state contains stream continuation that current AppState gameplay cannot produce",
             ),
         }
     }

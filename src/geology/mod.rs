@@ -5,6 +5,7 @@
 #[cfg(any(test, feature = "test-gameplay"))]
 mod generation_execution;
 mod knowledge;
+mod material_validation;
 mod prospecting_action;
 mod prospecting_execution;
 mod state;

@@ -1,10 +1,9 @@
 //! Selected-batch sensible-heating resolution against exact matter, equipment, and finite energy.
 
-use crate::capability::evaluate_capabilities;
 use crate::core::quantity::{Energy, Power, Temperature};
 use crate::core::state::AppState;
 use crate::energy::{EnergyStoreId, assess_energy_supply_access, validate_energy_supply_request};
-use crate::equipment::{EquipmentId, resolve_equipment_provider};
+use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::production::{
     ProcessId, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
@@ -13,9 +12,8 @@ use crate::production::{
 use crate::registry::Registries;
 
 use super::super::equipment_physics::{
-    ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
-    resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
-    validate_thermal_batch_mass,
+    ThermalEquipmentRequest, ThermalEquipmentSetupError, ThermalTransferTimingError,
+    resolve_runtime_thermal_equipment, resolve_thermal_transfer_timing,
 };
 use super::sensible_batch::{SensibleHeatingBatchError, resolve_sensible_heating_batch};
 
@@ -32,6 +30,34 @@ pub struct ResolvedSensibleHeating {
     target: Temperature,
     required_energy: Energy,
     transfer_power: Power,
+}
+
+fn map_thermal_equipment_error(
+    error: ThermalEquipmentSetupError,
+) -> SensibleHeatingResolutionError {
+    match error {
+        ThermalEquipmentSetupError::UnknownProcess { process } => {
+            SensibleHeatingResolutionError::UnknownThermalProcess { process }
+        }
+        ThermalEquipmentSetupError::Equipment(error) => {
+            SensibleHeatingResolutionError::Equipment(error)
+        }
+        ThermalEquipmentSetupError::Capability(error) => {
+            SensibleHeatingResolutionError::Capability(error)
+        }
+        ThermalEquipmentSetupError::MissingTransferPower { capability } => {
+            SensibleHeatingResolutionError::MissingHeatingPower { capability }
+        }
+        ThermalEquipmentSetupError::MissingMaximumTemperature { capability } => {
+            SensibleHeatingResolutionError::MissingMaximumTemperature { capability }
+        }
+        ThermalEquipmentSetupError::MissingMaximumBatchMass { capability } => {
+            SensibleHeatingResolutionError::MissingMaximumBatchMass { capability }
+        }
+        ThermalEquipmentSetupError::BatchMassExceeded { selected, maximum } => {
+            SensibleHeatingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
+        }
+    }
 }
 
 impl ResolvedSensibleHeating {
@@ -129,38 +155,22 @@ pub fn resolve_sensible_heating_process(
         .ok_or(SensibleHeatingResolutionError::UnknownThermalProcess { process })?;
     let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(SensibleHeatingResolutionError::Input)?;
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(SensibleHeatingResolutionError::Equipment)?;
-    let equipment_use = provider.validated_use();
-    let process_definition = match registries.production().get_process(process) {
-        Some(process_definition) => process_definition,
-        None => return Err(SensibleHeatingResolutionError::UnknownThermalProcess { process }),
-    };
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
+    let thermal_equipment = resolve_runtime_thermal_equipment(
+        registries,
+        state,
+        ThermalEquipmentRequest::new(
+            process,
+            equipment,
+            definition.heating_power_capability(),
+            definition.max_temperature_capability(),
+            definition.max_batch_mass_capability(),
+            inputs.input_mass(),
+        ),
     )
-    .map_err(SensibleHeatingResolutionError::Capability)?;
-
-    let limits = resolve_thermal_power_temperature_limits(
-        provider.definition(),
-        provider.condition(),
-        definition.heating_power_capability(),
-        definition.max_temperature_capability(),
-    )
-    .map_err(|error| match error {
-        ThermalPowerTemperatureError::MissingTransferPower => {
-            SensibleHeatingResolutionError::MissingHeatingPower {
-                capability: definition.heating_power_capability(),
-            }
-        }
-        ThermalPowerTemperatureError::MissingMaximumTemperature => {
-            SensibleHeatingResolutionError::MissingMaximumTemperature {
-                capability: definition.max_temperature_capability(),
-            }
-        }
-    })?;
+    .map_err(map_thermal_equipment_error)?;
+    let provider = thermal_equipment.provider();
+    let equipment_use = thermal_equipment.equipment_use();
+    let limits = thermal_equipment.limits();
     let maximum_temperature = limits.maximum_temperature();
     if target > maximum_temperature {
         return Err(
@@ -170,23 +180,6 @@ pub fn resolve_sensible_heating_process(
             },
         );
     }
-    validate_thermal_batch_mass(
-        provider.definition(),
-        provider.condition(),
-        definition.max_batch_mass_capability(),
-        inputs.input_mass(),
-    )
-    .map_err(|error| match error {
-        ThermalBatchLimitError::MissingMaximumBatchMass => {
-            SensibleHeatingResolutionError::MissingMaximumBatchMass {
-                capability: definition.max_batch_mass_capability(),
-            }
-        }
-        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
-            SensibleHeatingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
-        }
-    })?;
-
     let batch =
         resolve_sensible_heating_batch(registries.materials(), inputs.consumed_inputs(), target)
             .map_err(map_sensible_heating_batch_error)?;

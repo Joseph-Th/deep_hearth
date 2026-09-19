@@ -64,7 +64,8 @@ pub(in crate::mining) struct MiningJobSchedule {
     pub(in crate::mining) phase: MiningJobPhase,
 }
 
-#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Deserialize)]
+#[cfg_attr(any(test, feature = "test-gameplay"), derive(PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
 pub struct MiningJobRecord {
     pub(in crate::mining::state) identity: MiningJobIdentity,

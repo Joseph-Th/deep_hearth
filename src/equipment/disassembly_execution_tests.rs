@@ -21,6 +21,7 @@ use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
+use crate::registry::Registries;
 use crate::survival::initialize_player_survival;
 
 fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId {

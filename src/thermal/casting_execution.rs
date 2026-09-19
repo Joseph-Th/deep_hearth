@@ -1,12 +1,12 @@
 //! Pure-material casting/solidification with exact heat release into a finite thermal-energy sink.
 
-use crate::capability::{CapabilityId, evaluate_capabilities};
+use crate::capability::CapabilityId;
 use crate::core::quantity::{Energy, Power, Temperature};
 use crate::core::state::AppState;
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, validate_energy_sink_access, validate_energy_sink_release,
 };
-use crate::equipment::{EquipmentId, resolve_equipment_provider};
+use crate::equipment::EquipmentId;
 use crate::inventory::MaterialLotSelection;
 use crate::inventory::StockpileId;
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec};
@@ -17,9 +17,8 @@ use crate::production::{
 use crate::registry::Registries;
 
 use super::equipment_physics::{
-    ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
-    resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
-    validate_thermal_batch_mass,
+    ThermalEquipmentRequest, ThermalEquipmentSetupError, ThermalTransferTimingError,
+    resolve_runtime_thermal_equipment, resolve_thermal_transfer_timing,
 };
 use super::phase_change_batch::{
     PurePhaseChangeBatchError, PurePhaseChangeDirection, resolve_pure_phase_change_batch,
@@ -143,6 +142,28 @@ impl CastingProcessDefinition {
 
 /// Failure while deriving solidification physics from exact consumed liquid traces.
 pub type CastingBatchError = PurePhaseChangeBatchError;
+
+fn map_thermal_equipment_error(error: ThermalEquipmentSetupError) -> CastingResolutionError {
+    match error {
+        ThermalEquipmentSetupError::UnknownProcess { process } => {
+            CastingResolutionError::UnknownThermalProcess { process }
+        }
+        ThermalEquipmentSetupError::Equipment(error) => CastingResolutionError::Equipment(error),
+        ThermalEquipmentSetupError::Capability(error) => CastingResolutionError::Capability(error),
+        ThermalEquipmentSetupError::MissingTransferPower { capability } => {
+            CastingResolutionError::MissingCoolingPower { capability }
+        }
+        ThermalEquipmentSetupError::MissingMaximumTemperature { capability } => {
+            CastingResolutionError::MissingMaximumTemperature { capability }
+        }
+        ThermalEquipmentSetupError::MissingMaximumBatchMass { capability } => {
+            CastingResolutionError::MissingMaximumBatchMass { capability }
+        }
+        ThermalEquipmentSetupError::BatchMassExceeded { selected, maximum } => {
+            CastingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
+        }
+    }
+}
 
 fn resolve_casting_batch(
     materials: &crate::material::MaterialRegistry,
@@ -277,54 +298,22 @@ pub fn resolve_casting_process(
         .ok_or(CastingResolutionError::UnknownThermalProcess { process })?;
     let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(CastingResolutionError::Input)?;
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(CastingResolutionError::Equipment)?;
-    let equipment_use = provider.validated_use();
-    let process_definition = match registries.production().get_process(process) {
-        Some(process_definition) => process_definition,
-        None => return Err(CastingResolutionError::UnknownThermalProcess { process }),
-    };
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
+    let thermal_equipment = resolve_runtime_thermal_equipment(
+        registries,
+        state,
+        ThermalEquipmentRequest::new(
+            process,
+            equipment,
+            definition.cooling_power_capability(),
+            definition.max_temperature_capability(),
+            definition.max_batch_mass_capability(),
+            inputs.input_mass(),
+        ),
     )
-    .map_err(CastingResolutionError::Capability)?;
-
-    let limits = resolve_thermal_power_temperature_limits(
-        provider.definition(),
-        provider.condition(),
-        definition.cooling_power_capability(),
-        definition.max_temperature_capability(),
-    )
-    .map_err(|error| match error {
-        ThermalPowerTemperatureError::MissingTransferPower => {
-            CastingResolutionError::MissingCoolingPower {
-                capability: definition.cooling_power_capability(),
-            }
-        }
-        ThermalPowerTemperatureError::MissingMaximumTemperature => {
-            CastingResolutionError::MissingMaximumTemperature {
-                capability: definition.max_temperature_capability(),
-            }
-        }
-    })?;
-    validate_thermal_batch_mass(
-        provider.definition(),
-        provider.condition(),
-        definition.max_batch_mass_capability(),
-        inputs.input_mass(),
-    )
-    .map_err(|error| match error {
-        ThermalBatchLimitError::MissingMaximumBatchMass => {
-            CastingResolutionError::MissingMaximumBatchMass {
-                capability: definition.max_batch_mass_capability(),
-            }
-        }
-        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
-            CastingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
-        }
-    })?;
+    .map_err(map_thermal_equipment_error)?;
+    let provider = thermal_equipment.provider();
+    let equipment_use = thermal_equipment.equipment_use();
+    let limits = thermal_equipment.limits();
 
     let batch = resolve_casting_batch(
         registries.materials(),

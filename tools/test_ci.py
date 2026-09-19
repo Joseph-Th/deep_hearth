@@ -794,6 +794,21 @@ class LocalCiPlanTests(unittest.TestCase):
             r"#\[derive\([^)]*\b(?:Clone|PartialEq|Eq)\b[^)]*\)\]\s*pub struct AppState",
         )
 
+    def test_mining_hidden_snapshot_traits_are_evaluation_only(self) -> None:
+        state_source = read_maintained_text(ROOT / "src" / "mining" / "state.rs")
+        job_source = read_maintained_text(ROOT / "src" / "mining" / "state" / "job.rs")
+        expected = '#[cfg_attr(any(test, feature = "test-gameplay"), derive(PartialEq, Eq))]'
+        self.assertIn(expected, state_source)
+        self.assertIn(expected, job_source)
+        self.assertNotRegex(
+            state_source,
+            r"#\[derive\([^)]*\b(?:PartialEq|Eq)\b[^)]*\)\]\s*#\[serde\(deny_unknown_fields\)\]\s*pub struct MiningState",
+        )
+        self.assertNotRegex(
+            job_source,
+            r"#\[derive\([^)]*\b(?:PartialEq|Eq)\b[^)]*\)\]\s*#\[serde\(deny_unknown_fields\)\]\s*pub struct MiningJobRecord",
+        )
+
     def test_gameplay_harness_cannot_read_authoritative_geology(self) -> None:
         forbidden = re.compile(r"\.geology\(\)|\bGeologicalDepositId\b|\bget_deposit\(")
         offenders = [

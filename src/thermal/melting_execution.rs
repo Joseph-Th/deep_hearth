@@ -1,12 +1,12 @@
 //! Resolves and replays pure-material melting operations.
 
-use crate::capability::{CapabilityId, evaluate_capabilities};
+use crate::capability::CapabilityId;
 use crate::core::quantity::{Energy, Power, Temperature};
 use crate::core::state::AppState;
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, assess_energy_supply_access, validate_energy_supply_request,
 };
-use crate::equipment::{EquipmentId, resolve_equipment_provider};
+use crate::equipment::EquipmentId;
 use crate::inventory::MaterialLotSelection;
 use crate::inventory::StockpileId;
 use crate::material::{FormId, MaterialId};
@@ -18,9 +18,8 @@ use crate::registry::Registries;
 
 use super::PhaseChangeProcessProfile;
 use super::equipment_physics::{
-    ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
-    resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
-    validate_thermal_batch_mass,
+    ThermalEquipmentRequest, ThermalEquipmentSetupError, ThermalTransferTimingError,
+    resolve_runtime_thermal_equipment, resolve_thermal_transfer_timing,
 };
 use super::phase_change_batch::{
     PurePhaseChangeBatchError, PurePhaseChangeDirection, resolve_pure_phase_change_batch,
@@ -114,6 +113,28 @@ impl MeltingProcessDefinition {
 
 /// Failure while deriving pure melting physics from exact consumed material traces.
 pub type MeltingBatchError = PurePhaseChangeBatchError;
+
+fn map_thermal_equipment_error(error: ThermalEquipmentSetupError) -> MeltingResolutionError {
+    match error {
+        ThermalEquipmentSetupError::UnknownProcess { process } => {
+            MeltingResolutionError::UnknownThermalProcess { process }
+        }
+        ThermalEquipmentSetupError::Equipment(error) => MeltingResolutionError::Equipment(error),
+        ThermalEquipmentSetupError::Capability(error) => MeltingResolutionError::Capability(error),
+        ThermalEquipmentSetupError::MissingTransferPower { capability } => {
+            MeltingResolutionError::MissingHeatingPower { capability }
+        }
+        ThermalEquipmentSetupError::MissingMaximumTemperature { capability } => {
+            MeltingResolutionError::MissingMaximumTemperature { capability }
+        }
+        ThermalEquipmentSetupError::MissingMaximumBatchMass { capability } => {
+            MeltingResolutionError::MissingMaximumBatchMass { capability }
+        }
+        ThermalEquipmentSetupError::BatchMassExceeded { selected, maximum } => {
+            MeltingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
+        }
+    }
+}
 
 fn resolve_melting_batch(
     materials: &crate::material::MaterialRegistry,
@@ -221,54 +242,22 @@ pub fn resolve_melting_process(
         .ok_or(MeltingResolutionError::UnknownThermalProcess { process })?;
     let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(MeltingResolutionError::Input)?;
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(MeltingResolutionError::Equipment)?;
-    let equipment_use = provider.validated_use();
-    let process_definition = match registries.production().get_process(process) {
-        Some(process_definition) => process_definition,
-        None => return Err(MeltingResolutionError::UnknownThermalProcess { process }),
-    };
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
+    let thermal_equipment = resolve_runtime_thermal_equipment(
+        registries,
+        state,
+        ThermalEquipmentRequest::new(
+            process,
+            equipment,
+            definition.heating_power_capability(),
+            definition.max_temperature_capability(),
+            definition.max_batch_mass_capability(),
+            inputs.input_mass(),
+        ),
     )
-    .map_err(MeltingResolutionError::Capability)?;
-
-    let limits = resolve_thermal_power_temperature_limits(
-        provider.definition(),
-        provider.condition(),
-        definition.heating_power_capability(),
-        definition.max_temperature_capability(),
-    )
-    .map_err(|error| match error {
-        ThermalPowerTemperatureError::MissingTransferPower => {
-            MeltingResolutionError::MissingHeatingPower {
-                capability: definition.heating_power_capability(),
-            }
-        }
-        ThermalPowerTemperatureError::MissingMaximumTemperature => {
-            MeltingResolutionError::MissingMaximumTemperature {
-                capability: definition.max_temperature_capability(),
-            }
-        }
-    })?;
-    validate_thermal_batch_mass(
-        provider.definition(),
-        provider.condition(),
-        definition.max_batch_mass_capability(),
-        inputs.input_mass(),
-    )
-    .map_err(|error| match error {
-        ThermalBatchLimitError::MissingMaximumBatchMass => {
-            MeltingResolutionError::MissingMaximumBatchMass {
-                capability: definition.max_batch_mass_capability(),
-            }
-        }
-        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
-            MeltingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
-        }
-    })?;
+    .map_err(map_thermal_equipment_error)?;
+    let provider = thermal_equipment.provider();
+    let equipment_use = thermal_equipment.equipment_use();
+    let limits = thermal_equipment.limits();
 
     let batch = resolve_melting_batch(registries.materials(), definition, inputs.consumed_inputs())
         .map_err(MeltingResolutionError::Batch)?;

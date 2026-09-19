@@ -9,10 +9,12 @@ use crate::energy::{EnergyStoreOccupancy, energy_store_occupancy};
 use crate::registry::Registries;
 
 use crate::energy::definitions::{EnergyCarrier, EnergyStoreDefinitionId};
-use crate::energy::state::{EnergyState, EnergyStoreId};
+use crate::energy::state::EnergyStoreId;
 
 mod capacity;
+mod completion;
 mod errors;
+mod reservation;
 
 #[cfg(test)]
 pub(crate) use capacity::project_energy_sink_stored_at_release;
@@ -20,8 +22,12 @@ pub(crate) use capacity::{
     EnergySinkCapacityError, available_energy_sink_capacity_at_release,
     validate_energy_sink_capacity_at_release,
 };
+pub(crate) use completion::{
+    apply_released_energy_outcomes, assert_released_energy_outcomes_available,
+};
 pub(crate) use errors::EnergyIngressReservationError;
 pub use errors::EnergySinkError;
+pub(crate) use reservation::{EnergyIngressReservation, validate_energy_ingress_reservation};
 
 /// Revision-bound access to one available finite sink before a deferred release amount is known to
 /// fit. Thermal resolution uses this to discover the sink power limit before duration determines
@@ -209,143 +215,4 @@ pub(crate) fn validate_energy_sink_release(
         },
         max_input_power: access.max_input_power,
     })
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct EnergyIngressReservation {
-    expected_revision: u64,
-    trace: ReleasedEnergyTrace,
-}
-
-impl EnergyIngressReservation {
-    pub(crate) const fn expected_revision(self) -> u64 {
-        self.expected_revision
-    }
-
-    pub(crate) const fn trace(self) -> ReleasedEnergyTrace {
-        self.trace
-    }
-
-    pub(crate) fn assert_matches_state(&self, state: &EnergyState) {
-        assert_eq!(
-            state.revision(),
-            self.expected_revision,
-            "energy ingress reservation requires its validated owner revision"
-        );
-        let record = state.get_store(self.trace.destination).unwrap_or_else(|| {
-            panic!(
-                "validated energy sink {} disappeared before process start",
-                self.trace.destination.value()
-            )
-        });
-        assert_eq!(
-            record.definition(),
-            self.trace.definition,
-            "validated energy sink definition changed before process start"
-        );
-    }
-}
-
-pub(crate) fn validate_energy_ingress_reservation(
-    registries: &Registries,
-    state: &EnergyState,
-    selection: ValidatedEnergySink,
-    release_after: TickSpan,
-) -> Result<EnergyIngressReservation, EnergyIngressReservationError> {
-    if state.revision() != selection.expected_revision {
-        return Err(EnergyIngressReservationError::StaleSelection {
-            expected: selection.expected_revision,
-            actual: state.revision(),
-        });
-    }
-    let trace = selection.trace;
-    let Some(record) = state.get_store(trace.destination) else {
-        return Err(EnergyIngressReservationError::UnknownStore {
-            store: trace.destination,
-        });
-    };
-    validate_energy_sink_capacity_at_release(
-        registries,
-        record.definition(),
-        record.stored(),
-        trace.energy,
-        release_after,
-    )
-    .map_err(|error| match error {
-        EnergySinkCapacityError::Overflow => EnergyIngressReservationError::CapacityOverflow {
-            store: trace.destination,
-        },
-        EnergySinkCapacityError::Insufficient {
-            stored,
-            requested,
-            capacity,
-        } => EnergyIngressReservationError::InsufficientCapacity {
-            store: trace.destination,
-            stored,
-            requested,
-            capacity,
-        },
-    })?;
-    Ok(EnergyIngressReservation {
-        expected_revision: state.revision(),
-        trace,
-    })
-}
-
-pub(crate) fn apply_released_energy_outcomes(
-    state: &mut EnergyState,
-    expected_revision: u64,
-    next_revision: u64,
-    traces: &[ReleasedEnergyTrace],
-) {
-    assert_released_energy_outcomes_available(state, expected_revision, next_revision, traces);
-    for trace in traces {
-        state.add_stored_energy(trace.destination, trace.energy);
-    }
-    state.apply_revision(next_revision);
-}
-
-pub(crate) fn assert_released_energy_outcomes_available(
-    state: &EnergyState,
-    expected_revision: u64,
-    next_revision: u64,
-    traces: &[ReleasedEnergyTrace],
-) {
-    assert_eq!(
-        state.revision(),
-        expected_revision,
-        "released-energy completion requires its planned energy revision"
-    );
-    assert_eq!(
-        expected_revision.checked_add(1),
-        Some(next_revision),
-        "released-energy completion must advance the energy revision exactly once"
-    );
-    let mut additions = std::collections::BTreeMap::<EnergyStoreId, Energy>::new();
-    for trace in traces {
-        let record = state.get_store(trace.destination).unwrap_or_else(|| {
-            panic!(
-                "released-energy destination {} disappeared before commit",
-                trace.destination.value()
-            )
-        });
-        assert_eq!(
-            record.definition(),
-            trace.definition,
-            "released-energy destination definition changed before commit"
-        );
-        let total = additions.entry(trace.destination).or_insert(Energy::ZERO);
-        *total = total
-            .checked_add(trace.energy)
-            .unwrap_or_else(|| panic!("released-energy batch overflowed"));
-    }
-    for (store, addition) in additions {
-        let record = state
-            .get_store(store)
-            .unwrap_or_else(|| unreachable!("released-energy destination was prechecked"));
-        record
-            .stored()
-            .checked_add(addition)
-            .unwrap_or_else(|| panic!("released-energy destination overflowed before commit"));
-    }
 }

@@ -1,29 +1,29 @@
 //! Read-only planning for due production jobs and their crossed-owner completion effects.
 
-use std::collections::BTreeSet;
-
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::energy::ReleasedEnergyTrace;
 use crate::equipment::EquipmentOperationConditionOutcome;
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, ReservedDepositPlan, ReservedDepositPlanError,
-    ReservedDepositRequest, StockpileStoredMassChange, StockpileStructuralLoadError,
-    ValidatedStockpileStructuralLoad, decide_reserved_deposits,
-    validate_stockpile_stored_mass_changes,
+    ReservedDepositRequest, StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
+    decide_reserved_deposits, validate_stockpile_stored_mass_changes,
 };
 use crate::labor::PlayerWork;
 use crate::registry::Registries;
-use crate::structural::StructuralMutationError;
 
 use super::super::super::state::{
     ProductionJobId, ProductionJobRecord, ProductionSuspensionReason,
 };
 use super::availability::decide_availability_changes;
 use super::{
-    CompletionPlan, CompletionPlanError, CompletionRevisionPlan, PlayerLaborRevisionDependencies,
+    CompletionPlan, CompletionPlanError, PlayerLaborRevisionDependencies,
     ProductionAvailabilityChange, find_availability_change,
 };
+
+mod revision_capacity;
+
+use revision_capacity::{build_completion_revision_plan, validate_resumed_job_revision_capacity};
 
 struct DueCompletionPlanning {
     jobs: Vec<ProductionJobId>,
@@ -41,170 +41,6 @@ impl DueCompletionPlanning {
             released_energy_outcomes: Vec::new(),
         }
     }
-}
-
-fn planned_revision(
-    expected: u64,
-    changed: bool,
-    exhausted: CompletionPlanError,
-) -> Result<u64, CompletionPlanError> {
-    if !changed {
-        return Ok(expected);
-    }
-    expected.checked_add(1).ok_or(exhausted)
-}
-
-fn build_completion_revision_plan(
-    state: &AppState,
-    production_changed: bool,
-    planning: &DueCompletionPlanning,
-    player_labor_dependencies: Option<PlayerLaborRevisionDependencies>,
-) -> Result<CompletionRevisionPlan, CompletionPlanError> {
-    let expected_production_revision = state.production().revision();
-    let expected_equipment_revision = state.equipment().revision();
-    let expected_energy_revision = state.energy().revision();
-    Ok(CompletionRevisionPlan {
-        expected_production_revision,
-        next_production_revision: planned_revision(
-            expected_production_revision,
-            production_changed,
-            CompletionPlanError::ProductionRevision,
-        )?,
-        expected_equipment_revision,
-        next_equipment_revision: planned_revision(
-            expected_equipment_revision,
-            !planning.equipment_outcomes.is_empty(),
-            CompletionPlanError::EquipmentRevision,
-        )?,
-        expected_energy_revision,
-        next_energy_revision: planned_revision(
-            expected_energy_revision,
-            !planning.released_energy_outcomes.is_empty(),
-            CompletionPlanError::EnergyRevision,
-        )?,
-        expected_structure_revision: state.structures().revision(),
-        player_labor_dependencies,
-    })
-}
-
-fn projected_completion_tick(
-    job: &ProductionJobRecord,
-    due_ids: &BTreeSet<ProductionJobId>,
-    availability_changes: &[ProductionAvailabilityChange],
-) -> Option<SimulationTick> {
-    if due_ids.contains(&job.id()) {
-        return None;
-    }
-    match find_availability_change(availability_changes, job.id()) {
-        Some(ProductionAvailabilityChange::Resumed {
-            scheduled_completion,
-            ..
-        }) => Some(scheduled_completion),
-        Some(
-            ProductionAvailabilityChange::Suspended { .. }
-            | ProductionAvailabilityChange::SuspensionReasonChanged { .. },
-        ) => None,
-        None if job.is_suspended() => None,
-        None => Some(job.completes_at()),
-    }
-}
-
-fn checked_revision_capacity(revision: u64, steps: impl IntoIterator<Item = u64>) -> bool {
-    steps
-        .into_iter()
-        .try_fold(revision, u64::checked_add)
-        .is_some()
-}
-
-fn bucket_count(ticks: &BTreeSet<SimulationTick>) -> u64 {
-    u64::try_from(ticks.len())
-        .unwrap_or_else(|_| unreachable!("projected production bucket count fits memory"))
-}
-
-fn validate_resumed_job_revision_capacity(
-    state: &AppState,
-    due_ids: &BTreeSet<ProductionJobId>,
-    plan: &CompletionPlan,
-) -> Result<(), CompletionPlanError> {
-    let availability_changes = &plan.availability_changes;
-    if !availability_changes
-        .iter()
-        .any(|change| matches!(change, ProductionAvailabilityChange::Resumed { .. }))
-    {
-        return Ok(());
-    }
-
-    let mut completion_ticks = BTreeSet::new();
-    let mut equipment_ticks = BTreeSet::new();
-    let mut energy_ticks = BTreeSet::new();
-    let mut structure_ticks = BTreeSet::new();
-    for job in state.production().jobs() {
-        let Some(completes_at) = projected_completion_tick(job, due_ids, availability_changes)
-        else {
-            continue;
-        };
-        completion_ticks.insert(completes_at);
-        if job.requires_equipment_revision_at_completion() {
-            equipment_ticks.insert(completes_at);
-        }
-        if job.requires_energy_revision_at_completion() {
-            energy_ticks.insert(completes_at);
-        }
-        if job.requires_structure_revision_at_completion(state.inventory()) {
-            structure_ticks.insert(completes_at);
-        }
-    }
-
-    if !checked_revision_capacity(
-        plan.revisions.next_production_revision,
-        [bucket_count(&completion_ticks)],
-    ) {
-        return Err(CompletionPlanError::ProductionRevision);
-    }
-    if !checked_revision_capacity(
-        state.inventory().revision(),
-        [
-            u64::from(!plan.inventory_deposits.is_empty()),
-            state.future_nonproduction_inventory_revision_demand(),
-            bucket_count(&completion_ticks),
-        ],
-    ) {
-        return Err(CompletionPlanError::InventoryRevision);
-    }
-    if !checked_revision_capacity(
-        state.equipment().revision(),
-        [
-            u64::from(!plan.equipment_outcomes.is_empty()),
-            state.future_nonproduction_equipment_revision_demand(),
-            bucket_count(&equipment_ticks),
-        ],
-    ) {
-        return Err(CompletionPlanError::EquipmentRevision);
-    }
-    if !checked_revision_capacity(
-        state.energy().revision(),
-        [
-            u64::from(!plan.released_energy_outcomes.is_empty()),
-            state.future_nonproduction_energy_revision_demand(),
-            bucket_count(&energy_ticks),
-        ],
-    ) {
-        return Err(CompletionPlanError::EnergyRevision);
-    }
-    if !checked_revision_capacity(
-        state.structures().revision(),
-        [
-            plan.structural_load
-                .as_ref()
-                .map_or(0, ValidatedStockpileStructuralLoad::revision_delta),
-            bucket_count(&structure_ticks),
-        ],
-    ) {
-        return Err(CompletionPlanError::StructuralLoad(
-            StockpileStructuralLoadError::Structure(StructuralMutationError::RevisionExhausted),
-        ));
-    }
-    Ok(())
 }
 
 /// Adds the end-of-tick suspension required when fatal survival resolution releases unfinished
@@ -295,7 +131,8 @@ pub(crate) fn decide_due_completions(
     let revisions = build_completion_revision_plan(
         state,
         !due_ids.is_empty() || !availability_changes.is_empty(),
-        &planning,
+        !planning.equipment_outcomes.is_empty(),
+        !planning.released_energy_outcomes.is_empty(),
         player_labor_dependencies,
     )?;
     let inventory_deposits = decide_reserved_deposits(

@@ -55,8 +55,9 @@ pub(in super::super) fn validate_equipment_resources(
     let changes_condition = resolution
         .equipment_condition_after()
         .is_some_and(|after| after != trace.condition());
-    let post_nonproduction_revision = actual
-        .checked_add(state.future_nonproduction_equipment_revision_demand())
+    let post_nonproduction_revision = state
+        .checked_future_nonproduction_equipment_revision_demand()
+        .and_then(|future| actual.checked_add(future))
         .ok_or(StartProcessError::EquipmentRevisionExhausted)?;
     if changes_condition
         && !state

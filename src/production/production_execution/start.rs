@@ -144,14 +144,12 @@ pub fn validate_start_process_routed(
     validate_start_process_routed_internal(registries, state, resolution, source, routes, false)
 }
 
-fn validate_start_process_routed_internal(
+fn validate_resolution_contract(
     registries: &Registries,
-    state: &AppState,
     resolution: &ProcessResolution,
     source: StockpileId,
-    routes: &[ProcessOutputRoute],
     allow_player_labor: bool,
-) -> Result<ValidatedStartProcess, StartProcessError> {
+) -> Result<super::super::ProcessId, StartProcessError> {
     let process = resolution.process();
     if source != resolution.source() {
         return Err(StartProcessError::ResolutionSourceMismatch {
@@ -193,6 +191,18 @@ fn validate_start_process_routed_internal(
             StartProcessError::ResolutionEnergyTopologyMismatch { process }
         }
     })?;
+    Ok(process)
+}
+
+fn validate_start_process_routed_internal(
+    registries: &Registries,
+    state: &AppState,
+    resolution: &ProcessResolution,
+    source: StockpileId,
+    routes: &[ProcessOutputRoute],
+    allow_player_labor: bool,
+) -> Result<ValidatedStartProcess, StartProcessError> {
+    let process = validate_resolution_contract(registries, resolution, source, allow_player_labor)?;
     let ValidatedOutputRouting {
         output_streams,
         inbound_by_destination,

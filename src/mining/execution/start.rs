@@ -1,10 +1,10 @@
-//! Mining start admission and atomic commitment.
+//! Mining start admission and revision-bound commitment.
 
 use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::{
-    EquipmentId, EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy,
+    EquipmentId, EquipmentOccupancy, EquipmentOperationTrace,
     resolve_equipment_provider_with_occupancy,
 };
 use crate::geology::GeologicalDepositId;
@@ -13,18 +13,22 @@ use crate::inventory::{
     validate_inbound_reservation, validate_stockpile_storage,
     validate_stockpile_support_for_new_inbound,
 };
-use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
+use crate::labor::{PlayerWork, validate_player_work_start};
 use crate::maintenance::Condition;
 use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 
-use super::errors::{MiningStartCommitError, MiningStartError};
+use super::errors::MiningStartError;
 use crate::mining::physics::resolve_mining_physics;
 use crate::mining::state::{MiningJobIdentity, MiningJobResources, MiningJobSchedule};
 use crate::mining::{
     MiningJobId, MiningJobRecord, MiningMethodDefinition, MiningMethodId, MiningTargetRequest,
     MiningTargetResolution, resolve_mining_target,
 };
+
+mod commit;
+
+pub use commit::ValidatedMiningStart;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningTargetPlan {
@@ -54,7 +58,7 @@ fn validate_mining_target(
         MiningTargetRequest::new(target.region(), target.material()),
     )
     .map_err(|_| MiningStartError::TargetNoLongerResolved)?;
-    if current != target {
+    if !current.has_same_authorization_binding(target) {
         return Err(MiningStartError::TargetNoLongerResolved);
     }
     let excavation_hardness = current
@@ -218,16 +222,6 @@ fn validate_mining_destination(
     })
 }
 
-#[must_use]
-pub struct ValidatedMiningStart {
-    target: MiningTargetResolution,
-    revisions: MiningStartRevisions,
-    next_mining_job_id: u64,
-    reservation: ValidatedInboundReservation,
-    work: ValidatedPlayerWorkStart,
-    record: MiningJobRecord,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RevisionTransition {
     expected: u64,
@@ -278,101 +272,6 @@ fn validate_mining_revision_capacity(
         },
         structure: destination_plan.expected_structure_revision,
     })
-}
-
-impl ValidatedMiningStart {
-    #[cfg(test)]
-    pub(super) const fn player_work(&self) -> &ValidatedPlayerWorkStart {
-        &self.work
-    }
-
-    fn precheck_target(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
-        if !self.target.still_resolves(state) {
-            return Err(MiningStartCommitError::TargetNoLongerResolved);
-        }
-        let record = state
-            .geology()
-            .get_deposit(self.record.deposit())
-            .unwrap_or_else(|| panic!("re-resolved mining target deposit disappeared"));
-        if record.remaining_mass() != self.record.deposit_mass_before() {
-            return Err(MiningStartCommitError::TargetChanged);
-        }
-        Ok(())
-    }
-
-    fn precheck_owner_revisions(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
-        if state.inventory().revision() != self.reservation.expected_revision() {
-            return Err(MiningStartCommitError::StaleInventory {
-                expected: self.reservation.expected_revision(),
-                actual: state.inventory().revision(),
-            });
-        }
-        if state.equipment().revision() != self.revisions.equipment {
-            return Err(MiningStartCommitError::StaleEquipment {
-                expected: self.revisions.equipment,
-                actual: state.equipment().revision(),
-            });
-        }
-        if state.mining().revision() != self.revisions.mining.expected {
-            return Err(MiningStartCommitError::StaleMining {
-                expected: self.revisions.mining.expected,
-                actual: state.mining().revision(),
-            });
-        }
-        if let Some(expected) = self.revisions.structure
-            && state.structures().revision() != expected
-        {
-            return Err(MiningStartCommitError::StaleStructure {
-                expected,
-                actual: state.structures().revision(),
-            });
-        }
-        Ok(())
-    }
-
-    fn precheck_equipment_occupancy(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
-        let equipment = self.record.equipment();
-        match equipment_occupancy(state, equipment) {
-            Some(EquipmentOccupancy::Production { job, .. }) => {
-                return Err(MiningStartCommitError::EquipmentBusyProduction { equipment, job });
-            }
-            Some(EquipmentOccupancy::Mining { job }) => {
-                return Err(MiningStartCommitError::EquipmentBusyMining { equipment, job });
-            }
-            Some(EquipmentOccupancy::ManualPower { .. }) => {
-                return Err(MiningStartCommitError::EquipmentBusyManualPower { equipment });
-            }
-            Some(
-                EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. },
-            )
-            | None => {}
-        }
-        Ok(())
-    }
-
-    pub fn commit(self, state: &mut AppState) -> Result<MiningJobId, MiningStartCommitError> {
-        self.work
-            .precheck(state)
-            .map_err(MiningStartCommitError::Work)?;
-        self.precheck_target(state)?;
-        self.precheck_owner_revisions(state)?;
-        self.precheck_equipment_occupancy(state)?;
-        self.reservation.assert_matches_state(state.inventory());
-        state.mining().assert_job_insertable(
-            &self.record,
-            self.next_mining_job_id,
-            self.revisions.mining.next,
-        );
-        let id = self.record.id();
-        self.reservation.apply(state.inventory_state_mut());
-        state.mining_state_mut().insert_job(
-            self.record,
-            self.next_mining_job_id,
-            self.revisions.mining.next,
-        );
-        self.work.apply(state);
-        Ok(id)
-    }
 }
 
 /// Resolves one finite geological slice against a real hand tool and reserves its eventual output.
@@ -427,13 +326,13 @@ pub fn validate_start_mining(
     )
     .map_err(MiningStartError::Work)?;
 
-    Ok(ValidatedMiningStart {
+    Ok(ValidatedMiningStart::new(
         target,
         revisions,
         next_mining_job_id,
-        reservation: destination_plan.reservation,
+        destination_plan.reservation,
         work,
-        record: MiningJobRecord::new(
+        MiningJobRecord::new(
             MiningJobIdentity {
                 id: job,
                 method,
@@ -453,5 +352,5 @@ pub fn validate_start_mining(
                 phase: crate::mining::state::MiningJobPhase::Working,
             },
         ),
-    })
+    ))
 }

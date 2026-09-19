@@ -4,12 +4,12 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
-use crate::material::{
-    CommodityKey, FormId, MaterialId, MaterialPhase, MaterialPhaseStateError,
-    ParticleSizeStatePolicy, validate_material_phase_state,
-};
+use crate::material::{CommodityKey, FormId, MaterialId, MaterialPhase, MaterialPhaseStateError};
 use crate::registry::Registries;
 
+use super::material_validation::{
+    GeologicalMaterialStateError, validate_geological_material_state,
+};
 use super::state::{
     GeneratedDepositSpec, GeologicalDepositId, GeologicalDepositLifecycle, GeologicalDepositRecord,
 };
@@ -99,54 +99,35 @@ pub(crate) fn insert_generated_deposit(
     state: &mut AppState,
     spec: GeneratedDepositSpec,
 ) -> Result<GeologicalDepositId, InsertGeneratedDepositError> {
-    if registries
-        .materials()
-        .get_material(spec.commodity().material())
-        .is_none()
-    {
-        return Err(InsertGeneratedDepositError::UnknownMaterial {
-            material: spec.commodity().material(),
-        });
-    }
-    let Some(form) = registries.materials().get_form(spec.commodity().form()) else {
-        return Err(InsertGeneratedDepositError::UnknownForm {
-            form: spec.commodity().form(),
-        });
-    };
-    if !registries.materials().has_commodity(spec.commodity()) {
-        return Err(InsertGeneratedDepositError::UnsupportedCommodity {
-            commodity: spec.commodity(),
-        });
-    }
-    if form.phase() != MaterialPhase::Solid {
-        return Err(InsertGeneratedDepositError::UnsupportedPhase {
-            form: spec.commodity().form(),
-            phase: form.phase(),
-        });
-    }
-    if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
-        return Err(InsertGeneratedDepositError::UnsupportedParticulateForm {
-            form: spec.commodity().form(),
-        });
-    }
-    for component in spec.composition().components() {
-        if registries
-            .materials()
-            .get_material(component.material())
-            .is_none()
-        {
-            return Err(InsertGeneratedDepositError::UnknownCompositionMaterial {
-                material: component.material(),
-            });
-        }
-    }
-    validate_material_phase_state(
+    validate_geological_material_state(
         registries.materials(),
         spec.commodity(),
         spec.composition(),
         spec.temperature(),
     )
-    .map_err(InsertGeneratedDepositError::InvalidPhaseState)?;
+    .map_err(|error| match error {
+        GeologicalMaterialStateError::UnknownCommodityMaterial { material } => {
+            InsertGeneratedDepositError::UnknownMaterial { material }
+        }
+        GeologicalMaterialStateError::UnknownCommodityForm { form } => {
+            InsertGeneratedDepositError::UnknownForm { form }
+        }
+        GeologicalMaterialStateError::UnsupportedCommodity { commodity } => {
+            InsertGeneratedDepositError::UnsupportedCommodity { commodity }
+        }
+        GeologicalMaterialStateError::UnsupportedCommodityPhase { form, phase } => {
+            InsertGeneratedDepositError::UnsupportedPhase { form, phase }
+        }
+        GeologicalMaterialStateError::UnsupportedCommodityParticulateForm { form } => {
+            InsertGeneratedDepositError::UnsupportedParticulateForm { form }
+        }
+        GeologicalMaterialStateError::UnknownCompositionMaterial { material } => {
+            InsertGeneratedDepositError::UnknownCompositionMaterial { material }
+        }
+        GeologicalMaterialStateError::InvalidPhaseState(error) => {
+            InsertGeneratedDepositError::InvalidPhaseState(error)
+        }
+    })?;
 
     let geology = state.geology();
     let id = GeologicalDepositId::new(geology.next_deposit_id());

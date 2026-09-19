@@ -425,7 +425,7 @@ fn production_completion_can_consume_the_last_reserved_material_lot_identity() {
     }
 
     assert_eq!(loaded.inventory().next_lot_id(), u64::MAX);
-    assert_eq!(loaded.future_material_lot_id_demand(), 0);
+    assert_eq!(loaded.checked_future_material_lot_id_demand(), Some(0));
     assert_eq!(loaded.inventory().lot_ids(destination).count(), 1);
     validate_loaded_state(&registries, &loaded)
         .unwrap_or_else(|error| panic!("last lot-id completed state failed validation: {error}"));

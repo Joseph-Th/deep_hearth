@@ -41,6 +41,10 @@ pub fn validate_loaded_state(
             random_seed: state.random.root_seed(),
         });
     }
+    state
+        .random
+        .validate_current_app_state_reachability()
+        .map_err(StateValidationError::Random)?;
 
     validate_loaded_energy(
         registries.energy(),
@@ -122,7 +126,9 @@ pub fn validate_loaded_state(
 }
 
 fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidationError> {
-    let material_lot_ids_required = state.future_material_lot_id_demand();
+    let material_lot_ids_required = state
+        .checked_future_material_lot_id_demand()
+        .ok_or(StateValidationError::FutureMaterialLotIdDemandOverflow)?;
     let next_material_lot_id = state.inventory().next_lot_id();
     if next_material_lot_id
         .checked_add(material_lot_ids_required)
@@ -133,7 +139,9 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
             required: material_lot_ids_required,
         });
     }
-    let inventory_required = state.future_inventory_revision_demand();
+    let inventory_required = state
+        .checked_future_inventory_revision_demand()
+        .ok_or(StateValidationError::FutureInventoryRevisionDemandOverflow)?;
     let inventory_revision = state.inventory().revision();
     if inventory_revision.checked_add(inventory_required).is_none() {
         return Err(
@@ -143,7 +151,9 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
             },
         );
     }
-    let energy_required = state.future_energy_revision_demand();
+    let energy_required = state
+        .checked_future_energy_revision_demand()
+        .ok_or(StateValidationError::FutureEnergyRevisionDemandOverflow)?;
     let energy_revision = state.energy().revision();
     if energy_revision.checked_add(energy_required).is_none() {
         return Err(
@@ -153,7 +163,9 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
             },
         );
     }
-    let equipment_required = state.future_equipment_revision_demand();
+    let equipment_required = state
+        .checked_future_equipment_revision_demand()
+        .ok_or(StateValidationError::FutureEquipmentRevisionDemandOverflow)?;
     let equipment_revision = state.equipment().revision();
     if equipment_revision.checked_add(equipment_required).is_none() {
         return Err(

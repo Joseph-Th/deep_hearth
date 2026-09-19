@@ -108,7 +108,8 @@ where
     })
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "test-gameplay"), derive(PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
 struct SystemState {
     energy: EnergyState,
@@ -287,108 +288,6 @@ impl AppState {
         &mut self.systems.player_work
     }
 
-    pub(crate) fn future_inventory_revision_demand(&self) -> u64 {
-        let production = self.systems.production.scheduled_completion_bucket_count();
-        production.saturating_add(self.future_nonproduction_inventory_revision_demand())
-    }
-
-    pub(crate) fn future_nonproduction_inventory_revision_demand(&self) -> u64 {
-        self.systems.player_work.future_inventory_revision_demand()
-    }
-
-    pub(crate) fn future_energy_revision_demand(&self) -> u64 {
-        let production = self
-            .systems
-            .production
-            .scheduled_released_energy_revision_bucket_count();
-        production.saturating_add(self.future_nonproduction_energy_revision_demand())
-    }
-
-    pub(crate) fn future_nonproduction_energy_revision_demand(&self) -> u64 {
-        self.systems.player_work.future_energy_revision_demand()
-    }
-
-    pub(crate) fn future_equipment_revision_demand(&self) -> u64 {
-        let production = self
-            .systems
-            .production
-            .scheduled_equipment_revision_bucket_count();
-        production.saturating_add(self.future_nonproduction_equipment_revision_demand())
-    }
-
-    pub(crate) fn future_nonproduction_equipment_revision_demand(&self) -> u64 {
-        let mining = self
-            .systems
-            .mining
-            .scheduled_equipment_revision_bucket_count();
-        let direct_player_work = self.systems.player_work.future_equipment_revision_demand();
-        mining.saturating_add(direct_player_work)
-    }
-
-    pub(crate) fn future_structure_revision_demand(&self) -> u64 {
-        self.systems
-            .production
-            .scheduled_supported_output_revision_bucket_count(&self.systems.inventory)
-    }
-
-    pub(crate) fn future_material_lot_id_demand(&self) -> u64 {
-        self.systems
-            .production
-            .future_material_lot_id_demand()
-            .saturating_add(
-                self.systems
-                    .player_work
-                    .future_material_lot_id_demand(&self.systems.inventory),
-            )
-    }
-
-    pub(crate) fn has_material_lot_id_headroom_from(
-        &self,
-        next_lot_id: u64,
-        additional_future_demand: u64,
-    ) -> bool {
-        next_lot_id
-            .checked_add(self.future_material_lot_id_demand())
-            .and_then(|cursor| cursor.checked_add(additional_future_demand))
-            .is_some()
-    }
-
-    pub(crate) fn can_spend_inventory_revisions(&self, immediate_steps: u64) -> bool {
-        self.systems
-            .inventory
-            .revision()
-            .checked_add(self.future_inventory_revision_demand())
-            .and_then(|revision| revision.checked_add(immediate_steps))
-            .is_some()
-    }
-
-    pub(crate) fn can_spend_energy_revisions(&self, immediate_steps: u64) -> bool {
-        self.systems
-            .energy
-            .revision()
-            .checked_add(self.future_energy_revision_demand())
-            .and_then(|revision| revision.checked_add(immediate_steps))
-            .is_some()
-    }
-
-    pub(crate) fn can_spend_equipment_revisions(&self, immediate_steps: u64) -> bool {
-        self.systems
-            .equipment
-            .revision()
-            .checked_add(self.future_equipment_revision_demand())
-            .and_then(|revision| revision.checked_add(immediate_steps))
-            .is_some()
-    }
-
-    pub(crate) fn can_spend_structure_revisions(&self, immediate_steps: u64) -> bool {
-        self.systems
-            .structures
-            .revision()
-            .checked_add(self.future_structure_revision_demand())
-            .and_then(|revision| revision.checked_add(immediate_steps))
-            .is_some()
-    }
-
     /// Returns read-only authoritative player survival state.
     #[must_use]
     pub const fn survival(&self) -> &SurvivalState {
@@ -400,6 +299,7 @@ impl AppState {
     }
 }
 
+mod headroom;
 mod validation;
 
 pub use validation::{StateValidationError, validate_invariants, validate_loaded_state};

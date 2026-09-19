@@ -19,7 +19,8 @@ pub(in crate::mining) use job::{
 };
 pub(crate) use persistence::serialize_mining_state;
 
-#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Deserialize)]
+#[cfg_attr(any(test, feature = "test-gameplay"), derive(PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
 pub struct MiningState {
     revision: u64,

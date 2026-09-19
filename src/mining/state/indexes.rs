@@ -53,7 +53,8 @@ impl MiningState {
                 })
             })
             .count();
-        u64::try_from(count).unwrap_or(u64::MAX)
+        u64::try_from(count)
+            .unwrap_or_else(|_| unreachable!("mining due-bucket count fits represented memory"))
     }
 }
 

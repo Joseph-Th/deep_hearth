@@ -1,145 +1,17 @@
 //! Exhaustive persistence validation for player survival quantities.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
 use crate::core::time::SimulationTick;
-use crate::fluid::{FluidDefinitionId, FluidRegistry};
-use crate::material::{MaterialId, MaterialRegistry};
+use crate::fluid::FluidRegistry;
+use crate::material::MaterialRegistry;
 
 use super::state::PlayerSurvivalRecord;
 use super::{FoodCategory, NUTRITION_PARTS_PER_MILLION, SurvivalRegistry, SurvivalState, Vitality};
 
 mod direct_consumption;
+mod error;
 
 use direct_consumption::validate_pending_consumption;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SurvivalValidationError {
-    EnergyExceedsMaximum,
-    HydrationExceedsMaximum,
-    VitalityExceedsMaximum,
-    VitalityRecoveryRemainderOutOfRange { value: u32 },
-    VitalityRecoveryRemainderAtMaximum { value: u32 },
-    NutritionExceedsMaximum { category: FoodCategory, value: u32 },
-    ConsumedMatterWithoutPlayer,
-    UnknownConsumedMaterial { material: MaterialId },
-    ZeroConsumedMass { material: MaterialId },
-    UnknownConsumedFluid { fluid: FluidDefinitionId },
-    ZeroConsumedFluidVolume { fluid: FluidDefinitionId },
-    PendingConsumptionWithoutPlayer,
-    PendingConsumptionForDeadPlayer,
-    PendingConsumptionScheduleInvalid,
-    PendingEatingEmpty,
-    PendingEatingMassOverflow,
-    PendingEatingMassExceedsIntakeLimit,
-    PendingEatingTraceInvalid,
-    PendingEatingAccountingMismatch { material: MaterialId },
-    PendingDrinkingVolumeInvalid,
-    PendingDrinkingUnknownFluid { fluid: FluidDefinitionId },
-    PendingDrinkingNotDrinkable { fluid: FluidDefinitionId },
-    PendingDrinkingTemperatureInvalid,
-    PendingDrinkingAccountingMismatch { fluid: FluidDefinitionId },
-}
-
-impl Display for SurvivalValidationError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EnergyExceedsMaximum => {
-                formatter.write_str("player metabolic energy exceeds authored maximum")
-            }
-            Self::HydrationExceedsMaximum => {
-                formatter.write_str("player hydration exceeds authored maximum")
-            }
-            Self::VitalityExceedsMaximum => {
-                formatter.write_str("player vitality exceeds normalized maximum")
-            }
-            Self::VitalityRecoveryRemainderOutOfRange { value } => write!(
-                formatter,
-                "player vitality recovery remainder {value} must be below {NUTRITION_PARTS_PER_MILLION}"
-            ),
-            Self::VitalityRecoveryRemainderAtMaximum { value } => write!(
-                formatter,
-                "player at maximum vitality cannot retain fractional recovery remainder {value}"
-            ),
-            Self::NutritionExceedsMaximum { category, value } => write!(
-                formatter,
-                "player {category:?} nutrition reserve {value} ppm exceeds normalized maximum"
-            ),
-            Self::ConsumedMatterWithoutPlayer => {
-                formatter.write_str("survival owner contains consumed matter without a player")
-            }
-            Self::UnknownConsumedMaterial { material } => write!(
-                formatter,
-                "survival consumption references unknown material {}",
-                material.value()
-            ),
-            Self::ZeroConsumedMass { material } => write!(
-                formatter,
-                "survival consumption stores zero mass for material {}",
-                material.value()
-            ),
-            Self::UnknownConsumedFluid { fluid } => write!(
-                formatter,
-                "survival consumption references unknown fluid {}",
-                fluid.value()
-            ),
-            Self::ZeroConsumedFluidVolume { fluid } => write!(
-                formatter,
-                "survival consumption stores zero volume for fluid {}",
-                fluid.value()
-            ),
-            Self::PendingConsumptionWithoutPlayer => {
-                formatter.write_str("pending direct consumption exists without a player")
-            }
-            Self::PendingConsumptionForDeadPlayer => {
-                formatter.write_str("dead player cannot retain pending direct consumption")
-            }
-            Self::PendingConsumptionScheduleInvalid => {
-                formatter.write_str("pending direct consumption has an invalid active schedule")
-            }
-            Self::PendingEatingEmpty => {
-                formatter.write_str("pending eating contains no consumed food traces")
-            }
-            Self::PendingEatingMassOverflow => {
-                formatter.write_str("pending eating consumed mass overflowed")
-            }
-            Self::PendingEatingMassExceedsIntakeLimit => {
-                formatter.write_str("pending eating mass exceeds the authored direct meal limit")
-            }
-            Self::PendingEatingTraceInvalid => {
-                formatter.write_str("pending eating contains an invalid consumed food trace")
-            }
-            Self::PendingEatingAccountingMismatch { material } => write!(
-                formatter,
-                "pending eating owns more material {} than survival consumed-matter accounting",
-                material.value()
-            ),
-            Self::PendingDrinkingVolumeInvalid => {
-                formatter.write_str("pending drinking volume or authored duration is invalid")
-            }
-            Self::PendingDrinkingUnknownFluid { fluid } => write!(
-                formatter,
-                "pending drinking references unknown fluid {}",
-                fluid.value()
-            ),
-            Self::PendingDrinkingNotDrinkable { fluid } => write!(
-                formatter,
-                "pending drinking references unauthored drink fluid {}",
-                fluid.value()
-            ),
-            Self::PendingDrinkingTemperatureInvalid => formatter
-                .write_str("pending drinking temperature is outside the authored intake range"),
-            Self::PendingDrinkingAccountingMismatch { fluid } => write!(
-                formatter,
-                "pending drinking owns more fluid {} than survival consumed-volume accounting",
-                fluid.value()
-            ),
-        }
-    }
-}
-
-impl Error for SurvivalValidationError {}
+pub use error::SurvivalValidationError;
 
 fn validate_player_reserves(
     registry: &SurvivalRegistry,

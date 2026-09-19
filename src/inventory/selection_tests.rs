@@ -9,7 +9,7 @@ use crate::inventory::state::get_stockpile_mut_or_panic;
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
 };
-use crate::material::{CompositionComponent, MaterialComposition};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 
 #[test]
 fn implicit_selection_uses_ordered_eligible_lots_and_stops_at_requested_mass() {

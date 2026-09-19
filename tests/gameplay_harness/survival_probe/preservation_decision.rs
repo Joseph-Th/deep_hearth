@@ -136,14 +136,15 @@ fn evaluate_no_build(
         );
         retained_raw_mg = retained_raw_mg
             .checked_add(mass.milligrams())
-            .expect("bounded raw mass");
+            .unwrap_or_else(|| panic!("bounded raw mass"));
     }
-    initialize_player_survival(registries, &mut state).expect("no-build player admission");
+    initialize_player_survival(registries, &mut state)
+        .unwrap_or_else(|error| panic!("no-build player admission: {error:?}"));
     let before = state.clone();
     let elapsed_ticks = reference
         .production_ticks
         .checked_add(reference.observation_ticks)
-        .expect("bounded preservation horizon");
+        .unwrap_or_else(|| panic!("bounded preservation horizon"));
     assert!(
         matches!(assess_food_freshness(registries, &state, lot),
         Ok(FoodFreshness::Fresh { remaining, .. }) if remaining.value() == elapsed_ticks),
@@ -165,10 +166,10 @@ fn evaluate_no_build(
     assert_eq!(state.player_work(), before.player_work());
     assert_eq!(
         calculate_matter_accounting(&state)
-            .expect("no-build matter")
+            .unwrap_or_else(|error| panic!("no-build matter: {error:?}"))
             .total(),
         calculate_matter_accounting(&before)
-            .expect("initial matter")
+            .unwrap_or_else(|error| panic!("initial matter: {error:?}"))
             .total()
     );
     assert!(
@@ -178,7 +179,8 @@ fn evaluate_no_build(
         ),
         "no-build must reach the same ambient spoilage endpoint, not receive free preservation"
     );
-    validate_loaded_state(registries, &state).expect("no-build trusted load");
+    validate_loaded_state(registries, &state)
+        .unwrap_or_else(|error| panic!("no-build trusted load: {error:?}"));
     PreservationNoBuildReview {
         elapsed_ticks,
         retained_raw_mg,

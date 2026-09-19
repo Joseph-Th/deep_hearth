@@ -41,14 +41,27 @@ impl MiningTargetRequest {
 /// The exact deposit identity remains crate-private. Mining re-resolves the evidence locality when
 /// this proof is consumed so unrelated geological or knowledge changes do not invalidate it while
 /// any authorization-relevant local evidence change does.
+///
+/// `PartialEq` compares only actor-visible target facts. Internal authorization freshness uses the
+/// stricter hidden binding as well, so equality cannot be used as a same-deposit oracle.
 #[must_use]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct MiningTargetResolution {
     pub(super) deposit: GeologicalDepositId,
     region: VoxelBounds,
     material: MaterialId,
     excavation_hardness: Option<ExcavationHardnessEstimate>,
 }
+
+impl PartialEq for MiningTargetResolution {
+    fn eq(&self, other: &Self) -> bool {
+        self.region == other.region
+            && self.material == other.material
+            && self.excavation_hardness == other.excavation_hardness
+    }
+}
+
+impl Eq for MiningTargetResolution {}
 
 impl Debug for MiningTargetResolution {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
@@ -81,9 +94,16 @@ impl MiningTargetResolution {
         self.excavation_hardness
     }
 
+    pub(super) fn has_same_authorization_binding(self, other: Self) -> bool {
+        self.deposit == other.deposit
+            && self.region == other.region
+            && self.material == other.material
+            && self.excavation_hardness == other.excavation_hardness
+    }
+
     pub(super) fn still_resolves(self, state: &AppState) -> bool {
         resolve_mining_target(state, MiningTargetRequest::new(self.region, self.material))
-            .is_ok_and(|current| current == self)
+            .is_ok_and(|current| current.has_same_authorization_binding(self))
     }
 }
 

@@ -8,7 +8,7 @@ use crate::content::{
     STANDARD_TEST_HEATING_ENERGY, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     make_test_registries_with_standard_sensible_heating,
 };
-use crate::core::quantity::{Area, Energy, Length, Temperature};
+use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::validate_loaded_state;
 use crate::core::time::{TickSpan, WorldSeed};
 use crate::energy::add_energy_store_with_initial_for_fixture;
@@ -27,10 +27,10 @@ use crate::production::{
 use crate::simulation::{TickError, advance_tick};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructuralCommitError, StructuralLifecycle, StructuralMutationError, add_structural_element,
-    calculate_aggregate_weight_force_ceiling, materialize_structural_element_for_test,
-    validate_activate_structural_element, validate_remove_structural_element,
-    validate_set_structural_load,
+    StructuralCommitError, StructuralLifecycle, StructuralLoadKind, StructuralMutationError,
+    add_structural_element, calculate_aggregate_weight_force_ceiling,
+    materialize_structural_element_for_test, validate_activate_structural_element,
+    validate_remove_structural_element, validate_set_structural_load,
 };
 use crate::survival::{FoodFreshness, assess_food_freshness};
 use crate::thermal::{

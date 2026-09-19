@@ -379,6 +379,56 @@ fn trusted_load_rejects_zero_random_stream_id() {
 }
 
 #[test]
+fn trusted_load_rejects_extra_valid_random_stream_unreachable_by_gameplay() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(42));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("extra random stream serialization failed: {error}"));
+    let streams = encoded["state"]["random"]["streams"]
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("serialized random streams were not an object"));
+    let core = streams
+        .get(&RngStreamId::CORE.value().to_string())
+        .cloned()
+        .unwrap_or_else(|| panic!("serialized random state lost its core stream"));
+    streams.insert("2".to_owned(), core);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("extra random stream decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Random(
+            RandomStateValidationError::UnreachableCurrentAppState
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_advanced_core_random_stream_unreachable_by_gameplay() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(42));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("advanced random stream serialization failed: {error}"));
+    let words =
+        encoded["state"]["random"]["streams"][RngStreamId::CORE.value().to_string()]["words"]
+            .as_array_mut()
+            .unwrap_or_else(|| panic!("serialized core random words were not an array"));
+    let first = words[0]
+        .as_u64()
+        .unwrap_or_else(|| panic!("serialized core random word was not a u64"));
+    words[0] = serde_json::json!(first ^ 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("advanced random stream decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Random(
+            RandomStateValidationError::UnreachableCurrentAppState
+        )))
+    );
+}
+
+#[test]
 fn trusted_load_rejects_invalid_random_stream_state() {
     let registries = build_registries();
     let state = AppState::new(WorldSeed::new(42));

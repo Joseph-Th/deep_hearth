@@ -12,6 +12,10 @@ use crate::registry::{Registries, RegistrySchemaVersion};
 pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 64;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
+///
+/// Serialization is a privileged persistence boundary, not an actor-safe observation surface. The
+/// encoded state necessarily contains authoritative hidden world data such as finite geology; game
+/// policy and player-facing planning must use the public observation/knowledge APIs instead.
 #[derive(Debug, Serialize)]
 pub struct SaveEnvelope<'state> {
     schema_version: u32,
