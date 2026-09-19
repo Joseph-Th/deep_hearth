@@ -453,9 +453,19 @@ impl Display for StateValidationError {
             Self::FutureEquipmentRevisionDemandOverflow => formatter.write_str(
                 "already-admitted future equipment revision demand exceeds the representable u64 range",
             ),
+            Self::FutureMiningRevisionCapacityExhausted { revision, required } => write!(
+                formatter,
+                "mining revision {revision} cannot reserve {required} already-admitted future revisions"
+            ),
+            Self::FutureMiningRevisionDemandOverflow => formatter.write_str(
+                "already-admitted future mining revision demand exceeds the representable u64 range",
+            ),
             Self::FutureStructureRevisionCapacityExhausted { revision, required } => write!(
                 formatter,
                 "structural revision {revision} cannot reserve {required} already-admitted future revisions"
+            ),
+            Self::FutureStructureRevisionDemandOverflow => formatter.write_str(
+                "already-admitted future structural revision demand exceeds the representable u64 range",
             ),
             Self::ReservedInboundMismatch {
                 stockpile,

@@ -487,6 +487,12 @@ Geology retains ownership of the selected batch during labor. Completion removes
 applies wear, releases player work, and creates an explicit durable claim boundary. Completed output remains
 mining-owned with its destination capacity reserved until claim succeeds, so unrelated simulation time and work
 can continue while a blocked claim is repaired without losing, duplicating, or silently storing matter.
+Admission therefore reserves the eventual claim's material-lot identity and inventory/mining revision headroom.
+A structurally supported destination also reserves one conservative structural revision per retained claim.
+Mounting and unmounting a destination reproject those structural obligations atomically, so support recovery may
+consume headroom that the affected claims no longer need after the move. Claim retirement consumes its remaining
+reserved obligations rather than double-counting them as unrelated immediate work. Trusted load rejects persisted
+mining custody that no longer has the headroom implied by its current support assignments.
 
 ## Production and processing
 

@@ -4,8 +4,8 @@ use std::cmp::Reverse;
 use std::collections::BTreeSet;
 
 use super::preservation::{
-    PreservationCandidate, preservation_buildable_definitions, preservation_candidate_for_policy,
-    preservation_candidates,
+    PreservationCandidate, preservation_candidate_for_policy,
+    preservation_candidates_for_opportunity, preservation_raw_material_totals,
 };
 use super::*;
 
@@ -122,17 +122,8 @@ pub(in super::super) fn project_preservation_candidates_with_raw_opportunity(
     food_mass: Mass,
     available_raw_materials: Option<&[(CommodityKey, Mass)]>,
 ) -> Vec<PreservationCandidateProjection> {
-    let buildable = available_raw_materials
-        .map(|available| preservation_buildable_definitions(registries, food_mass, available));
-    let candidates = preservation_candidates(registries)
-        .into_iter()
-        .filter(|candidate| candidate.capacity >= food_mass)
-        .filter(|candidate| {
-            buildable
-                .as_ref()
-                .is_none_or(|definitions| definitions.contains(&candidate.definition))
-        })
-        .collect::<Vec<_>>();
+    let candidates =
+        preservation_candidates_for_opportunity(registries, food_mass, available_raw_materials);
     assert!(
         !candidates.is_empty(),
         "protected reserve exceeds every authored preservation enclosure"
@@ -347,17 +338,8 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
     storage_definition: StorageDefinitionId,
     available_raw_materials: Option<&[(CommodityKey, Mass)]>,
 ) -> PreservationInfrastructureReview {
-    let buildable = available_raw_materials
-        .map(|available| preservation_buildable_definitions(registries, food_mass, available));
-    let candidates = preservation_candidates(registries)
-        .into_iter()
-        .filter(|candidate| candidate.capacity >= food_mass)
-        .filter(|candidate| {
-            buildable
-                .as_ref()
-                .is_none_or(|definitions| definitions.contains(&candidate.definition))
-        })
-        .collect::<Vec<_>>();
+    let candidates =
+        preservation_candidates_for_opportunity(registries, food_mass, available_raw_materials);
     let selected_index = candidates
         .iter()
         .position(|candidate| candidate.definition == storage_definition)
@@ -447,29 +429,10 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
     );
     let mut maximum_raw_requirements = BTreeMap::<CommodityKey, Mass>::new();
     if let Some(available) = available_raw_materials {
-        for (commodity, mass) in available {
-            maximum_raw_requirements
-                .entry(*commodity)
-                .and_modify(|current| {
-                    *current = current
-                        .checked_add(*mass)
-                        .unwrap_or_else(|| panic!("preservation raw opportunity overflowed"));
-                })
-                .or_insert(*mass);
-        }
+        maximum_raw_requirements = preservation_raw_material_totals(available);
     } else {
         for candidate in &candidates {
-            let mut candidate_requirements = BTreeMap::<CommodityKey, Mass>::new();
-            for route in &candidate.construction_plan.routes {
-                let total = candidate_requirements
-                    .get(&route.raw_commodity)
-                    .copied()
-                    .unwrap_or(Mass::ZERO)
-                    .checked_add(route.raw_mass)
-                    .unwrap_or_else(|| panic!("preservation candidate raw requirement overflowed"));
-                candidate_requirements.insert(route.raw_commodity, total);
-            }
-            for (commodity, mass) in candidate_requirements {
+            for (commodity, mass) in candidate.construction_plan.raw_requirements() {
                 maximum_raw_requirements
                     .entry(commodity)
                     .and_modify(|current| *current = (*current).max(mass))

@@ -251,7 +251,9 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
         | unexpected @ MiningStartError::DestinationBusyStorageDismantling { .. }
         | unexpected @ MiningStartError::DestinationStorage(_)
         | unexpected @ MiningStartError::DestinationMassOverflow { .. }
+        | unexpected @ MiningStartError::MaterialLotIdExhausted
         | unexpected @ MiningStartError::InventoryRevisionExhausted
+        | unexpected @ MiningStartError::StructureRevisionExhausted
         | unexpected @ MiningStartError::DestinationSupport(_)
         | unexpected @ MiningStartError::MiningIdExhausted
         | unexpected @ MiningStartError::MiningRevisionExhausted

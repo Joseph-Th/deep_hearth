@@ -1,6 +1,6 @@
 //! Resolves preservation-infrastructure construction through ordinary manual-production routes.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use deep_hearth::content::{FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD};
 use deep_hearth::core::quantity::Mass;
@@ -33,6 +33,22 @@ pub(super) struct PreservationConstructionPlan {
     pub(super) routes: Vec<ManualConstructionRoute>,
     pub(super) raw_mass: Mass,
     pub(super) attention_ticks: u64,
+}
+
+impl PreservationConstructionPlan {
+    pub(super) fn raw_requirements(&self) -> BTreeMap<CommodityKey, Mass> {
+        let mut requirements = BTreeMap::new();
+        for route in &self.routes {
+            let total = requirements
+                .get(&route.raw_commodity)
+                .copied()
+                .unwrap_or(Mass::ZERO)
+                .checked_add(route.raw_mass)
+                .unwrap_or_else(|| panic!("preservation raw requirement overflowed"));
+            requirements.insert(route.raw_commodity, total);
+        }
+        requirements
+    }
 }
 
 pub(super) fn is_disclosed_preservation_raw_material(commodity: CommodityKey) -> bool {

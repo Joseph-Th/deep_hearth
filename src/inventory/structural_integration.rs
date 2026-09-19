@@ -24,7 +24,8 @@ pub use errors::{
 use load::validate_stockpile_structural_load_plan;
 pub(crate) use load::{
     StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
-    validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
+    validate_reserved_stockpile_structural_load_headroom, validate_stockpile_stored_mass_changes,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 pub(crate) use projection::{
     StockpileStructuralLoadConsistencyError, validate_existing_stockpile_structural_load,
@@ -151,6 +152,25 @@ fn validate_not_busy(
     support_validation_error(state, stockpile).map_or(Ok(()), Err)
 }
 
+fn validate_support_change_structural_headroom(
+    state: &AppState,
+    structural: &ValidatedStockpileStructuralLoad,
+    additional_future_demand: u64,
+    released_future_demand: u64,
+) -> Result<(), StockpileSupportError> {
+    if state.can_spend_structure_revisions_after_adjusting(
+        structural.revision_delta(),
+        additional_future_demand,
+        released_future_demand,
+    ) {
+        Ok(())
+    } else {
+        Err(StockpileSupportError::Load(
+            StockpileStructuralLoadError::Structure(StructuralMutationError::RevisionExhausted),
+        ))
+    }
+}
+
 /// Validates placing an existing stockpile on one active structural member.
 pub fn validate_mount_stockpile(
     registries: &Registries,
@@ -207,8 +227,12 @@ pub fn validate_mount_stockpile(
         BTreeMap::from([(element, next_load)]),
     )
     .map_err(StockpileSupportError::Load)?;
-    validate_unreserved_stockpile_structural_load_headroom(state, Some(&structural))
-        .map_err(StockpileSupportError::Load)?;
+    validate_support_change_structural_headroom(
+        state,
+        &structural,
+        state.retained_mining_claim_count_for_stockpile(stockpile),
+        0,
+    )?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {
         stockpile,
@@ -251,8 +275,12 @@ pub fn validate_unmount_stockpile(
         BTreeMap::from([(element, next_load)]),
     )
     .map_err(StockpileSupportError::Load)?;
-    validate_unreserved_stockpile_structural_load_headroom(state, Some(&structural))
-        .map_err(StockpileSupportError::Load)?;
+    validate_support_change_structural_headroom(
+        state,
+        &structural,
+        0,
+        state.retained_mining_claim_count_for_stockpile(stockpile),
+    )?;
     let (expected_inventory_revision, next_inventory_revision) = next_inventory_revision(state)?;
     Ok(ValidatedStockpileSupportChange {
         stockpile,

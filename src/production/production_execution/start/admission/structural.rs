@@ -36,6 +36,9 @@ pub(in super::super) fn validate_structural_revision_budget(
         .structures()
         .revision()
         .checked_add(admission_steps)
+        .and_then(|revision| {
+            revision.checked_add(state.future_nonproduction_structure_revision_demand())
+        })
         .ok_or(StartProcessError::StructureRevisionExhausted)?;
     let has_capacity = if destination_structure_revision.is_some() {
         state

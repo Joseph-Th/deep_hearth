@@ -1633,14 +1633,15 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(ci.woodworking_baseline_summary([]), [])
         self.assertIn("insufficient-data", ci.woodworking_baseline_summary(["WOODWORKING BASELINE malformed"])[0])
 
-    def test_woodworking_feedback_preserves_estimate_disagreement(self) -> None:
+    def test_woodworking_feedback_distinguishes_policy_divergence_from_estimate_error(self) -> None:
         lines = [
             "WOODWORKING FEEDBACK seed=0x50 attention=[budget-met:false actual-payback:true] timber=[nominal-payback:false actual-payback:false]",
             "WOODWORKING FEEDBACK seed=0x1 attention=[budget-met:true actual-payback:true] timber=[nominal-payback:true actual-payback:false]",
         ]
         summary = ci.concise_gameplay_report("\n".join(lines), {})
-        self.assertIn("attention-estimate-disagreements=1", summary)
+        self.assertIn("attention-budget-payback-divergences=1", summary)
         self.assertIn("timber-estimate-disagreements=1", summary)
+        self.assertNotIn("attention-estimate-disagreements", summary)
         self.assertIn("hindsight-selection=false", summary)
         self.assertEqual(ci.woodworking_feedback_summary([]), [])
 

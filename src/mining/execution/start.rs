@@ -246,8 +246,17 @@ fn validate_mining_revision_capacity(
     {
         return Err(MiningStartError::EquipmentRevisionExhausted);
     }
-    if !state.can_spend_inventory_revisions(1) {
+    // Admission consumes one inventory revision now and creates one durable output claim that must
+    // remain landable later. Preserve both that claim and all previously admitted future work.
+    if !state.has_material_lot_id_headroom_from(state.inventory().next_lot_id(), 1) {
+        return Err(MiningStartError::MaterialLotIdExhausted);
+    }
+    if !state.can_spend_inventory_revisions(2) {
         return Err(MiningStartError::InventoryRevisionExhausted);
+    }
+    let future_structure_steps = u64::from(destination_plan.expected_structure_revision.is_some());
+    if !state.can_spend_structure_revisions(future_structure_steps) {
+        return Err(MiningStartError::StructureRevisionExhausted);
     }
     state
         .geology()
@@ -255,15 +264,15 @@ fn validate_mining_revision_capacity(
         .checked_add(1)
         .ok_or(MiningStartError::GeologyRevisionExhausted)?;
     let expected_mining_revision = state.mining().revision();
-    // Mining admission inserts a working job and the due tick deterministically transitions that
-    // same record to ready-to-claim. Budget both mutations so admission cannot consume the final
-    // mining revision and strand the scheduled extraction before it becomes claimable.
-    expected_mining_revision
-        .checked_add(2)
-        .ok_or(MiningStartError::MiningRevisionExhausted)?;
+    // Admission, due transition, and eventual claim retirement each consume one mining revision.
+    // Include revisions already owed to retained mining jobs so a new extraction cannot strand
+    // older ready output or its own future claim.
+    if !state.can_spend_mining_revisions(3) {
+        return Err(MiningStartError::MiningRevisionExhausted);
+    }
     let next_mining_revision = expected_mining_revision
         .checked_add(1)
-        .unwrap_or_else(|| unreachable!("two-step mining revision budget includes admission"));
+        .unwrap_or_else(|| unreachable!("mining revision headroom includes admission"));
     Ok(MiningStartRevisions {
         equipment: expected_equipment_revision,
         mining: RevisionTransition {

@@ -175,7 +175,21 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
             },
         );
     }
-    let structure_required = state.future_structure_revision_demand();
+    let mining_required = state
+        .checked_future_mining_revision_demand()
+        .ok_or(StateValidationError::FutureMiningRevisionDemandOverflow)?;
+    let mining_revision = state.mining().revision();
+    if mining_revision.checked_add(mining_required).is_none() {
+        return Err(
+            StateValidationError::FutureMiningRevisionCapacityExhausted {
+                revision: mining_revision,
+                required: mining_required,
+            },
+        );
+    }
+    let structure_required = state
+        .checked_future_structure_revision_demand()
+        .ok_or(StateValidationError::FutureStructureRevisionDemandOverflow)?;
     let structure_revision = state.structures().revision();
     if structure_revision.checked_add(structure_required).is_none() {
         return Err(

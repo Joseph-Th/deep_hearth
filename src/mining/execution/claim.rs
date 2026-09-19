@@ -8,8 +8,8 @@ use crate::inventory::{
     MaterialLotId, ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest,
     STORAGE_AGE_PARTS_PER_TICK, StockpileId, StockpileStoredMassChange,
     StockpileStructuralLoadError, ValidatedStockpileStructuralLoad, apply_reserved_deposits,
-    decide_reserved_deposits, validate_stockpile_stored_mass_changes,
-    validate_unreserved_stockpile_structural_load_headroom,
+    decide_reserved_deposits, validate_reserved_stockpile_structural_load_headroom,
+    validate_stockpile_stored_mass_changes,
 };
 use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
@@ -247,10 +247,10 @@ pub fn validate_claim_mining_output(
         ReservedDepositPlanError::LotIdExhausted => MiningClaimError::LotIdExhausted,
         ReservedDepositPlanError::RevisionExhausted => MiningClaimError::InventoryRevisionExhausted,
     })?;
-    if !state.has_material_lot_id_headroom_from(inventory.next_lot_id(), 0) {
+    if !state.has_material_lot_id_headroom_from_after_releasing(inventory.next_lot_id(), 0, 1) {
         return Err(MiningClaimError::LotIdExhausted);
     }
-    if !state.can_spend_inventory_revisions(1) {
+    if !state.can_spend_inventory_revisions_after_releasing(1, 1) {
         return Err(MiningClaimError::InventoryRevisionExhausted);
     }
     let destination = record.destination();
@@ -265,12 +265,25 @@ pub fn validate_claim_mining_output(
         [StockpileStoredMassChange::new(destination, stored_after)],
     )
     .map_err(MiningClaimError::StructuralLoad)?;
-    validate_unreserved_stockpile_structural_load_headroom(state, structural_load.as_ref())
-        .map_err(MiningClaimError::StructuralLoad)?;
+    let released_structure_demand = u64::from(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .is_some_and(|stockpile| stockpile.supported_by().is_some()),
+    );
+    validate_reserved_stockpile_structural_load_headroom(
+        state,
+        structural_load.as_ref(),
+        released_structure_demand,
+    )
+    .map_err(MiningClaimError::StructuralLoad)?;
     let expected_mining_revision = state.mining().revision();
+    if !state.can_spend_mining_revisions_after_releasing(1, 1) {
+        return Err(MiningClaimError::MiningRevisionExhausted);
+    }
     let next_mining_revision = expected_mining_revision
         .checked_add(1)
-        .ok_or(MiningClaimError::MiningRevisionExhausted)?;
+        .unwrap_or_else(|| unreachable!("mining claim consumes its reserved future revision"));
     Ok(ValidatedMiningClaim {
         job,
         output,

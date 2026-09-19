@@ -774,19 +774,19 @@ def fieldwork_supply_summary(lines: list[str]) -> list[str]:
 
 
 def woodworking_feedback_summary(lines: list[str]) -> list[str]:
-    """Keep mistaken estimates visible instead of silently choosing the best future."""
+    """Keep policy/outcome divergence distinct from actual estimate disagreement."""
     rows = [line for line in lines if line.startswith("WOODWORKING FEEDBACK ")]
     if not rows:
         return []
-    mismatches = lambda field: sum(
+    boolean_disagreements = lambda field: sum(
         (match.group(1) != match.group(2))
         for line in rows
         if (match := re.search(field, line)) is not None
     )
     return [
         f"WOODWORKING FEEDBACK SUMMARY samples={len(rows)} "
-        f"attention-estimate-disagreements={mismatches(r'attention=\[budget-met:(true|false) actual-payback:(true|false)\]')} "
-        f"timber-estimate-disagreements={mismatches(r'timber=\[nominal-payback:(true|false) actual-payback:(true|false)\]')} "
+        f"attention-budget-payback-divergences={boolean_disagreements(r'attention=\[budget-met:(true|false) actual-payback:(true|false)\]')} "
+        f"timber-estimate-disagreements={boolean_disagreements(r'timber=\[nominal-payback:(true|false) actual-payback:(true|false)\]')} "
         "policy=pre-action-budget actual=executed-lifecycle hindsight-selection=false"
     ]
 

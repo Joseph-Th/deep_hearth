@@ -192,6 +192,7 @@ pub(super) fn validate_resumed_job_revision_capacity(
             plan.structural_load
                 .as_ref()
                 .map_or(0, ValidatedStockpileStructuralLoad::revision_delta),
+            state.future_nonproduction_structure_revision_demand(),
             bucket_count(&buckets.structure_ticks),
         ],
         CompletionPlanError::StructuralLoad(StockpileStructuralLoadError::Structure(

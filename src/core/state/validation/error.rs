@@ -280,10 +280,16 @@ pub enum StateValidationError {
         required: u64,
     },
     FutureEquipmentRevisionDemandOverflow,
+    FutureMiningRevisionCapacityExhausted {
+        revision: u64,
+        required: u64,
+    },
+    FutureMiningRevisionDemandOverflow,
     FutureStructureRevisionCapacityExhausted {
         revision: u64,
         required: u64,
     },
+    FutureStructureRevisionDemandOverflow,
     ReservedInboundMismatch {
         stockpile: StockpileId,
         reserved: Mass,

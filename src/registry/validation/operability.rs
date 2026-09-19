@@ -1,7 +1,6 @@
 //! Registry-wide proof that authored player work has at least one physically executable route.
 
 use crate::capability::CapabilityValue;
-use crate::core::quantity::Pressure;
 use crate::core::time::TickSpan;
 use crate::crafting::{
     ManualCraftDefinition, ManualCraftEquipmentProfile, resolve_manual_craft_equipment_schedule,
@@ -175,12 +174,22 @@ fn best_operable_mining_duration(
             if maximum_batch.is_zero() {
                 return None;
             }
+            let Some(CapabilityValue::Pressure(maximum_hardness)) = resolve_equipment_capability(
+                equipment,
+                Condition::PRISTINE,
+                definition.max_hardness_capability(),
+            ) else {
+                return None;
+            };
+            if maximum_hardness.is_zero() {
+                return None;
+            }
             let physics = resolve_mining_physics(
                 core.physical_tick_duration(),
                 definition,
                 equipment,
                 Condition::PRISTINE,
-                Pressure::from_pascals(1),
+                maximum_hardness,
                 maximum_batch,
             )
             .ok()?;
@@ -227,7 +236,7 @@ fn validate_mining_operability(
         assert!(
             best_operable_mining_duration(core, &domains.equipment, physiology, definition)
                 .is_some(),
-            "mining method {} has no pristine portable provider route that can complete one provider-sized batch within condition and survival limits",
+            "mining method {} has no pristine portable provider route that can complete one provider-sized batch at that provider's maximum excavation resistance within condition and survival limits",
             definition.id().value()
         );
     }

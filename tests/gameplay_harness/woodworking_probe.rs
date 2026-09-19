@@ -1320,7 +1320,7 @@ fn evaluate_woodworking_probe(
     );
     let nominal_timber_payback = nominal_saw_timber.is_some_and(|mass| mass <= nominal_adze_timber);
     reviewln!(
-        "WOODWORKING FEEDBACK seed=0x{seed:016X} basis=executed-lifecycle-versus-pre-action-estimate attention=[budget-met:{attention_budget_met} actual-payback:{saw_attention_payback}] timber=[nominal-payback:{nominal_timber_payback} actual-payback:{saw_net_timber_payback}] selected={choice} estimate-revised-past-choice=false"
+        "WOODWORKING FEEDBACK seed=0x{seed:016X} basis=executed-lifecycle-versus-pre-action-policy-model attention=[budget-met:{attention_budget_met} actual-payback:{saw_attention_payback}] timber=[nominal-payback:{nominal_timber_payback} actual-payback:{saw_net_timber_payback}] selected={choice} choice-revised-after-outcome=false"
     );
     (choice, selected_attention, saw_total_attention)
 }

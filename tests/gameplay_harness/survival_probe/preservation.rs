@@ -64,8 +64,11 @@ impl PreservationRawOpportunity {
     }
 
     fn assert_mode_contract(&self, registries: &Registries, minimum_capacity: Mass) {
-        let buildable =
-            preservation_buildable_definitions(registries, minimum_capacity, self.available());
+        let buildable = preservation_candidates_for_opportunity(
+            registries,
+            minimum_capacity,
+            Some(self.available()),
+        );
         match self.kind {
             PreservationRawOpportunityKind::ChoiceRichTimber => assert!(
                 buildable.len() > 1,
@@ -80,7 +83,9 @@ impl PreservationRawOpportunity {
             | PreservationRawOpportunityKind::FiniteMaterial => {}
         }
         assert!(
-            buildable.contains(&self.origin),
+            buildable
+                .iter()
+                .any(|candidate| candidate.definition == self.origin),
             "preservation opportunity origin must remain buildable from its disclosed raw material"
         );
     }
@@ -113,27 +118,6 @@ pub(super) fn preservation_candidates(registries: &Registries) -> Vec<Preservati
     candidates
 }
 
-pub(in super::super) fn preservation_raw_requirements_for_definition(
-    registries: &Registries,
-    definition: StorageDefinitionId,
-) -> Vec<(CommodityKey, Mass)> {
-    let candidate = preservation_candidates(registries)
-        .into_iter()
-        .find(|candidate| candidate.definition == definition)
-        .unwrap_or_else(|| panic!("unknown preservation definition {}", definition.value()));
-    let mut requirements = BTreeMap::<CommodityKey, Mass>::new();
-    for route in candidate.construction_plan.routes {
-        let total = requirements
-            .get(&route.raw_commodity)
-            .copied()
-            .unwrap_or(Mass::ZERO)
-            .checked_add(route.raw_mass)
-            .unwrap_or_else(|| panic!("preservation raw requirement overflowed"));
-        requirements.insert(route.raw_commodity, total);
-    }
-    requirements.into_iter().collect()
-}
-
 pub(super) fn preservation_raw_opportunity(
     registries: &Registries,
     seed: u64,
@@ -150,8 +134,11 @@ pub(super) fn preservation_raw_opportunity(
     let opportunities = feasible
         .iter()
         .map(|candidate| {
-            let requirements =
-                preservation_raw_requirements_for_definition(registries, candidate.definition);
+            let requirements = candidate
+                .construction_plan
+                .raw_requirements()
+                .into_iter()
+                .collect::<Vec<_>>();
             assert!(!requirements.is_empty());
             let raw_mass = requirements
                 .iter()
@@ -229,32 +216,42 @@ pub(super) fn preservation_raw_opportunity(
     opportunity
 }
 
-pub(in super::super) fn preservation_buildable_definitions(
-    registries: &Registries,
-    minimum_capacity: Mass,
+pub(super) fn preservation_raw_material_totals(
     available_raw_materials: &[(CommodityKey, Mass)],
-) -> BTreeSet<StorageDefinitionId> {
-    let mut available = BTreeMap::<CommodityKey, Mass>::new();
+) -> BTreeMap<CommodityKey, Mass> {
+    let mut totals = BTreeMap::new();
     for (commodity, mass) in available_raw_materials {
-        let total = available
+        let total = totals
             .get(commodity)
             .copied()
             .unwrap_or(Mass::ZERO)
             .checked_add(*mass)
             .unwrap_or_else(|| panic!("preservation raw opportunity overflowed"));
-        available.insert(*commodity, total);
+        totals.insert(*commodity, total);
     }
+    totals
+}
+
+pub(super) fn preservation_candidates_for_opportunity(
+    registries: &Registries,
+    minimum_capacity: Mass,
+    available_raw_materials: Option<&[(CommodityKey, Mass)]>,
+) -> Vec<PreservationCandidate> {
+    let available = available_raw_materials.map(preservation_raw_material_totals);
     preservation_candidates(registries)
         .into_iter()
         .filter(|candidate| candidate.capacity >= minimum_capacity)
         .filter(|candidate| {
-            preservation_raw_requirements_for_definition(registries, candidate.definition)
-                .into_iter()
-                .all(|(commodity, required)| {
-                    available.get(&commodity).copied().unwrap_or(Mass::ZERO) >= required
-                })
+            available.as_ref().is_none_or(|available| {
+                candidate
+                    .construction_plan
+                    .raw_requirements()
+                    .into_iter()
+                    .all(|(commodity, required)| {
+                        available.get(&commodity).copied().unwrap_or(Mass::ZERO) >= required
+                    })
+            })
         })
-        .map(|candidate| candidate.definition)
         .collect()
 }
 
@@ -283,38 +280,20 @@ fn preservation_candidate_for_policy_with_constraints(
             candidate.construction_plan.raw_mass.milligrams(),
         ),
     };
-    let available_raw_materials = available_raw_materials.map(|available| {
-        let mut totals = BTreeMap::<CommodityKey, Mass>::new();
-        for (commodity, mass) in available {
-            let total = totals
-                .get(commodity)
-                .copied()
-                .unwrap_or(Mass::ZERO)
-                .checked_add(*mass)
-                .unwrap_or_else(|| panic!("preservation raw opportunity overflowed"));
-            totals.insert(*commodity, total);
-        }
-        totals
-    });
+    let available_raw_materials = available_raw_materials.map(preservation_raw_material_totals);
     let eligible = candidates
         .iter()
         .enumerate()
         .filter(|(_, candidate)| candidate.capacity >= minimum_capacity)
         .filter(|(_, candidate)| {
             available_raw_materials.as_ref().is_none_or(|available| {
-                let mut required = BTreeMap::<CommodityKey, Mass>::new();
-                for route in &candidate.construction_plan.routes {
-                    let total = required
-                        .get(&route.raw_commodity)
-                        .copied()
-                        .unwrap_or(Mass::ZERO)
-                        .checked_add(route.raw_mass)
-                        .unwrap_or_else(|| panic!("preservation raw requirement overflowed"));
-                    required.insert(route.raw_commodity, total);
-                }
-                required.into_iter().all(|(commodity, required_mass)| {
-                    available.get(&commodity).copied().unwrap_or(Mass::ZERO) >= required_mass
-                })
+                candidate
+                    .construction_plan
+                    .raw_requirements()
+                    .into_iter()
+                    .all(|(commodity, required_mass)| {
+                        available.get(&commodity).copied().unwrap_or(Mass::ZERO) >= required_mass
+                    })
             })
         })
         .collect::<Vec<_>>();

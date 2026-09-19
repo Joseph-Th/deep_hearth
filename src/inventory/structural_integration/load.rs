@@ -20,6 +20,27 @@ pub(crate) struct StockpileStoredMassChange {
     stored_after: Mass,
 }
 
+/// Consumes structural revision space already reserved by one admitted future stockpile mutation.
+///
+/// Mining claim uses this when transferring previously extracted matter into inventory. The claim
+/// itself removes one future structural obligation whether or not the current support requires the
+/// reserved revision.
+pub(crate) fn validate_reserved_stockpile_structural_load_headroom(
+    state: &AppState,
+    structural: Option<&ValidatedStockpileStructuralLoad>,
+    released_future_demand: u64,
+) -> Result<(), StockpileStructuralLoadError> {
+    let immediate_steps = structural.map_or(0, ValidatedStockpileStructuralLoad::revision_delta);
+    if state.can_spend_structure_revisions_after_releasing(immediate_steps, released_future_demand)
+    {
+        Ok(())
+    } else {
+        Err(StockpileStructuralLoadError::Structure(
+            StructuralMutationError::RevisionExhausted,
+        ))
+    }
+}
+
 impl StockpileStoredMassChange {
     #[must_use]
     pub(crate) const fn new(stockpile: StockpileId, stored_after: Mass) -> Self {

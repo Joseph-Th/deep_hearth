@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::time::SimulationTick;
 use crate::equipment::EquipmentId;
+use crate::inventory::{InventoryState, StockpileId};
 
 use super::{MiningJobId, MiningState};
 
@@ -34,6 +35,55 @@ impl MiningState {
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
         self.due_jobs.keys().next().copied()
+    }
+
+    /// Returns the number of durable outputs that still require an explicit inventory claim.
+    ///
+    /// Every retained mining job owns exactly one output parcel until claim retirement. Coalescing
+    /// may avoid allocating a fresh lot identity, but continuation budgeting conservatively keeps
+    /// one identity and one claim mutation available per job.
+    pub(crate) fn future_claim_count(&self) -> u64 {
+        u64::try_from(self.jobs.len())
+            .unwrap_or_else(|_| unreachable!("resident mining job count fits u64"))
+    }
+
+    /// Returns retained outputs currently targeting one stockpile.
+    pub(crate) fn future_claim_count_for_destination(&self, destination: StockpileId) -> u64 {
+        let count = self
+            .jobs
+            .values()
+            .filter(|job| job.destination() == destination)
+            .count();
+        u64::try_from(count)
+            .unwrap_or_else(|_| unreachable!("resident mining destination claim count fits u64"))
+    }
+
+    /// Returns retained outputs whose current destination support makes claim structurally mutating.
+    ///
+    /// An unmounted stockpile can receive its reserved matter without changing structure state.
+    /// Mounting that stockpile later creates this future obligation; unmounting releases it.
+    pub(crate) fn future_supported_claim_count(&self, inventory: &InventoryState) -> u64 {
+        let count = self
+            .jobs
+            .values()
+            .filter(|job| {
+                inventory
+                    .get_stockpile(job.destination())
+                    .is_some_and(|stockpile| stockpile.supported_by().is_some())
+            })
+            .count();
+        u64::try_from(count)
+            .unwrap_or_else(|_| unreachable!("resident supported mining claim count fits u64"))
+    }
+
+    /// Returns future mining-owner revisions already owed by retained jobs.
+    ///
+    /// Each working due bucket needs one transition to ready-to-claim, and every retained job
+    /// needs one later claim-retirement revision.
+    pub(crate) fn checked_future_revision_demand(&self) -> Option<u64> {
+        let due = u64::try_from(self.due_jobs.len())
+            .unwrap_or_else(|_| unreachable!("resident mining due-bucket count fits u64"));
+        due.checked_add(self.future_claim_count())
     }
 
     /// Returns the number of scheduled completion ticks that will mutate equipment condition.

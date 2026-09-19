@@ -81,7 +81,9 @@ pub enum MiningStartError {
         committed: Mass,
         requested: Mass,
     },
+    MaterialLotIdExhausted,
     InventoryRevisionExhausted,
+    StructureRevisionExhausted,
     DestinationSupport(StockpileStructuralLoadError),
     MiningIdExhausted,
     MiningRevisionExhausted,
@@ -202,8 +204,13 @@ impl Display for MiningStartError {
                 requested.milligrams(),
                 committed.milligrams()
             ),
+            Self::MaterialLotIdExhausted => formatter
+                .write_str("material lot identifier space cannot reserve mining output claim"),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
+            }
+            Self::StructureRevisionExhausted => {
+                formatter.write_str("structural revision space cannot reserve mining output claim")
             }
             Self::DestinationSupport(error) => {
                 write!(formatter, "mining destination support failed: {error}")
@@ -253,7 +260,9 @@ impl Error for MiningStartError {
             | Self::DestinationBusyStorageDismantling { .. }
             | Self::DestinationMassOverflow { .. }
             | Self::DestinationCapacityExceeded { .. }
+            | Self::MaterialLotIdExhausted
             | Self::InventoryRevisionExhausted
+            | Self::StructureRevisionExhausted
             | Self::MiningIdExhausted
             | Self::MiningRevisionExhausted
             | Self::GeologyRevisionExhausted

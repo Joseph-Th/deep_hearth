@@ -243,7 +243,9 @@ and do not imply ordinary reachability. `DEEP_HEARTH_GAMEPLAY_VERBOSE`
 restores full capability diagnostics, blockers, tradeoffs, and counterfactual detail. Goal-completion comparisons
 aggregate all measured worlds and retain one seeded example in the concise view; verbose output retains every comparison. Blocked
 selected continuations retain their actual elapsed time, inventory, and partial upgrades rather than rolling back
-to the decision state. Fieldwork feedback aggregates wear-adjusted projection error only for completed orders.
+to the decision state. Woodworking feedback reports divergence between the actor's pre-action attention budget
+and realized payback as policy/outcome divergence, not as estimation error; nominal timber projection mismatches
+remain estimate disagreements. Fieldwork feedback aggregates wear-adjusted projection error only for completed orders.
 Supply-stopped orders retain actual investment, effort, output, and shortfall separately. Physical-duration summaries use the
 report's registry-derived tick duration. Missing or conflicting clock evidence
 is reported as unknown.

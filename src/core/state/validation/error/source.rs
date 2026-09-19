@@ -197,7 +197,10 @@ impl Error for StateValidationError {
             | Self::FutureEnergyRevisionDemandOverflow
             | Self::FutureEquipmentRevisionCapacityExhausted { .. }
             | Self::FutureEquipmentRevisionDemandOverflow
-            | Self::FutureStructureRevisionCapacityExhausted { .. } => None,
+            | Self::FutureMiningRevisionCapacityExhausted { .. }
+            | Self::FutureMiningRevisionDemandOverflow
+            | Self::FutureStructureRevisionCapacityExhausted { .. }
+            | Self::FutureStructureRevisionDemandOverflow => None,
             Self::ReservedInboundMismatch {
                 stockpile: _stockpile,
                 reserved: _reserved,
