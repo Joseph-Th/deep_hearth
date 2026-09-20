@@ -1,12 +1,13 @@
-//! Copper-free crank-vs-treadle provider comparison through canonical manual craft.
+//! Matched primitive and settlement human-power comparisons through canonical craft and charging.
 
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
     ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE, ENERGY_TIMBER_FLYWHEEL_DRIVE,
-    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_LOG, FORM_LUMP, MANUAL_POWER_FOOT_TREADLE,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_STONE, MATERIAL_WOOD,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, FORM_LOG, FORM_LUMP, MANUAL_POWER_FOOT_TREADLE,
+    MANUAL_POWER_HAND_CRANK, MANUAL_POWER_WALKING_WHEEL, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -299,7 +300,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         Mass::from_milligrams(30_000_000),
         ROOM_TEMPERATURE,
     );
-    let shaped = add_solid_stockpile(&mut state, Mass::from_milligrams(20_000_000));
+    let shaped = add_solid_stockpile(&mut state, Mass::from_milligrams(40_000_000));
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("power provider survival setup failed: {error}"));
     let matter_before = calculate_matter_accounting(&state)
@@ -314,7 +315,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     // Comparative evidence must not let one provider arm consume survival reserve or material
     // before the other starts. Both arms therefore inherit the exact same actor-visible state.
     let mut crank_state = state.clone();
-    let mut treadle_state = state;
+    let mut treadle_state = state.clone();
+    let mut settlement_treadle_state = state.clone();
+    let mut walking_state = state;
 
     let (crank, crank_build) = build_provider(
         registries,
@@ -368,6 +371,72 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         "power provider treadle charge",
     );
 
+    let settlement_capacity_nj = registries
+        .energy()
+        .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
+        .map(|definition| definition.capacity().nanojoules())
+        .unwrap_or_else(|| panic!("settlement flywheel bank definition disappeared"));
+    let (settlement_treadle, settlement_treadle_build) = build_provider(
+        registries,
+        &mut settlement_treadle_state,
+        raw,
+        shaped,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        "settlement treadle build",
+    );
+    let (settlement_treadle_drive, settlement_treadle_drive_build) = build_flywheel(
+        registries,
+        &mut settlement_treadle_state,
+        raw,
+        shaped,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        "settlement treadle flywheel bank",
+    );
+    let settlement_treadle_charge = charge_to_full(
+        registries,
+        &mut settlement_treadle_state,
+        MANUAL_POWER_FOOT_TREADLE,
+        settlement_treadle,
+        settlement_treadle_drive,
+        settlement_capacity_nj,
+        "settlement treadle charge",
+    );
+
+    let (walking, walking_build) = build_provider(
+        registries,
+        &mut walking_state,
+        raw,
+        shaped,
+        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        "walking-wheel build",
+    );
+    let (walking_drive, walking_drive_build) = build_flywheel(
+        registries,
+        &mut walking_state,
+        raw,
+        shaped,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        "walking-wheel flywheel bank",
+    );
+    let walking_charge = charge_to_full(
+        registries,
+        &mut walking_state,
+        MANUAL_POWER_WALKING_WHEEL,
+        walking,
+        walking_drive,
+        settlement_capacity_nj,
+        "walking-wheel charge",
+    );
+
+    assert!(
+        walking_charge.attention_ticks < settlement_treadle_charge.attention_ticks,
+        "the walking wheel must repay some of its larger timber build through faster full-bank charging"
+    );
+    assert!(
+        walking_charge.metabolic_nj < settlement_treadle_charge.metabolic_nj,
+        "the walking wheel's full-body method must spend less metabolic energy on the same stored work"
+    );
+
     assert!(
         treadle_charge.attention_ticks < crank_charge.attention_ticks,
         "the treadle's higher charging throughput must repay attention on the same flywheel job"
@@ -390,6 +459,74 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .unwrap_or_else(|error| panic!("power provider crank state invalid: {error}"));
     validate_loaded_state(registries, &treadle_state)
         .unwrap_or_else(|error| panic!("power provider treadle state invalid: {error}"));
+    assert_eq!(
+        calculate_matter_accounting(&settlement_treadle_state)
+            .unwrap_or_else(|error| panic!("settlement treadle matter audit failed: {error}"))
+            .total(),
+        matter_before,
+        "settlement treadle arm must conserve matter across build and charge"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&walking_state)
+            .unwrap_or_else(|error| panic!("walking-wheel matter audit failed: {error}"))
+            .total(),
+        matter_before,
+        "walking-wheel arm must conserve matter across build and charge"
+    );
+    validate_loaded_state(registries, &settlement_treadle_state)
+        .unwrap_or_else(|error| panic!("settlement treadle state invalid: {error}"));
+    validate_loaded_state(registries, &walking_state)
+        .unwrap_or_else(|error| panic!("walking-wheel state invalid: {error}"));
+
+    let settlement_treadle_build_attention = settlement_treadle_build
+        .attention_ticks
+        .checked_add(settlement_treadle_drive_build.attention_ticks)
+        .unwrap_or_else(|| panic!("settlement treadle build attention overflowed"));
+    let walking_build_attention = walking_build
+        .attention_ticks
+        .checked_add(walking_drive_build.attention_ticks)
+        .unwrap_or_else(|| panic!("walking-wheel build attention overflowed"));
+    let settlement_treadle_build_mass = settlement_treadle_build
+        .input_mass_mg
+        .checked_add(settlement_treadle_drive_build.input_mass_mg)
+        .unwrap_or_else(|| panic!("settlement treadle build mass overflowed"));
+    let walking_build_mass = walking_build
+        .input_mass_mg
+        .checked_add(walking_drive_build.input_mass_mg)
+        .unwrap_or_else(|| panic!("walking-wheel build mass overflowed"));
+    assert!(
+        walking_build_mass > settlement_treadle_build_mass,
+        "walking-wheel route must retain a larger timber investment than the treadle route"
+    );
+    let settlement_charge_saving = settlement_treadle_charge
+        .attention_ticks
+        .checked_sub(walking_charge.attention_ticks)
+        .unwrap_or_else(|| panic!("walking wheel must save settlement charge attention"));
+    let settlement_build_attention_delta = walking_build_attention
+        .checked_sub(settlement_treadle_build_attention)
+        .unwrap_or_else(|| panic!("walking wheel must cost more build attention than the treadle"));
+    let settlement_break_even_charges =
+        settlement_build_attention_delta.div_ceil(settlement_charge_saving);
+    reviewln!(
+        "POWER SETTLEMENT seed=0x{seed:016X} sample={} buffer:{}nJ treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ break-even:{}charges estimate=initial-charge-rate-excludes-future-service] matter=conserved",
+        focused_probe_role_label(case.role()),
+        settlement_capacity_nj,
+        settlement_treadle_build_mass,
+        settlement_treadle_build_attention,
+        settlement_treadle_charge.attention_ticks,
+        settlement_treadle_charge.metabolic_nj,
+        settlement_treadle_charge.hydration_ul,
+        settlement_treadle_charge.condition_after_ppm,
+        walking_build_mass,
+        walking_build_attention,
+        walking_charge.attention_ticks,
+        walking_charge.metabolic_nj,
+        walking_charge.hydration_ul,
+        walking_charge.condition_after_ppm,
+        settlement_charge_saving,
+        settlement_treadle_charge.metabolic_nj - walking_charge.metabolic_nj,
+        settlement_break_even_charges,
+    );
 
     let charge_attention_reduction_ppm = u64::try_from(
         u128::from(crank_charge.attention_ticks - treadle_charge.attention_ticks)
@@ -526,17 +663,30 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
         "copper-context treadle",
     );
+    let walking_power_uw = provider_power_microwatts(
+        registries,
+        MANUAL_POWER_WALKING_WHEEL,
+        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        "copper-context walking wheel",
+    );
+    let walking_method = registries
+        .labor()
+        .get_manual_power(MANUAL_POWER_WALKING_WHEEL)
+        .unwrap_or_else(|| panic!("power provider context lost the walking-wheel method"));
     reviewln!(
-        "POWER COPPER-CONTEXT seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] provider-power=[stone-crank:{}uW copper-crank:{}uW treadle:{}uW] labor=[crank-efficiency:{}ppm wear:{}ppm/t treadle-efficiency:{}ppm wear:{}ppm/t] observed=[crank-charge:{}t treadle-charge:{}t] catalog-note=copper-crank-needs-mined-native-copper-not-in-copper-free-start reachability-authority=STATUS.md",
+        "POWER COPPER-CONTEXT seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] provider-power=[stone-crank:{}uW copper-crank:{}uW treadle:{}uW walking-wheel:{}uW] labor=[crank-efficiency:{}ppm wear:{}ppm/t treadle-efficiency:{}ppm wear:{}ppm/t walking-efficiency:{}ppm wear:{}ppm/t] observed=[crank-charge:{}t treadle-charge:{}t] catalog-note=copper-crank-needs-mined-native-copper-not-in-copper-free-start reachability-authority=STATUS.md",
         focused_probe_role_label(case.role()),
         capacity_nj,
         stone_crank_power_uw,
         copper_crank_power_uw,
         treadle_power_uw,
+        walking_power_uw,
         crank_method.metabolic_efficiency_ppm(),
         crank_method.condition_wear_ppm_per_active_tick(),
         treadle_method.metabolic_efficiency_ppm(),
         treadle_method.condition_wear_ppm_per_active_tick(),
+        walking_method.metabolic_efficiency_ppm(),
+        walking_method.condition_wear_ppm_per_active_tick(),
         crank_charge.attention_ticks,
         treadle_charge.attention_ticks,
     );

@@ -104,6 +104,10 @@ pub const OBJECT_TIMBER_FRAME_SAW_BENCH: ObjectAppearanceId = ObjectAppearanceId
 pub const OBJECT_TIMBER_RIDDLE_PANEL: ObjectAppearanceId = ObjectAppearanceId::new(52);
 pub const OBJECT_TIMBER_RIDDLE_SIZING_SCREEN: ObjectAppearanceId = ObjectAppearanceId::new(53);
 pub const OBJECT_TIMBER_FLYWHEEL: ObjectAppearanceId = ObjectAppearanceId::new(54);
+pub const OBJECT_TIMBER_FRAME_COMMINUTION_MILL: ObjectAppearanceId = ObjectAppearanceId::new(55);
+pub const OBJECT_TIMBER_ORE_DRESSING_TABLE: ObjectAppearanceId = ObjectAppearanceId::new(56);
+pub const OBJECT_TIMBER_WALKING_WHEEL_DRIVE: ObjectAppearanceId = ObjectAppearanceId::new(57);
+pub const OBJECT_TIMBER_TREADLE_HAMMER: ObjectAppearanceId = ObjectAppearanceId::new(58);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

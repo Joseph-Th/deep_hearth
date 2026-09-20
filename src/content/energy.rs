@@ -9,7 +9,8 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use super::crafted_parts::{COPPER_REINFORCEMENT_MASS, STONE_FLYWHEEL_MASS, TIMBER_FLYWHEEL_MASS};
 use super::materials::{
-    FORM_FLYWHEEL, FORM_HANDLE, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 
 pub const ENERGY_MECHANICAL_SMALL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(1);
@@ -22,6 +23,8 @@ pub const ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId =
 pub const ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(7);
 pub const ENERGY_TIMBER_FLYWHEEL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(8);
+pub const ENERGY_TIMBER_FRAME_FLYWHEEL_BANK: EnergyStoreDefinitionId =
+    EnergyStoreDefinitionId::new(9);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -37,6 +40,8 @@ const WORKSHOP_THERMAL_SINK_PASSIVE_DISSIPATION_POWER: Power =
 const STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(1_000_000);
 const PAIRED_STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(2_000_000);
 const TIMBER_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(500_000);
+const TIMBER_FRAME_FLYWHEEL_BANK_PASSIVE_DISSIPATION_POWER: Power =
+    Power::from_microwatts(10_000_000);
 
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([
@@ -158,6 +163,34 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(400_000),
+            ),
+        ])),
+        // Ten stone rotors retain the established 500 J per 900 g stone-flywheel relation. The
+        // timber frame and shafting add a large construction bill without inventing a new material
+        // tier. At 10 W drag, full-charge coast time remains in the same deliberately short window
+        // as the smaller primitive flywheels, so this is a workshop work buffer rather than a
+        // long-duration battery.
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+            "timber-framed stone flywheel bank",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(5_000_000_000_000),
+            Power::from_microwatts(150_000_000),
+            Power::from_microwatts(500_000_000),
+        )
+        .with_passive_dissipation_power(TIMBER_FRAME_FLYWHEEL_BANK_PASSIVE_DISSIPATION_POWER)
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                Mass::from_milligrams(STONE_FLYWHEEL_MASS.milligrams() * 10),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(3_200_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(800_000),
             ),
         ])),
     ])

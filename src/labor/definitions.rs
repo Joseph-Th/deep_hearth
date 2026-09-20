@@ -5,6 +5,7 @@ mod prospecting;
 mod registry;
 
 pub use manual_power::{ManualPowerDefinition, ManualPowerMethodId};
+pub(crate) use prospecting::ProspectingRegionError;
 pub use prospecting::{
     ProspectingDefinition, ProspectingEquipmentProfile, ProspectingMethodId,
     ProspectingSpatialResolution,

@@ -10,13 +10,17 @@ use crate::labor::{
 };
 use crate::survival::SurvivalExertion;
 
-use super::capabilities::{CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_POWER_OUTPUT};
+use super::capabilities::{
+    CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_POWER_OUTPUT,
+    CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
+};
 use super::equipment::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
 };
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
+pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
 pub const PROSPECTING_FIELD_INSPECTION: ProspectingMethodId = ProspectingMethodId::new(1);
 pub const PROSPECTING_DETAILED_FIELD_SURVEY: ProspectingMethodId = ProspectingMethodId::new(2);
 pub const PROSPECTING_REGIONAL_RECONNAISSANCE: ProspectingMethodId = ProspectingMethodId::new(3);
@@ -43,6 +47,17 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 EnergyCarrier::Mechanical,
                 230_000,
                 15,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(3_000_000_000_000),
+                    Volume::from_microliters(400),
+                ),
+            ),
+            ManualPowerDefinition::new(
+                MANUAL_POWER_WALKING_WHEEL,
+                CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
+                EnergyCarrier::Mechanical,
+                260_000,
+                10,
                 SurvivalExertion::new(
                     Energy::from_nanojoules(3_000_000_000_000),
                     Volume::from_microliters(400),

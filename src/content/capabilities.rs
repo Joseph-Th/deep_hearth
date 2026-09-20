@@ -24,6 +24,8 @@ pub(crate) const CAPABILITY_SEPARATOR_BATCH: CapabilityId = CapabilityId::new(16
 pub(crate) const CAPABILITY_TREADLE_POWER_OUTPUT: CapabilityId = CapabilityId::new(17);
 pub(crate) const CAPABILITY_WOODWORKING_FLOW: CapabilityId = CapabilityId::new(18);
 pub(crate) const CAPABILITY_SAWING_FLOW: CapabilityId = CapabilityId::new(19);
+pub(crate) const CAPABILITY_WALKING_WHEEL_POWER_OUTPUT: CapabilityId = CapabilityId::new(20);
+pub(crate) const CAPABILITY_COPPER_HAMMERING_FLOW: CapabilityId = CapabilityId::new(21);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -129,6 +131,16 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
         higher_is_better(
             CAPABILITY_SAWING_FLOW,
             "frame-saw timber ripping throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
+            "walking-wheel mechanical power output",
+            CapabilityValueKind::Power,
+        ),
+        higher_is_better(
+            CAPABILITY_COPPER_HAMMERING_FLOW,
+            "human-powered copper hammering throughput",
             CapabilityValueKind::MassFlow,
         ),
     ] {

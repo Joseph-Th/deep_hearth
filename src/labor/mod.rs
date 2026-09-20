@@ -30,6 +30,7 @@ pub use work_resources::PlayerWorkResourceBudget;
 pub(crate) use attention::{
     PlayerAttentionError, ValidatedPlayerAttentionHold, validate_player_attention,
 };
+pub(crate) use definitions::ProspectingRegionError;
 pub(crate) use lifecycle::{
     PlayerWorkTickError, ValidatedPlayerWorkStart, apply_player_work_tick,
     decide_manual_production_player_work_start, decide_player_work_tick, player_work_exertion,

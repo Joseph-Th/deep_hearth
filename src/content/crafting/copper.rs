@@ -2,10 +2,11 @@
 
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::time::TickSpan;
-use crate::crafting::{ManualCraftDefinition, ManualCraftOutput};
+use crate::crafting::{ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput};
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
+use crate::content::capabilities::CAPABILITY_COPPER_HAMMERING_FLOW;
 use crate::content::crafted_parts::{
     COPPER_REINFORCEMENT_MASS, COPPER_SAW_BLADE_MASS, COPPER_SCREEN_PLATE_MASS,
 };
@@ -25,6 +26,10 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 4] {
         pierce_copper_screen_plate(),
         cold_work_copper_saw_blade(),
     ]
+}
+
+fn treadle_hammer_profile() -> ManualCraftEquipmentProfile {
+    ManualCraftEquipmentProfile::new(CAPABILITY_COPPER_HAMMERING_FLOW, 100)
 }
 
 fn copper_work_exertion() -> SurvivalExertion {
@@ -52,6 +57,7 @@ fn cold_work_copper_saw_blade() -> ManualCraftDefinition {
             ),
         ],
     )
+    .with_equipment_profile(treadle_hammer_profile())
 }
 
 fn cold_work_native_copper() -> ManualCraftDefinition {
@@ -66,6 +72,7 @@ fn cold_work_native_copper() -> ManualCraftDefinition {
             COPPER_REINFORCEMENT_MASS,
         )],
     )
+    .with_equipment_profile(treadle_hammer_profile())
 }
 
 fn pierce_copper_screen_plate() -> ManualCraftDefinition {
@@ -100,4 +107,5 @@ fn cold_work_copper_scrap() -> ManualCraftDefinition {
             COPPER_REINFORCEMENT_MASS,
         )],
     )
+    .with_equipment_profile(treadle_hammer_profile())
 }

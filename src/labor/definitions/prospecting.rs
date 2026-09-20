@@ -8,6 +8,7 @@ use crate::core::time::TickSpan;
 use crate::equipment::EquipmentDefinitionId;
 use crate::geology::GeologicalEvidenceKind;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
+use crate::spatial::VoxelBounds;
 use crate::survival::SurvivalExertion;
 
 /// Stable authored identity for one direct geological observation method.
@@ -35,6 +36,12 @@ pub enum ProspectingSpatialResolution {
     AggregateRegion,
     /// One observation is recorded for each explicitly covered voxel.
     PerVoxel,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProspectingRegionError {
+    VolumeOverflow,
+    TooLarge { actual: u128, maximum: u128 },
 }
 
 /// Physical instrument requirements and per-instrument wear for one prospecting method.
@@ -245,6 +252,32 @@ impl ProspectingDefinition {
     #[must_use]
     pub const fn spatial_resolution(self) -> ProspectingSpatialResolution {
         self.spatial_resolution
+    }
+
+    /// Validates one requested region against the authored footprint and returns the exact
+    /// persistent observation count it produces.
+    ///
+    /// Admission, completion, and trusted-load replay all use this path so region legality and
+    /// identity/revision budgeting cannot drift apart.
+    pub(crate) fn resolve_region_observation_count(
+        self,
+        region: VoxelBounds,
+    ) -> Result<u32, ProspectingRegionError> {
+        let voxels = region
+            .voxel_count()
+            .ok_or(ProspectingRegionError::VolumeOverflow)?;
+        if voxels > self.maximum_region_voxels {
+            return Err(ProspectingRegionError::TooLarge {
+                actual: voxels,
+                maximum: self.maximum_region_voxels,
+            });
+        }
+        Ok(match self.spatial_resolution {
+            ProspectingSpatialResolution::AggregateRegion => 1,
+            ProspectingSpatialResolution::PerVoxel => u32::try_from(voxels).unwrap_or_else(|_| {
+                unreachable!("per-voxel prospecting authoring bounds observation cardinality")
+            }),
+        })
     }
 
     #[must_use]

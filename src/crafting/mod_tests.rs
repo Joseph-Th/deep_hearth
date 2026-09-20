@@ -2,13 +2,14 @@
 
 use super::*;
 use crate::content::{
-    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CRUSHED,
-    FORM_DOUBLE_WALL_CHEST_BODY, FORM_HANDLE, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
-    FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST, PROCESS_ASSEMBLE_TIMBER_CHEST,
-    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SHAPE_WOOD_BOARDS,
-    PROSPECTING_FIELD_INSPECTION, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_BOARD, FORM_CHEST_BODY,
+    FORM_CHIP, FORM_CRUSHED, FORM_DOUBLE_WALL_CHEST_BODY, FORM_HANDLE, FORM_INGOT, FORM_LOG,
+    FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
+    PROCESS_ASSEMBLE_TIMBER_CHEST, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SHAPE_WOOD_BOARDS, PROSPECTING_FIELD_INSPECTION,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -220,6 +221,147 @@ fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_e
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("woodworking final state audit failed: {error}"));
+}
+
+#[test]
+fn treadle_hammer_reduces_copper_work_attention_without_changing_yield() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7021));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("treadle-hammer survival setup failed: {error}"));
+
+    let components = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(4_400_000))
+        .unwrap_or_else(|error| panic!("treadle-hammer component stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+            Mass::from_milligrams(3_200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(400_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            components,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("treadle-hammer component failed: {error}"));
+    }
+    let hammer = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_TREADLE_HAMMER,
+        components,
+    )
+    .unwrap_or_else(|error| panic!("treadle-hammer assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("treadle-hammer assembly commit failed: {error}"));
+
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(40_000))
+        .unwrap_or_else(|error| panic!("treadle-hammer copper source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(40_000))
+        .unwrap_or_else(|error| panic!("treadle-hammer destination failed: {error}"));
+    let hand_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("treadle-hammer first copper lot failed: {error}"));
+    let assisted_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("treadle-hammer second copper lot failed: {error}"));
+
+    let hand = resolve_manual_craft(
+        &registries,
+        &state,
+        &ManualCraftRequest::single(
+            PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+            source,
+            MaterialLotSelection::new(hand_lot, Mass::from_milligrams(20_000)),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("hand copper-work resolution failed: {error}"));
+    let assisted_request = ManualCraftRequest::single(
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        source,
+        MaterialLotSelection::new(assisted_lot, Mass::from_milligrams(20_000)),
+    )
+    .with_equipment(hammer);
+    let assisted = resolve_manual_craft(&registries, &state, &assisted_request)
+        .unwrap_or_else(|error| panic!("treadle-hammer copper-work resolution failed: {error}"));
+    assert_eq!(hand.duration(), TickSpan::new(40));
+    assert_eq!(assisted.duration(), TickSpan::new(14));
+    assert_eq!(assisted.outputs(), hand.outputs());
+
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("treadle-hammer matter-before audit failed: {error}"))
+        .total();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::new(assisted_request, destination),
+    )
+    .unwrap_or_else(|error| panic!("treadle-hammer start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("treadle-hammer start commit failed: {error}"));
+    assert_eq!(
+        state
+            .production()
+            .get_job(job)
+            .and_then(|record| record.equipment_provider())
+            .map(|trace| trace.equipment()),
+        Some(hammer)
+    );
+
+    while state.production().get_job(job).is_some() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("treadle-hammer work tick failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| {
+                stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
+            }),
+        Some(Mass::from_milligrams(20_000))
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(hammer)
+            .map(|record| record.condition()),
+        Some(
+            Condition::new(998_600)
+                .unwrap_or_else(|error| panic!("treadle-hammer condition failed: {error}"))
+        )
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("treadle-hammer matter-after audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("treadle-hammer final state audit failed: {error}"));
 }
 
 #[test]

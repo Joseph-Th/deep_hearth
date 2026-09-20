@@ -6,6 +6,7 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use crate::content::crafted_parts::COPPER_REINFORCEMENT_MASS;
 use crate::content::materials::{FORM_REINFORCEMENT, MATERIAL_COPPER};
 
+mod metalworking;
 mod mining;
 mod power;
 mod processing;
@@ -13,6 +14,7 @@ mod woodworking;
 
 pub(super) fn definitions() -> Vec<EquipmentDefinition> {
     vec![
+        metalworking::timber_treadle_hammer(),
         mining::stone_pick(),
         power::stone_hand_crank(),
         mining::copper_reinforced_pick(),
@@ -22,6 +24,7 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         mining::stone_geological_hammer(),
         mining::copper_reinforced_geological_hammer(),
         power::timber_treadle_drive(),
+        power::timber_walking_wheel_drive(),
         processing::stone_crusher(),
         processing::stone_separator(),
         processing::stone_rotary_quern(),
@@ -30,6 +33,8 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         processing::copper_reinforced_stone_crusher(),
         processing::copper_reinforced_stone_separator(),
         processing::copper_reinforced_stone_rotary_quern(),
+        processing::timber_frame_comminution_mill(),
+        processing::timber_ore_dressing_table(),
         woodworking::stone_woodworking_adze(),
         woodworking::copper_reinforced_woodworking_adze(),
         woodworking::timber_frame_saw_bench(),

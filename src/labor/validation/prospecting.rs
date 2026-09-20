@@ -11,21 +11,9 @@ use super::{
     ActivePlayerJobs, PlayerWorkValidationError, project_active_work_schedule,
     validate_remaining_resources,
 };
-use crate::labor::{ProspectingDefinition, ProspectingEquipmentProfile, ProspectingWork};
-
-fn observation_count(
-    method: ProspectingDefinition,
-    work: ProspectingWork,
-) -> Result<u32, PlayerWorkValidationError> {
-    match method.spatial_resolution() {
-        crate::labor::ProspectingSpatialResolution::AggregateRegion => Ok(1),
-        crate::labor::ProspectingSpatialResolution::PerVoxel => work
-            .region()
-            .voxel_count()
-            .and_then(|count| u32::try_from(count).ok())
-            .ok_or(PlayerWorkValidationError::ProspectingObservationIdExhausted),
-    }
-}
+use crate::labor::{
+    ProspectingDefinition, ProspectingEquipmentProfile, ProspectingRegionError, ProspectingWork,
+};
 
 fn validate_equipment_trace(
     state: &AppState,
@@ -107,7 +95,7 @@ fn validate_target_replay(
     registries: &Registries,
     method: ProspectingDefinition,
     work: ProspectingWork,
-) -> Result<(), PlayerWorkValidationError> {
+) -> Result<u32, PlayerWorkValidationError> {
     if registries
         .materials()
         .get_material(work.material())
@@ -117,17 +105,16 @@ fn validate_target_replay(
             material: work.material(),
         });
     }
-    let region_voxels = work
-        .region()
-        .voxel_count()
-        .ok_or(PlayerWorkValidationError::ProspectingRegionVolumeOverflow)?;
-    if region_voxels > method.maximum_region_voxels() {
-        return Err(PlayerWorkValidationError::ProspectingRegionTooLarge {
-            actual: region_voxels,
-            maximum: method.maximum_region_voxels(),
-        });
-    }
-    Ok(())
+    method
+        .resolve_region_observation_count(work.region())
+        .map_err(|error| match error {
+            ProspectingRegionError::VolumeOverflow => {
+                PlayerWorkValidationError::ProspectingRegionVolumeOverflow
+            }
+            ProspectingRegionError::TooLarge { actual, maximum } => {
+                PlayerWorkValidationError::ProspectingRegionTooLarge { actual, maximum }
+            }
+        })
 }
 
 fn validate_schedule_replay(
@@ -160,7 +147,7 @@ pub(super) fn validate_prospecting_work(
         .get_prospecting(work.method())
         .copied()
         .ok_or(PlayerWorkValidationError::ProspectingMethodMissing)?;
-    let observations = observation_count(method, work)?;
+    let observations = validate_target_replay(registries, method, work)?;
     if state
         .geological_knowledge()
         .next_observation_id()
@@ -181,7 +168,6 @@ pub(super) fn validate_prospecting_work(
         return Err(PlayerWorkValidationError::ProspectingEquipmentRevisionExhausted);
     }
     validate_equipment_replay(state, method, work)?;
-    validate_target_replay(registries, method, work)?;
     let remaining_duration = validate_schedule_replay(state, method, work)?;
     validate_remaining_resources(
         registries,

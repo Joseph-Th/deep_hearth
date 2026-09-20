@@ -41,6 +41,13 @@ pub const EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE: EquipmentDefinitionId =
 pub const EQUIPMENT_TIMBER_FRAME_SAW_BENCH: EquipmentDefinitionId = EquipmentDefinitionId::new(25);
 pub const EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN: EquipmentDefinitionId =
     EquipmentDefinitionId::new(26);
+pub const EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(27);
+pub const EQUIPMENT_TIMBER_ORE_DRESSING_TABLE: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(28);
+pub const EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(29);
+pub const EQUIPMENT_TIMBER_TREADLE_HAMMER: EquipmentDefinitionId = EquipmentDefinitionId::new(30);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

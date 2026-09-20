@@ -7,6 +7,7 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use crate::content::capabilities::{
     CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_POWER_OUTPUT,
+    CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
 };
 use crate::content::crafted_parts::{STONE_FLYWHEEL_MASS, TIMBER_FLYWHEEL_MASS};
 use crate::content::materials::{
@@ -19,7 +20,7 @@ use super::super::authoring::{
 };
 use super::super::{
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
 };
 use super::{copper_reinforcement_input, copper_upgrade};
 
@@ -113,6 +114,44 @@ pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
             CAPABILITY_TREADLE_POWER_OUTPUT,
             500_000,
             Power::from_microwatts(50_000_000),
+        )],
+    )
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE))
+}
+
+/// A large human-powered wheel for settlement workshops. It uses the operator's full body and a
+/// much larger timber frame to match the compact copper crank's peak 150 W without consuming copper.
+/// The price is 6.4 kilograms of worked timber and loss of portability in any practical sense, even
+/// though ordinary structural installation is not yet a reachable player operation. Its separate
+/// labor method keeps the improved full-body transmission efficiency from leaking back into the
+/// lighter treadle or hand-crank providers.
+pub(super) fn timber_walking_wheel_drive() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        "timber walking-wheel drive",
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
+                TIMBER_FLYWHEEL_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(4_000_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+        ]),
+        profile([(
+            CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
+            CapabilityValue::Power(Power::from_microwatts(150_000_000)),
+        )]),
+        thresholds(),
+        vec![power_condition_curve(
+            CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
+            500_000,
+            Power::from_microwatts(75_000_000),
         )],
     )
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE))

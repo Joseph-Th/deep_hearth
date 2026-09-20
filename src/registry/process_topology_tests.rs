@@ -3,9 +3,14 @@
 use crate::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, PROCESS_CAST_PURE_COPPER,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL,
+    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
+    EQUIPMENT_TIMBER_TREADLE_HAMMER, PROCESS_CAST_PURE_COPPER,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
+    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_GRIND_CRUSHED_ORE,
     PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_MELT_PURE_COPPER,
-    PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
+    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SAW_WOOD_BOARDS, PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::energy::EnergyCarrier;
 
@@ -78,6 +83,83 @@ fn manual_craft_topology_exposes_optional_and_required_tool_providers() {
     assert_eq!(
         sawing.nominal_providers(),
         &[EQUIPMENT_TIMBER_FRAME_SAW_BENCH]
+    );
+
+    for process in [
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+        PROCESS_COLD_WORK_COPPER_SAW_BLADE,
+    ] {
+        let hammering = registries
+            .process_topology(process)
+            .unwrap_or_else(|| panic!("copper hammering process {} disappeared", process.value()));
+        assert_eq!(
+            hammering.execution_family(),
+            ProcessExecutionFamily::ManualCraft
+        );
+        assert_eq!(hammering.equipment_role(), ProcessEquipmentRole::Optional);
+        assert_eq!(
+            hammering.nominal_providers(),
+            &[EQUIPMENT_TIMBER_TREADLE_HAMMER]
+        );
+        assert_eq!(hammering.energy_role(), ProcessEnergyRole::None);
+    }
+
+    let piercing = registries
+        .process_topology(PROCESS_PIERCE_COPPER_SCREEN_PLATE)
+        .unwrap_or_else(|| panic!("copper screen piercing topology disappeared"));
+    assert_eq!(piercing.equipment_role(), ProcessEquipmentRole::None);
+    assert!(piercing.nominal_providers().is_empty());
+}
+
+#[test]
+fn settlement_ore_dressing_equipment_is_discovered_for_each_authored_role() {
+    let registries = build_registries();
+
+    for (process, equipment) in [
+        (PROCESS_CRUSH_ORE, EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL),
+        (
+            PROCESS_GRIND_CRUSHED_ORE,
+            EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL,
+        ),
+        (
+            PROCESS_SCREEN_CRUSHED_ORE,
+            EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
+        ),
+        (
+            PROCESS_SEPARATE_NATIVE_COPPER,
+            EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
+        ),
+    ] {
+        let topology = registries
+            .process_topology(process)
+            .unwrap_or_else(|| panic!("settlement ore process {} disappeared", process.value()));
+        assert_eq!(topology.equipment_role(), ProcessEquipmentRole::Required);
+        assert!(
+            topology.nominal_providers().contains(&equipment),
+            "process {} must discover settlement equipment {} through its authored capabilities",
+            process.value(),
+            equipment.value()
+        );
+    }
+
+    let screening = registries
+        .process_topology(PROCESS_SCREEN_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("screening topology disappeared"));
+    assert!(
+        !screening
+            .nominal_providers()
+            .contains(&EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL),
+        "the comminution mill must not silently acquire an ore-dressing role"
+    );
+    let crushing = registries
+        .process_topology(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("crushing topology disappeared"));
+    assert!(
+        !crushing
+            .nominal_providers()
+            .contains(&EQUIPMENT_TIMBER_ORE_DRESSING_TABLE),
+        "the ore-dressing table must not silently acquire a comminution role"
     );
 }
 

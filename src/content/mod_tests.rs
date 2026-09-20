@@ -313,6 +313,10 @@ fn primitive_flywheel_loses_stored_rotation_without_erasing_short_work_windows()
             ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
             Power::from_microwatts(2_000_000),
         ),
+        (
+            ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+            Power::from_microwatts(10_000_000),
+        ),
     ] {
         let flywheel = registries
             .energy()
@@ -541,6 +545,8 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_STONE_QUARRY_PICK,
         EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        EQUIPMENT_TIMBER_TREADLE_HAMMER,
         EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
         EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
         EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
@@ -548,6 +554,8 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_STONE_WOODWORKING_ADZE,
         EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
         EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL,
+        EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
     ] {
         assert!(registries.equipment().get_equipment(equipment).is_some());
     }
@@ -569,6 +577,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         ENERGY_STONE_FLYWHEEL_DRIVE,
         ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
         ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
     ] {
         assert!(registries.energy().get_store(energy).is_some());
     }
@@ -723,6 +732,11 @@ fn primitive_power_content_exposes_distinct_copper_and_bulk_material_routes() {
         .get_manual_power(MANUAL_POWER_FOOT_TREADLE)
         .copied()
         .unwrap_or_else(|| panic!("foot-treadle labor method disappeared"));
+    let walking = registries
+        .labor()
+        .get_manual_power(MANUAL_POWER_WALKING_WHEEL)
+        .copied()
+        .unwrap_or_else(|| panic!("walking-wheel labor method disappeared"));
     assert_eq!(
         hand.power_capability(),
         capabilities::CAPABILITY_MANUAL_POWER_OUTPUT
@@ -734,6 +748,14 @@ fn primitive_power_content_exposes_distinct_copper_and_bulk_material_routes() {
     assert!(treadle.metabolic_efficiency_ppm() > hand.metabolic_efficiency_ppm());
     assert!(
         treadle.condition_wear_ppm_per_active_tick() < hand.condition_wear_ppm_per_active_tick()
+    );
+    assert_eq!(
+        walking.power_capability(),
+        capabilities::CAPABILITY_WALKING_WHEEL_POWER_OUTPUT
+    );
+    assert!(walking.metabolic_efficiency_ppm() > treadle.metabolic_efficiency_ppm());
+    assert!(
+        walking.condition_wear_ppm_per_active_tick() < treadle.condition_wear_ppm_per_active_tick()
     );
 
     let compact = registries
@@ -752,7 +774,27 @@ fn primitive_power_content_exposes_distinct_copper_and_bulk_material_routes() {
         .energy()
         .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
         .unwrap_or_else(|| panic!("paired stone flywheel disappeared"));
+    let settlement = registries
+        .energy()
+        .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
+        .unwrap_or_else(|| panic!("settlement flywheel bank disappeared"));
     assert!(bulk.capacity() > compact.capacity());
+    assert!(settlement.capacity() > bulk.capacity());
+    assert_eq!(
+        settlement.capacity(),
+        Energy::from_nanojoules(5_000_000_000_000)
+    );
+    assert_eq!(
+        settlement.max_input_power(),
+        Power::from_microwatts(150_000_000)
+    );
+    assert_eq!(settlement.max_output_power(), bulk.max_output_power());
+    assert_eq!(
+        settlement
+            .assembly_profile()
+            .map(MaterialAssemblyProfile::input_mass),
+        Some(Mass::from_milligrams(13_000_000))
+    );
     assert_eq!(
         bulk.max_input_power(),
         compact.max_input_power(),
@@ -784,6 +826,90 @@ fn primitive_power_content_exposes_distinct_copper_and_bulk_material_routes() {
             .iter()
             .all(|input| input.commodity().material() != MATERIAL_COPPER)
     }));
+    assert!(settlement.assembly_profile().is_some_and(|assembly| {
+        assembly
+            .inputs()
+            .iter()
+            .all(|input| input.commodity().material() != MATERIAL_COPPER)
+    }));
+}
+
+#[test]
+fn settlement_flywheel_bank_closes_full_batch_comminution_energy_envelope() {
+    let registries = build_registries();
+    let bank = registries
+        .energy()
+        .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
+        .unwrap_or_else(|| panic!("settlement flywheel bank disappeared"));
+    let old_bulk = registries
+        .energy()
+        .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("paired primitive flywheel disappeared"));
+    let mill = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL)
+        .unwrap_or_else(|| panic!("settlement comminution mill disappeared"));
+
+    for (process, batch_capability) in [
+        (PROCESS_CRUSH_ORE, capabilities::CAPABILITY_CRUSHER_BATCH),
+        (
+            PROCESS_GRIND_CRUSHED_ORE,
+            capabilities::CAPABILITY_GRINDER_BATCH,
+        ),
+        (
+            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+            capabilities::CAPABILITY_GRINDER_BATCH,
+        ),
+        (
+            PROCESS_REGRIND_COPPER_TAILINGS,
+            capabilities::CAPABILITY_GRINDER_BATCH,
+        ),
+    ] {
+        let CapabilityValue::Mass(maximum_batch) = mill
+            .capabilities()
+            .get_capability(batch_capability)
+            .unwrap_or_else(|| {
+                panic!(
+                    "settlement comminution mill lost batch capability {}",
+                    batch_capability.value()
+                )
+            })
+        else {
+            panic!("settlement comminution batch capability changed physical kind");
+        };
+        let definition = registries
+            .ore_processing()
+            .get_comminution(process)
+            .unwrap_or_else(|| panic!("comminution process {} disappeared", process.value()));
+        let required = crate::energy::calculate_mass_specific_energy(
+            maximum_batch,
+            definition.specific_energy(),
+        );
+        assert!(
+            required <= bank.capacity(),
+            "settlement bank must power process {} at the mill's authored maximum batch",
+            process.value()
+        );
+    }
+
+    let regrind = registries
+        .ore_processing()
+        .get_comminution(PROCESS_REGRIND_COPPER_TAILINGS)
+        .unwrap_or_else(|| panic!("tailings regrind process disappeared"));
+    let CapabilityValue::Mass(regrind_batch) = mill
+        .capabilities()
+        .get_capability(capabilities::CAPABILITY_GRINDER_BATCH)
+        .unwrap_or_else(|| panic!("settlement mill lost grinder batch capability"))
+    else {
+        panic!("settlement grinder batch capability changed physical kind");
+    };
+    let worst_case =
+        crate::energy::calculate_mass_specific_energy(regrind_batch, regrind.specific_energy());
+    assert_eq!(worst_case, bank.capacity());
+    assert!(
+        old_bulk.capacity() < worst_case,
+        "the settlement bank must close a real ordinary-play capacity gap rather than duplicate the old flywheel"
+    );
 }
 
 #[test]
@@ -1253,6 +1379,22 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (
             EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
             OBJECT_TIMBER_FRAME_SAW_BENCH,
+        ),
+        (
+            EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL,
+            OBJECT_TIMBER_FRAME_COMMINUTION_MILL,
+        ),
+        (
+            EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
+            OBJECT_TIMBER_ORE_DRESSING_TABLE,
+        ),
+        (
+            EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+            OBJECT_TIMBER_WALKING_WHEEL_DRIVE,
+        ),
+        (
+            EQUIPMENT_TIMBER_TREADLE_HAMMER,
+            OBJECT_TIMBER_TREADLE_HAMMER,
         ),
     ] {
         let binding = match textures.get_equipment_appearance(equipment) {

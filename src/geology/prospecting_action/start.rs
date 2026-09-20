@@ -6,8 +6,8 @@ use crate::equipment::{
     resolve_equipment_provider_with_occupancy,
 };
 use crate::labor::{
-    PlayerWork, ProspectingDefinition, ProspectingMethodId, ProspectingWork,
-    ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, ProspectingDefinition, ProspectingMethodId, ProspectingRegionError,
+    ProspectingWork, ValidatedPlayerWorkStart, validate_player_work_start,
 };
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::material::MaterialId;
@@ -15,7 +15,6 @@ use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
 
 use super::errors::{FieldProspectingCommitError, FieldProspectingStartError};
-use super::prospecting_observation_count;
 
 /// One player-selected geological prospecting action over an authored-bounded region.
 #[must_use]
@@ -143,7 +142,7 @@ fn validate_prospecting_target(
     registries: &Registries,
     request: FieldProspectingRequest,
     method: ProspectingDefinition,
-) -> Result<(), FieldProspectingStartError> {
+) -> Result<u32, FieldProspectingStartError> {
     if registries
         .materials()
         .get_material(request.material)
@@ -153,17 +152,16 @@ fn validate_prospecting_target(
             material: request.material,
         });
     }
-    let region_voxels = request
-        .region
-        .voxel_count()
-        .ok_or(FieldProspectingStartError::RegionVolumeOverflow)?;
-    if region_voxels > method.maximum_region_voxels() {
-        return Err(FieldProspectingStartError::RegionTooLarge {
-            actual: region_voxels,
-            maximum: method.maximum_region_voxels(),
-        });
-    }
-    Ok(())
+    method
+        .resolve_region_observation_count(request.region)
+        .map_err(|error| match error {
+            ProspectingRegionError::VolumeOverflow => {
+                FieldProspectingStartError::RegionVolumeOverflow
+            }
+            ProspectingRegionError::TooLarge { actual, maximum } => {
+                FieldProspectingStartError::RegionTooLarge { actual, maximum }
+            }
+        })
 }
 
 fn validate_start_equipment_occupancy(
@@ -252,11 +250,8 @@ pub fn validate_start_field_prospecting(
         .ok_or(FieldProspectingStartError::UnknownMethod {
             method: request.method,
         })?;
-    validate_prospecting_target(registries, request, method)?;
+    let observation_count = validate_prospecting_target(registries, request, method)?;
     let equipment_plan = resolve_prospecting_equipment_plan(registries, state, request, method)?;
-    let observation_count =
-        prospecting_observation_count(method.spatial_resolution(), request.region)
-            .ok_or(FieldProspectingStartError::ObservationIdExhausted)?;
     state
         .geological_knowledge()
         .next_observation_id()

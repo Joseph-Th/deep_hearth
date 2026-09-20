@@ -10,6 +10,7 @@ use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, EnergyRegistry};
 use crate::equipment::{EquipmentDefinitionId, EquipmentRegistry};
 use crate::geology::GeologicalEvidenceKind;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::survival::SurvivalExertion;
 
 fn active_exertion() -> SurvivalExertion {
@@ -171,5 +172,41 @@ fn prospecting_equipment_profile_resolves_wear_per_accepted_instrument() {
     assert_eq!(
         profile.condition_wear_ppm_per_active_tick(EquipmentDefinitionId::new(55_008)),
         None
+    );
+}
+
+#[test]
+fn prospecting_definition_owns_observation_cardinality() {
+    let region = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(2, 3, 4))
+        .unwrap_or_else(|error| panic!("prospecting cardinality fixture failed: {error}"));
+    let aggregate = ProspectingDefinition::new(
+        ProspectingMethodId::new(55_009),
+        GeologicalEvidenceKind::SurfaceExposure,
+        TickSpan::new(1),
+        24,
+        1,
+        active_exertion(),
+    );
+    let per_voxel = ProspectingDefinition::new(
+        ProspectingMethodId::new(55_010),
+        GeologicalEvidenceKind::SurfaceExposure,
+        TickSpan::new(1),
+        24,
+        1,
+        active_exertion(),
+    )
+    .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel);
+
+    assert_eq!(aggregate.resolve_region_observation_count(region), Ok(1));
+    assert_eq!(per_voxel.resolve_region_observation_count(region), Ok(24));
+
+    let oversized = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(25, 1, 1))
+        .unwrap_or_else(|error| panic!("prospecting oversized fixture failed: {error}"));
+    assert_eq!(
+        per_voxel.resolve_region_observation_count(oversized),
+        Err(ProspectingRegionError::TooLarge {
+            actual: 25,
+            maximum: 24,
+        })
     );
 }

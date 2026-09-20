@@ -3,7 +3,8 @@
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::labor::{
-    PlayerWork, ProspectingMethodId, ProspectingSpatialResolution, ProspectingWork,
+    PlayerWork, ProspectingDefinition, ProspectingMethodId, ProspectingSpatialResolution,
+    ProspectingWork,
 };
 use crate::material::MaterialId;
 use crate::registry::Registries;
@@ -16,7 +17,6 @@ use super::super::{
 };
 use super::abundance::resolve_region_abundance_bounds;
 use super::hardness::resolve_region_excavation_hardness;
-use super::prospecting_observation_count;
 
 /// Observable completion of one field-prospecting action. The hidden geological owner is intentionally absent.
 #[must_use]
@@ -88,18 +88,22 @@ pub(crate) struct FieldProspectingTickPlan {
 }
 
 fn prospecting_observation_regions(
-    resolution: ProspectingSpatialResolution,
+    method: ProspectingDefinition,
     region: VoxelBounds,
 ) -> Vec<VoxelBounds> {
-    let expected_count = prospecting_observation_count(resolution, region).unwrap_or_else(|| {
-        panic!("runtime invariant broken: prospecting observation count overflowed")
-    });
-    match resolution {
+    let expected_count = method
+        .resolve_region_observation_count(region)
+        .unwrap_or_else(|_| {
+            panic!("runtime invariant broken: active prospecting region is invalid")
+        });
+    match method.spatial_resolution() {
         ProspectingSpatialResolution::AggregateRegion => vec![region],
         ProspectingSpatialResolution::PerVoxel => {
             let min = region.min();
             let max = region.max_exclusive();
-            let mut regions = Vec::new();
+            let expected_count = usize::try_from(expected_count)
+                .unwrap_or_else(|_| unreachable!("u32 observation count fits usize"));
+            let mut regions = Vec::with_capacity(expected_count);
             for x in min.x()..max.x() {
                 for y in min.y()..max.y() {
                     for z in min.z()..max.z() {
@@ -115,11 +119,7 @@ fn prospecting_observation_regions(
                     }
                 }
             }
-            assert_eq!(
-                regions.len(),
-                usize::try_from(expected_count)
-                    .unwrap_or_else(|_| unreachable!("u32 observation count fits usize")),
-            );
+            assert_eq!(regions.len(), expected_count);
             regions
         }
     }
@@ -153,7 +153,7 @@ pub(crate) fn decide_field_prospecting_tick(
         .unwrap_or_else(|| {
             panic!("runtime invariant broken: due prospecting work has no authored method")
         });
-    let resolutions = prospecting_observation_regions(method.spatial_resolution(), work.region())
+    let resolutions = prospecting_observation_regions(method, work.region())
         .into_iter()
         .map(|region| {
             let (lower_ppm, upper_ppm) = resolve_region_abundance_bounds(

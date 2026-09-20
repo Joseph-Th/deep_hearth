@@ -28,6 +28,9 @@ use super::super::{
 };
 use super::{copper_reinforcement_input, copper_upgrade};
 
+mod settlement;
+pub(super) use settlement::{timber_frame_comminution_mill, timber_ore_dressing_table};
+
 pub(super) fn stone_crusher() -> EquipmentDefinition {
     assembled_definition_with_condition_curves(
         EQUIPMENT_STONE_CRUSHER,
