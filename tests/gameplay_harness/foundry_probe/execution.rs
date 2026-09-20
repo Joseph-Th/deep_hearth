@@ -271,19 +271,19 @@ pub(super) fn cool_thermal_sink_until(
     stored: Energy,
     mut recovery_ready: impl FnMut(&AppState) -> bool,
 ) -> CooldownResult {
-    let thermal_sink = registries
-        .energy()
-        .get_store(ENERGY_THERMAL_SINK)
-        .unwrap_or_else(|| panic!("foundry thermal-sink definition disappeared"));
     if stored.is_zero() || recovery_ready(state) {
         return CooldownResult {
             ticks: 0,
             cooled_thermal: stored,
         };
     }
-    let maximum_ticks = passive_dissipation_ticks_until_empty(registries, thermal_sink, stored)
-        .unwrap_or_else(|| panic!("foundry thermal sink has no finite passive recovery horizon"))
-        .value();
+    let maximum_ticks =
+        passive_dissipation_ticks_until_empty(registries, ENERGY_THERMAL_SINK, stored)
+            .unwrap_or_else(|error| panic!("foundry thermal sink horizon failed: {error}"))
+            .unwrap_or_else(|| {
+                panic!("foundry thermal sink has no finite passive recovery horizon")
+            })
+            .value();
     for ticks in 1..=maximum_ticks {
         advance_idle_ticks(registries, state, 1, "foundry thermal cooldown");
         let cooled_thermal = state

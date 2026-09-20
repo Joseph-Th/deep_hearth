@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::{AggregateMass, AggregateVolume, Energy};
 use crate::core::state::AppState;
-use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection};
+use crate::inventory::{ConsumedMaterialTrace, ConsumptionSelection, MaterialLotSelection};
 use crate::material::MaterialId;
 use crate::registry::Registries;
 use crate::survival::{
@@ -295,17 +295,16 @@ fn resolve_food_portion(
 pub(super) fn resolve_meal_offer(
     registries: &Registries,
     state: &AppState,
-    selections: &[MaterialLotSelection],
+    selection: &ConsumptionSelection,
 ) -> Result<MealOffer, EatError> {
-    let mut ordered = selections.to_vec();
-    ordered.sort_unstable();
+    let selections = selection.lot_selections();
     let mut offered_energy_nj = 0_u128;
     let mut category_energy = NutritionEnergy::default();
     let mut consumed_additions = BTreeMap::<MaterialId, AggregateMass>::new();
-    let mut portions = Vec::with_capacity(ordered.len());
-    let mut hydration_portions = Vec::with_capacity(ordered.len());
+    let mut portions = Vec::with_capacity(selections.len());
+    let mut hydration_portions = Vec::with_capacity(selections.len());
 
-    for selection in ordered {
+    for selection in selections {
         let resolved = resolve_food_portion(registries, state, selection)?;
         offered_energy_nj = offered_energy_nj
             .checked_add(resolved.energy_nj)

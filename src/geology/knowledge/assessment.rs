@@ -100,12 +100,13 @@ impl GeologicalKnowledgeAssessment {
         self.common_acquired_region
     }
 
-    /// Best acquired excavation-resistance band covering this assessment region.
+    /// Best acquired excavation-resistance band for the assessment's shared evidence locality.
     ///
-    /// Hardness is actor-visible only when a physical observation measured it. When several
-    /// acquired samples overlap the requested region, prefer the narrowest band, then the smallest
-    /// sampled region, latest observation, and stable lowest identity. This keeps later planning
-    /// deterministic without combining independent bands into precision the actor never measured.
+    /// Hardness is actor-visible only when physical observations share a common locality and one
+    /// measured excavation resistance there. When several such samples overlap, prefer the
+    /// narrowest band, then the smallest sampled region, latest observation, and stable lowest
+    /// identity. Spatially incomparable evidence returns no aggregate hardness instead of attaching
+    /// one local sample to a region with no shared measurement locality.
     #[must_use]
     pub const fn excavation_hardness(&self) -> Option<ExcavationHardnessEstimate> {
         self.excavation_hardness
@@ -244,6 +245,8 @@ impl GeologicalEvidenceAggregate {
         let common_acquired_region = has_evidence
             .then_some(self.common_acquired_region)
             .flatten();
+        let excavation_hardness = common_evidence_region
+            .and_then(|_| self.excavation_hardness.map(|(_, hardness)| hardness));
         let consistency = if !has_evidence {
             GeologicalEvidenceConsistency::NoEvidence
         } else if common_evidence_region.is_none() {
@@ -267,7 +270,7 @@ impl GeologicalEvidenceAggregate {
             envelope: has_evidence.then_some((self.envelope_lower_ppm, self.envelope_upper_ppm)),
             common_evidence_region,
             common_acquired_region,
-            excavation_hardness: self.excavation_hardness.map(|(_, hardness)| hardness),
+            excavation_hardness,
             most_precise: self.most_precise.map(|rank| rank.3.0),
             latest_observed_at: self.latest_observed_at,
         }

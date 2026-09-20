@@ -236,6 +236,75 @@ fn concentration_recovery_is_invariant_to_feed_assay_lot_fragmentation() {
     assert_eq!(represented_copper, 1_200_000);
 }
 
+#[test]
+fn concentration_small_mass_matrix_preserves_exact_constituent_content() {
+    for mass_mg in 1_u64..=8 {
+        for copper_ppm in [100_000_u32, 333_333, 500_000, 700_000, 900_000] {
+            let mass = Mass::from_milligrams(mass_mg);
+            let composition = copper_stone_composition(copper_ppm);
+            let fixture = concentration_fixture(mass, composition.clone());
+            let resolved = resolve_constituent_separation_process(
+                &fixture.registries,
+                &fixture.state,
+                ConstituentSeparationRequest::new(
+                    PROCESS_CONCENTRATE_COPPER,
+                    fixture.source,
+                    &[MaterialLotSelection::new(fixture.lot, mass)],
+                    fixture.separator,
+                    fixture.energy,
+                ),
+            );
+            let Ok(resolved) = resolved else {
+                let Err(ConstituentSeparationResolutionError::Batch(
+                    ConstituentSeparationBatchError::TargetBelowMassResolution { .. },
+                )) = resolved
+                else {
+                    panic!(
+                        "small-mass concentration failed for an unexpected reason: mass={mass_mg}mg copper={copper_ppm}ppm"
+                    );
+                };
+                let recovery_ppm = fixture
+                    .registries
+                    .ore_processing()
+                    .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+                    .unwrap_or_else(|| panic!("concentration definition disappeared"))
+                    .target_recovery_ppm();
+                assert!(
+                    u128::from(mass_mg) * u128::from(copper_ppm) * u128::from(recovery_ppm)
+                        < 1_000_000_u128 * 1_000_000_u128,
+                    "concentration rejected a feed capable of recovering at least one whole milligram: mass={mass_mg}mg copper={copper_ppm}ppm recovery={recovery_ppm}ppm"
+                );
+                continue;
+            };
+
+            assert_eq!(
+                resolved.target_mass().checked_add(resolved.residue_mass()),
+                Some(mass)
+            );
+            let outputs = resolved
+                .process_resolution()
+                .output_streams()
+                .iter()
+                .flat_map(|stream| stream.outputs());
+            for material in [MATERIAL_COPPER, MATERIAL_STONE] {
+                let represented = outputs
+                    .clone()
+                    .map(|output| {
+                        u128::from(output.mass().milligrams())
+                            * u128::from(output.composition().parts_per_million(material))
+                    })
+                    .sum::<u128>();
+                assert_eq!(
+                    represented,
+                    u128::from(mass_mg) * u128::from(composition.parts_per_million(material)),
+                    "small-mass concentration changed represented constituent content: mass={mass_mg}mg copper={copper_ppm}ppm material={}",
+                    material.value()
+                );
+            }
+        }
+    }
+}
+
 fn copper_stone_composition(copper_ppm: u32) -> MaterialComposition {
     MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, copper_ppm),
@@ -475,6 +544,33 @@ fn resolve_manual(fixture: &ManualFixture, mass: Mass) -> ResolvedManualConstitu
         ),
     )
     .unwrap_or_else(|error| panic!("manual separation resolution failed: {error}"))
+}
+
+#[test]
+fn manual_separation_start_rejects_resolution_from_different_registry_without_panicking() {
+    let mass = Mass::from_milligrams(100_000);
+    let fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let resolved = resolve_manual(&fixture, mass);
+    let unrelated = crate::content::make_test_registries_with_standard_sensible_heating(
+        ProcessId::new(972_099),
+    );
+
+    assert_eq!(
+        validate_start_manual_constituent_separation(
+            &unrelated,
+            &fixture.state,
+            &resolved,
+            fixture.source,
+            fixture.target,
+            fixture.residue,
+        )
+        .err(),
+        Some(StartManualConstituentSeparationError::Process(
+            StartProcessError::UnknownProcess {
+                process: PROCESS_HAND_SORT_NATIVE_COPPER,
+            }
+        ))
+    );
 }
 
 #[test]

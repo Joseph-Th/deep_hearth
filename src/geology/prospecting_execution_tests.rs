@@ -337,16 +337,30 @@ fn nonoverlapping_observations_do_not_leak_into_local_assessment() {
 fn disjoint_evidence_inside_a_large_query_is_not_reported_as_a_false_conflict() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x6B00_0007));
-    let west = make_test_prospecting_resolution(
-        bounds(0, 4),
-        GeologicalEvidenceKind::CoreSample,
-        vec![estimate(MATERIAL_COPPER, 700_000, 900_000)],
-    );
-    let east = make_test_prospecting_resolution(
-        bounds(6, 10),
-        GeologicalEvidenceKind::CoreSample,
-        vec![estimate(MATERIAL_COPPER, 100_000, 300_000)],
-    );
+    let west = ProspectingResolution {
+        region: bounds(0, 4),
+        evidence: GeologicalEvidenceKind::CoreSample,
+        findings: vec![estimate(MATERIAL_COPPER, 700_000, 900_000)],
+        excavation_hardness: Some(
+            ExcavationHardnessEstimate::new(
+                Pressure::from_pascals(300_000_000),
+                Pressure::from_pascals(350_000_000),
+            )
+            .unwrap_or_else(|error| panic!("west hardness fixture failed: {error}")),
+        ),
+    };
+    let east = ProspectingResolution {
+        region: bounds(6, 10),
+        evidence: GeologicalEvidenceKind::CoreSample,
+        findings: vec![estimate(MATERIAL_COPPER, 100_000, 300_000)],
+        excavation_hardness: Some(
+            ExcavationHardnessEstimate::new(
+                Pressure::from_pascals(400_000_000),
+                Pressure::from_pascals(450_000_000),
+            )
+            .unwrap_or_else(|error| panic!("east hardness fixture failed: {error}")),
+        ),
+    };
     record(&registries, &mut state, west);
     record(&registries, &mut state, east);
 
@@ -359,6 +373,11 @@ fn disjoint_evidence_inside_a_large_query_is_not_reported_as_a_false_conflict() 
     assert_eq!(assessment.common_evidence_region(), None);
     assert_eq!(assessment.common_acquired_region(), None);
     assert_eq!(assessment.envelope(), Some((100_000, 900_000)));
+    assert_eq!(
+        assessment.excavation_hardness(),
+        None,
+        "disjoint physical samples must not collapse into a regionless hardness claim"
+    );
     assert_eq!(assessment.observations().len(), 2);
 }
 

@@ -1,7 +1,11 @@
 //! Contract tests for material-lot physical state.
 
 use super::*;
-use crate::material::{COMPOSITION_PARTS_PER_MILLION, CompositionComponent, FormId};
+use crate::core::quantity::{Mass, Temperature};
+use crate::material::{
+    COMPOSITION_PARTS_PER_MILLION, CommodityKey, CompositionComponent, CompositionConstraint,
+    FormId, MaterialComposition, MaterialId,
+};
 
 #[test]
 fn pure_input_spec_accepts_only_exact_host_material() {

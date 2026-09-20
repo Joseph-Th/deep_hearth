@@ -84,11 +84,7 @@ pub(crate) fn validate_loaded_screening_job(
         return Err(ScreeningJobValidationError::OutputMismatch { job: job.id() });
     }
     for expected_stream in &expected.streams {
-        let Some(stored_stream) = job
-            .output_streams()
-            .iter()
-            .find(|stream| stream.id() == expected_stream.id())
-        else {
+        let Some(stored_stream) = job.get_output_stream(expected_stream.id()) else {
             return Err(ScreeningJobValidationError::OutputMismatch { job: job.id() });
         };
         if stored_stream.outputs() != expected_stream.outputs() {

@@ -1,0 +1,598 @@
+//! Trusted-load replay, multi-tick absorption, and reserve-timing contracts.
+
+use super::*;
+
+#[test]
+fn trusted_load_replays_direct_consumption_attention_durations() {
+    let registries = build_registries();
+
+    let mut eating = AppState::new(WorldSeed::new(0x5A70_0020));
+    initialize_and_spend_reserves(&registries, &mut eating);
+    let stockpile = add_solid_stockpile_for_test(&mut eating, Mass::from_milligrams(10))
+        .unwrap_or_else(|error| panic!("eating-duration stockpile failed: {error}"));
+    let food = deposit_lot_for_test(
+        &registries,
+        &mut eating,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("eating-duration food fixture failed: {error}"));
+    let _eating_outcome = validate_eat(
+        &registries,
+        &eating,
+        stockpile,
+        &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+    )
+    .unwrap_or_else(|error| panic!("eating-duration validation failed: {error}"))
+    .commit(&mut eating)
+    .unwrap_or_else(|error| panic!("eating-duration commit failed: {error}"));
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &eating))
+        .unwrap_or_else(|error| panic!("eating-duration serialization failed: {error}"));
+    let completes_at =
+        tampered["state"]["systems"]["player_work"]["active"]["Eating"]["work"]["completes_at"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("eating-duration completion tick was not serialized as u64"));
+    tampered["state"]["systems"]["player_work"]["active"]["Eating"]["work"]["completes_at"] =
+        serde_json::json!(completes_at + 1);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("eating-duration tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::EatingDurationMismatch
+        )))
+    );
+
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &eating))
+        .unwrap_or_else(|error| panic!("eating-mass serialization failed: {error}"));
+    tampered["state"]["systems"]["player_work"]["active"]["Eating"]["work"]["mass"] =
+        serde_json::json!(0_u64);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("eating-mass tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::EatingMassInvalid { mass: Mass::ZERO }
+        )))
+    );
+
+    let mut drinking = AppState::new(WorldSeed::new(0x5A70_0021));
+    initialize_and_spend_reserves(&registries, &mut drinking);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut drinking,
+        Volume::from_microliters(10),
+        FLUID_WATER,
+        Volume::from_microliters(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("drinking-duration water fixture failed: {error}"));
+    let _drinking_outcome =
+        validate_drink(&registries, &drinking, water, Volume::from_microliters(1))
+            .unwrap_or_else(|error| panic!("drinking-duration validation failed: {error}"))
+            .commit(&mut drinking)
+            .unwrap_or_else(|error| panic!("drinking-duration commit failed: {error}"));
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &drinking))
+        .unwrap_or_else(|error| panic!("drinking-duration serialization failed: {error}"));
+    let completes_at =
+        tampered["state"]["systems"]["player_work"]["active"]["Drinking"]["work"]["completes_at"]
+            .as_u64()
+            .unwrap_or_else(|| {
+                panic!("drinking-duration completion tick was not serialized as u64")
+            });
+    tampered["state"]["systems"]["player_work"]["active"]["Drinking"]["work"]["completes_at"] =
+        serde_json::json!(completes_at + 1);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("drinking-duration tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::DrinkingDurationMismatch
+        )))
+    );
+
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &drinking))
+        .unwrap_or_else(|error| panic!("drinking-volume serialization failed: {error}"));
+    tampered["state"]["systems"]["player_work"]["active"]["Drinking"]["work"]["volume"] =
+        serde_json::json!(0_u64);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("drinking-volume tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::DrinkingVolumeInvalid {
+                volume: Volume::ZERO,
+            }
+        )))
+    );
+}
+
+#[test]
+fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0022));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("multi-tick drinking survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let hydration_before = physiology
+        .maximum_hydration()
+        .checked_sub(Volume::from_microliters(500_000))
+        .unwrap_or_else(|| panic!("multi-tick drinking hydration fixture underflowed"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            hydration_before,
+            Vitality::MAXIMUM,
+            NutritionReserves::from_parts_per_million(
+                NUTRITION_PARTS_PER_MILLION,
+                NUTRITION_PARTS_PER_MILLION,
+                NUTRITION_PARTS_PER_MILLION,
+            ),
+            0,
+        ),
+    );
+    let volume = Volume::from_microliters(125_000);
+    assert_eq!(
+        physiology.direct_consumption().drink_duration(volume),
+        Some(TickSpan::new(3))
+    );
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        volume,
+        FLUID_WATER,
+        volume,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("multi-tick drinking water fixture failed: {error}"));
+    let outcome = validate_drink(&registries, &state, store, volume)
+        .unwrap_or_else(|error| panic!("multi-tick drinking validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("multi-tick drinking commit failed: {error}"));
+    assert_eq!(outcome.hydration_offered(), volume);
+
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("multi-tick drinking first tick failed: {error}"));
+    let first_tick_hydration = hydration_before
+        .checked_add(Volume::from_microliters(41_666))
+        .and_then(|value| value.checked_sub(physiology.hydration_loss_per_tick()))
+        .unwrap_or_else(|| panic!("multi-tick first hydration expectation failed"));
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("multi-tick player disappeared after first tick"))
+            .hydration(),
+        first_tick_hydration
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("multi-tick in-progress state audit failed: {error}"));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("multi-tick drinking serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("multi-tick drinking decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("multi-tick drinking trusted load failed: {error}"));
+    let mut uninterrupted = state.clone();
+    assert_eq!(loaded, uninterrupted);
+
+    for _ in 0..2 {
+        let _ = advance_tick(&registries, &mut loaded).unwrap_or_else(|error| {
+            panic!("loaded multi-tick drinking continuation failed: {error}")
+        });
+        let _ = advance_tick(&registries, &mut uninterrupted).unwrap_or_else(|error| {
+            panic!("uninterrupted multi-tick drinking continuation failed: {error}")
+        });
+    }
+    assert_eq!(loaded, uninterrupted);
+    assert_eq!(loaded.player_work().active(), None);
+    assert_eq!(
+        assess_survival(&registries, &loaded)
+            .unwrap_or_else(|| panic!("multi-tick player disappeared after completion"))
+            .hydration(),
+        hydration_before
+            .checked_add(volume)
+            .and_then(|value| {
+                value.checked_sub(Volume::from_microliters(
+                    physiology.hydration_loss_per_tick().microliters() * 3,
+                ))
+            })
+            .unwrap_or_else(|| panic!("multi-tick final hydration expectation failed"))
+    );
+}
+
+#[test]
+fn dead_player_pending_consumption_cancels_on_next_tick_with_player_work() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0026));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("dead-consumption survival setup failed: {error}"));
+    let volume = Volume::from_microliters(125_000);
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        volume,
+        FLUID_WATER,
+        volume,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("dead-consumption water fixture failed: {error}"));
+    let _ = validate_drink(&registries, &state, store, volume)
+        .unwrap_or_else(|error| panic!("dead-consumption drink validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("dead-consumption drink commit failed: {error}"));
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("dead-consumption player disappeared"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+    let frozen_revision = state.survival().revision();
+    let frozen_player = state.survival().player().copied();
+
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("dead-consumption cancellation tick failed: {error}"));
+    assert_eq!(state.survival().revision(), frozen_revision + 1);
+    assert_eq!(state.survival().player().copied(), frozen_player);
+    assert_eq!(state.survival().pending_direct_consumption(), None);
+    assert_eq!(state.player_work().active(), None);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("dead-consumption final audit failed: {error}"));
+}
+
+#[test]
+fn obsolete_save_without_direct_consumption_state_is_rejected_during_decode() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0023));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("current-schema survival setup failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("current-schema survival serialization failed: {error}"));
+    let removed = encoded["state"]["systems"]["survival"]
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("serialized survival state is not an object"))
+        .remove("direct_consumption");
+    assert!(
+        removed.is_some(),
+        "current schema must serialize direct-consumption state"
+    );
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded).is_err(),
+        "save payloads predating required direct-consumption state must not receive compatibility defaults"
+    );
+}
+
+#[test]
+fn drinking_near_capacity_absorbs_after_same_tick_basal_loss() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0016));
+    initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+        panic!("partial-hydration survival initialization failed: {error}")
+    });
+    let physiology = registries.survival().physiology();
+    let hydration_before = physiology
+        .maximum_hydration()
+        .checked_sub(Volume::from_microliters(1))
+        .unwrap_or_else(|| panic!("partial-hydration fixture underflowed"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            hydration_before,
+            Vitality::MAXIMUM,
+            NutritionReserves::from_parts_per_million(
+                NUTRITION_PARTS_PER_MILLION,
+                NUTRITION_PARTS_PER_MILLION,
+                NUTRITION_PARTS_PER_MILLION,
+            ),
+            0,
+        ),
+    );
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(10),
+        FLUID_WATER,
+        Volume::from_microliters(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("partial-hydration water fixture failed: {error}"));
+    let outcome = validate_drink(&registries, &state, store, Volume::from_microliters(10))
+        .unwrap_or_else(|error| panic!("partial-hydration drink validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("partial-hydration drink commit failed: {error}"));
+
+    assert_eq!(outcome.volume(), Volume::from_microliters(10));
+    assert_eq!(outcome.hydration_offered(), Volume::from_microliters(10));
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("partial-hydration survival state disappeared"))
+            .hydration(),
+        hydration_before
+    );
+    assert_eq!(
+        state
+            .fluid()
+            .get_store(store)
+            .map(|record| record.stored_volume()),
+        Some(Volume::ZERO)
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("partial-hydration post-drink audit failed: {error}"));
+    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("partial-hydration survival state disappeared after drink"))
+            .hydration(),
+        hydration_before
+            .checked_sub(physiology.hydration_loss_per_tick())
+            .and_then(|value| value.checked_add(outcome.hydration_offered()))
+            .unwrap_or_else(|| panic!("partial-hydration expected reserve underflowed"))
+    );
+}
+
+#[test]
+fn drink_hydration_first_covers_same_tick_hydration_shortfall() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0025));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("drink-shortfall survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let hydration_before = Volume::from_microliters(120);
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            hydration_before,
+            Vitality::MAXIMUM,
+            NutritionReserves::from_parts_per_million(
+                NUTRITION_PARTS_PER_MILLION,
+                NUTRITION_PARTS_PER_MILLION,
+                NUTRITION_PARTS_PER_MILLION,
+            ),
+            0,
+        ),
+    );
+    let volume = Volume::from_microliters(10);
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        volume,
+        FLUID_WATER,
+        volume,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("drink-shortfall water fixture failed: {error}"));
+    let outcome = validate_drink(&registries, &state, store, volume)
+        .unwrap_or_else(|error| panic!("drink-shortfall validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("drink-shortfall commit failed: {error}"));
+    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    let shortfall = physiology
+        .hydration_loss_per_tick()
+        .checked_sub(hydration_before)
+        .unwrap_or(Volume::ZERO);
+    let expected_after = outcome
+        .hydration_offered()
+        .checked_sub(shortfall)
+        .unwrap_or(Volume::ZERO);
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("drink-shortfall player disappeared"))
+            .hydration(),
+        expected_after
+    );
+}
+
+#[test]
+fn eating_at_full_reserves_absorbs_as_basal_cost_creates_capacity() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0010));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("full-reserve survival initialization failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("full-reserve food stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(1),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("full-reserve food lot failed: {error}"));
+    let outcome = validate_eat(
+        &registries,
+        &state,
+        stockpile,
+        &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+    )
+    .unwrap_or_else(|error| panic!("full-reserve eating should remain useful over time: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("full-reserve eating commit failed: {error}"));
+    assert_eq!(state.inventory().get_lot(lot), None);
+    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    let net_cost = physiology
+        .basal_energy_cost_per_tick()
+        .checked_sub(outcome.energy_offered())
+        .unwrap_or(Energy::ZERO);
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("full-reserve player disappeared after eating"))
+            .metabolic_energy(),
+        physiology
+            .maximum_metabolic_energy()
+            .checked_sub(net_cost)
+            .unwrap_or_else(|| panic!("full-reserve eating expectation underflowed"))
+    );
+}
+
+#[test]
+fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0014));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("nutrition-clamp survival initialization failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            Vitality::MAXIMUM,
+            NutritionReserves::from_parts_per_million(0, 0, 0),
+            0,
+        ),
+    );
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("nutrition-clamp stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(100),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("nutrition-clamp food lot failed: {error}"));
+
+    let outcome = validate_eat(
+        &registries,
+        &state,
+        stockpile,
+        &[MaterialLotSelection::new(lot, Mass::from_milligrams(100))],
+    )
+    .unwrap_or_else(|error| panic!("nutrition-clamp eating validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("nutrition-clamp eating commit failed: {error}"));
+
+    assert_eq!(
+        outcome.energy_offered(),
+        Energy::from_nanojoules(1_400_000_000_000)
+    );
+    assert_eq!(outcome.nutrition_offered().get(FoodCategory::Grain), 70);
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("nutrition-clamp survival state disappeared at admission"))
+            .nutrition()
+            .get(FoodCategory::Grain),
+        0
+    );
+    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("nutrition-clamp survival state disappeared"))
+            .nutrition()
+            .get(FoodCategory::Grain),
+        65
+    );
+}
+
+#[test]
+fn very_large_meal_is_rejected_by_authored_intake_limit_without_consumption() {
+    const MEAL_MASS_MG: u64 = 7_000_000_000;
+
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0019));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("large-meal survival initialization failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            Vitality::MAXIMUM,
+            NutritionReserves::from_parts_per_million(0, 0, 0),
+            0,
+        ),
+    );
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(MEAL_MASS_MG))
+        .unwrap_or_else(|error| panic!("large-meal stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(MEAL_MASS_MG),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("large-meal food lot failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(
+                lot,
+                Mass::from_milligrams(MEAL_MASS_MG),
+            )],
+        )
+        .err(),
+        Some(EatError::MealMassExceedsIntakeLimit {
+            mass: Mass::from_milligrams(MEAL_MASS_MG),
+            maximum: physiology.direct_consumption().maximum_meal_mass(),
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn drinking_at_full_hydration_absorbs_as_basal_loss_creates_capacity() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0011));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("full-hydration survival initialization failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let volume = Volume::from_microliters(1_000);
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        volume,
+        FLUID_WATER,
+        volume,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("full-hydration water fixture failed: {error}"));
+    let outcome = validate_drink(&registries, &state, store, volume)
+        .unwrap_or_else(|error| {
+            panic!("full-hydration drinking should remain useful over time: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("full-hydration drinking commit failed: {error}"));
+    assert_eq!(outcome.hydration_offered(), volume);
+    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("full-hydration player disappeared after drinking"))
+            .hydration(),
+        physiology.maximum_hydration()
+    );
+}

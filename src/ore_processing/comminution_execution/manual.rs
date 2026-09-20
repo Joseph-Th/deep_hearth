@@ -246,9 +246,11 @@ pub fn validate_start_manual_comminution(
     let definition = registries
         .ore_processing()
         .get_manual_comminution(process_id)
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: resolved manual comminution definition disappeared")
-        });
+        .ok_or(StartManualComminutionError::Process(
+            StartProcessError::UnknownProcess {
+                process: process_id,
+            },
+        ))?;
     let process = validate_start_manual_process(
         registries,
         state,

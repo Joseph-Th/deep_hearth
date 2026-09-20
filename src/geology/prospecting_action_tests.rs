@@ -7,13 +7,13 @@ use crate::content::{
     MATERIAL_STONE, MATERIAL_WOOD, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
     PROSPECTING_LOCAL_TRANSECT, PROSPECTING_REGIONAL_RECONNAISSANCE, build_registries,
 };
-use crate::core::quantity::{Mass, Pressure, Temperature};
+use crate::core::quantity::{Energy, Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
-    insert_generated_deposit,
+    GeologicalObservationId, insert_generated_deposit,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId, ProspectingWork};
@@ -23,11 +23,138 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
-use crate::survival::{assess_survival, initialize_player_survival};
+use crate::survival::{Vitality, assess_survival, initialize_player_survival, player_record};
 
 fn one_voxel(x: i64) -> VoxelBounds {
     VoxelBounds::new(VoxelCoord::new(x, -1, 0), VoxelCoord::new(x + 1, 0, 1))
         .unwrap_or_else(|error| panic!("field prospecting bounds fixture failed: {error}"))
+}
+
+fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
+    let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal prospecting fixture player disappeared"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+}
+
+#[test]
+fn fatal_tick_cancels_unfinished_equipment_prospecting_without_evidence_or_wear() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_E003));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal prospecting survival setup failed: {error}"));
+    let region = one_voxel(42);
+    insert_copper(&registries, &mut state, region);
+    let hammer = assemble_sampling_hammer(&registries, &mut state);
+    let condition_before = state
+        .equipment()
+        .get_equipment(hammer)
+        .unwrap_or_else(|| panic!("fatal prospecting hammer disappeared"))
+        .condition();
+    let knowledge_revision_before = state.geological_knowledge().revision();
+    let next_observation_before = state.geological_knowledge().next_observation_id();
+    let start = validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new_with_equipment(
+            PROSPECTING_DETAILED_FIELD_SURVEY,
+            region,
+            MATERIAL_COPPER,
+            hammer,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("fatal prospecting validation failed: {error}"));
+    let work = start.work();
+    assert!(work.completes_at().value() > state.tick().value() + 1);
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fatal prospecting commit failed: {error}"));
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal prospecting tick failed: {error}"));
+
+    assert_eq!(outcome.field_prospecting(), None);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state.geological_knowledge().revision(),
+        knowledge_revision_before
+    );
+    assert_eq!(
+        state.geological_knowledge().next_observation_id(),
+        next_observation_before
+    );
+    assert_eq!(state.geological_knowledge().observations().count(), 0);
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(hammer)
+            .map(|record| record.condition()),
+        Some(condition_before),
+        "unfinished prospecting must not apply completion wear on fatal interruption"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("fatal prospecting state audit failed: {error}"));
+
+    let post_death = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("post-death prospecting tick failed: {error}"));
+    assert_eq!(post_death.field_prospecting(), None);
+    assert_eq!(state.geological_knowledge().observations().count(), 0);
+}
+
+#[test]
+fn prospecting_due_on_fatal_tick_records_evidence_before_attention_is_released() {
+    let (registries, mut state) = inspection_ready_to_complete_fixture();
+    let active = state
+        .player_work()
+        .active()
+        .unwrap_or_else(|| panic!("fatal due prospecting work disappeared"));
+    let PlayerWork::Prospecting { work } = active else {
+        panic!("fatal due prospecting fixture has wrong player-work kind: {active:?}");
+    };
+    assert_eq!(work.completes_at().value(), state.tick().value() + 1);
+    let next_observation_before = state.geological_knowledge().next_observation_id();
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal due prospecting tick failed: {error}"));
+
+    let observation = outcome
+        .field_prospecting()
+        .unwrap_or_else(|| panic!("prospecting due on fatal tick did not complete"));
+    assert_eq!(
+        observation.observation(),
+        GeologicalObservationId::new(next_observation_before)
+    );
+    assert_eq!(observation.observation_count(), 1);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(state.geological_knowledge().observations().count(), 1);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("fatal due prospecting state audit failed: {error}"));
 }
 
 #[test]

@@ -2116,7 +2116,7 @@ class ExactTestCommandTests(unittest.TestCase):
             catalog,
         )
         self.assertIn(
-            "thermal::processes::tests::sensible_heating_rejects_heater_after_mounted_support_fails",
+            "thermal::processes::tests::validation::sensible_heating_rejects_heater_after_mounted_support_fails",
             catalog,
         )
         self.assertNotIn(

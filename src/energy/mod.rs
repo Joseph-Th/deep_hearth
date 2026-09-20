@@ -36,7 +36,9 @@ pub use integration::{
     calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
     calculate_power_duration_ceiling, integrate_power,
 };
-pub use passive_dissipation::passive_dissipation_ticks_until_empty;
+pub use passive_dissipation::{
+    PassiveDissipationHorizonError, passive_dissipation_ticks_until_empty,
+};
 pub use state::{EnergyState, EnergyStoreId, EnergyStoreRecord, EnergyValidationError};
 pub use storage_execution::{
     ConsumedEnergyTrace, EnergySinkError, EnergySupplyError, ReleasedEnergyTrace,

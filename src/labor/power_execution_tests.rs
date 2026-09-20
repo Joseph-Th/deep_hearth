@@ -11,7 +11,7 @@ use crate::content::{
     PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
     build_registries,
 };
-use crate::core::quantity::{Area, Length, Mass, Temperature};
+use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -34,13 +34,162 @@ use crate::structural::{
     StructuralElementId, add_structural_element, materialize_structural_element_for_test,
     validate_activate_structural_element,
 };
-use crate::survival::{assess_survival, initialize_player_survival};
+use crate::survival::{Vitality, assess_survival, initialize_player_survival, player_record};
 
 fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
     for _ in 0..ticks {
         let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("manual power setup tick failed: {error}"));
     }
+}
+
+fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
+    let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("fatal manual-power fixture player disappeared"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+}
+
+#[test]
+fn fatal_tick_cancels_unfinished_manual_power_without_energy_or_wear() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0012));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal manual-power survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_LARGE_DRIVE)
+        .unwrap_or_else(|error| panic!("fatal manual-power drive failed: {error}"));
+    let requested = Energy::from_nanojoules(300_000_000_000);
+    let start = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
+    )
+    .unwrap_or_else(|error| panic!("fatal manual-power validation failed: {error}"));
+    let work = start.work();
+    assert!(work.completes_at().value() > state.tick().value() + 1);
+    let condition_before = state
+        .equipment()
+        .get_equipment(crank)
+        .unwrap_or_else(|| panic!("fatal manual-power crank disappeared"))
+        .condition();
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fatal manual-power commit failed: {error}"));
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal manual-power tick failed: {error}"));
+
+    assert_eq!(outcome.manual_power(), None);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state
+            .energy()
+            .get_store(drive)
+            .map(EnergyStoreRecord::stored),
+        Some(Energy::ZERO),
+        "unfinished manual power must not materialize generated work on fatal interruption"
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(crank)
+            .map(|record| record.condition()),
+        Some(condition_before),
+        "unfinished manual power must not apply completion wear on fatal interruption"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("fatal manual-power state audit failed: {error}"));
+
+    let post_death = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("post-death manual-power tick failed: {error}"));
+    assert_eq!(post_death.manual_power(), None);
+    assert_eq!(
+        state
+            .energy()
+            .get_store(drive)
+            .map(EnergyStoreRecord::stored),
+        Some(Energy::ZERO)
+    );
+}
+
+#[test]
+fn manual_power_due_on_fatal_tick_completes_before_attention_is_released() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0013));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal due manual-power survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(
+        &registries,
+        &mut state,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        true,
+    );
+    let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_LARGE_DRIVE)
+        .unwrap_or_else(|error| panic!("fatal due manual-power drive failed: {error}"));
+    let requested = Energy::from_nanojoules(300_000_000_000);
+    let start = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
+    )
+    .unwrap_or_else(|error| panic!("fatal due manual-power validation failed: {error}"));
+    let work = start.work();
+    assert_eq!(work.completes_at().value(), state.tick().value() + 1);
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fatal due manual-power commit failed: {error}"));
+    make_next_tick_fatal(&registries, &mut state);
+
+    let outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fatal due manual-power tick failed: {error}"));
+
+    assert_eq!(
+        outcome.manual_power().map(ManualPowerOutcome::energy),
+        Some(requested)
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert_eq!(
+        state
+            .energy()
+            .get_store(drive)
+            .map(EnergyStoreRecord::stored),
+        Some(requested)
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(crank)
+            .map(|record| record.condition()),
+        Some(work.condition_after())
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("fatal due manual-power state audit failed: {error}"));
 }
 
 #[test]

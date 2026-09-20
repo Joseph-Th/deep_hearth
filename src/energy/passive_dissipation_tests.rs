@@ -84,7 +84,8 @@ fn passive_emptying_projection_matches_runtime_loss_boundary() {
         .get_store(DISSIPATIVE_STORE)
         .unwrap_or_else(|| panic!("passive projection definition disappeared"));
     let stored = Energy::from_nanojoules(5_000_000_000_000_000);
-    let ticks = passive_dissipation_ticks_until_empty(&registries, definition, stored)
+    let ticks = passive_dissipation_ticks_until_empty(&registries, DISSIPATIVE_STORE, stored)
+        .unwrap_or_else(|error| panic!("passive dissipation horizon failed: {error}"))
         .unwrap_or_else(|| panic!("dissipative store must have a finite emptying horizon"));
     assert_eq!(ticks, crate::core::time::TickSpan::new(2));
     assert_eq!(
@@ -101,6 +102,17 @@ fn passive_emptying_projection_matches_runtime_loss_boundary() {
                 .unwrap_or_else(|| panic!("finite dissipation horizon must exceed zero ticks")),
         )
         .is_zero()
+    );
+}
+
+#[test]
+fn passive_dissipation_horizon_rejects_unknown_definition() {
+    let registries = registries();
+    let definition = EnergyStoreDefinitionId::new(930_102);
+
+    assert_eq!(
+        passive_dissipation_ticks_until_empty(&registries, definition, Energy::ZERO),
+        Err(PassiveDissipationHorizonError::UnknownDefinition { definition })
     );
 }
 

@@ -1,13 +1,15 @@
 //! Deterministic passive loss from finite stores into unmodeled environmental energy domains.
 
 use std::cmp::min;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Energy;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::registry::Registries;
 
-use super::definitions::EnergyStoreDefinition;
+use super::definitions::{EnergyStoreDefinition, EnergyStoreDefinitionId};
 use super::integration::{PowerRemainder, integrate_power};
 use super::state::EnergyStoreId;
 
@@ -72,25 +74,63 @@ pub(crate) fn project_stored_energy_after_passive_dissipation(
     )
 }
 
+/// Failure to project a public passive-dissipation horizon from authored registry data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PassiveDissipationHorizonError {
+    UnknownDefinition {
+        definition: EnergyStoreDefinitionId,
+    },
+    DurationOverflow {
+        definition: EnergyStoreDefinitionId,
+        stored: Energy,
+    },
+}
+
+impl Display for PassiveDissipationHorizonError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownDefinition { definition } => write!(
+                formatter,
+                "unknown energy-store definition {}",
+                definition.value()
+            ),
+            Self::DurationOverflow { definition, stored } => write!(
+                formatter,
+                "energy-store definition {} needs more than the represented tick range to dissipate {} nJ",
+                definition.value(),
+                stored.nanojoules()
+            ),
+        }
+    }
+}
+
+impl Error for PassiveDissipationHorizonError {}
+
 /// Exact number of authoritative passive-loss ticks required to empty `stored` energy.
 ///
-/// Returns zero ticks for an empty store. Returns `None` when the definition has no passive-loss
-/// route or when the required duration exceeds the represented [`TickSpan`] range.
-#[must_use]
+/// Returns zero ticks for an empty store and `Ok(None)` when the authored definition has no
+/// passive-loss route. Only definitions owned by `registries` are accepted, so registry validation
+/// has already proved that per-tick dissipation integrates exactly.
 pub fn passive_dissipation_ticks_until_empty(
     registries: &Registries,
-    definition: &EnergyStoreDefinition,
+    definition: EnergyStoreDefinitionId,
     stored: Energy,
-) -> Option<TickSpan> {
+) -> Result<Option<TickSpan>, PassiveDissipationHorizonError> {
+    let definition_record = registries
+        .energy()
+        .get_store(definition)
+        .ok_or(PassiveDissipationHorizonError::UnknownDefinition { definition })?;
     if stored.is_zero() {
-        return Some(TickSpan::new(0));
+        return Ok(Some(TickSpan::ZERO));
     }
-    let per_tick = passive_dissipation_per_tick(registries, definition);
+    let per_tick = passive_dissipation_per_tick(registries, definition_record);
     if per_tick.is_zero() {
-        return None;
+        return Ok(None);
     }
     let ticks = stored.nanojoules().div_ceil(per_tick.nanojoules());
-    u64::try_from(ticks).ok().map(TickSpan::new)
+    let ticks = u64::try_from(ticks)
+        .map_err(|_| PassiveDissipationHorizonError::DurationOverflow { definition, stored })?;
+    Ok(Some(TickSpan::new(ticks)))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

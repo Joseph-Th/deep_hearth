@@ -1180,6 +1180,32 @@ fn resolve_manual_comminution(
 }
 
 #[test]
+fn manual_comminution_start_rejects_resolution_from_different_registry_without_panicking() {
+    let mass = Mass::from_milligrams(100_000);
+    let fixture = manual_comminution_fixture(mass);
+    let resolved = resolve_manual_comminution(&fixture, mass);
+    let unrelated = crate::content::make_test_registries_with_standard_sensible_heating(
+        ProcessId::new(970_099),
+    );
+
+    assert_eq!(
+        validate_start_manual_comminution(
+            &unrelated,
+            &fixture.state,
+            &resolved,
+            fixture.source,
+            fixture.destination,
+        )
+        .err(),
+        Some(StartManualComminutionError::Process(
+            StartProcessError::UnknownProcess {
+                process: PROCESS_HAND_BREAK_ORE,
+            }
+        ))
+    );
+}
+
+#[test]
 fn hand_breaking_is_conserved_survival_costed_and_resource_free() {
     let mass = Mass::from_milligrams(100_000);
     let mut fixture = manual_comminution_fixture(mass);

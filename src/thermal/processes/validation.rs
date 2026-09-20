@@ -212,9 +212,7 @@ fn validate_sensible_heating_outputs(
         .ok_or(ThermalJobValidationError::OutputMismatch { job: job.id() })?;
     let mut expected_outputs = batch.into_outputs();
     expected_outputs.sort();
-    let mut actual_outputs = output_stream.outputs().to_vec();
-    actual_outputs.sort();
-    if actual_outputs != expected_outputs {
+    if output_stream.outputs() != expected_outputs {
         return Err(ThermalJobValidationError::OutputMismatch { job: job.id() });
     }
     Ok(())

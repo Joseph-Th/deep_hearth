@@ -78,6 +78,15 @@ impl ConsumptionSelection {
         &self.consumed_inputs
     }
 
+    /// Iterates already-validated lot slices in the selection owner's deterministic order.
+    pub(crate) fn lot_selections(
+        &self,
+    ) -> impl ExactSizeIterator<Item = MaterialLotSelection> + '_ {
+        self.lot_slices
+            .iter()
+            .map(|slice| MaterialLotSelection::new(slice.lot, slice.mass))
+    }
+
     pub(crate) fn total_consumed(&self) -> Mass {
         checked_consumed_material_mass(&self.consumed_inputs)
             .unwrap_or_else(|| panic!("validated consumption selection mass overflowed"))

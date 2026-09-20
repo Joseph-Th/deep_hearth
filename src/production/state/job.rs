@@ -344,6 +344,18 @@ impl ProductionJobRecord {
         &self.output_streams
     }
 
+    /// Resolves one durable output stream by its canonical stable ID.
+    #[must_use]
+    pub(crate) fn get_output_stream(
+        &self,
+        id: ProcessOutputStreamId,
+    ) -> Option<&ProductionOutputStream> {
+        self.output_streams
+            .binary_search_by_key(&id, ProductionOutputStream::id)
+            .ok()
+            .map(|index| &self.output_streams[index])
+    }
+
     /// Returns the sole durable stream for process families that require single-stream output.
     #[must_use]
     pub fn single_output_stream(&self) -> Option<&ProductionOutputStream> {

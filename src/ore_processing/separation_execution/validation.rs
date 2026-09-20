@@ -94,11 +94,7 @@ fn validate_output_streams(
             residue,
         ),
     ] {
-        let Some(stored) = job
-            .output_streams()
-            .iter()
-            .find(|stream| stream.id() == stream_id)
-        else {
+        let Some(stored) = job.get_output_stream(stream_id) else {
             return Err(ConstituentSeparationJobValidationError::OutputMismatch { job: job.id() });
         };
         if stored.outputs() != outputs {

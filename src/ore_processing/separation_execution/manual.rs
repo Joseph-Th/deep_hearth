@@ -280,9 +280,11 @@ pub fn validate_start_manual_constituent_separation(
     let definition = registries
         .ore_processing()
         .get_manual_constituent_separation(process_id)
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: resolved manual separation definition disappeared")
-        });
+        .ok_or(StartManualConstituentSeparationError::Process(
+            StartProcessError::UnknownProcess {
+                process: process_id,
+            },
+        ))?;
     let routes = [
         ProcessOutputRoute::new(
             ManualConstituentSeparationProcessDefinition::TARGET_STREAM,

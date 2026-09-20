@@ -1,0 +1,870 @@
+//! Inventory transfer admission, identity, coalescing, and physical-profile contracts.
+
+use super::*;
+
+#[test]
+fn validated_withdrawal_mass_projections_reject_stale_inventory_revision() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2005));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("stale projection source fixture failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("stale projection source deposit failed: {error}"));
+    let inputs = [MaterialInputSpec::new(wood_log(), Mass::from_milligrams(5))];
+    let reservation_selection = validate_consumption_selection(state.inventory(), source, &inputs)
+        .unwrap_or_else(|error| panic!("reservation selection failed: {error:?}"));
+    let reservation = validate_consumption_reservation_from_selection(
+        state.inventory(),
+        reservation_selection,
+        BTreeMap::new(),
+    )
+    .unwrap_or_else(|error| panic!("reservation validation failed: {error:?}"));
+    let egress_selection = validate_consumption_selection(state.inventory(), source, &inputs)
+        .unwrap_or_else(|error| panic!("egress selection failed: {error:?}"));
+    let egress = validate_material_egress_from_selection(state.inventory(), egress_selection)
+        .unwrap_or_else(|error| panic!("egress validation failed: {error:?}"));
+
+    add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale projection revision advance failed: {error}"));
+
+    assert!(
+        std::panic::catch_unwind(|| reservation.source_stored_mass_after(state.inventory()))
+            .is_err(),
+        "consumption reservation projection must reject a different inventory revision"
+    );
+    assert!(
+        std::panic::catch_unwind(|| egress.source_stored_mass_after(state.inventory())).is_err(),
+        "material egress projection must reject a different inventory revision"
+    );
+}
+
+#[test]
+fn split_transfer_rejects_exhausted_lot_id_without_mutation() {
+    let (registries, state, source, destination) = split_transfer_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("lot-id exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("lot-id exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("lot-id exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_material_transfer_for_test(
+            &registries,
+            &loaded,
+            source,
+            destination,
+            wood_log(),
+            Mass::from_milligrams(3),
+        ),
+        Err(MaterialTransferError::LotIdExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn split_transfer_rejects_exhausted_inventory_revision_without_mutation() {
+    let (registries, state, source, destination) = split_transfer_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("inventory revision exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("inventory revision exhaustion decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("inventory revision exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_material_transfer_for_test(
+            &registries,
+            &loaded,
+            source,
+            destination,
+            wood_log(),
+            Mass::from_milligrams(3),
+        ),
+        Err(MaterialTransferError::RevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn default_stockpile_rejects_liquid_material_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_1001));
+    let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(stockpile) => stockpile,
+        Err(error) => panic!("solid stockpile fixture failed: {error}"),
+    };
+    let before = state.clone();
+
+    let result = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(1_357_770),
+    );
+
+    assert_eq!(
+        result,
+        Err(MaterialFixtureError::Ingress(
+            MaterialIngressError::Storage(StockpileStorageError::PhaseNotAccepted {
+                stockpile,
+                phase: MaterialPhase::Liquid,
+            })
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn liquid_storage_accepts_matching_phase_but_enforces_temperature_limit() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_1002));
+    let maximum = Temperature::from_millikelvin(1_400_000);
+    let profile = match StockpileStorageProfile::new(false, true, maximum) {
+        Ok(profile) => profile,
+        Err(error) => panic!("liquid storage profile fixture failed: {error}"),
+    };
+    let vessel = match add_stockpile(&mut state, Mass::from_milligrams(100), profile) {
+        Ok(stockpile) => stockpile,
+        Err(error) => panic!("liquid storage fixture failed: {error}"),
+    };
+
+    if let Err(error) = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        vessel,
+        CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(1_357_770),
+    ) {
+        panic!("valid molten deposit was rejected: {error}");
+    }
+    let before_hot_rejection = state.clone();
+    let too_hot = Temperature::from_millikelvin(1_500_000);
+    assert_eq!(
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            vessel,
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            Mass::from_milligrams(1),
+            too_hot,
+        ),
+        Err(MaterialFixtureError::Ingress(
+            MaterialIngressError::Storage(StockpileStorageError::TemperatureExceedsMaximum {
+                stockpile: vessel,
+                temperature: too_hot,
+                maximum,
+            })
+        ))
+    );
+    assert_eq!(state, before_hot_rejection);
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}
+
+#[test]
+fn transfer_rechecks_destination_containment_for_actual_selected_lots() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_1003));
+    let source_profile =
+        match StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(2_000_000)) {
+            Ok(profile) => profile,
+            Err(error) => panic!("source vessel profile failed: {error}"),
+        };
+    let source = match add_stockpile(&mut state, Mass::from_milligrams(100), source_profile) {
+        Ok(stockpile) => stockpile,
+        Err(error) => panic!("source vessel failed: {error}"),
+    };
+    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(stockpile) => stockpile,
+        Err(error) => panic!("destination pile failed: {error}"),
+    };
+    if let Err(error) = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(1_357_770),
+    ) {
+        panic!("molten transfer source fixture failed: {error}");
+    }
+    let before = state.clone();
+
+    assert_eq!(
+        validate_material_transfer_for_test(
+            &registries,
+            &state,
+            source,
+            destination,
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            Mass::from_milligrams(5),
+        ),
+        Err(MaterialTransferError::Storage(
+            StockpileStorageError::PhaseNotAccepted {
+                stockpile: destination,
+                phase: MaterialPhase::Liquid,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn failed_transfer_leaves_both_stockpiles_unchanged() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(1));
+    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture stockpile failed: {error}"),
+    };
+    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture stockpile failed: {error}"),
+    };
+    if let Err(error) = deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+    ) {
+        panic!("fixture deposit failed: {error}");
+    }
+    let before = state.clone();
+
+    let result = validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(10),
+    );
+
+    assert!(matches!(
+        result,
+        Err(MaterialTransferError::CapacityExceeded {
+            stockpile: _stockpile,
+            capacity: _capacity,
+            committed: _committed,
+            requested: _requested,
+        })
+    ));
+    assert_eq!(state, before);
+}
+
+#[test]
+fn same_stockpile_transfer_is_rejected_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(11));
+    let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture stockpile failed: {error}"),
+    };
+    if let Err(error) = deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood_log(),
+        Mass::from_milligrams(10),
+    ) {
+        panic!("fixture deposit failed: {error}");
+    }
+    let before = state.clone();
+
+    assert_eq!(
+        validate_material_transfer_for_test(
+            &registries,
+            &state,
+            stockpile,
+            stockpile,
+            wood_log(),
+            Mass::from_milligrams(5),
+        ),
+        Err(MaterialTransferError::SameStockpile { stockpile })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn validated_transfer_updates_cached_mass_and_contents_atomically() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(2));
+    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture stockpile failed: {error}"),
+    };
+    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture stockpile failed: {error}"),
+    };
+    if let Err(error) = deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(30),
+    ) {
+        panic!("fixture deposit failed: {error}");
+    }
+
+    let token = match validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(12),
+    ) {
+        Ok(token) => token,
+        Err(error) => panic!("transfer validation failed: {error}"),
+    };
+    if let Err(error) = token.commit(&mut state) {
+        panic!("transfer commit failed: {error}");
+    }
+
+    let source_record = match state.inventory().get_stockpile(source) {
+        Some(record) => record,
+        None => panic!("source disappeared"),
+    };
+    let destination_record = match state.inventory().get_stockpile(destination) {
+        Some(record) => record,
+        None => panic!("destination disappeared"),
+    };
+    assert_eq!(source_record.stored_mass(), Mass::from_milligrams(18));
+    assert_eq!(
+        source_record.get_mass(wood_log()),
+        Mass::from_milligrams(18)
+    );
+    assert_eq!(destination_record.stored_mass(), Mass::from_milligrams(12));
+    assert_eq!(
+        destination_record.get_mass(wood_log()),
+        Mass::from_milligrams(12)
+    );
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}
+
+#[test]
+fn partial_transfer_splits_lots_without_erasing_thermal_history() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(3));
+    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture source failed: {error}"),
+    };
+    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture destination failed: {error}"),
+    };
+    let cool = match deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    ) {
+        Ok(id) => id,
+        Err(error) => panic!("cool lot fixture failed: {error}"),
+    };
+    let hot = match deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(20),
+        Temperature::from_millikelvin(800_000),
+    ) {
+        Ok(id) => id,
+        Err(error) => panic!("hot lot fixture failed: {error}"),
+    };
+
+    let token = match validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(15),
+    ) {
+        Ok(token) => token,
+        Err(error) => panic!("split transfer validation failed: {error}"),
+    };
+    if let Err(error) = token.commit(&mut state) {
+        panic!("split transfer commit failed: {error}");
+    }
+
+    let cool_lot = match state.inventory().get_lot(cool) {
+        Some(lot) => lot,
+        None => panic!("full moved cool lot disappeared"),
+    };
+    assert_eq!(cool_lot.stockpile(), destination);
+    assert_eq!(cool_lot.mass(), Mass::from_milligrams(10));
+    assert_eq!(
+        cool_lot.temperature(),
+        Temperature::from_millikelvin(300_000)
+    );
+
+    let hot_lot = match state.inventory().get_lot(hot) {
+        Some(lot) => lot,
+        None => panic!("hot source lot disappeared"),
+    };
+    assert_eq!(hot_lot.stockpile(), source);
+    assert_eq!(hot_lot.mass(), Mass::from_milligrams(15));
+    assert_eq!(
+        hot_lot.temperature(),
+        Temperature::from_millikelvin(800_000)
+    );
+
+    let destination_lots: Vec<_> = state.inventory().lot_ids(destination).collect();
+    assert_eq!(destination_lots.len(), 2);
+    let split = match destination_lots.into_iter().find(|id| *id != cool) {
+        Some(id) => id,
+        None => panic!("split lot missing"),
+    };
+    let split_lot = match state.inventory().get_lot(split) {
+        Some(lot) => lot,
+        None => panic!("split lot record missing"),
+    };
+    assert_eq!(split_lot.mass(), Mass::from_milligrams(5));
+    assert_eq!(
+        split_lot.temperature(),
+        Temperature::from_millikelvin(800_000)
+    );
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}
+
+#[test]
+fn stale_transfer_token_is_rejected_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(4));
+    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture source failed: {error}"),
+    };
+    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture destination failed: {error}"),
+    };
+    if let Err(error) = deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(20),
+    ) {
+        panic!("fixture deposit failed: {error}");
+    }
+    let token = match validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(10),
+    ) {
+        Ok(token) => token,
+        Err(error) => panic!("transfer validation failed: {error}"),
+    };
+
+    if let Err(error) = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
+        panic!("intervening stockpile mutation failed: {error}");
+    }
+    let before_commit = state.clone();
+    let result = token.commit(&mut state);
+
+    assert!(matches!(
+        result,
+        Err(MaterialTransferCommitError::StaleInventoryRevision {
+            expected: _expected,
+            actual: _actual,
+        })
+    ));
+    assert_eq!(state, before_commit);
+}
+
+#[test]
+fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(41));
+    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture source failed: {error}"),
+    };
+    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture destination failed: {error}"),
+    };
+    if let Err(error) = deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+    ) {
+        panic!("fixture deposit failed: {error}");
+    }
+    let cursor_before_transfers = state.inventory().next_lot_id();
+
+    for _ in 0..2 {
+        let token = match validate_material_transfer_for_test(
+            &registries,
+            &state,
+            source,
+            destination,
+            wood_log(),
+            Mass::from_milligrams(3),
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("fragment transfer validation failed: {error}"),
+        };
+        if let Err(error) = token.commit(&mut state) {
+            panic!("fragment transfer commit failed: {error}");
+        }
+    }
+
+    let source_record = match state.inventory().get_stockpile(source) {
+        Some(record) => record,
+        None => panic!("source disappeared"),
+    };
+    let destination_record = match state.inventory().get_stockpile(destination) {
+        Some(record) => record,
+        None => panic!("destination disappeared"),
+    };
+    assert_eq!(source_record.get_mass(wood_log()), Mass::from_milligrams(4));
+    assert_eq!(
+        destination_record.get_mass(wood_log()),
+        Mass::from_milligrams(6)
+    );
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+    assert_eq!(state.inventory().lots().count(), 2);
+    assert_eq!(
+        state.inventory().next_lot_id(),
+        cursor_before_transfers + 1,
+        "only the first surviving destination fragment should consume a lot identity"
+    );
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}
+
+#[test]
+fn fully_consumed_lot_identity_is_not_reused_by_later_ingress() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2011));
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("lot-reuse stockpile fixture failed: {error}"));
+    let removed = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("lot-reuse initial deposit failed: {error}"));
+    let cursor_after_initial_allocation = state.inventory().next_lot_id();
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        stockpile,
+        &[MaterialInputSpec::new(
+            wood_log(),
+            Mass::from_milligrams(10),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("lot-reuse consumption selection failed: {error:?}"));
+    let reservation = validate_consumption_reservation_from_selection(
+        state.inventory(),
+        selection,
+        BTreeMap::new(),
+    )
+    .unwrap_or_else(|error| panic!("lot-reuse consumption reservation failed: {error:?}"));
+    apply_consumption_reservation(state.inventory_state_mut(), reservation)
+        .unwrap_or_else(|error| panic!("lot-reuse consumption commit failed: {error:?}"));
+    assert!(state.inventory().get_lot(removed).is_none());
+    assert_eq!(
+        state.inventory().next_lot_id(),
+        cursor_after_initial_allocation
+    );
+
+    let replacement = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood_log(),
+        Mass::from_milligrams(1),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("lot-reuse replacement deposit failed: {error}"));
+
+    assert_eq!(replacement.value(), cursor_after_initial_allocation);
+    assert!(replacement > removed);
+}
+
+#[test]
+fn material_reform_reuses_compatible_destination_identity_without_advancing_cursor() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2010));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("reform source fixture failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("reform destination fixture failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(6),
+    )
+    .unwrap_or_else(|error| panic!("reform source deposit failed: {error}"));
+    let target = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        destination,
+        target,
+        Mass::from_milligrams(4),
+    )
+    .unwrap_or_else(|error| panic!("reform destination deposit failed: {error}"));
+    let existing = state
+        .inventory()
+        .lot_ids(destination)
+        .next()
+        .unwrap_or_else(|| panic!("reform destination lot disappeared"));
+    let cursor_before = state.inventory().next_lot_id();
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        source,
+        &[MaterialInputSpec::new(wood_log(), Mass::from_milligrams(6))],
+    )
+    .unwrap_or_else(|error| panic!("reform selection failed: {error:?}"));
+
+    validate_material_reform_from_selection(&registries, &state, destination, target, selection)
+        .unwrap_or_else(|error| panic!("reform validation failed: {error:?}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("reform commit failed: {error:?}"));
+
+    assert_eq!(state.inventory().next_lot_id(), cursor_before);
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(existing)
+            .map(MaterialLotRecord::mass),
+        Some(Mass::from_milligrams(10))
+    );
+}
+
+#[test]
+fn full_lot_transfer_coalesces_compatible_destination_lot() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(42));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("fixture source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("fixture destination failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(6),
+    )
+    .unwrap_or_else(|error| panic!("fixture source deposit failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(4),
+    )
+    .unwrap_or_else(|error| panic!("fixture destination deposit failed: {error}"));
+
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(6),
+    )
+    .unwrap_or_else(|error| panic!("full-lot transfer validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("full-lot transfer commit failed: {error}"));
+
+    assert_eq!(state.inventory().lot_ids(source).count(), 0);
+    let destination_lots = state.inventory().lot_ids(destination).collect::<Vec<_>>();
+    assert_eq!(destination_lots.len(), 1);
+    assert_eq!(state.inventory().lots().count(), 1);
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(destination_lots[0])
+            .map(MaterialLotRecord::mass),
+        Some(Mass::from_milligrams(10))
+    );
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}
+
+#[test]
+fn full_lot_transfer_keeps_food_with_distinct_storage_exposure_separate() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(43));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("fixture source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("fixture destination failed: {error}"));
+    let food = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        food,
+        Mass::from_milligrams(5),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("older food fixture failed: {error}"));
+    apply_clock_advance(&mut state, SimulationTick::new(100));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        food,
+        Mass::from_milligrams(5),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("newer food fixture failed: {error}"));
+
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        food,
+        Mass::from_milligrams(5),
+    )
+    .unwrap_or_else(|error| panic!("food full-lot transfer validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("food full-lot transfer commit failed: {error}"));
+
+    let destination_lots = state.inventory().lot_ids(destination).collect::<Vec<_>>();
+    assert_eq!(destination_lots.len(), 2);
+    assert!(destination_lots.iter().all(|lot| {
+        state
+            .inventory()
+            .get_lot(*lot)
+            .is_some_and(|record| record.mass() == Mass::from_milligrams(5))
+    }));
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}
+
+#[test]
+fn composed_lot_split_preserves_normalized_constituent_profile() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(5));
+    let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture source failed: {error}"),
+    };
+    let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+        Ok(id) => id,
+        Err(error) => panic!("fixture destination failed: {error}"),
+    };
+    let composition = match MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 700_000),
+        CompositionComponent::new(MATERIAL_SLAG, 300_000),
+    ]) {
+        Ok(composition) => composition,
+        Err(error) => panic!("composition fixture failed: {error}"),
+    };
+    let commodity = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    let original = match deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(400_000),
+        composition.clone(),
+    ) {
+        Ok(id) => id,
+        Err(error) => panic!("composed lot fixture failed: {error}"),
+    };
+
+    let token = match validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        commodity,
+        Mass::from_milligrams(4),
+    ) {
+        Ok(token) => token,
+        Err(error) => panic!("composed split validation failed: {error}"),
+    };
+    if let Err(error) = token.commit(&mut state) {
+        panic!("composed split commit failed: {error}");
+    }
+
+    let source_lot = match state.inventory().get_lot(original) {
+        Some(lot) => lot,
+        None => panic!("source composition lot disappeared"),
+    };
+    assert_eq!(source_lot.mass(), Mass::from_milligrams(6));
+    assert_eq!(source_lot.composition(), &composition);
+    let split_id = match state.inventory().lot_ids(destination).next() {
+        Some(id) => id,
+        None => panic!("destination split lot missing"),
+    };
+    let split = match state.inventory().get_lot(split_id) {
+        Some(lot) => lot,
+        None => panic!("destination split lot record missing"),
+    };
+    assert_eq!(split.mass(), Mass::from_milligrams(4));
+    assert_eq!(split.composition(), &composition);
+    assert_eq!(
+        split.composition().parts_per_million(MATERIAL_COPPER),
+        700_000
+    );
+    assert_eq!(
+        split.composition().parts_per_million(MATERIAL_SLAG),
+        300_000
+    );
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}

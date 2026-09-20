@@ -237,7 +237,7 @@ pub fn validate_eat(
             work: EatingWork::new(total_mass, state.tick(), completes_at),
         })
         .ok_or(EatError::PlayerWorkRevisionExhausted)?;
-    let offer = resolve_meal_offer(registries, state, selections)?;
+    let offer = resolve_meal_offer(registries, state, &exact_selection)?;
 
     let egress = validate_material_egress_from_selection(state.inventory(), exact_selection)
         .map_err(|error| match error {

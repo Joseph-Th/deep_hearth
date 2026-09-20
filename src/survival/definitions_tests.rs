@@ -1,8 +1,10 @@
 //! Contract tests for survival definitions and intake limits.
 
 use super::*;
-use crate::core::quantity::{Mass, MassSpecificEnergy, Temperature};
-use crate::material::FormId;
+use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volume};
+use crate::core::time::TickSpan;
+use crate::fluid::FluidDefinitionId;
+use crate::material::{CommodityKey, FormId, MaterialId};
 
 fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
     PhysiologyDefinition::new(
