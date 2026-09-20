@@ -1,6 +1,7 @@
 /target/
 __pycache__/
 .pytest_cache/
+/mutants.out*/
 *.pyc
 *.pdb
 *.profraw

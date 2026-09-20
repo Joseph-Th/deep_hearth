@@ -768,6 +768,9 @@ fn unstarted_mining_fixture() -> (
 #[path = "execution_tests/claim_contracts.rs"]
 mod claim_contracts;
 
+#[path = "execution_tests/start_commit.rs"]
+mod start_commit;
+
 #[path = "execution_tests/continuation.rs"]
 mod continuation;
 

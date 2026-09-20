@@ -89,6 +89,29 @@ fn precise_energy_preserves_fractional_carry_borrow_and_narrowing() {
 }
 
 #[test]
+fn precise_energy_subtraction_handles_non_borrowing_fractional_remainders() {
+    let minuend = PreciseEnergy::from_nanojoules_with_femtojoule_remainder(7, 750_000)
+        .unwrap_or_else(|| panic!("precise-energy minuend must be normalized"));
+    let subtrahend = PreciseEnergy::from_nanojoules_with_femtojoule_remainder(2, 500_000)
+        .unwrap_or_else(|| panic!("precise-energy subtrahend must be normalized"));
+    let expected = PreciseEnergy::from_nanojoules_with_femtojoule_remainder(5, 250_000)
+        .unwrap_or_else(|| panic!("precise-energy expectation must be normalized"));
+
+    assert_eq!(minuend.checked_sub(subtrahend), Some(expected));
+}
+
+#[test]
+fn precise_energy_subtraction_distinguishes_equality_from_underflow() {
+    let exact = PreciseEnergy::from_nanojoules_with_femtojoule_remainder(3, 125_000)
+        .unwrap_or_else(|| panic!("precise-energy fixture must be normalized"));
+    let larger = PreciseEnergy::from_nanojoules_with_femtojoule_remainder(3, 125_001)
+        .unwrap_or_else(|| panic!("precise-energy fixture must be normalized"));
+
+    assert_eq!(exact.checked_sub(exact), Some(PreciseEnergy::ZERO));
+    assert_eq!(exact.checked_sub(larger), None);
+}
+
+#[test]
 fn aggregate_mass_accumulates_beyond_single_record_range() {
     let largest_record = AggregateMass::from_mass(Mass::from_milligrams(u64::MAX));
 

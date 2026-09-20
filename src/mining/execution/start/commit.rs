@@ -1,7 +1,6 @@
 //! Revision-bound mining start commitment and stale-state prechecks.
 
 use crate::core::state::AppState;
-use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::ValidatedInboundReservation;
 use crate::labor::ValidatedPlayerWorkStart;
 use crate::mining::{MiningJobId, MiningJobRecord, MiningTargetResolution};
@@ -87,33 +86,12 @@ impl ValidatedMiningStart {
         Ok(())
     }
 
-    fn precheck_equipment_occupancy(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
-        let equipment = self.record.equipment();
-        match equipment_occupancy(state, equipment) {
-            Some(EquipmentOccupancy::Production { job, .. }) => {
-                return Err(MiningStartCommitError::EquipmentBusyProduction { equipment, job });
-            }
-            Some(EquipmentOccupancy::Mining { job }) => {
-                return Err(MiningStartCommitError::EquipmentBusyMining { equipment, job });
-            }
-            Some(EquipmentOccupancy::ManualPower { .. }) => {
-                return Err(MiningStartCommitError::EquipmentBusyManualPower { equipment });
-            }
-            Some(
-                EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. },
-            )
-            | None => {}
-        }
-        Ok(())
-    }
-
     pub fn commit(self, state: &mut AppState) -> Result<MiningJobId, MiningStartCommitError> {
         self.work
             .precheck(state)
             .map_err(MiningStartCommitError::Work)?;
         self.precheck_target(state)?;
         self.precheck_owner_revisions(state)?;
-        self.precheck_equipment_occupancy(state)?;
         self.reservation.assert_matches_state(state.inventory());
         state.mining().assert_job_insertable(
             &self.record,

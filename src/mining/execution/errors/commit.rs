@@ -3,11 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::equipment::EquipmentId;
 use crate::labor::PlayerWorkCommitError;
-use crate::production::ProductionJobId;
-
-use super::super::super::MiningJobId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningStartCommitError {
@@ -29,17 +25,6 @@ pub enum MiningStartCommitError {
     StaleStructure {
         expected: u64,
         actual: u64,
-    },
-    EquipmentBusyProduction {
-        equipment: EquipmentId,
-        job: ProductionJobId,
-    },
-    EquipmentBusyMining {
-        equipment: EquipmentId,
-        job: MiningJobId,
-    },
-    EquipmentBusyManualPower {
-        equipment: EquipmentId,
     },
     Work(PlayerWorkCommitError),
 }
@@ -69,23 +54,6 @@ impl Display for MiningStartCommitError {
                 formatter,
                 "validated mining start expected structural revision {expected} but current revision is {actual}"
             ),
-            Self::EquipmentBusyProduction { equipment, job } => write!(
-                formatter,
-                "validated mining start equipment {} became occupied by production job {}",
-                equipment.value(),
-                job.value()
-            ),
-            Self::EquipmentBusyMining { equipment, job } => write!(
-                formatter,
-                "validated mining start equipment {} became occupied by mining job {}",
-                equipment.value(),
-                job.value()
-            ),
-            Self::EquipmentBusyManualPower { equipment } => write!(
-                formatter,
-                "validated mining start equipment {} became occupied by manual power generation",
-                equipment.value()
-            ),
             Self::Work(error) => write!(
                 formatter,
                 "validated mining start player-work state changed: {error}"
@@ -103,10 +71,7 @@ impl Error for MiningStartCommitError {
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::StaleMining { .. }
-            | Self::StaleStructure { .. }
-            | Self::EquipmentBusyProduction { .. }
-            | Self::EquipmentBusyMining { .. }
-            | Self::EquipmentBusyManualPower { .. } => None,
+            | Self::StaleStructure { .. } => None,
         }
     }
 }

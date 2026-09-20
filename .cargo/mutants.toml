@@ -1,0 +1,7 @@
+# Mutation testing is an advisory diagnostic, not a lint lane. Cap crate lints so behavior-removing
+# mutants reach the tests instead of becoming unviable solely because they leave unused bindings.
+cap_lints = true
+
+# The project creates ignored Python and Cargo artifacts locally. Do not copy them into each mutant
+# workspace; some caches may also contain files that are intentionally inaccessible to other tools.
+gitignore = true

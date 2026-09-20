@@ -1,5 +1,7 @@
 //! Exact built-in process-topology coverage for resolver families, providers, and energy roles.
 
+use std::collections::BTreeSet;
+
 use crate::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE, EQUIPMENT_ELECTRIC_FURNACE,
@@ -39,6 +41,65 @@ fn every_builtin_process_has_one_derived_execution_topology() {
             ProcessEnergyRole::Supply(_) | ProcessEnergyRole::Sink(_) => {
                 assert!(!topology.compatible_energy_stores().is_empty());
             }
+        }
+    }
+}
+
+#[test]
+fn mining_providers_do_not_overlap_autonomous_production_or_manual_power_roles() {
+    let registries = build_registries();
+    let mining_providers = registries
+        .equipment()
+        .definitions()
+        .filter(|equipment| {
+            registries.mining().definitions().any(|method| {
+                [
+                    method.mass_flow_capability(),
+                    method.max_batch_mass_capability(),
+                    method.max_hardness_capability(),
+                ]
+                .into_iter()
+                .all(|capability| {
+                    equipment
+                        .capabilities()
+                        .get_capability(capability)
+                        .is_some()
+                })
+            })
+        })
+        .map(|equipment| equipment.id())
+        .collect::<BTreeSet<_>>();
+
+    assert!(!mining_providers.is_empty());
+    for process in registries.production().definitions() {
+        let topology = registries
+            .process_topology(process.id())
+            .unwrap_or_else(|| panic!("process {} lost its topology", process.id().value()));
+        assert!(
+            topology
+                .nominal_providers()
+                .iter()
+                .all(|provider| !mining_providers.contains(provider)),
+            "process {} must not autonomously occupy current mining equipment",
+            process.id().value()
+        );
+    }
+
+    for provider in mining_providers {
+        let equipment = registries
+            .equipment()
+            .get_equipment(provider)
+            .unwrap_or_else(|| panic!("mining provider {} disappeared", provider.value()));
+        for manual_power in registries.labor().manual_power_definitions() {
+            assert!(
+                equipment
+                    .capabilities()
+                    .get_capability(manual_power.power_capability())
+                    .is_none(),
+                "mining provider {} must not also provide manual-power capability {}",
+                provider.value(),
+                manual_power.power_capability().value()
+            );
         }
     }
 }

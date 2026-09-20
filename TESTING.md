@@ -103,9 +103,9 @@ diagnostic: refactor for clearer ownership/control flow, not to game the baselin
 
 ### Rust agent diagnostics
 
-Use these only for a named uncertainty: `cargo modules structure --lib --no-fns --no-traits --no-types --max-depth 4` for a bounded ownership map (prefer `--focus-on <module>`), `cargo mutants --list --file <owner.rs>` before a narrow test-strength audit, and `cargo expand --lib <module::item>` for material generated Rust. Global cycles/orphans and mutation scores are not gates.
+Use these only for a named uncertainty: `cargo modules structure --lib --no-fns --no-traits --no-types --max-depth 4` for an ownership map. For orphan checks, match reviewed features and add `--cfg-test` when tests count as linked. Use `cargo mutants --list --file <owner.rs>` before running only invariant-bearing functions. Use `cargo expand --lib <module::item>` for the item; to inspect derive-generated sibling impls, expand the containing module and filter. Global cycles/orphans and mutation scores are diagnostic, not gates.
 
-Mutation runs stay in the isolated scratch copy. If locked local caches block copying, fix the environment or omit the optional audit; do not delete unrelated caches or use `--in-place` on a dirty/concurrent worktree.
+Mutation runs stay in the isolated scratch copy. `.cargo/mutants.toml` skips Git-ignored artifacts and caps lints so behavior-removing mutants reach tests. If a non-ignored locked artifact blocks copying, fix the environment or omit the optional audit; never delete unrelated caches or use `--in-place` on a dirty/concurrent worktree.
 
 ## Unit tests
 
