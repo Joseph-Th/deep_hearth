@@ -105,7 +105,7 @@ impl Display for SurvivalValidationError {
             }
             Self::PendingEatingAccountingMismatch { material } => write!(
                 formatter,
-                "pending eating owns more material {} than survival consumed-matter accounting",
+                "pending eating material {} does not reconcile its pre-intake baseline with survival consumed-matter accounting",
                 material.value()
             ),
             Self::PendingDrinkingVolumeInvalid => {
@@ -125,7 +125,7 @@ impl Display for SurvivalValidationError {
                 .write_str("pending drinking temperature is outside the authored intake range"),
             Self::PendingDrinkingAccountingMismatch { fluid } => write!(
                 formatter,
-                "pending drinking owns more fluid {} than survival consumed-volume accounting",
+                "pending drinking fluid {} does not reconcile its pre-intake baseline with survival consumed-volume accounting",
                 fluid.value()
             ),
         }

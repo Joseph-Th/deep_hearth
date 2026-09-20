@@ -639,7 +639,9 @@ rejected only when its selected volume resolves to no whole-unit hydration benef
 intake is pending, no further physiological benefit is released; pending survival custody and its eating/drinking
 attention record are canceled together on the next authoritative tick.
 Current-schema saves persist pending intake identity and timing, and trusted load validates that custody against
-the matching player-work interval and cumulative consumed accounting.
+the matching player-work interval. Each pending intake also persists the cumulative terminal-consumption
+baseline from immediately before admission, so trusted load requires `baseline + pending intake = current
+cumulative total` rather than allowing unrelated historical consumption to satisfy pending custody.
 
 Diet quality is limited by the weakest Grain/Fruit/Protein reserve. Fractional vitality recovery is persisted;
 read-only assessment exposes a rounded presentation rate.

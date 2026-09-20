@@ -113,12 +113,37 @@ fn add_pending_material_mass(
 
 fn validate_pending_material_accounting(
     state: &SurvivalState,
+    pending: &PendingEating,
     pending_by_material: BTreeMap<MaterialId, AggregateMass>,
 ) -> Result<(), SurvivalValidationError> {
-    for (material, pending_mass) in pending_by_material {
-        if state.consumed_mass(material) < pending_mass {
+    let mut consumed_before = BTreeMap::<MaterialId, AggregateMass>::new();
+    let mut previous_material = None;
+    for baseline in pending.consumed_before() {
+        let material = baseline.material();
+        if previous_material.is_some_and(|previous| previous >= material) {
             return Err(SurvivalValidationError::PendingEatingAccountingMismatch { material });
         }
+        previous_material = Some(material);
+        if consumed_before
+            .insert(material, baseline.total_before())
+            .is_some()
+        {
+            return Err(SurvivalValidationError::PendingEatingAccountingMismatch { material });
+        }
+    }
+    for (material, pending_mass) in pending_by_material {
+        let Some(before) = consumed_before.remove(&material) else {
+            return Err(SurvivalValidationError::PendingEatingAccountingMismatch { material });
+        };
+        let Some(expected) = before.checked_add(pending_mass) else {
+            return Err(SurvivalValidationError::PendingEatingAccountingMismatch { material });
+        };
+        if state.consumed_mass(material) != expected {
+            return Err(SurvivalValidationError::PendingEatingAccountingMismatch { material });
+        }
+    }
+    if let Some((&material, _)) = consumed_before.first_key_value() {
+        return Err(SurvivalValidationError::PendingEatingAccountingMismatch { material });
     }
     Ok(())
 }
@@ -140,7 +165,7 @@ fn validate_pending_eating(
         let material = validate_pending_food_trace(registry, materials, pending, trace)?;
         add_pending_material_mass(&mut pending_by_material, material, trace)?;
     }
-    validate_pending_material_accounting(state, pending_by_material)
+    validate_pending_material_accounting(state, pending, pending_by_material)
 }
 
 fn validate_pending_drinking(
@@ -151,10 +176,7 @@ fn validate_pending_drinking(
     duration: TickSpan,
 ) -> Result<(), SurvivalValidationError> {
     let direct = registry.physiology().direct_consumption();
-    if pending.volume().is_zero()
-        || pending.volume() > direct.maximum_drink_volume()
-        || direct.drink_duration(pending.volume()) != Some(duration)
-    {
+    if direct.drink_duration(pending.volume()) != Some(duration) {
         return Err(SurvivalValidationError::PendingDrinkingVolumeInvalid);
     }
     let fluid = pending.fluid();
@@ -170,7 +192,13 @@ fn validate_pending_drinking(
     {
         return Err(SurvivalValidationError::PendingDrinkingTemperatureInvalid);
     }
-    if state.consumed_fluid_volume(fluid) < AggregateVolume::from_volume(pending.volume()) {
+    let Some(expected_consumed) = pending
+        .consumed_before()
+        .checked_add(AggregateVolume::from_volume(pending.volume()))
+    else {
+        return Err(SurvivalValidationError::PendingDrinkingAccountingMismatch { fluid });
+    };
+    if state.consumed_fluid_volume(fluid) != expected_consumed {
         return Err(SurvivalValidationError::PendingDrinkingAccountingMismatch { fluid });
     }
     Ok(())

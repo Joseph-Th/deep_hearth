@@ -171,9 +171,8 @@ pub fn validate_drink(
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("direct-consumption survival budget includes admission"));
-    let next_consumed_volume = state
-        .survival()
-        .consumed_fluid_volume(contents.fluid())
+    let consumed_before = state.survival().consumed_fluid_volume(contents.fluid());
+    let next_consumed_volume = consumed_before
         .checked_add(AggregateVolume::from_volume(egress_volume))
         .ok_or(DrinkError::ConsumedFluidOverflow)?;
     Ok(ValidatedDrink {
@@ -184,6 +183,7 @@ pub fn validate_drink(
         pending: PendingDrinking::new(
             contents.fluid(),
             egress_volume,
+            consumed_before,
             contents.temperature(),
             state.tick(),
             completes_at,

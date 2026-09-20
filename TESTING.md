@@ -101,6 +101,12 @@ New or worsened over-threshold cognitive complexity fails the ratchet; other BCA
 Use `python ci.py bca` for changed code and `python ci.py bca --hotspots` for current hotspots. Metrics are
 diagnostic: refactor for clearer ownership/control flow, not to game the baseline.
 
+### Rust agent diagnostics
+
+Use these only for a named uncertainty: `cargo modules structure --lib --no-fns --no-traits --no-types --max-depth 4` for a bounded ownership map (prefer `--focus-on <module>`), `cargo mutants --list --file <owner.rs>` before a narrow test-strength audit, and `cargo expand --lib <module::item>` for material generated Rust. Global cycles/orphans and mutation scores are not gates.
+
+Mutation runs stay in the isolated scratch copy. If locked local caches block copying, fix the environment or omit the optional audit; do not delete unrelated caches or use `--in-place` on a dirty/concurrent worktree.
+
 ## Unit tests
 
 Unit-test bodies live beside their owner in `*_tests.rs` or `mod_tests.rs` and are included with

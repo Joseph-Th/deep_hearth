@@ -163,5 +163,8 @@ mod commit_races;
 #[path = "consumption_tests/persistence_absorption.rs"]
 mod persistence_absorption;
 
+#[path = "consumption_tests/persistence_validation.rs"]
+mod persistence_validation;
+
 #[path = "consumption_tests/custody_freshness.rs"]
 mod custody_freshness;

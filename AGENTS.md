@@ -3,6 +3,8 @@
 **Applicable profiles:** Universal; Stateful Application; Deterministic System; Automated Behavior Evaluation
 **BCA policy:** ratchet
 
+**Rust agent diagnostics:** advisory. Use bounded cargo-modules structure views only when owner/module shape remains unclear, targeted cargo-mutants selection/execution when focused invariant or transaction tests may not constrain behavior strongly enough, and cargo-expand only for material macro/derive uncertainty. These diagnostics are separate from the BCA ratchet and do not add completion gates. [TESTING.md](TESTING.md) remains the verification authority.
+
 This file owns project execution. Workspace [`../AGENTS.md`](../AGENTS.md) owns coordination;
 [`README.md`](README.md) owns project routing.
 

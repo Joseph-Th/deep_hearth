@@ -2,16 +2,49 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Mass, Temperature, Volume};
+use crate::core::quantity::{AggregateMass, AggregateVolume, Mass, Temperature, Volume};
 use crate::core::time::SimulationTick;
 use crate::fluid::FluidDefinitionId;
 use crate::inventory::{ConsumedMaterialTrace, checked_consumed_material_mass};
+use crate::material::MaterialId;
+
+/// Cumulative terminal-consumption total immediately before one pending meal crossed custody.
+///
+/// Persisting this baseline lets trusted load prove that the exact pending traces, rather than
+/// unrelated historical consumption, account for the current cumulative terminal total.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PendingConsumedMatterBaseline {
+    material: MaterialId,
+    total_before: AggregateMass,
+}
+
+impl PendingConsumedMatterBaseline {
+    #[must_use]
+    pub(crate) const fn new(material: MaterialId, total_before: AggregateMass) -> Self {
+        Self {
+            material,
+            total_before,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn material(self) -> MaterialId {
+        self.material
+    }
+
+    #[must_use]
+    pub(crate) const fn total_before(self) -> AggregateMass {
+        self.total_before
+    }
+}
 
 /// Exact food matter already removed from inventory while the player is still consuming it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PendingEating {
     consumed: Vec<ConsumedMaterialTrace>,
+    consumed_before: Vec<PendingConsumedMatterBaseline>,
     started_at: SimulationTick,
     completes_at: SimulationTick,
 }
@@ -20,11 +53,13 @@ impl PendingEating {
     #[must_use]
     pub(crate) fn new(
         consumed: Vec<ConsumedMaterialTrace>,
+        consumed_before: Vec<PendingConsumedMatterBaseline>,
         started_at: SimulationTick,
         completes_at: SimulationTick,
     ) -> Self {
         Self {
             consumed,
+            consumed_before,
             started_at,
             completes_at,
         }
@@ -33,6 +68,11 @@ impl PendingEating {
     #[must_use]
     pub(crate) fn consumed(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed
+    }
+
+    #[must_use]
+    pub(crate) fn consumed_before(&self) -> &[PendingConsumedMatterBaseline] {
+        &self.consumed_before
     }
 
     #[must_use]
@@ -57,6 +97,7 @@ impl PendingEating {
 pub(crate) struct PendingDrinking {
     fluid: FluidDefinitionId,
     volume: Volume,
+    consumed_before: AggregateVolume,
     temperature: Temperature,
     started_at: SimulationTick,
     completes_at: SimulationTick,
@@ -67,6 +108,7 @@ impl PendingDrinking {
     pub(crate) const fn new(
         fluid: FluidDefinitionId,
         volume: Volume,
+        consumed_before: AggregateVolume,
         temperature: Temperature,
         started_at: SimulationTick,
         completes_at: SimulationTick,
@@ -74,6 +116,7 @@ impl PendingDrinking {
         Self {
             fluid,
             volume,
+            consumed_before,
             temperature,
             started_at,
             completes_at,
@@ -88,6 +131,11 @@ impl PendingDrinking {
     #[must_use]
     pub(crate) const fn volume(self) -> Volume {
         self.volume
+    }
+
+    #[must_use]
+    pub(crate) const fn consumed_before(self) -> AggregateVolume {
+        self.consumed_before
     }
 
     #[must_use]

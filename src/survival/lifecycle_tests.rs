@@ -216,6 +216,120 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
 }
 
 #[test]
+fn vitality_recovery_requires_both_energy_and_hydration_thresholds() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let vitality = Vitality::from_parts_per_million_unchecked(500_000);
+    let energy_one_below_after_cost = physiology
+        .hungry_below()
+        .checked_add(physiology.basal_energy_cost_per_tick())
+        .and_then(|energy| energy.checked_sub(Energy::from_nanojoules(1)))
+        .unwrap_or_else(|| panic!("energy-threshold recovery fixture arithmetic failed"));
+    let hydration_one_below_after_cost = physiology
+        .thirsty_below()
+        .checked_add(physiology.hydration_loss_per_tick())
+        .and_then(|hydration| hydration.checked_sub(Volume::from_microliters(1)))
+        .unwrap_or_else(|| panic!("hydration-threshold recovery fixture arithmetic failed"));
+
+    let mut energy_limited = AppState::new(WorldSeed::new(0x5100_0006));
+    initialize_player_survival(&registries, &mut energy_limited)
+        .unwrap_or_else(|error| panic!("energy-threshold survival initialization failed: {error}"));
+    let expected_revision = energy_limited.survival().revision();
+    energy_limited.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            energy_one_below_after_cost,
+            physiology.maximum_hydration(),
+            vitality,
+            NutritionReserves::FULL,
+            0,
+        ),
+    );
+
+    let mut hydration_limited = AppState::new(WorldSeed::new(0x5100_0007));
+    initialize_player_survival(&registries, &mut hydration_limited).unwrap_or_else(|error| {
+        panic!("hydration-threshold survival initialization failed: {error}")
+    });
+    let expected_revision = hydration_limited.survival().revision();
+    hydration_limited.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            hydration_one_below_after_cost,
+            vitality,
+            NutritionReserves::FULL,
+            0,
+        ),
+    );
+
+    for (state, context) in [
+        (&mut energy_limited, "energy-threshold"),
+        (&mut hydration_limited, "hydration-threshold"),
+    ] {
+        let plan =
+            decide_survival_tick(&registries, state, SurvivalExertion::REST, next_tick(state))
+                .unwrap_or_else(|error| panic!("{context} recovery tick failed: {error:?}"));
+        let after = apply_survival_tick(state, plan)
+            .unwrap_or_else(|| panic!("{context} recovery player disappeared"));
+        assert_eq!(
+            after.vitality(),
+            vitality,
+            "{context} must block diet-supported recovery when either resource is below its warning threshold"
+        );
+    }
+}
+
+#[test]
+fn paused_vitality_recovery_preserves_fractional_progress() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5100_0008));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("paused recovery initialization failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let hydration_one_below_after_cost = physiology
+        .thirsty_below()
+        .checked_add(physiology.hydration_loss_per_tick())
+        .and_then(|hydration| hydration.checked_sub(Volume::from_microliters(1)))
+        .unwrap_or_else(|| panic!("paused recovery hydration arithmetic failed"));
+    let vitality = Vitality::from_parts_per_million_unchecked(500_000);
+    let recovery_remainder = 123_456;
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            hydration_one_below_after_cost,
+            vitality,
+            NutritionReserves::FULL,
+            recovery_remainder,
+        ),
+    );
+
+    let plan = decide_survival_tick(
+        &registries,
+        &state,
+        SurvivalExertion::REST,
+        next_tick(&state),
+    )
+    .unwrap_or_else(|error| panic!("paused recovery tick failed: {error:?}"));
+    let after = apply_survival_tick(&mut state, plan)
+        .unwrap_or_else(|| panic!("paused recovery player disappeared"));
+
+    assert_eq!(after.vitality(), vitality);
+    assert_eq!(
+        state
+            .survival()
+            .player()
+            .map(|player| player.vitality_recovery_remainder()),
+        Some(recovery_remainder),
+        "temporary hunger or thirst must pause fractional recovery rather than discard earned progress"
+    );
+}
+
+#[test]
 fn fractional_diet_recovery_accumulates_instead_of_creating_rate_cliffs() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5100_0005));

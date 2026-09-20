@@ -23,11 +23,16 @@ use crate::material::MaterialId;
 use crate::registry::Registries;
 
 use super::super::FoodCategory;
-use super::super::state::PendingEating;
+use super::super::state::{PendingConsumedMatterBaseline, PendingEating};
 pub use errors::{EatCommitError, EatError};
 use resolution::{meal_absorption_offer, resolve_meal_offer};
 
 pub(crate) use resolution::trace_absorption_offer;
+
+struct ConsumedMassAccounting {
+    baselines: Vec<PendingConsumedMatterBaseline>,
+    totals: Vec<(MaterialId, AggregateMass)>,
+}
 
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -173,21 +178,21 @@ fn map_eat_selection_error(error: ExplicitConsumptionSelectionError) -> EatError
     }
 }
 
-fn resolve_consumed_mass_totals(
+fn resolve_consumed_mass_accounting(
     state: &AppState,
     additions: BTreeMap<MaterialId, AggregateMass>,
-) -> Result<Vec<(MaterialId, AggregateMass)>, EatError> {
-    additions
-        .into_iter()
-        .map(|(material, addition)| {
-            state
-                .survival()
-                .consumed_mass(material)
-                .checked_add(addition)
-                .map(|next| (material, next))
-                .ok_or(EatError::ConsumedMatterOverflow { material })
-        })
-        .collect()
+) -> Result<ConsumedMassAccounting, EatError> {
+    let mut baselines = Vec::with_capacity(additions.len());
+    let mut totals = Vec::with_capacity(additions.len());
+    for (material, addition) in additions {
+        let before = state.survival().consumed_mass(material);
+        let next = before
+            .checked_add(addition)
+            .ok_or(EatError::ConsumedMatterOverflow { material })?;
+        baselines.push(PendingConsumedMatterBaseline::new(material, before));
+        totals.push((material, next));
+    }
+    Ok(ConsumedMassAccounting { baselines, totals })
 }
 
 pub fn validate_eat(
@@ -274,9 +279,10 @@ pub fn validate_eat(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("direct-consumption survival budget includes admission"));
     let absorption_offer = meal_absorption_offer(&offer, physiology.maximum_metabolic_energy())?;
-    let next_consumed_masses = resolve_consumed_mass_totals(state, offer.consumed_additions)?;
+    let consumed_accounting = resolve_consumed_mass_accounting(state, offer.consumed_additions)?;
     let pending = PendingEating::new(
         egress.consumed_inputs().to_vec(),
+        consumed_accounting.baselines,
         state.tick(),
         completes_at,
     );
@@ -288,7 +294,7 @@ pub fn validate_eat(
         egress,
         structural,
         pending,
-        next_consumed_masses,
+        next_consumed_masses: consumed_accounting.totals,
         outcome: EatOutcome {
             portions: offer.portions,
             total_mass,
