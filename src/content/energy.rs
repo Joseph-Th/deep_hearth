@@ -158,7 +158,12 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(STONE_FLYWHEEL_MASS.milligrams() * 2),
+                Mass::from_milligrams(
+                    STONE_FLYWHEEL_MASS
+                        .milligrams()
+                        .checked_mul(2)
+                        .unwrap_or_else(|| panic!("paired stone flywheel mass overflows")),
+                ),
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
@@ -182,7 +187,12 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(STONE_FLYWHEEL_MASS.milligrams() * 10),
+                Mass::from_milligrams(
+                    STONE_FLYWHEEL_MASS
+                        .milligrams()
+                        .checked_mul(10)
+                        .unwrap_or_else(|| panic!("flywheel bank stone mass overflows")),
+                ),
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),

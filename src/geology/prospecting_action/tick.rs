@@ -17,6 +17,7 @@ use super::super::{
 };
 use super::abundance::resolve_region_abundance_bounds;
 use super::hardness::resolve_region_excavation_hardness;
+use super::resource_mass::resolve_region_resource_mass;
 
 /// Observable completion of one field-prospecting action. The hidden geological owner is intentionally absent.
 #[must_use]
@@ -177,11 +178,23 @@ pub(crate) fn decide_field_prospecting_tick(
                         resolution,
                     )
                 });
+            let resource_mass = method
+                .resource_mass_resolution()
+                .filter(|_| finding.lower_ppm() > 0)
+                .and_then(|resolution| {
+                    resolve_region_resource_mass(
+                        state,
+                        region,
+                        work.material(),
+                        resolution,
+                    )
+                });
             ProspectingResolution::new_runtime(
                 region,
                 method.evidence(),
                 vec![finding],
                 excavation_hardness,
+                resource_mass,
             )
         })
         .collect();
@@ -200,7 +213,10 @@ pub(crate) fn decide_field_prospecting_tick(
         | RecordProspectingError::UnknownMaterial { .. }
         | RecordProspectingError::ExcavationHardnessUnsupportedEvidence { .. }
         | RecordProspectingError::ExcavationHardnessAmbiguousFindings { .. }
-        | RecordProspectingError::ExcavationHardnessWithoutDefinitePresence { .. } => {
+        | RecordProspectingError::ExcavationHardnessWithoutDefinitePresence { .. }
+        | RecordProspectingError::ResourceMassUnsupportedEvidence { .. }
+        | RecordProspectingError::ResourceMassAmbiguousFindings { .. }
+        | RecordProspectingError::ResourceMassWithoutDefinitePresence { .. } => {
             unreachable!(
                 "runtime field prospecting constructs one canonical known-material finding and only physical positive samples carry hardness"
             )

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
-use crate::core::quantity::Pressure;
+use crate::core::quantity::{Mass, Pressure};
 use crate::core::time::TickSpan;
 use crate::equipment::EquipmentDefinitionId;
 use crate::geology::GeologicalEvidenceKind;
@@ -131,6 +131,7 @@ pub struct ProspectingDefinition {
     maximum_region_voxels: u128,
     abundance_uncertainty_ppm: u32,
     excavation_hardness_resolution: Option<Pressure>,
+    resource_mass_resolution: Option<Mass>,
     exertion: SurvivalExertion,
     equipment: Option<ProspectingEquipmentProfile>,
 }
@@ -166,6 +167,7 @@ impl ProspectingDefinition {
             maximum_region_voxels,
             abundance_uncertainty_ppm,
             excavation_hardness_resolution: None,
+            resource_mass_resolution: None,
             exertion,
             equipment: None,
         }
@@ -206,6 +208,32 @@ impl ProspectingDefinition {
             );
         }
         self.spatial_resolution = spatial_resolution;
+        self
+    }
+
+    /// Adds a coarse extractable-body mass estimate to fully localized physical observations.
+    #[must_use]
+    pub fn with_resource_mass_resolution(mut self, resolution: Mass) -> Self {
+        assert!(
+            self.resource_mass_resolution.is_none(),
+            "prospecting method {} cannot define resource-mass resolution more than once",
+            self.id.value()
+        );
+        assert!(
+            self.equipment.is_some(),
+            "resource-mass prospecting requires a physical instrument"
+        );
+        assert!(
+            self.evidence.supports_resource_mass(),
+            "prospecting method {} cannot attach resource mass to {:?} evidence",
+            self.id.value(),
+            self.evidence
+        );
+        assert!(
+            !resolution.is_zero(),
+            "resource-mass prospecting resolution must be nonzero"
+        );
+        self.resource_mass_resolution = Some(resolution);
         self
     }
 
@@ -298,6 +326,11 @@ impl ProspectingDefinition {
     #[must_use]
     pub const fn excavation_hardness_resolution(self) -> Option<Pressure> {
         self.excavation_hardness_resolution
+    }
+
+    #[must_use]
+    pub const fn resource_mass_resolution(self) -> Option<Mass> {
+        self.resource_mass_resolution
     }
 
     #[must_use]

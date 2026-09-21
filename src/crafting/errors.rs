@@ -7,7 +7,7 @@ use std::num::NonZeroU64;
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::Mass;
 use crate::core::throughput::MassFlowDurationError;
-use crate::equipment::{EquipmentId, EquipmentProviderError};
+use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentProviderError};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::{CommodityKey, MaterialLotSpecError};
@@ -17,6 +17,115 @@ use crate::production::{
 };
 
 use super::batch::ManualCraftBatchError;
+
+/// Failure while projecting authored equipment-assisted manual work without a runtime provider.
+///
+/// This projection answers physical schedule questions only. It does not prove that an equipment
+/// instance exists, is supported or idle, that material is available, or that player labor can
+/// start.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ManualCraftEquipmentProjectionError {
+    UnknownManualProcess {
+        process: ProcessId,
+    },
+    EquipmentNotSupported {
+        process: ProcessId,
+    },
+    UnknownEquipmentDefinition {
+        equipment: EquipmentDefinitionId,
+    },
+    MissingEquipmentCapability {
+        equipment: EquipmentDefinitionId,
+        capability: CapabilityId,
+    },
+    EquipmentCapabilityKindMismatch {
+        equipment: EquipmentDefinitionId,
+        capability: CapabilityId,
+        found: CapabilityValueKind,
+    },
+    InputMassOverflow {
+        process: ProcessId,
+        batches: NonZeroU64,
+    },
+    EquipmentDuration(MassFlowDurationError),
+    EquipmentCondition(ActiveConditionDurationError),
+}
+
+impl Display for ManualCraftEquipmentProjectionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownManualProcess { process } => {
+                write!(
+                    formatter,
+                    "process {} is not authored as a manual craft",
+                    process.value()
+                )
+            }
+            Self::EquipmentNotSupported { process } => write!(
+                formatter,
+                "manual craft process {} has no authored equipment-assisted path",
+                process.value()
+            ),
+            Self::UnknownEquipmentDefinition { equipment } => write!(
+                formatter,
+                "manual craft projection references unknown equipment definition {}",
+                equipment.value()
+            ),
+            Self::MissingEquipmentCapability {
+                equipment,
+                capability,
+            } => write!(
+                formatter,
+                "equipment definition {} does not provide required shaping capability {}",
+                equipment.value(),
+                capability.value()
+            ),
+            Self::EquipmentCapabilityKindMismatch {
+                equipment,
+                capability,
+                found,
+            } => write!(
+                formatter,
+                "equipment definition {} capability {} has {found:?} value instead of mass throughput",
+                equipment.value(),
+                capability.value()
+            ),
+            Self::InputMassOverflow { process, batches } => write!(
+                formatter,
+                "manual craft process {} input mass overflows when projected for {} batches",
+                process.value(),
+                batches.get()
+            ),
+            Self::EquipmentDuration(error) => {
+                write!(
+                    formatter,
+                    "manual craft projection cannot schedule work: {error}"
+                )
+            }
+            Self::EquipmentCondition(error) => {
+                write!(
+                    formatter,
+                    "manual craft projection cannot remain productive: {error}"
+                )
+            }
+        }
+    }
+}
+
+impl Error for ManualCraftEquipmentProjectionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::EquipmentDuration(error) => Some(error),
+            Self::EquipmentCondition(error) => Some(error),
+            Self::UnknownManualProcess { .. }
+            | Self::EquipmentNotSupported { .. }
+            | Self::UnknownEquipmentDefinition { .. }
+            | Self::MissingEquipmentCapability { .. }
+            | Self::EquipmentCapabilityKindMismatch { .. }
+            | Self::InputMassOverflow { .. } => None,
+        }
+    }
+}
 
 /// Failure while resolving one exact manual shaping operation.
 #[derive(Clone, Debug, PartialEq, Eq)]

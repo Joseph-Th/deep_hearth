@@ -1,5 +1,7 @@
 //! Replayable ordinary-play woodworking investment episode for the cold-agent report.
 
+use std::num::NonZeroU64;
+
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
     EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, FORM_BOARD, FORM_CHIP,
@@ -10,13 +12,13 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
-use deep_hearth::crafting::resolve_manual_craft;
+use deep_hearth::crafting::{project_manual_craft_equipment, resolve_manual_craft};
 use deep_hearth::equipment::{
     EquipmentId, EquipmentMaintenanceRequest, resolve_equipment_maintenance,
     validate_assemble_equipment, validate_equipment_maintenance,
 };
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::maintenance::MaintenanceBand;
+use deep_hearth::maintenance::{Condition, MaintenanceBand};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::ProcessResolution;
@@ -101,6 +103,114 @@ fn checked_mass_times(mass: Mass, count: u64, context: &'static str) -> Mass {
     )
 }
 
+fn saw_frame_board_batches(registries: &Registries, required_boards: Mass) -> u64 {
+    let board_craft = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("woodworking saw-frame board route disappeared"));
+    let boards_per_batch =
+        authored_output_mass(board_craft, CommodityKey::new(MATERIAL_WOOD, FORM_BOARD));
+    required_boards
+        .milligrams()
+        .div_ceil(boards_per_batch.milligrams())
+}
+
+fn project_saw_setup_budget(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+) -> (u64, Mass) {
+    let assembly = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_FRAME_SAW_BENCH)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("woodworking frame saw lost its authored assembly"));
+    assembly
+        .inputs()
+        .iter()
+        .fold((0_u64, Mass::ZERO), |(ticks, timber), input| {
+            let (duration, input_timber) =
+                if input.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
+                    let board_craft = registries
+                        .crafting()
+                        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+                        .unwrap_or_else(|| panic!("woodworking saw-frame board route disappeared"));
+                    let batches = saw_frame_board_batches(registries, input.mass());
+                    let _ = select_manual_craft_request(
+                        registries,
+                        state,
+                        board_craft.process(),
+                        raw,
+                        batches,
+                        "woodworking saw pre-investment board availability",
+                    );
+                    let projection = project_manual_craft_equipment(
+                        registries,
+                        board_craft.process(),
+                        NonZeroU64::new(batches)
+                            .unwrap_or_else(|| unreachable!("saw frame requires board work")),
+                        EQUIPMENT_STONE_WOODWORKING_ADZE,
+                        Condition::PRISTINE,
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!("woodworking saw-frame adze projection failed: {error}")
+                    });
+                    (
+                        projection.duration().value(),
+                        checked_mass_times(
+                            board_craft.input_mass(),
+                            batches,
+                            "projected saw-frame timber",
+                        ),
+                    )
+                } else {
+                    let (craft, batches, source) = manual_craft_plan_for_available_output(
+                        registries,
+                        state,
+                        &[raw],
+                        input.commodity(),
+                        input.mass(),
+                        "woodworking saw pre-investment component",
+                    );
+                    let resolution = resolve_manual_craft(
+                        registries,
+                        state,
+                        &select_manual_craft_request(
+                            registries,
+                            state,
+                            craft.process(),
+                            source,
+                            batches,
+                            "woodworking saw pre-investment component",
+                        ),
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!("woodworking saw component projection failed: {error}")
+                    });
+                    (
+                        resolution.duration().value(),
+                        if craft.input().material() == MATERIAL_WOOD {
+                            checked_mass_times(
+                                craft.input_mass(),
+                                batches,
+                                "projected saw-component timber",
+                            )
+                        } else {
+                            Mass::ZERO
+                        },
+                    )
+                };
+            (
+                ticks
+                    .checked_add(duration)
+                    .unwrap_or_else(|| panic!("woodworking saw setup projection overflowed")),
+                timber
+                    .checked_add(input_timber)
+                    .unwrap_or_else(|| panic!("woodworking saw timber projection overflowed")),
+            )
+        })
+}
+
 fn assemble_saw(
     registries: &Registries,
     state: &mut AppState,
@@ -122,11 +232,7 @@ fn assemble_saw(
                     .crafting()
                     .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
                     .unwrap_or_else(|| panic!("woodworking saw-frame board route disappeared"));
-                let boards_per_batch = authored_output_mass(board_craft, input.commodity());
-                let batches = input
-                    .mass()
-                    .milligrams()
-                    .div_ceil(boards_per_batch.milligrams());
+                let batches = saw_frame_board_batches(registries, input.mass());
                 (
                     execute_manual_craft(
                         registries,
@@ -890,7 +996,7 @@ fn evaluate_woodworking_probe(
             })
     };
     let (adze_budget, _) = construction_budget(EQUIPMENT_STONE_WOODWORKING_ADZE);
-    let saw_budget = saw_fundable.then(|| construction_budget(EQUIPMENT_TIMBER_FRAME_SAW_BENCH));
+    let saw_budget = saw_fundable.then(|| project_saw_setup_budget(registries, &state, raw));
     let nominal_saw_timber = saw_budget.map(|(_, timber)| {
         timber
             .checked_add(checked_mass_times(
@@ -1017,6 +1123,16 @@ fn evaluate_woodworking_probe(
     let saw_counterfactual = saw_fundable.then(|| {
         let mut saw_state = common_state.clone();
         let setup = assemble_saw(registries, &mut saw_state, raw, saw_parts, adze);
+        let (projected_setup_ticks, projected_setup_timber) =
+            saw_budget.unwrap_or_else(|| unreachable!("fundable saw must have a setup projection"));
+        assert_eq!(
+            setup.attention_ticks, projected_setup_ticks,
+            "pre-action saw setup projection must match canonical executed attention"
+        );
+        assert_eq!(
+            setup.raw_timber, projected_setup_timber,
+            "pre-action saw setup projection must match canonical executed timber cost"
+        );
         let route = execute_saw_pipeline(
             registries,
             &mut saw_state,

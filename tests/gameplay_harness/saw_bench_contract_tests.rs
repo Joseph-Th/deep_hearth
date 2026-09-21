@@ -313,6 +313,27 @@ fn frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention
         output_stock.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
         saw_chip_mass
     );
+    let saw_record = state
+        .equipment()
+        .get_equipment(saw)
+        .unwrap_or_else(|| panic!("frame-saw disappeared before disassembly"));
+    let embodied_mass = |commodity| {
+        saw_record
+            .embodied_material()
+            .iter()
+            .filter(|trace| trace.profile().commodity() == commodity)
+            .try_fold(Mass::ZERO, |total, trace| total.checked_add(trace.mass()))
+            .unwrap_or_else(|| panic!("frame-saw embodied material mass overflowed"))
+    };
+    let expected_board_recovery = embodied_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD));
+    let expected_handle_recovery = embodied_mass(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE));
+    let expected_blade_scrap = embodied_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE));
+    assert!(
+        !expected_board_recovery.is_zero()
+            && !expected_handle_recovery.is_zero()
+            && !expected_blade_scrap.is_zero(),
+        "frame-saw regression fixture must contain frame boards, handle, and blade"
+    );
     let expected_recovery = validate_disassemble_equipment(&registries, &state, saw, recovery)
         .unwrap_or_else(|error| panic!("worn frame-saw disassembly validation failed: {error}"))
         .commit(&mut state)
@@ -332,18 +353,18 @@ fn frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention
         .unwrap_or_else(|| panic!("frame-saw recovery stockpile disappeared"));
     assert_eq!(
         recovered.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)),
-        Mass::from_milligrams(1_600_000),
-        "worn blade must not destroy the timber frame boards"
+        expected_board_recovery,
+        "worn blade must preserve the exact embodied timber frame boards"
     );
     assert_eq!(
         recovered.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE)),
-        Mass::from_milligrams(200_000),
-        "worn blade must not destroy the frame handle"
+        expected_handle_recovery,
+        "worn blade must preserve the exact embodied frame handle"
     );
     assert_eq!(
         recovered.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
-        Mass::from_milligrams(54_000),
-        "only the worn blade component should enter copper scrap recovery"
+        expected_blade_scrap,
+        "only the worn blade's embodied copper mass should reform into scrap"
     );
     assert_eq!(
         recovered.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE)),

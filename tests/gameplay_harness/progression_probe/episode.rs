@@ -848,7 +848,7 @@ pub(super) fn run_primitive_progression_case(
             deferred_trace_refinement,
         },
     );
-    let natural_priority = observed_primitive_priority();
+    let natural_priority = observed_primitive_priority(hard_clue, bulk_sample);
     let primitive_sorting = registries
         .ore_processing()
         .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
@@ -869,12 +869,40 @@ pub(super) fn run_primitive_progression_case(
         "inventory-visible bulk ore must contain enough represented copper for the second upgrade"
     );
     let processing_decision_at = state.tick().value();
+    // This is disclosed scenario demand, not a post-hoc payback horizon. The actor knows it wants
+    // one second reinforcement plus a finite twelve-cycle crushed-feed stockpile before choosing
+    // whether the larger processing-line investment is appropriate.
+    let manual_stockpile_breaking_ticks =
+        project_manual_stockpile_breaking_attention(registries, mined_mass);
+    let manual_bridge_projection =
+        project_owned_ore_manual_bridge(registries, bulk_sample.copper_ppm, crank_upgrade_native);
+    let preaction_manual_processing_attention_ticks = manual_bridge_projection
+        .total_attention_ticks
+        .checked_add(manual_stockpile_breaking_ticks)
+        .unwrap_or_else(|| panic!("primitive pre-action manual workload overflowed"));
+    let processing_investment_projection = project_primitive_processing_investment(
+        registries,
+        &state,
+        PrimitiveProcessingInvestmentPlan {
+            raw,
+            native_storage,
+            shaped,
+            mined_mass,
+            separation_feed_mass: soft_separation_feed_mass,
+            seed,
+            crank_reinforced_before_charge: priority == PrimitivePriority::CrankFirst,
+        },
+    );
+    assert!(
+        processing_investment_projection.conservative_attention_ticks
+            < preaction_manual_processing_attention_ticks,
+        "the disclosed processing workload must justify mechanization from pre-action evidence: conservative machine upper bound {}t vs hand processing {}t",
+        processing_investment_projection.conservative_attention_ticks,
+        preaction_manual_processing_attention_ticks
+    );
     // At this exact player-visible decision state, ordinary play has two legitimate ways to bridge
-    // the missing second reinforcement: process some already-owned bulk ore by hand now, or invest
-    // in the primitive powered line. Replay the manual route on a clone so the mechanized episode is
-    // unchanged and both alternatives own the same geology, inventory, survival reserves, and prior
-    // attention costs. The destinations are empty stockpiles that were part of the starting world;
-    // the counterfactual performs no fixture mutation after actor admission.
+    // the missing second reinforcement. The choice above is already frozen from authored planning;
+    // replay the manual route only as post-decision evaluator evidence and projection agreement.
     let manual_bridge = evaluate_owned_ore_manual_bridge(
         registries,
         &state,
@@ -891,6 +919,22 @@ pub(super) fn run_primitive_progression_case(
     assert!(
         manual_bridge.manual_recovery_ppm < manual_bridge.powered_recovery_ppm,
         "primitive mechanization must improve copper recovery over the real same-world hand route"
+    );
+    assert_eq!(manual_bridge.feed_mass, manual_bridge_projection.feed_mass);
+    assert_eq!(
+        manual_bridge.total_attention_ticks, manual_bridge_projection.total_attention_ticks,
+        "pre-action manual bridge projection must match canonical execution"
+    );
+    assert_eq!(
+        manual_bridge.manual_recovery_ppm,
+        manual_bridge_projection.manual_recovery_ppm
+    );
+    assert_eq!(
+        manual_bridge
+            .total_attention_ticks
+            .checked_sub(manual_bridge_projection.processing_attention_ticks),
+        Some(manual_bridge_projection.cold_work_ticks),
+        "manual bridge projection must partition processing and cold-work attention exactly"
     );
     let manual_bridge_ready_at = processing_decision_at
         .checked_add(manual_bridge.total_attention_ticks)
@@ -1133,9 +1177,9 @@ pub(super) fn run_primitive_progression_case(
                 separation_feed_mass,
             )
         }
-        PrimitivePriority::CrankFirstCounterfactual => {
-            // The crank-first counterfactual deliberately pays the infrastructure setup cost before
-            // improving extraction, preserving a measured contrast against ordinary pick-first play.
+        PrimitivePriority::CrankFirst => {
+            // Crank-first deliberately commits to the already-owned bulk feed before buying access
+            // to a seam whose acquired grade interval has not yet justified scarce-copper access.
             let mut machine = build_primitive_machine(
                 registries,
                 &mut state,
@@ -1260,7 +1304,7 @@ pub(super) fn run_primitive_progression_case(
             };
             upgraded_at
         }
-        PrimitivePriority::CrankFirstCounterfactual => {
+        PrimitivePriority::CrankFirst => {
             reinforce_pick(registries, &mut state, raw, native_storage, shaped, pick);
             let upgraded_at = state.tick().value();
             pick_upgraded_at = Some(upgraded_at);
@@ -1291,7 +1335,7 @@ pub(super) fn run_primitive_progression_case(
             );
             assert!(!initial_crank_reinforced && machine.crank_reinforced);
         }
-        PrimitivePriority::CrankFirstCounterfactual => {
+        PrimitivePriority::CrankFirst => {
             assert!(initial_crank_reinforced && machine.crank_reinforced);
             let pick_upgraded_at = pick_upgraded_at.unwrap_or_else(|| {
                 panic!("crank-first counterfactual never acquired its second pick upgrade")
@@ -1499,6 +1543,9 @@ pub(super) fn run_primitive_progression_case(
                 pick,
                 mass: mined_mass,
             },
+            raw,
+            native_storage,
+            shaped,
             required_productive_ticks: required_steady_state_productive_ticks,
         },
     );
@@ -1511,6 +1558,11 @@ pub(super) fn run_primitive_progression_case(
         native_storage,
         shaped,
         pick,
+        steady_state.maintenance_preparation_ticks,
+    );
+    assert!(
+        steady_state.maintenance_preparation_overlap_ticks > 0,
+        "delegated crusher time must overlap real maintenance preparation"
     );
     let stockpiling_delay_ticks = stockpiling_state.tick().value() - demand_decision_at;
     let stockpiling_reinvestment =
@@ -1638,6 +1690,35 @@ pub(super) fn run_primitive_progression_case(
         .and_then(|ticks| ticks.checked_add(reserve_recharge_ticks))
         .and_then(|ticks| ticks.checked_add(steady_state.charge_ticks))
         .unwrap_or_else(|| panic!("primitive charging attention overflowed"));
+    let actual_machine_assembly_ticks = machine
+        .processing_line_preparation_ticks
+        .checked_sub(machine.charge_ticks)
+        .unwrap_or_else(|| unreachable!("machine charge is part of processing-line preparation"));
+    assert_eq!(
+        actual_machine_assembly_ticks, processing_investment_projection.assembly_attention_ticks,
+        "pre-action processing-line assembly projection must match canonical execution"
+    );
+    assert!(
+        machine.charge_ticks <= processing_investment_projection.initial_charge_ticks,
+        "observed feed refinement cannot make the real initial charge exceed the conservative pre-action projection"
+    );
+    let manual_disclosed_work_attention = manual_bridge
+        .total_attention_ticks
+        .checked_add(manual_stockpile_breaking_ticks)
+        .unwrap_or_else(|| panic!("primitive manual disclosed-work attention overflowed"));
+    let mechanized_stockpile_player_ticks = machine
+        .processing_line_preparation_ticks
+        .checked_add(total_charge_ticks)
+        .unwrap_or_else(|| panic!("primitive mechanized disclosed-work attention overflowed"));
+    assert!(
+        mechanized_stockpile_player_ticks < manual_disclosed_work_attention,
+        "the disclosed twelve-cycle stockpile order no longer justifies infrastructure-first processing: machine player attention {mechanized_stockpile_player_ticks}t vs manual {manual_disclosed_work_attention}t"
+    );
+    assert!(
+        mechanized_stockpile_player_ticks
+            <= processing_investment_projection.conservative_attention_ticks,
+        "real mechanized workload exceeded its conservative pre-action attention bound"
+    );
     let experience = PrimitiveProgressionExperience {
         natural_priority,
         prospecting_ticks,
@@ -1672,6 +1753,16 @@ pub(super) fn run_primitive_progression_case(
         manual_bridge_ready_at,
         manual_bridge_feed_mass: manual_bridge.feed_mass,
         manual_bridge_attention_ticks: manual_bridge.total_attention_ticks,
+        preaction_manual_processing_attention_ticks,
+        preaction_mechanized_attention_upper_ticks: processing_investment_projection
+            .conservative_attention_ticks,
+        preaction_machine_assembly_ticks: processing_investment_projection.assembly_attention_ticks,
+        preaction_machine_initial_charge_ticks: processing_investment_projection
+            .initial_charge_ticks,
+        preaction_machine_repeated_charge_ticks: processing_investment_projection
+            .repeated_charge_ticks,
+        manual_stockpile_breaking_ticks,
+        mechanized_stockpile_player_ticks,
         manual_bridge_recovery_ppm: manual_bridge.manual_recovery_ppm,
         manual_bootstrap_pick_ready_ticks,
         manual_bootstrap_hard_sample_ticks,
@@ -1737,6 +1828,7 @@ pub(super) fn run_primitive_progression_case(
         initial_crank_reinforced,
         crank_reinforced: machine.crank_reinforced,
         maintenance_material_preparation_ticks: component_service.preparation_ticks,
+        maintenance_preparation_overlap_ticks: steady_state.maintenance_preparation_overlap_ticks,
         component_service_ticks: component_service.service_ticks,
         component_service_mass: component_service.material_mass,
         component_service_condition_before_ppm: component_service.condition_before_ppm,
@@ -1751,7 +1843,7 @@ pub(super) fn run_primitive_progression_case(
     };
     let (first_upgrade, second_upgrade) = match priority {
         PrimitivePriority::PickFirst => ("pick", "hand-crank"),
-        PrimitivePriority::CrankFirstCounterfactual => ("hand-crank", "pick"),
+        PrimitivePriority::CrankFirst => ("hand-crank", "pick"),
     };
     let pick_milestone = pick_upgraded_at
         .map(|tick| format!("{tick}t"))

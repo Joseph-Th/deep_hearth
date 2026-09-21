@@ -37,7 +37,7 @@ fn preservation_can_decline_a_low_benefit_singleton() {
         remaining_fresh_ticks: 125,
     };
     assert_eq!(
-        select_preservation_investment(1_000_000, &[candidate]),
+        select_preservation_investment(1_000_000, 1_000_000, 2_000_000, &[candidate]),
         None
     );
     let worthwhile = PreservationCandidateProjection {
@@ -45,12 +45,49 @@ fn preservation_can_decline_a_low_benefit_singleton() {
         ..candidate
     };
     assert_eq!(
-        select_preservation_investment(1_000_000, &[worthwhile]),
+        select_preservation_investment(1_000_000, 1_000_000, 2_000_000, &[worthwhile]),
         Some(worthwhile)
     );
     assert_eq!(
-        select_preservation_investment(4_000_000, &[worthwhile]),
+        select_preservation_investment(4_000_000, 4_000_000, 2_000_000, &[worthwhile]),
         None
+    );
+    assert_eq!(
+        select_preservation_investment(10_000_000, 1_000_000, 2_000_000, &[worthwhile]),
+        Some(worthwhile),
+        "time preference for faster construction must not itself force a worthwhile enclosure to be declined"
+    );
+}
+
+#[test]
+fn preservation_material_budget_makes_intermediate_frontier_actionable() {
+    use super::survival_probe::preservation_evaluation::PreservationCandidateProjection;
+    let quick = PreservationCandidateProjection {
+        definition: STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        production_ticks: 100,
+        raw_material_mass_mg: 2_000_000,
+        remaining_fresh_ticks: 100,
+    };
+    let balanced = PreservationCandidateProjection {
+        definition: STORAGE_TIMBER_PROVISIONS_CHEST,
+        production_ticks: 150,
+        raw_material_mass_mg: 3_000_000,
+        remaining_fresh_ticks: 400,
+    };
+    let strongest = PreservationCandidateProjection {
+        definition: STORAGE_INSULATED_TIMBER_PANTRY,
+        production_ticks: 200,
+        raw_material_mass_mg: 6_000_000,
+        remaining_fresh_ticks: 1_000,
+    };
+    assert_eq!(
+        select_preservation_projection_for_attention_value(
+            1_000_000,
+            3_000_000,
+            &[quick, balanced, strongest],
+        ),
+        balanced,
+        "reserving construction matter must let a middle physical tradeoff win without inventing a content tie-break"
     );
 }
 
@@ -58,13 +95,15 @@ fn preservation_can_decline_a_low_benefit_singleton() {
 fn preservation_decline_executes_without_spending_the_raw_opportunity() {
     use super::survival_probe::preservation_decision::evaluate_preservation_decision;
     let registries = build_registries();
-    // Report anchor: an almost-expired reserve and only one affordable enclosure.
-    let seed = 0x0000_D33F_C01D_5A70;
+    // Replayed ordinary world/policy pair where the actor values retaining the disclosed raw
+    // opportunity above every currently worthwhile enclosure. The execution contract should not
+    // depend on a historical storage tuning point continuing to decline forever.
+    let seed = 0x043C_561D_398D_32BA;
     let world = provisioning_world(&registries, seed);
     let decision = evaluate_preservation_decision(
         &registries,
         seed,
-        0x1141_25D1_1CEE_9F89,
+        0x9B76_F388_4EA8_CF64,
         world.foods[world.witness_index],
         world.preserved_reserve_mass,
     );
@@ -91,7 +130,8 @@ fn preservation_raw_bootstrap_is_explicit_not_inferred_from_missing_producers() 
 }
 use super::survival_probe::{
     DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
-    diet_provisioning_policy_for_behavior_seed, preservation_freshness_return_threshold_ppm,
+    diet_provisioning_policy_for_behavior_seed, preservation_attention_value_ppm,
+    preservation_material_budget_ppm, preservation_minimum_return_ppm,
     prospecting_method_for_work_pressure, provisioning_world,
 };
 
@@ -461,14 +501,31 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
             DietProvisioningPolicy::BalancedRecovery,
         ])
     );
-    let preservation_thresholds = (1_u64..=32)
-        .map(preservation_freshness_return_threshold_ppm)
+    let preservation_attention_values = (1_u64..=32)
+        .map(preservation_attention_value_ppm)
         .collect::<BTreeSet<_>>();
-    assert!(preservation_thresholds.len() > 1);
+    assert!(preservation_attention_values.len() > 1);
     assert!(
-        preservation_thresholds
+        preservation_attention_values
             .iter()
-            .all(|threshold| (1_000_000..=4_000_000).contains(threshold))
+            .all(|value| (1_000_000..=10_000_000).contains(value))
+    );
+    let preservation_minimum_returns = (1_u64..=32)
+        .map(preservation_minimum_return_ppm)
+        .collect::<BTreeSet<_>>();
+    assert!(preservation_minimum_returns.len() > 1);
+    assert!(
+        preservation_minimum_returns
+            .iter()
+            .all(|value| (1_000_000..=4_000_000).contains(value))
+    );
+    let preservation_material_budgets = (1_u64..=32)
+        .map(preservation_material_budget_ppm)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        preservation_material_budgets,
+        BTreeSet::from([400_000, 600_000, 850_000, 1_000_000]),
+        "maintained behavior sampling must exercise conservative through all-in preservation material commitments"
     );
     let projection_world = provisioning_world(&registries, 0x51A2_0001);
     let projected = project_preservation_candidates_with_raw_opportunity(
@@ -478,10 +535,21 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         projection_world.preserved_reserve_mass,
         None,
     );
-    let low_threshold_choice =
-        select_preservation_projection_for_attention_value(1_000_000, &projected);
-    let high_threshold_choice =
-        select_preservation_projection_for_attention_value(4_000_000, &projected);
+    let unlimited_material_budget = projected
+        .iter()
+        .map(|projection| projection.raw_material_mass_mg)
+        .max()
+        .unwrap_or_else(|| panic!("preservation projection is nonempty"));
+    let low_threshold_choice = select_preservation_projection_for_attention_value(
+        1_000_000,
+        unlimited_material_budget,
+        &projected,
+    );
+    let high_threshold_choice = select_preservation_projection_for_attention_value(
+        10_000_000,
+        unlimited_material_budget,
+        &projected,
+    );
     assert!(
         low_threshold_choice.remaining_fresh_ticks >= high_threshold_choice.remaining_fresh_ticks,
         "lower attention valuation must not select less preservation from the same physical frontier"
@@ -601,7 +669,8 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         None,
     );
     for behavior_seed in 1_u64..=4 {
-        let _selected = select_preservation_projection(behavior_seed, &projected);
+        let _selected =
+            select_preservation_projection(behavior_seed, unlimited_material_budget, &projected);
         let replay = provisioning_world(&registries, 0x51A2_0001);
         assert_eq!(
             (

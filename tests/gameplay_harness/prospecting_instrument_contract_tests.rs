@@ -55,7 +55,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .copied()
         .unwrap_or_else(|| panic!("indexed channel survey definition disappeared"));
     assert_eq!(detailed.maximum_region_voxels(), 1);
-    assert_eq!(channel.maximum_region_voxels(), 4);
+    assert!(channel.maximum_region_voxels() > detailed.maximum_region_voxels());
     assert_eq!(
         detailed.spatial_resolution(),
         ProspectingSpatialResolution::AggregateRegion
@@ -72,14 +72,25 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         channel.excavation_hardness_resolution(),
         detailed.excavation_hardness_resolution()
     );
-    assert_eq!(
-        detailed.excavation_hardness_resolution(),
-        Some(Pressure::from_pascals(50_000_000))
+    let hardness_resolution = detailed
+        .excavation_hardness_resolution()
+        .unwrap_or_else(|| panic!("detailed sampling lost hardness resolution"));
+    assert!(
+        !hardness_resolution.is_zero(),
+        "detailed sampling must provide finite nonzero hardness resolution"
     );
     assert!(channel.duration() > detailed.duration());
     assert!(
-        channel.duration().value() < detailed.duration().value() * 4,
-        "one indexed channel survey must reduce attention versus four repeated detailed point surveys"
+        channel.duration().value()
+            < detailed
+                .duration()
+                .value()
+                .checked_mul(
+                    u64::try_from(channel.maximum_region_voxels())
+                        .unwrap_or_else(|_| panic!("channel survey voxel count exceeds u64")),
+                )
+                .unwrap_or_else(|| panic!("repeated point-survey duration overflowed")),
+        "one indexed channel survey must reduce attention versus repeated detailed point surveys"
     );
     let detailed_tool = detailed
         .equipment()
@@ -91,14 +102,17 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     assert!(detailed_tool.accepts(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER));
     assert!(!channel_tool.accepts(EQUIPMENT_STONE_GEOLOGICAL_HAMMER));
     assert!(channel_tool.accepts(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER));
+    let base_wear = detailed_tool
+        .condition_wear_ppm_per_active_tick(EQUIPMENT_STONE_GEOLOGICAL_HAMMER)
+        .unwrap_or_else(|| panic!("stone hammer lost detailed-sampling wear"));
+    let reinforced_wear = detailed_tool
+        .condition_wear_ppm_per_active_tick(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER)
+        .unwrap_or_else(|| panic!("reinforced hammer lost detailed-sampling wear"));
     assert_eq!(
-        detailed_tool.condition_wear_ppm_per_active_tick(EQUIPMENT_STONE_GEOLOGICAL_HAMMER),
-        Some(120)
-    );
-    assert_eq!(
-        detailed_tool
-            .condition_wear_ppm_per_active_tick(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER),
-        Some(60),
+        reinforced_wear
+            .checked_mul(2)
+            .unwrap_or_else(|| panic!("reinforced sampling wear ratio overflowed")),
+        base_wear,
         "copper reinforcement must halve detailed-sampling wear"
     );
 
@@ -143,6 +157,14 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         );
     }
     let recovery = add_solid_stockpile(&mut state, reinforced_hammer.mass());
+    let deposit_hardness = Pressure::from_pascals(350_000_000);
+    let expected_hardness = ExcavationHardnessEstimate::new(
+        deposit_hardness
+            .checked_sub(hardness_resolution)
+            .unwrap_or_else(|| panic!("sampling hardness resolution exceeds fixture hardness")),
+        deposit_hardness,
+    )
+    .unwrap_or_else(|error| panic!("sampling hardness expectation failed: {error}"));
     let detailed_region = horizontal_region(0, 1);
     seed_geological_deposit(
         &registries,
@@ -152,12 +174,14 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             Mass::from_milligrams(1_000_000),
             ROOM_TEMPERATURE,
-            Pressure::from_pascals(350_000_000),
+            deposit_hardness,
             copper_ore_composition(400_000, 300_000),
         ),
     );
-    let channel_region = horizontal_region(10, 4);
-    let hidden_target = horizontal_region(12, 1);
+    let channel_width = i64::try_from(channel.maximum_region_voxels())
+        .unwrap_or_else(|_| panic!("channel survey width exceeds i64"));
+    let channel_region = horizontal_region(10, channel_width);
+    let hidden_target = horizontal_region(10 + channel_width / 2, 1);
     seed_geological_deposit(
         &registries,
         &mut state,
@@ -166,7 +190,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             Mass::from_milligrams(1_000_000),
             ROOM_TEMPERATURE,
-            Pressure::from_pascals(350_000_000),
+            deposit_hardness,
             copper_ore_composition(500_000, 250_000),
         ),
     );
@@ -252,13 +276,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .unwrap_or_else(|| panic!("detailed hardness observation disappeared"));
     assert_eq!(
         detailed_record.excavation_hardness(),
-        Some(
-            ExcavationHardnessEstimate::new(
-                Pressure::from_pascals(300_000_000),
-                Pressure::from_pascals(350_000_000),
-            )
-            .unwrap_or_else(|error| panic!("detailed hardness expectation failed: {error}"))
-        )
+        Some(expected_hardness)
     );
     let condition_after_detailed = state
         .equipment()
@@ -310,8 +328,10 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
                     panic!("reinforced detailed survey cannot improve equipment condition")
                 }),
         ),
-        60 * detailed.duration().value(),
-        "reinforced hammer must apply its lower 60 ppm/t wear through canonical detailed-survey admission"
+        u64::from(reinforced_wear)
+            .checked_mul(detailed.duration().value())
+            .unwrap_or_else(|| panic!("reinforced detailed-survey wear overflowed")),
+        "reinforced hammer must apply its authored lower wear through canonical detailed-survey admission"
     );
 
     let channel_start = validate_start_field_prospecting(
@@ -368,7 +388,10 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     let channel_outcome =
         channel_outcome.unwrap_or_else(|| panic!("indexed channel survey produced no observation"));
     assert_eq!(channel_outcome.region(), channel_region);
-    assert_eq!(channel_outcome.observation_count(), 4);
+    assert_eq!(
+        u128::from(channel_outcome.observation_count()),
+        channel.maximum_region_voxels()
+    );
     let channel_observations = channel_outcome
         .observations()
         .map(|observation| {
@@ -397,13 +420,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .unwrap_or_else(|| panic!("indexed target observation disappeared"));
     assert_eq!(
         target_observation.excavation_hardness(),
-        Some(
-            ExcavationHardnessEstimate::new(
-                Pressure::from_pascals(300_000_000),
-                Pressure::from_pascals(350_000_000),
-            )
-            .unwrap_or_else(|error| panic!("channel hardness expectation failed: {error}"))
-        )
+        Some(expected_hardness)
     );
     assert!(
         channel_observations

@@ -58,6 +58,18 @@ pub enum GeologicalKnowledgeValidationError {
         upper: Pressure,
         actual: Pressure,
     },
+    ResourceMassUnsupportedEvidence {
+        observation: GeologicalObservationId,
+        evidence: GeologicalEvidenceKind,
+    },
+    ResourceMassAmbiguousFindings {
+        observation: GeologicalObservationId,
+        count: usize,
+    },
+    ResourceMassWithoutDefinitePresence {
+        observation: GeologicalObservationId,
+        material: MaterialId,
+    },
     ObservedInFuture {
         observation: GeologicalObservationId,
         observed_at: SimulationTick,
@@ -172,6 +184,28 @@ impl Display for GeologicalKnowledgeValidationError {
                 upper.pascals(),
                 deposit.value(),
                 actual.pascals()
+            ),
+            Self::ResourceMassUnsupportedEvidence {
+                observation,
+                evidence,
+            } => write!(
+                formatter,
+                "geological observation {} attaches resource mass to unsupported {evidence:?} evidence",
+                observation.value()
+            ),
+            Self::ResourceMassAmbiguousFindings { observation, count } => write!(
+                formatter,
+                "geological observation {} attaches one resource-mass band to {count} material findings",
+                observation.value()
+            ),
+            Self::ResourceMassWithoutDefinitePresence {
+                observation,
+                material,
+            } => write!(
+                formatter,
+                "geological observation {} attaches resource mass while material {} may be absent",
+                observation.value(),
+                material.value()
             ),
             Self::ObservedInFuture {
                 observation,

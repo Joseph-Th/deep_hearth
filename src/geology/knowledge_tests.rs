@@ -48,6 +48,7 @@ fn knowledge_with_hardness(
             evidence,
             findings,
             excavation_hardness: Some(valid_hardness()),
+            resource_mass: None,
             observed_at: SimulationTick::ZERO,
         },
     );
@@ -237,6 +238,7 @@ fn loaded_validation_rejects_missing_material_index_entry() {
             evidence: GeologicalEvidenceKind::CoreSample,
             findings: vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
             excavation_hardness: None,
+            resource_mass: None,
             observed_at: SimulationTick::ZERO,
         },
     );
@@ -269,6 +271,7 @@ fn loaded_validation_rejects_noncanonical_duplicate_material_findings() {
                 estimate(MATERIAL_COPPER, 550_000, 650_000),
             ],
             excavation_hardness: None,
+            resource_mass: None,
             observed_at: SimulationTick::ZERO,
         },
     );
@@ -305,6 +308,7 @@ fn loaded_validation_rejects_impossible_combined_abundance_minima() {
             evidence: GeologicalEvidenceKind::LaboratoryAssay,
             findings,
             excavation_hardness: None,
+            resource_mass: None,
             observed_at: SimulationTick::ZERO,
         },
     );
@@ -334,6 +338,7 @@ fn material_index_validation_checks_both_directions() {
             evidence: GeologicalEvidenceKind::MagneticSurvey,
             findings: vec![estimate(MATERIAL_COPPER, 100_000, 900_000)],
             excavation_hardness: None,
+            resource_mass: None,
             observed_at: SimulationTick::ZERO,
         },
     );

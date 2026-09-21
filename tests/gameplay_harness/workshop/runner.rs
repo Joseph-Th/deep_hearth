@@ -935,7 +935,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         );
         if verbose {
             std::println!(
-                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-deterministic-regressions explicit-replay=optional-bounded-variation exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+LIBERATION-EXPERIENCE+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+POWER-PROVIDER-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup ordinary-frontier-capability=LIBERATION-FRONTIER-CAPABILITY controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-deterministic-regressions explicit-replay=optional-bounded-variation exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+POWER-PROVIDER-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
             );
         }
     }

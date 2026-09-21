@@ -3,6 +3,7 @@
 mod abundance;
 mod errors;
 mod hardness;
+mod resource_mass;
 mod start;
 mod tick;
 

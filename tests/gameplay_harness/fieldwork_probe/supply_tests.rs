@@ -1,4 +1,4 @@
-//! Finite reserves change experienced output, never pre-action tool choice or charged effort.
+//! Acquired resource scale informs investment without leaking exact hidden reserve.
 
 use super::*;
 use deep_hearth::maintenance::Condition;
@@ -15,20 +15,16 @@ fn assert_supply_stop(supply_batches: u64, half_batch: bool, expected_stop: Fiel
     let registries = deep_hearth::content::build_registries();
     let requested =
         short_fieldwork_order(fieldwork_mining_limits(&registries).base_quarry_batch, 1);
-    let rich = run_fieldwork_order(&registries, replay(1), requested);
-    let definition = registries
-        .equipment()
-        .get_equipment(rich.tool)
-        .unwrap_or_else(|| panic!("selected tool disappeared"));
     let method = registries
         .mining()
         .get_method(MINING_METHOD_HAND_PICK)
         .unwrap_or_else(|| panic!("hand mining disappeared"));
-    let CapabilityValue::Mass(batch) = definition
-        .capabilities()
-        .get_capability(method.max_batch_mass_capability())
-        .unwrap_or_else(|| panic!("selected batch limit disappeared"))
-    else {
+    let reference = run_fieldwork_order(&registries, replay(1), requested);
+    let CapabilityValue::Mass(batch) = pristine_equipment_capability(
+        &registries,
+        reference.tool,
+        method.max_batch_mass_capability(),
+    ) else {
         panic!("batch physical kind changed")
     };
     let reserve = multiplied_mass(batch, supply_batches, "shortage regression")
@@ -40,23 +36,22 @@ fn assert_supply_stop(supply_batches: u64, half_batch: bool, expected_stop: Fiel
         .unwrap_or_else(|| panic!("shortage reserve overflowed"));
     assert!(reserve < requested);
     let scarce = run_fieldwork_with_supply(&registries, replay(1), requested, reserve);
-    assert_eq!(
-        scarce.tool, rich.tool,
-        "hidden reserve must not select a different tool"
-    );
-    assert_eq!(scarce.observed_hardness, rich.observed_hardness);
-    assert_eq!(scarce.preparation_ticks, rich.preparation_ticks);
-    assert_eq!(scarce.projected_ticks, rich.projected_ticks);
-    assert_eq!(
-        scarce.extraction.first_ore_ticks,
-        rich.extraction.first_ore_ticks
+    assert!(
+        scarce.observed_resource_mass.lower() <= reserve
+            && reserve <= scarce.observed_resource_mass.upper(),
+        "acquired resource-scale evidence must conservatively contain hidden reserve truth"
     );
     assert_eq!(
-        scarce.extraction.output_grade_ppm,
-        rich.extraction.output_grade_ppm
+        scarce.planned_local_mass,
+        requested.min(scarce.observed_resource_mass.upper()),
+        "tool investment must be sized from acquired quantity evidence, not exact hidden reserve"
     );
     assert_eq!(scarce.extraction.extracted, reserve);
     assert_eq!(scarce.extraction.stop, expected_stop);
+    let definition = registries
+        .equipment()
+        .get_equipment(scarce.tool)
+        .unwrap_or_else(|| panic!("selected fieldwork equipment definition disappeared"));
     let attempted_batches = supply_batches + u64::from(half_batch);
     assert_eq!(
         scarce.extraction.batches, attempted_batches,
@@ -94,7 +89,7 @@ fn assert_supply_stop(supply_batches: u64, half_batch: bool, expected_stop: Fiel
 }
 
 #[test]
-fn short_first_claim_stops_without_changing_hidden_reserve_blind_choice() {
+fn short_first_claim_stops_after_quantity_informed_investment() {
     assert_supply_stop(0, true, FieldworkStop::ShortClaim);
 }
 
@@ -109,13 +104,71 @@ fn exact_batch_exhaustion_stops_on_canonical_target_refresh() {
 }
 
 #[test]
+fn exact_hidden_reserve_inside_same_acquired_band_cannot_change_pre_action_plan() {
+    let registries = deep_hearth::content::build_registries();
+    let requested = Mass::from_milligrams(20_000_000);
+    let lower = run_fieldwork_with_supply(
+        &registries,
+        replay(1),
+        requested,
+        Mass::from_milligrams(4_100_000),
+    );
+    let upper = run_fieldwork_with_supply(
+        &registries,
+        replay(1),
+        requested,
+        Mass::from_milligrams(4_900_000),
+    );
+
+    assert_eq!(lower.observed_resource_mass, upper.observed_resource_mass);
+    assert_eq!(
+        lower.observed_resource_mass.lower(),
+        Mass::from_milligrams(4_000_000)
+    );
+    assert_eq!(
+        lower.observed_resource_mass.upper(),
+        Mass::from_milligrams(5_000_000)
+    );
+    assert_eq!(lower.planned_local_mass, Mass::from_milligrams(5_000_000));
+    assert_eq!(lower.planned_local_mass, upper.planned_local_mass);
+    assert_eq!(lower.observed_hardness, upper.observed_hardness);
+    assert_eq!(lower.tool, upper.tool);
+    assert_eq!(lower.preparation_ticks, upper.preparation_ticks);
+    assert_eq!(lower.projected_ticks, upper.projected_ticks);
+    assert_ne!(lower.extraction.extracted, upper.extraction.extracted);
+}
+
+#[test]
 fn world_seeded_shallow_opportunity_reports_partial_order() {
     let registries = deep_hearth::content::build_registries();
     let requested = fieldwork_order(&registries, 6);
     let reserve = fieldwork_supply(6);
     assert!(reserve < requested);
     let episode = run_fieldwork_order(&registries, replay(6), requested);
+    assert!(episode.observed_resource_mass.lower() <= reserve);
+    assert!(reserve <= episode.observed_resource_mass.upper());
+    assert!(episode.planned_local_mass < requested);
+    assert_eq!(
+        episode.planned_local_mass,
+        episode.observed_resource_mass.upper()
+    );
     assert_eq!(episode.extraction.extracted, reserve);
     assert_eq!(episode.extraction.stop, FieldworkStop::ShortClaim);
     assert_eq!(episode.extraction.stop.outcome(), "known-target-supply");
+}
+
+#[test]
+fn acquired_resource_scale_can_change_bulk_tool_investment() {
+    let registries = deep_hearth::content::build_registries();
+    let demonstrated = (1_u64..=16).any(|seed| {
+        let requested = fieldwork_order(&registries, seed);
+        if fieldwork_supply(seed) >= requested {
+            return false;
+        }
+        run_fieldwork_order(&registries, replay(seed), requested).resource_knowledge_changed_tool
+    });
+    assert!(
+        demonstrated,
+        "bounded fieldwork variation must include a shallow world where acquired reserve scale changes the rational tool investment"
+    );
 }

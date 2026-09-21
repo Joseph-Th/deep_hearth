@@ -12,7 +12,8 @@ use crate::spatial::VoxelBounds;
 use super::knowledge::{
     ExcavationHardnessContextError, ExcavationHardnessEstimate, GeologicalEvidenceKind,
     GeologicalObservationId, GeologicalObservationRecord, MaterialAbundanceEstimate,
-    PARTS_PER_MILLION, total_lower_bound_ppm, validate_excavation_hardness_context,
+    PARTS_PER_MILLION, ResourceMassContextError, ResourceMassEstimate, total_lower_bound_ppm,
+    validate_excavation_hardness_context, validate_resource_mass_context,
 };
 
 /// Immutable evidence result produced by an authorized prospecting or analytical resolver.
@@ -28,6 +29,7 @@ pub(crate) struct ProspectingResolution {
     evidence: GeologicalEvidenceKind,
     findings: Vec<MaterialAbundanceEstimate>,
     excavation_hardness: Option<ExcavationHardnessEstimate>,
+    resource_mass: Option<ResourceMassEstimate>,
 }
 
 impl ProspectingResolution {
@@ -36,6 +38,7 @@ impl ProspectingResolution {
         evidence: GeologicalEvidenceKind,
         mut findings: Vec<MaterialAbundanceEstimate>,
         excavation_hardness: Option<ExcavationHardnessEstimate>,
+        resource_mass: Option<ResourceMassEstimate>,
     ) -> Self {
         findings.sort_by_key(|finding| finding.material());
         Self {
@@ -43,6 +46,7 @@ impl ProspectingResolution {
             evidence,
             findings,
             excavation_hardness,
+            resource_mass,
         }
     }
 
@@ -59,6 +63,7 @@ impl ProspectingResolution {
             evidence,
             findings,
             excavation_hardness: None,
+            resource_mass: None,
         }
     }
 
@@ -69,6 +74,15 @@ impl ProspectingResolution {
         excavation_hardness: ExcavationHardnessEstimate,
     ) -> Self {
         self.excavation_hardness = Some(excavation_hardness);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_resource_mass_for_fixture(
+        mut self,
+        resource_mass: ResourceMassEstimate,
+    ) -> Self {
+        self.resource_mass = Some(resource_mass);
         self
     }
 }
@@ -96,6 +110,15 @@ pub enum RecordProspectingError {
     ExcavationHardnessWithoutDefinitePresence {
         material: MaterialId,
     },
+    ResourceMassUnsupportedEvidence {
+        evidence: GeologicalEvidenceKind,
+    },
+    ResourceMassAmbiguousFindings {
+        count: usize,
+    },
+    ResourceMassWithoutDefinitePresence {
+        material: MaterialId,
+    },
     ObservationIdExhausted,
     RevisionExhausted,
 }
@@ -119,6 +142,19 @@ impl Display for RecordProspectingError {
             Self::UnknownMaterial { material } => write!(
                 formatter,
                 "resolved prospecting evidence references unknown material {}",
+                material.value()
+            ),
+            Self::ResourceMassUnsupportedEvidence { evidence } => write!(
+                formatter,
+                "resolved prospecting evidence attaches resource mass to unsupported {evidence:?} evidence"
+            ),
+            Self::ResourceMassAmbiguousFindings { count } => write!(
+                formatter,
+                "resolved prospecting evidence attaches one resource-mass band to {count} material findings"
+            ),
+            Self::ResourceMassWithoutDefinitePresence { material } => write!(
+                formatter,
+                "resolved prospecting evidence attaches resource mass while material {} may be absent",
                 material.value()
             ),
             Self::ExcavationHardnessUnsupportedEvidence { evidence } => write!(
@@ -158,6 +194,7 @@ pub struct ValidatedGeologicalObservation {
     evidence: GeologicalEvidenceKind,
     findings: Vec<MaterialAbundanceEstimate>,
     excavation_hardness: Option<ExcavationHardnessEstimate>,
+    resource_mass: Option<ResourceMassEstimate>,
     observed_at: SimulationTick,
 }
 
@@ -172,6 +209,7 @@ impl ValidatedGeologicalObservation {
             evidence,
             findings,
             excavation_hardness,
+            resource_mass,
             observed_at,
         } = self;
         let knowledge = state.geological_knowledge_state_mut();
@@ -187,6 +225,7 @@ impl ValidatedGeologicalObservation {
                 evidence,
                 findings,
                 excavation_hardness,
+                resource_mass,
                 observed_at,
             },
             next_observation_id,
@@ -245,6 +284,7 @@ pub(super) fn validate_record_prospecting_batch_at(
             evidence,
             findings,
             excavation_hardness,
+            resource_mass,
         } = resolution;
         validated.push(ValidatedGeologicalObservation {
             expected_revision,
@@ -255,6 +295,7 @@ pub(super) fn validate_record_prospecting_batch_at(
             evidence,
             findings,
             excavation_hardness,
+            resource_mass,
             observed_at,
         });
         expected_revision = next_revision;
@@ -309,6 +350,22 @@ fn validate_resolution_findings(
         }
         ExcavationHardnessContextError::PresenceNotDefinite { material } => {
             RecordProspectingError::ExcavationHardnessWithoutDefinitePresence { material }
+        }
+    })?;
+    validate_resource_mass_context(
+        resolution.evidence,
+        &resolution.findings,
+        resolution.resource_mass,
+    )
+    .map_err(|error| match error {
+        ResourceMassContextError::UnsupportedEvidence { evidence } => {
+            RecordProspectingError::ResourceMassUnsupportedEvidence { evidence }
+        }
+        ResourceMassContextError::AmbiguousFindings { count } => {
+            RecordProspectingError::ResourceMassAmbiguousFindings { count }
+        }
+        ResourceMassContextError::PresenceNotDefinite { material } => {
+            RecordProspectingError::ResourceMassWithoutDefinitePresence { material }
         }
     })?;
     Ok(())

@@ -22,6 +22,19 @@ pub(super) const fn focused_probe_role_label(role: FocusedProbeRole) -> &'static
     }
 }
 
+fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u64> {
+    match (name, case.role(), case.seed()) {
+        // This world exposes the full timber preservation frontier. The maintained actor is
+        // deliberately patient but not all-in on material, so the double-wall chest wins between
+        // the fast field box and stronger pantry. Keep this deterministic witness while organic
+        // behavior remains independently varied from the fresh behavior root.
+        ("survival-provisioning", FocusedProbeRole::MaintainedCoverage, 0x0000_0000_0000_0002) => {
+            Some(0xAB2C_977A_0B20_C7A3)
+        }
+        _ => None,
+    }
+}
+
 fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
     match name {
         // Stable survival coverage protects pressure response plus preservation choice shape:
@@ -107,6 +120,14 @@ pub(super) fn run_focused_probe_with_registries(
         default_behavior_root: behavior_root,
     })
     .unwrap_or_else(|error| panic!("gameplay focused probe seed configuration failed: {error:?}"));
+    let cases = cases
+        .into_iter()
+        .map(|case| {
+            maintained_behavior_override(name, case).map_or(case, |behavior_seed| {
+                FocusedProbeCase::new(case.seed(), Some(behavior_seed), case.role())
+            })
+        })
+        .collect::<Vec<_>>();
     let replay = cases
         .iter()
         .map(|case| {

@@ -1,5 +1,7 @@
 //! Woodworking and treadle-tool manual-crafting contracts.
 
+use std::num::NonZeroU64;
+
 use super::*;
 
 #[test]
@@ -80,8 +82,23 @@ fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_e
     .with_equipment(adze);
     let assisted = resolve_manual_craft(&registries, &state, &tool_request)
         .unwrap_or_else(|error| panic!("adze board shaping resolution failed: {error}"));
+    let projected = project_manual_craft_equipment(
+        &registries,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one batch is nonzero")),
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("adze board shaping projection failed: {error}"));
     assert_eq!(hand.duration(), TickSpan::new(50));
     assert_eq!(assisted.duration(), TickSpan::new(28));
+    assert_eq!(projected.duration(), assisted.duration());
+    assert_eq!(
+        projected.condition_after(),
+        assisted
+            .equipment_condition_after()
+            .unwrap_or_else(|| panic!("assisted craft lost equipment outcome"))
+    );
     assert_eq!(assisted.outputs(), hand.outputs());
     assert_eq!(
         assisted

@@ -138,48 +138,32 @@ pub(super) fn fieldwork_mining_limits(registries: &Registries) -> FieldworkMinin
         .mining()
         .get_method(MINING_METHOD_HAND_PICK)
         .unwrap_or_else(|| panic!("fieldwork hand-pick mining method disappeared"));
-    let resolve = |equipment| {
-        registries
-            .equipment()
-            .get_equipment(equipment)
-            .unwrap_or_else(|| {
-                panic!(
-                    "fieldwork quarry equipment {} disappeared",
-                    equipment.value()
-                )
-            })
-    };
-    let base = resolve(EQUIPMENT_STONE_QUARRY_PICK);
-    let reinforced = resolve(EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK);
-    let hard_pick = resolve(EQUIPMENT_COPPER_REINFORCED_PICK);
-    let CapabilityValue::Pressure(base_hardness) = base
-        .capabilities()
-        .get_capability(method.max_hardness_capability())
-        .unwrap_or_else(|| panic!("fieldwork stone quarry pick lost mining-hardness capability"))
-    else {
+    let CapabilityValue::Pressure(base_hardness) = pristine_equipment_capability(
+        registries,
+        EQUIPMENT_STONE_QUARRY_PICK,
+        method.max_hardness_capability(),
+    ) else {
         panic!("fieldwork stone quarry hardness capability changed physical kind")
     };
-    let CapabilityValue::Pressure(reinforced_hardness) = reinforced
-        .capabilities()
-        .get_capability(method.max_hardness_capability())
-        .unwrap_or_else(|| {
-            panic!("fieldwork reinforced quarry pick lost mining-hardness capability")
-        })
-    else {
+    let CapabilityValue::Pressure(reinforced_hardness) = pristine_equipment_capability(
+        registries,
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        method.max_hardness_capability(),
+    ) else {
         panic!("fieldwork reinforced quarry hardness capability changed physical kind")
     };
-    let CapabilityValue::Mass(base_batch) = base
-        .capabilities()
-        .get_capability(method.max_batch_mass_capability())
-        .unwrap_or_else(|| panic!("fieldwork stone quarry pick lost mining-batch capability"))
-    else {
+    let CapabilityValue::Mass(base_batch) = pristine_equipment_capability(
+        registries,
+        EQUIPMENT_STONE_QUARRY_PICK,
+        method.max_batch_mass_capability(),
+    ) else {
         panic!("fieldwork stone quarry batch capability changed physical kind")
     };
-    let CapabilityValue::Pressure(hard_pick_hardness) = hard_pick
-        .capabilities()
-        .get_capability(method.max_hardness_capability())
-        .unwrap_or_else(|| panic!("fieldwork reinforced pick lost mining-hardness capability"))
-    else {
+    let CapabilityValue::Pressure(hard_pick_hardness) = pristine_equipment_capability(
+        registries,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        method.max_hardness_capability(),
+    ) else {
         panic!("fieldwork reinforced pick hardness capability changed physical kind")
     };
     assert!(
@@ -365,10 +349,8 @@ pub(super) fn estimate_fieldwork_tool(
         .equipment()
         .get_equipment(tool.target)
         .unwrap_or_else(|| panic!("fieldwork candidate disappeared"));
-    let capabilities = definition.capabilities();
-    let CapabilityValue::Pressure(maximum) = capabilities
-        .get_capability(method.max_hardness_capability())
-        .unwrap_or_else(|| panic!("fieldwork candidate hardness disappeared"))
+    let CapabilityValue::Pressure(maximum) =
+        pristine_equipment_capability(registries, tool.target, method.max_hardness_capability())
     else {
         panic!("fieldwork hardness kind changed")
     };
@@ -378,9 +360,8 @@ pub(super) fn estimate_fieldwork_tool(
             maximum,
         });
     }
-    let CapabilityValue::Mass(batch) = capabilities
-        .get_capability(method.max_batch_mass_capability())
-        .unwrap_or_else(|| panic!("fieldwork candidate batch disappeared"))
+    let CapabilityValue::Mass(batch) =
+        pristine_equipment_capability(registries, tool.target, method.max_batch_mass_capability())
     else {
         panic!("fieldwork batch kind changed")
     };
@@ -420,7 +401,7 @@ pub(super) fn choose_fieldwork_tool(
     for tool in FIELDWORK_TOOLS {
         let estimate = estimate_fieldwork_tool(registries, state, raw, tool, observed_upper, order);
         reviewln!(
-            "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=no-service,unknown-deposit-reserve",
+            "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=no-service,caller-supplied-visible-workload",
             state.tick().value(),
             tool.label,
             observed_upper.pascals(),

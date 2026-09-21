@@ -19,7 +19,8 @@ pub use knowledge::{
     GeologicalEvidenceConsistency, GeologicalEvidenceKind, GeologicalKnowledgeAssessment,
     GeologicalKnowledgeMap, GeologicalKnowledgeState, GeologicalKnowledgeValidationError,
     GeologicalObservationId, GeologicalObservationRecord, MaterialAbundanceEstimate,
-    MaterialAbundanceEstimateError, assess_geological_knowledge, build_geological_knowledge_map,
+    MaterialAbundanceEstimateError, ResourceMassEstimate, ResourceMassEstimateError,
+    assess_geological_knowledge, build_geological_knowledge_map,
 };
 pub use prospecting_action::{
     FieldProspectingCommitError, FieldProspectingOutcome, FieldProspectingRequest,

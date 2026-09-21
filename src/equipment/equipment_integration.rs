@@ -171,6 +171,20 @@ pub(crate) fn resolve_equipment_capability(
     )
 }
 
+/// Projects one definition capability at an explicit condition without authorizing runtime use.
+///
+/// This is the public read-side counterpart to equipment-provider resolution. Callers may use it
+/// for planning or UI, but current ownership, support, occupancy, and stale-state checks remain
+/// the responsibility of the operation-specific runtime resolver.
+#[must_use]
+pub fn project_equipment_capability(
+    definition: &EquipmentDefinition,
+    condition: Condition,
+    capability: CapabilityId,
+) -> Option<CapabilityValue> {
+    resolve_equipment_capability(definition, condition, capability)
+}
+
 pub(crate) fn resolve_equipment_provider_with_occupancy<'state>(
     registries: &'state Registries,
     state: &'state AppState,

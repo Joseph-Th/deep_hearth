@@ -318,7 +318,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         }
     };
     reviewln!(
-        "LIBERATION EXPERIENCE seed=0x{seed:016X} sample={} route=treadle+paired-flywheel->crusher->quern->copper-screen->regrind->separator->tailings-regrind->scavenger input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
+        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} selected-by-current-player=false reason=no-ordinary-concentrate-sink route=treadle+paired-flywheel->crusher->quern->copper-screen->regrind->separator->tailings-regrind->scavenger input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),
         copper_ppm,

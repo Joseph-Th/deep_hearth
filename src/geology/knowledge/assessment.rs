@@ -9,6 +9,7 @@ use crate::spatial::VoxelBounds;
 use super::{
     ExcavationHardnessEstimate, GeologicalKnowledgeState, GeologicalObservationId,
     GeologicalObservationRecord, MaterialAbundanceEstimate, PARTS_PER_MILLION,
+    ResourceMassEstimate,
 };
 
 /// Deterministic regional projection suitable for geological-map presentation and planning.
@@ -58,6 +59,7 @@ pub struct GeologicalKnowledgeAssessment {
     common_evidence_region: Option<VoxelBounds>,
     common_acquired_region: Option<VoxelBounds>,
     excavation_hardness: Option<ExcavationHardnessEstimate>,
+    resource_mass: Option<ResourceMassEstimate>,
     most_precise: Option<GeologicalObservationId>,
     latest_observed_at: Option<SimulationTick>,
 }
@@ -112,6 +114,12 @@ impl GeologicalKnowledgeAssessment {
         self.excavation_hardness
     }
 
+    /// Best acquired local resource-scale estimate for the assessment's shared evidence locality.
+    #[must_use]
+    pub const fn resource_mass(&self) -> Option<ResourceMassEstimate> {
+        self.resource_mass
+    }
+
     #[must_use]
     pub const fn most_precise(&self) -> Option<GeologicalObservationId> {
         self.most_precise
@@ -125,6 +133,13 @@ impl GeologicalKnowledgeAssessment {
 
 type EvidencePrecisionRank = (
     Reverse<u32>,
+    Reverse<u128>,
+    SimulationTick,
+    Reverse<GeologicalObservationId>,
+);
+
+type ResourceMassPrecisionRank = (
+    Reverse<u64>,
     Reverse<u128>,
     SimulationTick,
     Reverse<GeologicalObservationId>,
@@ -146,6 +161,7 @@ struct GeologicalEvidenceAggregate {
     common_evidence_region: Option<VoxelBounds>,
     common_acquired_region: Option<VoxelBounds>,
     excavation_hardness: Option<(HardnessPrecisionRank, ExcavationHardnessEstimate)>,
+    resource_mass: Option<(ResourceMassPrecisionRank, ResourceMassEstimate)>,
     most_precise: Option<EvidencePrecisionRank>,
     latest_observed_at: Option<SimulationTick>,
 }
@@ -161,6 +177,7 @@ impl GeologicalEvidenceAggregate {
             common_evidence_region: Some(region),
             common_acquired_region: None,
             excavation_hardness: None,
+            resource_mass: None,
             most_precise: None,
             latest_observed_at: None,
         }
@@ -221,6 +238,25 @@ impl GeologicalEvidenceAggregate {
             ));
         }
 
+        if let Some(resource_mass) = record.resource_mass() {
+            let resource_precision = (
+                Reverse(resource_mass.width().milligrams()),
+                Reverse(record.region().voxel_count().unwrap_or(u128::MAX)),
+                record.observed_at(),
+                Reverse(id),
+            );
+            self.resource_mass = Some(self.resource_mass.map_or(
+                (resource_precision, resource_mass),
+                |current| {
+                    if resource_precision > current.0 {
+                        (resource_precision, resource_mass)
+                    } else {
+                        current
+                    }
+                },
+            ));
+        }
+
         let precision = (
             Reverse(finding.width_ppm()),
             Reverse(record.region().voxel_count().unwrap_or(u128::MAX)),
@@ -247,6 +283,8 @@ impl GeologicalEvidenceAggregate {
             .flatten();
         let excavation_hardness = common_evidence_region
             .and_then(|_| self.excavation_hardness.map(|(_, hardness)| hardness));
+        let resource_mass =
+            common_evidence_region.and_then(|_| self.resource_mass.map(|(_, estimate)| estimate));
         let consistency = if !has_evidence {
             GeologicalEvidenceConsistency::NoEvidence
         } else if common_evidence_region.is_none() {
@@ -271,6 +309,7 @@ impl GeologicalEvidenceAggregate {
             common_evidence_region,
             common_acquired_region,
             excavation_hardness,
+            resource_mass,
             most_precise: self.most_precise.map(|rank| rank.3.0),
             latest_observed_at: self.latest_observed_at,
         }

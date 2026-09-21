@@ -32,7 +32,7 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 10] {
             PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
             FORM_ROUGH_BOX_BODY,
             ROUGH_TIMBER_FIELD_BOX_BODY_MASS,
-            TickSpan::new(50),
+            TickSpan::new(25),
         ),
         assemble_storage_body(
             PROCESS_ASSEMBLE_TIMBER_CHEST,

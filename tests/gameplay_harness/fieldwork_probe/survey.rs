@@ -58,6 +58,7 @@ pub(super) fn localize_target(
 ) -> (
     MiningTargetResolution,
     ExcavationHardnessEstimate,
+    ResourceMassEstimate,
     u64,
     u64,
     u64,
@@ -161,6 +162,9 @@ pub(super) fn localize_target(
         let hardness = detailed_record.excavation_hardness().unwrap_or_else(|| {
             panic!("fieldwork detailed physical sample produced no excavation-hardness estimate")
         });
+        let resource_mass = detailed_record.resource_mass().unwrap_or_else(|| {
+            panic!("fieldwork localized physical sample produced no resource-mass estimate")
+        });
         let target = resolve_mining_target(state, MiningTargetRequest::new(point, MATERIAL_COPPER))
             .unwrap_or_else(|error| {
                 panic!("positive detailed evidence did not resolve target: {error}")
@@ -168,6 +172,7 @@ pub(super) fn localize_target(
         return (
             target,
             hardness,
+            resource_mass,
             transects,
             field_inspections,
             detailed_surveys,

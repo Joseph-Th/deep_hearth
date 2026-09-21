@@ -253,21 +253,6 @@ impl PreheatResult {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum HeatingStrategy {
-    Direct,
-    Preheat,
-}
-
-impl HeatingStrategy {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Direct => "direct-melt",
-            Self::Preheat => "preheat-then-melt",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(super) struct HeatingRouteEvidence {
     pub(super) processed_mass: Mass,
@@ -276,7 +261,6 @@ pub(super) struct HeatingRouteEvidence {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct HeatingDecision {
-    pub(super) strategy: HeatingStrategy,
     pub(super) direct: Option<HeatingRouteEvidence>,
     pub(super) preheated: Option<HeatingRouteEvidence>,
 }
@@ -297,15 +281,6 @@ fn route_evidence(
     }
 }
 
-pub(super) fn heating_route_is_better(
-    candidate: HeatingRouteEvidence,
-    current: HeatingRouteEvidence,
-) -> bool {
-    candidate.processed_mass > current.processed_mass
-        || (candidate.processed_mass == current.processed_mass
-            && candidate.total_duration < current.total_duration)
-}
-
 pub(super) fn choose_heating_strategy(
     registries: &Registries,
     state: &deep_hearth::core::state::AppState,
@@ -316,7 +291,9 @@ pub(super) fn choose_heating_strategy(
     let direct =
         resolve_largest_feasible_melt(registries, state, ids, ids.pure_copper_source, mass)
             .map(|(resolved, processed, _)| route_evidence(&resolved, processed, TickSpan::new(0)));
-
+    // Same-furnace, same-source preheat is diagnostic only: it partitions the sensible heat that
+    // direct melting already owns, so it cannot make an otherwise infeasible order affordable.
+    // Keep the alternate on a clone to detect future content that creates a real physical tradeoff.
     let mut preheated_state = state.clone();
     let preheat = execute_optional_preheat(registries, &mut preheated_state, ids, mass, target);
     let preheated = preheat
@@ -330,18 +307,7 @@ pub(super) fn choose_heating_strategy(
         })
         .flatten();
 
-    let strategy = match (direct, preheated) {
-        (None, Some(_)) => HeatingStrategy::Preheat,
-        (Some(direct), Some(preheated)) if heating_route_is_better(preheated, direct) => {
-            HeatingStrategy::Preheat
-        }
-        _ => HeatingStrategy::Direct,
-    };
-    HeatingDecision {
-        strategy,
-        direct,
-        preheated,
-    }
+    HeatingDecision { direct, preheated }
 }
 
 fn execute_optional_preheat(
@@ -589,12 +555,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     let (mut state, ids) = setup_foundry_probe(registries, seed, setup);
     let initial = capture_initial_accounting(&state, ids);
     let heating = choose_heating_strategy(registries, &state, ids, mass, preheat_target);
-    let preheat = match heating.strategy {
-        HeatingStrategy::Direct => PreheatResult::skipped(ids.pure_copper_source),
-        HeatingStrategy::Preheat => {
-            execute_optional_preheat(registries, &mut state, ids, mass, preheat_target)
-        }
-    };
+    let preheat = PreheatResult::skipped(ids.pure_copper_source);
     let Some((melt, processed_mass, melt_limit)) =
         resolve_largest_feasible_melt(registries, &state, ids, preheat.source, mass)
     else {
@@ -611,14 +572,9 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
             initial.matter
         );
         reviewln!(
-            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=melt feed-form={} heating-strategy={} preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] blocker=no-feasible-batch electrical={}nJ matter=conserved",
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=melt feed-form={} heating-strategy=direct-melt same-source-preheat=counterfactual-only blocker=no-feasible-batch electrical={}nJ matter=conserved",
             focused_probe_role_label(case.role()),
             feed_form.value(),
-            heating.strategy.label(),
-            preheat.applied,
-            preheat_target.millikelvin(),
-            preheat.energy.nanojoules(),
-            preheat.duration.value(),
             initial.electrical.nanojoules(),
         );
         return;
@@ -778,7 +734,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         recovery_cast: recovered_cast_mass,
         recovery_limit,
         molten_final: final_molten_remaining,
-        heating_strategy: heating.strategy.label(),
+        heating_strategy: "direct-melt",
         direct_heating_mass: heating
             .direct
             .map_or(Mass::ZERO, |route| route.processed_mass),

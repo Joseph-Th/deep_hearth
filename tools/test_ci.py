@@ -18,7 +18,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import ci  # noqa: E402
-from tools import check_authority_docs, check_bca, run_test, rust_diagnostics  # noqa: E402
+from tools import (  # noqa: E402
+    check_authority_docs,
+    check_bca,
+    gameplay_report_summary,
+    run_test,
+    rust_diagnostics,
+)
 
 
 _source_text_cache: dict[Path, str] = {}
@@ -63,6 +69,7 @@ def gate_args(**overrides: object) -> argparse.Namespace:
         "since": "HEAD",
         "path": [],
         "hotspots": False,
+        "verbose": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -968,19 +975,56 @@ class LocalCiPlanTests(unittest.TestCase):
             self.assertEqual(len(plan), 1)
             self.assertFalse(any(stage in ci.quick_plan() for stage in plan))
 
-    def test_lint_gate_covers_all_targets_and_features_in_one_build_lane(self) -> None:
+    def test_lint_gate_uses_representative_surfaces_without_rebuilding_wrappers(self) -> None:
         plan = ci.plan_for(gate_args(lint=True))
         self.assertEqual(plan, [("clippy", ci.lint_command())])
         command = plan[0][1]
         self.assertEqual(command[:2], ["cargo", "clippy"])
-        self.assertIn("--all-targets", command)
-        self.assertIn("--all-features", command)
         self.assertIn("--locked", command)
-        # The broad checkpoint lane must use full local parallelism; a hardcoded
-        # job cap would throttle the most expensive gate on a solo developer box.
+        self.assertIn("--lib", command)
+        self.assertEqual(cargo_test_targets(command), [ci.GAMEPLAY_AUDIT_TARGET])
+        self.assertIn("--example", command)
+        self.assertIn(ci.GAMEPLAY_REPORT_EXAMPLE, command)
+        self.assertIn("test-gameplay", command)
+        self.assertNotIn("--all-targets", command)
+        self.assertNotIn("--all-features", command)
+        self.assertNotIn(ci.GAMEPLAY_CONTRACTS_TARGET, command)
+        for target in ci.GAMEPLAY_TARGETS.values():
+            self.assertNotIn(target, command)
         self.assertNotIn("-j", command)
         self.assertNotIn("--jobs", command)
         self.assertEqual(command[-2:], ["-D", "warnings"])
+
+    def test_lint_representatives_cover_focused_harness_module_closures(self) -> None:
+        audit_root = run_test.cargo_test_target_path(ci.GAMEPLAY_AUDIT_TARGET)
+        audit_features = run_test.cargo_feature_set(ci.GAMEPLAY_AUDIT_TARGET, None)
+        representative_modules = {
+            path.resolve()
+            for path, _prefix in run_test.test_catalog.reachable_modules(
+                ROOT, audit_root, audit_features
+            )
+        }
+        representative_modules.update(
+            path.resolve()
+            for path, _prefix in run_test.test_catalog.reachable_modules(
+                ROOT, ROOT / "tests" / "gameplay_report.rs", {"test-gameplay"}
+            )
+        )
+
+        for target in (ci.GAMEPLAY_CONTRACTS_TARGET, *ci.GAMEPLAY_TARGETS.values()):
+            root = run_test.cargo_test_target_path(target)
+            features = run_test.cargo_feature_set(target, None)
+            shared_modules = {
+                path.resolve()
+                for path, _prefix in run_test.test_catalog.reachable_modules(
+                    ROOT, root, features
+                )
+                if path.resolve() != root.resolve()
+            }
+            self.assertTrue(
+                shared_modules <= representative_modules,
+                f"{target} contains harness modules outside the representative lint surfaces",
+            )
 
     def test_soak_gate_does_not_repeat_ordinary_core_tests(self) -> None:
         builds = cargo_build_commands(ci.plan_for(gate_args(soak=True)))
@@ -1000,6 +1044,17 @@ class LocalCiPlanTests(unittest.TestCase):
                 self.assertNotIn(target, builds[0])
         self.assertIn(ci.GAMEPLAY_TESTS["survival"], builds[0])
         self.assertIn("--exact", builds[0])
+
+    def test_gameplay_contract_gate_uses_only_the_lightweight_contract_target(self) -> None:
+        command = ci.gameplay_command("contracts")
+        self.assertEqual(cargo_test_targets(command), [ci.GAMEPLAY_CONTRACTS_TARGET])
+        self.assertIn("test-gameplay", command)
+        self.assertNotIn("--exact", command)
+        self.assertNotIn("--nocapture", command)
+        self.assertEqual(
+            ci.plan_for(gate_args(gameplay="contracts")),
+            [("gameplay contracts", command)],
+        )
 
     def test_focused_gameplay_scopes_use_separate_targets_with_one_library_feature_shape(self) -> None:
         self.assertEqual(set(ci.GAMEPLAY_TARGETS), set(ci.GAMEPLAY_TESTS))
@@ -1162,11 +1217,11 @@ class LocalCiPlanTests(unittest.TestCase):
             "559 core + 26 gameplay, 1 ignored",
         )
 
-    def test_core_and_gameplay_execution_share_one_test_support_feature_shape(self) -> None:
+    def test_core_repair_loop_stays_feature_minimal_while_gameplay_is_explicit(self) -> None:
         config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
         core_alias = config["alias"]["test-core"]
         gameplay = " ".join(ci.gameplay_command("all"))
-        self.assertIn("--features test-gameplay", core_alias)
+        self.assertNotIn("--features", core_alias)
         self.assertIn("--features test-gameplay", gameplay)
 
     def test_scoped_audits_do_not_build_the_other_broad_surface(self) -> None:
@@ -1426,10 +1481,10 @@ class LocalCiPlanTests(unittest.TestCase):
             ],
         )
 
-    def test_report_replay_environment_is_fresh_by_default_and_preserves_explicit_roots(self) -> None:
+    def test_gameplay_replay_environment_is_fresh_by_default_and_preserves_explicit_roots(self) -> None:
         generated: dict[str, str] = {}
         rolls = iter((0x1234, 0x5678))
-        variation, behavior = ci.configure_report_replay_environment(
+        variation, behavior = ci.configure_gameplay_replay_environment(
             generated, randbits=lambda _bits: next(rolls)
         )
         self.assertEqual(variation, "0x0000000000001234")
@@ -1442,11 +1497,48 @@ class LocalCiPlanTests(unittest.TestCase):
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBB",
         }
         self.assertEqual(
-            ci.configure_report_replay_environment(
+            ci.configure_gameplay_replay_environment(
                 explicit, randbits=lambda _bits: self.fail("explicit replay roots must not consume entropy")
             ),
             ("0xAA", "0xBB"),
         )
+
+    def test_supported_gameplay_commands_use_fresh_bounded_variation(self) -> None:
+        for argv in (
+            ["gate", "--gameplay", "survival"],
+            ["gate", "--gameplay", "progression"],
+            ["gate", "--gameplay", "workshop"],
+            ["audit", "--gameplay"],
+            ["audit", "--all"],
+            ["report"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertTrue(ci.uses_fresh_gameplay_variation(ci.parse_args(argv)))
+        for argv in (
+            ["quick"],
+            ["gate"],
+            ["gate", "--gameplay", "contracts"],
+            ["audit", "--core"],
+            ["gate", "--lint"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertFalse(ci.uses_fresh_gameplay_variation(ci.parse_args(argv)))
+
+    def test_successful_gameplay_stage_can_report_environment_replay_roots(self) -> None:
+        environment = {
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
+        }
+        self.assertEqual(
+            ci.gameplay_environment_summary("gameplay progression", environment),
+            "roots=0xAAAA/0xBBBB",
+        )
+        self.assertEqual(
+            ci.gameplay_environment_summary("core + gameplay", environment),
+            "roots=0xAAAA/0xBBBB",
+        )
+        self.assertIsNone(ci.gameplay_environment_summary("gameplay contracts", environment))
+        self.assertIsNone(ci.gameplay_environment_summary("compile", environment))
 
     def test_report_cli_preserves_large_success_evidence_but_bounds_failures(self) -> None:
         opening = "PLAYER FANTASY scope=current-ordinary fixture=opening"
@@ -1493,8 +1585,12 @@ class LocalCiPlanTests(unittest.TestCase):
                         self.assertIn("roots=0x111/0x222", stdout.getvalue())
                         # Compare the entire body, not only markers that a head/tail limiter keeps.
                         body = "\n".join(stdout.getvalue().splitlines()[2:-1]) + "\n"
-                        expected = transcript if mode else f"{opening}\n{ending}\n"
-                        self.assertEqual(body, expected)
+                        if mode is not None:
+                            self.assertEqual(body, transcript)
+                        else:
+                            self.assertEqual(body, f"{opening}\n")
+                            self.assertIn(opening, stdout.getvalue())
+                            self.assertNotIn(ending, stdout.getvalue())
                         self.assertIn("PASS total", stdout.getvalue())
                     else:
                         self.assertNotIn(opening, stdout.getvalue())
@@ -1509,322 +1605,185 @@ class LocalCiPlanTests(unittest.TestCase):
                         )
                         self.assertNotIn("PASS total", stdout.getvalue())
 
-    def test_preservation_summary_counts_decline_not_counterfactual_construction(self) -> None:
+    def test_survival_summary_counts_selected_preservation_policy_only(self) -> None:
         lines = [
-            "SURVIVAL EXPERIENCE seed=0x1 storage-policy:decline commitment:none best-enclosure-counterfactual=[policy:enclosure-singleton build:150t]",
-            "SURVIVAL EXPERIENCE seed=0x2 storage-policy:enclosure-singleton commitment:1",
+            "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t]",
+            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t]",
         ]
-        summary = "\n".join(ci.ordinary_gameplay_diversity(lines))
+        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn("declined:1", summary)
-        self.assertIn("enclosure-singleton:1", summary)
-        takeaway = "\n".join(ci.player_takeaways(lines))
-        self.assertIn("declined:1", takeaway)
-        self.assertIn("singleton:1", takeaway)
-
-    def test_default_gameplay_report_filters_probe_noise_but_verbose_keeps_it(self) -> None:
-        output = "\n".join(
-            [
-                "running 1 test",
-                "SIMULATION TIME physical-tick-us=3600000",
-                "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified",
-                "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
-                "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000CC",
-                "HARNESS INPUT plan=anchor+variation",
-                "CONTENT registry_schema=64 equipment=[authored:12]",
-                "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4] energy=[authored-edge:2 no-authored-edge:4] reachability=direct-edge-not-end-to-end-proof",
-                "CONTENT CATALOG equipment=[very-long-detail]",
-                "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression,woodworking,fieldwork]",
-                "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior",
-                "AGENCY INPUT mode=explore organic=3 variation_root=0x1234",
-                "WORKSHOP CAPABILITY mode=exploratory scenarios=9 adaptive=[total:4]",
-                "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt dynamic-scenarios:8/9",
-                "AGENCY SUMMARY worlds=3 distinct-physical-paths=3 demonstrated-choice-effects=[power:true survival:true maintenance:true structure:true]",
-                "PROBE INPUT name=ore-preparation mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000BB",
-                "CAPABILITY ORE_PREP seed=0x0000000000000001 outcome=completed feed=[copper:400000ppm]",
-                "CAPABILITY ORE_PREP seed=0x00000000000000AA outcome=completed feed=[copper:500000ppm]",
-                "ORE REVIEW seed=0x00000000000000BB outcome=stopped blocker=finite-energy",
-                "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
-                "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
-                "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
-                "PROGRESSION EXPERIENCE seed=0x0000000000000001 sample=anchor information=deferred-refinement local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] selected-reinvestment=[completed] economics:finite-stockpile-order-complete",
-                "LIBERATION EXPERIENCE seed=0x0000000000000001 sample=anchor input=[100000mg 400000ppm-Cu] concentrate=[first:50000mg/700000ppm final:60000mg/680000ppm additional-copper:7000000000ppm-mg] matter=conserved",
-                "LIBERATION FRONTIER seed=0x0000000000000001 sample=anchor input=[100000mg 400000ppm-Cu] concentrate=[final:60000mg/680000ppm] scavenger=[extra-copper:7000mg share:100000ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
-                "PROGRESSION EXPERIENCE seed=0x00000000000000AA sample=organic information=surface-resolved local-copper-sequence=pick-first counterfactual=[crank-first-tradeoff hard-access-lead:478t] selected-reinvestment=[blocked:known-target-supply] economics:supply-ended",
-                "LIBERATION EXPERIENCE seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] concentrate=[first:55000mg/720000ppm final:66000mg/700000ppm additional-copper:8000000000ppm-mg] matter=conserved",
-                "LIBERATION FRONTIER seed=0x00000000000000AA sample=organic input=[110000mg 500000ppm-Cu] concentrate=[final:66000mg/700000ppm] scavenger=[extra-copper:8000mg share:110000ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
-                "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
-                "SURVIVAL EXPERIENCE seed=0x0000000000000001 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] separate-investment-scenario=[protected-reserve:6500000mg raw-opportunity=[origin:4:compact-insulated-timber-pantry mode:choice-rich-timber inputs:65537:wood/log:6000000mg] storage-policy:maximum-protection candidates:5 frontier=[physical:4/5 policy-reachable:1/5 selected-physical:true selected-policy:true]]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000AA sample=organic pressure=energy choice=[state:supply-constrained diet:compact-calories] separate-investment-scenario=[protected-reserve:18000000mg raw-opportunity=[origin:2:double-wall-timber-provisions-chest mode:scarce-timber inputs:65537:wood/log:5000000mg] storage-policy:attention-efficient candidates:3 frontier=[physical:2/3 policy-reachable:2/3 selected-physical:true selected-policy:true]]",
-                "SURVIVAL EXPERIENCE seed=0x00000000000000CC sample=organic pressure=hydration choice=[state:policy-sensitive diet:compact-calories] separate-investment-scenario=[protected-reserve:50000000mg raw-opportunity=[origin:6:carved-stone-provisions-crock mode:alternate-material inputs:589826:stone/lump:3000000mg] storage-policy:enclosure-singleton candidates:1 frontier=[physical:1/1 policy-reachable:1/1 selected-physical:true selected-policy:true]]",
-                "SURVIVAL REVIEW seed=0x00000000000000AA accounting-detail",
-                "PROBE INPUT name=woodworking mode=explore samples=3 organic=1 world_root=0x111 behavior_root=0x222 replay=anchor:0x0000000000000001@0x1,coverage:0x0000000000000003@0x2,organic:0x00000000000000AA@0x3",
-                "WOODWORKING EXPERIENCE seed=0x0000000000000001 behavior=0x1 sample=anchor preference=conserve-timber routes=[adze:12logs; saw-assisted:min-saw-logs:11 fundable:true actual=[saw:11 adze-fallback:0 fallback-copper:true saw-services:1 adze-services:0] attention-payback:true net-timber-payback:true] choice=frame-saw reason=pipeline-net-timber-payback",
-                "WOODWORKING EXPERIENCE seed=0x0000000000000003 behavior=0x2 sample=coverage preference=conserve-scarce-copper routes=[adze:9logs; saw-assisted:min-saw-logs:8 fundable:true actual=[saw:8 adze-fallback:0 fallback-copper:false saw-services:0 adze-services:0] attention-payback:true net-timber-payback:false] choice=stone-adze reason=copper-reserve-protected",
-                "WOODWORKING EXPERIENCE seed=0x00000000000000AA behavior=0x3 sample=organic preference=conserve-timber routes=[adze:9logs; saw-assisted:min-saw-logs:8 fundable:false actual=[saw:0 adze-fallback:0 fallback-copper:false saw-services:0 adze-services:0] attention-payback:false net-timber-payback:false] choice=stone-adze reason=copper-supply-limited",
-                "PROBE INPUT name=fieldwork mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,coverage:0x0000000000000004,organic:0x00000000000000AA",
-                "FIELDWORK EXPERIENCE seed=0x0000000000000001 sample=anchor transects=2 selected-channel=observed-strongest field-inspections=3 detailed-surveys=1 observed-hardness=450000000..500000000Pa geology=quarry-soft tool=stone-quarry adaptation=preparation-plus-order retained-native-copper=40000mg requested=450000mg mining=450000mg",
-                "FIELDWORK EXPERIENCE seed=0x0000000000000004 sample=coverage transects=2 selected-channel=observed-strongest field-inspections=1 detailed-surveys=1 observed-hardness=550000000..600000000Pa geology=quarry-reinforcement tool=copper-reinforced-quarry adaptation=preparation-plus-order retained-native-copper=20000mg requested=450000mg mining=450000mg",
-                "FIELDWORK EXPERIENCE seed=0x00000000000000AA sample=organic transects=2 selected-channel=observed-strongest field-inspections=2 detailed-surveys=1 observed-hardness=600000000..650000000Pa geology=hard-pick-specialist tool=copper-reinforced-hard-pick adaptation=preparation-plus-order+batch-limit retained-native-copper=20000mg requested=450000mg mining=300000mg",
-                "POWER PROVIDER EXPERIENCE seed=0x0000000000000001 sample=anchor comparison=[basis:matched-starting-state charge-attention-reduction:333333ppm build-mass-crank:2200000mg build-mass-treadle:5100000mg metabolic-crank:900nJ metabolic-treadle:600nJ build-attention-crank:200t build-attention-treadle:400t charge-crank:3t charge-treadle:2t charge-saving:1t break-even-charges:200] matter=conserved",
-                "POWER PROVIDER EXPERIENCE seed=0x00000000000000AA sample=organic comparison=[basis:matched-starting-state charge-attention-reduction:500000ppm build-mass-crank:3300000mg build-mass-treadle:6200000mg metabolic-crank:800nJ metabolic-treadle:400nJ build-attention-crank:300t build-attention-treadle:500t charge-crank:6t charge-treadle:3t charge-saving:3t break-even-charges:67] matter=conserved",
-                "POWER COPPER-CONTEXT seed=0x0000000000000001 sample=anchor job=[flywheel:1000000000000nJ] provider-power=[stone-crank:50000000uW copper-crank:150000000uW treadle:100000000uW] labor=[crank-efficiency:200000ppm wear:25ppm/t treadle-efficiency:230000ppm wear:15ppm/t] observed=[crank-charge:3t treadle-charge:2t] catalog-note=copper-crank-needs-mined-native-copper-not-in-copper-free-start reachability-authority=STATUS.md",
-                "CAPABILITY FOUNDRY seed=0x1 outcome=full-order-complete melt-limit=offered-batch cast-limit=offered-batch recovery-cast=0mg",
-                "CAPABILITY FOUNDRY seed=0x2 outcome=partial-order-melt-limited melt-limit=finite-energy cast-limit=thermal-sink-capacity recovery-cast=500mg",
-                "POWER BUILD BILL seed=0x1 basis=executed-raw-withdrawal raw:3.000kg",
-                "POWER BUILD BILL seed=0x2 basis=executed-raw-withdrawal raw:4.000kg",
-                "AGENCY PATHS focus=noisy-detail",
-                "test result: ok. 1 passed",
-            ]
+        self.assertIn("efficient:1", summary)
+        self.assertIn(
+            "preservation-opportunity=[scarce:1 choice-rich:1 alternate:0 finite:0 singleton:1 multi:1]",
+            summary,
         )
-        concise = ci.concise_gameplay_report(output, {})
-        self.assertIn("POWER BUILD BILL seed=0x1", concise)
-        self.assertNotIn("POWER BUILD BILL seed=0x2", concise)
-        for expected in (
+
+    def test_fieldwork_summary_separates_world_constraints_from_selected_tool(self) -> None:
+        lines = [
+            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 geology=quarry-soft tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
+            "FIELDWORK EXPERIENCE seed=0x2 sample=coverage outcome=known-target-supply order-horizon=long field-inspections=3 geology=quarry-reinforcement tool=copper-reinforced-quarry copper-opportunity=available requested=200mg planned-local-work=80mg mining=50mg resource-knowledge-effect=changed-tool",
+            "FIELDWORK EXPERIENCE seed=0x3 sample=organic outcome=completed order-horizon=long field-inspections=2 geology=hard-pick-specialist tool=copper-reinforced-hard-pick copper-opportunity=available requested=300mg planned-local-work=300mg mining=300mg resource-knowledge-effect=same-tool",
+        ]
+        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
+        self.assertIn("sample-shape=[anchor:1 coverage:1 organic:1 replay:0]", summary)
+        self.assertIn(
+            "outcomes=[completed:2 local-supply-ended:1 fulfillment:250000..1000000ppm]",
+            summary,
+        )
+        self.assertIn("organic-outcomes=[completed:1 local-supply-ended:0]", summary)
+        self.assertIn(
+            "reserve-knowledge=[workload-capped:1 tool-changed:1 feasibility-changed:0]",
+            summary,
+        )
+        self.assertIn(
+            "organic-reserve-knowledge=[workload-capped:0 tool-changed:0 feasibility-changed:0]",
+            summary,
+        )
+        self.assertIn("orders=[short:1 long:2]", summary)
+        self.assertIn(
+            "geology=[soft:1 reinforcement:1 hard-specialist:1]", summary
+        )
+        self.assertIn("copper=[available:2 absent:1]", summary)
+
+    def test_default_gameplay_report_keeps_compact_semantic_summaries_only(self) -> None:
+        lines = [
+            "SIMULATION TIME physical-tick-us=3600000",
+            "PLAYER FANTASY scope=current-ordinary",
+            "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
+            "CONTENT registry_schema=64 equipment=[authored:12]",
+            "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4]",
+            "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
+            "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior",
+            "PROBE INPUT name=survival-provisioning mode=explore samples=1 organic=0",
+            "SURVIVAL EXPERIENCE seed=0x1 sample=anchor pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery] storage-policy:decline",
+            "PROGRESSION EXPERIENCE seed=0x1 sample=anchor information=surface-resolved local-copper-sequence=pick-first scarcity=[direct-second-upgrade-blocked:true processed-output-playable:true converged-both-upgrades:true] processing-investment=[selected:mechanized preaction-manual:2470t conservative-machine-upper:1800t assembly:320t initial-charge:18t repeated-charge-upper:1400t choice-frozen-before-action:true] counterfactual=[crank-first-tradeoff hard-access-lead:478t] bridge-tradeoff=[manual-second:111t feed:41465mg recovery:650000ppm body:1nJ/1uL; powered-line:421t feed:29947mg recovery:900000ppm body:2nJ/2uL] disclosed-order-economics=[cycles:12 manual-player-attention:2470t mechanized-player-attention:429t saved:2041t] stockpiling-coverage-delegation=[feed-attention:28t maintenance-prep-overlap:40t productive-attention:68t returned-attention:315t returned:822454ppm overlap/setup:210526ppm unrecovered-setup:255t overlap-equivalent:unreached post-equivalent:0cycles stop:stockpile-order-complete economics:finite-stockpile-order-complete] selected-reinvestment=[completed]",
+            "PROGRESSION GOAL seed=0x1 immediate=265t delayed=741t chosen=immediate",
+            "LIBERATION FRONTIER CAPABILITY seed=0x1 selected-by-current-player=false reason=no-ordinary-concentrate-sink input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] matter=conserved",
+            "LIBERATION FRONTIER seed=0x1 smelting-frontier=prepared-ore-concentrate->pure-metal",
+            "WOODWORKING EXPERIENCE seed=0x1 sample=anchor choice=bare-hands reason=bare-hands-avoids-investment-cost",
+            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa geology=quarry-soft tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg",
+            "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor job=[flywheel:1nJ planned-charges:1] decision=[selected:crank] comparison=[charge-attention-reduction:1ppm metabolic-crank:2nJ metabolic-treadle:1nJ break-even-charges:2]",
+            "POWER SETTLEMENT seed=0x1 sample=anchor buffer:5000nJ planned-charges=80 decision=[selected:walking-wheel projected-attention-treadle:2290t projected-attention-walking:2210t choice-frozen-before-action:true] comparison=[charge-saving:4t metabolic-saving:1nJ break-even:60charges]",
+            "WORKSHOP CAPABILITY mode=exploratory scenarios=1",
+            "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt dynamic-scenarios:10/11 interlocks=[stored-work+throughput:11 body+power:5 wear+maintenance:6 structure+production:9] recovery=[suspensions:3 resumed:3 stranded:0]",
+            "AGENCY SUMMARY worlds=1",
+            "CAPABILITY ORE_PREP seed=0x1 outcome=completed feed=[copper:400000ppm]",
+            "CAPABILITY FOUNDRY seed=0x1 outcome=full-order-complete melt-limit=offered-batch cast-limit=offered-batch recovery-cast=0mg",
+            "POWER BUILD BILL seed=0x1 noisy-detail",
+            "FIELDWORK PACING seed=0x1 noisy-detail",
+        ]
+        output = "\n".join(lines)
+        concise = gameplay_report_summary.concise_gameplay_report(output, {})
+        for prefix in (
+            "SIMULATION TIME ",
             "PLAYER FANTASY ",
             "EVALUATION SCOPE kind=ordinary-play ",
+            "CONTENT registry_schema=",
+            "CONTENT ACQUISITION EDGES ",
             "EVALUATION SCOPE kind=controlled-capability ",
-            "SURVIVAL DIVERSITY samples=3 pressure=[hydration:2 energy:1] choice-state=[supply-constrained:1 policy-sensitive:2] diet=[balanced-recovery:1 compact-calories:2] preservation=[declined:0 attention-efficient:1 enclosure-singleton:1 balanced-frontier:0 maximum-protection:1] reserve=6500000..50000000mg raw-opportunities:3 raw-material=[timber:2 stone:1] raw-mode=[choice-rich:1 scarce:1 alternate:1] candidates=1..5 physical-frontier=1..4 policy-reachable=1..2 capacity-or-material-singleton:1",
-            "PROGRESSION DIVERSITY samples=2 local-copper=[pick-first:2 crank-counterfactual:2] hard-access-lead=478..478t",
-            "LIBERATION DIVERSITY samples=2 varied-inputs=2 completed=2",
-            "WOODWORKING DIVERSITY samples=3 choice=[bare:0 adze:2 saw:1] policy=[copper:1 timber:2] saw=[fundable:2 attention-payback:2 net-timber-payback:1] lifecycle=[copper-fallback:1 saw-service:1] decision=[bare-hands:0 copper-blocked:1 reserve-protected:1 timber-horizon:0 attention-horizon:0 attention-invest:0 timber-invest:1]",
-            "FIELDWORK DIVERSITY samples=3 field-inspections=1..3 targeted-detail:3 observed-hardness=450000000..650000000Pa geology=[soft:1 quarry-upgrade:1 hard-pick:1] tool=[stone-pick:0 stone-quarry:1 reinforced-quarry:1 hard-pick:1] selection=[preparation-plus-order:3 batch-limit:1] retained-copper=20000..40000mg",
-            "POWER DIVERSITY samples=2 charge-attention-reduction=333333..500000ppm build-mass=[crank:2200000..3300000mg treadle:5100000..6200000mg] break-even=67..200charges metabolic-lower-treadle:2",
-            "PLAYER TAKEAWAY probe=primitive-progression pick-first=2/2 hard-access-lead=478..478t(~28.7m..28.7m) crank-autonomy-window=n/a stockpiling-coverage=[complete:1 supply-ended:1] payback=not-established selected-reinvestment=[completed:1 blocked:1] read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge",
-            "PLAYER TAKEAWAY probe=liberation completed=2/2 scavenger-extra=7000..8000mg share=100000..110000ppm-of-recovered-copper concentrate-awaits-smelting sink=none-ordinary",
-            "PLAYER TAKEAWAY probe=woodworking saw=1/3 adze=2/3 bare=0/3 blocked-by-copper=1 reserve-protected=1 fundable=2 attention-payback=2 net-timber-payback=1 read=compare-full-build-cost-short-jobs-can-skip-tools-long-jobs-price-copper-and-wear",
-            "PLAYER TAKEAWAY probe=fieldwork inspections=1..3 tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:1 hard-pick:1] read=transects-rank-inspections-filter-one-survey-prices-the-tool",
-            "PLAYER TAKEAWAY probe=power-provider treadle-saves-charge-attention break-even=67..200-full-charges treadle-cheaper-metabolically=2/2 post-copper=copper-crank-150000000uW-vs-treadle-100000000uW-vs-stone-50000000uW treadle-keeps-metabolic-efficiency-edge estimate=initial-charge-rate-excludes-future-wear-and-service read=weigh-extra-raw-material-and-build-time-against-repeated-charge-savings",
-            "PLAYER TAKEAWAY probe=survival binds-thirst=2/3 binds-hunger=1/3 diet=[balanced:1 compact:2] preservation=[declined:0 efficient:1 singleton:1 frontier:0 maximum:1] read=water-is-the-clock-food-breadth-buys-recovery-stronger-storage-can-lose-at-short-horizons",
-            "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
-            "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt",
-            "AGENCY SUMMARY worlds=3",
-            "ORE CAPABILITY SUMMARY samples=3 completed=2 stopped=1 finite-energy-stops=1 variable-feed=2",
-            "FOUNDRY CAPABILITY SUMMARY samples=2 full=1 partial=1 melt-limited=1 cast-capacity-limited=1 cooldown-recovery=1 full-after-cooldown=0",
+            "ORDINARY SUMMARY probe=primitive-progression ",
+            "FRONTIER SUMMARY probe=primitive-liberation ",
+            "ORDINARY SUMMARY probe=woodworking ",
+            "ORDINARY SUMMARY probe=fieldwork ",
+            "ORDINARY SUMMARY probe=power-provider ",
+            "ORDINARY SUMMARY probe=survival ",
+            "CONTROLLED SUMMARY probe=workshop ",
+            "CONTROLLED SUMMARY probe=agency ",
+            "ORE CAPABILITY SUMMARY ",
+            "FOUNDRY CAPABILITY SUMMARY ",
         ):
-            self.assertIn(expected, concise)
+            self.assertIn(prefix, concise)
         for noisy in (
-            "CONTENT CATALOG ",
-            "ORE REVIEW ",
-            "CAPABILITY ORE_PREP ",
-            "CAPABILITY FOUNDRY ",
-            "AGENCY PATHS ",
-            "PROGRESSION REVIEW ",
-            "SURVIVAL REVIEW ",
             "PROBE INPUT ",
             "SURVIVAL EXPERIENCE ",
-            "PROGRESSION FALLBACK ",
             "PROGRESSION EXPERIENCE ",
-            "LIBERATION EXPERIENCE ",
+            "LIBERATION FRONTIER CAPABILITY ",
             "WOODWORKING EXPERIENCE ",
-            "FIELDWORK PACING ",
             "FIELDWORK EXPERIENCE ",
+            "POWER PROVIDER EXPERIENCE ",
+            "CAPABILITY ORE_PREP ",
+            "CAPABILITY FOUNDRY ",
+            "EVIDENCE CONTRACT ",
+            "WORKSHOP CAPABILITY ",
+            "WORKSHOP EXPERIENCE REVIEW ",
+            "AGENCY SUMMARY ",
+            "POWER BUILD BILL ",
+            "FIELDWORK PACING ",
         ):
             self.assertNotIn(noisy, concise)
+        self.assertIn(
+            "stockpiling-counterfactual=[returned-attention:315..315t returned-share:822454..822454ppm maintenance-prep-overlap:40..40t useful-overlap/setup:210526..210526ppm post-overlap-equivalent-cycles:0..0]",
+            concise,
+        )
+        self.assertIn(
+            "processing-recovery=[manual:650000..650000ppm powered:900000..900000ppm]",
+            concise,
+        )
+        self.assertIn(
+            "scarcity-bridge=[direct-second-blocked:1 processed-output-playable:1 converged:1]",
+            concise,
+        )
+        self.assertIn(
+            "preaction-processing-investment=[selected:mechanized manual:2470..2470t conservative-machine-upper:1800..1800t frozen:1/1]",
+            concise,
+        )
+        self.assertIn(
+            "disclosed-order-attention=[manual:2470..2470t mechanized:429..429t saved:2041..2041t]",
+            concise,
+        )
+        self.assertIn(
+            "settlement-choice=[treadle:0 walking:1] organic-settlement-choice=[treadle:0 walking:0] settlement-planned-charges=80..80 settlement-break-even-charges=60..60",
+            concise,
+        )
+        self.assertIn(
+            "continuation=[immediate:1/0 stockpile-first:1/0 delay-avoided:476..476t]",
+            concise,
+        )
+        self.assertIn("dynamic=10/11", concise)
+        self.assertIn(
+            "interlocks=[stored-work:11 body-power:5 wear-maintenance:6 structure-production:9]",
+            concise,
+        )
+        self.assertIn("recovery=[suspended:3 resumed:3 stranded:0]", concise)
+        self.assertIn("final-concentrate-grade=750000..750000ppm", concise)
+        self.assertIn("current-player-selected=false", concise)
+        self.assertIn("scavenger-copper=7..7mg", concise)
+        self.assertIn(
+            "smelting-frontier=prepared-ore-concentrate->pure-metal",
+            concise,
+        )
         self.assertEqual(
-            ci.concise_gameplay_report(output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}),
+            gameplay_report_summary.concise_gameplay_report(
+                output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}
+            ),
             output,
         )
 
-    def test_fieldwork_pacing_summary_preserves_complete_first_ore_cost(self) -> None:
-        single = (
-            "FIELDWORK PACING seed=0x1 search=216t/12.9m sampling-tool=70t/4.2m "
-            "extraction-tool=180t/10.8m extraction=3t/10.8s batches=1 first-ore=469t/28.1m "
-            "episode-end=469t/28.1m output=458842mg"
-        )
-        multi = (
-            "FIELDWORK PACING seed=0x3 search=240t/14.4m sampling-tool=70t/4.2m "
-            "extraction-tool=110t/6.6m extraction=4t/14.4s batches=2 first-ore=423t/25.3m "
-            "episode-end=424t/25.4m output=373718mg"
-        )
-        summary = ci.concise_gameplay_report("\n".join([single, multi]), {})
+    def test_progression_summary_preserves_stockpiling_delay_and_supply_blocking(self) -> None:
+        lines = [
+            "PROGRESSION EXPERIENCE seed=0x1 local-copper-sequence=pick-first selected-reinvestment=[completed]",
+            "PROGRESSION EXPERIENCE seed=0x2 local-copper-sequence=crank-first selected-reinvestment=[completed]",
+            "PROGRESSION GOAL seed=0x1 immediate=264t delayed=747t chosen=immediate",
+            "PROGRESSION GOAL seed=0x2 immediate=267t delayed=blocked:target-supply chosen=immediate",
+        ]
+        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn(
-            "measured=2/2 search=216..240t first-ore=423..469t episode-end=424..469t "
-            "extraction=3..4t",
+            "continuation=[immediate:2/0 stockpile-first:1/1 delay-avoided:483..483t]",
             summary,
         )
-        self.assertIn("output=373718..458842mg batches=1..2", summary)
-        self.assertEqual(ci.fieldwork_pacing_summary([]), [])
-        self.assertIn("insufficient-data", ci.fieldwork_pacing_summary(["FIELDWORK PACING malformed"])[0])
-        mixed = ci.fieldwork_pacing_summary([single, "FIELDWORK PACING malformed"])[0]
-        self.assertIn("measured=1/2", mixed)
 
-    def test_fieldwork_feedback_keeps_signed_errors_and_a_disagreement_example(self) -> None:
-        rows = [
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x1 outcome=completed wear-adjusted-order-estimate=5t extraction-actual=5t estimate-matched=true",
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x2 outcome=completed wear-adjusted-order-estimate=160t extraction-actual=175t estimate-matched=false",
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x3 outcome=completed wear-adjusted-order-estimate=20t extraction-actual=18t estimate-matched=false",
-            "FIELDWORK ESTIMATE FEEDBACK malformed",
-        ]
-        summary = ci.fieldwork_feedback_summary(rows)
-        self.assertIn("measured=3/4", summary[0])
-        self.assertIn("extraction-estimate-error=-2..+15t disagreements=2", summary[0])
-        self.assertEqual(summary[1], rows[1])
-        self.assertEqual(len(summary), 2)
-        self.assertEqual(ci.fieldwork_feedback_summary([]), [])
-        self.assertIn("insufficient-data", ci.fieldwork_feedback_summary([rows[-1]])[0])
-        self.assertIn(rows[1], ci.concise_gameplay_report("\n".join(rows), {}))
+    def test_report_verbose_flag_is_explicit_and_report_only(self) -> None:
+        self.assertTrue(ci.parse_args(["report", "--verbose"]).verbose)
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                ci.parse_args(["gate", "--verbose"])
 
-    def test_fieldwork_partial_order_is_not_a_faster_completed_order(self) -> None:
-        complete = (
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x1 outcome=completed "
-            "wear-adjusted-order-estimate=160t extraction-actual=160t estimate-matched=true"
+    def test_woodworking_summary_preserves_no_tool_choice(self) -> None:
+        summary = gameplay_report_summary.concise_gameplay_report(
+            "WOODWORKING EXPERIENCE seed=0xFA choice=bare-hands reason=bare-hands-avoids-investment-cost",
+            {},
         )
-        partial = (
-            "FIELDWORK ESTIMATE FEEDBACK seed=0x2 outcome=known-target-supply "
-            "wear-adjusted-order-estimate=160t extraction-actual=20t "
-            "estimate-matched=not-applicable comparison=partial-order-not-comparable"
-        )
-        summary = ci.fieldwork_feedback_summary([complete, partial])
-        self.assertIn("measured=1/2", summary[0])
-        self.assertIn("extraction-estimate-error=+0..+0t disagreements=0", summary[0])
-        self.assertIn("partial-orders=1", summary[0])
-        self.assertEqual(summary[1], partial)
-        only_partial = ci.fieldwork_feedback_summary([partial])
-        self.assertIn("measured=0 evidence=insufficient-data partial-orders=1", only_partial[0])
-        unknown = complete.replace("outcome=completed", "outcome=unknown")
-        self.assertIn("measured=0 evidence=insufficient-data", ci.fieldwork_feedback_summary([unknown])[0])
-
-    def test_fieldwork_supply_summary_distinguishes_investment_from_completed_orders(self) -> None:
-        complete = (
-            "FIELDWORK SUPPLY seed=0x1 outcome=completed requested=16287251mg "
-            "extracted=16287251mg shortfall=0mg stop=order-complete effort=559t investment=70t"
-        )
-        partial = (
-            "FIELDWORK SUPPLY seed=0x2 outcome=known-target-supply requested=22272740mg "
-            "extracted=375000mg shortfall=21897740mg stop=short-claim effort=495t investment=70t"
-        )
-        diagnostic = "FIELDWORK SUPPLY DIAGNOSTIC seed=0x2 initial-reserve=375000mg policy-input=false"
-        summary = ci.fieldwork_supply_summary([complete, partial, diagnostic])
-        self.assertIn(
-            "measured=2/2 completed=1 supply-stopped=1 requested=38559991mg "
-            "extracted=16662251mg shortfall=21897740mg",
-            summary[0],
-        )
-        self.assertEqual(summary[1], partial)
-        self.assertEqual(ci.fieldwork_supply_summary([]), [])
-        malformed = ci.fieldwork_supply_summary(["FIELDWORK SUPPLY malformed"])
-        self.assertIn("measured=0 evidence=insufficient-data", malformed[0])
-
-    def test_concise_report_keeps_goal_completion_counterfactual(self) -> None:
-        line = (
-            "PROGRESSION GOAL seed=0x1 basis=matched-start-completion-cost "
-            "immediate=265t delayed=741t terminal-reserves=unequal"
-        )
-        self.assertIn(line, ci.concise_gameplay_report(line, {}))
-
-    def test_goal_summary_bounds_noise_and_preserves_blocked_and_signed_outcomes(self) -> None:
-        goals = [
-            "PROGRESSION GOAL seed=0x1 immediate=265t delayed=741t",
-            "PROGRESSION GOAL seed=0x2 immediate=280t delayed=270t",
-            "PROGRESSION GOAL seed=0x3 immediate=300t delayed=blocked:known-target-supply",
-            "PROGRESSION GOAL malformed",
-        ]
-        lines = ["SIMULATION TIME physical-tick-us=2000000", *goals]
-        summary = ci.progression_goal_summary(lines)
-        self.assertEqual(len(summary), 2)
-        self.assertEqual(summary[1], goals[0])
-        self.assertIn("measured=3/4", summary[0])
-        self.assertIn("stockpile-first=[completed:2 blocked:1]", summary[0])
-        self.assertIn("delay-avoided=-10..476t", summary[0])
-        self.assertIn("physical-immediate=8.8m..10.0m", summary[0])
-        self.assertEqual(ci.progression_goal_summary([]), [])
-        self.assertIn("insufficient-data", ci.progression_goal_summary([goals[-1]])[0])
-        blocked = ci.progression_goal_summary([
-            "PROGRESSION GOAL seed=0x4 immediate=10t delayed=blocked:budget",
-        ])[0]
-        self.assertIn("completed:0 blocked:1", blocked)
-        self.assertIn("delay-avoided=not-comparable", blocked)
-        selected_blocked = ci.progression_goal_summary([
-            "PROGRESSION GOAL seed=0x5 immediate=blocked:known-target-supply delayed=blocked:known-target-supply",
-            "PROGRESSION GOAL seed=0x6 immediate=blocked:crushed-storage available:1mg requires-more-than:2mg delayed=20t",
-        ])[0]
-        self.assertIn("measured=2/2 immediate=no-completion immediate-blocked=2", selected_blocked)
-        self.assertIn("stockpile-first=[completed:1 blocked:1]", selected_blocked)
-        self.assertIn("delay-avoided=not-comparable", selected_blocked)
-        verbose = "\n".join(lines)
-        self.assertEqual(ci.concise_gameplay_report(verbose, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}), verbose)
-
-    def test_physical_clock_is_report_derived_and_missing_or_conflicting_is_unknown(self) -> None:
-        self.assertEqual(ci.ticks_minutes(30, ci.physical_tick_us([
-            "SIMULATION TIME physical-tick-us=2000000",
-        ])), "1.0m")
-        for lines in ([], ["SIMULATION TIME physical-tick-us=0"], [
-            "SIMULATION TIME physical-tick-us=2000000",
-            "SIMULATION TIME physical-tick-us=3600000",
-        ]):
-            self.assertIsNone(ci.physical_tick_us(lines))
-            self.assertEqual(ci.ticks_minutes(30, ci.physical_tick_us(lines)), "unknown-clock")
-
-    def test_woodworking_baseline_reports_signed_full_lifecycle_savings(self) -> None:
-        lines = [
-            "WOODWORKING BASELINE seed=0xFA bare=150t/9.0m adze=167t/10.0m selected=150t/9.0m",
-            "WOODWORKING BASELINE seed=0x1 bare=2550t/153.0m adze=2459t/147.5m selected=869t/52.1m",
-        ]
-        summary = ci.concise_gameplay_report("\n".join(lines), {})
-        self.assertIn("measured=2/2 adze-saves=-17..91t selected-saves=0..1681t", summary)
-        self.assertEqual(ci.woodworking_baseline_summary([]), [])
-        self.assertIn("insufficient-data", ci.woodworking_baseline_summary(["WOODWORKING BASELINE malformed"])[0])
-
-    def test_woodworking_feedback_distinguishes_policy_divergence_from_estimate_error(self) -> None:
-        lines = [
-            "WOODWORKING FEEDBACK seed=0x50 attention=[budget-met:false actual-payback:true] timber=[nominal-payback:false actual-payback:false]",
-            "WOODWORKING FEEDBACK seed=0x1 attention=[budget-met:true actual-payback:true] timber=[nominal-payback:true actual-payback:false]",
-        ]
-        summary = ci.concise_gameplay_report("\n".join(lines), {})
-        self.assertIn("attention-budget-payback-divergences=1", summary)
-        self.assertIn("timber-estimate-disagreements=1", summary)
-        self.assertNotIn("attention-estimate-disagreements", summary)
-        self.assertIn("hindsight-selection=false", summary)
-        self.assertEqual(ci.woodworking_feedback_summary([]), [])
-
-    def test_progression_demand_does_not_claim_entire_stockpile_use(self) -> None:
-        line = (
-            "PROGRESSION BUFFER seed=0x1 demand=[executed:true "
-            "feed:50000mg stockpile:2500000->2450000mg recovered:40000mg]"
-        )
-        summary = ci.concise_gameplay_report(line, {})
-        self.assertIn("feed=50000..50000mg stockpile-retained=2450000..2450000mg", summary)
-        self.assertIn("basis=executed-post-order-counterfactual payback=not-established", summary)
-        self.assertEqual(ci.progression_demand_summary([]), [])
-
-    def test_woodworking_summary_does_not_lose_no_tool_choices(self) -> None:
-        summary = ci.concise_gameplay_report(
-            "WOODWORKING EXPERIENCE seed=0xFA choice=bare-hands reason=bare-hands-avoids-investment-cost", {}
-        )
-        self.assertIn("choice=[bare:1 adze:0 saw:0]", summary)
-        self.assertIn("saw=0/1 adze=0/1 bare=1/1", summary)
-
-    def test_progression_buffer_summary_preserves_unoccupied_attention(self) -> None:
-        line = (
-            "PROGRESSION BUFFER seed=0x1 policy=two-upcoming-batches work-order=12cycles "
-            "mining=[steady:12jobs buffer-stops:12cycles] machine=400t "
-            "replenishment=30t available-attention=370t payback=not-established "
-            "outcome=stockpile-order demand=[executed:true "
-            "basis:post-order-reinvestment-counterfactual purpose:upgrade-copper "
-            "feed:90000mg stockpile:2000000->1910000mg recovered:40000mg "
-            "separation:40t charge:5t process-energy:36000000000nJ "
-            "scope:first-two-recoveries-before-new-crushing]"
-        )
-        summary = ci.concise_gameplay_report(line, {})
-        self.assertIn("mining=12..12jobs", summary)
-        self.assertIn("available-attention=370..370t", summary)
-        self.assertIn("available-attention-is-not-a-failure", summary)
-        self.assertIn("payback=not-established", summary)
-        self.assertEqual(ci.progression_buffer_summary([]), [])
-        self.assertIn("insufficient-data", ci.progression_buffer_summary(["PROGRESSION BUFFER malformed"])[0])
-
-    def test_liberation_cost_summary_preserves_reserves_and_signed_costs(self) -> None:
-        lines = [
-            "LIBERATION COST seed=0x1 primary=80t scavenger=20t total=100t charge=[demand:7t full:10t] generated=[demand:900000000000nJ full:2500000000000nJ] retained=[demand:0nJ full:940000000000nJ]",
-            "LIBERATION COST seed=0x2 primary=60t scavenger=16t total=76t charge=[demand:8t full:7t] generated=[demand:900000000000nJ full:800000000000nJ] retained=[demand:0nJ full:0nJ]",
-        ]
-        summary = ci.concise_gameplay_report("\n".join(lines), {})
-        self.assertIn("measured=2/2 primary=60..80t scavenger=16..20t", summary)
-        self.assertIn("charge-saved=-1..3t generated-saved=-100..1600J", summary)
-        self.assertIn("full-buffer-retained=0..940J", summary)
-        self.assertIn("not-equal-terminal-reserves setup-cost=excluded", summary)
-        self.assertEqual(ci.liberation_cost_summary([]), [])
-        self.assertIn("insufficient-data", ci.liberation_cost_summary(["LIBERATION COST malformed"])[0])
+        self.assertIn("choice=[saw:0 adze:0 bare:1]", summary)
 
     def test_git_wizard_validation_levels_match_iteration_policy(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -1876,6 +1835,9 @@ class LocalCiPlanTests(unittest.TestCase):
             check_authority_docs.ci_command_error(
                 "python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}"
             )
+        )
+        self.assertIsNone(
+            check_authority_docs.ci_command_error("python ci.py gate --gameplay contracts")
         )
         self.assertIsNone(check_authority_docs.ci_command_error("python ci.py audit --core"))
         self.assertIsNone(check_authority_docs.ci_command_error("python ci.py audit --gameplay"))
@@ -2225,8 +2187,6 @@ class ExactTestCommandTests(unittest.TestCase):
                 "--quiet",
                 "--locked",
                 "--lib",
-                "--features",
-                "test-gameplay",
                 "module::tests::case",
                 "--",
                 "--exact",
@@ -2310,7 +2270,7 @@ class ExactTestCommandTests(unittest.TestCase):
             nocapture=False,
         )
         command = run_test.cargo_command(args)
-        self.assertIn("test-gameplay", command)
+        self.assertNotIn("--features", command)
         self.assertIn(args.name, command)
         self.assertNotIn("--exact", command)
 

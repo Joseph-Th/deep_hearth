@@ -199,29 +199,32 @@ cross-cutting contracts stay in the broad contract/audit targets.
 | Scope | Contract |
 | --- | --- |
 | `survival` | Ordinary hunger/thirst pressure, diet-supported recovery, preservation investment, enclosure construction and timed dismantling with exact recovery, matched storage counterfactuals, and integrated provision/prospect/stored-work sequencing. |
-| `progression` | Ordinary coarse-to-fine evidence, sampling-gated mining, primitive crafting/mining/power/processing, fallback versus mechanization, maintenance/recovery/reinvestment, and liberation through concentration. Sampling work precedes hardness classification; validation confirms legality without probing hidden hardness. |
+| `progression` | Ordinary coarse-to-fine evidence, sampling-gated mining, primitive crafting/mining/power/processing, fallback versus mechanization, and maintenance/recovery/reinvestment. A disclosed finite processing order is priced before construction from production-owned manual-work/power physics plus the complete visible assembly package; mechanization is frozen only when that conservative upper bound beats the hand route, and execution must agree with the projected package. The same target also proves an ordinary-reachable concentration frontier, but concentrate production is not presented as a current player goal because no ordinary reduction/smelting sink exists. Sampling work precedes hardness classification; validation confirms legality without probing hidden hardness. |
 | report `woodworking` | Ordinary adze/frame-saw board pipeline with full construction-plus-work attention, wear, maintenance, and timber/copper payback against equipment-free and all-adze baselines. |
-| report `fieldwork` | Sample-then-extract mining orders with wear-aware tool choice, projected versus executed cost, partial-order and supply-stop accounting, and indexed-survey information payoff. Policy uses acquired evidence only; hidden truth is diagnostic-only. |
-| report `power-provider` | Copper-free crank-vs-treadle charging comparison with full build, charge, bodily cost, wear, conservation, and trusted-load validity per arm. |
+| report `fieldwork` | Sample-then-extract mining orders with wear-aware tool choice, projected versus executed cost, partial-order and supply-stop accounting, and indexed-survey information payoff. Policy uses acquired evidence only: a fully localized physical sample may provide a coarse conservative resource-mass band that caps tool investment, while exact reserve remains hidden and realized depletion still comes through committed claims/target refresh. Generated shallow opportunities remain materially useful even when they cannot satisfy the whole disclosed order, so knowledge can prevent overinvestment and depletion still tests adaptation rather than token failure. |
+| report `power-provider` | Ordinary copper-free crank-vs-treadle and settlement treadle-vs-walking-wheel investment choices from disclosed repeated-charge workloads. Canonical pre-action projections price the complete provider-plus-store package, including reusable shaped surplus, before freezing each actor choice; matched executed arms verify build attention/material, bodily cost, wear, conservation, and trusted-load validity. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, and recovery. Capability-only. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
-| `foundry` | Installed pure-copper heating/melting/casting with finite energy, adaptive batches, remelting coverage, and sink recovery. Capability-only; ore and concentrate require reduction/smelting. |
+| `foundry` | Installed pure-copper heating/melting/casting with finite energy, adaptive batches, remelting coverage, and sink recovery. Direct melting is the current live route; same-furnace/same-source sensible preheat is diagnostic energy-partition evidence only until content gives it a distinct physical advantage. Capability-only; ore and concentrate require reduction/smelting. |
 
-Routine focused gates run maintained deterministic cases plus one bounded deterministic organic-variation case
-per probe. An explicit variation or behavior root reseeds that bounded case when reproducing or extending a gate.
-`python ci.py report` owns fresh organic sampling. Full episodes are reserved for behavior that requires executed
-cross-system consequences. A world may succeed, adapt, or stop at a canonical constraint; every partial or blocked
-outcome must preserve trusted-load validity and relevant conservation.
+Supported focused gameplay gates and gameplay audits run maintained deterministic cases plus one fresh bounded
+organic-variation case per probe. The generated roots are printed as replay evidence; explicit variation or behavior
+roots replace them when reproducing a case. `python ci.py report` samples a broader fresh bounded set. Concise
+summaries expose `sample-shape`; maintained anchor/coverage cases prove contracts and must not be read as prevalence.
+When frequency matters, interpret the separately reported organic slice as bounded fresh-world evidence, not as a
+population estimate. Direct Cargo execution remains deterministic for low-level debugging. Full episodes are
+reserved for behavior that requires executed cross-system consequences. A world may succeed, adapt, or stop at a
+canonical constraint; every partial or blocked outcome must preserve trusted-load validity and relevant conservation.
 
 ### Coverage contracts
 
 These contracts state what gameplay evidence must prove; harness module docs own step-by-step execution.
 
-- **Liberation cost:** the episode starts from disclosed pre-owned ore and parts, so measured cost excludes acquiring them. Batch-demand and full-buffer charging run from the same state through the same canonical chain and must show identical recovery, conserved matter, and trusted-load validity. Leftover buffered work may fund later jobs. Concentrate is distinct from usable copper; the scavenger leg is coverage, not an investment recommendation.
+- **Liberation frontier:** the episode starts from disclosed pre-owned ore and parts, so measured cost excludes acquiring them. Batch-demand and full-buffer charging run from the same state through the same canonical chain and must show identical recovery, conserved matter, and trusted-load validity. Leftover buffered work may fund later jobs. Concentrate is distinct from usable copper and has no current ordinary sink, so the concentration/scavenger chain is frontier capability evidence rather than a selected current-player investment.
 - **Catalog continuity:** the authored reinforcement input must reach sampling, woodworking, power, crushing, grinding, and separation equipment. The reinvestment branch executes crusher and separator upgrades, including an above-base separator batch. The same reinforcement raises flywheel capacity through the energy owner without regressing carrier, limits, loss, or recovery, and the expanded envelope funds a larger processing batch.
 - **Woodworking continuity:** hewing and sawing stay physically distinct. The adze accelerates hewing without changing its recovery stream and cannot satisfy sawing. The frame saw needs its authored blade and frame, has no equipment-free fallback, and its payback includes embodied timber, blade copper, wear, and maintenance. Investment intent freezes before branches run; executed counterfactuals assess but never revise that choice. Exact masses, yields, and timings live in content/production definitions.
 - **Preservation continuity:** every authored enclosure stays ordinarily producible and recoverable with a distinct capacity/preservation/material/attention tradeoff. Feasibility precedes ranking; projection, selection, and execution share one finite disclosed opportunity. The actor may decline construction when edible-horizon return does not pay attention cost. Each branch projects its food lot through the survival-owned freshness projection, then proves that forecast against canonical construction and ticks. Dismantling runs through the timed player-work path before salvage; each body exposes a same-material salvage route without creating a cheaper construction cycle.
-- **Maintenance and automation:** stone scrap reknaps through a manual zero-machine path with exact conservation; contaminated or mixed-temperature scrap rejects atomically. The progression pick-vs-crank counterfactual compares only opportunities present in that decision state. Automation reports feed-buffer scheduling facts and labels economic payback not-established. Mining learns shortage only from committed claims or exhausted evidence; hidden reserve never feeds policy. Service occupies exclusive player work and restores condition only at completion.
+- **Maintenance and automation:** stone scrap reknaps through a manual zero-machine path with exact conservation; contaminated or mixed-temperature scrap rejects atomically. The progression pick-vs-crank counterfactual compares only opportunities present in that decision state. The processing decision owns a disclosed finite stockpile workload and compares canonical hand-processing attention with actual mechanized construction plus charging attention; overlap-only setup recovery remains a separate diagnostic. Mining may use acquired conservative resource-scale evidence to size investment, but exact hidden reserve never feeds policy; exact realized shortage arrives through committed claims or exhausted evidence. Service occupies exclusive player work and restores condition only at completion.
 
 ## Counterfactual and replay discipline
 
@@ -232,23 +235,19 @@ aggregate observable contract rather than incidental internal identity.
 
 `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` controls physical-world variation;
 `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` controls actor-policy variation where applicable; and
-`DEEP_HEARTH_GAMEPLAY_SEEDS` selects explicit focused worlds for deliberate replay. Routine gates are maintained
-and deterministic. Supplying a variation or behavior root explicitly opts a gate into one bounded generated case
-while maintained anchors stay fixed. Failure output must retain replay input.
+`DEEP_HEARTH_GAMEPLAY_SEEDS` selects explicit focused worlds for deliberate replay. Supported CI gameplay
+commands generate fresh variation/behavior roots when none are supplied, while maintained anchors stay fixed and
+the organic sample remains bounded. Direct Cargo execution uses the maintained fallback roots. Failure and success
+summaries must retain replay input.
 
-`python ci.py report` is the bounded exploration surface. Its default concise view includes aggregate ordinary
-survival, primitive progression, woodworking, fieldwork, and power-provider diversity, live content counts, the ordinary
-acquisition frontier, and compact summaries of the controlled workshop/ore/foundry evidence. Controlled summaries stay explicitly labeled
-and do not imply ordinary reachability. `DEEP_HEARTH_GAMEPLAY_VERBOSE`
-restores full capability diagnostics, blockers, tradeoffs, and counterfactual detail. Goal-completion comparisons
-aggregate all measured worlds and retain one seeded example in the concise view; verbose output retains every comparison. Blocked
-selected continuations retain their actual elapsed time, inventory, and partial upgrades rather than rolling back
-to the decision state. Woodworking feedback reports divergence between the actor's pre-action attention budget
-and realized payback as policy/outcome divergence, not as estimation error; nominal timber projection mismatches
-remain estimate disagreements. Fieldwork feedback aggregates wear-adjusted projection error only for completed orders.
-Supply-stopped orders retain actual investment, effort, output, and shortfall separately. Physical-duration summaries use the
-report's registry-derived tick duration. Missing or conflicting clock evidence
-is reported as unknown.
+`python ci.py report` is the bounded exploration surface. Its default concise view keeps the current player
+fantasy, live content/acquisition context, one measured summary per ordinary probe, current ordinary integration
+frontiers exposed by those probes, and compact controlled workshop/ore/foundry summaries.
+Controlled summaries stay explicitly labeled and do not imply ordinary reachability. `python ci.py report
+--verbose` restores the complete capability diagnostics, blockers, tradeoffs, counterfactuals, per-world
+comparisons, and replay evidence. `DEEP_HEARTH_GAMEPLAY_VERBOSE` remains the environment-level equivalent for
+tooling. Blocked selected continuations retain their actual elapsed time, inventory, and partial upgrades rather
+than rolling back to the decision state.
 `DEEP_HEARTH_GAMEPLAY_TRACE` adds operation-level workshop narration. Increase breadth through explicit
 report/replay inputs.
 

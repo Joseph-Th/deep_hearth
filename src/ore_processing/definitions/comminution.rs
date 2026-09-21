@@ -150,7 +150,9 @@ impl ManualComminutionProcessDefinition {
         self.operating.exertion()
     }
 
-    pub(crate) const fn operating_profile(&self) -> ManualOreProcessProfile {
+    /// Returns the immutable direct-labor throughput envelope for planning and execution.
+    #[must_use]
+    pub const fn operating_profile(&self) -> ManualOreProcessProfile {
         self.operating
     }
 }

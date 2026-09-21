@@ -16,14 +16,19 @@ mod batch;
 mod definitions;
 mod errors;
 mod physics;
+mod projection;
 mod registry;
 mod validation;
 
 use physics::{ManualCraftEquipmentScheduleError, resolve_manual_craft_hand_duration};
 
 pub use definitions::{ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput};
-pub use errors::{ManualCraftCommitError, ManualCraftError, StartManualCraftError};
+pub use errors::{
+    ManualCraftCommitError, ManualCraftEquipmentProjectionError, ManualCraftError,
+    StartManualCraftError,
+};
 pub(crate) use physics::resolve_manual_craft_equipment_schedule;
+pub use projection::{ManualCraftEquipmentProjection, project_manual_craft_equipment};
 pub use registry::CraftingRegistry;
 pub use validation::ManualCraftJobValidationError;
 pub(crate) use validation::validate_loaded_manual_craft_job;

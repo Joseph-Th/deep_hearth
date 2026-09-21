@@ -15,8 +15,9 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
     ConstituentSeparationProcessDefinition, ManualComminutionRequest,
     ManualConstituentSeparationProcessDefinition, ManualConstituentSeparationRequest,
-    resolve_manual_comminution_process, resolve_manual_constituent_separation_process,
-    validate_start_manual_comminution, validate_start_manual_constituent_separation,
+    project_manual_ore_duration, resolve_manual_comminution_process,
+    resolve_manual_constituent_separation_process, validate_start_manual_comminution,
+    validate_start_manual_constituent_separation,
 };
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
@@ -39,6 +40,15 @@ pub(super) struct OwnedOreManualBridgeReview {
     pub(super) hydration_cost_ul: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct OwnedOreManualBridgeProjection {
+    pub(super) feed_mass: Mass,
+    pub(super) processing_attention_ticks: u64,
+    pub(super) cold_work_ticks: u64,
+    pub(super) total_attention_ticks: u64,
+    pub(super) manual_recovery_ppm: u32,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct OwnedOreManualBridgePlan {
     pub(super) ore_source: StockpileId,
@@ -48,6 +58,64 @@ pub(super) struct OwnedOreManualBridgePlan {
     pub(super) shaped_destination: StockpileId,
     pub(super) copper_ppm: u32,
     pub(super) reinforcement_required: Mass,
+}
+
+/// Projects the hand-processing bridge from authored manual physics without executing a future
+/// branch. The caller supplies the observed homogeneous assay used for feed sizing.
+pub(super) fn project_owned_ore_manual_bridge(
+    registries: &Registries,
+    copper_ppm: u32,
+    reinforcement_required: Mass,
+) -> OwnedOreManualBridgeProjection {
+    let breaking = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("owned-ore manual bridge lost its hand-breaking definition"));
+    let sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("owned-ore manual bridge lost its hand-sorting definition"));
+    let feed_mass = sorting
+        .minimum_homogeneous_feed_mass_for_target_recovery(reinforcement_required, copper_ppm)
+        .unwrap_or_else(|| {
+            panic!("observed ore cannot physically recover one manual reinforcement")
+        });
+    assert!(
+        feed_mass <= breaking.max_batch_mass() && feed_mass <= sorting.max_batch_mass(),
+        "observed ore cannot fund one reinforcement inside the authored manual batch envelope"
+    );
+    let breaking_ticks = project_manual_ore_duration(
+        registries.core().physical_tick_duration(),
+        breaking.operating_profile(),
+        feed_mass,
+    )
+    .unwrap_or_else(|error| panic!("manual bridge breaking projection failed: {error}"))
+    .value();
+    let sorting_ticks = project_manual_ore_duration(
+        registries.core().physical_tick_duration(),
+        sorting.operating_profile(),
+        feed_mass,
+    )
+    .unwrap_or_else(|error| panic!("manual bridge sorting projection failed: {error}"))
+    .value();
+    let cold_work = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("manual bridge copper cold-work route disappeared"));
+    let cold_work_ticks = cold_work.duration().value();
+    let processing_attention_ticks = breaking_ticks
+        .checked_add(sorting_ticks)
+        .unwrap_or_else(|| panic!("manual bridge processing projection overflowed"));
+    let total_attention_ticks = processing_attention_ticks
+        .checked_add(cold_work_ticks)
+        .unwrap_or_else(|| panic!("manual bridge total projection overflowed"));
+    OwnedOreManualBridgeProjection {
+        feed_mass,
+        processing_attention_ticks,
+        cold_work_ticks,
+        total_attention_ticks,
+        manual_recovery_ppm: sorting.target_recovery_ppm(),
+    }
 }
 
 /// Replays the real no-machine bridge from a player-owned ore parcel without mutating the source

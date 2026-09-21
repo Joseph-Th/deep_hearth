@@ -377,7 +377,7 @@ fn preservation_storage_spans_bulk_capacity_and_compact_protection_specialists()
     );
     assert_eq!(
         rough.storage_profile().preservation_multiplier_ppm(),
-        1_250_000
+        1_750_000
     );
     assert_eq!(
         bulk.storage_profile().preservation_multiplier_ppm(),
@@ -443,7 +443,7 @@ fn preservation_storage_spans_bulk_capacity_and_compact_protection_specialists()
     assert_eq!(pantry_batches, 6);
     assert_eq!(
         boards.duration().value() * rough_batches + rough_joinery.duration().value(),
-        150
+        125
     );
     assert_eq!(
         boards.duration().value() * bulk_batches + bulk_joinery.duration().value(),
@@ -500,6 +500,11 @@ fn preservation_storage_spans_bulk_capacity_and_compact_protection_specialists()
     assert!(
         rough.storage_profile().preservation_multiplier_ppm()
             < standard.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(
+        rough.storage_profile().preservation_multiplier_ppm()
+            > bulk.storage_profile().preservation_multiplier_ppm(),
+        "rough field box should trade capacity for better short-horizon protection than the slatted bulk crate"
     );
     assert!(rough_joinery.input_mass() < standard.assembly_profile().input_mass());
     assert!(bulk.maximum_stockpile_capacity() > standard.maximum_stockpile_capacity());

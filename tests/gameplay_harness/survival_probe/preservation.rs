@@ -13,8 +13,26 @@ pub(in super::super) enum PreservationInvestmentPolicy {
     MaximumProtection,
 }
 
-pub(in super::super) fn preservation_freshness_return_threshold_ppm(behavior_seed: u64) -> u32 {
-    1_000_000 + (mix64(behavior_seed ^ 0x5052_4553_5641_4C55) % 3_000_001) as u32
+pub(in super::super) fn preservation_attention_value_ppm(behavior_seed: u64) -> u32 {
+    // Ranking appetite spans patient through time-starved actors so the authored
+    // fast-vs-protective frontier can actually change the selected enclosure.
+    1_000_000 + (mix64(behavior_seed ^ 0x5052_4553_5641_4C55) % 9_000_001) as u32
+}
+
+pub(in super::super) fn preservation_minimum_return_ppm(behavior_seed: u64) -> u32 {
+    // Commitment is a separate preference from ranking. A time-starved actor may prefer the
+    // quick field box while still believing preservation is worth doing at all.
+    1_000_000 + (mix64(behavior_seed ^ 0x5052_4553_434F_4D4D) % 3_000_001) as u32
+}
+
+pub(in super::super) fn preservation_material_budget_ppm(behavior_seed: u64) -> u32 {
+    // Construction matter competes with tools, power, and later storage. Use legible commitment
+    // bands instead of a continuous fraction: a continuous sample almost never reaches exactly
+    // 100%, which would accidentally make an all-in preservation investment unreachable.
+    const BUDGETS: [u32; 4] = [400_000, 600_000, 850_000, 1_000_000];
+    let index = usize::try_from(mix64(behavior_seed ^ 0x5052_4553_4D41_544C) % 4)
+        .unwrap_or_else(|_| unreachable!("preservation material budget index is bounded"));
+    BUDGETS[index]
 }
 
 #[derive(Clone, Debug)]

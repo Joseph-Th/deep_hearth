@@ -12,7 +12,7 @@ use crate::labor::{
 };
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::mining::{MiningMethodDefinition, resolve_mining_physics};
-use crate::ore_processing::{ManualOreProcessProfile, resolve_manual_ore_duration};
+use crate::ore_processing::{ManualOreProcessProfile, project_manual_ore_duration};
 use crate::survival::{PhysiologyDefinition, SurvivalExertion};
 
 use super::super::{CoreDefinitions, RegistryDomains};
@@ -47,7 +47,7 @@ fn assert_manual_ore_batch_fits_reserves(
     owner: &str,
     id: u64,
 ) {
-    let duration = resolve_manual_ore_duration(
+    let duration = project_manual_ore_duration(
         core.physical_tick_duration(),
         profile,
         profile.max_batch_mass(),

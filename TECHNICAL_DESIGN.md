@@ -203,7 +203,7 @@ then read the owning section/source for exact semantics and errors.
 | Mining | `MiningRegistry` methods and physical hardness/tool constraints | `AppState::mining()` plus acquired geological knowledge; hidden `GeologyState` is not public | `resolve_mining_target` binds localized evidence and the best acquired physical hardness band when present | `validate_start_mining` requires acquired hardness evidence and uses its conservative upper bound -> tick -> `validate_claim_mining_output` |
 | Production | `ProductionRegistry`, `ProcessDefinition` | `AppState::production()`, job records, reservations/occupancy | operation-specific resolvers produce `ProcessResolution` / `Resolved*` | `validate_start_process` / `validate_start_process_routed` -> tick completion |
 | Equipment | `EquipmentRegistry`, capability/maintenance/upgrade profiles | `AppState::equipment()`, equipment records | `resolve_equipment_provider`, `resolve_equipment_maintenance` | assembly, upgrade, maintenance, disassembly, mount/unmount/relocate validators |
-| Player labor | `LaborRegistry`, manual-power/prospecting definitions | `AppState::player_work()` | owner commands calculate/bind required attention and resource budget | manual power/prospecting/manual production commands -> tick; attention lifecycle is crate-owned |
+| Player labor | `LaborRegistry`, manual-power/prospecting definitions | `AppState::player_work()` | `project_manual_power` projects immutable future provider/store physics without authorizing current state; runtime owner commands bind current equipment/store, attention, survival budget, and revisions | manual power/prospecting/manual production commands -> tick; attention lifecycle is crate-owned |
 | Survival | `SurvivalRegistry`, physiology, food/drink definitions | `AppState::survival()`, `assess_survival`, `assess_food_freshness` | consumption validators derive bounded direct intake and physiological schedule | `validate_eat` / `validate_drink` -> tick; `initialize_player_survival` is the ordinary initialization boundary |
 | Energy | `EnergyRegistry`, store definitions, carrier/power contracts | `AppState::energy()`, store records, explicit energy accounting | process/manual-power resolvers use `validate_energy_supply` / `validate_energy_sink` as part of their plan | assembly/upgrade/disassembly validators; reserved consumption/release and passive loss apply through canonical owners/tick |
 | Fluids | `FluidRegistry`, fluid definitions | `AppState::fluid()`, store records, fluid accounting | consumers validate exact egress internally; no generic routing planner exists | support validators and canonical consumers; generic transfer/pumping/mixing absent |
@@ -297,7 +297,7 @@ semantic entry point; inspect its implementation and adjacent tests before readi
 
 | Edge | Canonical boundary | Authoritative handoff and continuation |
 | --- | --- | --- |
-| Hidden geology -> acquired knowledge | `validate_start_field_prospecting` -> simulation tick | `PlayerWorkState` holds exclusive prospecting labor; completion records one aggregate `GeologicalObservationRecord` or one bounded, spatially ordered per-voxel batch in `GeologicalKnowledgeState`, according to the authored method. All methods record bounded abundance. Authored physical-sampling methods may additionally record a conservative excavation-hardness band only when their material evidence has a positive lower bound; uncertain/negative evidence therefore cannot reveal hidden presence through hardness metadata. `TickOutcome::field_prospecting()` exposes the actor-safe first observation identity, count, and scope without deposit identity. |
+| Hidden geology -> acquired knowledge | `validate_start_field_prospecting` -> simulation tick | `PlayerWorkState` holds exclusive prospecting labor; completion records one aggregate `GeologicalObservationRecord` or one bounded, spatially ordered per-voxel batch in `GeologicalKnowledgeState`, according to the authored method. All methods record bounded abundance. Authored physical-sampling methods may additionally record a conservative excavation-hardness band and, only for one fully localized unambiguous body, a coarse resource-mass interval. Both require a positive lower abundance bound, neither carries deposit identity, and partial/ambiguous regions emit no resource-scale claim. `TickOutcome::field_prospecting()` exposes the actor-safe first observation identity, count, and scope without deposit identity. |
 | Acquired knowledge -> extraction authorization | `resolve_mining_target` | Read-only `MiningTargetResolution` proves that legitimate evidence currently resolves one extractable owner while keeping the geological deposit identity crate-private. No custody changes yet. |
 | Geology + equipment + labor -> mining work | `validate_start_mining` -> simulation tick | Start binds the requested excavation effort, tool, destination, player attention, and a durable `MiningJobRecord`. Pre-admission batch/capacity/labor/wear feasibility is derived from the requested mass, not hidden remaining reserve, so read-only validation cannot be used to measure a deposit. The hidden output slice is `min(requested, remaining)` and is bound internally; after commit its reservation and eventual claim may legitimately reveal a short recovery. Geology keeps that output matter during labor; completion removes it from `GeologyState`, applies wear for the requested effort, releases attention, and places the physical output in mining-owned claim custody. |
 | Mining claim custody -> inventory | `validate_claim_mining_output` | A ready job retains its reserved destination capacity until claim. Claim moves the exact output into `InventoryState`, retires mining custody without a second extraction decision, and returns `MiningClaimReceipt` with the exact contribution plus its merge-aware surviving lot identity. |
@@ -558,6 +558,11 @@ physical authoring. The envelope is disposable guidance, not authorization: a la
 its assumptions, and the exact process-specific resolver must still validate the selected matter before any
 production start can be authorized.
 
+`project_manual_ore_duration` is the narrower direct-labor planning surface. It applies the same authored
+manual-process batch envelope and whole-tick throughput rounding used by runtime manual comminution without
+claiming that selected matter, output capacity, player attention, or survival reserve is currently available.
+This lets workload policy compare hand processing with infrastructure before either branch is executed.
+
 Implemented resolver contracts:
 
 - **Comminution:** validates feed and output particle state, batch limits, condition-adjusted throughput,
@@ -630,6 +635,10 @@ is limited by provider capability, destination input power, sustainable metaboli
 Energy creation, physiological cost, and equipment wear share one validated operation. Generated work remains
 in player-work custody until completion. Sink-capacity admission credits only passive dissipation guaranteed
 before the release tick. Trusted load reprojects the same rule from current stored energy and remaining work.
+`project_manual_power` is the read-only future-configuration surface for comparing authored provider/store
+investments before those instances exist. It shares provider capability, destination input-power, schedule,
+physiology, and wear physics with runtime admission, but deliberately assumes an empty or sufficiently free
+future store and does not authorize current ownership, occupancy, stored energy, survival reserve, or revisions.
 
 `SurvivalState` owns metabolic energy, hydration, vitality, recent nutrition, terminal consumed matter/fluid
 totals, and exact pending direct-consumption custody. Eating and drinking transfer selected physical quantities

@@ -113,6 +113,19 @@ pub(crate) fn resolve_manual_ore_duration(
     .map_err(ManualOrePhysicsError::ThroughputDuration)
 }
 
+/// Projects exact whole-tick attention for one authored manual ore-processing batch.
+///
+/// This is physical planning evidence only. Runtime process resolution still owns material
+/// selection, output semantics, player-work admission, survival reserve, and state revisions.
+pub fn project_manual_ore_duration(
+    physical_tick_duration: PhysicalTickDuration,
+    profile: ManualOreProcessProfile,
+    selected: Mass,
+) -> Result<TickSpan, ManualOrePhysicsError> {
+    validate_manual_ore_batch(profile, selected)?;
+    resolve_manual_ore_duration(physical_tick_duration, profile, selected)
+}
+
 /// Validates common resource absence and batch size before process-specific output replay.
 pub(super) fn validate_manual_ore_job_admission(
     job: &ProductionJobRecord,

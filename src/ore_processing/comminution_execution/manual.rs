@@ -21,9 +21,7 @@ use crate::registry::Registries;
 use super::ComminutionBatchError;
 use super::outputs::resolve_manual_comminution_outputs;
 use crate::ore_processing::ManualOrePhysicsError;
-use crate::ore_processing::manual_physics::{
-    resolve_manual_ore_duration, validate_manual_ore_batch,
-};
+use crate::ore_processing::project_manual_ore_duration;
 
 /// Explicit selected-batch request for direct hand breaking of coarse material.
 #[derive(Clone, Copy, Debug)]
@@ -130,11 +128,9 @@ pub fn resolve_manual_comminution_process(
     let inputs = validate_process_inputs(registries, state, process, source, selections)
         .map_err(ManualComminutionResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
-    validate_manual_ore_batch(definition.operating_profile(), selected_mass)
-        .map_err(ManualComminutionResolutionError::Physics)?;
     let outputs = resolve_manual_comminution_outputs(definition, inputs.consumed_inputs())
         .map_err(ManualComminutionResolutionError::Batch)?;
-    let duration = resolve_manual_ore_duration(
+    let duration = project_manual_ore_duration(
         registries.core().physical_tick_duration(),
         definition.operating_profile(),
         selected_mass,

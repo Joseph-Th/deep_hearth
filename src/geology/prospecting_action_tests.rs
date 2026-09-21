@@ -635,6 +635,11 @@ fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
         .unwrap_or_else(|| panic!("field prospecting copper finding disappeared"));
     assert_eq!(finding.lower_ppm(), 850_000);
     assert_eq!(finding.upper_ppm(), 1_000_000);
+    assert_eq!(
+        record.resource_mass(),
+        None,
+        "surface inspection must not reveal localized resource scale"
+    );
     let survival_after = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("field prospecting final survival state disappeared"));
     let physiology = registries.survival().physiology();
@@ -873,6 +878,17 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
             .unwrap_or_else(|error| panic!("detailed hardness expectation failed: {error}"))
         )
     );
+    assert_eq!(
+        detailed_record.resource_mass(),
+        Some(
+            crate::geology::ResourceMassEstimate::new(
+                Mass::from_milligrams(1_000_000),
+                Mass::from_milligrams(2_000_000),
+            )
+            .unwrap_or_else(|error| panic!("detailed resource-mass expectation failed: {error}"))
+        ),
+        "localized physical sampling must expose a bounded extractable-body scale"
+    );
     let target = resolve_mining_target(&state, request).unwrap_or_else(|error| {
         panic!("detailed surface evidence did not resolve target: {error}")
     });
@@ -896,6 +912,15 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
             .and_then(|record| record.excavation_hardness()),
         detailed_record.excavation_hardness(),
         "completed physical-sample hardness knowledge must round-trip exactly"
+    );
+    assert_eq!(
+        loaded
+            .geological_knowledge()
+            .observations()
+            .last()
+            .and_then(|record| record.resource_mass()),
+        detailed_record.resource_mass(),
+        "completed physical-sample resource-scale knowledge must round-trip exactly"
     );
 }
 

@@ -1,0 +1,110 @@
+//! Read-only physical projection for authored equipment-assisted manual crafting.
+
+use std::num::NonZeroU64;
+
+use crate::capability::CapabilityValue;
+use crate::core::quantity::Mass;
+use crate::core::time::TickSpan;
+use crate::equipment::{EquipmentDefinitionId, resolve_equipment_capability};
+use crate::maintenance::Condition;
+use crate::production::ProcessId;
+use crate::registry::Registries;
+
+use super::errors::ManualCraftEquipmentProjectionError;
+use super::physics::ManualCraftEquipmentScheduleError;
+use super::resolve_manual_craft_equipment_schedule;
+
+/// Physical schedule projected from authored manual-craft and equipment definitions.
+///
+/// This is planning evidence only. Runtime authorization must still use the normal manual-craft
+/// resolver and admission path so inventory, provider availability/support, survival, and stale
+/// revisions are validated against current state.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManualCraftEquipmentProjection {
+    duration: TickSpan,
+    condition_after: Condition,
+}
+
+impl ManualCraftEquipmentProjection {
+    #[must_use]
+    pub const fn duration(self) -> TickSpan {
+        self.duration
+    }
+
+    #[must_use]
+    pub const fn condition_after(self) -> Condition {
+        self.condition_after
+    }
+}
+
+/// Projects the canonical equipment-assisted schedule for an authored future provider.
+///
+/// The equipment definition and starting condition are explicit planning inputs. This function
+/// intentionally does not inspect runtime equipment state and therefore cannot authorize work.
+pub fn project_manual_craft_equipment(
+    registries: &Registries,
+    process: ProcessId,
+    batches: NonZeroU64,
+    equipment: EquipmentDefinitionId,
+    condition: Condition,
+) -> Result<ManualCraftEquipmentProjection, ManualCraftEquipmentProjectionError> {
+    let definition = registries
+        .crafting()
+        .get_manual(process)
+        .ok_or(ManualCraftEquipmentProjectionError::UnknownManualProcess { process })?;
+    let profile = definition
+        .equipment_profile()
+        .ok_or(ManualCraftEquipmentProjectionError::EquipmentNotSupported { process })?;
+    let equipment_definition = registries
+        .equipment()
+        .get_equipment(equipment)
+        .ok_or(ManualCraftEquipmentProjectionError::UnknownEquipmentDefinition { equipment })?;
+    let capability = profile.mass_flow_capability();
+    let rate = match resolve_equipment_capability(equipment_definition, condition, capability) {
+        Some(CapabilityValue::MassFlow(rate)) => rate,
+        Some(value) => {
+            return Err(
+                ManualCraftEquipmentProjectionError::EquipmentCapabilityKindMismatch {
+                    equipment,
+                    capability,
+                    found: value.kind(),
+                },
+            );
+        }
+        None => {
+            return Err(
+                ManualCraftEquipmentProjectionError::MissingEquipmentCapability {
+                    equipment,
+                    capability,
+                },
+            );
+        }
+    };
+    let input_mass = Mass::from_milligrams(
+        definition
+            .input_mass()
+            .milligrams()
+            .checked_mul(batches.get())
+            .ok_or(ManualCraftEquipmentProjectionError::InputMassOverflow { process, batches })?,
+    );
+    let schedule = resolve_manual_craft_equipment_schedule(
+        rate,
+        input_mass,
+        registries.core().physical_tick_duration(),
+        profile.condition_wear_ppm_per_active_tick(),
+        condition,
+    )
+    .map_err(|error| match error {
+        ManualCraftEquipmentScheduleError::Duration(error) => {
+            ManualCraftEquipmentProjectionError::EquipmentDuration(error)
+        }
+        ManualCraftEquipmentScheduleError::Condition(error) => {
+            ManualCraftEquipmentProjectionError::EquipmentCondition(error)
+        }
+    })?;
+    Ok(ManualCraftEquipmentProjection {
+        duration: schedule.duration(),
+        condition_after: schedule.condition_after(),
+    })
+}

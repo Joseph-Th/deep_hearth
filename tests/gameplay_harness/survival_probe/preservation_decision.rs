@@ -10,13 +10,13 @@ use super::preservation::{
 use super::preservation_evaluation::{
     PreservationCandidateProjection, PreservationInfrastructureReview,
     evaluate_preservation_infrastructure_definition_with_raw_opportunity,
-    preservation_physical_frontier, preservation_policy_reachable_definitions,
-    project_preservation_candidates_with_raw_opportunity, select_preservation_investment,
-    select_preservation_projection,
+    preservation_physical_frontier, project_preservation_candidates_with_raw_opportunity,
+    select_preservation_investment, select_preservation_projection,
 };
 use super::{
     FoodDefinition, Mass, PreservationInvestmentPolicy, Registries, StorageDefinitionId,
-    preservation_freshness_return_threshold_ppm,
+    preservation_attention_value_ppm, preservation_material_budget_ppm,
+    preservation_minimum_return_ppm,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,9 +68,11 @@ pub(in super::super) struct PreservationDecisionReview {
     pub(in super::super) no_build: PreservationNoBuildReview,
     pub(super) projections: Vec<PreservationCandidateProjection>,
     pub(super) physical_frontier: BTreeSet<StorageDefinitionId>,
-    pub(super) policy_reachable: BTreeSet<StorageDefinitionId>,
+    pub(super) material_budget_ppm: u32,
+    pub(super) material_budget_mg: u64,
+    pub(super) material_budget_eligible_count: usize,
     pub(super) selected_on_physical_frontier: bool,
-    pub(super) selected_policy_reachable: bool,
+    pub(super) selected_within_material_budget: bool,
     pub(super) protection_attention_delta_ticks: u64,
     pub(super) protection_raw_delta_mg: SignedResourceDelta,
     pub(super) protection_metabolic_delta_nj: SignedResourceDelta,
@@ -78,7 +80,8 @@ pub(in super::super) struct PreservationDecisionReview {
     pub(super) protection_freshness_delta_ticks: i128,
     pub(super) protection_remaining_fresh_delta_ticks: i128,
     pub(super) preservation_return_ppm: u32,
-    pub(super) preservation_return_threshold_ppm: u32,
+    pub(super) preservation_attention_value_ppm: u32,
+    pub(super) preservation_minimum_return_ppm: u32,
     pub(super) capacity_utilization_ppm: u32,
 }
 
@@ -218,11 +221,35 @@ pub(in super::super) fn evaluate_preservation_decision(
         protected_reserve_mass,
         Some(available),
     );
-    let preservation_return_threshold_ppm =
-        preservation_freshness_return_threshold_ppm(behavior_seed);
-    let investment =
-        select_preservation_investment(preservation_return_threshold_ppm, &projections)
-            .map(|projection| projection.definition);
+    let preservation_attention_value_ppm = preservation_attention_value_ppm(behavior_seed);
+    let preservation_minimum_return_ppm = preservation_minimum_return_ppm(behavior_seed);
+    let material_budget_ppm = preservation_material_budget_ppm(behavior_seed);
+    let available_raw_mg = available
+        .iter()
+        .try_fold(0_u64, |total, (_, mass)| {
+            total.checked_add(mass.milligrams())
+        })
+        .unwrap_or_else(|| panic!("preservation disclosed raw opportunity overflowed"));
+    let minimum_candidate_raw_mg = projections
+        .iter()
+        .map(|projection| projection.raw_material_mass_mg)
+        .min()
+        .unwrap_or_else(|| panic!("preservation projection has no authored candidates"));
+    let proportional_budget_mg =
+        u64::try_from(u128::from(available_raw_mg) * u128::from(material_budget_ppm) / 1_000_000)
+            .unwrap_or_else(|_| unreachable!("bounded preservation material budget fits u64"));
+    let material_budget_mg = proportional_budget_mg.max(minimum_candidate_raw_mg);
+    let material_budget_eligible_count = projections
+        .iter()
+        .filter(|projection| projection.raw_material_mass_mg <= material_budget_mg)
+        .count();
+    let investment = select_preservation_investment(
+        preservation_attention_value_ppm,
+        preservation_minimum_return_ppm,
+        material_budget_mg,
+        &projections,
+    )
+    .map(|projection| projection.definition);
     let attention = evaluate_preservation_infrastructure_definition_with_raw_opportunity(
         registries,
         seed,
@@ -283,11 +310,12 @@ pub(in super::super) fn evaluate_preservation_decision(
         )
         .unwrap_or(u32::MAX)
     };
-    let selected_projection = select_preservation_projection(behavior_seed, &projections);
+    let selected_projection =
+        select_preservation_projection(behavior_seed, material_budget_mg, &projections);
     let physical_frontier = preservation_physical_frontier(&projections);
-    let policy_reachable = preservation_policy_reachable_definitions(&projections);
     let selected_on_physical_frontier = physical_frontier.contains(&selected_projection.definition);
-    let selected_policy_reachable = policy_reachable.contains(&selected_projection.definition);
+    let selected_within_material_budget =
+        selected_projection.raw_material_mass_mg <= material_budget_mg;
     let selected = if selected_projection.definition == attention.storage_definition {
         attention
     } else if selected_projection.definition == protection.storage_definition {
@@ -329,9 +357,11 @@ pub(in super::super) fn evaluate_preservation_decision(
         no_build: no_build_review,
         projections,
         physical_frontier,
-        policy_reachable,
+        material_budget_ppm,
+        material_budget_mg,
+        material_budget_eligible_count,
         selected_on_physical_frontier,
-        selected_policy_reachable,
+        selected_within_material_budget,
         protection_attention_delta_ticks,
         protection_raw_delta_mg,
         protection_metabolic_delta_nj,
@@ -339,7 +369,8 @@ pub(in super::super) fn evaluate_preservation_decision(
         protection_freshness_delta_ticks,
         protection_remaining_fresh_delta_ticks,
         preservation_return_ppm,
-        preservation_return_threshold_ppm,
+        preservation_attention_value_ppm,
+        preservation_minimum_return_ppm,
         capacity_utilization_ppm,
     }
 }

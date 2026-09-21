@@ -21,7 +21,7 @@ use deep_hearth::equipment::{
 };
 use deep_hearth::geology::{
     ExcavationHardnessEstimate, FieldProspectingOutcome, FieldProspectingRequest,
-    GeologicalEvidenceKind, validate_start_field_prospecting,
+    GeologicalEvidenceKind, ResourceMassEstimate, validate_start_field_prospecting,
 };
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
@@ -37,6 +37,7 @@ use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
+use super::equipment_support::pristine_equipment_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
@@ -77,14 +78,20 @@ mod survey;
 use survey::{CHANNEL_COUNT, CHANNEL_START_X, horizontal_region, localize_target};
 
 /// Controlled world generation, independent of demand and tool capabilities. The explicit salt
-/// retains rich seeds 1–3; seed 6 is maintained shallow coverage. Neither reserve nor tier is
-/// exposed to the actor. These are scenario opportunities, not runtime regional generation.
+/// retains rich seeds 1–3; seed 6 is maintained shallow coverage. One quarter of mixed worlds are
+/// shallow, so finite-opportunity surprise stays present without dominating ordinary exploration.
+/// Exact reserve and tier remain hidden from the actor. A detailed physical sample may expose only
+/// the canonical conservative resource-mass band. Shallow opportunities are still useful small
+/// deposits rather than sub-batch traces, so bounded reserve knowledge can change investment before
+/// depletion without making the preceding search meaningless. These are scenario opportunities,
+/// not runtime regional generation.
 fn fieldwork_supply(seed: u64) -> Mass {
     let variation = mix64(seed ^ 0x4649_454C_4452_5356);
-    let milligrams = if mix64(seed ^ 0x4649_454C_4453_5554).is_multiple_of(2) {
-        32_000_000 + variation % 32_000_001
+    let shallow = mix64(seed ^ 0x4649_454C_4453_5554) % 4 == 1;
+    let milligrams = if shallow {
+        4_000_000 + variation % 8_000_001
     } else {
-        25_000 + variation % 175_001
+        32_000_000 + variation % 32_000_001
     };
     Mass::from_milligrams(milligrams)
 }
@@ -98,7 +105,11 @@ fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
         return short_fieldwork_order(batch, seed);
     }
     let minimum = multiplied_mass(batch, 32, "long-order minimum");
-    let span = multiplied_mass(batch, 16, "long-order variation");
+    // Bulk fieldwork must span both sides of the authored heavy-tool investment crossover. The
+    // previous 16..24 kg band sat almost entirely on that crossover and therefore under-exercised
+    // the quarry tools' intended high-throughput niche. Keep the same lower bound but allow truly
+    // bulk 48 kg orders while remaining bounded and cheap to execute.
+    let span = multiplied_mass(batch, 64, "long-order variation");
     minimum
         .checked_add(Mass::from_milligrams(
             mix64(seed ^ 0x4649_454C_444D_4153) % (span.milligrams() + 1),
@@ -117,11 +128,15 @@ fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
 pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCase) {
     let episode = run_fieldwork_order(registries, case, fieldwork_order(registries, case.seed()));
     reviewln!(
-        "FIELDWORK ENDPOINT seed=0x{:016X} tool={} observed-hardness={}..{}Pa preparation={}t projected-order={}t actual-extraction={}t extracted={}mg outcome={}",
+        "FIELDWORK ENDPOINT seed=0x{:016X} tool={} observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg resource-knowledge-changed-tool={} preparation={}t projected-order={}t actual-extraction={}t extracted={}mg outcome={}",
         case.seed(),
         episode.tool.value(),
         episode.observed_hardness.lower().pascals(),
         episode.observed_hardness.upper().pascals(),
+        episode.observed_resource_mass.lower().milligrams(),
+        episode.observed_resource_mass.upper().milligrams(),
+        episode.planned_local_mass.milligrams(),
+        episode.resource_knowledge_changed_tool,
         episode.preparation_ticks,
         episode.projected_ticks,
         episode.extraction.ticks,
@@ -135,6 +150,9 @@ struct FieldworkEpisode {
     preparation_ticks: u64,
     projected_ticks: u64,
     observed_hardness: ExcavationHardnessEstimate,
+    observed_resource_mass: ResourceMassEstimate,
+    planned_local_mass: Mass,
+    resource_knowledge_changed_tool: bool,
     extraction: extraction::FieldworkExtraction,
 }
 
@@ -231,8 +249,17 @@ fn run_fieldwork_with_supply(
     };
 
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x4649_454C_4457_524C));
-    let (raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
+    let (mut raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
     let native_copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
+    // Soft-rock fieldwork must sometimes happen before the player has spare native copper.
+    // Otherwise the heavy stone quarry pick's authored bulk-extraction niche is invisible in the
+    // lived probe because every world can immediately buy a reinforced tool. Harder targets keep
+    // copper available here so the bounded ordinary episode still has an executable extraction
+    // path; separate candidate contracts prove the typed no-copper hardness blocker.
+    let copper_rich = hardness_tier != 0 || !mix64(seed ^ 0x4649_454C_445F_4355).is_multiple_of(2);
+    if !copper_rich {
+        raw_opportunity.remove(&native_copper);
+    }
     let starting_native_copper = raw_opportunity
         .get(&native_copper)
         .copied()
@@ -286,28 +313,66 @@ fn run_fieldwork_with_supply(
     let (hammer, sampling_setup_ticks) =
         assemble_sampling_hammer(registries, &mut state, raw, parts);
     let search_started_at = state.tick();
-    let (target, observed_hardness, transects, field_inspections, detailed_surveys) =
-        localize_target(registries, &mut state, hammer, channel_voxels);
+    let (
+        target,
+        observed_hardness,
+        observed_resource_mass,
+        transects,
+        field_inspections,
+        detailed_surveys,
+    ) = localize_target(registries, &mut state, hammer, channel_voxels);
     let search_ticks = state.tick().value() - search_started_at.value();
     assert!(
         observed_hardness.lower() <= excavation_hardness
             && observed_hardness.upper() >= excavation_hardness,
         "actor-visible hardness band must conservatively contain diagnostic geological truth"
     );
-    let estimate = choose_fieldwork_tool(
+    assert!(
+        observed_resource_mass.lower() <= deposit_mass
+            && deposit_mass <= observed_resource_mass.upper(),
+        "actor-visible reserve band must conservatively contain diagnostic geological truth"
+    );
+    let planned_local_mass = requested_mine_mass.min(observed_resource_mass.upper());
+    assert!(
+        !planned_local_mass.is_zero(),
+        "fieldwork acquired reserve evidence must leave a nonzero plausible local workload"
+    );
+    let blind_requested_estimate = choose_fieldwork_tool(
         registries,
         &state,
         raw,
         observed_hardness.upper(),
         requested_mine_mass,
+    );
+    let estimate = choose_fieldwork_tool(
+        registries,
+        &state,
+        raw,
+        observed_hardness.upper(),
+        planned_local_mass,
     )
     .unwrap_or_else(|| {
         panic!("fieldwork bounded raw-tool family has no candidate for the acquired evidence")
     });
+    let blind_requested_label = blind_requested_estimate
+        .as_ref()
+        .map_or("none", |blind| blind.tool.label);
+    let resource_knowledge_effect = match blind_requested_estimate.as_ref() {
+        Some(blind) if blind.tool.target == estimate.tool.target => "same-tool",
+        Some(_) => "changed-tool",
+        None => "changed-feasibility",
+    };
+    let resource_knowledge_changed_tool = resource_knowledge_effect == "changed-tool";
     reviewln!(
-        "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-wear-adjusted-order,then-native-copper,then-raw-mass,ties-light-first preparation={}t projected-order={}t total={}t authorization=not-yet",
+        "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-wear-adjusted-local-opportunity,then-native-copper,then-raw-mass,ties-light-first requested={}mg observed-resource-mass={}..{}mg planned-local-work={}mg blind-requested-tool={} resource-knowledge-effect={} preparation={}t projected-order={}t total={}t authorization=not-yet",
         state.tick().value(),
         estimate.tool.label,
+        requested_mine_mass.milligrams(),
+        observed_resource_mass.lower().milligrams(),
+        observed_resource_mass.upper().milligrams(),
+        planned_local_mass.milligrams(),
+        blind_requested_label,
+        resource_knowledge_effect,
         estimate.preparation_ticks,
         estimate.order_ticks,
         estimate.total_ticks()
@@ -472,7 +537,7 @@ fn run_fieldwork_with_supply(
     );
 
     reviewln!(
-        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} outcome={outcome} order-horizon={order_horizon} demand=explicit-extraction-order search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={output_grade_ppm}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
+        "FIELDWORK EXPERIENCE seed=0x{seed:016X} sample={} outcome={outcome} order-horizon={order_horizon} demand=explicit-extraction-order search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg blind-requested-tool={} resource-knowledge-effect={} geology={geology_label} tool={quarry_label} adaptation={adaptation} sampling-setup={}t/{sampling_setup_time} tool-prep={}t/{tool_prep_time} copper-opportunity={} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{mining_time} condition={}ppm->{}ppm output-grade={output_grade_ppm}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
         focused_probe_role_label(case.role()),
         CHANNEL_COUNT,
         transects,
@@ -480,8 +545,14 @@ fn run_fieldwork_with_supply(
         detailed_surveys,
         observed_hardness.lower().pascals(),
         observed_hardness.upper().pascals(),
+        observed_resource_mass.lower().milligrams(),
+        observed_resource_mass.upper().milligrams(),
+        planned_local_mass.milligrams(),
+        blind_requested_label,
+        resource_knowledge_effect,
         sampling_setup_ticks,
         tool_prep_ticks,
+        if copper_rich { "available" } else { "absent" },
         starting_native_copper.milligrams(),
         retained_native_copper.milligrams(),
         requested_mine_mass.milligrams(),
@@ -512,6 +583,9 @@ fn run_fieldwork_with_supply(
         preparation_ticks: tool_prep_ticks,
         projected_ticks: estimate.order_ticks,
         observed_hardness,
+        observed_resource_mass,
+        planned_local_mass,
+        resource_knowledge_changed_tool,
         extraction,
     }
 }

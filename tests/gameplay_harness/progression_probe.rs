@@ -4,13 +4,14 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 use super::environment::ROOM_TEMPERATURE;
-use super::equipment_support::nominal_equipment_mass_capability;
+use super::equipment_support::{nominal_equipment_mass_capability, pristine_equipment_capability};
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
 use super::manual_craft_planning::{
     manual_craft_plan_for_available_output, manual_craft_topology_plan_for_output,
+    project_manual_assembly_package,
 };
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
@@ -52,8 +53,10 @@ use deep_hearth::geology::{
     validate_start_field_prospecting,
 };
 use deep_hearth::labor::{
-    ManualPowerError, ManualPowerRequest, ProspectingMethodId, validate_start_manual_power,
+    ManualPowerError, ManualPowerRequest, ProspectingMethodId, project_manual_power,
+    validate_start_manual_power,
 };
+use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{
     COMPOSITION_PARTS_PER_MILLION, CommodityKey, MaterialAssemblyProfile, MaterialComposition,
 };
@@ -64,8 +67,8 @@ use deep_hearth::mining::{
 };
 use deep_hearth::ore_processing::{
     ComminutionRequest, ComminutionResolutionError, ConstituentSeparationProcessDefinition,
-    ConstituentSeparationRequest, assess_powered_ore_mass_envelope, resolve_comminution_process,
-    resolve_constituent_separation_process,
+    ConstituentSeparationRequest, assess_powered_ore_mass_envelope, project_manual_ore_duration,
+    resolve_comminution_process, resolve_constituent_separation_process,
 };
 use deep_hearth::production::{
     ProcessOutputRoute, ProductionJobId, validate_start_process, validate_start_process_routed,
@@ -85,6 +88,36 @@ pub(super) const MARGINAL_OPPORTUNITY_MIN_BATCHES: u64 = 48;
 pub(super) const MARGINAL_OPPORTUNITY_MAX_BATCHES: u64 = 192;
 pub(super) const DEEP_OPPORTUNITY_MIN_BATCHES: u64 = 384;
 pub(super) const DEEP_OPPORTUNITY_MAX_BATCHES: u64 = 512;
+
+fn project_manual_stockpile_breaking_attention(registries: &Registries, cycle_mass: Mass) -> u64 {
+    let definition = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("primitive progression hand-breaking route disappeared"));
+    let total_mass = cycle_mass
+        .milligrams()
+        .checked_mul(STOCKPILE_WORK_ORDER_CYCLES)
+        .unwrap_or_else(|| panic!("primitive stockpile work-order mass overflowed"));
+    let maximum = definition.max_batch_mass().milligrams();
+    let mut remaining = total_mass;
+    let mut ticks = 0_u64;
+    while remaining > 0 {
+        let batch = Mass::from_milligrams(remaining.min(maximum));
+        let duration = project_manual_ore_duration(
+            registries.core().physical_tick_duration(),
+            definition.operating_profile(),
+            batch,
+        )
+        .unwrap_or_else(|error| {
+            panic!("primitive stockpile manual-breaking projection failed: {error}")
+        });
+        ticks = ticks
+            .checked_add(duration.value())
+            .unwrap_or_else(|| panic!("primitive stockpile manual attention overflowed"));
+        remaining -= batch.milligrams();
+    }
+    ticks
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct OreOpportunity {
@@ -698,22 +731,16 @@ fn nominal_equipment_pressure_capability(
     equipment: deep_hearth::equipment::EquipmentDefinitionId,
     capability: CapabilityId,
 ) -> Pressure {
-    let definition = registries
-        .equipment()
-        .get_equipment(equipment)
-        .unwrap_or_else(|| panic!("primitive progression equipment definition disappeared"));
-    match definition.capabilities().get_capability(capability) {
-        Some(CapabilityValue::Pressure(pressure)) => pressure,
-        Some(value) => panic!(
+    match pristine_equipment_capability(registries, equipment, capability) {
+        CapabilityValue::Pressure(pressure) => pressure,
+        value @ (CapabilityValue::Mass(_)
+        | CapabilityValue::Temperature(_)
+        | CapabilityValue::Power(_)
+        | CapabilityValue::MassFlow(_)) => panic!(
             "primitive progression expected pressure capability {} on equipment {} but found {:?}",
             capability.value(),
             equipment.value(),
             value.kind()
-        ),
-        None => panic!(
-            "primitive progression equipment {} is missing authored pressure capability {}",
-            equipment.value(),
-            capability.value()
         ),
     }
 }
@@ -1035,24 +1062,30 @@ fn strongest_observed_copper_clue(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PrimitivePriority {
     PickFirst,
-    CrankFirstCounterfactual,
+    CrankFirst,
 }
 
 impl PrimitivePriority {
     const fn label(self) -> &'static str {
         match self {
             Self::PickFirst => "pick-first",
-            Self::CrankFirstCounterfactual => "crank-first-counterfactual",
+            Self::CrankFirst => "crank-first",
         }
     }
 }
 
-fn observed_primitive_priority() -> PrimitivePriority {
-    // The first directly usable copper parcel has one currently dominant ordinary-play use: the
-    // reinforced pick opens a known blocked seam immediately and reduces extraction attention.
-    // The crank-first branch remains a matched counterfactual below so future balance/content can
-    // prove when this stops being true, but it is not offered as a fake strategic choice today.
-    PrimitivePriority::PickFirst
+fn observed_primitive_priority(
+    hard_clue: ObservedCopperClue,
+    bulk_sample: ObservedMaterialSample,
+) -> PrimitivePriority {
+    // Spend scarce copper on access only when acquired evidence already guarantees that the blocked
+    // seam beats the exact grade of owned bulk ore. Otherwise prefer mechanizing known feed first.
+    // This intentionally uses the conservative lower evidence bound, never hidden seam truth.
+    if hard_clue.lower_ppm > bulk_sample.copper_ppm {
+        PrimitivePriority::PickFirst
+    } else {
+        PrimitivePriority::CrankFirst
+    }
 }
 
 #[derive(Clone)]
@@ -1087,6 +1120,13 @@ struct PrimitiveProgressionExperience {
     manual_bridge_ready_at: u64,
     manual_bridge_feed_mass: Mass,
     manual_bridge_attention_ticks: u64,
+    preaction_manual_processing_attention_ticks: u64,
+    preaction_mechanized_attention_upper_ticks: u64,
+    preaction_machine_assembly_ticks: u64,
+    preaction_machine_initial_charge_ticks: u64,
+    preaction_machine_repeated_charge_ticks: u64,
+    manual_stockpile_breaking_ticks: u64,
+    mechanized_stockpile_player_ticks: u64,
     manual_bridge_recovery_ppm: u32,
     manual_bootstrap_pick_ready_ticks: u64,
     manual_bootstrap_hard_sample_ticks: u64,
@@ -1150,6 +1190,7 @@ struct PrimitiveProgressionExperience {
     initial_crank_reinforced: bool,
     crank_reinforced: bool,
     maintenance_material_preparation_ticks: u64,
+    maintenance_preparation_overlap_ticks: u64,
     component_service_ticks: u64,
     component_service_mass: Mass,
     component_service_condition_before_ppm: u32,
@@ -1241,6 +1282,7 @@ fn service_reinforced_pick(
     native_storage: deep_hearth::inventory::StockpileId,
     shaped: deep_hearth::inventory::StockpileId,
     pick: deep_hearth::equipment::EquipmentId,
+    staged_preparation_ticks: u64,
 ) -> PrimitiveComponentService {
     let record = state
         .equipment()
@@ -1287,7 +1329,16 @@ fn service_reinforced_pick(
         replacement,
         replacement_mass,
     );
-    let preparation_ticks = duration(preparation_started_at, state.tick().value());
+    let serial_preparation_ticks = duration(preparation_started_at, state.tick().value());
+    if staged_preparation_ticks > 0 {
+        assert_eq!(
+            serial_preparation_ticks, 0,
+            "staged maintenance material must eliminate serial component preparation"
+        );
+    }
+    let preparation_ticks = staged_preparation_ticks
+        .checked_add(serial_preparation_ticks)
+        .unwrap_or_else(|| panic!("primitive maintenance preparation duration overflowed"));
     let resolution = resolve_equipment_maintenance(
         registries,
         state,
@@ -1489,6 +1540,210 @@ struct PrimitiveMachineBuildPlan {
     seed: u64,
 }
 
+#[derive(Clone, Copy)]
+struct PrimitiveMachineEnergyPlan {
+    drive_capacity: Energy,
+    required_energy: Energy,
+    separation_required_energy: Energy,
+    charge_energy: Energy,
+    reserve_mass: Mass,
+    charge_fill_ppm: u32,
+}
+
+fn primitive_machine_energy_plan(
+    registries: &Registries,
+    mined_mass: Mass,
+    separation_feed_mass: Mass,
+    seed: u64,
+) -> PrimitiveMachineEnergyPlan {
+    let crusher_process = registries
+        .ore_processing()
+        .get_comminution(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("primitive progression crusher process disappeared"));
+    let required_energy =
+        calculate_mass_specific_energy(mined_mass, crusher_process.specific_energy());
+    let separation_process = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("primitive progression separator process disappeared"));
+    let separation_required_energy =
+        calculate_mass_specific_energy(separation_feed_mass, separation_process.specific_energy());
+    let primary_processing_energy = required_energy
+        .checked_add(separation_required_energy)
+        .unwrap_or_else(|| panic!("primitive progression primary processing energy overflowed"));
+    let drive_capacity = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .map(|definition| definition.capacity())
+        .unwrap_or_else(|| panic!("primitive progression flywheel definition disappeared"));
+    assert!(
+        drive_capacity >= primary_processing_energy,
+        "primitive progression constructed drive cannot hold one crusher batch plus its playable separation step"
+    );
+    let maximum_follow_up_energy =
+        calculate_mass_specific_energy(mined_mass, crusher_process.specific_energy());
+    let maximum_useful_charge = primary_processing_energy
+        .checked_add(maximum_follow_up_energy)
+        .unwrap_or_else(|| panic!("primitive progression useful charge overflowed"));
+    let charge_ceiling = std::cmp::min(drive_capacity, maximum_useful_charge);
+    let charge_target_ppm = 850_000 + (mix64(seed ^ 0x4348_4152_4745_5253) % 150_001) as u32;
+    let target_charge_nj = charge_ceiling
+        .nanojoules()
+        .checked_mul(u128::from(charge_target_ppm))
+        .map(|scaled| scaled / 1_000_000)
+        .unwrap_or_else(|| panic!("primitive progression charge target overflowed"));
+    let reserve_energy_budget = target_charge_nj
+        .checked_sub(primary_processing_energy.nanojoules())
+        .unwrap_or_else(|| {
+            panic!(
+                "primitive progression charge target must fund crushing, separation, and useful follow-up work"
+            )
+        });
+    let specific_energy = u128::from(crusher_process.specific_energy().nanojoules_per_milligram());
+    let reserve_mass_mg =
+        u64::try_from(reserve_energy_budget / specific_energy).unwrap_or_else(|_| {
+            panic!("primitive progression reserve mass exceeds authoritative range")
+        });
+    assert!(
+        reserve_mass_mg > 0,
+        "primitive progression charge plan must bank a positive follow-up batch"
+    );
+    let reserve_mass = Mass::from_milligrams(reserve_mass_mg);
+    let reserve_energy =
+        calculate_mass_specific_energy(reserve_mass, crusher_process.specific_energy());
+    let charge_energy = primary_processing_energy
+        .checked_add(reserve_energy)
+        .unwrap_or_else(|| panic!("primitive progression reserve charge overflowed"));
+    assert!(
+        charge_energy <= drive_capacity,
+        "primitive progression selected reserve must fit the constructed flywheel"
+    );
+    let charge_fill_ppm = u32::try_from(
+        charge_energy
+            .nanojoules()
+            .checked_mul(1_000_000)
+            .map(|scaled| scaled / drive_capacity.nanojoules())
+            .unwrap_or_else(|| panic!("primitive progression flywheel fill ratio overflowed")),
+    )
+    .unwrap_or_else(|_| panic!("primitive progression flywheel fill ratio exceeded u32"));
+    PrimitiveMachineEnergyPlan {
+        drive_capacity,
+        required_energy,
+        separation_required_energy,
+        charge_energy,
+        reserve_mass,
+        charge_fill_ppm,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PrimitiveProcessingInvestmentProjection {
+    assembly_attention_ticks: u64,
+    initial_charge_ticks: u64,
+    repeated_charge_ticks: u64,
+    conservative_attention_ticks: u64,
+}
+
+#[derive(Clone, Copy)]
+struct PrimitiveProcessingInvestmentPlan {
+    raw: deep_hearth::inventory::StockpileId,
+    native_storage: deep_hearth::inventory::StockpileId,
+    shaped: deep_hearth::inventory::StockpileId,
+    mined_mass: Mass,
+    separation_feed_mass: Mass,
+    seed: u64,
+    crank_reinforced_before_charge: bool,
+}
+
+fn project_primitive_processing_investment(
+    registries: &Registries,
+    state: &AppState,
+    plan: PrimitiveProcessingInvestmentPlan,
+) -> PrimitiveProcessingInvestmentProjection {
+    let PrimitiveProcessingInvestmentPlan {
+        raw,
+        native_storage,
+        shaped,
+        mined_mass,
+        separation_feed_mass,
+        seed,
+        crank_reinforced_before_charge,
+    } = plan;
+    let drive_profile = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("primitive progression flywheel drive lost its assembly route"));
+    let assembly = project_manual_assembly_package(
+        registries,
+        state,
+        &[raw, native_storage],
+        shaped,
+        &[
+            equipment_assembly_profile(registries, EQUIPMENT_STONE_HAND_CRANK),
+            drive_profile,
+            equipment_assembly_profile(registries, EQUIPMENT_STONE_CRUSHER),
+            equipment_assembly_profile(registries, EQUIPMENT_STONE_SEPARATOR),
+        ],
+        "primitive processing-line pre-action build",
+    );
+    let energy = primitive_machine_energy_plan(registries, mined_mass, separation_feed_mass, seed);
+    let initial_definition = if crank_reinforced_before_charge {
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK
+    } else {
+        EQUIPMENT_STONE_HAND_CRANK
+    };
+    let initial_charge = project_manual_power(
+        registries,
+        MANUAL_POWER_HAND_CRANK,
+        initial_definition,
+        Condition::PRISTINE,
+        ENERGY_STONE_FLYWHEEL_DRIVE,
+        energy.charge_energy,
+    )
+    .unwrap_or_else(|error| {
+        panic!("primitive pre-action initial charge projection failed: {error}")
+    });
+    let mut condition = initial_charge.condition_after();
+    let mut repeated_charge_ticks = 0_u64;
+    // Full-capacity top-ups are deliberately conservative. The actual line reuses residual stored
+    // work; two extra top-ups cover separation/reserve uncertainty beyond the disclosed cycles.
+    for _ in 0..STOCKPILE_WORK_ORDER_CYCLES + 2 {
+        let charge = project_manual_power(
+            registries,
+            MANUAL_POWER_HAND_CRANK,
+            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            condition,
+            ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy.drive_capacity,
+        )
+        .unwrap_or_else(|error| {
+            panic!("primitive pre-action repeated charge projection failed: {error}")
+        });
+        repeated_charge_ticks = repeated_charge_ticks
+            .checked_add(charge.duration().value())
+            .unwrap_or_else(|| panic!("primitive projected repeated charging overflowed"));
+        condition = charge.condition_after();
+    }
+    let reinforcement_allowance_ticks = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
+        .map(|definition| definition.duration().value())
+        .unwrap_or_else(|| panic!("primitive copper reinforcement route disappeared"));
+    let conservative_attention_ticks = assembly
+        .attention_ticks
+        .checked_add(initial_charge.duration().value())
+        .and_then(|ticks| ticks.checked_add(repeated_charge_ticks))
+        .and_then(|ticks| ticks.checked_add(reinforcement_allowance_ticks))
+        .unwrap_or_else(|| panic!("primitive processing investment projection overflowed"));
+    PrimitiveProcessingInvestmentProjection {
+        assembly_attention_ticks: assembly.attention_ticks,
+        initial_charge_ticks: initial_charge.duration().value(),
+        repeated_charge_ticks,
+        conservative_attention_ticks,
+    }
+}
+
 fn build_primitive_machine(
     registries: &Registries,
     state: &mut AppState,
@@ -1543,77 +1798,14 @@ fn build_primitive_machine(
                 panic!("primitive progression drive construction commit failed: {error}")
             });
 
-    let crusher_process = registries
-        .ore_processing()
-        .get_comminution(PROCESS_CRUSH_ORE)
-        .unwrap_or_else(|| panic!("primitive progression crusher process disappeared"));
-    let required_energy =
-        calculate_mass_specific_energy(mined_mass, crusher_process.specific_energy());
-    let separation_process = registries
-        .ore_processing()
-        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
-        .unwrap_or_else(|| panic!("primitive progression separator process disappeared"));
-    let separation_required_energy =
-        calculate_mass_specific_energy(separation_feed_mass, separation_process.specific_energy());
-    let primary_processing_energy = required_energy
-        .checked_add(separation_required_energy)
-        .unwrap_or_else(|| panic!("primitive progression primary processing energy overflowed"));
-    let drive_capacity = registries
-        .energy()
-        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
-        .map(|definition| definition.capacity())
-        .unwrap_or_else(|| panic!("primitive progression flywheel definition disappeared"));
-    assert!(
-        drive_capacity >= primary_processing_energy,
-        "primitive progression constructed drive cannot hold one crusher batch plus its playable separation step"
-    );
-    let maximum_follow_up_mass = mined_mass;
-    let maximum_follow_up_energy =
-        calculate_mass_specific_energy(maximum_follow_up_mass, crusher_process.specific_energy());
-    let maximum_useful_charge = primary_processing_energy
-        .checked_add(maximum_follow_up_energy)
-        .unwrap_or_else(|| panic!("primitive progression useful charge overflowed"));
-    let charge_ceiling = std::cmp::min(drive_capacity, maximum_useful_charge);
-    let charge_target_ppm = 850_000 + (mix64(seed ^ 0x4348_4152_4745_5253) % 150_001) as u32;
-    let target_charge_nj = charge_ceiling
-        .nanojoules()
-        .checked_mul(u128::from(charge_target_ppm))
-        .map(|scaled| scaled / 1_000_000)
-        .unwrap_or_else(|| panic!("primitive progression charge target overflowed"));
-    let reserve_energy_budget = target_charge_nj
-        .checked_sub(primary_processing_energy.nanojoules())
-        .unwrap_or_else(|| {
-            panic!(
-                "primitive progression charge target must fund crushing, separation, and useful follow-up work"
-            )
-        });
-    let specific_energy = u128::from(crusher_process.specific_energy().nanojoules_per_milligram());
-    let reserve_mass_mg =
-        u64::try_from(reserve_energy_budget / specific_energy).unwrap_or_else(|_| {
-            panic!("primitive progression reserve mass exceeds authoritative range")
-        });
-    assert!(
-        reserve_mass_mg > 0,
-        "primitive progression charge plan must bank a positive follow-up batch"
-    );
-    let reserve_mass = Mass::from_milligrams(reserve_mass_mg);
-    let reserve_energy =
-        calculate_mass_specific_energy(reserve_mass, crusher_process.specific_energy());
-    let charge_energy = primary_processing_energy
-        .checked_add(reserve_energy)
-        .unwrap_or_else(|| panic!("primitive progression reserve charge overflowed"));
-    assert!(
-        charge_energy <= drive_capacity,
-        "primitive progression selected reserve must fit the constructed flywheel"
-    );
-    let charge_fill_ppm = u32::try_from(
-        charge_energy
-            .nanojoules()
-            .checked_mul(1_000_000)
-            .map(|scaled| scaled / drive_capacity.nanojoules())
-            .unwrap_or_else(|| panic!("primitive progression flywheel fill ratio overflowed")),
-    )
-    .unwrap_or_else(|_| panic!("primitive progression flywheel fill ratio exceeded u32"));
+    let PrimitiveMachineEnergyPlan {
+        drive_capacity,
+        required_energy,
+        separation_required_energy,
+        charge_energy,
+        reserve_mass,
+        charge_fill_ppm,
+    } = primitive_machine_energy_plan(registries, mined_mass, separation_feed_mass, seed);
     craft_for_profile(
         registries,
         state,
@@ -1861,6 +2053,8 @@ struct SteadyStateWork {
     mined_mass: Mass,
     mining_jobs: u64,
     feed_buffer_limited_cycles: u64,
+    maintenance_preparation_ticks: u64,
+    maintenance_preparation_overlap_ticks: u64,
     stop: PrimitiveSteadyStop,
     terminal_crusher_condition_ppm: u32,
 }
@@ -1871,7 +2065,157 @@ struct SteadyStateCrushingPlan {
     crushed_storage: deep_hearth::inventory::StockpileId,
     machine: PrimitiveMachine,
     concurrent: ConcurrentMiningPlan,
+    raw: deep_hearth::inventory::StockpileId,
+    native_storage: deep_hearth::inventory::StockpileId,
+    shaped: deep_hearth::inventory::StockpileId,
     required_productive_ticks: u64,
+}
+
+fn stage_pick_service_component_while_crushing(
+    registries: &Registries,
+    state: &mut AppState,
+    concurrent: ConcurrentMachineWork,
+    raw: deep_hearth::inventory::StockpileId,
+    native_storage: deep_hearth::inventory::StockpileId,
+    shaped: deep_hearth::inventory::StockpileId,
+    pick: EquipmentId,
+) -> (u64, u64, u64) {
+    let pick_record = state.equipment().get_equipment(pick).unwrap_or_else(|| {
+        panic!("primitive progression pick disappeared before staged service prep")
+    });
+    let profile = registries
+        .equipment()
+        .get_equipment(pick_record.definition())
+        .and_then(|definition| definition.maintenance_profile())
+        .unwrap_or_else(|| panic!("primitive reinforced pick lost its maintenance profile"));
+    let replacement = profile.replacement();
+    let required = profile.full_service_replacement_mass();
+    let available = state
+        .inventory()
+        .get_stockpile(shaped)
+        .map(|stockpile| stockpile.get_mass(replacement))
+        .unwrap_or_else(|| {
+            panic!("primitive shaped stockpile disappeared before staged service prep")
+        });
+    if available >= required {
+        return (0, 0, finish_autonomous_crush(registries, state, concurrent));
+    }
+    let missing = required
+        .checked_sub(available)
+        .unwrap_or_else(|| unreachable!("staged maintenance component is known to be short"));
+    let (craft, batches, source) = manual_craft_plan_for_available_output(
+        registries,
+        state,
+        &[raw, native_storage],
+        replacement,
+        missing,
+        "primitive staged maintenance component",
+    );
+    let request = select_manual_craft_request(
+        registries,
+        state,
+        craft.process(),
+        source,
+        batches,
+        "primitive staged maintenance component",
+    );
+    let machine_remaining = state
+        .production()
+        .get_job(concurrent.job)
+        .map(|job| {
+            job.completes_at()
+                .value()
+                .checked_sub(state.tick().value())
+                .unwrap_or_else(|| {
+                    panic!("primitive crusher completion fell behind staged maintenance prep")
+                })
+        })
+        .unwrap_or(0);
+    assert!(
+        machine_remaining > 0,
+        "staged maintenance preparation requires an active autonomous crusher window"
+    );
+    let craft_job = validate_start_manual_craft(
+        registries,
+        state,
+        ManualCraftStartRequest::new(request, shaped),
+    )
+    .unwrap_or_else(|error| panic!("primitive staged maintenance craft start failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("primitive staged maintenance craft commit failed: {error}"));
+    let craft_ticks = state
+        .production()
+        .get_job(craft_job)
+        .map(|job| {
+            job.completes_at()
+                .value()
+                .checked_sub(state.tick().value())
+                .unwrap_or_else(|| panic!("staged maintenance craft completion precedes start"))
+        })
+        .unwrap_or_else(|| panic!("staged maintenance craft disappeared after admission"));
+    assert!(craft_ticks > 0);
+    let mut craft_completion_seen = false;
+    for elapsed in 1..=craft_ticks {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("primitive staged maintenance tick failed: {error}"));
+        assert!(
+            outcome
+                .production_availability_changes()
+                .iter()
+                .all(|change| {
+                    let changed_job = change.job();
+                    changed_job != craft_job && changed_job != concurrent.job
+                }),
+            "staged maintenance work unexpectedly changed availability"
+        );
+        assert!(
+            outcome.production_completions().iter().all(|completion| {
+                completion.job() == craft_job || completion.job() == concurrent.job
+            }),
+            "staged maintenance work crossed an unrelated production completion"
+        );
+        assert!(
+            outcome.ready_mining_jobs().is_empty()
+                && outcome.manual_power().is_none()
+                && outcome.equipment_maintenance().is_none()
+                && outcome.storage_enclosure_dismantling().is_none()
+                && outcome.field_prospecting().is_none(),
+            "staged maintenance work crossed unrelated player work"
+        );
+        if outcome
+            .production_completions()
+            .iter()
+            .any(|completion| completion.job() == craft_job)
+        {
+            assert_eq!(
+                elapsed, craft_ticks,
+                "staged maintenance craft completed before its admitted schedule"
+            );
+            craft_completion_seen = true;
+        }
+    }
+    assert!(
+        craft_completion_seen,
+        "staged maintenance craft produced no completion receipt"
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(shaped)
+            .is_some_and(|stockpile| stockpile.get_mass(replacement) >= required),
+        "staged maintenance craft did not produce the required replacement component"
+    );
+    let overlap_ticks = craft_ticks.min(machine_remaining);
+    let idle_ticks = finish_autonomous_crush(registries, state, concurrent);
+    assert_eq!(
+        overlap_ticks
+            .checked_add(idle_ticks)
+            .unwrap_or_else(|| panic!("staged maintenance crusher-tail accounting overflowed")),
+        machine_remaining,
+        "staged maintenance work must partition the original autonomous crusher tail"
+    );
+    (craft_ticks, overlap_ticks, idle_ticks)
 }
 
 fn run_steady_state_crushing(
@@ -1884,10 +2228,14 @@ fn run_steady_state_crushing(
         crushed_storage,
         machine,
         concurrent,
+        raw,
+        native_storage,
+        shaped,
         required_productive_ticks,
     } = plan;
     let mut totals = SteadyStateWork::default();
     let mut overlap_setup_equivalent_cycle = None;
+    let mut maintenance_staged = false;
     for cycle in 1..=MAX_STEADY_STATE_CRUSH_CYCLES {
         let charge_ticks =
             match fill_primitive_accumulator(registries, state, machine, machine.required_energy) {
@@ -1927,7 +2275,24 @@ fn run_steady_state_crushing(
             }
         };
         totals.cycles = cycle;
-        let player_free = finish_autonomous_crush(registries, state, work);
+        let player_free = if maintenance_staged {
+            finish_autonomous_crush(registries, state, work)
+        } else {
+            let (preparation_ticks, overlap_ticks, idle_ticks) =
+                stage_pick_service_component_while_crushing(
+                    registries,
+                    state,
+                    work,
+                    raw,
+                    native_storage,
+                    shaped,
+                    concurrent.pick,
+                );
+            maintenance_staged = true;
+            totals.maintenance_preparation_ticks = preparation_ticks;
+            totals.maintenance_preparation_overlap_ticks = overlap_ticks;
+            idle_ticks
+        };
         let useful_overlap = work
             .crush_ticks
             .checked_sub(player_free)
@@ -2543,7 +2908,7 @@ use episode::run_primitive_progression_case;
 pub(super) mod manual_processing;
 use manual_processing::{
     OwnedOreManualBridgePlan, evaluate_manual_processing_fallback,
-    evaluate_owned_ore_manual_bridge, run_owned_ore_manual_bridge,
+    evaluate_owned_ore_manual_bridge, project_owned_ore_manual_bridge, run_owned_ore_manual_bridge,
 };
 
 #[path = "progression_probe/review.rs"]

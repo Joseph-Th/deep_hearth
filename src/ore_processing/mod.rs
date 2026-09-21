@@ -33,8 +33,9 @@ pub use definitions::{
     ManualConstituentSeparationProcessDefinition, ManualOreProcessProfile,
     PoweredOreProcessProfile, ScreeningProcessDefinition,
 };
-pub(crate) use manual_physics::resolve_manual_ore_duration;
-pub use manual_physics::{ManualOreJobValidationError, ManualOrePhysicsError};
+pub use manual_physics::{
+    ManualOreJobValidationError, ManualOrePhysicsError, project_manual_ore_duration,
+};
 
 pub use separation_execution::{
     ConstituentSeparationBatchError, ConstituentSeparationJobValidationError,

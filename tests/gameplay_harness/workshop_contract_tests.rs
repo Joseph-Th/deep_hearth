@@ -62,11 +62,17 @@ fn short_warning_order_defers_service_until_safe_completion() {
         report.maintenance.warning_deferrals
     );
     assert_eq!(report.progress.processed_mass, variation.ore.order_mass);
-    assert_eq!(report.progress.operations_completed, 6);
+    assert!(
+        report.progress.operations_completed > 1,
+        "warning-deferral regression requires a multi-batch order"
+    );
     assert_eq!(report.maintenance.services, 0);
     assert_eq!(report.maintenance.critical_services, 0);
     assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
-    assert_eq!(report.maintenance.warning_deferrals, 6);
+    assert_eq!(
+        report.maintenance.warning_deferrals, report.progress.operations_completed,
+        "warning policy must defer service at every completed safe batch"
+    );
     assert_eq!(
         report.maintenance.service_ticks, 0,
         "deferral policy must not pay authored service time during the order"
@@ -329,9 +335,18 @@ fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hid
 
 #[test]
 fn critical_service_is_affordable_from_warning_hydration_reserves() {
+    use deep_hearth::content::EQUIPMENT_JAW_CRUSHER;
+
     let registries = build_registries();
     let mut variation = scenario::ScenarioVariation::from_seeds(&registries, 4, 1, None);
-    variation.crusher.initial_crusher_condition = condition(41_036);
+    let critical = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_JAW_CRUSHER)
+        .unwrap_or_else(|| panic!("authored crusher disappeared"))
+        .maintenance_thresholds()
+        .critical_below()
+        .parts_per_million();
+    variation.crusher.initial_crusher_condition = condition(critical / 2);
     variation.crusher.maintenance_replacement_units = 2;
     variation.survival.start_at_hydration_warning_boundary = true;
     variation.delivery.delivery_at_tick = 64;

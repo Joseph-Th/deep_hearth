@@ -26,7 +26,8 @@ pub use disassembly_execution::{
     ValidatedEquipmentDisassembly, validate_disassemble_equipment,
 };
 pub use equipment_integration::{
-    EquipmentProviderError, ResolvedEquipmentProvider, resolve_equipment_provider,
+    EquipmentProviderError, ResolvedEquipmentProvider, project_equipment_capability,
+    resolve_equipment_provider,
 };
 pub use equipment_structural_integration::{
     EquipmentSupportCommitError, EquipmentSupportError, EquipmentSupportOutcome,

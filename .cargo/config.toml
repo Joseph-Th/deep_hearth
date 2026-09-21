@@ -5,16 +5,18 @@ linker = "lld-link.exe"
 
 [alias]
 # Daily feedback stays on the smallest artifact that can catch the current class of mistake. The
-# compile-only aliases avoid codegen/linking while code is unstable; executable proof reuses one
-# stable test-support feature shape for unit and gameplay tests instead of recompiling the library
-# under separate Cargo feature fingerprints.
+# compile-only aliases avoid codegen/linking while code is unstable; exact unit tests and the core
+# audit reuse one feature-minimal test artifact while gameplay targets opt into their setup feature.
 check-fast = "check --quiet --locked --lib"
-# `test-lint` is the fast lib-only Clippy loop for unstable code. The explicit
-# `python ci.py gate --lint` checkpoint separately covers all targets/features
-# with full local parallelism; that broad lane stays opt-in so one small edit
-# never pays for every test binary.
-test-lint = "clippy --locked --lib -- -D warnings"
-test-core = "test --quiet --locked --lib --features test-gameplay"
+# `lint-fast` is the fast lib-only Clippy loop for unstable code. The explicit
+# `python ci.py gate --lint` checkpoint separately covers production plus the
+# representative consolidated gameplay/report surfaces; specialized shader and
+# soak code keep their own opt-in lanes.
+lint-fast = "clippy --quiet --locked --lib -- -D warnings"
+# Keep the ordinary core-test graph feature-minimal so exact/suite repair loops and
+# the core audit reuse the same incremental artifact. The explicit all audit pays
+# for the test-gameplay feature graph only when it also needs gameplay binaries.
+test-core = "test --quiet --locked --lib"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak lane pays that cost only on demand.
 test-soak = "test --quiet --locked --lib --features test-soak -- --ignored"

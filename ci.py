@@ -13,6 +13,8 @@ import subprocess
 import sys
 import time
 
+from tools.gameplay_report_summary import concise_gameplay_report
+
 
 ROOT = Path(__file__).resolve().parent
 
@@ -36,12 +38,12 @@ GAMEPLAY_TESTS = {
 }
 
 
-def configure_report_replay_environment(
+def configure_gameplay_replay_environment(
     environ,
     *,
     randbits=secrets.randbits,
 ) -> tuple[str, str]:
-    """Give exploratory gameplay a fresh bounded sample unless the caller requested a replay."""
+    """Give bounded gameplay variation fresh replay roots unless the caller supplied them."""
 
     variation_key = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
     behavior_key = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
@@ -54,7 +56,19 @@ def configure_report_replay_environment(
     return variation, behavior
 
 
-GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TESTS)
+def uses_fresh_gameplay_variation(args: argparse.Namespace) -> bool:
+    """Return whether this supported command executes behavior samples rather than static contracts."""
+
+    if args.preset == "report":
+        return True
+    if args.preset == "gate":
+        return args.gameplay not in (None, "contracts")
+    if args.preset == "audit":
+        return bool(args.all or args.gameplay)
+    return False
+
+
+GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TESTS)
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
 RUST_TEST_RESULT = re.compile(
@@ -64,12 +78,6 @@ RUST_TEST_RESULT = re.compile(
 
 FAILURE_HEAD_LINES = 16
 FAILURE_TAIL_LINES = 64
-ORDINARY_GAMEPLAY_REPORT_PREFIXES = (
-    "PLAYER FANTASY ",
-    "CONTENT registry_schema=",
-    "CONTENT ACQUISITION EDGES ",
-    "EVIDENCE CONTRACT ",
-)
 GAMEPLAY_REPLAY_ROOTS = re.compile(
     r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
 )
@@ -87,18 +95,24 @@ def cargo(alias: str) -> list[str]:
 
 
 def lint_command() -> list[str]:
-    """Lint every maintained Rust target under every repository feature."""
+    """Lint production plus the representative broad gameplay/report surfaces."""
 
-    # No explicit job cap: this explicit checkpoint lane should use the solo
-    # developer's full local parallelism instead of throttling the most
-    # expensive gate lane.
+    # Focused gameplay roots are strict subsets of gameplay_audit and their
+    # module closure/isolation is checked build-free by tools.test_ci. Avoid
+    # recompiling those wrappers, soak-only code, and shader-only dependencies
+    # during the ordinary lint checkpoint.
     return [
         "cargo",
         "clippy",
         "--quiet",
         "--locked",
-        "--all-targets",
-        "--all-features",
+        "--lib",
+        "--test",
+        GAMEPLAY_AUDIT_TARGET,
+        "--example",
+        GAMEPLAY_REPORT_EXAMPLE,
+        "--features",
+        "test-gameplay",
         "--",
         "-D",
         "warnings",
@@ -151,6 +165,20 @@ def gameplay_replay_summary(stdout: str) -> str | None:
     return None
 
 
+def gameplay_environment_summary(label: str, environ) -> str | None:
+    """Return replay roots for a gameplay stage whose successful test output stayed captured."""
+
+    if label not in ("gameplay", "core + gameplay", "gameplay report") and not (
+        label.startswith("gameplay ") and label != "gameplay contracts"
+    ):
+        return None
+    variation = environ.get("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
+    if variation is None:
+        return None
+    behavior = environ.get("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", "n/a")
+    return f"roots={variation}/{behavior}"
+
+
 def combined_test_summary(stdout: str) -> str | None:
     """Return the core/gameplay split for the one-graph broad test command."""
 
@@ -166,728 +194,6 @@ def combined_test_summary(stdout: str) -> str | None:
     if ignored:
         detail += f", {ignored} ignored"
     return detail
-
-
-def ordinary_gameplay_diversity(lines: list[str]) -> list[str]:
-    """Summarize all bounded ordinary-play samples without dumping every episode."""
-
-    survival = [line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")]
-    progression = [line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")]
-    liberation = [line for line in lines if line.startswith("LIBERATION EXPERIENCE ")]
-    woodworking = [line for line in lines if line.startswith("WOODWORKING EXPERIENCE ")]
-    fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
-    power = [line for line in lines if line.startswith("POWER PROVIDER EXPERIENCE ")]
-    summaries: list[str] = []
-    if survival:
-        count = lambda marker: sum(marker in line for line in survival)
-        reserve_masses = [
-            int(match.group(1))
-            for line in survival
-            if (match := re.search(r"\bprotected-reserve:(\d+)mg", line)) is not None
-        ]
-        reserve_span = (
-            f"{min(reserve_masses)}..{max(reserve_masses)}mg"
-            if reserve_masses
-            else "n/a"
-        )
-        preservation_candidate_counts = [
-            int(match.group(1))
-            for line in survival
-            if (match := re.search(r"\bcandidates:(\d+)", line)) is not None
-        ]
-        preservation_opportunity_origins = {
-            int(match.group(1))
-            for line in survival
-            if (match := re.search(r"\braw-opportunity=\[origin:(\d+)", line)) is not None
-        }
-        physical_frontier_counts = [
-            int(match.group(1))
-            for line in survival
-            if (match := re.search(r"\bfrontier=\[physical:(\d+)/(\d+)", line)) is not None
-        ]
-        policy_reachable_counts = [
-            int(match.group(1))
-            for line in survival
-            if (match := re.search(r"\bpolicy-reachable:(\d+)/(\d+)", line)) is not None
-        ]
-        count_span = lambda values: f"{min(values)}..{max(values)}" if values else "n/a"
-        summaries.append(
-            "SURVIVAL DIVERSITY "
-            f"samples={len(survival)} "
-            f"pressure=[hydration:{count('pressure=hydration')} energy:{count('pressure=energy')}] "
-            f"choice-state=[supply-constrained:{count('state:supply-constrained')} policy-sensitive:{count('state:policy-sensitive')}] "
-            f"diet=[balanced-recovery:{count('diet:balanced-recovery')} compact-calories:{count('diet:compact-calories')}] "
-            f"preservation=[declined:{count('storage-policy:decline')} attention-efficient:{count('storage-policy:attention-efficient')} enclosure-singleton:{count('storage-policy:enclosure-singleton')} balanced-frontier:{count('storage-policy:balanced-frontier')} maximum-protection:{count('storage-policy:maximum-protection')}] "
-            f"reserve={reserve_span} "
-            f"raw-opportunities:{len(preservation_opportunity_origins)} "
-            f"raw-material=[timber:{count('wood/log')} stone:{count('stone/lump')}] "
-            f"raw-mode=[choice-rich:{count('mode:choice-rich-timber')} scarce:{count('mode:scarce-timber')} alternate:{count('mode:alternate-material')}] "
-            f"candidates={count_span(preservation_candidate_counts)} "
-            f"physical-frontier={count_span(physical_frontier_counts)} "
-            f"policy-reachable={count_span(policy_reachable_counts)} "
-            f"capacity-or-material-singleton:{sum(candidate_count == 1 for candidate_count in preservation_candidate_counts)}"
-        )
-    if progression:
-        count = lambda marker: sum(marker in line for line in progression)
-        hard_leads = [
-            int(match.group(1))
-            for line in progression
-            if (match := re.search(r"hard-access-lead:(\d+)t", line)) is not None
-        ]
-        hard_lead_span = (
-            f"{min(hard_leads)}..{max(hard_leads)}t" if hard_leads else "n/a"
-        )
-        summaries.append(
-            "PROGRESSION DIVERSITY "
-            f"samples={len(progression)} "
-            f"local-copper=[pick-first:{count('local-copper-sequence=pick-first')} crank-counterfactual:{count('counterfactual=[crank-first-tradeoff')}] "
-            f"hard-access-lead={hard_lead_span} "
-            f"information=[surface-resolved:{count('information=surface-resolved')} deferred-refinement:{count('information=deferred-refinement')}] "
-            f"stockpiling-coverage=[stockpile-order-complete:{count('economics:finite-stockpile-order-complete')} supply-ended:{count('economics:supply-ended')}] payback=not-established "
-            f"selected-reinvestment=[completed:{count('selected-reinvestment=[completed')} blocked:{count('selected-reinvestment=[blocked:')}]"
-        )
-    if liberation:
-        inputs = {
-            line.split(" input=[", 1)[1].split("]", 1)[0]
-            for line in liberation
-            if " input=[" in line
-        }
-        summaries.append(
-            "LIBERATION DIVERSITY "
-            f"samples={len(liberation)} varied-inputs={len(inputs)} "
-            f"completed={sum('matter=conserved' in line for line in liberation)}"
-        )
-    if woodworking:
-        count = lambda marker: sum(marker in line for line in woodworking)
-        summaries.append(
-            "WOODWORKING DIVERSITY "
-            f"samples={len(woodworking)} "
-            f"choice=[bare:{count('choice=bare-hands')} adze:{count('choice=stone-adze')} saw:{count('choice=frame-saw')}] "
-            f"policy=[copper:{count('preference=conserve-scarce-copper')} timber:{count('preference=conserve-timber')}] "
-            f"saw=[fundable:{count(' fundable:true ')} attention-payback:{count('attention-payback:true')} net-timber-payback:{count('net-timber-payback:true')}] "
-            f"lifecycle=[copper-fallback:{count('fallback-copper:true')} saw-service:{sum(bool(re.search(r'saw-services:[1-9][0-9]*', line)) for line in woodworking)}] "
-            f"decision=[bare-hands:{count('reason=bare-hands-avoids-investment-cost')} copper-blocked:{count('reason=copper-supply-limited')} reserve-protected:{count('reason=copper-reserve-protected')} timber-horizon:{count('reason=pipeline-too-short-for-net-timber-payback')} attention-horizon:{count('reason=pipeline-too-short-for-attention-payback')} attention-invest:{count('reason=surplus-copper-attention-payback')} timber-invest:{count('reason=pipeline-net-timber-payback')}]"
-        )
-    if fieldwork:
-        count = lambda marker: sum(marker in line for line in fieldwork)
-        inspection_counts = [
-            int(match.group(1))
-            for line in fieldwork
-            if (match := re.search(r"\bfield-inspections=(\d+)", line)) is not None
-        ]
-        inspection_span = (
-            f"{min(inspection_counts)}..{max(inspection_counts)}"
-            if inspection_counts
-            else "n/a"
-        )
-        retained_copper = [
-            int(match.group(1))
-            for line in fieldwork
-            if (match := re.search(r"\bretained-native-copper=(\d+)mg", line)) is not None
-        ]
-        retained_span = (
-            f"{min(retained_copper)}..{max(retained_copper)}mg"
-            if retained_copper
-            else "n/a"
-        )
-        hardness_bands = [
-            (int(match.group(1)), int(match.group(2)))
-            for line in fieldwork
-            if (match := re.search(r"\bobserved-hardness=(\d+)\.\.(\d+)Pa", line)) is not None
-        ]
-        hardness_span = (
-            f"{min(lower for lower, _upper in hardness_bands)}..{max(upper for _lower, upper in hardness_bands)}Pa"
-            if hardness_bands
-            else "n/a"
-        )
-        summaries.append(
-            "FIELDWORK DIVERSITY "
-            f"samples={len(fieldwork)} field-inspections={inspection_span} "
-            f"targeted-detail:{count('detailed-surveys=1')} "
-            f"observed-hardness={hardness_span} "
-            f"geology=[soft:{count('geology=quarry-soft')} quarry-upgrade:{count('geology=quarry-reinforcement')} hard-pick:{count('geology=hard-pick-specialist')}] "
-            f"tool=[stone-pick:{count('tool=stone-pick')} stone-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} hard-pick:{count('tool=copper-reinforced-hard-pick')}] "
-            f"selection=[preparation-plus-order:{count('adaptation=preparation-plus-order')} batch-limit:{count('adaptation=preparation-plus-order+batch-limit')}] "
-            f"retained-copper={retained_span}"
-        )
-    if power:
-        reductions = [
-            int(match.group(1))
-            for line in power
-            if (match := re.search(r"charge-attention-reduction:(\d+)ppm", line)) is not None
-        ]
-        crank_builds = [
-            int(match.group(1))
-            for line in power
-            if (match := re.search(r"build-mass-crank:(\d+)mg", line)) is not None
-        ]
-        treadle_builds = [
-            int(match.group(1))
-            for line in power
-            if (match := re.search(r"build-mass-treadle:(\d+)mg", line)) is not None
-        ]
-        metabolic_wins = 0
-        for line in power:
-            crank_cost = re.search(r"metabolic-crank:(\d+)nJ", line)
-            treadle_cost = re.search(r"metabolic-treadle:(\d+)nJ", line)
-            if (
-                crank_cost is not None
-                and treadle_cost is not None
-                and int(treadle_cost.group(1)) < int(crank_cost.group(1))
-            ):
-                metabolic_wins += 1
-        reduction_span = f"{min(reductions)}..{max(reductions)}ppm" if reductions else "n/a"
-        crank_build_span = (
-            f"{min(crank_builds)}..{max(crank_builds)}mg" if crank_builds else "n/a"
-        )
-        treadle_build_span = (
-            f"{min(treadle_builds)}..{max(treadle_builds)}mg" if treadle_builds else "n/a"
-        )
-        break_evens = [
-            int(match.group(1))
-            for line in power
-            if (match := re.search(r"break-even-charges:(\d+)", line)) is not None
-        ]
-        break_even_span = (
-            f"{min(break_evens)}..{max(break_evens)}charges" if break_evens else "n/a"
-        )
-        summaries.append(
-            "POWER DIVERSITY "
-            f"samples={len(power)} "
-            f"charge-attention-reduction={reduction_span} "
-            f"build-mass=[crank:{crank_build_span} treadle:{treadle_build_span}] "
-            f"break-even={break_even_span} "
-            f"metabolic-lower-treadle:{metabolic_wins}"
-        )
-    return summaries
-
-
-def controlled_gameplay_summary(lines: list[str]) -> list[str]:
-    """Keep high-value capability evidence visible without dumping capability transcripts."""
-
-    summaries: list[str] = []
-    for prefix in ("WORKSHOP CAPABILITY ", "WORKSHOP EXPERIENCE REVIEW ", "AGENCY SUMMARY "):
-        if line := next((line for line in lines if line.startswith(prefix)), None):
-            summaries.append(line)
-
-    ore_lines = [
-        line
-        for line in lines
-        if line.startswith("CAPABILITY ORE_PREP ") or line.startswith("ORE REVIEW ")
-    ]
-    ore_completed = [line for line in ore_lines if " outcome=completed " in line]
-    ore_stopped = [line for line in ore_lines if " outcome=stopped " in line]
-    if ore_completed or ore_stopped:
-        feed_signatures = {
-            line.split(" feed=[", 1)[1].split("]", 1)[0]
-            for line in ore_completed
-            if " feed=[" in line
-        }
-        summaries.append(
-            "ORE CAPABILITY SUMMARY "
-            f"samples={len(ore_completed) + len(ore_stopped)} "
-            f"completed={len(ore_completed)} stopped={len(ore_stopped)} "
-            f"finite-energy-stops={sum('blocker=finite-energy' in line for line in ore_stopped)} "
-            f"variable-feed={len(feed_signatures)}"
-        )
-
-    foundry = [
-        line
-        for line in lines
-        if line.startswith("CAPABILITY FOUNDRY ") or line.startswith("FOUNDRY REVIEW ")
-    ]
-    if foundry:
-        recovery_casts = sum(
-            (match := re.search(r"\brecovery-cast=(\d+)mg", line)) is not None
-            and int(match.group(1)) > 0
-            for line in foundry
-        )
-        summaries.append(
-            "FOUNDRY CAPABILITY SUMMARY "
-            f"samples={len(foundry)} "
-            f"full={sum(' outcome=full-order-' in line for line in foundry)} "
-            f"partial={sum(' outcome=partial-order-' in line for line in foundry)} "
-            f"melt-limited={sum('melt-limit=finite-energy' in line for line in foundry)} "
-            f"cast-capacity-limited={sum('cast-limit=thermal-sink-capacity' in line for line in foundry)} "
-            f"cooldown-recovery={recovery_casts} "
-            f"full-after-cooldown={sum('outcome=full-order-recovered-after-cooldown' in line for line in foundry)}"
-        )
-    return summaries
-
-
-def physical_tick_us(lines: list[str]) -> int | None:
-    """Use the report's registry-derived clock; missing metadata is not a guessed clock."""
-    values = {
-        int(match.group(1))
-        for line in lines
-        if (match := re.fullmatch(r"SIMULATION TIME physical-tick-us=([1-9]\d*)", line))
-        is not None
-    }
-    return next(iter(values)) if len(values) == 1 else None
-
-
-def ticks_minutes(ticks: int, tick_us: int | None) -> str:
-    """Render a physical duration only when its authoritative time basis is available."""
-    if tick_us is None:
-        return "unknown-clock"
-    return f"{ticks * tick_us / 60_000_000:.1f}m"
-
-
-def player_takeaways(lines: list[str]) -> list[str]:
-    """Add one plain-language read per ordinary probe on top of the terse diversity counts.
-
-    Every clause parses the same verbose episode lines the diversity summaries use, plus
-    the additive POWER COPPER-CONTEXT and LIBERATION FRONTIER diagnostics. Clauses degrade
-    gracefully when a marker is absent, so older transcripts still produce a takeaway.
-    """
-
-    takeaways: list[str] = []
-    progression = [line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")]
-    if progression:
-        hard_leads = [
-            int(match.group(1))
-            for line in progression
-            if (match := re.search(r"hard-access-lead:(\d+)t", line)) is not None
-        ]
-        autonomy_windows = [
-            int(match.group(1))
-            for line in progression
-            if (match := re.search(r"autonomous-output-window:(\d+)t", line)) is not None
-        ]
-        hard_span = f"{min(hard_leads)}..{max(hard_leads)}t" if hard_leads else "n/a"
-        hard_minutes = (
-            f"{ticks_minutes(min(hard_leads), physical_tick_us(lines))}..{ticks_minutes(max(hard_leads), physical_tick_us(lines))}"
-            if hard_leads
-            else "n/a"
-        )
-        autonomy_span = (
-            f"{min(autonomy_windows)}..{max(autonomy_windows)}t" if autonomy_windows else "n/a"
-        )
-        takeaways.append(
-            "PLAYER TAKEAWAY probe=primitive-progression "
-            f"pick-first={sum('local-copper-sequence=pick-first' in line for line in progression)}/{len(progression)} "
-            f"hard-access-lead={hard_span}(~{hard_minutes}) crank-autonomy-window={autonomy_span} "
-            f"stockpiling-coverage=[complete:{sum('economics:finite-stockpile-order-complete' in line for line in progression)} "
-            f"supply-ended:{sum('economics:supply-ended' in line for line in progression)}] payback=not-established "
-            f"selected-reinvestment=[completed:{sum('selected-reinvestment=[completed' in line for line in progression)} "
-            f"blocked:{sum('selected-reinvestment=[blocked:' in line for line in progression)}] "
-            "read=pick-buys-the-hard-seam-plus-extraction-attention-crank-keeps-a-small-early-window-both-converge"
-        )
-    liberation = [line for line in lines if line.startswith("LIBERATION EXPERIENCE ")]
-    frontier = [line for line in lines if line.startswith("LIBERATION FRONTIER ")]
-    if liberation or frontier:
-        extras_mg = [
-            int(match.group(1)) // 1_000_000
-            for line in liberation
-            if (match := re.search(r"additional-copper:(\d+)ppm-mg", line)) is not None
-        ]
-        extras_mg.extend(
-            int(match.group(1))
-            for line in frontier
-            if (match := re.search(r"extra-copper:(\d+)mg", line)) is not None
-        )
-        shares = [
-            int(match.group(1))
-            for line in frontier
-            if (match := re.search(r"share:(\d+)ppm-of-recovered-copper", line)) is not None
-        ]
-        scavenger = (
-            f"scavenger-extra={min(extras_mg)}..{max(extras_mg)}mg "
-            f"share={min(shares)}..{max(shares)}ppm-of-recovered-copper "
-            if extras_mg and shares
-            else (
-                f"scavenger-extra={min(extras_mg)}..{max(extras_mg)}mg "
-                if extras_mg
-                else "scavenger=n/a "
-            )
-        )
-        takeaways.append(
-            "PLAYER TAKEAWAY probe=liberation "
-            f"completed={sum('matter=conserved' in line for line in liberation)}/{len(liberation)} "
-            f"{scavenger}"
-            "concentrate-awaits-smelting sink=none-ordinary"
-        )
-    woodworking = [line for line in lines if line.startswith("WOODWORKING EXPERIENCE ")]
-    if woodworking:
-        count = lambda marker: sum(marker in line for line in woodworking)
-        takeaways.append(
-            "PLAYER TAKEAWAY probe=woodworking "
-            f"saw={count('choice=frame-saw')}/{len(woodworking)} adze={count('choice=stone-adze')}/{len(woodworking)} bare={count('choice=bare-hands')}/{len(woodworking)} "
-            f"blocked-by-copper={count('reason=copper-supply-limited')} "
-            f"reserve-protected={count('reason=copper-reserve-protected')} "
-            f"fundable={count(' fundable:true ')} "
-            f"attention-payback={count('attention-payback:true')} "
-            f"net-timber-payback={count('net-timber-payback:true')} "
-            "read=compare-full-build-cost-short-jobs-can-skip-tools-long-jobs-price-copper-and-wear"
-        )
-    fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
-    if fieldwork:
-        count = lambda marker: sum(marker in line for line in fieldwork)
-        inspections = [
-            int(match.group(1))
-            for line in fieldwork
-            if (match := re.search(r"\bfield-inspections=(\d+)", line)) is not None
-        ]
-        takeaways.append(
-            "PLAYER TAKEAWAY probe=fieldwork "
-            f"inspections={min(inspections)}..{max(inspections)} "
-            f"tools=[stone-pick:{count('tool=stone-pick')} soft-quarry:{count('tool=stone-quarry')} reinforced-quarry:{count('tool=copper-reinforced-quarry')} "
-            f"hard-pick:{count('tool=copper-reinforced-hard-pick')}] "
-            "read=transects-rank-inspections-filter-one-survey-prices-the-tool"
-            if inspections
-            else "PLAYER TAKEAWAY probe=fieldwork inspections=n/a"
-        )
-    power = [line for line in lines if line.startswith("POWER PROVIDER EXPERIENCE ")]
-    copper_context = [line for line in lines if line.startswith("POWER COPPER-CONTEXT ")]
-    if power or copper_context:
-        break_evens = [
-            int(match.group(1))
-            for line in power
-            if (match := re.search(r"break-even-charges:(\d+)", line)) is not None
-        ]
-        metabolic_wins = 0
-        for line in power:
-            crank_cost = re.search(r"metabolic-crank:(\d+)nJ", line)
-            treadle_cost = re.search(r"metabolic-treadle:(\d+)nJ", line)
-            if (
-                crank_cost is not None
-                and treadle_cost is not None
-                and int(treadle_cost.group(1)) < int(crank_cost.group(1))
-            ):
-                metabolic_wins += 1
-        copper_clause = ""
-        if copper_context:
-            powers = [
-                (
-                    int(match.group(1)),
-                    int(match.group(2)),
-                    int(match.group(3)),
-                )
-                for line in copper_context
-                if (
-                    match := re.search(
-                        r"stone-crank:(\d+)uW copper-crank:(\d+)uW treadle:(\d+)uW", line
-                    )
-                )
-                is not None
-            ]
-            if powers:
-                stone, copper, treadle = powers[0]
-                copper_clause = (
-                    f"post-copper=copper-crank-{copper}uW-vs-treadle-{treadle}uW-vs-stone-{stone}uW "
-                    "treadle-keeps-metabolic-efficiency-edge "
-                )
-        takeaways.append(
-            "PLAYER TAKEAWAY probe=power-provider "
-            f"treadle-saves-charge-attention break-even={min(break_evens)}..{max(break_evens)}-full-charges "
-            f"treadle-cheaper-metabolically={metabolic_wins}/{len(power)} "
-            f"{copper_clause}"
-            "estimate=initial-charge-rate-excludes-future-wear-and-service "
-            "read=weigh-extra-raw-material-and-build-time-against-repeated-charge-savings"
-            if break_evens
-            else "PLAYER TAKEAWAY probe=power-provider break-even=n/a"
-        )
-    survival = [line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")]
-    if survival:
-        count = lambda marker: sum(marker in line for line in survival)
-        takeaways.append(
-            "PLAYER TAKEAWAY probe=survival "
-            f"binds-thirst={count('pressure=hydration')}/{len(survival)} "
-            f"binds-hunger={count('pressure=energy')}/{len(survival)} "
-            f"diet=[balanced:{count('diet:balanced-recovery')} compact:{count('diet:compact-calories')}] "
-            f"preservation=[declined:{count('storage-policy:decline')} efficient:{count('storage-policy:attention-efficient')} singleton:{count('storage-policy:enclosure-singleton')} "
-            f"frontier:{count('storage-policy:balanced-frontier')} "
-            f"maximum:{count('storage-policy:maximum-protection')}] "
-            "read=water-is-the-clock-food-breadth-buys-recovery-stronger-storage-can-lose-at-short-horizons"
-        )
-    return takeaways
-
-
-def progression_buffer_summary(lines: list[str]) -> list[str]:
-    """Expose attention left available, rather than rewarding busywork utilization."""
-    buffers = [line for line in lines if line.startswith("PROGRESSION BUFFER ")]
-    if not buffers:
-        return []
-    rows = [
-        tuple(map(int, match.groups()))
-        for line in buffers
-        if (match := re.search(
-            r"steady:(\d+)jobs buffer-stops:(\d+)cycles\] machine=(\d+)t "
-            r"replenishment=(\d+)t available-attention=(\d+)t", line
-        )) is not None
-    ]
-    if not rows:
-        return ["PROGRESSION BUFFER SUMMARY measured=0 evidence=insufficient-data"]
-    span = lambda column: f"{min(row[column] for row in rows)}..{max(row[column] for row in rows)}"
-    return [
-        f"PROGRESSION BUFFER SUMMARY measured={len(rows)}/{len(buffers)} "
-        f"mining={span(0)}jobs buffer-stops={span(1)}cycles machine={span(2)}t "
-        f"replenishment={span(3)}t available-attention={span(4)}t "
-        "policy=two-upcoming-batches payback=not-established "
-        "read=stop-mining-when-feed-is-ready-available-attention-is-not-a-failure"
-    ]
-
-
-def liberation_cost_summary(lines: list[str]) -> list[str]:
-    """Keep measured finite-job costs visible without dumping each matched branch."""
-
-    costs = [line for line in lines if line.startswith("LIBERATION COST ")]
-    rows = [
-        tuple(map(int, match.groups()))
-        for line in costs
-        if (match := re.search(
-            r"primary=(\d+)t scavenger=(\d+)t total=(\d+)t "
-            r"charge=\[demand:(\d+)t full:(\d+)t\] "
-            r"generated=\[demand:(\d+)nJ full:(\d+)nJ\] "
-            r"retained=\[demand:(\d+)nJ full:(\d+)nJ\]", line
-        )) is not None
-    ]
-    if not costs:
-        return []
-    if not rows:
-        return ["LIBERATION COST SUMMARY measured=0 timing=insufficient-data"]
-    span = lambda values: f"{min(values)}..{max(values)}"
-    return [
-        "LIBERATION COST SUMMARY "
-        f"measured={len(rows)}/{len(costs)} "
-        f"primary={span([row[0] for row in rows])}t "
-        f"scavenger={span([row[1] for row in rows])}t "
-        f"charge-saved={span([row[4] - row[3] for row in rows])}t "
-        f"generated-saved={span([(row[6] - row[5]) // 1_000_000_000 for row in rows])}J "
-        f"full-buffer-retained={span([row[8] // 1_000_000_000 for row in rows])}J "
-        "basis=same-finite-job-not-equal-terminal-reserves setup-cost=excluded "
-        "read=charge-for-known-demand-scavenging-spends-more-time-for-concentrate-not-metal"
-    ]
-
-
-def woodworking_baseline_summary(lines: list[str]) -> list[str]:
-    """Expose full lifecycle savings against doing the same job without new tools."""
-    baselines = [line for line in lines if line.startswith("WOODWORKING BASELINE ")]
-    if not baselines:
-        return []
-    rows = [
-        tuple(map(int, match.groups()))
-        for line in baselines
-        if (match := re.search(
-            r"bare=(\d+)t/\S+ adze=(\d+)t/\S+ selected=(\d+)t/\S+", line
-        )) is not None
-    ]
-    if not rows:
-        return ["WOODWORKING BASELINE SUMMARY measured=0 evidence=insufficient-data"]
-    span = lambda values: f"{min(values)}..{max(values)}"
-    return [
-        f"WOODWORKING BASELINE SUMMARY measured={len(rows)}/{len(baselines)} "
-        f"adze-saves={span([bare - adze for bare, adze, _ in rows])}t "
-        f"selected-saves={span([bare - selected for bare, _, selected in rows])}t "
-        "basis=versus-bare-hands-full-lifecycle "
-        "read=tool-speed-alone-overstates-benefit-build-and-maintenance-count"
-    ]
-
-
-def fieldwork_pacing_summary(lines: list[str]) -> list[str]:
-    """Distinguish first-resource discovery investment from repeat extraction speed."""
-    pacing = [line for line in lines if line.startswith("FIELDWORK PACING ")]
-    if not pacing:
-        return []
-    rows = [
-        tuple(map(int, match.groups()))
-        for line in pacing
-        if (match := re.search(
-            r"search=(\d+)t/\S+ sampling-tool=(\d+)t/\S+ "
-            r"extraction-tool=(\d+)t/\S+ extraction=(\d+)t/\S+ batches=(\d+) "
-            r"first-ore=(\d+)t/\S+ episode-end=(\d+)t/\S+ output=(\d+)mg", line
-        )) is not None
-    ]
-    if not rows:
-        return ["FIELDWORK PACING SUMMARY measured=0 evidence=insufficient-data"]
-    span = lambda column: f"{min(row[column] for row in rows)}..{max(row[column] for row in rows)}"
-    batches = [row[4] for row in rows]
-    return [
-        f"FIELDWORK PACING SUMMARY measured={len(rows)}/{len(pacing)} "
-        f"search={span(0)}t first-ore={span(5)}t episode-end={span(6)}t extraction={span(3)}t "
-        f"output={span(7)}mg batches={min(batches)}..{max(batches)} "
-        f"physical-first-ore={ticks_minutes(min(row[5] for row in rows), physical_tick_us(lines))}.."
-        f"{ticks_minutes(max(row[5] for row in rows), physical_tick_us(lines))} "
-        f"sampling-tool={span(1)}t extraction-tool={span(2)}t "
-        "scope=raw-tools-and-preowned-copper-to-first-ore "
-        "read=discovery-and-tool-preparation-dominate-first-ore-not-repeat-extraction"
-    ]
-
-
-def fieldwork_feedback_summary(lines: list[str]) -> list[str]:
-    """Keep pre-action wear-adjusted planning honest by comparing it with executed extraction."""
-    feedback = [line for line in lines if line.startswith("FIELDWORK ESTIMATE FEEDBACK ")]
-    if not feedback:
-        return []
-    partial = [line for line in feedback if "outcome=known-target-supply" in line]
-    comparable = [line for line in feedback if "outcome=completed" in line]
-    errors = [
-        int(match.group(2)) - int(match.group(1))
-        for line in comparable
-        if (match := re.search(r"wear-adjusted-order-estimate=(\d+)t extraction-actual=(\d+)t", line))
-        is not None
-    ]
-    if not errors:
-        summary = "FIELDWORK FEEDBACK SUMMARY measured=0 evidence=insufficient-data"
-        if partial:
-            return [summary + f" partial-orders={len(partial)}", partial[0]]
-        return [summary]
-    disagreements = [line for line in comparable if "estimate-matched=false" in line]
-    return [
-        f"FIELDWORK FEEDBACK SUMMARY measured={len(errors)}/{len(feedback)} "
-        f"extraction-estimate-error={min(errors):+d}..{max(errors):+d}t "
-        f"disagreements={sum(error != 0 for error in errors)} "
-        f"partial-orders={len(partial)} "
-        "basis=actual-minus-wear-adjusted policy=pre-action-full-order hindsight-selection=false "
-        "read=projection-shares-admission-physics-disagreements-require-investigation",
-        disagreements[0] if disagreements else (partial[0] if partial else comparable[0]),
-    ]
-
-
-def fieldwork_supply_summary(lines: list[str]) -> list[str]:
-    """Retain failed investments without mistaking an early supply stop for fast success."""
-    supply = [
-        line for line in lines
-        if line.startswith("FIELDWORK SUPPLY ") and not line.startswith("FIELDWORK SUPPLY DIAGNOSTIC ")
-    ]
-    if not supply:
-        return []
-    rows = [
-        (line, match.group(1), *map(int, match.groups()[1:]))
-        for line in supply
-        if (match := re.search(
-            r"outcome=(completed|known-target-supply) requested=(\d+)mg "
-            r"extracted=(\d+)mg shortfall=(\d+)mg", line
-        )) is not None
-    ]
-    if not rows:
-        return ["FIELDWORK SUPPLY SUMMARY measured=0 evidence=insufficient-data"]
-    partial = [row for row in rows if row[1] == "known-target-supply"]
-    summary = (
-        f"FIELDWORK SUPPLY SUMMARY measured={len(rows)}/{len(supply)} "
-        f"completed={len(rows) - len(partial)} supply-stopped={len(partial)} "
-        f"requested={sum(row[2] for row in rows)}mg extracted={sum(row[3] for row in rows)}mg "
-        f"shortfall={sum(row[4] for row in rows)}mg "
-        "read=grade-and-hardness-do-not-promise-reserve-investment-can-outlive-the-seam"
-    )
-    return [summary, (partial[0] if partial else rows[0])[0]]
-
-
-def woodworking_feedback_summary(lines: list[str]) -> list[str]:
-    """Keep policy/outcome divergence distinct from actual estimate disagreement."""
-    rows = [line for line in lines if line.startswith("WOODWORKING FEEDBACK ")]
-    if not rows:
-        return []
-    boolean_disagreements = lambda field: sum(
-        (match.group(1) != match.group(2))
-        for line in rows
-        if (match := re.search(field, line)) is not None
-    )
-    return [
-        f"WOODWORKING FEEDBACK SUMMARY samples={len(rows)} "
-        f"attention-budget-payback-divergences={boolean_disagreements(r'attention=\[budget-met:(true|false) actual-payback:(true|false)\]')} "
-        f"timber-estimate-disagreements={boolean_disagreements(r'timber=\[nominal-payback:(true|false) actual-payback:(true|false)\]')} "
-        "policy=pre-action-budget actual=executed-lifecycle hindsight-selection=false"
-    ]
-
-
-def progression_demand_summary(lines: list[str]) -> list[str]:
-    """Show how little of a stockpile actually funds the demonstrated upgrade demand."""
-    buffers = [line for line in lines if line.startswith("PROGRESSION BUFFER ")]
-    rows = [
-        tuple(map(int, match.groups()))
-        for line in buffers
-        if (match := re.search(
-            r"feed:(\d+)mg stockpile:(\d+)->(\d+)mg recovered:(\d+)mg", line
-        )) is not None
-    ]
-    if not rows:
-        return []
-    span = lambda values: f"{min(values)}..{max(values)}"
-    return [
-        f"PROGRESSION DEMAND SUMMARY measured={len(rows)}/{len(buffers)} "
-        f"feed={span([row[0] for row in rows])}mg "
-        f"stockpile-retained={span([row[2] for row in rows])}mg "
-        f"upgrade-copper={span([row[3] for row in rows])}mg "
-        "basis=executed-post-order-counterfactual payback=not-established "
-        "read=some-stockpile-has-use-most-remains-inventory-not-demonstrated-demand"
-    ]
-
-
-def progression_goal_summary(lines: list[str]) -> list[str]:
-    """Lead with useful goal completion, not the volume of speculative machine work."""
-    goals = [line for line in lines if line.startswith("PROGRESSION GOAL ")]
-    if not goals:
-        return []
-    rows = [
-        match.groups()
-        for line in goals
-        if (match := re.search(r"immediate=(\d+t|blocked(?::[\w-]+)?) .*?delayed=(\d+t|blocked(?::[\w-]+)?)", line))
-        is not None
-    ]
-    if not rows:
-        return ["PROGRESSION GOAL SUMMARY measured=0 evidence=insufficient-data", goals[0]]
-    immediate_times = [int(value[:-1]) for value, _ in rows if not value.startswith("blocked")]
-    delayed_times = [int(value[:-1]) for _, value in rows if not value.startswith("blocked")]
-    completed = [
-        (int(immediate[:-1]), int(delayed[:-1])) for immediate, delayed in rows
-        if not immediate.startswith("blocked") and not delayed.startswith("blocked")
-    ]
-    span = lambda values: f"{min(values)}..{max(values)}"
-    savings = (
-        f"delay-avoided={span([delayed - immediate for immediate, delayed in completed])}t"
-        if completed else "delay-avoided=not-comparable"
-    )
-    immediate_span = f"{span(immediate_times)}t" if immediate_times else "no-completion"
-    physical_span = (
-        f"{ticks_minutes(min(immediate_times), physical_tick_us(lines))}.."
-        f"{ticks_minutes(max(immediate_times), physical_tick_us(lines))}"
-        if immediate_times else "no-completion"
-    )
-    return [
-        f"PROGRESSION GOAL SUMMARY measured={len(rows)}/{len(goals)} "
-        f"immediate={immediate_span} immediate-blocked={len(rows) - len(immediate_times)} "
-        f"stockpile-first=[completed:{len(delayed_times)} blocked:{len(rows) - len(delayed_times)}] "
-        f"{savings} physical-immediate={physical_span} "
-        "terminal-reserves=unequal "
-        "read=judge-progress-by-the-capability-delivered-not-the-stockpile-produced",
-        goals[0],
-    ]
-
-
-def concise_gameplay_report(stdout: str, environ=None) -> str:
-    """Keep aggregate player/capability evidence; verbose retains the per-case transcript."""
-
-    environment = os.environ if environ is None else environ
-    if environment.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is not None or environment.get(
-        "DEEP_HEARTH_GAMEPLAY_TRACE"
-    ) is not None:
-        return stdout.rstrip()
-    lines = stdout.splitlines()
-    selected = [
-        line
-        for line in lines
-        if line.startswith(ORDINARY_GAMEPLAY_REPORT_PREFIXES)
-        or line.startswith("SIMULATION TIME ")
-        or line.startswith("EVALUATION SCOPE kind=ordinary-play ")
-        or line.startswith("EVALUATION SCOPE kind=controlled-capability ")
-    ]
-    selected.extend(ordinary_gameplay_diversity(lines))
-    selected.extend(player_takeaways(lines))
-    selected.extend(progression_buffer_summary(lines))
-    selected.extend(liberation_cost_summary(lines))
-    selected.extend(fieldwork_pacing_summary(lines))
-    selected.extend(woodworking_baseline_summary(lines))
-    selected.extend(woodworking_feedback_summary(lines))
-    selected.extend(progression_demand_summary(lines))
-    # One concrete human-scaled bill grounds the aggregate; verbose retains every arm/world.
-    selected.extend([line for line in lines if line.startswith("POWER BUILD BILL ")][:1])
-    selected.extend(progression_goal_summary(lines))
-    selected.extend([line for line in lines if line.startswith("PROGRESSION SELECTED ")][:1])
-    selected.extend(fieldwork_feedback_summary(lines))
-    selected.extend(fieldwork_supply_summary(lines))
-    selected.extend(controlled_gameplay_summary(lines))
-    return "\n".join(selected)
 
 
 def quick_plan() -> list[tuple[str, list[str]]]:
@@ -918,7 +224,11 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
         failed = FAILED_TEST.findall(combined)
         if failed:
             return f"python tools/run_test.py {failed[-1]}"
-    gameplay_targets = (*GAMEPLAY_AUDIT_TARGETS, *GAMEPLAY_TARGETS.values())
+    gameplay_targets = (
+        GAMEPLAY_CONTRACTS_TARGET,
+        *GAMEPLAY_AUDIT_TARGETS,
+        *GAMEPLAY_TARGETS.values(),
+    )
     if any(target in command for target in gameplay_targets):
         failed = FAILED_TEST.findall(combined)
         if failed:
@@ -1042,6 +352,8 @@ def gameplay_targets_command(
 def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
     if scope == "all":
         return gameplay_targets_command(GAMEPLAY_AUDIT_TARGETS, nocapture=nocapture)
+    if scope == "contracts":
+        return gameplay_targets_command((GAMEPLAY_CONTRACTS_TARGET,))
     return gameplay_targets_command(
         (GAMEPLAY_TARGETS[scope],),
         test_filter=GAMEPLAY_TESTS[scope],
@@ -1209,7 +521,10 @@ def report_stage(
             else rust_test_summary(result.stdout)
         )
         details = [detail] if detail is not None else []
-        if replay := gameplay_replay_summary(result.stdout):
+        replay = gameplay_replay_summary(result.stdout)
+        if replay is None:
+            replay = gameplay_environment_summary(label, os.environ)
+        if replay is not None:
             details.append(replay)
         suffix = f"; {'; '.join(details)}" if details else ""
         print(f"PASS ({elapsed:.1f}s{suffix})")
@@ -1297,7 +612,7 @@ def build_parser() -> argparse.ArgumentParser:
     lane.add_argument(
         "--lint",
         action="store_true",
-        help="run all-target/all-feature Clippy as the gate's single build lane",
+        help="lint production plus consolidated gameplay/report surfaces as one build lane",
     )
     lane.add_argument(
         "--all",
@@ -1321,8 +636,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=GAMEPLAY_SCOPES,
         metavar="SCOPE",
         help=(
-            "run gameplay verification; gate requires an explicit focused scope, while audit accepts "
-            "omitted SCOPE/all for every maintained gameplay target"
+            "run gameplay verification; gate accepts contracts or one focused scope, while audit "
+            "accepts omitted SCOPE/all for every maintained gameplay target"
         ),
     )
     lane.add_argument(
@@ -1359,6 +674,11 @@ def build_parser() -> argparse.ArgumentParser:
             "scope instead of limiting the report to changed maintained Rust source"
         ),
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="with report, print the complete replayable gameplay transcript",
+    )
     return parser
 
 
@@ -1371,6 +691,8 @@ def has_build_lane_option(args: argparse.Namespace) -> bool:
 def validate_quick_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if has_build_lane_option(args):
         parser.error("quick is intentionally build-free and does not accept build-producing flags")
+    if args.verbose:
+        parser.error("--verbose is valid only with the report preset")
 
 
 def validate_audit_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -1384,6 +706,8 @@ def validate_audit_options(parser: argparse.ArgumentParser, args: argparse.Names
         parser.error(
             "focused gameplay belongs in gate; audit --gameplay always means all maintained gameplay targets"
         )
+    if args.verbose:
+        parser.error("--verbose is valid only with the report preset")
 
 
 def validate_gate_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -1395,6 +719,8 @@ def validate_gate_options(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error(
             "gate requires an explicit gameplay scope; use `python ci.py audit --gameplay` for all targets"
         )
+    if args.verbose:
+        parser.error("--verbose is valid only with the report preset")
 
 
 def validate_report_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -1405,6 +731,8 @@ def validate_report_options(parser: argparse.ArgumentParser, args: argparse.Name
 def validate_bca_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if has_build_lane_option(args):
         parser.error("bca review is build-free and does not accept build-producing flags")
+    if args.verbose:
+        parser.error("--verbose is valid only with the report preset")
 
 
 def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -1430,12 +758,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.preset == "report":
-        configure_report_replay_environment(os.environ)
+        if args.verbose:
+            os.environ["DEEP_HEARTH_GAMEPLAY_VERBOSE"] = "1"
     plan = plan_for(args)
     if args.dry_run:
         for label, command in plan:
             print(f"{label}: {' '.join(command)}")
         return 0
+    if uses_fresh_gameplay_variation(args):
+        configure_gameplay_replay_environment(os.environ)
 
     started = time.perf_counter()
     timings: list[tuple[str, float]] = []
@@ -1476,4 +807,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except BrokenPipeError:
+        try:
+            sys.stdout.close()
+        finally:
+            raise SystemExit(0) from None

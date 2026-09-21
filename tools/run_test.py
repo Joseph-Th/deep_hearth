@@ -21,7 +21,6 @@ else:
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEST_SUPPORT_FEATURE = "test-gameplay"
 ZERO_TESTS = re.compile(r"\brunning 0 tests\b")
 TEST_RESULT = re.compile(
     r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
@@ -72,9 +71,7 @@ def requested_target_features(target: str, raw: str | None) -> set[str]:
     """Return explicit features plus the target's Cargo-declared required features."""
 
     requested = feature_set(raw)
-    if target == "lib":
-        requested.add(TEST_SUPPORT_FEATURE)
-    else:
+    if target != "lib":
         requested.update(cargo_test_target_definition(target).get("required-features", []))
     return requested
 

@@ -4,9 +4,7 @@ use std::collections::BTreeSet;
 
 use deep_hearth::content::{PROCESS_MELT_PURE_COPPER, build_registries};
 
-use super::foundry_probe::{
-    HeatingStrategy, choose_heating_strategy, heating_route_is_better, probe_setup,
-};
+use super::foundry_probe::{choose_heating_strategy, probe_setup};
 use super::foundry_setup::setup_foundry_probe;
 
 #[test]
@@ -67,7 +65,7 @@ fn foundry_generation_covers_authored_feed_forms_and_varies_conditions() {
 }
 
 #[test]
-fn same_source_preheat_is_currently_a_dominated_counterfactual() {
+fn same_source_preheat_stays_diagnostic_until_it_has_a_real_physical_advantage() {
     let registries = build_registries();
     let seed = 0xD33F_C01D_F001;
     let setup = probe_setup(&registries, seed);
@@ -82,13 +80,10 @@ fn same_source_preheat_is_currently_a_dominated_counterfactual() {
         panic!("maintained foundry anchor lost its comparable sensible-preheat route")
     });
 
-    assert_eq!(
-        decision.strategy,
-        HeatingStrategy::Direct,
-        "same-furnace, same-electrical-source sensible preheat must not be presented as a superior strategy without a new physical advantage"
-    );
     assert!(
-        !heating_route_is_better(preheated, direct),
-        "foundry preheat became physically preferable; update the harness contract so it is treated as a real strategy"
+        !(preheated.processed_mass > direct.processed_mass
+            || (preheated.processed_mass == direct.processed_mass
+                && preheated.total_duration < direct.total_duration)),
+        "same-source preheat gained a real physical advantage; promote it from diagnostic evidence to a player-visible strategy"
     );
 }

@@ -119,7 +119,9 @@ impl ManualConstituentSeparationProcessDefinition {
         self.operating.exertion()
     }
 
-    pub(crate) const fn operating_profile(self) -> ManualOreProcessProfile {
+    /// Direct-labor operating envelope used by read-only planning and runtime resolution.
+    #[must_use]
+    pub const fn operating_profile(self) -> ManualOreProcessProfile {
         self.operating
     }
 

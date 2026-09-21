@@ -1,6 +1,6 @@
 //! Built-in player-labor methods for primitive power generation and geological observation.
 
-use crate::core::quantity::{Energy, Pressure, Volume};
+use crate::core::quantity::{Energy, Mass, Pressure, Volume};
 use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
 use crate::geology::GeologicalEvidenceKind;
@@ -91,7 +91,8 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 ProspectingEquipmentProfile::new(EQUIPMENT_STONE_GEOLOGICAL_HAMMER, 120)
                     .with_alternative(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, 60),
             )
-            .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000)),
+            .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
+            .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
             ProspectingDefinition::new(
                 PROSPECTING_REGIONAL_RECONNAISSANCE,
                 GeologicalEvidenceKind::LooseIndicator,
@@ -130,7 +131,8 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 ),
             )
             .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel)
-            .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000)),
+            .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
+            .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
         ],
     )
 }

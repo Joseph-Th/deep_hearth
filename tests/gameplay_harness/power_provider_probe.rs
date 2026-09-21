@@ -10,182 +10,33 @@ use deep_hearth::content::{
     MANUAL_POWER_HAND_CRANK, MANUAL_POWER_WALKING_WHEEL, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
-use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::WorldSeed;
-use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId, validate_assemble_energy_store};
-use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
-use deep_hearth::inventory::StockpileId;
-use deep_hearth::labor::{ManualPowerMethodId, ManualPowerRequest, validate_start_manual_power};
+use deep_hearth::equipment::EquipmentDefinitionId;
+use deep_hearth::labor::ManualPowerMethodId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
-use deep_hearth::survival::{assess_survival, initialize_player_survival};
+use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
+use super::equipment_support::pristine_equipment_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
-use super::manual_craft_execution::execute_manual_craft_batches;
-use super::manual_craft_planning::manual_craft_plan_for_available_output;
-use super::manual_power_timing::finish_manual_power_work;
 use super::physical_time::format_physical_duration;
 use super::seed::mix64;
 
-struct ShapedBuild {
-    attention_ticks: u64,
-    input_mass_mg: u64,
-    embodied_mass_mg: u64,
-}
+#[path = "power_provider_execution.rs"]
+mod execution;
+#[path = "power_provider_planning.rs"]
+mod planning;
 
-fn stockpile_mass(state: &AppState, raw: StockpileId) -> Mass {
-    state
-        .inventory()
-        .get_stockpile(raw)
-        .unwrap_or_else(|| panic!("power build stockpile disappeared"))
-        .stored_mass()
-}
-
-fn shape_assembly_inputs(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
-    inputs: Vec<(CommodityKey, Mass)>,
-    context: &'static str,
-) -> u64 {
-    let mut attention_ticks = 0_u64;
-    for (commodity, required) in inputs {
-        let (craft, batches, source) = manual_craft_plan_for_available_output(
-            registries,
-            state,
-            &[raw],
-            commodity,
-            required,
-            context,
-        );
-        attention_ticks = attention_ticks
-            .checked_add(
-                execute_manual_craft_batches(
-                    registries,
-                    state,
-                    craft.process(),
-                    source,
-                    shaped,
-                    batches,
-                    context,
-                )
-                .value(),
-            )
-            .unwrap_or_else(|| panic!("power provider {context} attention overflowed"));
-    }
-    attention_ticks
-}
-
-fn build_provider(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
-    definition: deep_hearth::equipment::EquipmentDefinitionId,
-    context: &'static str,
-) -> (EquipmentId, ShapedBuild) {
-    let inputs = registries
-        .equipment()
-        .get_equipment(definition)
-        .and_then(|equipment| equipment.assembly_profile())
-        .map(|profile| {
-            (
-                profile.input_mass(),
-                profile
-                    .inputs()
-                    .iter()
-                    .map(|input| (input.commodity(), input.mass()))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "power provider equipment {} lost authored assembly",
-                definition.value()
-            )
-        });
-    let raw_before = stockpile_mass(state, raw);
-    let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
-    let input_mass_mg = raw_before
-        .checked_sub(stockpile_mass(state, raw))
-        .unwrap_or_else(|| panic!("power build must withdraw raw matter"))
-        .milligrams();
-    assert!(
-        input_mass_mg >= inputs.0.milligrams(),
-        "raw bill must cover embodied matter"
-    );
-    let equipment = validate_assemble_equipment(registries, state, definition, shaped)
-        .unwrap_or_else(|error| panic!("power provider equipment assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("power provider equipment commit failed: {error}"));
-    (
-        equipment,
-        ShapedBuild {
-            attention_ticks,
-            input_mass_mg,
-            embodied_mass_mg: inputs.0.milligrams(),
-        },
-    )
-}
-
-fn build_flywheel(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
-    definition: EnergyStoreDefinitionId,
-    context: &'static str,
-) -> (EnergyStoreId, ShapedBuild) {
-    let inputs = registries
-        .energy()
-        .get_store(definition)
-        .and_then(|store| store.assembly_profile())
-        .map(|profile| {
-            (
-                profile.input_mass(),
-                profile
-                    .inputs()
-                    .iter()
-                    .map(|input| (input.commodity(), input.mass()))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .unwrap_or_else(|| panic!("power provider flywheel lost authored assembly"));
-    let raw_before = stockpile_mass(state, raw);
-    let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
-    let input_mass_mg = raw_before
-        .checked_sub(stockpile_mass(state, raw))
-        .unwrap_or_else(|| panic!("power build must withdraw raw matter"))
-        .milligrams();
-    assert!(
-        input_mass_mg >= inputs.0.milligrams(),
-        "raw bill must cover embodied matter"
-    );
-    let store = validate_assemble_energy_store(registries, state, definition, shaped)
-        .unwrap_or_else(|error| panic!("power provider flywheel assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("power provider flywheel commit failed: {error}"));
-    (
-        store,
-        ShapedBuild {
-            attention_ticks,
-            input_mass_mg,
-            embodied_mass_mg: inputs.0.milligrams(),
-        },
-    )
-}
-
-struct ChargeOutcome {
-    attention_ticks: u64,
-    metabolic_nj: u128,
-    hydration_ul: u128,
-    condition_after_ppm: u32,
-}
+use execution::{
+    PrimitiveComparison, SettlementComparison, execute_primitive_comparison,
+    execute_settlement_comparison,
+};
+use planning::{primitive_power_plan, settlement_power_plan};
 
 fn provider_power_microwatts(
     registries: &Registries,
@@ -197,77 +48,14 @@ fn provider_power_microwatts(
         .labor()
         .get_manual_power(method)
         .unwrap_or_else(|| panic!("power provider {context} lost its manual-power method"));
-    let record = registries
-        .equipment()
-        .get_equipment(equipment)
-        .unwrap_or_else(|| {
-            panic!(
-                "power provider {context} equipment {} disappeared",
-                equipment.value()
-            )
-        });
-    let CapabilityValue::Power(power) = record
-        .capabilities()
-        .get_capability(definition.power_capability())
-        .unwrap_or_else(|| panic!("power provider {context} lost its provider-power capability"))
+    let CapabilityValue::Power(power) =
+        pristine_equipment_capability(registries, equipment, definition.power_capability())
     else {
         panic!("power provider {context} provider-power capability changed physical kind")
     };
     power
         .whole_microwatts()
         .unwrap_or_else(|| panic!("power provider {context} provider power is sub-microwatt"))
-}
-
-fn charge_to_full(
-    registries: &Registries,
-    state: &mut AppState,
-    method: ManualPowerMethodId,
-    equipment: EquipmentId,
-    store: EnergyStoreId,
-    capacity_nj: u128,
-    context: &'static str,
-) -> ChargeOutcome {
-    let capacity = deep_hearth::core::quantity::Energy::from_nanojoules(capacity_nj);
-    let before = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power provider {context} lost the player before charging"));
-    let charge = validate_start_manual_power(
-        registries,
-        state,
-        ManualPowerRequest::new(method, equipment, store, capacity),
-    )
-    .unwrap_or_else(|error| panic!("power provider {context} charge failed: {error}"));
-    let work = charge.work();
-    charge
-        .commit(state)
-        .unwrap_or_else(|error| panic!("power provider {context} charge commit failed: {error}"));
-    let attention_ticks = finish_manual_power_work(registries, state, work, context);
-    assert_eq!(
-        state
-            .energy()
-            .get_store(store)
-            .map(|record| record.stored().nanojoules()),
-        Some(capacity_nj),
-        "power provider {context} must deliver the full requested flywheel charge"
-    );
-    let after = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power provider {context} lost the player after charging"));
-    let condition_after_ppm = state
-        .equipment()
-        .get_equipment(equipment)
-        .map(|record| record.condition().parts_per_million())
-        .unwrap_or_else(|| panic!("power provider {context} equipment disappeared"));
-    ChargeOutcome {
-        attention_ticks,
-        metabolic_nj: before
-            .metabolic_energy()
-            .nanojoules()
-            .checked_sub(after.metabolic_energy().nanojoules())
-            .unwrap_or_else(|| panic!("power provider {context} metabolic audit underflowed")),
-        hydration_ul: u128::from(before.hydration().microliters())
-            .checked_sub(u128::from(after.hydration().microliters()))
-            .unwrap_or_else(|| panic!("power provider {context} hydration audit underflowed")),
-        condition_after_ppm,
-    }
 }
 
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
@@ -311,172 +99,58 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .get_store(store_definition)
         .map(|definition| definition.capacity().nanojoules())
         .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
-
-    // Comparative evidence must not let one provider arm consume survival reserve or material
-    // before the other starts. Both arms therefore inherit the exact same actor-visible state.
-    let mut crank_state = state.clone();
-    let mut treadle_state = state.clone();
-    let mut settlement_treadle_state = state.clone();
-    let mut walking_state = state;
-
-    let (crank, crank_build) = build_provider(
+    // Freeze the actor's investment choice from current authored topology and canonical physical
+    // projections before any matched branch is executed.
+    let plan = primitive_power_plan(
         registries,
-        &mut crank_state,
-        raw,
-        shaped,
-        EQUIPMENT_STONE_HAND_CRANK,
-        "power provider crank build",
-    );
-    let (crank_drive, crank_drive_build) = build_flywheel(
-        registries,
-        &mut crank_state,
+        &state,
         raw,
         shaped,
         store_definition,
-        "power provider crank flywheel",
-    );
-    let crank_charge = charge_to_full(
-        registries,
-        &mut crank_state,
-        MANUAL_POWER_HAND_CRANK,
-        crank,
-        crank_drive,
         capacity_nj,
-        "power provider crank charge",
+        seed,
     );
-
-    let (treadle, treadle_build) = build_provider(
-        registries,
-        &mut treadle_state,
-        raw,
-        shaped,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        "power provider treadle build",
-    );
-    let (treadle_drive, treadle_drive_build) = build_flywheel(
-        registries,
-        &mut treadle_state,
-        raw,
-        shaped,
-        store_definition,
-        "power provider treadle flywheel",
-    );
-    let treadle_charge = charge_to_full(
-        registries,
-        &mut treadle_state,
-        MANUAL_POWER_FOOT_TREADLE,
-        treadle,
-        treadle_drive,
-        capacity_nj,
-        "power provider treadle charge",
-    );
-
     let settlement_capacity_nj = registries
         .energy()
         .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
         .map(|definition| definition.capacity().nanojoules())
         .unwrap_or_else(|| panic!("settlement flywheel bank definition disappeared"));
-    let (settlement_treadle, settlement_treadle_build) = build_provider(
+    let settlement_plan = settlement_power_plan(
         registries,
-        &mut settlement_treadle_state,
+        &state,
         raw,
         shaped,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        "settlement treadle build",
-    );
-    let (settlement_treadle_drive, settlement_treadle_drive_build) = build_flywheel(
-        registries,
-        &mut settlement_treadle_state,
-        raw,
-        shaped,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        "settlement treadle flywheel bank",
-    );
-    let settlement_treadle_charge = charge_to_full(
-        registries,
-        &mut settlement_treadle_state,
-        MANUAL_POWER_FOOT_TREADLE,
-        settlement_treadle,
-        settlement_treadle_drive,
         settlement_capacity_nj,
-        "settlement treadle charge",
+        seed,
     );
 
-    let (walking, walking_build) = build_provider(
+    // Matched arms inherit the same actor-visible state. Execution owns projection agreement,
+    // conservation, and trusted-load validity before reporting compares outcomes.
+    let PrimitiveComparison {
+        crank_build,
+        crank_drive_build,
+        crank_charge,
+        treadle_build,
+        treadle_drive_build,
+        treadle_charge,
+        crank_residual_mg,
+        treadle_residual_mg,
+    } = execute_primitive_comparison(registries, &state, raw, shaped, matter_before, plan);
+    let SettlementComparison {
+        settlement_treadle_build,
+        settlement_treadle_drive_build,
+        settlement_treadle_charge,
+        walking_build,
+        walking_drive_build,
+        walking_charge,
+    } = execute_settlement_comparison(
         registries,
-        &mut walking_state,
+        &state,
         raw,
         shaped,
-        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        "walking-wheel build",
-    );
-    let (walking_drive, walking_drive_build) = build_flywheel(
-        registries,
-        &mut walking_state,
-        raw,
-        shaped,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-        "walking-wheel flywheel bank",
-    );
-    let walking_charge = charge_to_full(
-        registries,
-        &mut walking_state,
-        MANUAL_POWER_WALKING_WHEEL,
-        walking,
-        walking_drive,
-        settlement_capacity_nj,
-        "walking-wheel charge",
-    );
-
-    assert!(
-        walking_charge.attention_ticks < settlement_treadle_charge.attention_ticks,
-        "the walking wheel must repay some of its larger timber build through faster full-bank charging"
-    );
-    assert!(
-        walking_charge.metabolic_nj < settlement_treadle_charge.metabolic_nj,
-        "the walking wheel's full-body method must spend less metabolic energy on the same stored work"
-    );
-
-    assert!(
-        treadle_charge.attention_ticks < crank_charge.attention_ticks,
-        "the treadle's higher charging throughput must repay attention on the same flywheel job"
-    );
-    assert_eq!(
-        calculate_matter_accounting(&crank_state)
-            .unwrap_or_else(|error| panic!("power provider crank matter audit failed: {error}"))
-            .total(),
         matter_before,
-        "crank comparison arm must conserve matter across build and charge"
+        settlement_plan,
     );
-    assert_eq!(
-        calculate_matter_accounting(&treadle_state)
-            .unwrap_or_else(|error| panic!("power provider treadle matter audit failed: {error}"))
-            .total(),
-        matter_before,
-        "treadle comparison arm must conserve matter across build and charge"
-    );
-    validate_loaded_state(registries, &crank_state)
-        .unwrap_or_else(|error| panic!("power provider crank state invalid: {error}"));
-    validate_loaded_state(registries, &treadle_state)
-        .unwrap_or_else(|error| panic!("power provider treadle state invalid: {error}"));
-    assert_eq!(
-        calculate_matter_accounting(&settlement_treadle_state)
-            .unwrap_or_else(|error| panic!("settlement treadle matter audit failed: {error}"))
-            .total(),
-        matter_before,
-        "settlement treadle arm must conserve matter across build and charge"
-    );
-    assert_eq!(
-        calculate_matter_accounting(&walking_state)
-            .unwrap_or_else(|error| panic!("walking-wheel matter audit failed: {error}"))
-            .total(),
-        matter_before,
-        "walking-wheel arm must conserve matter across build and charge"
-    );
-    validate_loaded_state(registries, &settlement_treadle_state)
-        .unwrap_or_else(|error| panic!("settlement treadle state invalid: {error}"));
-    validate_loaded_state(registries, &walking_state)
-        .unwrap_or_else(|error| panic!("walking-wheel state invalid: {error}"));
 
     let settlement_treadle_build_attention = settlement_treadle_build
         .attention_ticks
@@ -508,9 +182,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_break_even_charges =
         settlement_build_attention_delta.div_ceil(settlement_charge_saving);
     reviewln!(
-        "POWER SETTLEMENT seed=0x{seed:016X} sample={} buffer:{}nJ treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ break-even:{}charges estimate=initial-charge-rate-excludes-future-service] matter=conserved",
+        "POWER SETTLEMENT seed=0x{seed:016X} sample={} buffer:{}nJ planned-charges={} decision=[selected:{} policy:minimize-workload-attention-then-metabolic-then-material projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ break-even:{}charges estimate=initial-charge-rate-excludes-future-service] matter=conserved",
         focused_probe_role_label(case.role()),
         settlement_capacity_nj,
+        settlement_plan.planned_charges,
+        settlement_plan.choice.label(),
+        settlement_plan.treadle_lifecycle_attention,
+        settlement_plan.walking_lifecycle_attention,
         settlement_treadle_build_mass,
         settlement_treadle_build_attention,
         settlement_treadle_charge.attention_ticks,
@@ -572,8 +250,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let break_even_charges = build_attention_delta_ticks.div_ceil(charge_saving_per_job_ticks);
     let crank_embodied = crank_build.embodied_mass_mg + crank_drive_build.embodied_mass_mg;
     let treadle_embodied = treadle_build.embodied_mass_mg + treadle_drive_build.embodied_mass_mg;
-    let crank_residual = stockpile_mass(&crank_state, shaped).milligrams();
-    let treadle_residual = stockpile_mass(&treadle_state, shaped).milligrams();
+    let crank_residual = crank_residual_mg;
+    let treadle_residual = treadle_residual_mg;
     assert_eq!(
         crank_build_mass_mg,
         crank_embodied + crank_residual,
@@ -606,9 +284,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         break_even_charges,
     );
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} job=[flywheel:{}nJ] crank=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t break-even-charges:{}] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} job=[flywheel:{}nJ planned-charges:{}] decision=[selected:{} policy:minimize-workload-attention-then-metabolic-then-material projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t break-even-charges:{}] matter=conserved",
         focused_probe_role_label(case.role()),
         capacity_nj,
+        plan.planned_charges,
+        plan.choice.label(),
+        plan.crank_lifecycle_attention,
+        plan.treadle_lifecycle_attention,
         crank_build_mass_mg,
         crank_build_attention,
         crank_charge.attention_ticks,

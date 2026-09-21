@@ -1,6 +1,8 @@
 //! Primitive treadle and paired-flywheel package coverage.
 
 use super::*;
+use crate::labor::project_manual_power;
+use crate::maintenance::Condition;
 
 #[test]
 fn treadle_and_paired_flywheel_are_craftable_from_raw_ordinary_materials() {
@@ -239,6 +241,15 @@ fn treadle_package_trades_more_material_for_less_copper_free_charging_attention(
         ManualPowerRequest::new(MANUAL_POWER_FOOT_TREADLE, treadle, paired_store, requested),
     )
     .unwrap_or_else(|error| panic!("treadle comparison power validation failed: {error}"));
+    let treadle_projection = project_manual_power(
+        &registries,
+        MANUAL_POWER_FOOT_TREADLE,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        Condition::PRISTINE,
+        ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
+        requested,
+    )
+    .unwrap_or_else(|error| panic!("treadle comparison projection failed: {error}"));
 
     let hand_duration = hand.work().completes_at().value() - hand_state.tick().value();
     let treadle_duration =
@@ -250,6 +261,18 @@ fn treadle_package_trades_more_material_for_less_copper_free_charging_attention(
             < hand.resource_budget().metabolic_energy()
     );
     assert!(treadle_work.resource_budget().hydration() < hand.resource_budget().hydration());
+    assert_eq!(
+        treadle_projection.duration(),
+        TickSpan::new(treadle_duration)
+    );
+    assert_eq!(
+        treadle_projection.resource_budget(),
+        treadle_work.resource_budget()
+    );
+    assert_eq!(
+        treadle_projection.condition_after(),
+        treadle_work.work().condition_after()
+    );
 
     treadle_work
         .commit(&mut treadle_state)

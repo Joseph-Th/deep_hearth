@@ -5,6 +5,7 @@ mod definitions;
 mod lifecycle;
 mod power_execution;
 mod power_physics;
+mod power_projection;
 mod state;
 mod validation;
 mod work;
@@ -18,6 +19,9 @@ pub use lifecycle::{PlayerWorkCommitError, PlayerWorkStartError};
 pub use power_execution::{
     ManualPowerCommitError, ManualPowerError, ManualPowerOutcome, ManualPowerRequest,
     ValidatedManualPowerStart, validate_start_manual_power,
+};
+pub use power_projection::{
+    ManualPowerProjection, ManualPowerProjectionError, project_manual_power,
 };
 pub use state::PlayerWorkState;
 pub use validation::PlayerWorkValidationError;

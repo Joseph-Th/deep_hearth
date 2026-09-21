@@ -96,7 +96,7 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
         true,
         false,
         PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE,
-        1_250_000,
+        1_750_000,
     )
     .unwrap_or_else(|error| panic!("rough timber field box storage profile failed: {error}"));
     let stone_crock_preservation = StockpileStorageProfile::with_preservation(

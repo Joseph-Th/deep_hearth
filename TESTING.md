@@ -13,16 +13,18 @@ Use the smallest lane that completely proves the changed contract.
 | Build-free edit loop | `python ci.py quick` |
 | Production compile | `cargo check-fast` |
 | Production build gate | `python ci.py gate` |
+| Fast lib-only Clippy | `cargo lint-fast` |
 | List tests without building | `python tools/run_test.py --list [substring]` |
 | Type-check an integration target without linking | `python tools/run_test.py --check --target <integration-target>` |
 | Run one exact unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | Show one selected test's captured stdout | `python tools/run_test.py --verbose <qualified-name-or-unique-substring>` |
 | Run one owner/subsystem test group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
+| Gameplay harness contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
 | Core audit | `python ci.py audit --core` |
 | Gameplay audit | `python ci.py audit --gameplay` |
 | Core + gameplay audit | `python ci.py audit --all` |
-| Clippy across all maintained targets/features | `python ci.py gate --lint` |
+| Broad production/gameplay Clippy | `python ci.py gate --lint` |
 | Shader validation | `python ci.py gate --shaders` |
 | Rustdoc | `python ci.py gate --rustdoc` |
 | Long-horizon soak | `python ci.py gate --soak` |
@@ -34,14 +36,19 @@ Use the smallest lane that completely proves the changed contract.
 `quick` is build-free. `gate` runs one build lane and does not repeat `quick`; specialized flags replace its
 default compile. `audit` checkpoints add `quick` to the selected runtime surface.
 
-During edits, use `cargo check-fast` or `run_test.py --check`, then one exact/suite or focused proof.
-Reuse warm artifacts. Routine gates run maintained deterministic cases plus one bounded deterministic
-organic-variation case per probe; explicit replay roots reseed that bounded case and `report` owns fresh exploration.
+During edits, use `cargo check-fast`, `cargo lint-fast`, or `run_test.py --check`, then one exact/suite or focused proof.
+Reuse warm artifacts. Gameplay gates/audits keep fixed anchors plus one fresh bounded organic case per probe.
+Roots are replay evidence; explicit roots replace them. `report` samples more cases.
+Contracts remain deterministic.
 
 Without `--target`, `run_test.py` resolves tests from source without Cargo and chooses the smallest complete
 explicit target. Pin `--target` only to reuse a warm failed binary or force an integration boundary. `--check`
 always requires an explicit integration target. Exact tests are quiet by default; `--verbose` implies `--nocapture`.
 Detailed gameplay narration is report-only.
+
+Library unit tests intentionally use the ordinary feature-minimal `cfg(test)` graph. This keeps exact tests,
+owner suites, and `audit --core` on one reusable incremental artifact. Gameplay integration targets alone enable
+`test-gameplay`; the combined `audit --all` pays for that broader feature graph only at an explicit checkpoint.
 
 ## Evidence ladder
 
@@ -134,12 +141,13 @@ persistence, conservation, or numerical accumulation adds evidence that focused 
 Automated-player boundaries/evidence semantics live in [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md); read
 it only for gameplay-harness behavior or interpretation.
 
-Focused gameplay targets are compile surfaces, not contract collections. Each focused target exposes exactly one
-gate/probe and imports only support needed by that episode. Default gates are deterministic and do not generate
-fresh worlds; use explicit replay roots for one additional bounded case or `report` for organic exploration. Cheap
-cross-cutting contracts belong in `gameplay_contracts`; broad gameplay contracts belong in the consolidated
-`gameplay_audit` target. The default report is an aggregate experience summary; use `DEEP_HEARTH_GAMEPLAY_VERBOSE=1 python ci.py
-report` for preservation frontiers, woodworking lifecycle/payback, or fieldwork decisions.
+Focused gameplay targets are compile surfaces, not contract collections. Each exposes one gate/probe and only its
+support. Supported CI gameplay runs fixed anchors plus fresh bounded variation; direct Cargo uses fallback roots.
+Explicit roots replay cases. Cheap cross-cutting contracts belong in `gameplay_contracts`; broad contracts use the
+consolidated
+`gameplay_audit` target. The default report emits compact measured summaries without a second CI-owned
+interpretation layer; use `python ci.py report --verbose` for replayable preservation, woodworking, fieldwork,
+and other episode detail.
 Aggregate time uses the registry-derived clock. The broad audit includes `fieldwork_probe::batch_capped_mining_finishes_the_requested_order` for
 ordinary extraction-order continuation; the fieldwork exploration episode remains report-driven.
 

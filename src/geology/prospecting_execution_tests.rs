@@ -2,12 +2,12 @@
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
-use crate::core::quantity::Pressure;
+use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::validate_loaded_state;
 use crate::core::time::WorldSeed;
 use crate::geology::{
-    GeologicalEvidenceConsistency, MaterialAbundanceEstimate, assess_geological_knowledge,
-    build_geological_knowledge_map,
+    GeologicalEvidenceConsistency, MaterialAbundanceEstimate, ResourceMassEstimate,
+    assess_geological_knowledge, build_geological_knowledge_map,
 };
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
@@ -18,6 +18,65 @@ fn bounds(min_x: i64, max_x: i64) -> VoxelBounds {
         Ok(bounds) => bounds,
         Err(error) => panic!("prospecting bounds fixture failed: {error}"),
     }
+}
+
+#[test]
+fn resource_mass_requires_definite_physical_single_material_context() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(0x6B00_00A3));
+    let region = bounds(0, 1);
+    let estimate = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("resource-mass fixture failed: {error}"));
+
+    let nonphysical = ProspectingResolution::new_for_fixture(
+        region,
+        GeologicalEvidenceKind::MagneticSurvey,
+        vec![super::tests::estimate(MATERIAL_COPPER, 600_000, 800_000)],
+    )
+    .with_resource_mass_for_fixture(estimate);
+    assert_eq!(
+        validate_record_prospecting(&registries, &state, nonphysical),
+        Err(RecordProspectingError::ResourceMassUnsupportedEvidence {
+            evidence: GeologicalEvidenceKind::MagneticSurvey,
+        })
+    );
+}
+
+#[test]
+fn resource_mass_assessment_exposes_best_acquired_band_without_live_truth() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_00A4));
+    let region = bounds(4, 6);
+    let broad = ResourceMassEstimate::new(
+        Mass::from_milligrams(2_000_000),
+        Mass::from_milligrams(8_000_000),
+    )
+    .unwrap_or_else(|error| panic!("broad resource-mass fixture failed: {error}"));
+    let precise = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("precise resource-mass fixture failed: {error}"));
+    for resource_mass in [broad, precise] {
+        record(
+            &registries,
+            &mut state,
+            ProspectingResolution::new_for_fixture(
+                region,
+                GeologicalEvidenceKind::CoreSample,
+                vec![estimate(MATERIAL_COPPER, 400_000, 500_000)],
+            )
+            .with_resource_mass_for_fixture(resource_mass),
+        );
+    }
+    assert_eq!(
+        assess_geological_knowledge(state.geological_knowledge(), region, MATERIAL_COPPER)
+            .resource_mass(),
+        Some(precise)
+    );
 }
 
 fn hardness() -> ExcavationHardnessEstimate {
@@ -39,6 +98,7 @@ fn record_rejects_hardness_without_definite_physical_sample_context() {
         evidence: GeologicalEvidenceKind::MagneticSurvey,
         findings: vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
         excavation_hardness: Some(hardness()),
+        resource_mass: None,
     };
     assert_eq!(
         validate_record_prospecting(&registries, &state, nonphysical),
@@ -54,6 +114,7 @@ fn record_rejects_hardness_without_definite_physical_sample_context() {
         evidence: GeologicalEvidenceKind::ExcavationSample,
         findings: vec![estimate(MATERIAL_COPPER, 0, 800_000)],
         excavation_hardness: Some(hardness()),
+        resource_mass: None,
     };
     assert_eq!(
         validate_record_prospecting(&registries, &state, uncertain),
@@ -72,6 +133,7 @@ fn record_rejects_hardness_without_definite_physical_sample_context() {
             estimate(MATERIAL_SLAG, 300_000, 500_000),
         ],
         excavation_hardness: Some(hardness()),
+        resource_mass: None,
     };
     assert_eq!(
         validate_record_prospecting(&registries, &state, ambiguous),
@@ -97,6 +159,7 @@ fn make_test_prospecting_resolution(
         evidence,
         findings,
         excavation_hardness: None,
+        resource_mass: None,
     }
 }
 
@@ -260,6 +323,7 @@ fn hardness_assessment_prefers_the_most_precise_acquired_physical_band() {
             evidence: GeologicalEvidenceKind::ExcavationSample,
             findings: finding.clone(),
             excavation_hardness: Some(broad),
+            resource_mass: None,
         },
     );
     record(
@@ -270,6 +334,7 @@ fn hardness_assessment_prefers_the_most_precise_acquired_physical_band() {
             evidence: GeologicalEvidenceKind::ExcavationSample,
             findings: finding,
             excavation_hardness: Some(precise),
+            resource_mass: None,
         },
     );
 
@@ -348,6 +413,7 @@ fn disjoint_evidence_inside_a_large_query_is_not_reported_as_a_false_conflict() 
             )
             .unwrap_or_else(|error| panic!("west hardness fixture failed: {error}")),
         ),
+        resource_mass: None,
     };
     let east = ProspectingResolution {
         region: bounds(6, 10),
@@ -360,6 +426,7 @@ fn disjoint_evidence_inside_a_large_query_is_not_reported_as_a_false_conflict() 
             )
             .unwrap_or_else(|error| panic!("east hardness fixture failed: {error}")),
         ),
+        resource_mass: None,
     };
     record(&registries, &mut state, west);
     record(&registries, &mut state, east);

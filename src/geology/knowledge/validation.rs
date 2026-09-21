@@ -5,8 +5,8 @@ use crate::material::{MaterialId, MaterialRegistry};
 
 use super::{
     ExcavationHardnessContextError, GeologicalKnowledgeState, GeologicalObservationId,
-    GeologicalObservationRecord, PARTS_PER_MILLION, total_lower_bound_ppm,
-    validate_excavation_hardness_context,
+    GeologicalObservationRecord, PARTS_PER_MILLION, ResourceMassContextError,
+    total_lower_bound_ppm, validate_excavation_hardness_context, validate_resource_mass_context,
 };
 use crate::geology::{GeologicalDepositLifecycle, GeologyState};
 
@@ -126,6 +126,27 @@ fn validate_observation(
             }
         }
     })?;
+    validate_resource_mass_context(record.evidence, &record.findings, record.resource_mass)
+        .map_err(|error| match error {
+            ResourceMassContextError::UnsupportedEvidence { evidence } => {
+                GeologicalKnowledgeValidationError::ResourceMassUnsupportedEvidence {
+                    observation: id,
+                    evidence,
+                }
+            }
+            ResourceMassContextError::AmbiguousFindings { count } => {
+                GeologicalKnowledgeValidationError::ResourceMassAmbiguousFindings {
+                    observation: id,
+                    count,
+                }
+            }
+            ResourceMassContextError::PresenceNotDefinite { material } => {
+                GeologicalKnowledgeValidationError::ResourceMassWithoutDefinitePresence {
+                    observation: id,
+                    material,
+                }
+            }
+        })?;
     if record.observed_at > current {
         return Err(GeologicalKnowledgeValidationError::ObservedInFuture {
             observation: id,

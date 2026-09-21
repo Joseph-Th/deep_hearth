@@ -191,10 +191,15 @@ pub(in super::super) fn project_preservation_candidates_with_raw_opportunity(
 
 pub(in super::super) fn select_preservation_projection(
     behavior_seed: u64,
+    material_budget_mg: u64,
     projections: &[PreservationCandidateProjection],
 ) -> PreservationCandidateProjection {
-    let attention_value_ppm = preservation_freshness_return_threshold_ppm(behavior_seed);
-    select_preservation_projection_for_attention_value(attention_value_ppm, projections)
+    let attention_value_ppm = preservation_attention_value_ppm(behavior_seed);
+    select_preservation_projection_for_attention_value(
+        attention_value_ppm,
+        material_budget_mg,
+        projections,
+    )
 }
 
 /// Compares construction against abstention at this episode's ambient-spoilage endpoint (zero
@@ -202,21 +207,27 @@ pub(in super::super) fn select_preservation_projection(
 /// materials. This is an actor attention budget, not a prediction of how much food will be eaten.
 pub(in super::super) fn select_preservation_investment(
     attention_value_ppm: u32,
+    minimum_return_ppm: u32,
+    material_budget_mg: u64,
     projections: &[PreservationCandidateProjection],
 ) -> Option<PreservationCandidateProjection> {
-    let selected =
-        select_preservation_projection_for_attention_value(attention_value_ppm, projections);
+    let selected = select_preservation_projection_for_attention_value(
+        attention_value_ppm,
+        material_budget_mg,
+        projections,
+    );
     let benefit = i128::from(selected.remaining_fresh_ticks)
         .checked_mul(1_000_000)
         .unwrap_or_else(|| panic!("preservation projected freshness value overflowed"));
     let cost = i128::from(selected.production_ticks)
-        .checked_mul(i128::from(attention_value_ppm))
+        .checked_mul(i128::from(minimum_return_ppm))
         .unwrap_or_else(|| panic!("preservation projected attention value overflowed"));
     (benefit > cost).then_some(selected)
 }
 
 pub(in super::super) fn select_preservation_projection_for_attention_value(
     attention_value_ppm: u32,
+    material_budget_mg: u64,
     projections: &[PreservationCandidateProjection],
 ) -> PreservationCandidateProjection {
     let value_key = |projection: &PreservationCandidateProjection| {
@@ -233,12 +244,21 @@ pub(in super::super) fn select_preservation_projection_for_attention_value(
             Reverse(projection.production_ticks),
         )
     };
-    let best_value = projections
+    let eligible = projections
+        .iter()
+        .copied()
+        .filter(|projection| projection.raw_material_mass_mg <= material_budget_mg)
+        .collect::<Vec<_>>();
+    assert!(
+        !eligible.is_empty(),
+        "preservation material budget must fund at least one projected enclosure"
+    );
+    let best_value = eligible
         .iter()
         .map(value_key)
         .max()
         .unwrap_or_else(|| panic!("preservation projection has no authored candidates"));
-    let selected = projections
+    let selected = eligible
         .iter()
         .copied()
         .filter(|projection| value_key(projection) == best_value)
@@ -278,55 +298,6 @@ pub(in super::super) fn preservation_physical_frontier(
             })
         })
         .map(|projection| projection.definition)
-        .collect()
-}
-
-fn attention_value_probe_points(projections: &[PreservationCandidateProjection]) -> BTreeSet<u32> {
-    const MINIMUM: u32 = 1_000_000;
-    const MAXIMUM: u32 = 4_000_000;
-    let mut values = BTreeSet::from([MINIMUM, MAXIMUM]);
-    for (index, left) in projections.iter().enumerate() {
-        for right in &projections[index + 1..] {
-            if left.production_ticks == right.production_ticks {
-                continue;
-            }
-            let freshness_delta = i128::from(left.remaining_fresh_ticks)
-                .checked_sub(i128::from(right.remaining_fresh_ticks))
-                .and_then(|delta| delta.checked_mul(1_000_000))
-                .unwrap_or_else(|| panic!("preservation policy crossover freshness overflowed"));
-            let attention_delta = i128::from(left.production_ticks)
-                .checked_sub(i128::from(right.production_ticks))
-                .unwrap_or_else(|| panic!("preservation policy crossover attention overflowed"));
-            if freshness_delta == 0 || freshness_delta.signum() != attention_delta.signum() {
-                continue;
-            }
-            let crossover = freshness_delta.unsigned_abs() / attention_delta.unsigned_abs();
-            let crossover = u32::try_from(crossover).unwrap_or(u32::MAX);
-            for offset in -2_i64..=2 {
-                let value = i64::from(crossover).saturating_add(offset);
-                if (i64::from(MINIMUM)..=i64::from(MAXIMUM)).contains(&value) {
-                    values.insert(u32::try_from(value).unwrap_or_else(|_| {
-                        unreachable!("bounded preservation attention value fits u32")
-                    }));
-                }
-            }
-        }
-    }
-    values
-}
-
-/// Returns every preservation definition that can win the actor's exact linear value rule anywhere
-/// in the authored 1.0x..4.0x attention-value interval. Pairwise crossover neighborhoods make the
-/// probe exact for integer-valued policy changes without scanning millions of redundant values.
-pub(in super::super) fn preservation_policy_reachable_definitions(
-    projections: &[PreservationCandidateProjection],
-) -> BTreeSet<StorageDefinitionId> {
-    attention_value_probe_points(projections)
-        .into_iter()
-        .filter_map(|attention_value| {
-            select_preservation_investment(attention_value, projections)
-                .map(|projection| projection.definition)
-        })
         .collect()
 }
 
