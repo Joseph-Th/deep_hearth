@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import ci  # noqa: E402
-from tools import check_authority_docs, check_bca, run_test  # noqa: E402
+from tools import check_authority_docs, check_bca, run_test, rust_diagnostics  # noqa: E402
 
 
 _source_text_cache: dict[Path, str] = {}
@@ -171,6 +171,138 @@ def deserialized_named_structs(
 
 
 class LocalCiPlanTests(unittest.TestCase):
+    def test_rust_diagnostics_normalizes_module_owner_focus(self) -> None:
+        args = rust_diagnostics.parse_args(["modules", "--focus", "survival"])
+        self.assertEqual(
+            rust_diagnostics.modules_command(args),
+            [
+                "cargo",
+                "modules",
+                "structure",
+                "--lib",
+                "--no-fns",
+                "--no-traits",
+                "--no-types",
+                "--max-depth",
+                "4",
+                "--focus-on",
+                "crate::survival",
+            ],
+        )
+
+    def test_rust_diagnostics_orphans_include_test_linkage_only_when_requested(self) -> None:
+        args = rust_diagnostics.parse_args(["modules", "orphans", "--tests"])
+        self.assertEqual(
+            rust_diagnostics.modules_command(args),
+            ["cargo", "modules", "orphans", "--lib", "--cfg-test"],
+        )
+
+    def test_rust_diagnostics_dependency_view_is_focused_and_bounded(self) -> None:
+        args = rust_diagnostics.parse_args(
+            ["modules", "dependencies", "--focus", "survival"]
+        )
+        self.assertEqual(
+            rust_diagnostics.modules_command(args),
+            [
+                "cargo",
+                "modules",
+                "dependencies",
+                "--lib",
+                "--no-externs",
+                "--no-fns",
+                "--no-sysroot",
+                "--no-traits",
+                "--no-types",
+                "--no-owns",
+                "--max-depth",
+                "1",
+                "--focus-on",
+                "crate::survival",
+            ],
+        )
+        overridden = rust_diagnostics.parse_args(
+            ["modules", "dependencies", "--focus", "survival", "--depth", "2"]
+        )
+        self.assertIn("2", rust_diagnostics.modules_command(overridden))
+
+    def test_rust_diagnostics_mutants_list_before_targeted_execution(self) -> None:
+        args = rust_diagnostics.parse_args(
+            [
+                "mutants",
+                "src/survival/validation/direct_consumption.rs",
+                "--re",
+                "validate_pending_food_freshness",
+            ]
+        )
+        self.assertEqual(
+            rust_diagnostics.mutants_command(args),
+            [
+                "cargo",
+                "mutants",
+                "--file",
+                "src/survival/validation/direct_consumption.rs",
+                "-F",
+                "validate_pending_food_freshness",
+                "--list",
+            ],
+        )
+
+    def test_rust_diagnostics_mutant_execution_is_targeted_and_bounded(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            rust_diagnostics.parse_args(
+                ["mutants", "src/survival/validation/direct_consumption.rs", "--run"]
+            )
+        args = rust_diagnostics.parse_args(
+            [
+                "mutants",
+                "src/survival/validation/direct_consumption.rs",
+                "--re",
+                "validate_pending_food_freshness",
+                "--run",
+            ]
+        )
+        output = Path("target/agent-output/rust-diagnostics/mutants/example")
+        self.assertEqual(
+            rust_diagnostics.mutants_command(args, output),
+            [
+                "cargo",
+                "mutants",
+                "--file",
+                "src/survival/validation/direct_consumption.rs",
+                "-F",
+                "validate_pending_food_freshness",
+                "-j",
+                "2",
+                "-o",
+                str(output),
+            ],
+        )
+
+    def test_rust_diagnostics_expand_is_locked_and_item_scoped(self) -> None:
+        args = rust_diagnostics.parse_args(
+            ["expand", "survival::state::direct_consumption", "--grep", "PendingEating"]
+        )
+        self.assertEqual(
+            rust_diagnostics.expand_command(args),
+            [
+                "cargo",
+                "expand",
+                "--quiet",
+                "--locked",
+                "--color",
+                "never",
+                "--lib",
+                "survival::state::direct_consumption",
+            ],
+        )
+        filtered = rust_diagnostics.filtered_expansion(
+            "zero\nimpl Serialize for PendingEating {\none\ntwo\n",
+            "PendingEating",
+            1,
+        )
+        self.assertIn("impl Serialize for PendingEating", filtered)
+        self.assertNotIn("two", filtered)
+
     def test_quick_lane_is_build_free(self) -> None:
         self.assertEqual(cargo_build_commands(ci.quick_plan()), [])
 

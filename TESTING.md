@@ -29,6 +29,7 @@ Use the smallest lane that completely proves the changed contract.
 | Gameplay exploration report | `python ci.py report` |
 | Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 | Current BCA hotspot review | `python ci.py bca --hotspots [--path <scope>] [--since <revision>]` |
+| Agent Rust diagnostics | `python tools/rust_diagnostics.py --help` |
 
 `quick` is build-free. `gate` runs one build lane and does not repeat `quick`; specialized flags replace its
 default compile. `audit` checkpoints add `quick` to the selected runtime surface.
@@ -103,9 +104,7 @@ diagnostic: refactor for clearer ownership/control flow, not to game the baselin
 
 ### Rust agent diagnostics
 
-Use these only for a named uncertainty: `cargo modules structure --lib --no-fns --no-traits --no-types --max-depth 4` for an ownership map. For orphan checks, match reviewed features and add `--cfg-test` when tests count as linked. Use `cargo mutants --list --file <owner.rs>` before running only invariant-bearing functions. Use `cargo expand --lib <module::item>` for the item; to inspect derive-generated sibling impls, expand the containing module and filter. Global cycles/orphans and mutation scores are diagnostic, not gates.
-
-Mutation runs stay in the isolated scratch copy. `.cargo/mutants.toml` skips Git-ignored artifacts and caps lints so behavior-removing mutants reach tests. If a non-ignored locked artifact blocks copying, fix the environment or omit the optional audit; never delete unrelated caches or use `--in-place` on a dirty/concurrent worktree.
+Use `python tools/rust_diagnostics.py` only for a named uncertainty; [`tools/README.md`](tools/README.md) owns its operating details. Its bounded ownership view wraps `cargo modules structure --lib --no-fns --no-traits --no-types --max-depth 4`. Mutation, module, and expansion results are diagnostics, not completion gates.
 
 ## Unit tests
 
