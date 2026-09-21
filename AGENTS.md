@@ -53,6 +53,9 @@ flag, or test-only path for a fact that already has an owner.
 - Core systems perform no implicit external IO; adapters own external effects.
 - Remove obsolete code and stale documentation. Do not add compatibility scaffolding, test-only public APIs, fake callers, or broad warning suppressions without an active contract.
 - Verification is local. Do not add or depend on hosted CI.
+- Mutation testing is advisory and serialized. Use only `tools/rust_diagnostics.py`; never call
+  `cargo mutants` directly, bypass its fixed two-worker limit, or parallelize `mutants --run`. Use it
+  only for one named unresolved invariant, not as a general audit.
 
 ## Completion
 

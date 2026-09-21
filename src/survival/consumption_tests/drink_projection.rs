@@ -98,6 +98,74 @@ fn minimum_drink_projection_matches_canonical_execution() {
 }
 
 #[test]
+fn minimum_drink_projection_enforces_current_hydration_bounds_exactly() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let drink = registries
+        .survival()
+        .get_drink(FLUID_WATER)
+        .copied()
+        .unwrap_or_else(|| panic!("water drink definition disappeared"));
+    let maximum = physiology.maximum_hydration();
+
+    assert_eq!(
+        project_minimum_drink_to_hydration_target(physiology, drink, maximum, maximum),
+        Ok(None)
+    );
+
+    let above_maximum = maximum
+        .checked_add(Volume::from_microliters(1))
+        .unwrap_or_else(|| panic!("hydration-boundary fixture overflowed"));
+    assert_eq!(
+        project_minimum_drink_to_hydration_target(physiology, drink, above_maximum, maximum),
+        Err(
+            DrinkHydrationProjectionError::CurrentHydrationExceedsMaximum {
+                current: above_maximum,
+                maximum,
+            }
+        )
+    );
+}
+
+#[test]
+fn minimum_drink_projection_allows_exact_maximum_intake_when_it_is_required() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let drink = registries
+        .survival()
+        .get_drink(FLUID_WATER)
+        .copied()
+        .unwrap_or_else(|| panic!("water drink definition disappeared"));
+    let direct = physiology.direct_consumption();
+    let maximum_volume = direct.maximum_drink_volume();
+    let maximum_duration = direct
+        .drink_duration(maximum_volume)
+        .unwrap_or_else(|| panic!("maximum authored drink has no duration"));
+    let hydration_loss = physiology
+        .hydration_loss_per_tick()
+        .microliters()
+        .checked_mul(maximum_duration.value())
+        .unwrap_or_else(|| panic!("maximum-drink hydration loss overflowed"));
+    let target = Volume::from_microliters(
+        maximum_volume
+            .microliters()
+            .checked_sub(hydration_loss)
+            .unwrap_or_else(|| panic!("maximum drink cannot cover its own hydration loss")),
+    );
+
+    let projection =
+        project_minimum_drink_to_hydration_target(physiology, drink, Volume::ZERO, target)
+            .unwrap_or_else(|error| panic!("exact-maximum drink projection failed: {error}"))
+            .unwrap_or_else(|| {
+                panic!("exact-maximum drink projection unexpectedly needed no drink")
+            });
+
+    assert_eq!(projection.volume(), maximum_volume);
+    assert_eq!(projection.duration(), maximum_duration);
+    assert_eq!(projection.hydration_after(), target);
+}
+
+#[test]
 fn minimum_drink_projection_reports_satisfied_and_unreachable_targets() {
     let registries = build_registries();
     let physiology = registries.survival().physiology();

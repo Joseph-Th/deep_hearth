@@ -57,6 +57,9 @@ pub(crate) fn calculate_metabolic_duration(
     required: Energy,
     per_tick: Energy,
 ) -> Result<TickSpan, ManualPowerMetabolicDurationError> {
+    if required.is_zero() {
+        return Ok(TickSpan::ZERO);
+    }
     if per_tick.is_zero() {
         return Err(ManualPowerMetabolicDurationError::ZeroOutput);
     }

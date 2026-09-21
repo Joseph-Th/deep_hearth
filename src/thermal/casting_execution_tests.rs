@@ -37,6 +37,7 @@ const HEAT_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(960_001)
 const COMPATIBLE_HEAT_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(960_002);
 const PROCESS: ProcessId = ProcessId::new(960_001);
 const MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
+const EQUIPMENT_MAX_TEMPERATURE: Temperature = Temperature::from_millikelvin(1_600_000);
 const OUTPUT_TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
 
 #[derive(Clone, Copy)]
@@ -307,7 +308,7 @@ fn make_registries_with_sink_dissipation(
         ),
         (
             MAX_TEMPERATURE,
-            CapabilityValue::Temperature(Temperature::from_millikelvin(1_600_000)),
+            CapabilityValue::Temperature(EQUIPMENT_MAX_TEMPERATURE),
         ),
         (
             MAX_BATCH_MASS,
@@ -451,7 +452,7 @@ fn make_fixture_with_sink_configuration(
     );
     let mut state = AppState::new(WorldSeed::new(0x9600_0001));
     let source_profile =
-        match StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_600_000)) {
+        match StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_600_001)) {
             Ok(profile) => profile,
             Err(error) => panic!("casting source profile failed: {error}"),
         };
@@ -498,6 +499,77 @@ fn make_fixture_with_sink_configuration(
             heat_sink,
         },
     }
+}
+
+#[test]
+fn casting_accepts_exact_equipment_temperature_limit_and_rejects_one_millikelvin_more() {
+    let exact = make_fixture(Mass::from_milligrams(1), EQUIPMENT_MAX_TEMPERATURE);
+    let _resolved = resolve_selected(
+        &exact.registries,
+        &exact.state,
+        exact.ids,
+        Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("casting at exact equipment temperature limit failed: {error}"));
+    let exact_envelope = crate::thermal::assess_casting_lot_mass_envelope(
+        &exact.registries,
+        &exact.state,
+        crate::thermal::CastingLotMassRequest::new(
+            PROCESS,
+            exact.ids.source,
+            MaterialLotSelection::new(exact.ids.source_lot, Mass::from_milligrams(1)),
+            exact.ids.equipment,
+            exact.ids.heat_sink,
+        ),
+    )
+    .unwrap_or_else(|error| {
+        panic!("casting planner at exact equipment temperature limit failed: {error}")
+    });
+    assert_eq!(exact_envelope.maximum_mass(), Mass::from_milligrams(1));
+    assert_eq!(exact_envelope.limiting_constraint(), None);
+
+    let above = Temperature::from_millikelvin(
+        EQUIPMENT_MAX_TEMPERATURE
+            .millikelvin()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("casting temperature boundary overflowed")),
+    );
+    let over_limit = make_fixture(Mass::from_milligrams(1), above);
+    assert_eq!(
+        resolve_selected(
+            &over_limit.registries,
+            &over_limit.state,
+            over_limit.ids,
+            Mass::from_milligrams(1),
+        )
+        .err(),
+        Some(
+            CastingResolutionError::InputTemperatureExceedsEquipmentMaximum {
+                input: above,
+                maximum: EQUIPMENT_MAX_TEMPERATURE,
+            }
+        )
+    );
+    assert_eq!(
+        crate::thermal::assess_casting_lot_mass_envelope(
+            &over_limit.registries,
+            &over_limit.state,
+            crate::thermal::CastingLotMassRequest::new(
+                PROCESS,
+                over_limit.ids.source,
+                MaterialLotSelection::new(over_limit.ids.source_lot, Mass::from_milligrams(1),),
+                over_limit.ids.equipment,
+                over_limit.ids.heat_sink,
+            ),
+        )
+        .err(),
+        Some(
+            CastingResolutionError::InputTemperatureExceedsEquipmentMaximum {
+                input: above,
+                maximum: EQUIPMENT_MAX_TEMPERATURE,
+            }
+        )
+    );
 }
 
 #[test]

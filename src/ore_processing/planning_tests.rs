@@ -13,7 +13,7 @@ use crate::content::{
 use crate::core::quantity::{Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
 use crate::core::throughput::calculate_mass_flow_capacity;
-use crate::core::time::WorldSeed;
+use crate::core::time::{TickSpan, WorldSeed};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergySupplyError,
     add_energy_store_with_initial_for_fixture,
@@ -268,6 +268,7 @@ fn equipment_capacity_projection_matches_canonical_batch_boundary() {
     let envelope = envelope(&fixture);
     assert_eq!(envelope.equipment_capacity(), Mass::from_milligrams(10));
     assert_eq!(envelope.maximum_mass(), Mass::from_milligrams(10));
+    assert_eq!(envelope.constraint_for(Mass::from_milligrams(10)), None);
     assert_eq!(
         envelope.constraint_for(Mass::from_milligrams(11)),
         Some(PoweredOreMassConstraint::EquipmentCapacity)
@@ -289,6 +290,7 @@ fn stored_energy_projection_matches_canonical_supply_boundary() {
     let envelope = envelope(&fixture);
     assert_eq!(envelope.stored_energy_capacity(), Mass::from_milligrams(5));
     assert_eq!(envelope.maximum_mass(), Mass::from_milligrams(5));
+    assert_eq!(envelope.constraint_for(Mass::from_milligrams(5)), None);
     assert!(envelope.maximum_mass_with_replenished_energy() > envelope.maximum_mass());
     assert_eq!(
         envelope.additional_energy_required_for(Mass::from_milligrams(6)),
@@ -352,6 +354,7 @@ fn condition_lifetime_projection_matches_first_unusable_duration() {
     assert_eq!(envelope.condition_lifetime_capacity(), expected);
     assert_eq!(envelope.maximum_mass(), expected);
     assert!(!expected.is_zero());
+    assert_eq!(envelope.constraint_for(expected), None);
     assert!(resolve(&fixture, &fixture.state, expected).is_ok());
     let rejected = Mass::from_milligrams(expected.milligrams() + 1);
     assert_eq!(
@@ -458,6 +461,26 @@ fn cumulative_condition_horizon_retains_output_power_limit() {
     assert!(!power_capacity.is_zero());
     assert!(power_capacity < throughput_capacity);
     assert_eq!(cumulative, power_capacity);
+}
+
+#[test]
+fn integrated_power_capacity_is_zero_when_either_power_or_time_is_zero() {
+    let tick_duration = build_registries().core().physical_tick_duration();
+    let specific = MassSpecificEnergy::from_nanojoules_per_milligram(1);
+
+    assert_eq!(
+        mass_capacity_from_integrated_power(
+            Power::from_microwatts(1),
+            TickSpan::ZERO,
+            tick_duration,
+            specific,
+        ),
+        Mass::ZERO
+    );
+    assert_eq!(
+        mass_capacity_from_integrated_power(Power::ZERO, TickSpan::new(1), tick_duration, specific,),
+        Mass::ZERO
+    );
 }
 
 #[test]

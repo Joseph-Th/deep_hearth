@@ -329,3 +329,7 @@ fn energy_for_mass(unit_energy: Energy, mass: Mass) -> Energy {
             .unwrap_or_else(|| unreachable!("thermal planning mass was bounded by energy range")),
     )
 }
+
+#[cfg(test)]
+#[path = "casting_tests.rs"]
+mod tests;

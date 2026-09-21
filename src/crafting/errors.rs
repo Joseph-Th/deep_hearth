@@ -51,6 +51,40 @@ pub enum ManualCraftEquipmentProjectionError {
     EquipmentCondition(ActiveConditionDurationError),
 }
 
+/// Failure while projecting equipment-free manual work from immutable authored definitions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ManualCraftHandProjectionError {
+    DurationOverflow {
+        process: ProcessId,
+        batches: NonZeroU64,
+    },
+    ResourceBudgetOverflow {
+        process: ProcessId,
+        batches: NonZeroU64,
+    },
+}
+
+impl Display for ManualCraftHandProjectionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DurationOverflow { process, batches } => write!(
+                formatter,
+                "manual craft process {} hand-work duration overflows for {} batches",
+                process.value(),
+                batches.get()
+            ),
+            Self::ResourceBudgetOverflow { process, batches } => write!(
+                formatter,
+                "manual craft process {} physiological hand-work budget overflows for {} batches",
+                process.value(),
+                batches.get()
+            ),
+        }
+    }
+}
+
+impl Error for ManualCraftHandProjectionError {}
+
 impl Display for ManualCraftEquipmentProjectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -9,6 +9,10 @@ fn zero_required_output_has_zero_metabolic_duration() {
         calculate_metabolic_duration(Energy::ZERO, Energy::from_nanojoules(1)),
         Ok(TickSpan::ZERO)
     );
+    assert_eq!(
+        calculate_metabolic_duration(Energy::ZERO, Energy::ZERO),
+        Ok(TickSpan::ZERO)
+    );
 }
 
 #[test]
@@ -59,6 +63,30 @@ fn bottlenecked_manual_power_scales_effort_to_actual_output() {
     assert_eq!(
         slow.energy_cost_per_tick().nanojoules() * 10,
         fast.energy_cost_per_tick().nanojoules() * 5
+    );
+}
+
+#[test]
+fn manual_power_exertion_rejects_each_zero_conversion_dimension_independently() {
+    let maximum = SurvivalExertion::new(Energy::from_nanojoules(100), Volume::from_microliters(10));
+    let required = Energy::from_nanojoules(100);
+
+    assert_eq!(
+        resolve_manual_power_exertion(required, TickSpan::ZERO, maximum, 500_000),
+        Err(ManualPowerExertionError::ExceedsAuthoredMaximum)
+    );
+    assert_eq!(
+        resolve_manual_power_exertion(required, TickSpan::new(1), maximum, 0),
+        Err(ManualPowerExertionError::ExceedsAuthoredMaximum)
+    );
+    assert_eq!(
+        resolve_manual_power_exertion(
+            required,
+            TickSpan::new(1),
+            SurvivalExertion::new(Energy::ZERO, Volume::from_microliters(10)),
+            500_000,
+        ),
+        Err(ManualPowerExertionError::ExceedsAuthoredMaximum)
     );
 }
 

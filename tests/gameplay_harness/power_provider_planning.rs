@@ -10,12 +10,15 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreDefinitionId;
 use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::labor::{ManualPowerProjection, project_manual_power};
+use deep_hearth::labor::{ManualPowerMethodId, ManualPowerProjection, project_manual_power};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::registry::Registries;
 
 use super::super::manual_craft_planning::project_manual_assembly_package;
 use super::super::seed::mix64;
+
+const MAX_PRIMITIVE_PLANNED_CHARGES: u64 = 160;
+const MAX_SETTLEMENT_PLANNED_CHARGES: u64 = 120;
 
 #[derive(Clone, Copy)]
 pub(super) struct ShapedBuild {
@@ -81,6 +84,87 @@ pub(super) struct SettlementPowerPlan {
     pub(super) walking_lifecycle_attention: u64,
 }
 
+#[derive(Clone, Copy)]
+struct ManualPowerRoute {
+    method: ManualPowerMethodId,
+    equipment: EquipmentDefinitionId,
+    store: EnergyStoreDefinitionId,
+    requested: Energy,
+    context: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct ManualPowerLifecycleCost {
+    attention_ticks: u64,
+    metabolic_nj: u128,
+}
+
+impl ManualPowerRoute {
+    fn project(self, registries: &Registries, condition: Condition) -> ManualPowerProjection {
+        project_manual_power(
+            registries,
+            self.method,
+            self.equipment,
+            condition,
+            self.store,
+            self.requested,
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "power-provider {} charge projection failed: {error}",
+                self.context
+            )
+        })
+    }
+
+    fn project_lifecycle(
+        self,
+        registries: &Registries,
+        planned_charges: u64,
+        first_charge: ManualPowerProjection,
+    ) -> ManualPowerLifecycleCost {
+        assert!(
+            planned_charges > 0,
+            "power-provider {} lifecycle requires at least one planned charge",
+            self.context
+        );
+        let mut attention_ticks = first_charge.duration().value();
+        let mut metabolic_nj = first_charge
+            .resource_budget()
+            .metabolic_energy()
+            .nanojoules();
+        let mut condition = first_charge.condition_after();
+
+        // Carry the canonical projected condition forward so each later charge pays for the wear
+        // created by the earlier projected work instead of extrapolating one pristine-rate sample.
+        for _ in 1..planned_charges {
+            let charge = self.project(registries, condition);
+            attention_ticks = attention_ticks
+                .checked_add(charge.duration().value())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "power-provider {} lifecycle attention overflowed",
+                        self.context
+                    )
+                });
+            metabolic_nj = metabolic_nj
+                .checked_add(charge.resource_budget().metabolic_energy().nanojoules())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "power-provider {} lifecycle metabolism overflowed",
+                        self.context
+                    )
+                });
+            condition = charge.condition_after();
+        }
+
+        ManualPowerLifecycleCost {
+            attention_ticks,
+            metabolic_nj,
+        }
+    }
+}
+
 pub(super) fn settlement_power_plan(
     registries: &Registries,
     state: &AppState,
@@ -108,56 +192,44 @@ pub(super) fn settlement_power_plan(
         "walking-wheel pre-action build",
     );
     let requested = Energy::from_nanojoules(capacity_nj);
-    let treadle_charge = project_manual_power(
-        registries,
-        MANUAL_POWER_FOOT_TREADLE,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        Condition::PRISTINE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+    let treadle_route = ManualPowerRoute {
+        method: MANUAL_POWER_FOOT_TREADLE,
+        equipment: EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        store: ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
         requested,
-    )
-    .unwrap_or_else(|error| panic!("settlement treadle pre-action charge failed: {error}"));
-    let walking_charge = project_manual_power(
-        registries,
-        MANUAL_POWER_WALKING_WHEEL,
-        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        Condition::PRISTINE,
-        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        context: "settlement treadle",
+    };
+    let walking_route = ManualPowerRoute {
+        method: MANUAL_POWER_WALKING_WHEEL,
+        equipment: EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        store: ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
         requested,
-    )
-    .unwrap_or_else(|error| panic!("walking-wheel pre-action charge failed: {error}"));
-    let planned_charges = 1 + mix64(seed ^ 0x5345_5454_4C45_5057) % 120;
-    let lifecycle_attention = |build: ShapedBuild, charge: ManualPowerProjection| {
-        build
-            .attention_ticks
-            .checked_add(
-                charge
-                    .duration()
-                    .value()
-                    .checked_mul(planned_charges)
-                    .unwrap_or_else(|| panic!("settlement charge horizon overflowed")),
-            )
-            .unwrap_or_else(|| panic!("settlement lifecycle attention overflowed"))
+        context: "settlement walking wheel",
     };
-    let lifecycle_metabolic = |charge: ManualPowerProjection| {
-        charge
-            .resource_budget()
-            .metabolic_energy()
-            .nanojoules()
-            .checked_mul(u128::from(planned_charges))
-            .unwrap_or_else(|| panic!("settlement metabolic horizon overflowed"))
-    };
-    let treadle_lifecycle_attention = lifecycle_attention(treadle_build, treadle_charge);
-    let walking_lifecycle_attention = lifecycle_attention(walking_build, walking_charge);
+    let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
+    let walking_charge = walking_route.project(registries, Condition::PRISTINE);
+    let planned_charges = 1 + mix64(seed ^ 0x5345_5454_4C45_5057) % MAX_SETTLEMENT_PLANNED_CHARGES;
+    let treadle_lifecycle =
+        treadle_route.project_lifecycle(registries, planned_charges, treadle_charge);
+    let walking_lifecycle =
+        walking_route.project_lifecycle(registries, planned_charges, walking_charge);
+    let treadle_lifecycle_attention = treadle_build
+        .attention_ticks
+        .checked_add(treadle_lifecycle.attention_ticks)
+        .unwrap_or_else(|| panic!("settlement treadle lifecycle attention overflowed"));
+    let walking_lifecycle_attention = walking_build
+        .attention_ticks
+        .checked_add(walking_lifecycle.attention_ticks)
+        .unwrap_or_else(|| panic!("settlement walking-wheel lifecycle attention overflowed"));
     let treadle_key = (
         treadle_lifecycle_attention,
-        lifecycle_metabolic(treadle_charge),
+        treadle_lifecycle.metabolic_nj,
         treadle_build.input_mass_mg,
         0_u8,
     );
     let walking_key = (
         walking_lifecycle_attention,
-        lifecycle_metabolic(walking_charge),
+        walking_lifecycle.metabolic_nj,
         walking_build.input_mass_mg,
         1_u8,
     );
@@ -250,60 +322,45 @@ pub(super) fn primitive_power_plan(
         "power provider treadle pre-action build",
     );
     let requested = Energy::from_nanojoules(capacity_nj);
-    let crank_charge = project_manual_power(
-        registries,
-        MANUAL_POWER_HAND_CRANK,
-        EQUIPMENT_STONE_HAND_CRANK,
-        Condition::PRISTINE,
-        store_definition,
+    let crank_route = ManualPowerRoute {
+        method: MANUAL_POWER_HAND_CRANK,
+        equipment: EQUIPMENT_STONE_HAND_CRANK,
+        store: store_definition,
         requested,
-    )
-    .unwrap_or_else(|error| panic!("power provider crank pre-action charge failed: {error}"));
-    let treadle_charge = project_manual_power(
-        registries,
-        MANUAL_POWER_FOOT_TREADLE,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        Condition::PRISTINE,
-        store_definition,
+        context: "primitive crank",
+    };
+    let treadle_route = ManualPowerRoute {
+        method: MANUAL_POWER_FOOT_TREADLE,
+        equipment: EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        store: store_definition,
         requested,
-    )
-    .unwrap_or_else(|error| panic!("power provider treadle pre-action charge failed: {error}"));
+        context: "primitive treadle",
+    };
+    let crank_charge = crank_route.project(registries, Condition::PRISTINE);
+    let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     // This is disclosed workload, not a hidden future outcome. The actor knows how many comparable
     // full charges it expects this project to need and invests against that horizon.
-    let planned_charges = 1 + mix64(seed ^ 0x504F_5752_574F_524B) % 160;
-    let lifecycle_attention = |build: ShapedBuild, charge: ManualPowerProjection| {
-        build
-            .attention_ticks
-            .checked_add(
-                charge
-                    .duration()
-                    .value()
-                    .checked_mul(planned_charges)
-                    .unwrap_or_else(|| {
-                        panic!("power provider projected charge horizon overflowed")
-                    }),
-            )
-            .unwrap_or_else(|| panic!("power provider projected lifecycle attention overflowed"))
-    };
-    let crank_lifecycle_attention = lifecycle_attention(crank_build, crank_charge);
-    let treadle_lifecycle_attention = lifecycle_attention(treadle_build, treadle_charge);
-    let lifecycle_metabolic = |charge: ManualPowerProjection| {
-        charge
-            .resource_budget()
-            .metabolic_energy()
-            .nanojoules()
-            .checked_mul(u128::from(planned_charges))
-            .unwrap_or_else(|| panic!("power provider projected metabolic horizon overflowed"))
-    };
+    let planned_charges = 1 + mix64(seed ^ 0x504F_5752_574F_524B) % MAX_PRIMITIVE_PLANNED_CHARGES;
+    let crank_lifecycle = crank_route.project_lifecycle(registries, planned_charges, crank_charge);
+    let treadle_lifecycle =
+        treadle_route.project_lifecycle(registries, planned_charges, treadle_charge);
+    let crank_lifecycle_attention = crank_build
+        .attention_ticks
+        .checked_add(crank_lifecycle.attention_ticks)
+        .unwrap_or_else(|| panic!("power provider crank lifecycle attention overflowed"));
+    let treadle_lifecycle_attention = treadle_build
+        .attention_ticks
+        .checked_add(treadle_lifecycle.attention_ticks)
+        .unwrap_or_else(|| panic!("power provider treadle lifecycle attention overflowed"));
     let crank_key = (
         crank_lifecycle_attention,
-        lifecycle_metabolic(crank_charge),
+        crank_lifecycle.metabolic_nj,
         crank_build.input_mass_mg,
         0_u8,
     );
     let treadle_key = (
         treadle_lifecycle_attention,
-        lifecycle_metabolic(treadle_charge),
+        treadle_lifecycle.metabolic_nj,
         treadle_build.input_mass_mg,
         1_u8,
     );

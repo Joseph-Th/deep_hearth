@@ -36,11 +36,18 @@ Execution is deliberately opt-in and requires the mutation regex:
 
 `python tools/rust_diagnostics.py mutants src/survival/validation/direct_consumption.rs --re validate_pending_food_freshness --run`
 
-The wrapper keeps runs targeted, uses two concurrent mutant jobs by default, never uses
-`--in-place`, and writes logs beneath `target/agent-output/rust-diagnostics/mutants/`. The existing
-`.cargo/mutants.toml` keeps ignored artifacts out of copied worktrees and caps lints so
-behavior-removing mutants reach tests. `--skip-baseline` is appropriate only when the unchanged
-test surface was just proven separately.
+The wrapper keeps runs targeted, fixes execution at exactly two concurrent mutant jobs, never uses
+`--in-place`, and writes logs beneath `target/agent-output/rust-diagnostics/mutants/`. The worker
+count is intentionally not configurable. Mutation execution also holds one project-wide exclusive
+lock: if another `mutants --run` invocation is active, a second invocation fails immediately instead
+of multiplying Cargo/rustc/test process trees. The existing `.cargo/mutants.toml` keeps ignored
+artifacts out of copied worktrees and caps lints so behavior-removing mutants reach tests.
+`--skip-baseline` is appropriate only when the unchanged test surface was just proven separately.
+
+Never invoke `cargo mutants` directly and never launch multiple `rust_diagnostics.py mutants --run`
+commands in parallel. One targeted mutation execution at a time is the project limit. Mutation
+testing is diagnostic evidence for one unresolved invariant, not an exhaustive audit strategy; stop
+when that question is resolved and return to the normal proof lanes.
 
 Do not optimize for a mutation score. Inspect only mutations that distinguish the contract being
 changed. A surviving relevant mutant is evidence that the focused proof is weak; an unrelated

@@ -1,6 +1,6 @@
 //! Resource-mass observation contracts for localized and ambiguous geological bodies.
 
-use crate::content::{FORM_ORE, MATERIAL_COPPER, build_registries};
+use crate::content::{FORM_LUMP, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE, build_registries};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::WorldSeed;
@@ -8,7 +8,7 @@ use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
-use super::resolve_region_resource_mass;
+use super::{resolve_region_resource_mass, resource_mass_bucket};
 
 fn voxel(x: i64) -> VoxelBounds {
     VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1))
@@ -28,6 +28,21 @@ fn insert_copper(state: &mut AppState, bounds: VoxelBounds, mass: Mass) {
     .unwrap_or_else(|error| panic!("resource-mass deposit fixture failed: {error}"));
     insert_generated_deposit(&registries, state, spec)
         .unwrap_or_else(|error| panic!("resource-mass deposit insertion failed: {error}"));
+}
+
+fn insert_stone(state: &mut AppState, bounds: VoxelBounds, mass: Mass) {
+    let registries = build_registries();
+    let spec = GeneratedDepositSpec::new(
+        bounds,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        mass,
+        Temperature::from_millikelvin(293_150),
+        Pressure::from_pascals(300_000_000),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("resource-mass stone deposit fixture failed: {error}"));
+    insert_generated_deposit(&registries, state, spec)
+        .unwrap_or_else(|error| panic!("resource-mass stone deposit insertion failed: {error}"));
 }
 
 #[test]
@@ -66,6 +81,52 @@ fn exact_bucket_boundary_does_not_reveal_hidden_reserve_exactly() {
     assert_eq!(estimate.lower(), actual);
     assert_eq!(estimate.upper(), Mass::from_milligrams(5_000_000));
     assert!(estimate.width() > Mass::ZERO);
+}
+
+#[test]
+fn representational_ceiling_does_not_collapse_resource_mass_uncertainty() {
+    let actual = Mass::from_milligrams(u64::MAX);
+    let estimate = resource_mass_bucket(actual, Mass::from_milligrams(1));
+
+    assert_eq!(estimate.upper(), actual);
+    assert_eq!(estimate.lower(), Mass::from_milligrams(u64::MAX - 1));
+    assert_eq!(estimate.width(), Mass::from_milligrams(1));
+}
+
+#[test]
+fn unrelated_remote_copper_body_does_not_make_a_localized_body_ambiguous() {
+    let mut state = AppState::new(WorldSeed::new(5));
+    let region = voxel(0);
+    insert_copper(&mut state, region, Mass::from_milligrams(4_300_000));
+    insert_copper(&mut state, voxel(10), Mass::from_milligrams(7_000_000));
+
+    let estimate = resolve_region_resource_mass(
+        &state,
+        region,
+        MATERIAL_COPPER,
+        Mass::from_milligrams(1_000_000),
+    )
+    .unwrap_or_else(|| panic!("remote copper body must not make local resource mass ambiguous"));
+    assert_eq!(estimate.lower(), Mass::from_milligrams(4_000_000));
+    assert_eq!(estimate.upper(), Mass::from_milligrams(5_000_000));
+}
+
+#[test]
+fn overlapping_body_without_requested_material_does_not_create_false_ambiguity() {
+    let mut state = AppState::new(WorldSeed::new(6));
+    let region = voxel(0);
+    insert_copper(&mut state, region, Mass::from_milligrams(4_300_000));
+    insert_stone(&mut state, region, Mass::from_milligrams(9_000_000));
+
+    let estimate = resolve_region_resource_mass(
+        &state,
+        region,
+        MATERIAL_COPPER,
+        Mass::from_milligrams(1_000_000),
+    )
+    .unwrap_or_else(|| panic!("zero-copper body must not count as a copper reserve"));
+    assert_eq!(estimate.lower(), Mass::from_milligrams(4_000_000));
+    assert_eq!(estimate.upper(), Mass::from_milligrams(5_000_000));
 }
 
 #[test]

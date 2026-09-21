@@ -47,6 +47,10 @@ fn duration_rejects_zero_rate_and_preserves_zero_mass() {
         ),
         Ok(TickSpan::ZERO)
     );
+    assert_eq!(
+        calculate_mass_flow_duration_ceiling(MassFlow::ZERO, Mass::ZERO, tick_duration),
+        Ok(TickSpan::ZERO)
+    );
 }
 
 #[test]
@@ -70,6 +74,23 @@ fn capacity_is_the_exact_whole_mass_inverse_of_duration() {
             tick_duration,
         ),
         Ok(TickSpan::new(3))
+    );
+}
+
+#[test]
+fn capacity_is_zero_when_rate_or_duration_is_zero() {
+    let tick_duration = PhysicalTickDuration::from_microseconds(50_000);
+    assert_eq!(
+        calculate_mass_flow_capacity(MassFlow::ZERO, TickSpan::new(u64::MAX), tick_duration,),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_mass_flow_capacity(
+            MassFlow::from_milligrams_per_second(u64::MAX),
+            TickSpan::ZERO,
+            tick_duration,
+        ),
+        Mass::ZERO
     );
 }
 

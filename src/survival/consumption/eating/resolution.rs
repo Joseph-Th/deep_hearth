@@ -159,7 +159,7 @@ pub(crate) fn trace_absorption_offer<'a>(
 
 fn allocate_nutrition(total_ppm: u128, offered: NutritionEnergy) -> NutritionGain {
     let offered_total = offered.total();
-    if total_ppm == 0 || offered_total == 0 {
+    if offered_total == 0 {
         return NutritionGain::default();
     }
     let categories = [

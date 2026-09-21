@@ -33,8 +33,8 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
-    DrinkDefinition, DrinkOutcome, EatOutcome, FoodCategory, FoodDefinition, FoodFreshness,
-    assess_food_freshness, assess_survival, calculate_food_hydration_offer,
+    DrinkDefinition, DrinkHydrationProjectionError, DrinkOutcome, EatOutcome, FoodCategory,
+    FoodDefinition, FoodFreshness, assess_food_freshness, assess_survival,
     initialize_player_survival, project_food_freshness_after_storage_transition,
     project_minimum_drink_to_hydration_target, validate_drink, validate_eat,
 };
@@ -89,6 +89,28 @@ fn mass_for_target_energy(food: FoodDefinition, target: Energy) -> Mass {
         .unwrap_or_else(|| panic!("survival probe meal mass exceeds authoritative range"))
 }
 
+fn recovery_drink_volume(
+    registries: &Registries,
+    drink: DrinkDefinition,
+    current_hydration: Volume,
+    context: &'static str,
+) -> Volume {
+    let physiology = registries.survival().physiology();
+    match project_minimum_drink_to_hydration_target(
+        physiology,
+        drink,
+        current_hydration,
+        physiology.maximum_hydration(),
+    ) {
+        Ok(Some(projection)) => projection.volume(),
+        Ok(None) => Volume::ZERO,
+        Err(DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+            maximum_drink_volume,
+        }) => maximum_drink_volume,
+        Err(error) => panic!("{context} drink projection failed: {error}"),
+    }
+}
+
 struct ProvisioningActionOutcome {
     meal: EatOutcome,
     drank_volume: Volume,
@@ -129,12 +151,25 @@ fn execute_provisioning_actions(
     registries: &Registries,
     state: &mut AppState,
     prepared: &PreparedProvisioningWorld,
+    drink: DrinkDefinition,
     selections: &[MaterialLotSelection],
-    drink_volume: Volume,
     drink_first: bool,
 ) -> ProvisioningActionOutcome {
-    let (meal, drank_volume, hydration_offered, elapsed_ticks, action_order) =
-        if drink_first && !drink_volume.is_zero() {
+    let (meal, drank_volume, hydration_offered, elapsed_ticks, action_order) = if drink_first {
+        let current_hydration = assess_survival(registries, state)
+            .unwrap_or_else(|| panic!("survival provisioning lost the player before drinking"))
+            .hydration();
+        let drink_volume = recovery_drink_volume(
+            registries,
+            drink,
+            current_hydration,
+            "survival drink-first provisioning",
+        );
+        if drink_volume.is_zero() {
+            let (meal, meal_ticks) =
+                execute_planned_meal(registries, state, prepared.ambient_meal, selections);
+            (meal, Volume::ZERO, Volume::ZERO, meal_ticks, "eat-only")
+        } else {
             let (drank, drink_ticks) =
                 execute_planned_drink(registries, state, prepared.drink_store, drink_volume);
             let (meal, meal_ticks) =
@@ -148,25 +183,35 @@ fn execute_provisioning_actions(
                 }),
                 "drink->eat",
             )
+        }
+    } else {
+        let (meal, meal_ticks) =
+            execute_planned_meal(registries, state, prepared.ambient_meal, selections);
+        let current_hydration = assess_survival(registries, state)
+            .unwrap_or_else(|| panic!("survival provisioning lost the player after eating"))
+            .hydration();
+        let drink_volume = recovery_drink_volume(
+            registries,
+            drink,
+            current_hydration,
+            "survival eat-first provisioning",
+        );
+        if drink_volume.is_zero() {
+            (meal, Volume::ZERO, Volume::ZERO, meal_ticks, "eat-only")
         } else {
-            let (meal, meal_ticks) =
-                execute_planned_meal(registries, state, prepared.ambient_meal, selections);
-            if drink_volume.is_zero() {
-                (meal, Volume::ZERO, Volume::ZERO, meal_ticks, "eat-only")
-            } else {
-                let (drank, drink_ticks) =
-                    execute_planned_drink(registries, state, prepared.drink_store, drink_volume);
-                (
-                    meal,
-                    drank.volume(),
-                    drank.hydration_offered(),
-                    meal_ticks.checked_add(drink_ticks).unwrap_or_else(|| {
-                        panic!("survival provisioning attention duration overflowed")
-                    }),
-                    "eat->drink",
-                )
-            }
-        };
+            let (drank, drink_ticks) =
+                execute_planned_drink(registries, state, prepared.drink_store, drink_volume);
+            (
+                meal,
+                drank.volume(),
+                drank.hydration_offered(),
+                meal_ticks.checked_add(drink_ticks).unwrap_or_else(|| {
+                    panic!("survival provisioning attention duration overflowed")
+                }),
+                "eat->drink",
+            )
+        }
+    };
     ProvisioningActionOutcome {
         meal,
         drank_volume,
@@ -213,17 +258,12 @@ fn advance_lived_wait(
         if assessment.hydration() > physiology.thirsty_below() {
             continue;
         }
-        let deficit = physiology
-            .maximum_hydration()
-            .checked_sub(assessment.hydration())
-            .unwrap_or_else(|| panic!("survival lived-wait hydration exceeded authored maximum"));
-        let drink_volume = world
-            .drink
-            .minimum_volume_for_hydration(deficit)
-            .unwrap_or_else(|| {
-                panic!("survival lived-wait drink volume exceeds authoritative range")
-            })
-            .min(physiology.direct_consumption().maximum_drink_volume());
+        let drink_volume = recovery_drink_volume(
+            registries,
+            world.drink,
+            assessment.hydration(),
+            "survival lived-wait recovery",
+        );
         if drink_volume.is_zero() {
             continue;
         }
@@ -630,17 +670,13 @@ fn run_diet_recovery_branch(
 
     let after_meal = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("diet-recovery player disappeared after meal"));
-    let hydration_deficit = physiology
-        .maximum_hydration()
-        .checked_sub(after_meal.hydration())
-        .unwrap_or_else(|| panic!("diet-recovery hydration exceeded authored maximum"));
-    if !hydration_deficit.is_zero() {
-        let required_drink_volume = branch
-            .drink
-            .minimum_volume_for_hydration(hydration_deficit)
-            .unwrap_or_else(|| panic!("diet-recovery drink volume exceeds authoritative range"));
-        let drink_volume =
-            required_drink_volume.min(physiology.direct_consumption().maximum_drink_volume());
+    let drink_volume = recovery_drink_volume(
+        registries,
+        branch.drink,
+        after_meal.hydration(),
+        "diet-recovery",
+    );
+    if !drink_volume.is_zero() {
         let drink = validate_drink(registries, &state, branch.drink_store, drink_volume)
             .unwrap_or_else(|error| panic!("diet-recovery drink validation failed: {error}"))
             .commit(&mut state)
@@ -1109,33 +1145,21 @@ pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> Provisio
 struct ProvisioningPlan {
     selected_indices: Vec<usize>,
     selected_masses: Vec<Mass>,
-    drink_volume: Volume,
 }
 
-fn provisioning_plan_duration(registries: &Registries, plan: &ProvisioningPlan) -> u64 {
+fn maximum_direct_provisioning_ticks(registries: &Registries) -> u64 {
     let direct = registries.survival().physiology().direct_consumption();
-    let meal_mass = plan
-        .selected_masses
-        .iter()
-        .try_fold(Mass::ZERO, |total, mass| total.checked_add(*mass))
-        .unwrap_or_else(|| panic!("survival provisioning plan meal mass overflowed"));
     let meal_ticks = direct
-        .meal_duration(meal_mass)
-        .unwrap_or_else(|| panic!("survival provisioning plan has an invalid direct meal mass"))
+        .meal_duration(direct.maximum_meal_mass())
+        .unwrap_or_else(|| panic!("authored maximum meal has no direct-consumption duration"))
         .value();
-    let drink_ticks = if plan.drink_volume.is_zero() {
-        0
-    } else {
-        direct
-            .drink_duration(plan.drink_volume)
-            .unwrap_or_else(|| {
-                panic!("survival provisioning plan has an invalid direct drink volume")
-            })
-            .value()
-    };
+    let drink_ticks = direct
+        .drink_duration(direct.maximum_drink_volume())
+        .unwrap_or_else(|| panic!("authored maximum drink has no direct-consumption duration"))
+        .value();
     meal_ticks
         .checked_add(drink_ticks)
-        .unwrap_or_else(|| panic!("survival provisioning plan duration overflowed"))
+        .unwrap_or_else(|| panic!("survival direct-provisioning horizon overflowed"))
 }
 
 fn provisioning_plan(
@@ -1174,36 +1198,9 @@ fn provisioning_plan(
             "survival probe offered food must cover every matched-policy portion"
         );
     }
-    let offered_food_hydration = calculate_food_hydration_offer(
-        selected_indices
-            .iter()
-            .zip(&selected_masses)
-            .map(|(index, mass)| (foods[*index], *mass)),
-    )
-    .unwrap_or_else(|| panic!("survival probe food hydration overflowed"))
-    .microliters();
-    let hydration_deficit = physiology
-        .maximum_hydration()
-        .checked_sub(before.hydration())
-        .unwrap_or_else(|| panic!("survival provisioning hydration exceeded authored maximum"));
-    let target_drink_gain = u64::try_from(
-        u128::from(hydration_deficit.microliters())
-            .saturating_sub(u128::from(offered_food_hydration)),
-    )
-    .unwrap_or_else(|_| panic!("survival probe hydration target exceeds represented range"));
-    let drink_volume = if target_drink_gain == 0 {
-        Volume::ZERO
-    } else {
-        let required = world
-            .drink
-            .minimum_volume_for_hydration(Volume::from_microliters(target_drink_gain))
-            .unwrap_or_else(|| panic!("survival probe drink volume exceeds authoritative range"));
-        required.min(physiology.direct_consumption().maximum_drink_volume())
-    };
     ProvisioningPlan {
         selected_indices,
         selected_masses,
-        drink_volume,
     }
 }
 
@@ -1409,7 +1406,6 @@ fn run_provisioning_case(
     let witness_mass = world.preserved_reserve_mass;
     let selected_indices = plan.selected_indices.as_slice();
     let selected_masses = plan.selected_masses.as_slice();
-    let drink_volume = plan.drink_volume;
     let ambient_age = prepared.ambient_age;
     let preserved_age = prepared.preserved_age;
     let preservation_age_saved_ticks = prepared.preservation_age_saved_ticks;
@@ -1463,8 +1459,8 @@ fn run_provisioning_case(
         registries,
         &mut state,
         prepared,
+        drink,
         &selections,
-        drink_volume,
         drink_first,
     );
     let provisioning_elapsed_ticks = actions.elapsed_ticks;
@@ -1501,7 +1497,7 @@ fn run_provisioning_case(
         );
     }
     assert!(!meal.energy_offered().is_zero());
-    if !drink_volume.is_zero() {
+    if !drank_volume.is_zero() {
         assert!(!hydration_offered.is_zero());
     }
     assert_eq!(
@@ -1639,11 +1635,7 @@ fn evaluate_provisioning_comparison(
         &prepared,
         DietProvisioningPolicy::BalancedRecovery,
     );
-    assert!(compact_plan.drink_volume <= drink_supply);
-    assert!(balanced_plan.drink_volume <= drink_supply);
-    let compact_ticks = provisioning_plan_duration(registries, &compact_plan);
-    let balanced_ticks = provisioning_plan_duration(registries, &balanced_plan);
-    let comparison_horizon_ticks = compact_ticks.max(balanced_ticks);
+    let comparison_horizon_ticks = maximum_direct_provisioning_ticks(registries);
     let compact = run_provisioning_case(
         registries,
         behavior_seed,
@@ -1675,8 +1667,8 @@ fn evaluate_provisioning_comparison(
     );
     assert_eq!(compact.comparison_horizon_ticks, comparison_horizon_ticks);
     assert_eq!(balanced.comparison_horizon_ticks, comparison_horizon_ticks);
-    assert_eq!(compact.provisioning_elapsed_ticks, compact_ticks);
-    assert_eq!(balanced.provisioning_elapsed_ticks, balanced_ticks);
+    assert!(compact.provisioning_elapsed_ticks <= comparison_horizon_ticks);
+    assert!(balanced.provisioning_elapsed_ticks <= comparison_horizon_ticks);
     assert_eq!(
         compact.preservation_age_saved_ticks,
         balanced.preservation_age_saved_ticks

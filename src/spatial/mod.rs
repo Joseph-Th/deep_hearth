@@ -118,6 +118,17 @@ impl VoxelBounds {
             && coord.z < self.max_exclusive.z
     }
 
+    /// Reports whether every voxel in `other` lies inside these half-open bounds.
+    #[must_use]
+    pub const fn contains_bounds(self, other: Self) -> bool {
+        self.min.x <= other.min.x
+            && self.min.y <= other.min.y
+            && self.min.z <= other.min.z
+            && self.max_exclusive.x >= other.max_exclusive.x
+            && self.max_exclusive.y >= other.max_exclusive.y
+            && self.max_exclusive.z >= other.max_exclusive.z
+    }
+
     /// Reports whether two nonempty half-open bounds share at least one voxel.
     #[must_use]
     pub const fn has_intersection(self, other: Self) -> bool {

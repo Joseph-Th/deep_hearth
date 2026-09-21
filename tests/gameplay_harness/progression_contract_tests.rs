@@ -83,6 +83,8 @@ fn current_manual_craft_planning_ignores_unowned_salvage_inputs() {
         Mass::from_milligrams(10_000_000),
         ROOM_TEMPERATURE,
     );
+    deep_hearth::survival::initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("manual-craft planning player setup failed: {error}"));
     let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
 
     let (selected, batches, selected_source) = manual_craft_plan_for_available_output(

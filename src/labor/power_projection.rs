@@ -373,3 +373,7 @@ pub fn project_manual_power(
         condition_after,
     })
 }
+
+#[cfg(test)]
+#[path = "power_projection_tests.rs"]
+mod tests;

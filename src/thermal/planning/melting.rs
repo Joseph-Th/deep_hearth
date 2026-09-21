@@ -244,3 +244,7 @@ pub fn assess_melting_lot_mass_envelope(
         condition_lifetime_capacity,
     })
 }
+
+#[cfg(test)]
+#[path = "melting_tests.rs"]
+mod tests;

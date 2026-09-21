@@ -42,6 +42,21 @@ fn bounds_intersection_respects_half_open_faces() {
 }
 
 #[test]
+fn bounds_containment_includes_equal_and_strict_subregions_only() {
+    let outer = VoxelBounds::new(VoxelCoord::new(-2, -2, -2), VoxelCoord::new(5, 5, 5))
+        .unwrap_or_else(|error| panic!("outer containment fixture failed: {error}"));
+    let inner = VoxelBounds::new(VoxelCoord::new(-1, 0, 1), VoxelCoord::new(4, 3, 5))
+        .unwrap_or_else(|error| panic!("inner containment fixture failed: {error}"));
+    let crossing = VoxelBounds::new(VoxelCoord::new(4, 0, 0), VoxelCoord::new(6, 1, 1))
+        .unwrap_or_else(|error| panic!("crossing containment fixture failed: {error}"));
+
+    assert!(outer.contains_bounds(outer));
+    assert!(outer.contains_bounds(inner));
+    assert!(!inner.contains_bounds(outer));
+    assert!(!outer.contains_bounds(crossing));
+}
+
+#[test]
 fn positive_area_contact_rejects_edge_and_corner_touches() {
     let left = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(4, 4, 4))
         .unwrap_or_else(|error| panic!("face-contact fixture failed: {error}"));

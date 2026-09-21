@@ -48,6 +48,67 @@ fn stone_lump() -> CommodityKey {
     CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
 }
 
+#[test]
+fn manual_hand_work_projection_matches_shared_labor_budget() {
+    let registries = build_registries();
+    let definition = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("stone knapping definition disappeared"));
+    let batches = std::num::NonZeroU64::new(2)
+        .unwrap_or_else(|| unreachable!("two manual-craft batches are nonzero"));
+
+    let projected = project_manual_craft_hand_work(&registries, definition, batches)
+        .unwrap_or_else(|error| panic!("manual hand-work projection failed: {error}"));
+    let expected_duration = project_manual_craft_hand_duration(definition, batches)
+        .unwrap_or_else(|| panic!("bounded manual hand-work duration overflowed"));
+    let expected_budget = calculate_player_work_resource_budget(
+        registries.survival().physiology(),
+        definition.exertion(),
+        expected_duration,
+    )
+    .unwrap_or_else(|error| panic!("bounded manual hand-work budget failed: {error:?}"));
+
+    assert_eq!(projected.duration(), expected_duration);
+    assert_eq!(projected.resource_budget(), expected_budget);
+}
+
+#[test]
+fn manual_hand_work_projection_reports_duration_and_resource_overflow_separately() {
+    let process = ProcessId::new(99_001);
+    let definition = ManualCraftDefinition::new(
+        process,
+        stone_lump(),
+        Mass::from_milligrams(1),
+        TickSpan::new(u64::MAX),
+        SurvivalExertion::new(Energy::from_nanojoules(1), Volume::from_microliters(1)),
+        vec![ManualCraftOutput::new(
+            stone_lump(),
+            Mass::from_milligrams(1),
+        )],
+    );
+    let registries = build_registries();
+    let two = std::num::NonZeroU64::new(2)
+        .unwrap_or_else(|| unreachable!("two manual-craft batches are nonzero"));
+    assert_eq!(
+        project_manual_craft_hand_work(&registries, &definition, two),
+        Err(ManualCraftHandProjectionError::DurationOverflow {
+            process,
+            batches: two,
+        })
+    );
+
+    let one = std::num::NonZeroU64::new(1)
+        .unwrap_or_else(|| unreachable!("one manual-craft batch is nonzero"));
+    assert_eq!(
+        project_manual_craft_hand_work(&registries, &definition, one),
+        Err(ManualCraftHandProjectionError::ResourceBudgetOverflow {
+            process,
+            batches: one,
+        })
+    );
+}
+
 #[path = "mod_tests/tooling.rs"]
 mod tooling;
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -14,6 +15,61 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MUTANT_OUTPUT_ROOT = ROOT / "target" / "agent-output" / "rust-diagnostics" / "mutants"
+MUTANT_RUN_LOCK = MUTANT_OUTPUT_ROOT / ".run.lock"
+MUTANT_JOBS = 2
+
+
+class MutationRunBusyError(RuntimeError):
+    """Raised when another mutation execution already owns the project lock."""
+
+
+def _lock_mutation_file(handle: object) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_mutation_file(handle: object) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def mutation_execution_lock(lock_path: Path = MUTANT_RUN_LOCK):
+    """Fail closed when another project mutation execution is already running."""
+
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        try:
+            _lock_mutation_file(handle)
+        except OSError as error:
+            raise MutationRunBusyError(
+                "another Deep Hearth mutation execution is already running; "
+                "wait for it to finish instead of starting another"
+            ) from error
+        try:
+            yield
+        finally:
+            _unlock_mutation_file(handle)
 
 
 def normalize_module_focus(focus: str) -> str:
@@ -68,7 +124,7 @@ def mutants_command(args: argparse.Namespace, output_dir: Path | None = None) ->
         return command
 
     assert output_dir is not None
-    command.extend(("-j", str(args.jobs), "-o", str(output_dir)))
+    command.extend(("-j", str(MUTANT_JOBS), "-o", str(output_dir)))
     if args.timeout is not None:
         command.extend(("-t", str(args.timeout)))
     if args.skip_baseline:
@@ -138,7 +194,6 @@ def build_parser() -> argparse.ArgumentParser:
     mutants.add_argument("file", help="owner Rust source file to mutate")
     mutants.add_argument("--re", dest="regex", help="mutation-name regex, usually an invariant-bearing function")
     mutants.add_argument("--run", action="store_true", help="execute selected mutants instead of listing them")
-    mutants.add_argument("--jobs", type=int, default=2, help="bounded concurrent mutant jobs")
     mutants.add_argument("--timeout", type=int, help="optional per-command timeout in seconds")
     mutants.add_argument(
         "--skip-baseline",
@@ -177,8 +232,6 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
             parser.error("mutants expects one Rust source file")
         if not (ROOT / args.file).is_file():
             parser.error(f"mutation source does not exist: {args.file}")
-        if args.jobs < 1:
-            parser.error("--jobs must be at least 1")
         if args.timeout is not None and args.timeout < 1:
             parser.error("--timeout must be at least 1 second")
         if args.run and not args.regex:
@@ -247,17 +300,22 @@ def main() -> int:
     if args.tool == "expand":
         return run_expand(args)
 
-    output_dir = None
-    if args.run:
-        MUTANT_OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-        output_dir = Path(
-            tempfile.mkdtemp(
-                prefix=f"{Path(args.file).stem}-",
-                dir=MUTANT_OUTPUT_ROOT,
+    if not args.run:
+        return run_streaming(mutants_command(args))
+
+    try:
+        with mutation_execution_lock():
+            output_dir = Path(
+                tempfile.mkdtemp(
+                    prefix=f"{Path(args.file).stem}-",
+                    dir=MUTANT_OUTPUT_ROOT,
+                )
             )
-        )
-        print(f"mutation logs: {output_dir.relative_to(ROOT)}")
-    return run_streaming(mutants_command(args, output_dir))
+            print(f"mutation logs: {output_dir.relative_to(ROOT)}")
+            return run_streaming(mutants_command(args, output_dir))
+    except MutationRunBusyError as error:
+        print(f"mutation execution refused: {error}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

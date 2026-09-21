@@ -32,11 +32,11 @@ pub fn calculate_mass_flow_duration_ceiling(
     mass: Mass,
     physical_tick_duration: PhysicalTickDuration,
 ) -> Result<TickSpan, MassFlowDurationError> {
-    if rate.is_zero() {
-        return Err(MassFlowDurationError::ZeroRate);
-    }
     if mass.is_zero() {
         return Ok(TickSpan::ZERO);
+    }
+    if rate.is_zero() {
+        return Err(MassFlowDurationError::ZeroRate);
     }
     let numerator = u128::from(mass.milligrams()) * 1_000_000;
     let denominator = u128::from(rate.milligrams_per_second())
@@ -57,9 +57,6 @@ pub fn calculate_mass_flow_capacity(
     duration: TickSpan,
     physical_tick_duration: PhysicalTickDuration,
 ) -> Mass {
-    if rate.is_zero() || duration.is_zero() {
-        return Mass::ZERO;
-    }
     let capacity_numerator = u128::from(rate.milligrams_per_second())
         .checked_mul(u128::from(physical_tick_duration.microseconds()))
         .and_then(|value| value.checked_mul(u128::from(duration.value())));

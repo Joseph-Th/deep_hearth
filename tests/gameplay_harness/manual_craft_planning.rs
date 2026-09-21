@@ -1,10 +1,13 @@
 //! Registry-derived actor planning for manual production routes.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
-use deep_hearth::crafting::{ManualCraftDefinition, resolve_manual_craft};
+use deep_hearth::crafting::{
+    ManualCraftDefinition, project_manual_craft_hand_work, resolve_manual_craft,
+};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::registry::{ProcessEquipmentRole, Registries};
@@ -82,22 +85,22 @@ fn manual_craft_plan_for_output_matching<'a>(
             if !input_is_available(definition, batches) {
                 return None;
             }
-            let total_ticks = definition
-                .duration()
-                .value()
-                .checked_mul(batches)
-                .unwrap_or_else(|| panic!("gameplay harness {context} attention cost overflowed"));
+            let batches_nonzero = NonZeroU64::new(batches)
+                .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));
+            let work = project_manual_craft_hand_work(registries, definition, batches_nonzero)
+                .unwrap_or_else(|error| {
+                    panic!("gameplay harness {context} hand-work projection failed: {error}")
+                });
             let total_input_mg = definition
                 .input_mass()
                 .milligrams()
                 .checked_mul(batches)
                 .unwrap_or_else(|| panic!("gameplay harness {context} input cost overflowed"));
-            let exertion = definition.exertion();
             let policy_key = (
-                total_ticks,
+                work.duration().value(),
                 total_input_mg,
-                exertion.energy_cost_per_tick().nanojoules(),
-                exertion.hydration_loss_per_tick().microliters(),
+                work.resource_budget().metabolic_energy().nanojoules(),
+                work.resource_budget().hydration().microliters(),
             );
             Some((definition, batches, policy_key))
         })
@@ -148,9 +151,10 @@ pub(super) fn manual_craft_topology_plan_for_output<'a>(
 /// currently present in at least one declared actor-visible source.
 ///
 /// This prevents nominally attractive salvage or conversion recipes from masquerading as available
-/// actions merely because their output topology is authored. Canonical craft resolution remains the
-/// legality proof after actor policy chooses the route. Source order is the explicit actor preference
-/// when more than one source can satisfy the selected route exactly.
+/// actions merely because their output topology is authored. Every live candidate is resolved
+/// canonically before actor policy compares its attention cost, so planning cannot retain a copied
+/// duration rule after crafting physics changes. Source order is the explicit actor preference when
+/// more than one source can satisfy the same route exactly.
 pub(super) fn manual_craft_plan_for_available_output<'a>(
     registries: &'a Registries,
     state: &AppState,
@@ -163,35 +167,107 @@ pub(super) fn manual_craft_plan_for_available_output<'a>(
         !sources.is_empty(),
         "gameplay harness {context} requires at least one actor-visible craft source"
     );
-    let (definition, batches) = manual_craft_plan_for_output_matching(
-        registries,
-        commodity,
-        required,
-        context,
-        |definition, batches| {
-            sources
-                .iter()
-                .copied()
-                .any(|source| has_selectable_manual_craft_input(state, source, definition, batches))
-        },
+    assert!(
+        !required.is_zero(),
+        "gameplay harness {context} requires nonzero produced mass"
     );
-    let source = sources
+    let candidates = registries
+        .crafting()
+        .manual_producers(commodity)
+        .filter(|definition| {
+            registries
+                .process_topology(definition.process())
+                .unwrap_or_else(|| panic!("manual producer lost process topology"))
+                .equipment_role()
+                != ProcessEquipmentRole::Required
+        })
+        .filter_map(|definition| {
+            let per_batch = definition
+                .outputs()
+                .iter()
+                .find(|output| output.commodity() == commodity)
+                .map(|output| output.mass())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "gameplay harness {context} producer {} lost requested commodity {}",
+                        definition.process().value(),
+                        commodity.value()
+                    )
+                });
+            assert!(
+                !per_batch.is_zero(),
+                "gameplay harness {context} producer {} has zero requested output",
+                definition.process().value()
+            );
+            let batches = required.milligrams().div_ceil(per_batch.milligrams());
+            let source = sources.iter().copied().find(|source| {
+                has_selectable_manual_craft_input(state, *source, definition, batches)
+            })?;
+            let request = select_manual_craft_request(
+                registries,
+                state,
+                definition.process(),
+                source,
+                batches,
+                context,
+            );
+            let resolution = resolve_manual_craft(registries, state, &request).ok()?;
+            let batches_nonzero = NonZeroU64::new(batches)
+                .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));
+            let work = project_manual_craft_hand_work(registries, definition, batches_nonzero)
+                .unwrap_or_else(|error| {
+                    panic!("gameplay harness {context} hand-work projection failed: {error}")
+                });
+            assert_eq!(
+                work.duration(),
+                resolution.duration(),
+                "gameplay harness {context} hand-work projection diverged from canonical craft resolution"
+            );
+            let total_input_mg = definition
+                .input_mass()
+                .milligrams()
+                .checked_mul(batches)
+                .unwrap_or_else(|| panic!("gameplay harness {context} input cost overflowed"));
+            let policy_key = (
+                resolution.duration().value(),
+                total_input_mg,
+                work.resource_budget().metabolic_energy().nanojoules(),
+                work.resource_budget().hydration().microliters(),
+            );
+            Some((definition, batches, source, policy_key))
+        })
+        .collect::<Vec<_>>();
+    let best_key = candidates
         .iter()
-        .copied()
-        .find(|source| has_selectable_manual_craft_input(state, *source, definition, batches))
+        .map(|(_, _, _, policy_key)| *policy_key)
+        .min()
         .unwrap_or_else(|| {
-            unreachable!("available manual-craft route must retain a proven source")
+            panic!(
+                "gameplay harness {context} has no canonically resolvable manual route to commodity {}",
+                commodity.value()
+            )
         });
+    let mut best = candidates
+        .into_iter()
+        .filter(|(_, _, _, policy_key)| *policy_key == best_key);
+    let (definition, batches, source, _) = best
+        .next()
+        .unwrap_or_else(|| unreachable!("best live manual-production key came from a candidate"));
+    assert!(
+        best.next().is_none(),
+        "gameplay harness {context} has equally efficient canonically resolved manual routes to commodity {}; add an explicit actor preference instead of using process identity",
+        commodity.value()
+    );
     (definition, batches, source)
 }
 
 /// Projects the complete manual shaping bill for one future assembly package from actor-visible
 /// inventory without mutating runtime state.
 ///
-/// Requirements are aggregated before route selection so craft surplus can satisfy later inputs in
-/// the same package exactly as it can during execution. Source use is then aggregated again and
-/// checked against one homogeneous pure temperature group, preventing several individually valid
-/// projections from silently overbooking the same visible material.
+/// Requirements are aggregated by commodity before route selection so repeated demand for the
+/// same component shares whole-batch craft surplus instead of planning duplicate work. Source use
+/// is then aggregated again and checked against one homogeneous pure temperature group, preventing
+/// several individually valid projections from silently overbooking the same visible material.
 pub(super) fn project_manual_assembly_package(
     registries: &Registries,
     state: &AppState,

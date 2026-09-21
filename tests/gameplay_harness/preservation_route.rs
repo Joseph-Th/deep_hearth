@@ -1,9 +1,11 @@
 //! Resolves preservation-infrastructure construction through ordinary manual-production routes.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroU64;
 
 use deep_hearth::content::{FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD};
 use deep_hearth::core::quantity::Mass;
+use deep_hearth::crafting::project_manual_craft_hand_work;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::{ProcessEquipmentRole, Registries};
@@ -24,8 +26,8 @@ pub(super) struct ManualConstructionRoute {
     pub(super) raw_mass: Mass,
     pub(super) steps: Vec<ManualConstructionStep>,
     pub(super) attention_ticks: u64,
-    pub(super) exertion_energy_nj: u128,
-    pub(super) exertion_hydration_ul: u64,
+    pub(super) metabolic_energy_nj: u128,
+    pub(super) hydration_ul: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -79,8 +81,8 @@ fn discover_manual_construction_route(
             raw_mass: required_mass,
             steps: Vec::new(),
             attention_ticks: 0,
-            exertion_energy_nj: 0,
-            exertion_hydration_ul: 0,
+            metabolic_energy_nj: 0,
+            hydration_ul: 0,
         });
     }
     // This planner proves the ordinary raw-material bootstrap for preservation infrastructure. It
@@ -118,6 +120,8 @@ fn discover_manual_construction_route(
         let batches = required_mass
             .milligrams()
             .div_ceil(output_per_batch.milligrams());
+        let batches_nonzero = NonZeroU64::new(batches)
+            .unwrap_or_else(|| unreachable!("nonzero construction demand yields nonzero batches"));
         let input_mass = Mass::from_milligrams(
             producer
                 .input_mass()
@@ -125,11 +129,11 @@ fn discover_manual_construction_route(
                 .checked_mul(batches)
                 .unwrap_or_else(|| panic!("preservation construction input mass overflowed")),
         );
-        let duration_ticks = producer
-            .duration()
-            .value()
-            .checked_mul(batches)
-            .unwrap_or_else(|| panic!("preservation construction duration overflowed"));
+        let work = project_manual_craft_hand_work(registries, producer, batches_nonzero)
+            .unwrap_or_else(|error| {
+                panic!("preservation construction hand-work projection failed: {error}")
+            });
+        let duration_ticks = work.duration().value();
         let step = ManualConstructionStep {
             process: producer.process(),
             batches,
@@ -147,27 +151,13 @@ fn discover_manual_construction_route(
             .attention_ticks
             .checked_add(duration_ticks)
             .unwrap_or_else(|| panic!("preservation construction attention overflowed"));
-        route.exertion_energy_nj = route
-            .exertion_energy_nj
-            .checked_add(
-                producer
-                    .exertion()
-                    .energy_cost_per_tick()
-                    .nanojoules()
-                    .checked_mul(u128::from(duration_ticks))
-                    .unwrap_or_else(|| panic!("preservation construction exertion overflowed")),
-            )
-            .unwrap_or_else(|| panic!("preservation construction exertion total overflowed"));
-        route.exertion_hydration_ul = route
-            .exertion_hydration_ul
-            .checked_add(
-                producer
-                    .exertion()
-                    .hydration_loss_per_tick()
-                    .microliters()
-                    .checked_mul(duration_ticks)
-                    .unwrap_or_else(|| panic!("preservation construction hydration overflowed")),
-            )
+        route.metabolic_energy_nj = route
+            .metabolic_energy_nj
+            .checked_add(work.resource_budget().metabolic_energy().nanojoules())
+            .unwrap_or_else(|| panic!("preservation construction metabolic total overflowed"));
+        route.hydration_ul = route
+            .hydration_ul
+            .checked_add(work.resource_budget().hydration().microliters())
             .unwrap_or_else(|| panic!("preservation construction hydration total overflowed"));
         route.steps.push(step);
         candidates.push(route);
@@ -179,8 +169,8 @@ fn discover_manual_construction_route(
             (
                 route.attention_ticks,
                 route.raw_mass.milligrams(),
-                route.exertion_energy_nj,
-                route.exertion_hydration_ul,
+                route.metabolic_energy_nj,
+                route.hydration_ul,
             )
         })
         .min()?;
@@ -188,8 +178,8 @@ fn discover_manual_construction_route(
         (
             route.attention_ticks,
             route.raw_mass.milligrams(),
-            route.exertion_energy_nj,
-            route.exertion_hydration_ul,
+            route.metabolic_energy_nj,
+            route.hydration_ul,
         ) == best_key
     });
     let selected = best

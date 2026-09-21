@@ -394,9 +394,6 @@ fn mass_capacity_from_integrated_power(
     physical_tick_duration: PhysicalTickDuration,
     specific: MassSpecificEnergy,
 ) -> Mass {
-    if ticks.is_zero() || power.is_zero() {
-        return Mass::ZERO;
-    }
     let integrated = integrate_power_or_saturate(power, ticks, physical_tick_duration);
     calculate_mass_specific_energy_capacity(integrated, specific)
 }

@@ -1,10 +1,16 @@
 //! Manual shaping operations that reuse canonical timed production ownership.
 
+use std::num::NonZeroU64;
+
 use crate::capability::CapabilityValue;
 use crate::core::state::AppState;
+use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
-use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
+use crate::labor::{
+    PlayerWork, PlayerWorkResourceBudget, ValidatedPlayerWorkStart,
+    calculate_player_work_resource_budget, validate_player_work_start,
+};
 use crate::production::{
     ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess, validate_process_inputs,
     validate_start_manual_process,
@@ -25,13 +31,76 @@ use physics::{ManualCraftEquipmentScheduleError, resolve_manual_craft_hand_durat
 pub use definitions::{ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput};
 pub use errors::{
     ManualCraftCommitError, ManualCraftEquipmentProjectionError, ManualCraftError,
-    StartManualCraftError,
+    ManualCraftHandProjectionError, StartManualCraftError,
 };
 pub(crate) use physics::resolve_manual_craft_equipment_schedule;
 pub use projection::{ManualCraftEquipmentProjection, project_manual_craft_equipment};
 pub use registry::CraftingRegistry;
 pub use validation::ManualCraftJobValidationError;
 pub(crate) use validation::validate_loaded_manual_craft_job;
+
+/// Authored equipment-free hand-work cost before current-state authorization.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManualCraftHandProjection {
+    duration: TickSpan,
+    resource_budget: PlayerWorkResourceBudget,
+}
+
+impl ManualCraftHandProjection {
+    #[must_use]
+    pub const fn duration(self) -> TickSpan {
+        self.duration
+    }
+
+    #[must_use]
+    pub const fn resource_budget(self) -> PlayerWorkResourceBudget {
+        self.resource_budget
+    }
+}
+
+/// Projects equipment-free hand-work duration for an integral number of authored craft batches.
+///
+/// This is disposable planning evidence, not authorization. Runtime crafting must still resolve
+/// exact selected material and actor state through the canonical manual-craft resolver.
+#[must_use]
+pub fn project_manual_craft_hand_duration(
+    definition: &ManualCraftDefinition,
+    batches: NonZeroU64,
+) -> Option<TickSpan> {
+    resolve_manual_craft_hand_duration(definition.duration(), batches)
+}
+
+/// Projects the complete physiological hand-work cost for an authored craft batch count.
+///
+/// Basal survival costs and incremental exertion are resolved through the same labor owner used by
+/// runtime player-work admission. This remains planning evidence only and does not prove material
+/// availability, player reserves, attention ownership, or state revisions.
+pub fn project_manual_craft_hand_work(
+    registries: &Registries,
+    definition: &ManualCraftDefinition,
+    batches: NonZeroU64,
+) -> Result<ManualCraftHandProjection, ManualCraftHandProjectionError> {
+    let duration = project_manual_craft_hand_duration(definition, batches).ok_or(
+        ManualCraftHandProjectionError::DurationOverflow {
+            process: definition.process(),
+            batches,
+        },
+    )?;
+    let resource_budget = calculate_player_work_resource_budget(
+        registries.survival().physiology(),
+        definition.exertion(),
+        duration,
+    )
+    .map_err(|_| ManualCraftHandProjectionError::ResourceBudgetOverflow {
+        process: definition.process(),
+        batches,
+    })?;
+    Ok(ManualCraftHandProjection {
+        duration,
+        resource_budget,
+    })
+}
 
 /// Exact hand-work request bound to explicit material-lot slices.
 ///
@@ -170,7 +239,7 @@ pub fn resolve_manual_craft(
             {
                 return Err(ManualCraftError::RequiredEquipmentMissing { process });
             }
-            let duration = resolve_manual_craft_hand_duration(definition.duration(), batches)
+            let duration = project_manual_craft_hand_duration(definition, batches)
                 .ok_or(ManualCraftError::DurationOverflow { batches })?;
             inputs
                 .resolve_without_resources(duration, outputs)

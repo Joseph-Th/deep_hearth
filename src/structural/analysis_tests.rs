@@ -63,3 +63,13 @@ fn structural_utilization_projection_handles_ratio_and_zero_capacity() {
         u128::MAX
     );
 }
+
+#[test]
+fn zero_capacity_reaches_damage_threshold_only_under_nonzero_load() {
+    assert!(!is_at_or_above_fraction(Force::ZERO, Force::ZERO, 800_000));
+    assert!(is_at_or_above_fraction(
+        Force::from_millinewtons(1),
+        Force::ZERO,
+        800_000
+    ));
+}

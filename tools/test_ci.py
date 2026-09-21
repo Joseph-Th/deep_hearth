@@ -259,6 +259,18 @@ class LocalCiPlanTests(unittest.TestCase):
             rust_diagnostics.parse_args(
                 ["mutants", "src/survival/validation/direct_consumption.rs", "--run"]
             )
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            rust_diagnostics.parse_args(
+                [
+                    "mutants",
+                    "src/survival/validation/direct_consumption.rs",
+                    "--re",
+                    "validate_pending_food_freshness",
+                    "--run",
+                    "--jobs",
+                    "4",
+                ]
+            )
         args = rust_diagnostics.parse_args(
             [
                 "mutants",
@@ -284,6 +296,16 @@ class LocalCiPlanTests(unittest.TestCase):
                 str(output),
             ],
         )
+
+    def test_rust_diagnostics_mutant_execution_fails_closed_when_lock_is_busy(self) -> None:
+        lock_path = ROOT / "target" / "agent-output" / "rust-diagnostics" / "test-mutants.lock"
+        try:
+            with rust_diagnostics.mutation_execution_lock(lock_path):
+                with self.assertRaises(rust_diagnostics.MutationRunBusyError):
+                    with rust_diagnostics.mutation_execution_lock(lock_path):
+                        self.fail("busy mutation lock must not enter the protected region")
+        finally:
+            lock_path.unlink(missing_ok=True)
 
     def test_rust_diagnostics_expand_is_locked_and_item_scoped(self) -> None:
         args = rust_diagnostics.parse_args(

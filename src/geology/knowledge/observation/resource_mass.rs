@@ -42,6 +42,9 @@ impl ResourceMassEstimate {
         if upper.is_zero() {
             return Err(ResourceMassEstimateError::ZeroUpperBound);
         }
+        if lower == upper {
+            return Err(ResourceMassEstimateError::ZeroWidth { bound: lower });
+        }
         if lower > upper {
             return Err(ResourceMassEstimateError::InvertedBounds { lower, upper });
         }
@@ -69,6 +72,7 @@ impl ResourceMassEstimate {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResourceMassEstimateError {
     ZeroUpperBound,
+    ZeroWidth { bound: Mass },
     InvertedBounds { lower: Mass, upper: Mass },
 }
 
@@ -78,6 +82,11 @@ impl Display for ResourceMassEstimateError {
             Self::ZeroUpperBound => {
                 formatter.write_str("geological resource-mass upper bound must be nonzero")
             }
+            Self::ZeroWidth { bound } => write!(
+                formatter,
+                "geological resource-mass estimate at {} mg must retain nonzero uncertainty width",
+                bound.milligrams()
+            ),
             Self::InvertedBounds { lower, upper } => write!(
                 formatter,
                 "geological resource-mass lower bound {} mg exceeds upper bound {} mg",
@@ -89,6 +98,10 @@ impl Display for ResourceMassEstimateError {
 }
 
 impl Error for ResourceMassEstimateError {}
+
+#[cfg(test)]
+#[path = "resource_mass_tests.rs"]
+mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::geology) enum ResourceMassContextError {

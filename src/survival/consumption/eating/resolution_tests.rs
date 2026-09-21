@@ -19,6 +19,17 @@ fn nutrition_allocation_handles_full_width_energy_without_intermediate_overflow(
 }
 
 #[test]
+fn zero_nutrition_target_allocates_nothing_even_with_offered_energy() {
+    let offered = NutritionEnergy {
+        grain: 3,
+        fruit: 2,
+        protein: 1,
+    };
+
+    assert_eq!(allocate_nutrition(0, offered), NutritionGain::default());
+}
+
+#[test]
 fn nutrition_normalization_handles_full_width_energy_without_scaled_overflow() {
     let maximum = Energy::from_nanojoules(u128::MAX);
     assert_eq!(

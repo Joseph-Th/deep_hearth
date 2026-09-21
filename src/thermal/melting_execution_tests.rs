@@ -452,6 +452,98 @@ fn make_fixture_with_resources(
 }
 
 #[test]
+fn melting_accepts_equipment_temperature_limit_exactly_at_the_melting_point() {
+    let fixture = make_fixture(
+        COPPER_MELTING_POINT,
+        EnergyCarrier::Electrical,
+        Mass::from_milligrams(1),
+    );
+
+    let resolved = resolve_selected(
+        &fixture.registries,
+        &fixture.state,
+        fixture.ids,
+        Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("melting at exact equipment temperature limit failed: {error}"));
+
+    assert_eq!(resolved.melting_point(), COPPER_MELTING_POINT);
+    let envelope = crate::thermal::assess_melting_lot_mass_envelope(
+        &fixture.registries,
+        &fixture.state,
+        crate::thermal::MeltingLotMassRequest::new(
+            PROCESS,
+            fixture.ids.source,
+            MaterialLotSelection::new(fixture.ids.source_lot, Mass::from_milligrams(1)),
+            fixture.ids.equipment,
+            fixture.ids.energy_store,
+        ),
+    )
+    .unwrap_or_else(|error| {
+        panic!("melting planner at exact equipment temperature limit failed: {error}")
+    });
+    assert_eq!(envelope.maximum_mass(), Mass::from_milligrams(1));
+    assert_eq!(envelope.limiting_constraint(), None);
+}
+
+#[test]
+fn input_at_exact_equipment_temperature_limit_reaches_the_melting_point_check() {
+    let maximum = Temperature::from_millikelvin(1_200_000);
+    let mut fixture = make_fixture(maximum, EnergyCarrier::Electrical, Mass::from_milligrams(1));
+    let exact_limit_lot = deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.ids.source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        Mass::from_milligrams(1),
+        maximum,
+    )
+    .unwrap_or_else(|error| panic!("exact-limit melting input fixture failed: {error}"));
+
+    assert_eq!(
+        resolve_melting_process(
+            &fixture.registries,
+            &fixture.state,
+            MeltingRequest::new(
+                PROCESS,
+                fixture.ids.source,
+                &[MaterialLotSelection::new(
+                    exact_limit_lot,
+                    Mass::from_milligrams(1),
+                )],
+                fixture.ids.equipment,
+                fixture.ids.energy_store,
+            ),
+        ),
+        Err(
+            MeltingResolutionError::MeltingPointExceedsEquipmentMaximum {
+                melting_point: COPPER_MELTING_POINT,
+                maximum,
+            }
+        )
+    );
+    assert_eq!(
+        crate::thermal::assess_melting_lot_mass_envelope(
+            &fixture.registries,
+            &fixture.state,
+            crate::thermal::MeltingLotMassRequest::new(
+                PROCESS,
+                fixture.ids.source,
+                MaterialLotSelection::new(exact_limit_lot, Mass::from_milligrams(1)),
+                fixture.ids.equipment,
+                fixture.ids.energy_store,
+            ),
+        ),
+        Err(
+            MeltingResolutionError::MeltingPointExceedsEquipmentMaximum {
+                melting_point: COPPER_MELTING_POINT,
+                maximum,
+            }
+        )
+    );
+}
+
+#[test]
 fn melting_reports_wrong_carrier_before_insufficient_energy() {
     let fixture = make_fixture_with_resources(
         Temperature::from_millikelvin(1_500_000),
