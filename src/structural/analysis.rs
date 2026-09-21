@@ -32,7 +32,10 @@ pub enum StructuralStage {
     Failed,
 }
 
-/// Projects structural utilization using the same normalized ratio as authoritative analysis.
+/// Projects floor-rounded structural utilization for reporting and relative comparison.
+///
+/// Call is_structural_load_within_utilization_limit when an exact feasibility limit matters;
+/// comparing this rounded result to a limit can otherwise admit sub-ppm excess load.
 #[must_use]
 pub fn calculate_structural_utilization_ppm(load: Force, capacity: Force) -> u128 {
     if capacity.is_zero() {
@@ -43,6 +46,29 @@ pub fn calculate_structural_utilization_ppm(load: Force, capacity: Force) -> u12
         capacity.millinewtons(),
         STRUCTURAL_PARTS_PER_MILLION,
     )
+}
+
+/// Reports exact compliance with a normalized structural-utilization limit.
+///
+/// Unlike the player-readable utilization projection, this comparison does not floor the observed
+/// ratio before applying the limit. A load must be at or below the exact integer force represented
+/// by the requested fraction of capacity.
+#[must_use]
+pub fn is_structural_load_within_utilization_limit(
+    load: Force,
+    capacity: Force,
+    maximum_ppm: u32,
+) -> bool {
+    assert!(
+        maximum_ppm <= STRUCTURAL_PARTS_PER_MILLION,
+        "structural utilization limit cannot exceed one million ppm"
+    );
+    let maximum_load = scale_u128_fraction_floor(
+        capacity.millinewtons(),
+        maximum_ppm,
+        STRUCTURAL_PARTS_PER_MILLION,
+    );
+    load.millinewtons() <= maximum_load
 }
 
 /// Projects the pristine axial capacity of one material/profile cross-section.
@@ -144,6 +170,16 @@ impl StructuralAssessment {
     #[must_use]
     pub const fn utilization_ppm(self) -> u128 {
         self.utilization_ppm
+    }
+
+    /// Reports exact compliance with an authored normalized utilization limit.
+    #[must_use]
+    pub fn is_within_utilization_limit(self, maximum_ppm: u32) -> bool {
+        is_structural_load_within_utilization_limit(
+            self.carried_load,
+            self.effective_capacity,
+            maximum_ppm,
+        )
     }
 
     #[must_use]

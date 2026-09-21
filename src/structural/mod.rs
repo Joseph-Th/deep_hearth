@@ -8,6 +8,7 @@ mod definitions;
 mod element_execution;
 mod geometry;
 mod load;
+mod member_projection;
 mod state;
 mod structural_execution;
 mod support_index;
@@ -17,7 +18,7 @@ mod test_support;
 pub use analysis::{
     StructuralAnalysis, StructuralAnalysisError, StructuralAssessment, StructuralDamageEvent,
     StructuralFailureCause, StructuralStage, analyze_structure, calculate_pristine_member_capacity,
-    calculate_structural_utilization_ppm,
+    calculate_structural_utilization_ppm, is_structural_load_within_utilization_limit,
 };
 pub use definitions::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileDefinition,
@@ -29,6 +30,10 @@ pub use geometry::{
 };
 pub(crate) use load::calculate_fractional_milligram_weight_force_ceiling;
 pub use load::{calculate_aggregate_weight_force_ceiling, calculate_weight_force_ceiling};
+pub use member_projection::{
+    PrismaticMemberLoadProjection, PrismaticMemberLoadRequest, StructuralMemberLoadProjectionError,
+    project_prismatic_member_load,
+};
 pub use state::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
     StructuralLoadKind, StructureState, StructureValidationError,

@@ -82,7 +82,7 @@ pub(super) fn install_equipment_on_grounded_support(
         "gameplay capability foundation sizing drifted out of the stable structural band"
     );
     assert!(
-        assessment.utilization_ppm() <= u128::from(stable_target_ppm),
+        assessment.is_within_utilization_limit(stable_target_ppm),
         "gameplay capability foundation sizing drifted above its production utilization target"
     );
     let _ = mounting.commit(state).unwrap_or_else(|error| {

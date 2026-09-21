@@ -4,9 +4,8 @@ use deep_hearth::core::quantity::{Area, Force, Length};
 use deep_hearth::material::MaterialId;
 use deep_hearth::registry::Registries;
 use deep_hearth::structural::{
-    STRUCTURAL_PARTS_PER_MILLION, StructuralProfileId, calculate_prismatic_material_mass_ceiling,
-    calculate_pristine_member_capacity, calculate_structural_utilization_ppm,
-    calculate_weight_force_ceiling,
+    PrismaticMemberLoadRequest, STRUCTURAL_PARTS_PER_MILLION, StructuralProfileId,
+    project_prismatic_member_load,
 };
 
 fn support_area_meets_utilization(
@@ -19,32 +18,16 @@ fn support_area_meets_utilization(
     area_mm2: u64,
 ) -> bool {
     let area = Area::from_square_millimeters(area_mm2);
-    let member_mass =
-        calculate_prismatic_material_mass_ceiling(registries.materials(), material, area, length)
-            .unwrap_or_else(|error| {
-                panic!("gameplay harness support mass resolution failed: {error}")
-            });
-    let self_weight = calculate_weight_force_ceiling(member_mass, registries.core().gravity());
-    let total_load = external_load
-        .millinewtons()
-        .checked_add(self_weight.millinewtons())
-        .unwrap_or_else(|| panic!("gameplay harness support load overflowed"));
-    let profile = registries
-        .structural()
-        .get_profile(profile)
-        .unwrap_or_else(|| panic!("gameplay harness structural profile disappeared"));
-    let material_definition = registries
-        .materials()
-        .get_material(material)
-        .unwrap_or_else(|| panic!("gameplay harness support material disappeared"));
-    let capacity = calculate_pristine_member_capacity(profile, material_definition, area)
-        .unwrap_or_else(|| panic!("gameplay harness support material has no structural strengths"));
-    calculate_structural_utilization_ppm(Force::from_millinewtons(total_load), capacity)
-        <= u128::from(target_utilization_ppm)
+    project_prismatic_member_load(
+        registries,
+        PrismaticMemberLoadRequest::new(profile, material, length, area, external_load),
+    )
+    .unwrap_or_else(|error| panic!("gameplay harness support projection failed: {error}"))
+    .is_within_utilization_limit(target_utilization_ppm)
 }
 
-/// Returns the smallest prismatic support area whose actual material self-weight plus the requested
-/// external load stays at or below an authored utilization target.
+/// Returns a compact prismatic support area whose canonical self-weight plus the requested external
+/// load stays at or below an authored utilization target.
 pub(super) fn support_area_for_utilization(
     registries: &Registries,
     material: MaterialId,

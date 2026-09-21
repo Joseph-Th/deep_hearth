@@ -441,6 +441,12 @@ that abut on one axis while overlapping on the other two. Edge-only and corner-o
 path. Trusted-load validation replays the same rule, so persisted topology cannot bypass runtime support
 admission.
 
+`project_prismatic_member_load` is the structural owner's read-only projection for a pristine prismatic member
+under an external load. It composes density-derived member mass, gravity self-weight, authored material/profile
+capacity, and utilization so planning, presentation, and gameplay evaluation do not reproduce that physical
+composition outside the structural subsystem. Its exact utilization-limit predicate compares load against the
+requested fraction of capacity directly rather than treating floor-rounded display ppm as a legality result.
+
 Supported stockpiles contribute `StructuralLoadKind::StoredMatter` for stored contents plus enclosure matter.
 Stored-mass mutations and their structural-load consequences commit atomically.
 

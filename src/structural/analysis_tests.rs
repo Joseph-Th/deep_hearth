@@ -29,6 +29,23 @@ fn pristine_member_capacity_uses_the_authored_load_axis_and_exact_units() {
 }
 
 #[test]
+fn structural_utilization_limit_comparison_does_not_accept_floor_rounding_slack() {
+    let capacity = Force::from_millinewtons(2_000_001);
+    let load = Force::from_millinewtons(1_600_001);
+
+    assert_eq!(
+        calculate_structural_utilization_ppm(load, capacity),
+        800_000
+    );
+    assert!(!is_structural_load_within_utilization_limit(
+        load, capacity, 800_000
+    ));
+    assert!(is_structural_load_within_utilization_limit(
+        load, capacity, 800_001
+    ));
+}
+
+#[test]
 fn structural_utilization_projection_handles_ratio_and_zero_capacity() {
     assert_eq!(
         calculate_structural_utilization_ppm(
