@@ -3,14 +3,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use deep_hearth::content::gameplay_fixture::{
-    seed_fluid_store, seed_lot, seed_player_survival_at_hunger_warning_boundary,
+    GeologicalDepositSeed, seed_fluid_store, seed_geological_deposit, seed_lot,
+    seed_player_survival_at_hunger_warning_boundary,
     seed_player_survival_at_hydration_warning_boundary, seed_preexisting_world_age, seed_stockpile,
 };
 use deep_hearth::content::{
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, MANUAL_POWER_HAND_CRANK,
+    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, FORM_ORE, MANUAL_POWER_HAND_CRANK,
     MATERIAL_COPPER,
 };
-use deep_hearth::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Volume};
+use deep_hearth::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Pressure, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::{SimulationTick, WorldSeed};
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -23,9 +24,10 @@ use deep_hearth::inventory::{
     validate_build_storage_enclosure, validate_start_storage_enclosure_dismantling,
 };
 use deep_hearth::labor::{
-    ManualPowerRequest, PlayerWork, ProspectingMethodId, validate_start_manual_power,
+    ManualPowerRequest, PlayerWork, ProspectingMethodId, project_manual_power,
+    project_prospecting_work, validate_start_manual_power,
 };
-use deep_hearth::material::CommodityKey;
+use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -33,8 +35,8 @@ use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
     DrinkDefinition, DrinkOutcome, EatOutcome, FoodCategory, FoodDefinition, FoodFreshness,
     assess_food_freshness, assess_survival, calculate_food_hydration_offer,
-    initialize_player_survival, project_food_freshness_after_storage_transition, validate_drink,
-    validate_eat,
+    initialize_player_survival, project_food_freshness_after_storage_transition,
+    project_minimum_drink_to_hydration_target, validate_drink, validate_eat,
 };
 
 use super::environment::ROOM_TEMPERATURE;
@@ -1849,6 +1851,11 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     } else {
         "declined"
     };
+    let preservation_commitment_reason = if preservation_commitment.is_some() {
+        "return-clears-threshold"
+    } else {
+        "return-does-not-clear-threshold"
+    };
     let selected_on_physical_frontier = preservation_decision.selected_on_physical_frontier;
     let selected_within_material_budget = preservation_decision.selected_within_material_budget;
     let selected_preservation_label = preservation_storage_report_label(
@@ -1993,7 +2000,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         )
     });
     reviewln!(
-        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{inherited_preservation_label} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] separate-investment-scenario=[protected-reserve:{}mg raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] storage-policy:{} commitment:{committed_preservation_label} state:{preservation_commitment_state} committed=[build:{}t raw:{}mg service:0t] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} preservation:{}ppm candidates:{} frontier=[physical:{}/{} budget-eligible:{}/{} selected-physical:{} selected-budget:{}] {preservation_comparison} build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg utilization:{}ppm dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] consequence=[reserve-improved:{} {diet_consequence} horizon:{}t] lived-wait=[drinks:{} volume:{}uL] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}t prospect:{}t reprovision:{}:{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
+        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{inherited_preservation_label} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] separate-investment-scenario=[protected-reserve:{}mg raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] storage-policy:{} commitment:{committed_preservation_label} state:{preservation_commitment_state} commitment-reason:{preservation_commitment_reason} minimum-return:{preservation_minimum_return_ppm}ppm committed=[build:{}t raw:{}mg service:0t] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} preservation:{}ppm candidates:{} frontier=[physical:{}/{} budget-eligible:{}/{} selected-physical:{} selected-budget:{}] {preservation_comparison} build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg utilization:{}ppm dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] consequence=[reserve-improved:{} {diet_consequence} horizon:{}t] lived-wait=[drinks:{} volume:{}uL] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}uL/{}t prospect:{}t opportunity-power:{} reprovision:{}:{}uL/{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
         world.start_profile.label(),
         foods.len(),
         available_category_count,
@@ -2041,9 +2048,12 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         work_pressure.manual_power_energy_deficit_ppm,
         work_pressure.manual_power_hydration_deficit_ppm,
         manual_power_pressure.label(),
+        integrated_work.initial_drink_volume_ul,
         integrated_work.initial_drink_ticks,
         integrated_work.prospecting_ticks,
+        integrated_work.power_triggered_by_observation,
         integrated_work.reprovisioned_after_prospecting,
+        integrated_work.reprovision_volume_ul,
         integrated_work.reprovision_ticks,
         integrated_work.manual_power_ticks,
         integrated_work.stored_work_nj,
@@ -2052,7 +2062,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         integrated_work.hydration_warning_safe,
     );
     reviewln!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t lived-wait=[drinks:{} volume:{}uL] available:[foods:{} categories:{} options:{food_options}]] separate-investment-evidence=[policy:{} candidates:{} raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] frontier=[{preservation_frontier_summary}] legend=P:physical-frontier,d:dominated,B:within-material-budget,x:over-material-budget commitment:{} committed=[build:{}t raw:{}mg] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} physical:{} within-material-budget:{}]] best-enclosure-execution-and-dismantling-coverage=[food:{protected_food_label} stages:{} route=finite-disclosed-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning provision:{}t prospect:{}t reprovision:{}:{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] diet-evidence=[{diet_counterfactual}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{inherited_preservation_label} age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t lived-wait=[drinks:{} volume:{}uL] available:[foods:{} categories:{} options:{food_options}]] separate-investment-evidence=[policy:{} candidates:{} raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] frontier=[{preservation_frontier_summary}] legend=P:physical-frontier,d:dominated,B:within-material-budget,x:over-material-budget commitment:{} committed=[build:{}t raw:{}mg] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} physical:{} within-material-budget:{}]] best-enclosure-execution-and-dismantling-coverage=[food:{protected_food_label} stages:{} route=finite-disclosed-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning provision:{}t prospect:{}t opportunity-power:{} reprovision:{}:{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] diet-evidence=[{diet_counterfactual}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{inherited_preservation_label} age-saved:{}t retained:{}mg] reserve-recovered:{}",
         world.start_profile.label(),
         diet_comparison.midwait_drink_count,
         diet_comparison.midwait_drink_volume_ul,
@@ -2111,6 +2121,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         prospecting_pressure != manual_power_pressure,
         integrated_work.initial_drink_ticks,
         integrated_work.prospecting_ticks,
+        integrated_work.power_triggered_by_observation,
         integrated_work.reprovisioned_after_prospecting,
         integrated_work.reprovision_ticks,
         integrated_work.manual_power_ticks,

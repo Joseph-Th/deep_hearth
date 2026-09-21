@@ -1,0 +1,128 @@
+//! Read-only drink planning contracts.
+
+use super::*;
+use crate::survival::{DrinkHydrationProjectionError, project_minimum_drink_to_hydration_target};
+
+#[test]
+fn minimum_drink_projection_prices_its_own_consumption_time() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let drink = registries
+        .survival()
+        .get_drink(FLUID_WATER)
+        .copied()
+        .unwrap_or_else(|| panic!("water drink definition disappeared"));
+    let current = physiology.thirsty_below();
+    let target = current
+        .checked_add(Volume::from_microliters(100_000))
+        .unwrap_or_else(|| panic!("drink projection target overflowed"));
+
+    let projection = project_minimum_drink_to_hydration_target(physiology, drink, current, target)
+        .unwrap_or_else(|error| panic!("minimum drink projection failed: {error}"))
+        .unwrap_or_else(|| panic!("drink projection unexpectedly needed no drink"));
+
+    assert_eq!(projection.volume(), Volume::from_microliters(100_375));
+    assert_eq!(projection.duration(), TickSpan::new(3));
+    assert_eq!(
+        projection.hydration_offered(),
+        Volume::from_microliters(100_375)
+    );
+    assert_eq!(projection.hydration_after(), target);
+}
+
+#[test]
+fn minimum_drink_projection_matches_canonical_execution() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let drink = registries
+        .survival()
+        .get_drink(FLUID_WATER)
+        .copied()
+        .unwrap_or_else(|| panic!("water drink definition disappeared"));
+    let current = physiology.thirsty_below();
+    let target = current
+        .checked_add(Volume::from_microliters(100_000))
+        .unwrap_or_else(|| panic!("drink execution target overflowed"));
+    let projection = project_minimum_drink_to_hydration_target(physiology, drink, current, target)
+        .unwrap_or_else(|error| panic!("minimum drink projection failed: {error}"))
+        .unwrap_or_else(|| panic!("drink execution unexpectedly needed no drink"));
+
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0030));
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        projection.volume(),
+        FLUID_WATER,
+        projection.volume(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("drink projection water fixture failed: {error}"));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("drink projection survival setup failed: {error}"));
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| panic!("drink projection player disappeared"));
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            player.metabolic_energy(),
+            current,
+            player.vitality(),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+
+    let outcome = validate_drink(&registries, &state, store, projection.volume())
+        .unwrap_or_else(|error| panic!("projected drink validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("projected drink commit failed: {error}"));
+    assert_eq!(
+        outcome.completes_at().value() - state.tick().value(),
+        projection.duration().value()
+    );
+    assert_eq!(
+        finish_direct_consumption(&registries, &mut state),
+        projection.duration().value()
+    );
+    assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("drink projection player disappeared after execution"))
+            .hydration(),
+        projection.hydration_after()
+    );
+}
+
+#[test]
+fn minimum_drink_projection_reports_satisfied_and_unreachable_targets() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let drink = registries
+        .survival()
+        .get_drink(FLUID_WATER)
+        .copied()
+        .unwrap_or_else(|| panic!("water drink definition disappeared"));
+    let current = physiology.thirsty_below();
+
+    assert_eq!(
+        project_minimum_drink_to_hydration_target(physiology, drink, current, current),
+        Ok(None)
+    );
+    assert_eq!(
+        project_minimum_drink_to_hydration_target(
+            physiology,
+            drink,
+            Volume::ZERO,
+            physiology.maximum_hydration(),
+        ),
+        Err(
+            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+                maximum_drink_volume: physiology.direct_consumption().maximum_drink_volume(),
+            }
+        )
+    );
+}

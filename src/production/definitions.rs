@@ -67,6 +67,10 @@ impl ProcessDefinition {
         &self.name
     }
 
+    /// Returns provider-eligibility requirements used to match equipment to this process.
+    ///
+    /// These thresholds are not operation-level batch minima or maxima. Exact selected quantity
+    /// and physical limits belong to the process-specific resolver.
     #[must_use]
     pub fn capability_requirements(&self) -> &[CapabilityRequirement] {
         &self.capability_requirements

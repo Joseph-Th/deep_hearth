@@ -1607,8 +1607,8 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_survival_summary_counts_selected_preservation_policy_only(self) -> None:
         lines = [
-            "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t]",
-            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t]",
+            "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none commitment-reason:return-does-not-clear-threshold minimum-return:3000000ppm best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t] work-interlock=[integrated=[drink:6000uL/1t prospect:24t opportunity-power:true reprovision:true:800uL/1t power:3t warning-safe:true]]",
+            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 commitment-reason:return-clears-threshold minimum-return:1000000ppm best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t] work-interlock=[integrated=[drink:12000uL/1t prospect:48t opportunity-power:false reprovision:false:0uL/0t power:0t warning-safe:true]]",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn("declined:1", summary)
@@ -1617,12 +1617,18 @@ class LocalCiPlanTests(unittest.TestCase):
             "preservation-opportunity=[scarce:1 choice-rich:1 alternate:0 finite:0 singleton:1 multi:1]",
             summary,
         )
+        self.assertIn("commitment=[cleared:1 declined-return:1]", summary)
+        self.assertIn(
+            "work-interlock=[opportunity-power:1 reprovisioned:1 initial-drink:6000..12000uL "
+            "follow-up-drink:0..800uL warning-safe:2/2]",
+            summary,
+        )
 
     def test_fieldwork_summary_separates_world_constraints_from_selected_tool(self) -> None:
         lines = [
-            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 geology=quarry-soft tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
-            "FIELDWORK EXPERIENCE seed=0x2 sample=coverage outcome=known-target-supply order-horizon=long field-inspections=3 geology=quarry-reinforcement tool=copper-reinforced-quarry copper-opportunity=available requested=200mg planned-local-work=80mg mining=50mg resource-knowledge-effect=changed-tool",
-            "FIELDWORK EXPERIENCE seed=0x3 sample=organic outcome=completed order-horizon=long field-inspections=2 geology=hard-pick-specialist tool=copper-reinforced-hard-pick copper-opportunity=available requested=300mg planned-local-work=300mg mining=300mg resource-knowledge-effect=same-tool",
+            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 geology=quarry-soft blind-requested-tool=copper-reinforced-hard-pick tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
+            "FIELDWORK EXPERIENCE seed=0x2 sample=coverage outcome=known-target-supply order-horizon=long field-inspections=3 geology=quarry-reinforcement blind-requested-tool=stone-pick tool=copper-reinforced-quarry copper-opportunity=available requested=200mg planned-local-work=80mg mining=50mg resource-knowledge-effect=changed-tool",
+            "FIELDWORK EXPERIENCE seed=0x3 sample=organic outcome=completed order-horizon=long field-inspections=2 geology=hard-pick-specialist blind-requested-tool=stone-quarry tool=copper-reinforced-hard-pick copper-opportunity=available requested=300mg planned-local-work=300mg mining=300mg resource-knowledge-effect=same-tool",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn("sample-shape=[anchor:1 coverage:1 organic:1 replay:0]", summary)
@@ -1632,11 +1638,11 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         self.assertIn("organic-outcomes=[completed:1 local-supply-ended:0]", summary)
         self.assertIn(
-            "reserve-knowledge=[workload-capped:1 tool-changed:1 feasibility-changed:0]",
+            "reserve-knowledge=[workload-capped:1 tool-changed:1]",
             summary,
         )
         self.assertIn(
-            "organic-reserve-knowledge=[workload-capped:0 tool-changed:0 feasibility-changed:0]",
+            "organic-reserve-knowledge=[workload-capped:0 tool-changed:0]",
             summary,
         )
         self.assertIn("orders=[short:1 long:2]", summary)
@@ -1644,6 +1650,16 @@ class LocalCiPlanTests(unittest.TestCase):
             "geology=[soft:1 reinforcement:1 hard-specialist:1]", summary
         )
         self.assertIn("copper=[available:2 absent:1]", summary)
+        self.assertIn(
+            "tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:1 hard-pick:1]",
+            summary,
+        )
+        self.assertIn(
+            "geology-tool=[soft:pick0/quarry1/reinforced0/hard0 "
+            "reinforcement:pick0/quarry0/reinforced1/hard0 "
+            "hard-specialist:pick0/quarry0/reinforced0/hard1]",
+            summary,
+        )
 
     def test_default_gameplay_report_keeps_compact_semantic_summaries_only(self) -> None:
         lines = [
@@ -1660,7 +1676,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "PROGRESSION GOAL seed=0x1 immediate=265t delayed=741t chosen=immediate",
             "LIBERATION FRONTIER CAPABILITY seed=0x1 selected-by-current-player=false reason=no-ordinary-concentrate-sink input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] matter=conserved",
             "LIBERATION FRONTIER seed=0x1 smelting-frontier=prepared-ore-concentrate->pure-metal",
-            "WOODWORKING EXPERIENCE seed=0x1 sample=anchor choice=bare-hands reason=bare-hands-avoids-investment-cost",
+            "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa geology=quarry-soft tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg",
             "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor job=[flywheel:1nJ planned-charges:1] decision=[selected:crank] comparison=[charge-attention-reduction:1ppm metabolic-crank:2nJ metabolic-treadle:1nJ break-even-charges:2]",
             "POWER SETTLEMENT seed=0x1 sample=anchor buffer:5000nJ planned-charges=80 decision=[selected:walking-wheel projected-attention-treadle:2290t projected-attention-walking:2210t choice-frozen-before-action:true] comparison=[charge-saving:4t metabolic-saving:1nJ break-even:60charges]",
@@ -1720,6 +1736,10 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
+            "processing-crossover=[one-bridge-manual:111..111t line-setup:421..421t long-order-mechanized:1/1]",
+            concise,
+        )
+        self.assertIn(
             "scarcity-bridge=[direct-second-blocked:1 processed-output-playable:1 converged:1]",
             concise,
         )
@@ -1733,6 +1753,17 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         self.assertIn(
             "settlement-choice=[treadle:0 walking:1] organic-settlement-choice=[treadle:0 walking:0] settlement-planned-charges=80..80 settlement-break-even-charges=60..60",
+            concise,
+        )
+        self.assertIn("choice-load=[crank:1..1 treadle:n/a]", concise)
+        self.assertIn("settlement-load=[treadle:n/a walking:80..80]", concise)
+        self.assertIn(
+            "demand-horizon=[immediate-only:1 short-queue:0 project:0]",
+            concise,
+        )
+        self.assertIn(
+            "by-horizon=[immediate:bare1/adze0/saw0 short:bare0/adze0/saw0 "
+            "project:bare0/adze0/saw0]",
             concise,
         )
         self.assertIn(

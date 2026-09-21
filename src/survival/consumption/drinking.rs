@@ -1,8 +1,13 @@
 //! Finite-fluid drinking validation, accounting, and canonical commit.
 
 mod errors;
+mod projection;
 
 pub use errors::{DrinkCommitError, DrinkError};
+pub use projection::{
+    DrinkHydrationProjectionError, MinimumDrinkHydrationProjection,
+    project_minimum_drink_to_hydration_target,
+};
 
 use crate::core::quantity::{AggregateVolume, Volume};
 use crate::core::state::AppState;

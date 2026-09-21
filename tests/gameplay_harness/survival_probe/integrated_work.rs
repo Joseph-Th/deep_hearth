@@ -4,9 +4,12 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct IntegratedSurvivalWorkReview {
+    pub(super) initial_drink_volume_ul: u64,
     pub(super) initial_drink_ticks: u64,
     pub(super) prospecting_ticks: u64,
+    pub(super) power_triggered_by_observation: bool,
     pub(super) reprovisioned_after_prospecting: bool,
+    pub(super) reprovision_volume_ul: u64,
     pub(super) reprovision_ticks: u64,
     pub(super) manual_power_ticks: u64,
     pub(super) stored_work_nj: u128,
@@ -30,17 +33,17 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         )
         .copied()
         .unwrap_or_else(|| panic!("integrated survival work loop requires one authored drink"));
-    let drink_volume = direct.maximum_drink_volume();
+    let maximum_drink_volume = direct.maximum_drink_volume();
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x494E_5445_4752_4154));
     let drink_store = seed_fluid_store(
         registries,
         &mut state,
-        drink_volume
-            .checked_add(drink_volume)
+        maximum_drink_volume
+            .checked_add(maximum_drink_volume)
             .unwrap_or_else(|| panic!("integrated survival drink capacity overflowed")),
         drink.fluid(),
-        drink_volume
-            .checked_add(drink_volume)
+        maximum_drink_volume
+            .checked_add(maximum_drink_volume)
             .unwrap_or_else(|| panic!("integrated survival drink supply overflowed")),
         ROOM_TEMPERATURE,
     );
@@ -94,21 +97,6 @@ pub(super) fn evaluate_integrated_survival_work_loop(
     .unwrap_or_else(|error| panic!("integrated survival flywheel assembly failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("integrated survival flywheel assembly commit failed: {error}"));
-    seed_player_survival_at_hydration_warning_boundary(registries, &mut state);
-
-    let start = assess_survival(registries, &state)
-        .unwrap_or_else(|| panic!("integrated survival player disappeared at start"));
-    assert_eq!(start.hydration(), physiology.thirsty_below());
-    let first_drink = validate_drink(registries, &state, drink_store, drink_volume)
-        .unwrap_or_else(|error| panic!("integrated survival initial drink failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("integrated survival initial drink commit failed: {error}"));
-    let initial_drink_ticks =
-        finish_direct_consumption(registries, &mut state, first_drink.completes_at());
-    let after_drink = assess_survival(registries, &state)
-        .unwrap_or_else(|| panic!("integrated survival player disappeared after drinking"));
-    assert!(after_drink.hydration() > physiology.thirsty_below());
-
     let prospecting_method = prospecting_method_for_work_pressure(registries, seed);
     let prospecting_definition = registries
         .labor()
@@ -122,18 +110,77 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         VoxelCoord::new(40 + region_width, 0, 1),
     )
     .unwrap_or_else(|error| panic!("integrated survival prospecting bounds failed: {error}"));
-    let prospecting = validate_start_field_prospecting(
-        registries,
-        &state,
-        FieldProspectingRequest::new(prospecting_method, region, MATERIAL_COPPER),
+    let opportunity_present = mix64(seed ^ 0x494E_5445_4752_4F50) & 1 == 0;
+    if opportunity_present {
+        seed_geological_deposit(
+            registries,
+            &mut state,
+            GeologicalDepositSeed::new(
+                region,
+                CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+                Mass::from_milligrams(4_000_000),
+                ROOM_TEMPERATURE,
+                Pressure::from_pascals(350_000_000),
+                MaterialComposition::pure(MATERIAL_COPPER),
+            ),
+        );
+    }
+    seed_player_survival_at_hydration_warning_boundary(registries, &mut state);
+
+    let start = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("integrated survival player disappeared at start"));
+    assert_eq!(start.hydration(), physiology.thirsty_below());
+    let prospecting_request =
+        FieldProspectingRequest::new(prospecting_method, region, MATERIAL_COPPER);
+    let prospecting_projection = project_prospecting_work(registries, prospecting_method, region)
+        .unwrap_or_else(|error| {
+            panic!("integrated survival prospecting work projection failed: {error}")
+        });
+    let prospecting_budget = prospecting_projection.resource_budget();
+    let initial_target = physiology
+        .thirsty_below()
+        .checked_add(prospecting_budget.hydration())
+        .unwrap_or_else(|| panic!("integrated survival prospecting hydration target overflowed"));
+    let initial_drink_projection = project_minimum_drink_to_hydration_target(
+        physiology,
+        drink,
+        start.hydration(),
+        initial_target,
     )
-    .unwrap_or_else(|error| panic!("integrated survival prospecting start failed: {error}"));
+    .unwrap_or_else(|error| panic!("integrated survival initial drink projection failed: {error}"))
+    .unwrap_or_else(|| panic!("integrated survival initial work requires a drink"));
+    let initial_drink_volume = initial_drink_projection.volume();
+    let first_drink = validate_drink(registries, &state, drink_store, initial_drink_volume)
+        .unwrap_or_else(|error| panic!("integrated survival initial drink failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("integrated survival initial drink commit failed: {error}"));
+    let initial_drink_ticks =
+        finish_direct_consumption(registries, &mut state, first_drink.completes_at());
+    assert_eq!(
+        initial_drink_ticks,
+        initial_drink_projection.duration().value(),
+        "initial task-sized drink execution must match the owner projection"
+    );
+    let after_drink = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("integrated survival player disappeared after drinking"));
+    assert!(
+        after_drink.hydration() >= initial_target,
+        "task-sized initial drink did not reserve the planned prospecting hydration"
+    );
+
+    let prospecting = validate_start_field_prospecting(registries, &state, prospecting_request)
+        .unwrap_or_else(|error| panic!("integrated survival prospecting start failed: {error}"));
     let prospecting_work = prospecting.work();
     let prospecting_ticks = prospecting_work
         .completes_at()
         .value()
         .checked_sub(state.tick().value())
         .unwrap_or_else(|| unreachable!("validated prospecting completes after it starts"));
+    assert_eq!(
+        prospecting_ticks,
+        prospecting_projection.duration().value(),
+        "prospecting admission duration must match its pre-admission work projection"
+    );
     prospecting
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("integrated survival prospecting commit failed: {error}"));
@@ -143,59 +190,140 @@ pub(super) fn evaluate_integrated_survival_work_loop(
             .unwrap_or_else(|error| panic!("integrated survival prospecting tick failed: {error}"))
             .field_prospecting();
     }
-    assert!(
-        observation.is_some(),
-        "integrated survival prospecting produced no observation"
+    let observation = observation
+        .unwrap_or_else(|| panic!("integrated survival prospecting produced no observation"));
+    let finding = state
+        .geological_knowledge()
+        .get_observation(observation.observation())
+        .and_then(|record| record.finding(MATERIAL_COPPER))
+        .unwrap_or_else(|| panic!("integrated survival prospecting finding disappeared"));
+    let power_triggered_by_observation = finding.lower_ppm() > 0;
+    assert_eq!(
+        power_triggered_by_observation, opportunity_present,
+        "integrated survival actor-visible finding must distinguish the disclosed opportunity"
     );
-
-    let after_prospecting = assess_survival(registries, &state)
-        .unwrap_or_else(|| panic!("integrated survival player disappeared after prospecting"));
-    let reprovisioned_after_prospecting =
-        after_prospecting.hydration() < physiology.thirsty_below();
-    let reprovision_ticks = if reprovisioned_after_prospecting {
-        let drink = validate_drink(registries, &state, drink_store, drink_volume)
-            .unwrap_or_else(|error| panic!("integrated survival follow-up drink failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("integrated survival follow-up drink commit failed: {error}")
-            });
-        finish_direct_consumption(registries, &mut state, drink.completes_at())
-    } else {
-        0
-    };
 
     let requested_energy = registries
         .energy()
         .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
         .map(|definition| definition.capacity())
         .unwrap_or_else(|| panic!("integrated survival flywheel definition disappeared"));
-    let power = validate_start_manual_power(
-        registries,
-        &state,
-        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested_energy),
-    )
-    .unwrap_or_else(|error| panic!("integrated survival manual-power start failed: {error}"));
-    let work = power.work();
-    let manual_power_ticks = work
-        .completes_at()
-        .value()
-        .checked_sub(state.tick().value())
-        .unwrap_or_else(|| unreachable!("validated manual power completes after it starts"));
-    power
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("integrated survival manual-power commit failed: {error}"));
-    assert_eq!(
-        finish_manual_power_work(
+    let power_request =
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested_energy);
+    let after_prospecting = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("integrated survival player disappeared after prospecting"));
+    let power_projection = power_triggered_by_observation.then(|| {
+        let crank_record = state
+            .equipment()
+            .get_equipment(crank)
+            .unwrap_or_else(|| panic!("integrated survival hand crank disappeared"));
+        project_manual_power(
             registries,
-            &mut state,
-            work,
-            "integrated survival manual power"
-        ),
-        manual_power_ticks
-    );
+            MANUAL_POWER_HAND_CRANK,
+            crank_record.definition(),
+            crank_record.condition(),
+            ENERGY_STONE_FLYWHEEL_DRIVE,
+            requested_energy,
+        )
+        .unwrap_or_else(|error| {
+            panic!("integrated survival manual-power projection failed: {error}")
+        })
+    });
+    let manual_power_target = power_projection.map(|projection| {
+        physiology
+            .thirsty_below()
+            .checked_add(projection.resource_budget().hydration())
+            .unwrap_or_else(|| {
+                panic!("integrated survival manual-power hydration target overflowed")
+            })
+    });
+    let reprovisioned_after_prospecting =
+        manual_power_target.is_some_and(|target| after_prospecting.hydration() < target);
+    let reprovision_projection = if reprovisioned_after_prospecting {
+        Some(
+            project_minimum_drink_to_hydration_target(
+                physiology,
+                drink,
+                after_prospecting.hydration(),
+                manual_power_target
+                    .unwrap_or_else(|| unreachable!("reprovision requires a manual-power target")),
+            )
+            .unwrap_or_else(|error| {
+                panic!("integrated survival follow-up drink projection failed: {error}")
+            })
+            .unwrap_or_else(|| panic!("integrated survival follow-up work requires a drink")),
+        )
+    } else {
+        None
+    };
+    let reprovision_volume =
+        reprovision_projection.map_or(Volume::ZERO, |projection| projection.volume());
+    let reprovision_ticks = if reprovisioned_after_prospecting {
+        let drink = validate_drink(registries, &state, drink_store, reprovision_volume)
+            .unwrap_or_else(|error| panic!("integrated survival follow-up drink failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("integrated survival follow-up drink commit failed: {error}")
+            });
+        let ticks = finish_direct_consumption(registries, &mut state, drink.completes_at());
+        assert_eq!(
+            Some(ticks),
+            reprovision_projection.map(|projection| projection.duration().value()),
+            "follow-up task-sized drink execution must match the owner projection"
+        );
+        ticks
+    } else {
+        0
+    };
+    let manual_power_ticks = if power_triggered_by_observation {
+        let power = validate_start_manual_power(registries, &state, power_request).unwrap_or_else(
+            |error| panic!("integrated survival manual-power start failed: {error}"),
+        );
+        assert_eq!(
+            Some(power.resource_budget()),
+            power_projection.map(|projection| projection.resource_budget()),
+            "manual-power admission budget must match its pre-admission projection"
+        );
+        let work = power.work();
+        let ticks = work
+            .completes_at()
+            .value()
+            .checked_sub(state.tick().value())
+            .unwrap_or_else(|| unreachable!("validated manual power completes after it starts"));
+        assert_eq!(
+            Some(ticks),
+            power_projection.map(|projection| projection.duration().value()),
+            "manual-power admission duration must match its pre-admission projection"
+        );
+        power.commit(&mut state).unwrap_or_else(|error| {
+            panic!("integrated survival manual-power commit failed: {error}")
+        });
+        assert_eq!(
+            finish_manual_power_work(
+                registries,
+                &mut state,
+                work,
+                "integrated survival manual power"
+            ),
+            ticks
+        );
+        ticks
+    } else {
+        0
+    };
+    let stored_work = state
+        .energy()
+        .get_store(drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("integrated survival flywheel disappeared"));
     assert_eq!(
-        state.energy().get_store(drive).map(|store| store.stored()),
-        Some(requested_energy)
+        stored_work,
+        if power_triggered_by_observation {
+            requested_energy
+        } else {
+            Energy::ZERO
+        },
+        "integrated survival stored work must follow the actor-visible prospecting decision"
     );
     let final_survival = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("integrated survival player disappeared after work loop"));
@@ -211,12 +339,15 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         .unwrap_or_else(|error| panic!("integrated survival work-loop audit failed: {error}"));
 
     IntegratedSurvivalWorkReview {
+        initial_drink_volume_ul: initial_drink_volume.microliters(),
         initial_drink_ticks,
         prospecting_ticks,
+        power_triggered_by_observation,
         reprovisioned_after_prospecting,
+        reprovision_volume_ul: reprovision_volume.microliters(),
         reprovision_ticks,
         manual_power_ticks,
-        stored_work_nj: requested_energy.nanojoules(),
+        stored_work_nj: stored_work.nanojoules(),
         energy_deficit_ppm,
         hydration_deficit_ppm,
         hydration_warning_safe: final_survival.hydration() >= physiology.thirsty_below(),

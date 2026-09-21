@@ -10,10 +10,11 @@ mod validation;
 
 pub use assessment::{HungerState, HydrationState, SurvivalAssessment, assess_survival};
 pub use consumption::{
-    DrinkCommitError, DrinkError, DrinkOutcome, EatCommitError, EatError, EatOutcome,
-    EatPortionOutcome, FoodFreshness, FoodFreshnessError, FoodFreshnessProjectionError,
-    NutritionGain, ValidatedDrink, ValidatedEat, assess_food_freshness,
-    project_food_freshness_after_storage_transition, validate_drink, validate_eat,
+    DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome, EatCommitError,
+    EatError, EatOutcome, EatPortionOutcome, FoodFreshness, FoodFreshnessError,
+    FoodFreshnessProjectionError, MinimumDrinkHydrationProjection, NutritionGain, ValidatedDrink,
+    ValidatedEat, assess_food_freshness, project_food_freshness_after_storage_transition,
+    project_minimum_drink_to_hydration_target, validate_drink, validate_eat,
 };
 pub use definitions::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,

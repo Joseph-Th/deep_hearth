@@ -97,43 +97,12 @@ use maintenance::{MaintenanceAttempt, service_crusher};
 mod structure;
 use structure::*;
 
-/// Smallest batch mass the authored production definition admits for `process`.
+/// Smallest nonzero matter quantity that an explicit lot selection can represent.
 ///
-/// Boundary probes size their minimum-mass case from this canonical threshold instead of
-/// repeating the authored 1 mg floor, so a content rebalance of the resolver minimum moves
-/// the harness boundary with it rather than silently probing below the legal range.
-fn production_minimum_batch_mass(
-    registries: &Registries,
-    process: deep_hearth::production::ProcessId,
-) -> Mass {
-    use deep_hearth::capability::{CapabilityComparison, CapabilityValue};
-
-    let definition = registries
-        .production()
-        .get_process(process)
-        .unwrap_or_else(|| {
-            panic!(
-                "canonical production definition {} disappeared",
-                process.value()
-            )
-        });
-    let minimum = definition
-        .capability_requirements()
-        .iter()
-        .filter_map(
-            |requirement| match (requirement.comparison(), requirement.threshold()) {
-                (CapabilityComparison::AtLeast, CapabilityValue::Mass(mass)) => Some(mass),
-                _ => None,
-            },
-        )
-        .max();
-    minimum.unwrap_or_else(|| {
-        panic!(
-            "canonical production definition {} has no authored minimum batch mass",
-            process.value()
-        )
-    })
-}
+/// Production capability requirements describe provider discovery and must not be reinterpreted as
+/// operation-level minimum batch sizes. Powered ore resolution accepts any nonzero selected mass up
+/// to the provider's condition-adjusted batch ceiling.
+const MINIMUM_SELECTABLE_MASS: Mass = Mass::from_milligrams(1);
 
 fn advance_running_production_to_tick(
     registries: &Registries,

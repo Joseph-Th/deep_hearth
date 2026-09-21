@@ -604,18 +604,23 @@ fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
     let survival_before = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("field prospecting survival state disappeared"));
 
-    let work = start_inspection(&registries, &mut state, region);
+    let start = validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("field prospecting start failed: {error}"));
+    let resource_budget = start.resource_budget();
+    let work = start.work();
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("field prospecting commit failed: {error}"));
     assert!(matches!(
         state.player_work().active(),
         Some(PlayerWork::Prospecting { .. })
     ));
     assert_eq!(state.geological_knowledge().observations().count(), 0);
 
-    let field_duration = work
-        .completes_at()
-        .value()
-        .checked_sub(work.started_at().value())
-        .unwrap_or_else(|| panic!("field prospecting completion precedes admission"));
     let observation = complete_prospecting_work(&registries, &mut state, work, "field prospecting");
     assert_eq!(observation.method(), PROSPECTING_FIELD_INSPECTION);
     assert_eq!(observation.region(), region);
@@ -642,25 +647,15 @@ fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
     );
     let survival_after = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("field prospecting final survival state disappeared"));
-    let physiology = registries.survival().physiology();
-    let exertion = registries
-        .labor()
-        .get_prospecting(PROSPECTING_FIELD_INSPECTION)
-        .unwrap_or_else(|| panic!("field inspection definition disappeared"))
-        .exertion();
     assert_eq!(
         survival_before.metabolic_energy().nanojoules()
             - survival_after.metabolic_energy().nanojoules(),
-        (physiology.basal_energy_cost_per_tick().nanojoules()
-            + exertion.energy_cost_per_tick().nanojoules())
-            * u128::from(field_duration),
+        resource_budget.metabolic_energy().nanojoules(),
         "prospecting admission duration must equal the exact number of charged field-work ticks"
     );
     assert_eq!(
         survival_before.hydration().microliters() - survival_after.hydration().microliters(),
-        (physiology.hydration_loss_per_tick().microliters()
-            + exertion.hydration_loss_per_tick().microliters())
-            * field_duration,
+        resource_budget.hydration().microliters(),
         "prospecting hydration budgeting must match realized field-work cost"
     );
     validate_loaded_state(&registries, &state)

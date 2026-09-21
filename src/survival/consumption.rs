@@ -5,7 +5,11 @@ mod drinking;
 mod eating;
 mod freshness;
 
-pub use drinking::{DrinkCommitError, DrinkError, DrinkOutcome, ValidatedDrink, validate_drink};
+pub use drinking::{
+    DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome,
+    MinimumDrinkHydrationProjection, ValidatedDrink, project_minimum_drink_to_hydration_target,
+    validate_drink,
+};
 pub use eating::{
     EatCommitError, EatError, EatOutcome, EatPortionOutcome, NutritionGain, ValidatedEat,
     validate_eat,

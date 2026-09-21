@@ -335,6 +335,20 @@ fn make_registries_with_definition(
     max_output_power: Power,
     comminution_definition: ComminutionProcessDefinition,
 ) -> Registries {
+    make_registries_with_definition_and_provider_batch_threshold(
+        carrier,
+        max_output_power,
+        comminution_definition,
+        Mass::from_milligrams(1),
+    )
+}
+
+fn make_registries_with_definition_and_provider_batch_threshold(
+    carrier: EnergyCarrier,
+    max_output_power: Power,
+    comminution_definition: ComminutionProcessDefinition,
+    provider_batch_threshold: Mass,
+) -> Registries {
     let capabilities = match CapabilityProfile::new([
         (
             MASS_FLOW_CAPABILITY,
@@ -379,7 +393,7 @@ fn make_registries_with_definition(
             CapabilityRequirement::new(
                 MAX_BATCH_MASS_CAPABILITY,
                 CapabilityComparison::AtLeast,
-                CapabilityValue::Mass(Mass::from_milligrams(1)),
+                CapabilityValue::Mass(provider_batch_threshold),
             ),
         ],
     );
@@ -424,6 +438,68 @@ fn make_registries_with_definition(
 
 fn make_registries() -> Registries {
     make_registries_with_energy(EnergyCarrier::Mechanical, Power::from_microwatts(100))
+}
+
+#[test]
+fn provider_batch_capability_threshold_does_not_become_an_operation_minimum_batch() {
+    let registries = make_registries_with_definition_and_provider_batch_threshold(
+        EnergyCarrier::Mechanical,
+        Power::from_microwatts(100),
+        ComminutionProcessDefinition::new(
+            PROCESS,
+            FORM_ORE,
+            FORM_CRUSHED,
+            crushed_particle_size(),
+            PoweredOreProcessProfile::new(
+                MASS_FLOW_CAPABILITY,
+                MAX_BATCH_MASS_CAPABILITY,
+                EnergyCarrier::Mechanical,
+                SPECIFIC_WORK,
+                1_000,
+            ),
+        ),
+        Mass::from_milligrams(50),
+    );
+    let mut state = AppState::new(WorldSeed::new(0x9700_0010));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("minimum selection source failed: {error}"));
+    let lot = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        Mass::from_milligrams(1),
+        INPUT_TEMPERATURE,
+        mixed_ore_composition(),
+    )
+    .unwrap_or_else(|error| panic!("minimum selection lot failed: {error}"));
+    let equipment = add_equipment(&registries, &mut state, CRUSHER, Condition::PRISTINE)
+        .unwrap_or_else(|error| panic!("minimum selection crusher failed: {error}"));
+    let energy_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_STORE_DEFINITION,
+        Energy::from_nanojoules(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("minimum selection energy failed: {error}"));
+
+    let resolved = resolve_comminution_process(
+        &registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS,
+            source,
+            &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+            equipment,
+            energy_store,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("1 mg comminution below provider threshold failed: {error}"));
+
+    assert_eq!(
+        resolved.process_resolution().input_mass(),
+        Mass::from_milligrams(1)
+    );
 }
 
 #[test]

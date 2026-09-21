@@ -6,8 +6,8 @@ use crate::equipment::{
     resolve_equipment_provider_with_occupancy,
 };
 use crate::labor::{
-    PlayerWork, ProspectingDefinition, ProspectingMethodId, ProspectingRegionError,
-    ProspectingWork, ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, PlayerWorkResourceBudget, ProspectingDefinition, ProspectingMethodId,
+    ProspectingRegionError, ProspectingWork, ValidatedPlayerWorkStart, validate_player_work_start,
 };
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::material::MaterialId;
@@ -106,6 +106,15 @@ impl ValidatedFieldProspectingStart {
     #[must_use]
     pub const fn work(&self) -> ProspectingWork {
         self.work
+    }
+
+    /// Returns the authoritative survival reserve consumed if this work runs to completion.
+    ///
+    /// This lets planning surfaces compare prospecting against food, water, and later work without
+    /// reconstructing survival tick costs from authored exertion values.
+    #[must_use]
+    pub const fn resource_budget(&self) -> PlayerWorkResourceBudget {
+        self.work_start.resource_budget()
     }
 }
 

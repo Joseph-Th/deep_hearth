@@ -2,13 +2,17 @@
 
 use super::*;
 use deep_hearth::labor::PlayerWorkStartError;
+use std::collections::BTreeSet;
 
 struct ManualRecoveryProbe {
     option: Option<ManualRecoveryOption>,
-    survival_limited: bool,
-    policy_declined: bool,
-    equipment_limited: bool,
-    storage_limited: bool,
+    constraints: BTreeSet<ManualRecoveryConstraint>,
+}
+
+impl ManualRecoveryProbe {
+    fn primary_constraint(&self) -> Option<ManualRecoveryConstraint> {
+        self.constraints.iter().next().copied()
+    }
 }
 
 pub(super) enum ManualRecoverySearch {
@@ -23,7 +27,7 @@ pub(super) enum ManualRecoverySearch {
     StorageLimited,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum ManualRecoveryConstraint {
     SurvivalPolicy,
     SurvivalReserve,
@@ -193,105 +197,177 @@ fn probe_manual_recovery_option(
     preference: EnergyRecoveryPreference,
 ) -> ManualRecoveryProbe {
     let mut options = Vec::new();
-    let mut survival_limited = false;
-    let mut equipment_limited = false;
-    let mut storage_limited = false;
+    let mut constraints = BTreeSet::new();
     for (name, store) in [("small", ids.small_drive), ("large", ids.large_drive)] {
-        let envelope = assess_powered_ore_mass_envelope(
-            registries,
-            state,
-            PROCESS_CRUSH_ORE,
-            ids.crusher,
-            store,
-        )
-        .unwrap_or_else(|error| {
-            panic!("workshop {name} drive replenishment projection failed: {error}")
-        });
-        if mass > envelope.maximum_mass_with_replenished_energy() {
-            equipment_limited = true;
-            continue;
-        }
-        match manual_recovery_option(registries, state, ids, mass, name, store, envelope) {
+        match probe_manual_recovery_destination(registries, state, ids, mass, name, store) {
             Ok(Some(option)) => options.push(option),
             Ok(None) => {}
-            Err(ManualPowerError::Work(
-                PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
-                | PlayerWorkStartError::InsufficientHydration { .. },
-            )) => survival_limited = true,
-            Err(ManualPowerError::EnergySink(EnergySinkError::InsufficientCapacity { .. })) => {
-                storage_limited = true;
+            Err(constraint) => {
+                constraints.insert(constraint);
             }
-            Err(
-                ManualPowerError::ZeroEquipmentPower { .. }
-                | ManualPowerError::ConditionDuration(_),
-            ) => equipment_limited = true,
-            Err(error) => panic!("workshop manual-power recovery projection failed: {error}"),
         }
     }
 
+    let before_policy_filter = options.len();
+    if preference == EnergyRecoveryPreference::ProtectSurvival {
+        retain_survival_safe_recovery_options(registries, state, &mut options);
+    }
+    if before_policy_filter > 0 && options.is_empty() {
+        constraints.insert(ManualRecoveryConstraint::SurvivalPolicy);
+    }
+    let option = select_best_manual_recovery_option(registries, state, options);
+    ManualRecoveryProbe {
+        option,
+        constraints,
+    }
+}
+
+fn probe_manual_recovery_destination(
+    registries: &Registries,
+    state: &AppState,
+    ids: WorkshopIds,
+    mass: Mass,
+    name: &'static str,
+    store: EnergyStoreId,
+) -> Result<Option<ManualRecoveryOption>, ManualRecoveryConstraint> {
+    let envelope =
+        assess_powered_ore_mass_envelope(registries, state, PROCESS_CRUSH_ORE, ids.crusher, store)
+            .unwrap_or_else(|error| {
+                panic!("workshop {name} drive replenishment projection failed: {error}")
+            });
+    if mass > envelope.maximum_mass_with_replenished_energy() {
+        return Err(ManualRecoveryConstraint::EquipmentCondition);
+    }
+    manual_recovery_option(registries, state, ids, mass, name, store, envelope).map_err(|error| {
+        match error {
+            ManualPowerError::Work(
+                PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
+                | PlayerWorkStartError::InsufficientHydration { .. },
+            ) => ManualRecoveryConstraint::SurvivalReserve,
+            ManualPowerError::EnergySink(EnergySinkError::InsufficientCapacity { .. }) => {
+                ManualRecoveryConstraint::StorageCapacity
+            }
+            ManualPowerError::ZeroEquipmentPower { .. }
+            | ManualPowerError::ConditionDuration(_) => {
+                ManualRecoveryConstraint::EquipmentCondition
+            }
+            error @ (ManualPowerError::UnknownMethod { .. }
+            | ManualPowerError::Work(_)
+            | ManualPowerError::Equipment(_)
+            | ManualPowerError::EquipmentMounted { .. }
+            | ManualPowerError::EquipmentBusyProduction { .. }
+            | ManualPowerError::EquipmentBusyMining { .. }
+            | ManualPowerError::MissingPowerCapability { .. }
+            | ManualPowerError::PowerCapabilityKindMismatch { .. }
+            | ManualPowerError::EnergySink(_)
+            | ManualPowerError::WrongCarrier { .. }
+            | ManualPowerError::ZeroTransferPower { .. }
+            | ManualPowerError::PowerDuration { .. }
+            | ManualPowerError::MetabolicConversionTooSmall { .. }
+            | ManualPowerError::MetabolicDurationOverflow { .. }
+            | ManualPowerError::ExertionResolution { .. }
+            | ManualPowerError::EquipmentRevisionExhausted
+            | ManualPowerError::EnergyRevisionExhausted
+            | ManualPowerError::CompletionTickOverflow { .. }) => {
+                panic!("workshop manual-power recovery projection failed: {error}")
+            }
+        }
+    })
+}
+
+fn retain_survival_safe_recovery_options(
+    registries: &Registries,
+    state: &AppState,
+    options: &mut Vec<ManualRecoveryOption>,
+) {
     let survival = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("workshop survival state disappeared before manual recovery"));
     let physiology = registries.survival().physiology();
-    let before_policy_filter = options.len();
-    if preference == EnergyRecoveryPreference::ProtectSurvival {
-        options.retain(|option| {
-            let budget = option.start.resource_budget();
-            let energy_after = survival
-                .metabolic_energy()
-                .checked_sub(budget.metabolic_energy());
-            let hydration_after = survival.hydration().checked_sub(budget.hydration());
-            energy_after.is_some_and(|value| value >= physiology.hungry_below())
-                && hydration_after.is_some_and(|value| value >= physiology.thirsty_below())
-        });
-    }
-    let policy_declined = before_policy_filter > 0 && options.is_empty();
-    let option_key = |option: &ManualRecoveryOption| {
+    options.retain(|option| {
         let budget = option.start.resource_budget();
-        let duration = option
-            .start
-            .work()
-            .completes_at()
-            .checked_duration_since(option.start.work().started_at())
-            .unwrap_or_else(|| panic!("manual-recovery option completes before it starts"))
-            .value();
-        let output_power = state
-            .energy()
-            .get_store(option.store)
-            .and_then(|store| registries.energy().get_store(store.definition()))
-            .and_then(|definition| definition.max_output_power().whole_microwatts())
-            .unwrap_or_else(|| {
-                panic!(
-                    "manual-recovery {} drive lost its authored whole-microwatt output-power definition",
-                    option.name
-                )
-            });
-        (
-            budget.metabolic_energy(),
-            budget.hydration(),
-            duration,
-            std::cmp::Reverse(output_power),
-        )
-    };
-    let best_key = options.iter().map(&option_key).min();
-    let option = best_key.map(|best_key| {
-        let mut best = options
-            .into_iter()
-            .filter(|candidate| option_key(candidate) == best_key);
-        let selected = best
-            .next()
-            .unwrap_or_else(|| unreachable!("manual-recovery best key came from an option"));
-        assert!(
-            best.next().is_none(),
-            "manual recovery has multiple equally useful observable destinations; add an explicit player policy instead of using store identity or label"
-        );
-        selected
+        let energy_after = survival
+            .metabolic_energy()
+            .checked_sub(budget.metabolic_energy());
+        let hydration_after = survival.hydration().checked_sub(budget.hydration());
+        energy_after.is_some_and(|value| value >= physiology.hungry_below())
+            && hydration_after.is_some_and(|value| value >= physiology.thirsty_below())
     });
-    ManualRecoveryProbe {
-        option,
-        survival_limited,
-        policy_declined,
-        equipment_limited,
-        storage_limited,
+}
+
+fn manual_recovery_option_key(
+    registries: &Registries,
+    state: &AppState,
+    option: &ManualRecoveryOption,
+) -> (u128, u64, u64, std::cmp::Reverse<u128>) {
+    let budget = option.start.resource_budget();
+    let duration = option
+        .start
+        .work()
+        .completes_at()
+        .checked_duration_since(option.start.work().started_at())
+        .unwrap_or_else(|| panic!("manual-recovery option completes before it starts"))
+        .value();
+    let output_power = state
+        .energy()
+        .get_store(option.store)
+        .and_then(|store| registries.energy().get_store(store.definition()))
+        .and_then(|definition| definition.max_output_power().whole_microwatts())
+        .unwrap_or_else(|| {
+            panic!(
+                "manual-recovery {} drive lost its authored whole-microwatt output-power definition",
+                option.name
+            )
+        });
+    (
+        budget.metabolic_energy().nanojoules(),
+        budget.hydration().microliters(),
+        duration,
+        std::cmp::Reverse(output_power),
+    )
+}
+
+fn select_best_manual_recovery_option(
+    registries: &Registries,
+    state: &AppState,
+    options: Vec<ManualRecoveryOption>,
+) -> Option<ManualRecoveryOption> {
+    let best_key = options
+        .iter()
+        .map(|option| manual_recovery_option_key(registries, state, option))
+        .min()?;
+    let mut best = options
+        .into_iter()
+        .filter(|candidate| manual_recovery_option_key(registries, state, candidate) == best_key);
+    let selected = best
+        .next()
+        .unwrap_or_else(|| unreachable!("manual-recovery best key came from an option"));
+    assert!(
+        best.next().is_none(),
+        "manual recovery has multiple equally useful observable destinations; add an explicit player policy instead of using store identity or label"
+    );
+    Some(selected)
+}
+
+fn manual_recovery_failure(
+    desired: &ManualRecoveryProbe,
+    minimum: &ManualRecoveryProbe,
+) -> ManualRecoverySearch {
+    match desired
+        .constraints
+        .iter()
+        .chain(&minimum.constraints)
+        .min()
+        .copied()
+    {
+        Some(ManualRecoveryConstraint::SurvivalPolicy) => ManualRecoverySearch::DeclinedForSurvival,
+        Some(ManualRecoveryConstraint::SurvivalReserve) => ManualRecoverySearch::SurvivalLimited,
+        Some(ManualRecoveryConstraint::EquipmentCondition) => {
+            ManualRecoverySearch::EquipmentLimited
+        }
+        Some(ManualRecoveryConstraint::StorageCapacity) => ManualRecoverySearch::StorageLimited,
+        None => panic!(
+            "manual recovery search found no viable option without a classified physical or policy constraint"
+        ),
     }
 }
 
@@ -302,6 +378,10 @@ pub(super) fn largest_manual_recovery(
     desired: Mass,
     preference: EnergyRecoveryPreference,
 ) -> ManualRecoverySearch {
+    assert!(
+        desired >= MINIMUM_SELECTABLE_MASS,
+        "manual recovery planning requires a nonzero selectable crushing mass"
+    );
     let desired_probe = probe_manual_recovery_option(registries, state, ids, desired, preference);
     if let Some(option) = desired_probe.option {
         return ManualRecoverySearch::Available {
@@ -311,19 +391,9 @@ pub(super) fn largest_manual_recovery(
         };
     }
 
-    let adaptive_constraint = if desired_probe.policy_declined {
-        Some(ManualRecoveryConstraint::SurvivalPolicy)
-    } else if desired_probe.survival_limited {
-        Some(ManualRecoveryConstraint::SurvivalReserve)
-    } else if desired_probe.equipment_limited {
-        Some(ManualRecoveryConstraint::EquipmentCondition)
-    } else if desired_probe.storage_limited {
-        Some(ManualRecoveryConstraint::StorageCapacity)
-    } else {
-        None
-    };
+    let adaptive_constraint = desired_probe.primary_constraint();
 
-    let mut low = 1_u64;
+    let mut low = MINIMUM_SELECTABLE_MASS.milligrams();
     let mut high = desired.milligrams().saturating_sub(1);
     let mut best = None;
     while low <= high {
@@ -345,24 +415,7 @@ pub(super) fn largest_manual_recovery(
         };
     }
 
-    let minimum_probe = probe_manual_recovery_option(
-        registries,
-        state,
-        ids,
-        production_minimum_batch_mass(registries, PROCESS_CRUSH_ORE),
-        preference,
-    );
-    if minimum_probe.policy_declined || desired_probe.policy_declined {
-        ManualRecoverySearch::DeclinedForSurvival
-    } else if minimum_probe.survival_limited || desired_probe.survival_limited {
-        ManualRecoverySearch::SurvivalLimited
-    } else if minimum_probe.equipment_limited || desired_probe.equipment_limited {
-        ManualRecoverySearch::EquipmentLimited
-    } else if minimum_probe.storage_limited || desired_probe.storage_limited {
-        ManualRecoverySearch::StorageLimited
-    } else {
-        panic!(
-            "manual recovery search found no viable option without a classified physical or policy constraint"
-        )
-    }
+    let minimum_probe =
+        probe_manual_recovery_option(registries, state, ids, MINIMUM_SELECTABLE_MASS, preference);
+    manual_recovery_failure(&desired_probe, &minimum_probe)
 }

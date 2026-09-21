@@ -124,6 +124,9 @@ fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u
 #[path = "consumption_tests/death_attention.rs"]
 mod death_attention;
 
+#[path = "consumption_tests/drink_projection.rs"]
+mod drink_projection;
+
 fn start_attention_owning_craft(registries: &Registries, state: &mut AppState) -> PlayerWork {
     let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("attention craft source fixture failed: {error}"));

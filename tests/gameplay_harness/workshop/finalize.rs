@@ -113,8 +113,7 @@ pub(super) fn finalize_scenario(
             );
         }
         report.progress.ore_frontier_visible = crushed_lots.iter().all(|lot| {
-            let minimum_probe_mass = production_minimum_batch_mass(registries, PROCESS_CRUSH_ORE);
-            let mixed_selection = [MaterialLotSelection::new(*lot, minimum_probe_mass)];
+            let mixed_selection = [MaterialLotSelection::new(*lot, MINIMUM_SELECTABLE_MASS)];
             matches!(
                 resolve_melting_process(
                     registries,

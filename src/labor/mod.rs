@@ -6,6 +6,7 @@ mod lifecycle;
 mod power_execution;
 mod power_physics;
 mod power_projection;
+mod prospecting_projection;
 mod state;
 mod validation;
 mod work;
@@ -22,6 +23,9 @@ pub use power_execution::{
 };
 pub use power_projection::{
     ManualPowerProjection, ManualPowerProjectionError, project_manual_power,
+};
+pub use prospecting_projection::{
+    ProspectingWorkProjection, ProspectingWorkProjectionError, project_prospecting_work,
 };
 pub use state::PlayerWorkState;
 pub use validation::PlayerWorkValidationError;
