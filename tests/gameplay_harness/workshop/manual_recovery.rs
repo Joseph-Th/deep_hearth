@@ -1,6 +1,7 @@
 //! Manual-energy recovery planning and execution for the workshop actor.
 
 use super::*;
+use deep_hearth::labor::PlayerWorkStartError;
 
 struct ManualRecoveryProbe {
     option: Option<ManualRecoveryOption>,
