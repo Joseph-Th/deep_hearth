@@ -48,7 +48,7 @@ impl From<FoodFreshnessError> for FoodFreshnessProjectionError {
     }
 }
 
-fn freshness_from_history(
+pub(crate) fn freshness_from_history(
     history: MaterialStorageHistory,
     preservation_multiplier_ppm: u32,
     at: SimulationTick,

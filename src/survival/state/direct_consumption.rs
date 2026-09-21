@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::{AggregateMass, AggregateVolume, Mass, Temperature, Volume};
 use crate::core::time::SimulationTick;
 use crate::fluid::FluidDefinitionId;
-use crate::inventory::{ConsumedMaterialTrace, checked_consumed_material_mass};
+use crate::inventory::{ConsumedMaterialTrace, MaterialStorageHistory, StockpileId};
 use crate::material::MaterialId;
 
 /// Cumulative terminal-consumption total immediately before one pending meal crossed custody.
@@ -42,9 +42,41 @@ impl PendingConsumedMatterBaseline {
 /// Exact food matter already removed from inventory while the player is still consuming it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct PendingConsumedFoodTrace {
+    trace: ConsumedMaterialTrace,
+    storage_history: MaterialStorageHistory,
+}
+
+impl PendingConsumedFoodTrace {
+    #[must_use]
+    pub(crate) const fn new(
+        trace: ConsumedMaterialTrace,
+        storage_history: MaterialStorageHistory,
+    ) -> Self {
+        Self {
+            trace,
+            storage_history,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn trace(&self) -> &ConsumedMaterialTrace {
+        &self.trace
+    }
+
+    #[must_use]
+    pub(crate) const fn storage_history(&self) -> MaterialStorageHistory {
+        self.storage_history
+    }
+}
+
+/// Exact food matter and admission-time storage evidence retained while intake is in progress.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PendingEating {
-    consumed: Vec<ConsumedMaterialTrace>,
+    consumed: Vec<PendingConsumedFoodTrace>,
     consumed_before: Vec<PendingConsumedMatterBaseline>,
+    source: StockpileId,
     started_at: SimulationTick,
     completes_at: SimulationTick,
 }
@@ -52,22 +84,29 @@ pub(crate) struct PendingEating {
 impl PendingEating {
     #[must_use]
     pub(crate) fn new(
-        consumed: Vec<ConsumedMaterialTrace>,
+        consumed: Vec<PendingConsumedFoodTrace>,
         consumed_before: Vec<PendingConsumedMatterBaseline>,
+        source: StockpileId,
         started_at: SimulationTick,
         completes_at: SimulationTick,
     ) -> Self {
         Self {
             consumed,
             consumed_before,
+            source,
             started_at,
             completes_at,
         }
     }
 
     #[must_use]
-    pub(crate) fn consumed(&self) -> &[ConsumedMaterialTrace] {
+    pub(crate) fn consumed(&self) -> &[PendingConsumedFoodTrace] {
         &self.consumed
+    }
+
+    #[must_use]
+    pub(crate) fn consumed_traces(&self) -> impl ExactSizeIterator<Item = &ConsumedMaterialTrace> {
+        self.consumed.iter().map(PendingConsumedFoodTrace::trace)
     }
 
     #[must_use]
@@ -77,7 +116,16 @@ impl PendingEating {
 
     #[must_use]
     pub(crate) fn total_mass(&self) -> Option<Mass> {
-        checked_consumed_material_mass(&self.consumed)
+        self.consumed
+            .iter()
+            .try_fold(Mass::ZERO, |total, consumed| {
+                total.checked_add(consumed.trace().mass())
+            })
+    }
+
+    #[must_use]
+    pub(crate) const fn source(&self) -> StockpileId {
+        self.source
     }
 
     #[must_use]

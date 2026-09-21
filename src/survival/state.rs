@@ -14,8 +14,8 @@ mod direct_consumption;
 mod player;
 
 pub(crate) use direct_consumption::{
-    DirectConsumptionState, PendingConsumedMatterBaseline, PendingDirectConsumption,
-    PendingDrinking, PendingEating,
+    DirectConsumptionState, PendingConsumedFoodTrace, PendingConsumedMatterBaseline,
+    PendingDirectConsumption, PendingDrinking, PendingEating,
 };
 pub(crate) use player::player_record;
 pub use player::{NutritionReserves, PlayerSurvivalRecord, Vitality};

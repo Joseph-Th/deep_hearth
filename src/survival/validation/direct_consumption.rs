@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::core::quantity::{AggregateMass, AggregateVolume};
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::fluid::FluidRegistry;
-use crate::inventory::ConsumedMaterialTrace;
+use crate::inventory::{ConsumedMaterialTrace, InventoryState};
 use crate::material::{
     MaterialId, MaterialRegistry, validate_material_particle_size_state,
     validate_material_phase_state,
@@ -13,7 +13,9 @@ use crate::material::{
 
 use super::SurvivalValidationError;
 use crate::survival::state::{PendingDirectConsumption, PendingDrinking, PendingEating};
-use crate::survival::{SurvivalRegistry, SurvivalState, Vitality};
+use crate::survival::{
+    FoodFreshness, SurvivalRegistry, SurvivalState, Vitality, consumption::freshness_from_history,
+};
 
 fn validate_pending_schedule(
     pending: &PendingDirectConsumption,
@@ -95,6 +97,37 @@ fn validate_pending_food_trace(
     Ok(commodity.material())
 }
 
+fn validate_pending_food_freshness(
+    registry: &SurvivalRegistry,
+    inventory: &InventoryState,
+    pending: &PendingEating,
+) -> Result<(), SurvivalValidationError> {
+    let source = inventory.get_stockpile(pending.source()).ok_or(
+        SurvivalValidationError::PendingEatingSourceMissing {
+            stockpile: pending.source(),
+        },
+    )?;
+    let preservation_multiplier_ppm = source.storage_profile().preservation_multiplier_ppm();
+    for consumed in pending.consumed() {
+        let trace = consumed.trace();
+        let food = registry
+            .get_food(trace.profile().commodity())
+            .ok_or(SurvivalValidationError::PendingEatingTraceInvalid)?;
+        match freshness_from_history(
+            consumed.storage_history(),
+            preservation_multiplier_ppm,
+            pending.started_at(),
+            food.shelf_life(),
+        ) {
+            Ok(FoodFreshness::Fresh { .. }) => {}
+            Ok(FoodFreshness::Spoiled { .. }) | Err(_) => {
+                return Err(SurvivalValidationError::PendingEatingFreshnessInvalid);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn add_pending_material_mass(
     pending_by_material: &mut BTreeMap<MaterialId, AggregateMass>,
     material: MaterialId,
@@ -151,6 +184,7 @@ fn validate_pending_material_accounting(
 fn validate_pending_eating(
     registry: &SurvivalRegistry,
     materials: &MaterialRegistry,
+    inventory: &InventoryState,
     state: &SurvivalState,
     pending: &PendingEating,
     duration: TickSpan,
@@ -161,10 +195,12 @@ fn validate_pending_eating(
     validate_pending_meal_envelope(registry, pending, duration)?;
 
     let mut pending_by_material = BTreeMap::<MaterialId, AggregateMass>::new();
-    for trace in pending.consumed() {
+    for consumed in pending.consumed() {
+        let trace = consumed.trace();
         let material = validate_pending_food_trace(registry, materials, pending, trace)?;
         add_pending_material_mass(&mut pending_by_material, material, trace)?;
     }
+    validate_pending_food_freshness(registry, inventory, pending)?;
     validate_pending_material_accounting(state, pending, pending_by_material)
 }
 
@@ -208,6 +244,7 @@ pub(super) fn validate_pending_consumption(
     registry: &SurvivalRegistry,
     materials: &MaterialRegistry,
     fluids: &FluidRegistry,
+    inventory: &InventoryState,
     state: &SurvivalState,
     current: SimulationTick,
 ) -> Result<(), SurvivalValidationError> {
@@ -223,7 +260,7 @@ pub(super) fn validate_pending_consumption(
     let duration = validate_pending_schedule(pending, current)?;
     match pending {
         PendingDirectConsumption::Eating(pending) => {
-            validate_pending_eating(registry, materials, state, pending, duration)
+            validate_pending_eating(registry, materials, inventory, state, pending, duration)
         }
         PendingDirectConsumption::Drinking(pending) => {
             validate_pending_drinking(registry, fluids, state, *pending, duration)

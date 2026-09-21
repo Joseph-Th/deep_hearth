@@ -10,6 +10,7 @@ pub use eating::{
     EatCommitError, EatError, EatOutcome, EatPortionOutcome, NutritionGain, ValidatedEat,
     validate_eat,
 };
+pub(crate) use freshness::freshness_from_history;
 pub use freshness::{
     FoodFreshness, FoodFreshnessError, FoodFreshnessProjectionError, assess_food_freshness,
     project_food_freshness_after_storage_transition,

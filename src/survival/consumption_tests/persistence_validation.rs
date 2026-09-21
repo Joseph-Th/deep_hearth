@@ -7,6 +7,127 @@ fn decode_tampered(encoded: serde_json::Value, context: &str) -> LoadedSaveEnvel
         .unwrap_or_else(|error| panic!("{context} tampered save failed to decode: {error}"))
 }
 
+fn eating_state(registries: &Registries, seed: u64, mass: Mass) -> AppState {
+    let mut state = AppState::new(WorldSeed::new(seed));
+    initialize_and_spend_reserves(registries, &mut state);
+    let stockpile = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("pending-meal stockpile failed: {error}"));
+    let food = deposit_lot_for_test(
+        registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("pending-meal food failed: {error}"));
+    let _ = validate_eat(
+        registries,
+        &state,
+        stockpile,
+        &[MaterialLotSelection::new(food, mass)],
+    )
+    .unwrap_or_else(|error| panic!("pending-meal validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("pending-meal commit failed: {error}"));
+    state
+}
+
+#[test]
+fn trusted_load_rejects_pending_meal_with_forged_spoiled_storage_history() {
+    let registries = build_registries();
+    let state = eating_state(&registries, 0x5A70_0040, Mass::from_milligrams(2));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("pending freshness serialization failed: {error}"));
+    let shelf_life = registries
+        .survival()
+        .get_food(CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD))
+        .unwrap_or_else(|| panic!("grain food definition disappeared"))
+        .shelf_life();
+    encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Eating"]["consumed"]
+        [0]["storage_history"]["ambient_age_parts"] = serde_json::json!(
+        u128::from(shelf_life.value()) * crate::inventory::STORAGE_AGE_PARTS_PER_TICK
+    );
+
+    assert_eq!(
+        decode_tampered(encoded, "pending-spoiled-freshness").into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::PendingEatingFreshnessInvalid
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_pending_meal_with_missing_source_stockpile() {
+    let registries = build_registries();
+    let state = eating_state(&registries, 0x5A70_0041, Mass::from_milligrams(2));
+    let missing = crate::inventory::StockpileId::new(u32::MAX);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("pending source serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Eating"]["source"] =
+        serde_json::json!(missing.value());
+
+    assert_eq!(
+        decode_tampered(encoded, "pending-missing-source").into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::PendingEatingSourceMissing { stockpile: missing }
+        )))
+    );
+}
+
+#[test]
+fn aged_fresh_pending_meal_round_trips_with_admission_history_intact() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0042));
+    initialize_and_spend_reserves(&registries, &mut state);
+    let mass = Mass::from_milligrams(2);
+    let stockpile = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("aged pending-meal stockpile failed: {error}"));
+    let food = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("aged pending-meal food failed: {error}"));
+    let shelf_life = registries
+        .survival()
+        .get_food(CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD))
+        .unwrap_or_else(|| panic!("grain food definition disappeared"))
+        .shelf_life();
+    let age = TickSpan::new((shelf_life.value() / 2).max(1));
+    let aged_at = state
+        .tick()
+        .checked_add_span(age)
+        .unwrap_or_else(|| panic!("aged pending-meal clock overflowed"));
+    apply_clock_advance(&mut state, aged_at);
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, food),
+        Ok(FoodFreshness::Fresh { age: actual, .. }) if actual == age
+    ));
+    let _ = validate_eat(
+        &registries,
+        &state,
+        stockpile,
+        &[MaterialLotSelection::new(food, mass)],
+    )
+    .unwrap_or_else(|error| panic!("aged pending-meal validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("aged pending-meal commit failed: {error}"));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("aged pending-meal serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("aged pending-meal decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("aged pending-meal trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+}
+
 fn drinking_state(registries: &Registries, seed: u64, volume: Volume) -> AppState {
     let mut state = AppState::new(WorldSeed::new(seed));
     initialize_and_spend_reserves(registries, &mut state);

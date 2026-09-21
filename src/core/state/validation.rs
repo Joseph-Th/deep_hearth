@@ -108,6 +108,7 @@ pub fn validate_loaded_state(
         registries.survival(),
         registries.materials(),
         registries.fluid(),
+        &state.systems.inventory,
         &state.systems.survival,
         state.tick(),
     )

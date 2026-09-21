@@ -2,6 +2,7 @@
 
 use crate::core::time::SimulationTick;
 use crate::fluid::FluidRegistry;
+use crate::inventory::InventoryState;
 use crate::material::MaterialRegistry;
 
 use super::state::PlayerSurvivalRecord;
@@ -91,6 +92,7 @@ pub(crate) fn validate_loaded_survival(
     registry: &SurvivalRegistry,
     materials: &MaterialRegistry,
     fluids: &FluidRegistry,
+    inventory: &InventoryState,
     state: &SurvivalState,
     current: SimulationTick,
 ) -> Result<(), SurvivalValidationError> {
@@ -98,13 +100,13 @@ pub(crate) fn validate_loaded_survival(
         if state.consumed_matter().next().is_some() || state.consumed_fluids().next().is_some() {
             return Err(SurvivalValidationError::ConsumedMatterWithoutPlayer);
         }
-        validate_pending_consumption(registry, materials, fluids, state, current)?;
+        validate_pending_consumption(registry, materials, fluids, inventory, state, current)?;
         return Ok(());
     };
     validate_player_reserves(registry, player)?;
     validate_consumed_matter(registry, materials, state)?;
     validate_consumed_fluids(registry, fluids, state)?;
-    validate_pending_consumption(registry, materials, fluids, state, current)
+    validate_pending_consumption(registry, materials, fluids, inventory, state, current)
 }
 
 #[cfg(test)]

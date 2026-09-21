@@ -9,8 +9,8 @@ use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::inventory::{
-    ExplicitConsumptionSelectionError, MaterialEgressError, MaterialLotId, MaterialLotSelection,
-    StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
+    ConsumptionSelection, ExplicitConsumptionSelectionError, MaterialEgressError, MaterialLotId,
+    MaterialLotSelection, StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
     ValidatedStockpileStructuralLoad, apply_material_egress,
     validate_explicit_consumption_selection, validate_material_egress_from_selection,
     validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
@@ -23,7 +23,7 @@ use crate::material::MaterialId;
 use crate::registry::Registries;
 
 use super::super::FoodCategory;
-use super::super::state::{PendingConsumedMatterBaseline, PendingEating};
+use super::super::state::{PendingConsumedFoodTrace, PendingConsumedMatterBaseline, PendingEating};
 pub use errors::{EatCommitError, EatError};
 use resolution::{meal_absorption_offer, resolve_meal_offer};
 
@@ -195,6 +195,47 @@ fn resolve_consumed_mass_accounting(
     Ok(ConsumedMassAccounting { baselines, totals })
 }
 
+fn capture_pending_food_traces(
+    state: &AppState,
+    source: StockpileId,
+    selection: &ConsumptionSelection,
+) -> Vec<PendingConsumedFoodTrace> {
+    let source_preservation = state
+        .inventory()
+        .get_stockpile(source)
+        .unwrap_or_else(|| {
+            unreachable!("validated explicit selection requires its source stockpile")
+        })
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    selection
+        .consumed_inputs()
+        .iter()
+        .cloned()
+        .zip(selection.lot_selections())
+        .map(|(trace, selected)| {
+            let lot = state
+                .inventory()
+                .get_lot(selected.lot())
+                .unwrap_or_else(|| {
+                    unreachable!("validated explicit selection requires every selected lot")
+                });
+            assert_eq!(
+                trace.mass(),
+                selected.mass(),
+                "validated food trace mass must match its selected lot slice"
+            );
+            assert!(
+                lot.storage_history()
+                    .project(state.tick(), source_preservation)
+                    .is_some(),
+                "validated edible lot must carry projectable storage history"
+            );
+            PendingConsumedFoodTrace::new(trace, lot.storage_history())
+        })
+        .collect()
+}
+
 pub fn validate_eat(
     registries: &Registries,
     state: &AppState,
@@ -209,6 +250,7 @@ pub fn validate_eat(
     let exact_selection =
         validate_explicit_consumption_selection(state.inventory(), source, selections)
             .map_err(map_eat_selection_error)?;
+    let pending_consumed = capture_pending_food_traces(state, source, &exact_selection);
     let physiology = registries.survival().physiology();
     let player = state
         .survival()
@@ -281,8 +323,9 @@ pub fn validate_eat(
     let absorption_offer = meal_absorption_offer(&offer, physiology.maximum_metabolic_energy())?;
     let consumed_accounting = resolve_consumed_mass_accounting(state, offer.consumed_additions)?;
     let pending = PendingEating::new(
-        egress.consumed_inputs().to_vec(),
+        pending_consumed,
         consumed_accounting.baselines,
+        source,
         state.tick(),
         completes_at,
     );

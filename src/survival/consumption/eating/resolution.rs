@@ -114,9 +114,9 @@ fn accumulate_offer_energy(
     Ok(())
 }
 
-pub(crate) fn trace_absorption_offer(
+pub(crate) fn trace_absorption_offer<'a>(
     registries: &Registries,
-    traces: &[ConsumedMaterialTrace],
+    traces: impl ExactSizeIterator<Item = &'a ConsumedMaterialTrace>,
 ) -> EatingAbsorptionOffer {
     let mut offered_energy_nj = 0_u128;
     let mut category_energy = NutritionEnergy::default();

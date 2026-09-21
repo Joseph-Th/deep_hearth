@@ -96,7 +96,7 @@ pub(crate) fn direct_consumption_installment(
     let (before, after, duration, completes) = elapsed_interval(pending, current, next);
     match pending {
         PendingDirectConsumption::Eating(pending) => {
-            let offer = trace_absorption_offer(registries, pending.consumed());
+            let offer = trace_absorption_offer(registries, pending.consumed_traces());
             let energy = Energy::from_nanojoules(installment_share(
                 offer.energy().nanojoules(),
                 before,

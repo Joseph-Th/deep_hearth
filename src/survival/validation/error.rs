@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::fluid::FluidDefinitionId;
+use crate::inventory::StockpileId;
 use crate::material::MaterialId;
 use crate::survival::{FoodCategory, NUTRITION_PARTS_PER_MILLION};
 
@@ -27,6 +28,8 @@ pub enum SurvivalValidationError {
     PendingEatingMassOverflow,
     PendingEatingMassExceedsIntakeLimit,
     PendingEatingTraceInvalid,
+    PendingEatingSourceMissing { stockpile: StockpileId },
+    PendingEatingFreshnessInvalid,
     PendingEatingAccountingMismatch { material: MaterialId },
     PendingDrinkingVolumeInvalid,
     PendingDrinkingUnknownFluid { fluid: FluidDefinitionId },
@@ -103,6 +106,14 @@ impl Display for SurvivalValidationError {
             Self::PendingEatingTraceInvalid => {
                 formatter.write_str("pending eating contains an invalid consumed food trace")
             }
+            Self::PendingEatingSourceMissing { stockpile } => write!(
+                formatter,
+                "pending eating references missing source stockpile {}",
+                stockpile.value()
+            ),
+            Self::PendingEatingFreshnessInvalid => formatter.write_str(
+                "pending eating cannot prove that every consumed food lot was fresh at admission",
+            ),
             Self::PendingEatingAccountingMismatch { material } => write!(
                 formatter,
                 "pending eating material {} does not reconcile its pre-intake baseline with survival consumed-matter accounting",
