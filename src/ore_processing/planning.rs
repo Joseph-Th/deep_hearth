@@ -18,7 +18,7 @@ use crate::maintenance::{
     Condition, maximum_active_ticks_above_condition_floor, maximum_usable_active_ticks,
 };
 use crate::production::ProcessId;
-use crate::registry::Registries;
+use crate::registry::{ProcessExecutionFamily, Registries};
 
 use super::PoweredOreProcessProfile;
 use super::powered_physics::{PoweredOreEquipmentError, resolve_powered_ore_equipment_limits};
@@ -268,7 +268,8 @@ pub fn assess_powered_ore_mass_envelope(
     }
 
     let specific_energy = profile.specific_energy();
-    let stored_energy_capacity = mass_capacity_from_energy(energy.available(), specific_energy);
+    let stored_energy_capacity =
+        calculate_mass_specific_energy_capacity(energy.available(), specific_energy);
     let condition_ticks = maximum_usable_active_ticks(
         profile.condition_wear_ppm_per_active_tick(),
         provider.condition(),
@@ -306,20 +307,51 @@ fn powered_profile(
     registries: &Registries,
     process: ProcessId,
 ) -> Option<PoweredOreProcessProfile> {
-    if let Some(definition) = registries.ore_processing().get_comminution(process) {
-        return Some(definition.operating_profile());
+    let topology = registries.process_topology(process)?;
+    match topology.execution_family() {
+        ProcessExecutionFamily::Comminution => Some(
+            registries
+                .ore_processing()
+                .get_comminution(process)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "comminution topology references missing ore process {}",
+                        process.value()
+                    )
+                })
+                .operating_profile(),
+        ),
+        ProcessExecutionFamily::Screening => Some(
+            registries
+                .ore_processing()
+                .get_screening(process)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "screening topology references missing ore process {}",
+                        process.value()
+                    )
+                })
+                .operating_profile(),
+        ),
+        ProcessExecutionFamily::ConstituentSeparation => Some(
+            registries
+                .ore_processing()
+                .get_constituent_separation(process)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "constituent-separation topology references missing ore process {}",
+                        process.value()
+                    )
+                })
+                .operating_profile(),
+        ),
+        ProcessExecutionFamily::ManualCraft
+        | ProcessExecutionFamily::ManualComminution
+        | ProcessExecutionFamily::ManualSeparation
+        | ProcessExecutionFamily::SensibleHeating
+        | ProcessExecutionFamily::Melting
+        | ProcessExecutionFamily::Casting => None,
     }
-    if let Some(definition) = registries.ore_processing().get_screening(process) {
-        return Some(definition.operating_profile());
-    }
-    registries
-        .ore_processing()
-        .get_constituent_separation(process)
-        .map(|definition| definition.operating_profile())
-}
-
-fn mass_capacity_from_energy(energy: Energy, specific: MassSpecificEnergy) -> Mass {
-    calculate_mass_specific_energy_capacity(energy, specific)
 }
 
 fn mass_capacity_from_integrated_power(
@@ -332,7 +364,7 @@ fn mass_capacity_from_integrated_power(
         return Mass::ZERO;
     }
     let integrated = integrate_power_or_saturate(power, ticks, physical_tick_duration);
-    mass_capacity_from_energy(integrated, specific)
+    calculate_mass_specific_energy_capacity(integrated, specific)
 }
 
 #[cfg(test)]

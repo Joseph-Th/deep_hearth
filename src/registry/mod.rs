@@ -247,19 +247,48 @@ impl Registries {
     /// persistence, and production can consume one canonical classification.
     #[must_use]
     pub(crate) fn manual_process_exertion(&self, process: ProcessId) -> Option<SurvivalExertion> {
-        self.crafting()
-            .get_manual(process)
-            .map(|definition| definition.exertion())
-            .or_else(|| {
+        let topology = self.process_topology(process)?;
+        match topology.execution_family() {
+            ProcessExecutionFamily::ManualCraft => Some(
+                self.crafting()
+                    .get_manual(process)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "manual-craft topology references missing crafting process {}",
+                            process.value()
+                        )
+                    })
+                    .exertion(),
+            ),
+            ProcessExecutionFamily::ManualComminution => Some(
                 self.ore_processing()
                     .get_manual_comminution(process)
-                    .map(|definition| definition.exertion())
-            })
-            .or_else(|| {
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "manual-comminution topology references missing ore process {}",
+                            process.value()
+                        )
+                    })
+                    .exertion(),
+            ),
+            ProcessExecutionFamily::ManualSeparation => Some(
                 self.ore_processing()
                     .get_manual_constituent_separation(process)
-                    .map(|definition| definition.exertion())
-            })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "manual-separation topology references missing ore process {}",
+                            process.value()
+                        )
+                    })
+                    .exertion(),
+            ),
+            ProcessExecutionFamily::Comminution
+            | ProcessExecutionFamily::Screening
+            | ProcessExecutionFamily::ConstituentSeparation
+            | ProcessExecutionFamily::SensibleHeating
+            | ProcessExecutionFamily::Melting
+            | ProcessExecutionFamily::Casting => None,
+        }
     }
 
     /// Returns immutable palette, texture, and block/object appearance definitions.

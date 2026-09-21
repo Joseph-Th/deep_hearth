@@ -6,7 +6,9 @@ use crate::capability::{
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_CRUSHED, FORM_INGOT, FORM_ORE, MATERIAL_COPPER, make_test_registries_with_comminution,
+    FORM_CRUSHED, FORM_INGOT, FORM_ORE, MATERIAL_COPPER, PROCESS_CRUSH_ORE,
+    PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    build_registries, make_test_registries_with_comminution,
 };
 use crate::core::quantity::{Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
@@ -237,6 +239,24 @@ fn resolve(
             fixture.store,
         ),
     )
+}
+
+#[test]
+fn powered_profile_dispatch_follows_canonical_process_topology() {
+    let registries = build_registries();
+
+    for process in [
+        PROCESS_CRUSH_ORE,
+        PROCESS_SCREEN_CRUSHED_ORE,
+        PROCESS_SEPARATE_NATIVE_COPPER,
+    ] {
+        assert!(
+            powered_profile(&registries, process).is_some(),
+            "powered ore process {} lost its planning profile",
+            process.value()
+        );
+    }
+    assert_eq!(powered_profile(&registries, PROCESS_MELT_PURE_COPPER), None);
 }
 
 #[test]

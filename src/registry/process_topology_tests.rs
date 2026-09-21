@@ -46,6 +46,29 @@ fn every_builtin_process_has_one_derived_execution_topology() {
 }
 
 #[test]
+fn manual_process_exertion_follows_the_canonical_execution_family() {
+    let registries = build_registries();
+
+    for process in registries.production().definitions() {
+        let topology = registries
+            .process_topology(process.id())
+            .unwrap_or_else(|| panic!("process {} lost its topology", process.id().value()));
+        let has_manual_exertion = registries.manual_process_exertion(process.id()).is_some();
+        assert_eq!(
+            has_manual_exertion,
+            matches!(
+                topology.execution_family(),
+                ProcessExecutionFamily::ManualCraft
+                    | ProcessExecutionFamily::ManualComminution
+                    | ProcessExecutionFamily::ManualSeparation
+            ),
+            "process {} manual-labor classification drifted from canonical topology",
+            process.id().value()
+        );
+    }
+}
+
+#[test]
 fn mining_providers_do_not_overlap_autonomous_production_or_manual_power_roles() {
     let registries = build_registries();
     let mining_providers = registries
