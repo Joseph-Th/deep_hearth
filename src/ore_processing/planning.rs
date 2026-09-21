@@ -136,6 +136,40 @@ impl PoweredOreMassEnvelope {
         self.maximum_mass_for_active_ticks(safe_ticks)
     }
 
+    /// Upper bound on cumulative mass that can be processed before reaching `floor` if this same
+    /// energy supply can be replenished between batches.
+    ///
+    /// Unlike the single-batch envelope, this intentionally excludes current finite charge and the
+    /// equipment's per-batch mass cap because neither limits cumulative work across repeated legal
+    /// batches. It retains the currently resolved throughput, output-power, wear, and physical tick
+    /// duration. Authored condition curves are validated to never improve as condition degrades, so
+    /// a remaining work order larger than this bound cannot finish above `floor` without maintenance.
+    /// A work order inside the bound is not guaranteed to finish there because later batches may
+    /// resolve lower capabilities; callers should reassess after each completed batch.
+    #[must_use]
+    pub fn cumulative_mass_preserving_condition_above_with_replenished_energy(
+        self,
+        floor: Condition,
+    ) -> Mass {
+        let safe_ticks = maximum_active_ticks_above_condition_floor(
+            self.wear_ppm_per_active_tick,
+            self.condition_before,
+            floor,
+        );
+        let throughput_capacity = calculate_mass_flow_capacity(
+            self.processing_rate,
+            safe_ticks,
+            self.physical_tick_duration,
+        );
+        let power_capacity = mass_capacity_from_integrated_power(
+            self.available_power,
+            safe_ticks,
+            self.physical_tick_duration,
+            self.specific_energy,
+        );
+        std::cmp::min(throughput_capacity, power_capacity)
+    }
+
     fn maximum_mass_for_active_ticks(self, ticks: TickSpan) -> Mass {
         let throughput_capacity =
             calculate_mass_flow_capacity(self.processing_rate, ticks, self.physical_tick_duration);

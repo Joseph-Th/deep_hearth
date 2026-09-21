@@ -389,6 +389,78 @@ fn caller_selected_condition_floor_has_an_exact_noncritical_mass_bound() {
 }
 
 #[test]
+fn cumulative_condition_horizon_ignores_batch_and_current_charge_limits() {
+    let config = PlanningConfig {
+        flow_mg_per_second: 1_000,
+        max_batch_mg: 10,
+        specific_nj_per_mg: 100,
+        wear_ppm_per_tick: 100_000,
+        condition_ppm: 600_000,
+        stored_nj: 100,
+        output_power: Power::from_microwatts(1_000_000),
+        store_carrier: EnergyCarrier::Mechanical,
+    };
+    let fixture = make_fixture(config);
+    let floor = condition(250_000);
+    let envelope = envelope(&fixture);
+    let safe_ticks = maximum_active_ticks_above_condition_floor(
+        config.wear_ppm_per_tick,
+        condition(config.condition_ppm),
+        floor,
+    );
+    let expected = calculate_mass_flow_capacity(
+        MassFlow::from_milligrams_per_second(config.flow_mg_per_second),
+        safe_ticks,
+        fixture.registries.core().physical_tick_duration(),
+    );
+    let cumulative =
+        envelope.cumulative_mass_preserving_condition_above_with_replenished_energy(floor);
+
+    assert_eq!(cumulative, expected);
+    assert!(cumulative > envelope.equipment_capacity());
+    assert!(cumulative > envelope.stored_energy_capacity());
+    assert_eq!(envelope.maximum_mass(), envelope.stored_energy_capacity());
+}
+
+#[test]
+fn cumulative_condition_horizon_retains_output_power_limit() {
+    let config = PlanningConfig {
+        flow_mg_per_second: 1_000_000,
+        max_batch_mg: 10,
+        specific_nj_per_mg: 1_000,
+        wear_ppm_per_tick: 100_000,
+        condition_ppm: 600_000,
+        stored_nj: 100,
+        output_power: Power::from_microwatts(1),
+        store_carrier: EnergyCarrier::Mechanical,
+    };
+    let fixture = make_fixture(config);
+    let floor = condition(250_000);
+    let safe_ticks = maximum_active_ticks_above_condition_floor(
+        config.wear_ppm_per_tick,
+        condition(config.condition_ppm),
+        floor,
+    );
+    let throughput_capacity = calculate_mass_flow_capacity(
+        MassFlow::from_milligrams_per_second(config.flow_mg_per_second),
+        safe_ticks,
+        fixture.registries.core().physical_tick_duration(),
+    );
+    let power_capacity = mass_capacity_from_integrated_power(
+        config.output_power,
+        safe_ticks,
+        fixture.registries.core().physical_tick_duration(),
+        MassSpecificEnergy::from_nanojoules_per_milligram(config.specific_nj_per_mg),
+    );
+    let cumulative = envelope(&fixture)
+        .cumulative_mass_preserving_condition_above_with_replenished_energy(floor);
+
+    assert!(!power_capacity.is_zero());
+    assert!(power_capacity < throughput_capacity);
+    assert_eq!(cumulative, power_capacity);
+}
+
+#[test]
 fn mass_envelope_does_not_overclaim_process_specific_feed_legality() {
     let mut fixture = make_fixture(PlanningConfig::default());
     let wrong_lot = deposit_composed_lot_for_test(

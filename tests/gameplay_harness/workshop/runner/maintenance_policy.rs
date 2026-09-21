@@ -122,9 +122,14 @@ pub(super) enum WarningDemandPlan {
     RecoverEnergy,
 }
 
-/// Compare only the next safe nominal-bounded batch with service now, then refresh next time.
-/// Even zero-time production after service cannot repay service longer than this batch.
-/// An energy blocker is not evidence for service: recharge or stop before reassessing warning wear.
+/// Decide whether warning-band work can finish before the crusher reaches the critical floor.
+///
+/// The horizon deliberately spans repeated legal batches and assumes the currently selected class
+/// of energy supply can be replenished. Current finite charge and per-batch capacity therefore do
+/// not manufacture a maintenance need. If even the optimistic current-rate horizon is shorter than
+/// the remaining order, preventive service is justified; otherwise execute one safe batch and
+/// reassess from the resulting observable condition. An energy blocker remains a recharge decision,
+/// not evidence for mechanical service.
 pub(super) fn warning_demand_plan(
     registries: &Registries,
     context: &BatchSelectionContext<'_>,
@@ -146,13 +151,37 @@ pub(super) fn warning_demand_plan(
         .target_mass
         .checked_sub(context.report.progress.processed_mass)
         .unwrap_or_else(|| panic!("workshop processed mass exceeded its work order"));
-    let profile = registries
-        .equipment()
-        .get_equipment(EQUIPMENT_JAW_CRUSHER)
-        .and_then(|definition| definition.maintenance_profile())
-        .unwrap_or_else(|| panic!("workshop maintenance profile disappeared"));
+    let condition_horizon = [context.ids.small_drive, context.ids.large_drive]
+        .into_iter()
+        .map(|store| {
+            assess_powered_ore_mass_envelope(
+                registries,
+                context.state,
+                PROCESS_CRUSH_ORE,
+                context.ids.crusher,
+                store,
+            )
+            .unwrap_or_else(|error| {
+                panic!("workshop warning condition-horizon projection failed: {error}")
+            })
+            .cumulative_mass_preserving_condition_above_with_replenished_energy(
+                context.thresholds.critical_below(),
+            )
+        })
+        .max()
+        .unwrap_or_else(|| unreachable!("workshop has two authored mechanical supplies"));
+    if remaining > condition_horizon {
+        println!(
+            "  maintenance frame: crusher={} condition={}ppm remaining={}mg scope=remaining-order condition-horizon={}mg choice=preventive-service; even optimistic replenished current-rate work reaches the critical floor before order completion",
+            context.ids.crusher.value(),
+            condition.parts_per_million(),
+            remaining.milligrams(),
+            condition_horizon.milligrams(),
+        );
+        return WarningDemandPlan::EvaluateMaintenance;
+    }
+
     let planned_mass = std::cmp::min(remaining, context.variation.ore.nominal_batch_mass);
-    let service_duration = profile.required_service_duration(condition);
     let plan = match largest_safe_powered_crush_batch(
         registries,
         context.state,
@@ -182,24 +211,14 @@ pub(super) fn warning_demand_plan(
         },
     );
     let duration = option.resolved.process_resolution().duration();
-    let defer = duration < service_duration;
     println!(
-        "  maintenance frame: remaining={}mg scope=next-batch planned={}mg executable={}mg duration={}t service-now=[material:{}mg duration:{}t] choice={} full-order-forecast=not-claimed",
+        "  maintenance frame: remaining={}mg scope=remaining-order condition-horizon={}mg next-batch=[planned:{}mg executable:{}mg duration:{}t] choice=defer-warning-order-fits-current-condition-horizon",
         remaining.milligrams(),
+        condition_horizon.milligrams(),
         planned_mass.milligrams(),
         plan.mass.milligrams(),
         duration.value(),
-        profile.required_replacement_mass(condition).milligrams(),
-        service_duration.value(),
-        if defer {
-            "defer-warning-reassess-next-batch"
-        } else {
-            "preventive-service"
-        },
     );
-    if !defer {
-        return WarningDemandPlan::EvaluateMaintenance;
-    }
     WarningDemandPlan::ExecuteBatch(Box::new(SelectedBatch {
         mass: plan.mass,
         option,

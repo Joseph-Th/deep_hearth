@@ -80,6 +80,50 @@ fn short_warning_order_defers_service_until_safe_completion() {
     assert!(report.resources.elapsed_ticks < service_duration_value);
 }
 
+#[test]
+fn warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon() {
+    use super::report::MaintenancePreference;
+    use deep_hearth::maintenance::MaintenanceBand;
+
+    let registries = build_registries();
+    let mut warning = scenario::ScenarioVariation::from_seeds(
+        &registries,
+        29,
+        1,
+        Some(MaintainedAnchor::ConditionPressure),
+    );
+    warning.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
+    let warning_report = workshop::runner::run_scenario(&registries, warning, None);
+
+    let mut critical_only = warning;
+    critical_only.policy.maintenance_preference = MaintenancePreference::ServiceAtCritical;
+    let critical_report = workshop::runner::run_scenario(&registries, critical_only, None);
+
+    assert_eq!(
+        warning_report.inputs.initial_maintenance_band,
+        MaintenanceBand::Warning
+    );
+    assert_eq!(
+        warning_report.progress.processed_mass,
+        warning.ore.order_mass
+    );
+    assert_eq!(
+        critical_report.progress.processed_mass,
+        warning.ore.order_mass
+    );
+    assert_eq!(warning_report.maintenance.services, 1);
+    assert_eq!(critical_report.maintenance.services, 1);
+    assert_eq!(
+        warning_report.progress.condition_adaptive_batch_operations, 0,
+        "preventive warning service must avoid condition-limited batch shrinking"
+    );
+    assert!(
+        critical_report.progress.condition_adaptive_batch_operations > 0,
+        "critical-only policy must expose the near-critical condition pressure before service"
+    );
+    assert!(warning_report.maintenance.replacement_spent > Mass::ZERO);
+}
+
 fn warning_workshop_with_one_stored_batch(
     registries: &deep_hearth::registry::Registries,
 ) -> scenario::ScenarioVariation {

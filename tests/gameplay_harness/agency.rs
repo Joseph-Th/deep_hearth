@@ -88,6 +88,7 @@ enum AgencyFocus {
     PowerAndStructure,
     SurvivalRecovery,
     MaintenanceTiming,
+    ShortOrderMaintenanceDeferral,
     OrganicVariation,
     OrganicPressureSearch,
 }
@@ -99,6 +100,7 @@ impl AgencyFocus {
             Self::PowerAndStructure => "power+structure",
             Self::SurvivalRecovery => "survival-recovery",
             Self::MaintenanceTiming => "maintenance-timing",
+            Self::ShortOrderMaintenanceDeferral => "maintenance-deferral",
             Self::OrganicVariation => "organic-unfiltered",
             Self::OrganicPressureSearch => "organic-pressure-qualified",
         }
@@ -294,403 +296,519 @@ fn classify_agency_evidence(
 }
 
 // Exploration budgets constrain evidence only; they never authorize or prohibit production.
+const ORGANIC_UNFILTERED_COUNT: usize = 3;
 const ORGANIC_SEARCH_LIMIT: usize = 24;
 const ORGANIC_QUALIFIED_TARGET: usize = 2;
 
-fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) -> Vec<u64> {
-    let policies = agency_probe_policies();
-    let mut worlds_with_distinct_paths = 0_usize;
-    let mut worlds_with_work_difference = 0_usize;
-    let mut observed_power_effect = false;
-    let mut observed_survival_effect = false;
-    let mut observed_maintenance_effect = false;
-    let mut observed_structure_effect = false;
-    let mut organic_worlds = 0_usize;
-    let mut organic_actionable_worlds = 0_usize;
-    let mut organic_objective_resolved_worlds = 0_usize;
-    let mut organic_terminal_worlds = 0_usize;
-    let mut organic_dormant_worlds = 0_usize;
-    let mut search_attempts = 0_usize;
-    let mut qualified_seeds = Vec::new();
-    for world in worlds {
-        if world.focus == AgencyFocus::OrganicPressureSearch {
-            if search_attempts == ORGANIC_SEARCH_LIMIT
-                || qualified_seeds.len() == ORGANIC_QUALIFIED_TARGET
-            {
-                continue;
-            }
-            search_attempts += 1;
-        }
-        #[cfg(not(test))]
-        let focus = world.focus.label();
-        let world_seed = world.world_seed;
-        let behavior_seed = mix64(world_seed ^ 0xA63E_4E43_5900_0001);
-        let mut preliminary_reports = Vec::with_capacity(policies.len());
-        for (variant, policy) in policies {
-            let mut variation =
-                ScenarioVariation::from_seeds(registries, world_seed, behavior_seed, world.anchor);
-            variation.policy = policy;
-            let report = run_scenario(registries, variation, None);
-            assert_eq!(
-                report.world_seed, world_seed,
-                "agency counterfactual must preserve the matched world seed"
-            );
-            assert_eq!(
-                report.behavior_seed, behavior_seed,
-                "agency counterfactual must preserve the matched behavior seed"
-            );
-            preliminary_reports.push((variant, report));
-        }
-        let comparison_horizon = preliminary_reports
-            .iter()
-            .map(|(_, report)| report.resources.episode_end_tick)
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        let matched_inputs = preliminary_reports
-            .first()
-            .map(|(_, report)| report.inputs)
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        assert!(
-            preliminary_reports
-                .iter()
-                .all(|(_, report)| report.inputs == matched_inputs),
-            "agency policy variants must preserve the same physical setup and controlled-event schedule"
-        );
+struct AgencyWorldEvaluation {
+    reports: Vec<(AgencyPolicyVariant, ScenarioReport)>,
+    signatures: usize,
+    processed_min: u64,
+    processed_max: u64,
+    power_effect: bool,
+    survival_effect: bool,
+    maintenance_effect: bool,
+    structure_effect: bool,
+}
 
-        let mut reports = Vec::with_capacity(policies.len());
-        for (variant, policy) in policies {
-            let mut variation =
-                ScenarioVariation::from_seeds(registries, world_seed, behavior_seed, world.anchor);
-            variation.policy = policy;
-            let report = run_scenario(registries, variation, Some(comparison_horizon));
-            assert_eq!(
-                report.inputs, matched_inputs,
-                "agency counterfactual rerun must preserve the matched physical setup"
-            );
-            assert_eq!(
-                report.resources.elapsed_ticks, comparison_horizon,
-                "agency counterfactual branches must use one policy-independent observation horizon"
-            );
-            reports.push((variant, report));
-        }
-        let initial_support_choice = reports
-            .first()
-            .map(|(_, report)| report.choices.chose_compact_support)
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        assert!(
-            reports
-                .iter()
-                .all(|(_, report)| report.choices.chose_compact_support == initial_support_choice),
-            "one-factor agency policies must not alter the policy-independent initial structural choice"
-        );
+impl AgencyWorldEvaluation {
+    const fn actionable(&self) -> bool {
+        self.power_effect
+            || self.survival_effect
+            || self.maintenance_effect
+            || self.structure_effect
+    }
+}
 
-        let processed_min = reports
-            .iter()
-            .map(|(_, report)| report.progress.processed_mass.milligrams())
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let episode_end_min = reports
-            .iter()
-            .map(|(_, report)| report.resources.episode_end_tick)
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let episode_end_max = reports
-            .iter()
-            .map(|(_, report)| report.resources.episode_end_tick)
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        let processed_max = reports
-            .iter()
-            .map(|(_, report)| report.progress.processed_mass.milligrams())
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let high_power_min = reports
-            .iter()
-            .map(|(_, report)| report.choices.large_drive_batches)
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let high_power_max = reports
-            .iter()
-            .map(|(_, report)| report.choices.large_drive_batches)
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let service_min = reports
-            .iter()
-            .map(|(_, report)| report.maintenance.services)
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let service_max = reports
-            .iter()
-            .map(|(_, report)| report.maintenance.services)
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let condition_min = reports
-            .iter()
-            .map(|(_, report)| report.resources.final_condition_ppm)
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let condition_max = reports
-            .iter()
-            .map(|(_, report)| report.resources.final_condition_ppm)
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let manual_min = reports
-            .iter()
-            .map(|(_, report)| report.choices.manual_recharges)
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let manual_max = reports
-            .iter()
-            .map(|(_, report)| report.choices.manual_recharges)
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let adaptive_min = reports
-            .iter()
-            .map(|(_, report)| report.progress.adaptive_batch_operations)
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let adaptive_max = reports
-            .iter()
-            .map(|(_, report)| report.progress.adaptive_batch_operations)
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let relocations = reports
-            .iter()
-            .filter(|(_, report)| report.structure.support_relocation)
-            .count();
-        #[cfg(not(test))]
-        let suspensions = reports
-            .iter()
-            .filter(|(_, report)| report.structure.production_suspension)
-            .count();
-        let elapsed_min = reports
-            .iter()
-            .map(|(_, report)| report.resources.elapsed_ticks)
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        let elapsed_max = reports
-            .iter()
-            .map(|(_, report)| report.resources.elapsed_ticks)
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        assert_eq!(elapsed_min, comparison_horizon);
-        assert_eq!(elapsed_max, comparison_horizon);
-        #[cfg(not(test))]
-        let survival_energy_min = reports
-            .iter()
-            .map(|(_, report)| report.resources.metabolic_energy_spent.nanojoules())
-            .min()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        #[cfg(not(test))]
-        let survival_energy_max = reports
-            .iter()
-            .map(|(_, report)| report.resources.metabolic_energy_spent.nanojoules())
-            .max()
-            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
-        let signatures = reports
-            .iter()
-            .map(|(_, report)| AgencyPathSignature::from_report(report))
-            .collect::<BTreeSet<_>>();
-        let baseline = agency_report(&reports, AgencyPolicyVariant::Baseline);
-        let finish_sooner = agency_report(&reports, AgencyPolicyVariant::FinishSooner);
-        let spend_survival = agency_report(&reports, AgencyPolicyVariant::SpendSurvival);
-        let delay_maintenance = agency_report(&reports, AgencyPolicyVariant::DelayMaintenance);
-        let failure_only_structure =
-            agency_report(&reports, AgencyPolicyVariant::FailureOnlyStructure);
-        let power_effect = power_counterfactual_changed(baseline, finish_sooner);
-        let survival_effect = survival_counterfactual_changed(baseline, spend_survival);
-        let maintenance_effect = maintenance_counterfactual_changed(baseline, delay_maintenance);
-        let structure_effect = structure_counterfactual_changed(baseline, failure_only_structure);
-        let actionable = power_effect || survival_effect || maintenance_effect || structure_effect;
-        if world.focus == AgencyFocus::OrganicPressureSearch {
-            if !actionable {
-                #[cfg(not(test))]
-                if has_verbose_output() {
-                    std::println!(
-                        "AGENCY SEARCH world=0x{world_seed:016X} qualification=unqualified evidence={}",
-                        classify_agency_evidence(&reports, false).label(),
-                    );
-                }
-                continue;
-            }
-            qualified_seeds.push(world_seed);
+#[derive(Default)]
+struct AgencyProbeSummary {
+    worlds_with_distinct_paths: usize,
+    worlds_with_work_difference: usize,
+    observed_power_effect: bool,
+    observed_survival_effect: bool,
+    observed_maintenance_effect: bool,
+    observed_structure_effect: bool,
+    demonstrated_short_order_maintenance_deferral: bool,
+    organic_worlds: usize,
+    organic_actionable_worlds: usize,
+    organic_objective_resolved_worlds: usize,
+    organic_terminal_worlds: usize,
+    organic_dormant_worlds: usize,
+    search_attempts: usize,
+    qualified_seeds: Vec<u64>,
+}
+
+impl AgencyProbeSummary {
+    fn admit(&mut self, world: AgencyWorld) -> bool {
+        if world.focus != AgencyFocus::OrganicPressureSearch {
+            return true;
         }
-        if signatures.len() > 1 {
-            worlds_with_distinct_paths += 1;
+        if self.search_attempts == ORGANIC_SEARCH_LIMIT
+            || self.qualified_seeds.len() == ORGANIC_QUALIFIED_TARGET
+        {
+            return false;
         }
-        if processed_min != processed_max {
-            worlds_with_work_difference += 1;
+        self.search_attempts += 1;
+        true
+    }
+
+    fn record_evaluation(&mut self, evaluation: &AgencyWorldEvaluation) {
+        self.worlds_with_distinct_paths += usize::from(evaluation.signatures > 1);
+        self.worlds_with_work_difference +=
+            usize::from(evaluation.processed_min != evaluation.processed_max);
+        self.observed_power_effect |= evaluation.power_effect;
+        self.observed_survival_effect |= evaluation.survival_effect;
+        self.observed_maintenance_effect |= evaluation.maintenance_effect;
+        self.observed_structure_effect |= evaluation.structure_effect;
+    }
+
+    fn record_organic_evidence(&mut self, focus: AgencyFocus, evidence: AgencyEvidence) {
+        if focus != AgencyFocus::OrganicVariation {
+            return;
         }
-        observed_power_effect |= power_effect;
-        observed_survival_effect |= survival_effect;
-        observed_maintenance_effect |= maintenance_effect;
-        observed_structure_effect |= structure_effect;
-        match world.focus {
-            AgencyFocus::PowerAndStructure => {
-                assert!(
-                    power_effect && structure_effect,
-                    "maintained power+structure agency world must make both one-factor choices consequential"
-                );
-            }
-            AgencyFocus::SurvivalRecovery => {
-                assert!(
-                    survival_effect
-                        && baseline.limits.manual_recovery_declined
-                        && spend_survival.progress.processed_mass
-                            > baseline.progress.processed_mass,
-                    "maintained survival-recovery agency world must trade protected reserves against additional useful work"
-                );
-            }
-            AgencyFocus::MaintenanceTiming => {
-                assert!(
-                    !maintenance_effect,
-                    "in this short world safe batches are shorter than authored service, so warning-deferral and critical-only policies must rationally agree"
-                );
-                assert_eq!(
-                    baseline.progress.processed_mass, baseline.progress.target_mass,
-                    "maintained maintenance-timing agency world must still complete its demand"
-                );
-                assert_eq!(
-                    baseline.maintenance.services, 0,
-                    "warning-deferral policy must not pay authored service during a short order"
-                );
-                assert!(
-                    baseline.maintenance.replacement_spent.is_zero(),
-                    "deferred warning service must preserve replacement stock"
-                );
-            }
-            AgencyFocus::OrganicVariation => {
-                organic_worlds += 1;
-            }
-            AgencyFocus::OrganicPressureSearch => {}
-        }
-        let evidence = classify_agency_evidence(&reports, actionable);
-        if world.focus == AgencyFocus::OrganicVariation {
-            match evidence {
-                AgencyEvidence::Actionable => organic_actionable_worlds += 1,
-                AgencyEvidence::ObjectiveResolved => organic_objective_resolved_worlds += 1,
-                AgencyEvidence::StructuralCapacity
-                | AgencyEvidence::MaintenanceSupply
-                | AgencyEvidence::MaintenanceSafety
-                | AgencyEvidence::ManualRecoveryDeclined
-                | AgencyEvidence::ManualRecoverySurvivalLimited
-                | AgencyEvidence::StoredWorkInsufficient => organic_terminal_worlds += 1,
-                AgencyEvidence::DormantPolicyPressure => organic_dormant_worlds += 1,
-            }
-        }
-        #[cfg(not(test))]
-        let evidence = evidence.label();
-        #[cfg(not(test))]
-        if has_verbose_output() {
-            std::println!(
-                "AGENCY focus={focus} world=0x{world_seed:016X} variants={} physical-paths={} evidence={evidence} horizon={}t actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} episode-end:{}..{}t survival-energy:{}..{}nJ]",
-                reports.len(),
-                signatures.len(),
-                comparison_horizon,
-                power_effect,
-                survival_effect,
-                maintenance_effect,
-                structure_effect,
-                processed_min,
-                processed_max,
-                adaptive_min,
-                adaptive_max,
-                high_power_min,
-                high_power_max,
-                manual_min,
-                manual_max,
-                service_min,
-                service_max,
-                condition_min,
-                condition_max,
-                relocations,
-                reports.len(),
-                suspensions,
-                reports.len(),
-                episode_end_min,
-                episode_end_max,
-                survival_energy_min,
-                survival_energy_max,
-            );
-            let policy_paths = reports
-                .iter()
-                .map(|(variant, report)| {
-                    let label = variant.label();
-                    format!(
-                        "{label}:ore{}/{}-ops{}-adapt{}-hi{}-manual{}-maint{}-reloc{}-susp{}-choices[p:{} f:{}]-episode{}-horizon{}-body{}-manualbody{}-c{}-lo{}-hi{}",
-                        report.progress.processed_mass.milligrams(),
-                        report.progress.target_mass.milligrams(),
-                        report.progress.operations_completed,
-                        report.progress.adaptive_batch_operations,
-                        report.choices.large_drive_batches,
-                        report.choices.manual_recharges,
-                        report.maintenance.services,
-                        u8::from(report.structure.support_relocation),
-                        u8::from(report.structure.production_suspension),
-                        report.choices.policy_power_choices,
-                        report.choices.single_source_power_choices,
-                        report.resources.episode_end_tick,
-                        report.resources.elapsed_ticks,
-                        report.resources.metabolic_energy_spent.nanojoules(),
-                        report.resources.manual_power_metabolic_energy.nanojoules(),
-                        report.resources.final_condition_ppm,
-                        report.resources.small_drive_remaining.nanojoules(),
-                        report.resources.large_drive_remaining.nanojoules(),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            std::println!(
-                "AGENCY PATHS focus={focus} world=0x{world_seed:016X} paths=[{policy_paths}]"
-            );
+        self.organic_worlds += 1;
+        match evidence {
+            AgencyEvidence::Actionable => self.organic_actionable_worlds += 1,
+            AgencyEvidence::ObjectiveResolved => self.organic_objective_resolved_worlds += 1,
+            AgencyEvidence::StructuralCapacity
+            | AgencyEvidence::MaintenanceSupply
+            | AgencyEvidence::MaintenanceSafety
+            | AgencyEvidence::ManualRecoveryDeclined
+            | AgencyEvidence::ManualRecoverySurvivalLimited
+            | AgencyEvidence::StoredWorkInsufficient => self.organic_terminal_worlds += 1,
+            AgencyEvidence::DormantPolicyPressure => self.organic_dormant_worlds += 1,
         }
     }
-    assert_eq!(
-        organic_actionable_worlds
-            + organic_objective_resolved_worlds
-            + organic_terminal_worlds
-            + organic_dormant_worlds,
-        organic_worlds,
-        "organic agency evidence classes must partition sampled worlds"
+
+    fn assert_partition(&self) {
+        assert_eq!(
+            self.organic_actionable_worlds
+                + self.organic_objective_resolved_worlds
+                + self.organic_terminal_worlds
+                + self.organic_dormant_worlds,
+            self.organic_worlds,
+            "organic agency evidence classes must partition sampled worlds"
+        );
+    }
+}
+
+fn run_policy_reports(
+    registries: &Registries,
+    world: AgencyWorld,
+    behavior_seed: u64,
+    observation_horizon: Option<u64>,
+) -> Vec<(AgencyPolicyVariant, ScenarioReport)> {
+    let policies = agency_probe_policies();
+    let mut reports = Vec::with_capacity(policies.len());
+    for (variant, policy) in policies {
+        let mut variation = ScenarioVariation::from_seeds(
+            registries,
+            world.world_seed,
+            behavior_seed,
+            world.anchor,
+        );
+        variation.policy = policy;
+        let report = run_scenario(registries, variation, observation_horizon);
+        assert_eq!(
+            report.world_seed, world.world_seed,
+            "agency counterfactual must preserve the matched world seed"
+        );
+        assert_eq!(
+            report.behavior_seed, behavior_seed,
+            "agency counterfactual must preserve the matched behavior seed"
+        );
+        if let Some(horizon) = observation_horizon {
+            assert_eq!(
+                report.resources.elapsed_ticks, horizon,
+                "agency counterfactual branches must use one policy-independent observation horizon"
+            );
+        }
+        reports.push((variant, report));
+    }
+    reports
+}
+
+fn evaluate_agency_world(registries: &Registries, world: AgencyWorld) -> AgencyWorldEvaluation {
+    let behavior_seed = mix64(world.world_seed ^ 0xA63E_4E43_5900_0001);
+    let preliminary_reports = run_policy_reports(registries, world, behavior_seed, None);
+    let comparison_horizon = preliminary_reports
+        .iter()
+        .map(|(_, report)| report.resources.episode_end_tick)
+        .max()
+        .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+    let matched_inputs = preliminary_reports
+        .first()
+        .map(|(_, report)| report.inputs)
+        .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+    assert!(
+        preliminary_reports
+            .iter()
+            .all(|(_, report)| report.inputs == matched_inputs),
+        "agency policy variants must preserve the same physical setup and controlled-event schedule"
     );
+
+    let reports = run_policy_reports(registries, world, behavior_seed, Some(comparison_horizon));
+    assert!(
+        reports
+            .iter()
+            .all(|(_, report)| report.inputs == matched_inputs),
+        "agency counterfactual rerun must preserve the matched physical setup"
+    );
+    let initial_support_choice = reports
+        .first()
+        .map(|(_, report)| report.choices.chose_compact_support)
+        .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+    assert!(
+        reports
+            .iter()
+            .all(|(_, report)| report.choices.chose_compact_support == initial_support_choice),
+        "one-factor agency policies must not alter the policy-independent initial structural choice"
+    );
+    let processed_min = reports
+        .iter()
+        .map(|(_, report)| report.progress.processed_mass.milligrams())
+        .min()
+        .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+    let processed_max = reports
+        .iter()
+        .map(|(_, report)| report.progress.processed_mass.milligrams())
+        .max()
+        .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+    let signatures = reports
+        .iter()
+        .map(|(_, report)| AgencyPathSignature::from_report(report))
+        .collect::<BTreeSet<_>>()
+        .len();
+    let baseline = agency_report(&reports, AgencyPolicyVariant::Baseline);
+    AgencyWorldEvaluation {
+        signatures,
+        processed_min,
+        processed_max,
+        power_effect: power_counterfactual_changed(
+            baseline,
+            agency_report(&reports, AgencyPolicyVariant::FinishSooner),
+        ),
+        survival_effect: survival_counterfactual_changed(
+            baseline,
+            agency_report(&reports, AgencyPolicyVariant::SpendSurvival),
+        ),
+        maintenance_effect: maintenance_counterfactual_changed(
+            baseline,
+            agency_report(&reports, AgencyPolicyVariant::DelayMaintenance),
+        ),
+        structure_effect: structure_counterfactual_changed(
+            baseline,
+            agency_report(&reports, AgencyPolicyVariant::FailureOnlyStructure),
+        ),
+        reports,
+    }
+}
+
+fn assert_focus_contract(focus: AgencyFocus, evaluation: &AgencyWorldEvaluation) -> bool {
+    let baseline = agency_report(&evaluation.reports, AgencyPolicyVariant::Baseline);
+    match focus {
+        AgencyFocus::PowerAndStructure => {
+            assert!(
+                evaluation.power_effect && evaluation.structure_effect,
+                "maintained power+structure agency world must make both one-factor choices consequential"
+            );
+        }
+        AgencyFocus::SurvivalRecovery => {
+            let spend_survival =
+                agency_report(&evaluation.reports, AgencyPolicyVariant::SpendSurvival);
+            assert!(
+                evaluation.survival_effect
+                    && baseline.limits.manual_recovery_declined
+                    && spend_survival.progress.processed_mass > baseline.progress.processed_mass,
+                "maintained survival-recovery agency world must trade protected reserves against additional useful work"
+            );
+        }
+        AgencyFocus::MaintenanceTiming => {
+            let delay_maintenance =
+                agency_report(&evaluation.reports, AgencyPolicyVariant::DelayMaintenance);
+            assert!(
+                evaluation.maintenance_effect,
+                "maintained condition-pressure agency world must make warning-service versus critical-only timing consequential"
+            );
+            assert!(
+                baseline.maintenance.services > 0
+                    && baseline.maintenance.replacement_spent > Mass::ZERO,
+                "warning-service policy must perform real preventive maintenance under maintained condition pressure"
+            );
+            assert!(
+                baseline.progress.condition_adaptive_batch_operations
+                    < delay_maintenance
+                        .progress
+                        .condition_adaptive_batch_operations,
+                "preventive warning service must avoid condition-limited batch adaptation that critical-only timing incurs"
+            );
+        }
+        AgencyFocus::ShortOrderMaintenanceDeferral => {
+            assert!(
+                !evaluation.maintenance_effect,
+                "in this short world safe batches are shorter than authored service, so warning-deferral and critical-only policies must rationally agree"
+            );
+            assert_eq!(
+                baseline.progress.processed_mass, baseline.progress.target_mass,
+                "maintained short-order maintenance-deferral world must still complete its demand"
+            );
+            assert_eq!(
+                baseline.maintenance.services, 0,
+                "warning-deferral policy must not pay authored service during a short order"
+            );
+            assert!(
+                baseline.maintenance.replacement_spent.is_zero(),
+                "deferred warning service must preserve replacement stock"
+            );
+            return true;
+        }
+        AgencyFocus::OrganicVariation | AgencyFocus::OrganicPressureSearch => {}
+    }
+    false
+}
+
+#[cfg(not(test))]
+fn report_unqualified_search(world_seed: u64, evidence: AgencyEvidence) {
+    if has_verbose_output() {
+        std::println!(
+            "AGENCY SEARCH world=0x{world_seed:016X} qualification=unqualified evidence={}",
+            evidence.label(),
+        );
+    }
+}
+
+#[cfg(test)]
+fn report_unqualified_search(_world_seed: u64, _evidence: AgencyEvidence) {}
+
+#[cfg(not(test))]
+fn min_max<T: Copy + Ord>(values: impl IntoIterator<Item = T>) -> (T, T) {
+    let mut values = values.into_iter();
+    let first = values
+        .next()
+        .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+    values.fold((first, first), |(minimum, maximum), value| {
+        (minimum.min(value), maximum.max(value))
+    })
+}
+
+#[cfg(not(test))]
+struct AgencyReportMetrics {
+    adaptive: (u64, u64),
+    high_power: (u64, u64),
+    manual_recharges: (u64, u64),
+    services: (u64, u64),
+    condition: (u64, u64),
+    episode_end: (u64, u64),
+    survival_energy: (u128, u128),
+    relocations: usize,
+    suspensions: usize,
+    horizon: u64,
+}
+
+#[cfg(not(test))]
+fn agency_report_metrics(reports: &[(AgencyPolicyVariant, ScenarioReport)]) -> AgencyReportMetrics {
+    let adaptive = min_max(
+        reports
+            .iter()
+            .map(|(_, report)| u64::from(report.progress.adaptive_batch_operations)),
+    );
+    let high_power = min_max(
+        reports
+            .iter()
+            .map(|(_, report)| u64::from(report.choices.large_drive_batches)),
+    );
+    let manual_recharges = min_max(
+        reports
+            .iter()
+            .map(|(_, report)| u64::from(report.choices.manual_recharges)),
+    );
+    let services = min_max(
+        reports
+            .iter()
+            .map(|(_, report)| u64::from(report.maintenance.services)),
+    );
+    let condition = min_max(
+        reports
+            .iter()
+            .map(|(_, report)| u64::from(report.resources.final_condition_ppm)),
+    );
+    let episode_end = min_max(
+        reports
+            .iter()
+            .map(|(_, report)| report.resources.episode_end_tick),
+    );
+    let survival_energy = min_max(
+        reports
+            .iter()
+            .map(|(_, report)| report.resources.metabolic_energy_spent.nanojoules()),
+    );
+    let relocations = reports
+        .iter()
+        .filter(|(_, report)| report.structure.support_relocation)
+        .count();
+    let suspensions = reports
+        .iter()
+        .filter(|(_, report)| report.structure.production_suspension)
+        .count();
+    let horizon = reports
+        .first()
+        .map(|(_, report)| report.resources.elapsed_ticks)
+        .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+    AgencyReportMetrics {
+        adaptive,
+        high_power,
+        manual_recharges,
+        services,
+        condition,
+        episode_end,
+        survival_energy,
+        relocations,
+        suspensions,
+        horizon,
+    }
+}
+
+#[cfg(not(test))]
+fn report_agency_paths(world: AgencyWorld, reports: &[(AgencyPolicyVariant, ScenarioReport)]) {
+    let policy_paths = reports
+        .iter()
+        .map(|(variant, report)| {
+            format!(
+                "{}:ore{}/{}-ops{}-adapt{}-hi{}-manual{}-maint{}-reloc{}-susp{}-choices[p:{} f:{}]-episode{}-horizon{}-body{}-manualbody{}-c{}-lo{}-hi{}",
+                variant.label(),
+                report.progress.processed_mass.milligrams(),
+                report.progress.target_mass.milligrams(),
+                report.progress.operations_completed,
+                report.progress.adaptive_batch_operations,
+                report.choices.large_drive_batches,
+                report.choices.manual_recharges,
+                report.maintenance.services,
+                u8::from(report.structure.support_relocation),
+                u8::from(report.structure.production_suspension),
+                report.choices.policy_power_choices,
+                report.choices.single_source_power_choices,
+                report.resources.episode_end_tick,
+                report.resources.elapsed_ticks,
+                report.resources.metabolic_energy_spent.nanojoules(),
+                report.resources.manual_power_metabolic_energy.nanojoules(),
+                report.resources.final_condition_ppm,
+                report.resources.small_drive_remaining.nanojoules(),
+                report.resources.large_drive_remaining.nanojoules(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     std::println!(
-        "AGENCY SUMMARY worlds={} worlds-with-multiple-signatures={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] organic-unfiltered=[actionable:{}/{} objective-resolved:{} terminal-constraint:{} dormant-policy-pressure:{}] organic-search=[qualified:{} target:{} unqualified:{} attempted:{} limit:{}] search-basis=outcome-selected-not-prevalence search-bound=evidence-not-production-legality basis=matched-world-one-factor-counterfactual+shared-observation-horizon+reason-specific-absence-classification",
+        "AGENCY PATHS focus={} world=0x{:016X} paths=[{policy_paths}]",
+        world.focus.label(),
+        world.world_seed,
+    );
+}
+
+#[cfg(not(test))]
+fn report_agency_world(
+    world: AgencyWorld,
+    evaluation: &AgencyWorldEvaluation,
+    evidence: AgencyEvidence,
+) {
+    if !has_verbose_output() {
+        return;
+    }
+    let reports = &evaluation.reports;
+    let metrics = agency_report_metrics(reports);
+    std::println!(
+        "AGENCY focus={} world=0x{:016X} variants={} physical-paths={} evidence={} horizon={}t actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} episode-end:{}..{}t survival-energy:{}..{}nJ]",
+        world.focus.label(),
+        world.world_seed,
+        reports.len(),
+        evaluation.signatures,
+        evidence.label(),
+        metrics.horizon,
+        evaluation.power_effect,
+        evaluation.survival_effect,
+        evaluation.maintenance_effect,
+        evaluation.structure_effect,
+        evaluation.processed_min,
+        evaluation.processed_max,
+        metrics.adaptive.0,
+        metrics.adaptive.1,
+        metrics.high_power.0,
+        metrics.high_power.1,
+        metrics.manual_recharges.0,
+        metrics.manual_recharges.1,
+        metrics.services.0,
+        metrics.services.1,
+        metrics.condition.0,
+        metrics.condition.1,
+        metrics.relocations,
+        reports.len(),
+        metrics.suspensions,
+        reports.len(),
+        metrics.episode_end.0,
+        metrics.episode_end.1,
+        metrics.survival_energy.0,
+        metrics.survival_energy.1,
+    );
+    report_agency_paths(world, reports);
+}
+
+#[cfg(test)]
+fn report_agency_world(
+    _world: AgencyWorld,
+    _evaluation: &AgencyWorldEvaluation,
+    _evidence: AgencyEvidence,
+) {
+}
+
+fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) -> Vec<u64> {
+    let mut summary = AgencyProbeSummary::default();
+    for &world in worlds {
+        if !summary.admit(world) {
+            continue;
+        }
+        let evaluation = evaluate_agency_world(registries, world);
+        let actionable = evaluation.actionable();
+        let evidence = classify_agency_evidence(&evaluation.reports, actionable);
+        if world.focus == AgencyFocus::OrganicPressureSearch && !actionable {
+            report_unqualified_search(world.world_seed, evidence);
+            continue;
+        }
+        if world.focus == AgencyFocus::OrganicPressureSearch {
+            summary.qualified_seeds.push(world.world_seed);
+        }
+        summary.record_evaluation(&evaluation);
+        summary.demonstrated_short_order_maintenance_deferral |=
+            assert_focus_contract(world.focus, &evaluation);
+        summary.record_organic_evidence(world.focus, evidence);
+        report_agency_world(world, &evaluation, evidence);
+    }
+    summary.assert_partition();
+    std::println!(
+        "AGENCY SUMMARY worlds={} worlds-with-multiple-signatures={} processed-work-differences={} observed-counterfactual-effects=[power:{} survival:{} maintenance:{} structure:{}] maintained-contracts=[short-order-maintenance-deferral:{}] organic-unfiltered=[actionable:{}/{} objective-resolved:{} terminal-constraint:{} dormant-policy-pressure:{}] organic-search=[qualified:{} target:{} unqualified:{} attempted:{} limit:{}] search-basis=outcome-selected-not-prevalence search-bound=evidence-not-production-legality basis=matched-world-one-factor-counterfactual+shared-observation-horizon+reason-specific-absence-classification",
         worlds
             .iter()
             .filter(|world| world.focus != AgencyFocus::OrganicPressureSearch)
             .count()
-            + qualified_seeds.len(),
-        worlds_with_distinct_paths,
-        worlds_with_work_difference,
-        observed_power_effect,
-        observed_survival_effect,
-        observed_maintenance_effect,
-        observed_structure_effect,
-        organic_actionable_worlds,
-        organic_worlds,
-        organic_objective_resolved_worlds,
-        organic_terminal_worlds,
-        organic_dormant_worlds,
-        qualified_seeds.len(),
+            + summary.qualified_seeds.len(),
+        summary.worlds_with_distinct_paths,
+        summary.worlds_with_work_difference,
+        summary.observed_power_effect,
+        summary.observed_survival_effect,
+        summary.observed_maintenance_effect,
+        summary.observed_structure_effect,
+        summary.demonstrated_short_order_maintenance_deferral,
+        summary.organic_actionable_worlds,
+        summary.organic_worlds,
+        summary.organic_objective_resolved_worlds,
+        summary.organic_terminal_worlds,
+        summary.organic_dormant_worlds,
+        summary.qualified_seeds.len(),
         ORGANIC_QUALIFIED_TARGET,
-        search_attempts - qualified_seeds.len(),
-        search_attempts,
+        summary.search_attempts - summary.qualified_seeds.len(),
+        summary.search_attempts,
         ORGANIC_SEARCH_LIMIT,
     );
-    qualified_seeds
+    summary.qualified_seeds
 }
 
 fn organic_agency_worlds(variation_root: u64, count: usize) -> Vec<AgencyWorld> {
@@ -714,18 +832,21 @@ fn organic_agency_worlds(variation_root: u64, count: usize) -> Vec<AgencyWorld> 
 
 fn exploratory_agency_worlds(variation_root: u64) -> Vec<AgencyWorld> {
     let mut worlds = maintained_agency_worlds();
-    // Keep the original three unfiltered seeds, then search the continuation of the
-    // same deterministic stream. No fixture mutation or fresh entropy during search.
+    // Keep the bounded unfiltered prefix, then search the continuation of the same
+    // deterministic stream. No fixture mutation or fresh entropy during search.
     worlds.extend(
-        organic_agency_worlds(variation_root, 3 + ORGANIC_SEARCH_LIMIT)
-            .into_iter()
-            .enumerate()
-            .map(|(index, mut world)| {
-                if index >= 3 {
-                    world.focus = AgencyFocus::OrganicPressureSearch;
-                }
-                world
-            }),
+        organic_agency_worlds(
+            variation_root,
+            ORGANIC_UNFILTERED_COUNT + ORGANIC_SEARCH_LIMIT,
+        )
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut world)| {
+            if index >= ORGANIC_UNFILTERED_COUNT {
+                world.focus = AgencyFocus::OrganicPressureSearch;
+            }
+            world
+        }),
     );
     worlds
 }
@@ -759,6 +880,11 @@ fn maintained_agency_worlds() -> Vec<AgencyWorld> {
         },
         AgencyWorld {
             focus: AgencyFocus::MaintenanceTiming,
+            world_seed: 29,
+            anchor: Some(MaintainedAnchor::ConditionPressure),
+        },
+        AgencyWorld {
+            focus: AgencyFocus::ShortOrderMaintenanceDeferral,
             world_seed: 4,
             anchor: Some(MaintainedAnchor::WarningMaintenance),
         },
@@ -788,7 +914,7 @@ pub(super) fn run_exploratory_agency_counterfactuals() {
     let registries = build_registries();
     let variation_root = exploratory_agency_root();
     std::println!(
-        "AGENCY INPUT mode=explore organic=3 variation_root=0x{variation_root:016X} organic-kind=unfiltered search-target={ORGANIC_QUALIFIED_TARGET} search-limit={ORGANIC_SEARCH_LIMIT}"
+        "AGENCY INPUT mode=explore organic={ORGANIC_UNFILTERED_COUNT} variation_root=0x{variation_root:016X} organic-kind=unfiltered search-target={ORGANIC_QUALIFIED_TARGET} search-limit={ORGANIC_SEARCH_LIMIT}"
     );
     let worlds = exploratory_agency_worlds(variation_root);
     run_agency_probe(&registries, &worlds);
@@ -799,19 +925,28 @@ fn gameplay_agency_bounded_search_preserves_unfiltered_replay() {
     let registries = build_registries();
     let root = 0x16F6_C93F_A53A_1C98;
     let worlds = exploratory_agency_worlds(root);
-    let unfiltered = organic_agency_worlds(root, 3);
-    for (actual, original) in worlds.iter().skip(3).take(3).zip(&unfiltered) {
+    let maintained_count = maintained_agency_worlds().len();
+    let unfiltered = organic_agency_worlds(root, ORGANIC_UNFILTERED_COUNT);
+    for (actual, original) in worlds
+        .iter()
+        .skip(maintained_count)
+        .take(ORGANIC_UNFILTERED_COUNT)
+        .zip(&unfiltered)
+    {
         assert_eq!(actual.world_seed, original.world_seed);
         assert_eq!(actual.focus, AgencyFocus::OrganicVariation);
         assert_eq!(actual.anchor, None);
     }
-    assert_eq!(worlds.len(), 6 + ORGANIC_SEARCH_LIMIT);
+    assert_eq!(
+        worlds.len(),
+        maintained_count + ORGANIC_UNFILTERED_COUNT + ORGANIC_SEARCH_LIMIT
+    );
     let selected = run_agency_probe(&registries, &worlds);
     assert_eq!(selected.len(), ORGANIC_QUALIFIED_TARGET);
     assert!(selected.iter().all(|seed| {
         worlds
             .iter()
-            .skip(6)
+            .skip(maintained_count + ORGANIC_UNFILTERED_COUNT)
             .any(|world| world.world_seed == *seed && world.anchor.is_none())
     }));
     assert_eq!(selected, run_agency_probe(&registries, &worlds));
