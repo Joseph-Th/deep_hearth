@@ -218,6 +218,12 @@ pub fn advance_tick(
         TickError::EquipmentRevisionExhausted,
     )?;
     let passive_energy_plan = decide_passive_energy_dissipation(registries, state);
+    // Production releases and manual-power completion already own future energy revisions through
+    // durable resident state. Passive loss is an incidental same-tick mutation, so it must fit in
+    // addition to those obligations rather than consuming capacity promised to them.
+    if !state.can_spend_energy_revisions(passive_energy_plan.energy_revision_steps()) {
+        return Err(TickError::EnergyRevisionExhausted);
+    }
     require_revision_capacity(
         state.energy().revision(),
         [

@@ -7,7 +7,7 @@ use super::MiningMethodDefinition;
 use super::physics::{MiningPhysicsError, resolve_mining_physics};
 use crate::core::quantity::{Mass, Pressure};
 use crate::core::time::{PhysicalTickDuration, TickSpan};
-use crate::equipment::EquipmentDefinition;
+use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId};
 use crate::maintenance::Condition;
 
 /// Explicit planning inputs; hardness is the conservative upper bound of acquired evidence.
@@ -73,6 +73,9 @@ impl MiningOrderResolution {
 pub enum MiningOrderError {
     ZeroRequestedMass,
     ZeroBatchMass,
+    EquipmentRequiresStructuralSupport {
+        equipment: EquipmentDefinitionId,
+    },
     BatchLimitExceeded {
         required: u64,
         maximum: u64,
@@ -90,6 +93,11 @@ impl Display for MiningOrderError {
         match self {
             Self::ZeroRequestedMass => formatter.write_str("mining order mass must be nonzero"),
             Self::ZeroBatchMass => formatter.write_str("mining order batch mass must be nonzero"),
+            Self::EquipmentRequiresStructuralSupport { equipment } => write!(
+                formatter,
+                "mining equipment definition {} requires structural installation and cannot be used for direct extraction",
+                equipment.value()
+            ),
             Self::BatchLimitExceeded { required, maximum } => write!(
                 formatter,
                 "mining order requires {required} batches, exceeding projection bound {maximum}"
@@ -110,6 +118,7 @@ impl Error for MiningOrderError {
             Self::Physics { error, .. } => Some(error),
             Self::ZeroRequestedMass
             | Self::ZeroBatchMass
+            | Self::EquipmentRequiresStructuralSupport { .. }
             | Self::BatchLimitExceeded { .. }
             | Self::DurationOverflow => None,
         }
@@ -135,6 +144,11 @@ pub fn resolve_mining_order(
     }
     if request.batch_mass.is_zero() {
         return Err(MiningOrderError::ZeroBatchMass);
+    }
+    if equipment.requires_structural_support() {
+        return Err(MiningOrderError::EquipmentRequiresStructuralSupport {
+            equipment: equipment.id(),
+        });
     }
     let batches = request
         .requested_mass

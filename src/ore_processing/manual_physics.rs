@@ -13,6 +13,7 @@ use super::ManualOreProcessProfile;
 /// Shared physical failure for one direct-labor ore-processing batch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualOrePhysicsError {
+    ZeroBatchMass,
     BatchMassExceeded { selected: Mass, maximum: Mass },
     ThroughputDuration(MassFlowDurationError),
 }
@@ -20,6 +21,9 @@ pub enum ManualOrePhysicsError {
 impl Display for ManualOrePhysicsError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ZeroBatchMass => {
+                formatter.write_str("manual ore-processing batch mass must be nonzero")
+            }
             Self::BatchMassExceeded { selected, maximum } => write!(
                 formatter,
                 "selected manual ore-processing batch {} mg exceeds maximum {} mg",
@@ -37,7 +41,7 @@ impl Error for ManualOrePhysicsError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::ThroughputDuration(error) => Some(error),
-            Self::BatchMassExceeded { .. } => None,
+            Self::ZeroBatchMass | Self::BatchMassExceeded { .. } => None,
         }
     }
 }
@@ -90,6 +94,9 @@ pub(super) fn validate_manual_ore_batch(
     profile: ManualOreProcessProfile,
     selected: Mass,
 ) -> Result<(), ManualOrePhysicsError> {
+    if selected.is_zero() {
+        return Err(ManualOrePhysicsError::ZeroBatchMass);
+    }
     if selected > profile.max_batch_mass() {
         return Err(ManualOrePhysicsError::BatchMassExceeded {
             selected,

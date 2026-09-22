@@ -59,18 +59,6 @@ impl ManualCraftHandProjection {
     }
 }
 
-/// Projects equipment-free hand-work duration for an integral number of authored craft batches.
-///
-/// This is disposable planning evidence, not authorization. Runtime crafting must still resolve
-/// exact selected material and actor state through the canonical manual-craft resolver.
-#[must_use]
-pub fn project_manual_craft_hand_duration(
-    definition: &ManualCraftDefinition,
-    batches: NonZeroU64,
-) -> Option<TickSpan> {
-    resolve_manual_craft_hand_duration(definition.duration(), batches)
-}
-
 /// Projects the complete physiological hand-work cost for an authored craft batch count.
 ///
 /// Basal survival costs and incremental exertion are resolved through the same labor owner used by
@@ -81,7 +69,15 @@ pub fn project_manual_craft_hand_work(
     definition: &ManualCraftDefinition,
     batches: NonZeroU64,
 ) -> Result<ManualCraftHandProjection, ManualCraftHandProjectionError> {
-    let duration = project_manual_craft_hand_duration(definition, batches).ok_or(
+    if definition
+        .equipment_profile()
+        .is_some_and(ManualCraftEquipmentProfile::requires_equipment)
+    {
+        return Err(ManualCraftHandProjectionError::EquipmentRequired {
+            process: definition.process(),
+        });
+    }
+    let duration = resolve_manual_craft_hand_duration(definition.duration(), batches).ok_or(
         ManualCraftHandProjectionError::DurationOverflow {
             process: definition.process(),
             batches,
@@ -239,7 +235,7 @@ pub fn resolve_manual_craft(
             {
                 return Err(ManualCraftError::RequiredEquipmentMissing { process });
             }
-            let duration = project_manual_craft_hand_duration(definition, batches)
+            let duration = resolve_manual_craft_hand_duration(definition.duration(), batches)
                 .ok_or(ManualCraftError::DurationOverflow { batches })?;
             inputs
                 .resolve_without_resources(duration, outputs)

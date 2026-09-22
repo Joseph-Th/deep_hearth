@@ -92,6 +92,41 @@ fn mining_order_projection_rejects_zero_and_excessive_work_before_physics() {
 }
 
 #[test]
+fn mining_order_projection_rejects_structurally_installed_equipment() {
+    let registries = build_registries();
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("mining method missing"));
+    let equipment = constant_equipment(
+        method,
+        CapabilityValue::MassFlow(crate::core::quantity::MassFlow::from_milligrams_per_second(
+            1,
+        )),
+        Mass::from_milligrams(1),
+    )
+    .with_required_structural_support();
+
+    assert_eq!(
+        resolve_mining_order(
+            registries.core().physical_tick_duration(),
+            method,
+            &equipment,
+            MiningOrderRequest::new(
+                Condition::PRISTINE,
+                Pressure::ZERO,
+                Mass::from_milligrams(1),
+                Mass::from_milligrams(1),
+                1,
+            ),
+        ),
+        Err(MiningOrderError::EquipmentRequiresStructuralSupport {
+            equipment: equipment.id(),
+        })
+    );
+}
+
+#[test]
 fn mining_order_projection_preserves_capacity_hardness_and_lifetime_failures() {
     use crate::core::quantity::MassFlow;
     let registries = build_registries();

@@ -117,6 +117,30 @@ fn passive_dissipation_horizon_rejects_unknown_definition() {
 }
 
 #[test]
+fn passive_dissipation_horizon_rejects_impossible_over_capacity_state() {
+    let registries = registries();
+    let definition = registries
+        .energy()
+        .get_store(DISSIPATIVE_STORE)
+        .unwrap_or_else(|| panic!("passive projection definition disappeared"));
+    let capacity = definition.capacity();
+    let stored = capacity
+        .checked_add(Energy::from_nanojoules(1))
+        .unwrap_or_else(|| panic!("passive projection capacity fixture overflowed"));
+
+    assert_eq!(
+        passive_dissipation_ticks_until_empty(&registries, DISSIPATIVE_STORE, stored),
+        Err(
+            PassiveDissipationHorizonError::StoredEnergyExceedsCapacity {
+                definition: DISSIPATIVE_STORE,
+                stored,
+                capacity,
+            }
+        )
+    );
+}
+
+#[test]
 fn passive_dissipation_batches_multiple_stores_under_one_owner_revision() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0xE930_0003));

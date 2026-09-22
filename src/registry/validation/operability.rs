@@ -8,9 +8,10 @@ use crate::crafting::{
 use crate::energy::EnergyRegistry;
 use crate::equipment::{EquipmentRegistry, resolve_equipment_capability};
 use crate::labor::{
-    ManualPowerDefinition, calculate_player_work_resource_budget, resolve_manual_power_schedule,
+    ManualPowerDefinition, calculate_player_work_resource_budget,
+    project_manual_power_configuration,
 };
-use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
+use crate::maintenance::Condition;
 use crate::mining::{MiningMethodDefinition, resolve_mining_physics};
 use crate::ore_processing::{ManualOreProcessProfile, project_manual_ore_duration};
 use crate::survival::{PhysiologyDefinition, SurvivalExertion};
@@ -105,49 +106,24 @@ fn best_operable_manual_power_full_charge_duration(
 ) -> Option<TickSpan> {
     equipment_registry
         .definitions()
-        .filter(|equipment| !equipment.requires_structural_support())
         .filter_map(|equipment| {
-            let Some(CapabilityValue::Power(equipment_power)) = resolve_equipment_capability(
-                equipment,
-                Condition::PRISTINE,
-                definition.power_capability(),
-            ) else {
-                return None;
-            };
-            if equipment_power.is_zero() {
-                return None;
-            }
             energy_registry
                 .definitions()
-                .filter(|store| {
-                    store.carrier() == definition.carrier() && !store.max_input_power().is_zero()
-                })
                 .filter_map(|store| {
-                    let transfer_power = std::cmp::min(equipment_power, store.max_input_power());
-                    let schedule = resolve_manual_power_schedule(
-                        store.capacity(),
-                        transfer_power,
-                        core.physical_tick_duration(),
-                        definition.maximum_exertion(),
-                        definition.metabolic_efficiency_ppm(),
-                    )
-                    .ok()?;
-                    let duration = schedule.duration();
-                    calculate_usable_condition_after_active_ticks(
-                        definition.condition_wear_ppm_per_active_tick(),
-                        Condition::PRISTINE,
-                        duration,
-                    )
-                    .ok()?;
-                    let budget = calculate_player_work_resource_budget(
+                    let projection = project_manual_power_configuration(
+                        core,
                         physiology,
-                        schedule.exertion(),
-                        duration,
+                        *definition,
+                        equipment,
+                        Condition::PRISTINE,
+                        store,
+                        store.capacity(),
                     )
                     .ok()?;
+                    let budget = projection.resource_budget();
                     (budget.metabolic_energy() <= physiology.maximum_metabolic_energy()
                         && budget.hydration() <= physiology.maximum_hydration())
-                    .then_some(duration)
+                    .then_some(projection.duration())
                 })
                 .min()
         })

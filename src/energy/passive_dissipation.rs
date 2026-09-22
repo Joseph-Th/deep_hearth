@@ -80,6 +80,11 @@ pub enum PassiveDissipationHorizonError {
     UnknownDefinition {
         definition: EnergyStoreDefinitionId,
     },
+    StoredEnergyExceedsCapacity {
+        definition: EnergyStoreDefinitionId,
+        stored: Energy,
+        capacity: Energy,
+    },
     DurationOverflow {
         definition: EnergyStoreDefinitionId,
         stored: Energy,
@@ -93,6 +98,17 @@ impl Display for PassiveDissipationHorizonError {
                 formatter,
                 "unknown energy-store definition {}",
                 definition.value()
+            ),
+            Self::StoredEnergyExceedsCapacity {
+                definition,
+                stored,
+                capacity,
+            } => write!(
+                formatter,
+                "energy-store definition {} cannot contain {} nJ because its capacity is {} nJ",
+                definition.value(),
+                stored.nanojoules(),
+                capacity.nanojoules()
             ),
             Self::DurationOverflow { definition, stored } => write!(
                 formatter,
@@ -120,6 +136,15 @@ pub fn passive_dissipation_ticks_until_empty(
         .energy()
         .get_store(definition)
         .ok_or(PassiveDissipationHorizonError::UnknownDefinition { definition })?;
+    if stored > definition_record.capacity() {
+        return Err(
+            PassiveDissipationHorizonError::StoredEnergyExceedsCapacity {
+                definition,
+                stored,
+                capacity: definition_record.capacity(),
+            },
+        );
+    }
     if stored.is_zero() {
         return Ok(Some(TickSpan::ZERO));
     }

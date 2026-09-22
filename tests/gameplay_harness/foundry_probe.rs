@@ -761,7 +761,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         thermal_without_cast: primary_cast.thermal_without_cast,
         released_heat: primary_cast.released_heat,
         final_thermal: cycle.final_thermal,
-        cooled_thermal: cooldown.cooled_thermal,
+        thermal_after_cooldown: cooldown.thermal_after_cooldown,
         cooldown_ticks: cooldown.ticks,
         recovery_heat,
         melt_duration,

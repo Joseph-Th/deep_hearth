@@ -5,13 +5,37 @@ use crate::content::{
     PROCESS_HAND_BREAK_ORE, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
     build_registries,
 };
+use crate::core::quantity::Mass;
 use crate::production::{ProcessDefinition, ProductionRegistry};
 
 use super::{
     ConstituentRecoveryProfile, ConstituentSeparationProcessDefinition,
-    ManualComminutionProcessDefinition, ManualOreProcessProfile, OreProcessingRegistry,
-    PoweredOreProcessProfile, ScreeningProcessDefinition,
+    ManualComminutionProcessDefinition, ManualOrePhysicsError, ManualOreProcessProfile,
+    OreProcessingRegistry, PoweredOreProcessProfile, ScreeningProcessDefinition,
+    project_manual_ore_duration,
 };
+
+#[test]
+fn manual_ore_projection_rejects_zero_mass_non_batch() {
+    let registries = build_registries();
+    let definition = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("built-in manual comminution definition disappeared"));
+
+    assert_eq!(
+        project_manual_ore_duration(
+            registries.core().physical_tick_duration(),
+            ManualOreProcessProfile::new(
+                definition.processing_rate(),
+                definition.max_batch_mass(),
+                definition.exertion(),
+            ),
+            Mass::ZERO,
+        ),
+        Err(ManualOrePhysicsError::ZeroBatchMass)
+    );
+}
 
 #[test]
 fn recovery_profile_requires_rounding_safe_selectivity_margin() {

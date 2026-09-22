@@ -1,6 +1,8 @@
 //! Contract tests for prospecting execution and acquired evidence.
 
 use super::*;
+#[cfg(feature = "test-soak")]
+use crate::content::PROSPECTING_LOCAL_TRANSECT;
 use crate::content::{FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{apply_clock_advance, validate_loaded_state};
@@ -822,6 +824,12 @@ fn prospecting_round_trip_preserves_deterministic_continuation() {
 fn run_prospecting_soak(seed: WorldSeed) -> AppState {
     let registries = build_registries();
     let mut state = AppState::new(seed);
+    let method = registries
+        .labor()
+        .get_prospecting(PROSPECTING_LOCAL_TRANSECT)
+        .copied()
+        .unwrap_or_else(|| panic!("local-transect prospecting definition disappeared"));
+    assert_eq!(method.evidence(), GeologicalEvidenceKind::SurfaceExposure);
     for step in 0_u32..2_000 {
         let x = i64::from(step % 64);
         let material = if step.is_multiple_of(2) {
@@ -829,13 +837,16 @@ fn run_prospecting_soak(seed: WorldSeed) -> AppState {
         } else {
             MATERIAL_SLAG
         };
-        let center = (step.wrapping_mul(7919)) % 900_000;
-        let lower = center.saturating_sub(25_000);
-        let upper = center.saturating_add(25_000).min(1_000_000);
+        let region = line_bounds(x, x + 2);
+        assert_eq!(method.resolve_region_observation_count(region), Ok(1));
+        let upper = method
+            .abundance_uncertainty_ppm()
+            .saturating_add((step.wrapping_mul(7919)) % 900_000)
+            .min(1_000_000);
         let resolution = make_test_prospecting_resolution(
-            bounds(x, x + 2),
-            GeologicalEvidenceKind::CoreSample,
-            vec![estimate(material, lower, upper)],
+            region,
+            method.evidence(),
+            vec![estimate(material, 0, upper)],
         );
         record(&registries, &mut state, resolution);
         if let Err(error) = advance_tick(&registries, &mut state) {

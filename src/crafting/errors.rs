@@ -54,6 +54,9 @@ pub enum ManualCraftEquipmentProjectionError {
 /// Failure while projecting equipment-free manual work from immutable authored definitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ManualCraftHandProjectionError {
+    EquipmentRequired {
+        process: ProcessId,
+    },
     DurationOverflow {
         process: ProcessId,
         batches: NonZeroU64,
@@ -67,6 +70,11 @@ pub enum ManualCraftHandProjectionError {
 impl Display for ManualCraftHandProjectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::EquipmentRequired { process } => write!(
+                formatter,
+                "manual craft process {} has no equipment-free hand-work route",
+                process.value()
+            ),
             Self::DurationOverflow { process, batches } => write!(
                 formatter,
                 "manual craft process {} hand-work duration overflows for {} batches",

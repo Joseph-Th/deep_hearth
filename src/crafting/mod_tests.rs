@@ -8,8 +8,8 @@ use crate::content::{
     MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
     PROCESS_ASSEMBLE_TIMBER_CHEST, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
     PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_KNAP_STONE_TOOL,
-    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SHAPE_WOOD_BOARDS, PROSPECTING_FIELD_INSPECTION,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_BOARDS,
+    PROSPECTING_FIELD_INSPECTION, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -60,7 +60,7 @@ fn manual_hand_work_projection_matches_shared_labor_budget() {
 
     let projected = project_manual_craft_hand_work(&registries, definition, batches)
         .unwrap_or_else(|error| panic!("manual hand-work projection failed: {error}"));
-    let expected_duration = project_manual_craft_hand_duration(definition, batches)
+    let expected_duration = resolve_manual_craft_hand_duration(definition.duration(), batches)
         .unwrap_or_else(|| panic!("bounded manual hand-work duration overflowed"));
     let expected_budget = calculate_player_work_resource_budget(
         registries.survival().physiology(),
@@ -71,6 +71,24 @@ fn manual_hand_work_projection_matches_shared_labor_budget() {
 
     assert_eq!(projected.duration(), expected_duration);
     assert_eq!(projected.resource_budget(), expected_budget);
+}
+
+#[test]
+fn manual_hand_work_projection_rejects_equipment_required_processes() {
+    let registries = build_registries();
+    let definition = registries
+        .crafting()
+        .get_manual(PROCESS_SAW_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("saw-board definition disappeared"));
+    let one = std::num::NonZeroU64::new(1)
+        .unwrap_or_else(|| unreachable!("one manual-craft batch is nonzero"));
+
+    assert_eq!(
+        project_manual_craft_hand_work(&registries, definition, one),
+        Err(ManualCraftHandProjectionError::EquipmentRequired {
+            process: PROCESS_SAW_WOOD_BOARDS,
+        })
+    );
 }
 
 #[test]

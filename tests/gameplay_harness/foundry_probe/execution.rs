@@ -261,7 +261,7 @@ pub(super) fn audit_primary_cycle(
 #[derive(Clone, Copy)]
 pub(super) struct CooldownResult {
     pub(super) ticks: u64,
-    pub(super) cooled_thermal: Energy,
+    pub(super) thermal_after_cooldown: Energy,
 }
 
 pub(super) fn cool_thermal_sink_until(
@@ -274,7 +274,7 @@ pub(super) fn cool_thermal_sink_until(
     if stored.is_zero() || recovery_ready(state) {
         return CooldownResult {
             ticks: 0,
-            cooled_thermal: stored,
+            thermal_after_cooldown: stored,
         };
     }
     let maximum_ticks =
@@ -286,18 +286,18 @@ pub(super) fn cool_thermal_sink_until(
             .value();
     for ticks in 1..=maximum_ticks {
         advance_idle_ticks(registries, state, 1, "foundry thermal cooldown");
-        let cooled_thermal = state
+        let thermal_after_cooldown = state
             .energy()
             .get_store(ids.heat_sink)
             .map(|store| store.stored())
             .unwrap_or_else(|| panic!("foundry heat sink disappeared during passive cooldown"));
-        if recovery_ready(state) || cooled_thermal.is_zero() {
+        if recovery_ready(state) || thermal_after_cooldown.is_zero() {
             validate_loaded_state(registries, state).unwrap_or_else(|error| {
                 panic!("foundry post-cooldown state audit failed: {error}")
             });
             return CooldownResult {
                 ticks,
-                cooled_thermal,
+                thermal_after_cooldown,
             };
         }
     }

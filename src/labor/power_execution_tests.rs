@@ -583,6 +583,59 @@ fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomical
 }
 
 #[test]
+fn passive_loss_cannot_spend_energy_revision_reserved_for_later_manual_power_completion() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0014));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("reserved-energy survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let manual_destination =
+        add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_LARGE_DRIVE)
+            .unwrap_or_else(|error| panic!("reserved-energy manual destination failed: {error}"));
+    let _passive_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_THERMAL_SINK,
+        Energy::from_nanojoules(1_000_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("reserved-energy passive store failed: {error}"));
+    let start = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            manual_destination,
+            Energy::from_nanojoules(300_000_000_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("reserved-energy manual power validation failed: {error}"));
+    assert!(
+        start.work().completes_at().value() > state.tick().value() + 1,
+        "fixture requires passive loss before manual-power completion becomes due"
+    );
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("reserved-energy manual power commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("reserved-energy save failed: {error}"));
+    encoded["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("reserved-energy save decode failed: {error}"));
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("one reserved manual-power completion must remain load-valid: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        advance_tick(&registries, &mut loaded),
+        Err(crate::simulation::TickError::EnergyRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
 fn partial_flywheel_recharge_preserves_passive_loss_of_preexisting_work() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x1A80_0005));

@@ -26,7 +26,7 @@ use crate::production::{
     CompletionCommitError, ProcessDefinition, ProductionJobRecord, StartProcessError,
     apply_completion_plan, decide_due_completions, validate_start_process,
 };
-use crate::simulation::advance_tick;
+use crate::simulation::{TickError, advance_tick};
 use crate::thermal::{
     CastingPhaseChange, PhaseChangeForms, PhaseChangeProcessProfile, ThermalJobValidationError,
 };
@@ -705,6 +705,73 @@ fn finish_job(registries: &Registries, state: &mut AppState, duration: TickSpan)
             panic!("casting completion tick failed: {error}");
         }
     }
+}
+
+#[test]
+fn passive_sink_loss_cannot_spend_energy_revision_reserved_for_casting_release() {
+    let input_mass = Mass::from_milligrams(10);
+    let sink_input_power = Power::from_microwatts(1_000_000);
+    let preliminary = make_fixture_with_sink_configuration(
+        input_mass,
+        MELTING_POINT,
+        Energy::from_nanojoules(100_000_000_000),
+        sink_input_power,
+        Power::ZERO,
+        Energy::ZERO,
+    );
+    let preliminary_resolution = resolve_selected(
+        &preliminary.registries,
+        &preliminary.state,
+        preliminary.ids,
+        input_mass,
+    )
+    .unwrap_or_else(|error| panic!("passive-revision casting baseline failed: {error}"));
+    let released = preliminary_resolution.released_energy();
+    let duration = preliminary_resolution.process_resolution().duration();
+    assert!(
+        duration.value() > 1,
+        "passive-revision fixture requires an intermediate loss tick before casting release"
+    );
+
+    let mut fixture = make_fixture_with_sink_configuration(
+        input_mass,
+        MELTING_POINT,
+        released,
+        sink_input_power,
+        sink_input_power,
+        Energy::from_nanojoules(1),
+    );
+    let resolved = resolve_selected(&fixture.registries, &fixture.state, fixture.ids, input_mass)
+        .unwrap_or_else(|error| panic!("passive-revision casting resolution failed: {error}"));
+    let token = validate_start_process(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.ids.source,
+        fixture.ids.destination,
+    )
+    .unwrap_or_else(|error| panic!("passive-revision casting start failed: {error}"));
+    let _job = token
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| panic!("passive-revision casting commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("passive-revision casting save failed: {error}"));
+    encoded["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("passive-revision casting decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&fixture.registries)
+        .unwrap_or_else(|error| {
+            panic!("one reserved casting release must remain load-valid: {error}")
+        });
+    let before = loaded.clone();
+
+    assert_eq!(
+        advance_tick(&fixture.registries, &mut loaded),
+        Err(TickError::EnergyRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
 }
 
 #[test]

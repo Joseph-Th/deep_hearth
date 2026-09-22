@@ -62,19 +62,19 @@ fn manual_power_operability_rejects_token_only_route_that_cannot_fill_a_store() 
             Volume::from_microliters(1),
         ),
     );
-    let provider_power = registries
+    let equipment = registries
         .equipment()
         .definitions()
         .filter(|equipment| !equipment.requires_structural_support())
-        .find_map(|equipment| {
-            match resolve_equipment_capability(
+        .find(|equipment| {
+            matches!(
+                resolve_equipment_capability(
                 equipment,
                 Condition::PRISTINE,
                 token_only.power_capability(),
-            ) {
-                Some(CapabilityValue::Power(power)) if !power.is_zero() => Some(power),
-                _ => None,
-            }
+                ),
+                Some(CapabilityValue::Power(power)) if !power.is_zero()
+            )
         })
         .unwrap_or_else(|| panic!("built manual-power fixture has no portable provider"));
     let store = registries
@@ -83,15 +83,17 @@ fn manual_power_operability_rejects_token_only_route_that_cannot_fill_a_store() 
         .find(|store| store.carrier() == token_only.carrier() && !store.max_input_power().is_zero())
         .unwrap_or_else(|| panic!("built manual-power fixture has no compatible store"));
     assert!(
-        resolve_manual_power_schedule(
+        project_manual_power_configuration(
+            registries.core(),
+            registries.survival().physiology(),
+            token_only,
+            equipment,
+            Condition::PRISTINE,
+            store,
             Energy::from_nanojoules(1),
-            provider_power.min(store.max_input_power()),
-            registries.core().physical_tick_duration(),
-            token_only.maximum_exertion(),
-            token_only.metabolic_efficiency_ppm(),
         )
         .is_ok(),
-        "regression fixture must preserve the former token-success route"
+        "token energy must remain physically projectable before full-store reserve feasibility is evaluated"
     );
 
     assert_eq!(

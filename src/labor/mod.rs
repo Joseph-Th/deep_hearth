@@ -45,7 +45,7 @@ pub(crate) use lifecycle::{
     validate_player_work_start,
 };
 pub(crate) use power_execution::{apply_manual_power_tick, decide_manual_power_tick};
-pub(crate) use power_physics::resolve_manual_power_schedule;
+pub(crate) use power_projection::project_manual_power_configuration;
 pub(crate) use validation::validate_loaded_player_work;
 pub(crate) use work_resources::{
     PlayerWorkResourceBudgetError, calculate_player_work_resource_budget,

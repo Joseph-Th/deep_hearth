@@ -1,25 +1,24 @@
 //! Read-only physical projection for authored manual-power configurations.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+mod errors;
 
-use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
+pub use errors::ManualPowerProjectionError;
+
+use crate::capability::CapabilityValue;
 use crate::core::quantity::{Energy, Power};
 use crate::core::time::TickSpan;
-use crate::energy::{EnergyCarrier, EnergyStoreDefinitionId};
-use crate::equipment::{EquipmentDefinitionId, project_equipment_capability};
-use crate::maintenance::{
-    ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
-};
-use crate::registry::Registries;
-use crate::survival::SurvivalExertion;
+use crate::energy::{EnergyStoreDefinition, EnergyStoreDefinitionId};
+use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, project_equipment_capability};
+use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
+use crate::registry::{CoreDefinitions, Registries};
+use crate::survival::{PhysiologyDefinition, SurvivalExertion};
 
 use super::power_physics::{
     ManualPowerMetabolicDurationError, ManualPowerScheduleError, resolve_manual_power_schedule,
 };
 use super::{
-    ManualPowerMethodId, PlayerWorkResourceBudget, PlayerWorkResourceBudgetError,
-    calculate_player_work_resource_budget,
+    ManualPowerDefinition, ManualPowerMethodId, PlayerWorkResourceBudget,
+    PlayerWorkResourceBudgetError, calculate_player_work_resource_budget,
 };
 
 /// Physical schedule for a future authored manual-power configuration.
@@ -64,194 +63,10 @@ impl ManualPowerProjection {
     }
 }
 
-/// Failure while projecting manual power from immutable authored definitions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ManualPowerProjectionError {
-    UnknownMethod {
-        method: ManualPowerMethodId,
-    },
-    UnknownEquipmentDefinition {
-        equipment: EquipmentDefinitionId,
-    },
-    UnknownStoreDefinition {
-        store: EnergyStoreDefinitionId,
-    },
-    MissingPowerCapability {
-        equipment: EquipmentDefinitionId,
-        capability: CapabilityId,
-    },
-    PowerCapabilityKindMismatch {
-        equipment: EquipmentDefinitionId,
-        capability: CapabilityId,
-        found: CapabilityValueKind,
-    },
-    ZeroEquipmentPower {
-        equipment: EquipmentDefinitionId,
-        capability: CapabilityId,
-    },
-    ZeroEnergy,
-    EnergyExceedsStoreCapacity {
-        store: EnergyStoreDefinitionId,
-        requested: Energy,
-        capacity: Energy,
-    },
-    WrongCarrier {
-        required: EnergyCarrier,
-        provided: EnergyCarrier,
-    },
-    ZeroTransferPower {
-        equipment: EquipmentDefinitionId,
-        store: EnergyStoreDefinitionId,
-    },
-    PowerDuration {
-        energy: Energy,
-        power: Power,
-    },
-    MetabolicConversionTooSmall {
-        method: ManualPowerMethodId,
-    },
-    MetabolicDurationOverflow {
-        method: ManualPowerMethodId,
-        energy: Energy,
-    },
-    ExertionResolution {
-        method: ManualPowerMethodId,
-    },
-    ResourceBudgetOverflow,
-    ConditionDuration(ActiveConditionDurationError),
-}
-
-impl Display for ManualPowerProjectionError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownMethod { method } => {
-                write!(
-                    formatter,
-                    "manual-power method {} is unknown",
-                    method.value()
-                )
-            }
-            Self::UnknownEquipmentDefinition { equipment } => write!(
-                formatter,
-                "manual-power equipment definition {} is unknown",
-                equipment.value()
-            ),
-            Self::UnknownStoreDefinition { store } => {
-                write!(
-                    formatter,
-                    "manual-power store definition {} is unknown",
-                    store.value()
-                )
-            }
-            Self::MissingPowerCapability {
-                equipment,
-                capability,
-            } => write!(
-                formatter,
-                "equipment definition {} does not provide manual-power capability {} at the projected condition",
-                equipment.value(),
-                capability.value()
-            ),
-            Self::PowerCapabilityKindMismatch {
-                equipment,
-                capability,
-                found,
-            } => write!(
-                formatter,
-                "equipment definition {} capability {} has {found:?} value instead of power",
-                equipment.value(),
-                capability.value()
-            ),
-            Self::ZeroEquipmentPower {
-                equipment,
-                capability,
-            } => write!(
-                formatter,
-                "equipment definition {} capability {} resolves to zero power",
-                equipment.value(),
-                capability.value()
-            ),
-            Self::ZeroEnergy => {
-                write!(formatter, "manual-power projection requires nonzero energy")
-            }
-            Self::EnergyExceedsStoreCapacity {
-                store,
-                requested,
-                capacity,
-            } => write!(
-                formatter,
-                "manual-power projection requests {} nJ from empty store definition {} with {} nJ capacity",
-                requested.nanojoules(),
-                store.value(),
-                capacity.nanojoules()
-            ),
-            Self::WrongCarrier { required, provided } => write!(
-                formatter,
-                "manual-power method requires {required:?} storage but projected store is {provided:?}"
-            ),
-            Self::ZeroTransferPower { equipment, store } => write!(
-                formatter,
-                "manual-power equipment {} and store {} have zero shared transfer power",
-                equipment.value(),
-                store.value()
-            ),
-            Self::PowerDuration { energy, power } => write!(
-                formatter,
-                "manual-power projection cannot schedule {} nJ at {} pW",
-                energy.nanojoules(),
-                power.picowatts()
-            ),
-            Self::MetabolicConversionTooSmall { method } => write!(
-                formatter,
-                "manual-power method {} metabolic conversion rounds to zero",
-                method.value()
-            ),
-            Self::MetabolicDurationOverflow { method, energy } => write!(
-                formatter,
-                "manual-power method {} metabolic duration overflows for {} nJ",
-                method.value(),
-                energy.nanojoules()
-            ),
-            Self::ExertionResolution { method } => write!(
-                formatter,
-                "manual-power method {} cannot resolve bounded exertion",
-                method.value()
-            ),
-            Self::ResourceBudgetOverflow => {
-                write!(
-                    formatter,
-                    "manual-power projected physiological budget overflows"
-                )
-            }
-            Self::ConditionDuration(error) => Display::fmt(error, formatter),
-        }
-    }
-}
-
-impl Error for ManualPowerProjectionError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::ConditionDuration(error) => Some(error),
-            Self::UnknownMethod { .. }
-            | Self::UnknownEquipmentDefinition { .. }
-            | Self::UnknownStoreDefinition { .. }
-            | Self::MissingPowerCapability { .. }
-            | Self::PowerCapabilityKindMismatch { .. }
-            | Self::ZeroEquipmentPower { .. }
-            | Self::ZeroEnergy
-            | Self::EnergyExceedsStoreCapacity { .. }
-            | Self::WrongCarrier { .. }
-            | Self::ZeroTransferPower { .. }
-            | Self::PowerDuration { .. }
-            | Self::MetabolicConversionTooSmall { .. }
-            | Self::MetabolicDurationOverflow { .. }
-            | Self::ExertionResolution { .. }
-            | Self::ResourceBudgetOverflow => None,
-        }
-    }
-}
-
 /// Projects one manual-power work order from authored definitions without runtime authorization.
+///
+/// Direct manual-power equipment is portable-only, so structurally installed definitions are
+/// rejected here. Current mounting and occupancy still belong to runtime admission.
 ///
 /// Energy is the intended addition to an empty or sufficiently free future store. Current store
 /// fill and occupancy remain runtime state and are deliberately outside this projection.
@@ -276,6 +91,33 @@ pub fn project_manual_power(
         .energy()
         .get_store(store)
         .ok_or(ManualPowerProjectionError::UnknownStoreDefinition { store })?;
+    project_manual_power_configuration(
+        registries.core(),
+        registries.survival().physiology(),
+        method_definition,
+        equipment_definition,
+        condition,
+        store_definition,
+        energy,
+    )
+}
+
+/// Shared immutable-definition projection used by registry operability and public planning.
+pub(crate) fn project_manual_power_configuration(
+    core: &CoreDefinitions,
+    physiology: PhysiologyDefinition,
+    method_definition: ManualPowerDefinition,
+    equipment_definition: &EquipmentDefinition,
+    condition: Condition,
+    store_definition: &EnergyStoreDefinition,
+    energy: Energy,
+) -> Result<ManualPowerProjection, ManualPowerProjectionError> {
+    let method = method_definition.id();
+    let equipment = equipment_definition.id();
+    let store = store_definition.id();
+    if equipment_definition.requires_structural_support() {
+        return Err(ManualPowerProjectionError::EquipmentRequiresStructuralSupport { equipment });
+    }
     if energy.is_zero() {
         return Err(ManualPowerProjectionError::ZeroEnergy);
     }
@@ -328,7 +170,7 @@ pub fn project_manual_power(
     let schedule = resolve_manual_power_schedule(
         energy,
         transfer_power,
-        registries.core().physical_tick_duration(),
+        core.physical_tick_duration(),
         method_definition.maximum_exertion(),
         method_definition.metabolic_efficiency_ppm(),
     )
@@ -348,17 +190,15 @@ pub fn project_manual_power(
         }
     })?;
     let duration = schedule.duration();
-    let resource_budget = calculate_player_work_resource_budget(
-        registries.survival().physiology(),
-        schedule.exertion(),
-        duration,
-    )
-    .map_err(|error| match error {
-        PlayerWorkResourceBudgetError::EnergyOverflow
-        | PlayerWorkResourceBudgetError::HydrationOverflow => {
-            ManualPowerProjectionError::ResourceBudgetOverflow
-        }
-    })?;
+    let resource_budget =
+        calculate_player_work_resource_budget(physiology, schedule.exertion(), duration).map_err(
+            |error| match error {
+                PlayerWorkResourceBudgetError::EnergyOverflow
+                | PlayerWorkResourceBudgetError::HydrationOverflow => {
+                    ManualPowerProjectionError::ResourceBudgetOverflow
+                }
+            },
+        )?;
     let condition_after = calculate_usable_condition_after_active_ticks(
         method_definition.condition_wear_ppm_per_active_tick(),
         condition,

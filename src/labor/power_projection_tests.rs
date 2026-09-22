@@ -48,3 +48,40 @@ fn projection_accepts_exact_store_capacity_and_rejects_one_nanojoule_more() {
         })
     );
 }
+
+#[test]
+fn projection_rejects_equipment_that_requires_structural_installation() {
+    let registries = build_registries();
+    let method = registries
+        .labor()
+        .get_manual_power(MANUAL_POWER_HAND_CRANK)
+        .copied()
+        .unwrap_or_else(|| panic!("hand-crank manual-power definition disappeared"));
+    let equipment = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_HAND_CRANK)
+        .unwrap_or_else(|| panic!("stone hand-crank definition disappeared"))
+        .clone()
+        .with_required_structural_support();
+    let store = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("stone flywheel definition disappeared"));
+
+    assert_eq!(
+        project_manual_power_configuration(
+            registries.core(),
+            registries.survival().physiology(),
+            method,
+            &equipment,
+            Condition::PRISTINE,
+            store,
+            Energy::from_nanojoules(1),
+        ),
+        Err(
+            ManualPowerProjectionError::EquipmentRequiresStructuralSupport {
+                equipment: EQUIPMENT_STONE_HAND_CRANK,
+            }
+        )
+    );
+}
