@@ -8,10 +8,13 @@ use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::MaterialRegistry;
 use crate::production::{ProcessId, ProductionRegistry};
 
-use super::super::casting_execution::CastingProcessDefinition;
-use super::super::melting_execution::MeltingProcessDefinition;
-
+mod phase_change;
 mod validation;
+
+pub use phase_change::{
+    CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
+    PhaseChangeProcessProfile,
+};
 
 use validation::{
     validate_casting_material_references, validate_common_thermal_references,

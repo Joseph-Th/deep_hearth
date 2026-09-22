@@ -26,8 +26,8 @@ pub(super) fn evaluate_survival_pressure_response_probe(registries: &Registries,
     let drink = drinks[usize::try_from(mix64(seed ^ 0x5052_4553_4452_494E) % drinks.len() as u64)
         .unwrap_or_else(|_| unreachable!("pressure-probe drink index fits usize"))];
     let food_mass = Mass::from_milligrams(1);
-    let drink_volume = Volume::from_microliters(1);
     let physiology = registries.survival().physiology();
+    let drink_volume = physiology.direct_consumption().minimum_drink_volume();
 
     let mut hunger = AppState::new(WorldSeed::new(seed ^ 0x4855_4E47_4552_0001));
     let hunger_food_store = seed_stockpile(

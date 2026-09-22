@@ -60,20 +60,20 @@ fn trusted_load_replays_direct_consumption_attention_durations() {
 
     let mut drinking = AppState::new(WorldSeed::new(0x5A70_0021));
     initialize_and_spend_reserves(&registries, &mut drinking);
+    let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut drinking,
-        Volume::from_microliters(10),
+        drink_volume,
         FLUID_WATER,
-        Volume::from_microliters(10),
+        drink_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("drinking-duration water fixture failed: {error}"));
-    let _drinking_outcome =
-        validate_drink(&registries, &drinking, water, Volume::from_microliters(1))
-            .unwrap_or_else(|error| panic!("drinking-duration validation failed: {error}"))
-            .commit(&mut drinking)
-            .unwrap_or_else(|error| panic!("drinking-duration commit failed: {error}"));
+    let _drinking_outcome = validate_drink(&registries, &drinking, water, drink_volume)
+        .unwrap_or_else(|error| panic!("drinking-duration validation failed: {error}"))
+        .commit(&mut drinking)
+        .unwrap_or_else(|error| panic!("drinking-duration commit failed: {error}"));
     let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &drinking))
         .unwrap_or_else(|error| panic!("drinking-duration serialization failed: {error}"));
     let completes_at =
@@ -306,22 +306,23 @@ fn drinking_near_capacity_absorbs_after_same_tick_basal_loss() {
             0,
         ),
     );
+    let drink_volume = minimum_drink_volume(&registries);
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(10),
+        drink_volume,
         FLUID_WATER,
-        Volume::from_microliters(10),
+        drink_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("partial-hydration water fixture failed: {error}"));
-    let outcome = validate_drink(&registries, &state, store, Volume::from_microliters(10))
+    let outcome = validate_drink(&registries, &state, store, drink_volume)
         .unwrap_or_else(|error| panic!("partial-hydration drink validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("partial-hydration drink commit failed: {error}"));
 
-    assert_eq!(outcome.volume(), Volume::from_microliters(10));
-    assert_eq!(outcome.hydration_offered(), Volume::from_microliters(10));
+    assert_eq!(outcome.volume(), drink_volume);
+    assert_eq!(outcome.hydration_offered(), drink_volume);
     assert_eq!(
         assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("partial-hydration survival state disappeared"))
@@ -342,10 +343,7 @@ fn drinking_near_capacity_absorbs_after_same_tick_basal_loss() {
         assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("partial-hydration survival state disappeared after drink"))
             .hydration(),
-        hydration_before
-            .checked_sub(physiology.hydration_loss_per_tick())
-            .and_then(|value| value.checked_add(outcome.hydration_offered()))
-            .unwrap_or_else(|| panic!("partial-hydration expected reserve underflowed"))
+        physiology.maximum_hydration()
     );
 }
 
@@ -373,7 +371,7 @@ fn drink_hydration_first_covers_same_tick_hydration_shortfall() {
             0,
         ),
     );
-    let volume = Volume::from_microliters(10);
+    let volume = minimum_drink_volume(&registries);
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
@@ -571,7 +569,7 @@ fn drinking_at_full_hydration_absorbs_as_basal_loss_creates_capacity() {
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("full-hydration survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();
-    let volume = Volume::from_microliters(1_000);
+    let volume = minimum_drink_volume(&registries);
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,

@@ -1,11 +1,8 @@
 //! Pure-material casting/solidification with exact heat release into a finite thermal-energy sink.
 
-use crate::capability::CapabilityId;
 use crate::core::quantity::{Energy, Power, Temperature};
 use crate::core::state::AppState;
-use crate::energy::{
-    EnergyCarrier, EnergyStoreId, validate_energy_sink_access, validate_energy_sink_release,
-};
+use crate::energy::{EnergyStoreId, validate_energy_sink_access, validate_energy_sink_release};
 use crate::equipment::EquipmentId;
 use crate::inventory::MaterialLotSelection;
 use crate::inventory::StockpileId;
@@ -16,6 +13,7 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
+use super::calculate_phase_sensible_heat;
 use super::equipment_physics::{
     ThermalEquipmentRequest, ThermalEquipmentSetupError, ThermalTransferTimingError,
     resolve_runtime_thermal_equipment, resolve_thermal_transfer_timing,
@@ -23,122 +21,9 @@ use super::equipment_physics::{
 use super::phase_change_batch::{
     PurePhaseChangeBatchError, PurePhaseChangeDirection, resolve_pure_phase_change_batch,
 };
-use super::{PhaseChangeForms, PhaseChangeProcessProfile, calculate_phase_sensible_heat};
+use super::processes::CastingProcessDefinition;
 #[cfg(test)]
 use super::{calculate_fusion_heat, calculate_sensible_heat};
-
-/// Immutable declaration that one selected-batch process solidifies pure liquid matter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CastingPhaseChange {
-    forms: PhaseChangeForms,
-    output_temperature: Temperature,
-}
-
-impl CastingPhaseChange {
-    #[must_use]
-    pub const fn new(forms: PhaseChangeForms, output_temperature: Temperature) -> Self {
-        assert!(
-            output_temperature.millikelvin() > 0,
-            "casting output temperature must be above absolute zero"
-        );
-        Self {
-            forms,
-            output_temperature,
-        }
-    }
-
-    #[must_use]
-    pub const fn liquid_form(self) -> FormId {
-        self.forms.input()
-    }
-
-    #[must_use]
-    pub const fn solid_form(self) -> FormId {
-        self.forms.output()
-    }
-
-    #[must_use]
-    pub const fn output_temperature(self) -> Temperature {
-        self.output_temperature
-    }
-}
-
-/// Immutable declaration that one selected-batch process solidifies pure liquid matter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CastingProcessDefinition {
-    process: ProcessId,
-    profile: PhaseChangeProcessProfile,
-    material: MaterialId,
-    phase_change: CastingPhaseChange,
-}
-
-impl CastingProcessDefinition {
-    #[must_use]
-    pub const fn new(
-        process: ProcessId,
-        profile: PhaseChangeProcessProfile,
-        material: MaterialId,
-        phase_change: CastingPhaseChange,
-    ) -> Self {
-        Self {
-            process,
-            profile,
-            material,
-            phase_change,
-        }
-    }
-
-    #[must_use]
-    pub const fn process(self) -> ProcessId {
-        self.process
-    }
-
-    #[must_use]
-    pub const fn cooling_power_capability(self) -> CapabilityId {
-        self.profile.transfer_power_capability()
-    }
-
-    #[must_use]
-    pub const fn max_temperature_capability(self) -> CapabilityId {
-        self.profile.max_temperature_capability()
-    }
-
-    #[must_use]
-    pub const fn max_batch_mass_capability(self) -> CapabilityId {
-        self.profile.max_batch_mass_capability()
-    }
-
-    #[must_use]
-    pub const fn energy_carrier(self) -> EnergyCarrier {
-        self.profile.energy_carrier()
-    }
-
-    #[must_use]
-    pub const fn material(self) -> MaterialId {
-        self.material
-    }
-
-    #[must_use]
-    pub const fn liquid_form(self) -> FormId {
-        self.phase_change.liquid_form()
-    }
-
-    #[must_use]
-    pub const fn solid_form(self) -> FormId {
-        self.phase_change.solid_form()
-    }
-
-    /// Temperature of the solid lot after the casting cycle removes latent and sensible heat.
-    #[must_use]
-    pub const fn output_temperature(self) -> Temperature {
-        self.phase_change.output_temperature()
-    }
-
-    #[must_use]
-    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
-        self.profile.condition_wear_ppm_per_active_tick()
-    }
-}
 
 /// Failure while deriving solidification physics from exact consumed liquid traces.
 pub type CastingBatchError = PurePhaseChangeBatchError;

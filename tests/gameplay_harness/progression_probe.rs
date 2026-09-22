@@ -30,9 +30,10 @@ use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
-    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_SEPARATE_NATIVE_COPPER,
+    FORM_REINFORCEMENT, FORM_SCRAP, FORM_SCREEN_PLATE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
+    MINING_METHOD_HAND_PICK, PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE,
+    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SEPARATE_NATIVE_COPPER,
     PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY,
     PROSPECTING_FIELD_INSPECTION, PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
@@ -80,7 +81,7 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
 // A finite stockpiling work order, independent of measured overlap or hidden reserve.
-const STOCKPILE_WORK_ORDER_CYCLES: u64 = 12;
+pub(super) const STOCKPILE_WORK_ORDER_CYCLES: u64 = 12;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
 pub(super) const SHALLOW_OPPORTUNITY_MIN_BATCHES: u64 = 6;
 pub(super) const SHALLOW_OPPORTUNITY_MAX_BATCHES: u64 = 40;
@@ -776,7 +777,7 @@ fn mining_hardness_limits(registries: &Registries) -> (Pressure, Pressure, Press
     (stone_limit, reinforced_limit, hard_seam)
 }
 
-fn progression_mining_mass(registries: &Registries, seed: u64) -> Mass {
+pub(super) fn progression_mining_mass(registries: &Registries, seed: u64) -> Mass {
     let maximum = stone_pick_mining_batch_limit(registries).milligrams();
     assert!(
         maximum > 0,
@@ -1240,6 +1241,7 @@ pub(super) struct PrimitiveReinvestmentExperience {
     pub(crate) stockpile_demand_energy: Energy,
     pub(crate) stockpile_demand_charge_ticks: u64,
     pub(crate) stockpile_demand_separation_ticks: u64,
+    pub(crate) sizing_plate_continuation_ticks: u64,
     invested_copper_mass: Mass,
     base_crush_ticks: u64,
     reinforced_crush_ticks: u64,

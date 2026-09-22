@@ -53,6 +53,51 @@ pub(super) fn equipment_component_requirements(
     requirements
 }
 
+fn upgrade_raw_requirements(
+    registries: &Registries,
+    target: EquipmentDefinitionId,
+    expected_base: EquipmentDefinitionId,
+    context: &'static str,
+) -> (BTreeMap<CommodityKey, Mass>, Mass) {
+    let upgrade = registries
+        .equipment()
+        .get_equipment(target)
+        .and_then(|definition| definition.upgrade_profile())
+        .unwrap_or_else(|| {
+            panic!(
+                "fieldwork reinforced equipment {} lost its authored upgrade",
+                target.value()
+            )
+        });
+    assert_eq!(upgrade.from(), expected_base);
+    let mut raw = BTreeMap::new();
+    let mut total_raw = Mass::ZERO;
+    for input in upgrade.additions().inputs() {
+        let (craft, batches) = manual_craft_topology_plan_for_output(
+            registries,
+            input.commodity(),
+            input.mass(),
+            context,
+        );
+        let consumed = multiplied_mass(craft.input_mass(), batches, context);
+        add_mass(&mut raw, craft.input(), consumed, context);
+        total_raw = total_raw
+            .checked_add(consumed)
+            .unwrap_or_else(|| panic!("fieldwork {context} total raw mass overflowed"));
+    }
+    (raw, total_raw)
+}
+
+fn merge_maximum_requirements(
+    target: &mut BTreeMap<CommodityKey, Mass>,
+    candidate: &BTreeMap<CommodityKey, Mass>,
+) {
+    for (&commodity, &mass) in candidate {
+        let entry = target.entry(commodity).or_insert(Mass::ZERO);
+        *entry = (*entry).max(mass);
+    }
+}
+
 pub(super) fn fieldwork_raw_opportunity(
     registries: &Registries,
 ) -> (BTreeMap<CommodityKey, Mass>, Mass) {
@@ -84,45 +129,121 @@ pub(super) fn fieldwork_raw_opportunity(
             .unwrap_or_else(|| panic!("fieldwork parts capacity overflowed"));
     }
 
-    for (target, expected_base) in [
-        (
-            EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
-            EQUIPMENT_STONE_QUARRY_PICK,
-        ),
-        (EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_PICK),
-    ] {
-        let upgrade = registries
-            .equipment()
-            .get_equipment(target)
-            .and_then(|definition| definition.upgrade_profile())
-            .unwrap_or_else(|| {
-                panic!(
-                    "fieldwork reinforced equipment {} lost its authored upgrade",
-                    target.value()
-                )
-            });
-        assert_eq!(upgrade.from(), expected_base);
-        for input in upgrade.additions().inputs() {
-            let (craft, batches) = manual_craft_topology_plan_for_output(
-                registries,
-                input.commodity(),
-                input.mass(),
-                "fieldwork reinforcement planning",
-            );
-            let upgrade_raw =
-                multiplied_mass(craft.input_mass(), batches, "reinforcement raw input");
-            add_mass(
-                &mut raw,
-                craft.input(),
-                upgrade_raw,
-                "reinforcement raw opportunity",
-            );
-            parts_capacity = parts_capacity
-                .checked_add(upgrade_raw)
-                .unwrap_or_else(|| panic!("fieldwork reinforcement parts capacity overflowed"));
-        }
+    // The quarry and hard-pick reinforcements are mutually exclusive extraction choices. Reserve
+    // the component-wise maximum raw bill for one of them, not the sum of both alternatives.
+    let (quarry_upgrade, quarry_upgrade_mass) = upgrade_raw_requirements(
+        registries,
+        EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,
+        EQUIPMENT_STONE_QUARRY_PICK,
+        "fieldwork quarry reinforcement planning",
+    );
+    let (hard_pick_upgrade, hard_pick_upgrade_mass) = upgrade_raw_requirements(
+        registries,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        EQUIPMENT_STONE_PICK,
+        "fieldwork hard-pick reinforcement planning",
+    );
+    let mut mining_upgrade = BTreeMap::new();
+    merge_maximum_requirements(&mut mining_upgrade, &quarry_upgrade);
+    merge_maximum_requirements(&mut mining_upgrade, &hard_pick_upgrade);
+    for (&commodity, &mass) in &mining_upgrade {
+        add_mass(
+            &mut raw,
+            commodity,
+            mass,
+            "fieldwork alternative mining reinforcement reserve",
+        );
     }
+    parts_capacity = parts_capacity
+        .checked_add(quarry_upgrade_mass.max(hard_pick_upgrade_mass))
+        .unwrap_or_else(|| panic!("fieldwork mining reinforcement parts capacity overflowed"));
+
+    // A second reinforcement parcel is a distinct information investment: after the extraction
+    // tool is chosen, it may upgrade the geological hammer for repeated-site indexed surveying.
+    let (hammer_upgrade, hammer_upgrade_mass) = upgrade_raw_requirements(
+        registries,
+        EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+        EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+        "fieldwork sampling-hammer reinforcement planning",
+    );
+    for (commodity, mass) in hammer_upgrade {
+        add_mass(
+            &mut raw,
+            commodity,
+            mass,
+            "fieldwork sampling-hammer reinforcement reserve",
+        );
+    }
+    parts_capacity = parts_capacity
+        .checked_add(hammer_upgrade_mass)
+        .unwrap_or_else(|| panic!("fieldwork sampling reinforcement parts capacity overflowed"));
     (raw, parts_capacity)
+}
+
+pub(super) fn project_sampling_hammer_upgrade_ticks(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+) -> Option<u64> {
+    let upgrade = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER)
+        .and_then(|definition| definition.upgrade_profile())
+        .unwrap_or_else(|| panic!("fieldwork reinforced sampling hammer lost authored upgrade"));
+    assert_eq!(upgrade.from(), EQUIPMENT_STONE_GEOLOGICAL_HAMMER);
+
+    let parts_record = state
+        .inventory()
+        .get_stockpile(parts)
+        .unwrap_or_else(|| panic!("fieldwork parts stockpile disappeared"));
+    let raw_record = state
+        .inventory()
+        .get_stockpile(raw)
+        .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared"));
+    let mut raw_required = BTreeMap::<CommodityKey, Mass>::new();
+    for input in upgrade.additions().inputs() {
+        let available = parts_record.get_mass(input.commodity());
+        if available >= input.mass() {
+            continue;
+        }
+        let missing = input.mass().checked_sub(available).unwrap_or_else(|| {
+            unreachable!("fieldwork sampling upgrade checked parts availability")
+        });
+        let (craft, batches) = manual_craft_topology_plan_for_output(
+            registries,
+            input.commodity(),
+            missing,
+            "fieldwork sampling-hammer upgrade projection",
+        );
+        add_mass(
+            &mut raw_required,
+            craft.input(),
+            multiplied_mass(
+                craft.input_mass(),
+                batches,
+                "sampling-upgrade projection input",
+            ),
+            "sampling-upgrade projection input",
+        );
+    }
+    if raw_required
+        .iter()
+        .any(|(&commodity, &required)| raw_record.get_mass(commodity) < required)
+    {
+        return None;
+    }
+    Some(
+        project_manual_assembly_package(
+            registries,
+            state,
+            &[raw],
+            parts,
+            &[upgrade.additions()],
+            "fieldwork sampling-hammer upgrade projection",
+        )
+        .attention_ticks,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -131,6 +252,7 @@ pub(super) struct FieldworkMiningLimits {
     pub(super) reinforced_quarry_hardness: Pressure,
     pub(super) reinforced_pick_hardness: Pressure,
     pub(super) base_quarry_batch: Mass,
+    pub(super) maximum_candidate_batch: Mass,
 }
 
 pub(super) fn fieldwork_mining_limits(registries: &Registries) -> FieldworkMiningLimits {
@@ -159,6 +281,20 @@ pub(super) fn fieldwork_mining_limits(registries: &Registries) -> FieldworkMinin
     ) else {
         panic!("fieldwork stone quarry batch capability changed physical kind")
     };
+    let maximum_candidate_batch = FIELDWORK_TOOLS
+        .iter()
+        .map(|tool| {
+            let CapabilityValue::Mass(batch) = pristine_equipment_capability(
+                registries,
+                tool.target,
+                method.max_batch_mass_capability(),
+            ) else {
+                panic!("fieldwork candidate batch capability changed physical kind")
+            };
+            batch
+        })
+        .max()
+        .unwrap_or_else(|| unreachable!("fieldwork candidate family is nonempty"));
     let CapabilityValue::Pressure(hard_pick_hardness) = pristine_equipment_capability(
         registries,
         EQUIPMENT_COPPER_REINFORCED_PICK,
@@ -179,6 +315,7 @@ pub(super) fn fieldwork_mining_limits(registries: &Registries) -> FieldworkMinin
         reinforced_quarry_hardness: reinforced_hardness,
         reinforced_pick_hardness: hard_pick_hardness,
         base_quarry_batch: base_batch,
+        maximum_candidate_batch,
     }
 }
 
@@ -390,6 +527,7 @@ pub(super) fn estimate_fieldwork_tool(
     })
 }
 
+#[cfg(test)]
 pub(super) fn choose_fieldwork_tool(
     registries: &Registries,
     state: &AppState,
@@ -397,7 +535,68 @@ pub(super) fn choose_fieldwork_tool(
     observed_upper: Pressure,
     order: Mass,
 ) -> Option<FieldworkToolEstimate> {
-    let mut selected: Option<FieldworkToolEstimate> = None;
+    choose_fieldwork_tool_with_market_phase(
+        registries,
+        state,
+        raw,
+        observed_upper,
+        order,
+        "unspecified",
+    )
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct FieldworkBulkCrossover {
+    pub(super) tool_label: &'static str,
+    pub(super) batches: u64,
+    pub(super) order: Mass,
+}
+
+/// Finds the first representative bulk workload where a heavy quarry tool becomes the actor's
+/// preferred visible-state investment. This is diagnostic-only: it does not inspect hidden reserve
+/// truth and never feeds back into the current order.
+pub(super) fn fieldwork_bulk_crossover(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    observed_upper: Pressure,
+    base_batch: Mass,
+) -> Option<FieldworkBulkCrossover> {
+    const REPRESENTATIVE_BATCHES: [u64; 12] = [1, 2, 4, 8, 16, 24, 32, 40, 48, 64, 80, 96];
+    for batches in REPRESENTATIVE_BATCHES {
+        let order = multiplied_mass(base_batch, batches, "bulk crossover diagnostic");
+        let selected = FIELDWORK_TOOLS
+            .iter()
+            .filter_map(|&tool| {
+                estimate_fieldwork_tool(registries, state, raw, tool, observed_upper, order).ok()
+            })
+            .min_by_key(FieldworkToolEstimate::policy_key);
+        let Some(selected) = selected else {
+            continue;
+        };
+        if matches!(
+            selected.tool.target,
+            EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
+        ) {
+            return Some(FieldworkBulkCrossover {
+                tool_label: selected.tool.label,
+                batches,
+                order,
+            });
+        }
+    }
+    None
+}
+
+pub(super) fn choose_fieldwork_tool_with_market_phase(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    observed_upper: Pressure,
+    order: Mass,
+    market_phase: &'static str,
+) -> Option<FieldworkToolEstimate> {
+    let mut viable = Vec::new();
     for tool in FIELDWORK_TOOLS {
         let estimate = estimate_fieldwork_tool(registries, state, raw, tool, observed_upper, order);
         reviewln!(
@@ -407,12 +606,47 @@ pub(super) fn choose_fieldwork_tool(
             observed_upper.pascals(),
             order.milligrams()
         );
-        let Ok(estimate) = estimate else { continue };
-        if selected
-            .as_ref()
-            .is_none_or(|best| estimate.policy_key() < best.policy_key())
-        {
-            selected = Some(estimate);
+        if let Ok(estimate) = estimate {
+            viable.push(estimate);
+        }
+    }
+    let selected = viable
+        .iter()
+        .min_by_key(|estimate| estimate.policy_key())
+        .cloned();
+    if let Some(selected) = &selected {
+        let heavy = viable
+            .iter()
+            .filter(|estimate| {
+                matches!(
+                    estimate.tool.target,
+                    EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
+                )
+            })
+            .min_by_key(|estimate| estimate.policy_key());
+        if let Some(heavy) = heavy {
+            let preparation_extra =
+                i128::from(heavy.preparation_ticks) - i128::from(selected.preparation_ticks);
+            let order_saving = i128::from(selected.order_ticks) - i128::from(heavy.order_ticks);
+            let total_delta = i128::from(heavy.total_ticks()) - i128::from(selected.total_ticks());
+            reviewln!(
+                "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t heavy-best={} heavy-total={}t heavy-preparation-extra={preparation_extra:+}t heavy-order-saving={order_saving:+}t heavy-total-delta={total_delta:+}t heavy-investment={}",
+                selected.tool.label,
+                selected.total_ticks(),
+                heavy.tool.label,
+                heavy.total_ticks(),
+                if heavy.tool.target == selected.tool.target {
+                    "selected"
+                } else {
+                    "deferred"
+                },
+            );
+        } else {
+            reviewln!(
+                "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t heavy-best=unavailable heavy-investment=unavailable",
+                selected.tool.label,
+                selected.total_ticks(),
+            );
         }
     }
     selected

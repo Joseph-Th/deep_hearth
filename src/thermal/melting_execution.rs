@@ -1,22 +1,18 @@
 //! Resolves and replays pure-material melting operations.
 
-use crate::capability::CapabilityId;
 use crate::core::quantity::{Energy, Power, Temperature};
 use crate::core::state::AppState;
-use crate::energy::{
-    EnergyCarrier, EnergyStoreId, assess_energy_supply_access, validate_energy_supply_request,
-};
+use crate::energy::{EnergyStoreId, assess_energy_supply_access, validate_energy_supply_request};
 use crate::equipment::EquipmentId;
 use crate::inventory::MaterialLotSelection;
 use crate::inventory::StockpileId;
-use crate::material::{FormId, MaterialId};
+use crate::material::MaterialId;
 use crate::production::{
     ProcessId, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     validate_process_inputs,
 };
 use crate::registry::Registries;
 
-use super::PhaseChangeProcessProfile;
 use super::equipment_physics::{
     ThermalEquipmentRequest, ThermalEquipmentSetupError, ThermalTransferTimingError,
     resolve_runtime_thermal_equipment, resolve_thermal_transfer_timing,
@@ -24,92 +20,11 @@ use super::equipment_physics::{
 use super::phase_change_batch::{
     PurePhaseChangeBatchError, PurePhaseChangeDirection, resolve_pure_phase_change_batch,
 };
+use super::processes::MeltingProcessDefinition;
 #[cfg(test)]
 use super::{calculate_fusion_heat, calculate_sensible_heat};
 #[cfg(test)]
 use crate::material::{CommodityKey, MaterialPhase};
-
-/// Immutable declaration that one selected-batch process performs pure-material melting.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MeltingProcessDefinition {
-    process: ProcessId,
-    profile: PhaseChangeProcessProfile,
-    material: MaterialId,
-    solid_forms: Vec<FormId>,
-    liquid_form: FormId,
-}
-
-impl MeltingProcessDefinition {
-    #[must_use]
-    pub fn new(
-        process: ProcessId,
-        profile: PhaseChangeProcessProfile,
-        material: MaterialId,
-        solid_forms: Vec<FormId>,
-        liquid_form: FormId,
-    ) -> Self {
-        assert!(
-            !solid_forms.is_empty(),
-            "melting process must accept at least one solid input form"
-        );
-        assert!(
-            solid_forms.windows(2).all(|pair| pair[0] < pair[1]),
-            "melting input forms must be strictly ordered and unique"
-        );
-        Self {
-            process,
-            profile,
-            material,
-            solid_forms,
-            liquid_form,
-        }
-    }
-
-    #[must_use]
-    pub const fn process(&self) -> ProcessId {
-        self.process
-    }
-
-    #[must_use]
-    pub const fn heating_power_capability(&self) -> CapabilityId {
-        self.profile.transfer_power_capability()
-    }
-
-    #[must_use]
-    pub const fn max_temperature_capability(&self) -> CapabilityId {
-        self.profile.max_temperature_capability()
-    }
-
-    #[must_use]
-    pub const fn max_batch_mass_capability(&self) -> CapabilityId {
-        self.profile.max_batch_mass_capability()
-    }
-
-    #[must_use]
-    pub const fn energy_carrier(&self) -> EnergyCarrier {
-        self.profile.energy_carrier()
-    }
-
-    #[must_use]
-    pub const fn material(&self) -> MaterialId {
-        self.material
-    }
-
-    #[must_use]
-    pub fn solid_forms(&self) -> &[FormId] {
-        &self.solid_forms
-    }
-
-    #[must_use]
-    pub const fn liquid_form(&self) -> FormId {
-        self.liquid_form
-    }
-
-    #[must_use]
-    pub const fn condition_wear_ppm_per_active_tick(&self) -> u32 {
-        self.profile.condition_wear_ppm_per_active_tick()
-    }
-}
 
 /// Failure while deriving pure melting physics from exact consumed material traces.
 pub type MeltingBatchError = PurePhaseChangeBatchError;

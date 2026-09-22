@@ -31,6 +31,12 @@ fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u6
         ("survival-provisioning", FocusedProbeRole::MaintainedCoverage, 0x0000_0000_0000_0002) => {
             Some(0xAB2C_977A_0B20_C7A3)
         }
+        // This second choice-rich preservation world protects the opposite endpoint. The actor
+        // has enough disclosed timber to build the strongest pantry and values its much longer
+        // fresh-food window enough to accept the additional construction attention and matter.
+        ("survival-provisioning", FocusedProbeRole::MaintainedCoverage, 0x0000_0000_0000_0006) => {
+            Some(0x0274_20B1_9FB8_38F7)
+        }
         _ => None,
     }
 }
@@ -38,25 +44,28 @@ fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u6
 fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
     match name {
         // Stable survival coverage protects pressure response plus preservation choice shape:
-        // cheapest/strongest endpoints, one true intermediate value-frontier choice, and the
-        // distinct stone-only crock opportunity. Organic variation still owns broad exploration.
+        // cheapest/strongest endpoints, one true intermediate value-frontier choice, explicit
+        // decline, and the distinct stone-only crock opportunity. Organic variation still owns
+        // broad exploration.
         "survival-provisioning" => (
             0xD33F_C01D_5A70,
-            &[1, 2, 5, 0x043C_561D_398D_32BA, 0xF495_6470_1464_3BC2],
+            &[1, 2, 5, 6, 0x043C_561D_398D_32BA, 0xF495_6470_1464_3BC2],
             0x5355_5256_5052_4F42,
         ),
         "primitive-progression" => (0xD33F_C01D_5052, &[3, 4], 0x5052_4F47_5052_4F42),
         // Coverage spans break-even net-timber investment, attention-payback rejection,
         // outright copper blocking, protected-reserve refusal despite a profitable saw route,
-        // a long saw-to-adze fallback, and a copper-rich pipeline that actually replaces a
-        // worn blade.
+        // a short queued job just below the saw crossover, a long saw-to-adze fallback, and a
+        // copper-rich pipeline that actually replaces a worn blade.
         "woodworking" => (
             1,
-            &[3, 4, 6, 12, 250, 0x36F7_E3A2_7870_3A8A],
+            &[3, 4, 6, 12, 14, 250, 0x36F7_E3A2_7870_3A8A],
             0x574F_4F44_5052_4F42,
         ),
-        // Anchor selects the light reinforced pick; coverage adds the stone quarry route and
-        // hard-rock specialist evidence. Organic worlds remain free to land in any tier.
+        // Maintained fieldwork spans soft, reinforcement, and hard-specialist geology plus
+        // one-, two-, and three-site survey horizons. Heavy quarry tools are bulk-order
+        // investments covered by planning contracts rather than forced into the current project.
+        // Organic worlds remain free to land in any tier or campaign horizon.
         "fieldwork" => (1, &[2, 3, 6], 0x4649_454C_4450_5242),
         // Report-only crank-vs-treadle charging comparison needs no gate: the probe asserts its
         // own comparative contracts inline and organic variation owns broad exploration.

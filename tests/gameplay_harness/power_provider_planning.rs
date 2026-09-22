@@ -25,6 +25,8 @@ pub(super) struct ShapedBuild {
     pub(super) attention_ticks: u64,
     pub(super) input_mass_mg: u64,
     pub(super) embodied_mass_mg: u64,
+    pub(super) metabolic_nj: u128,
+    pub(super) hydration_ul: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +71,13 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) treadle_charge: ManualPowerProjection,
     pub(super) crank_lifecycle_attention: u64,
     pub(super) treadle_lifecycle_attention: u64,
+    pub(super) crank_lifecycle_metabolic_nj: u128,
+    pub(super) treadle_lifecycle_metabolic_nj: u128,
+    pub(super) crank_lifecycle_hydration_ul: u64,
+    pub(super) treadle_lifecycle_hydration_ul: u64,
+    pub(super) crank_lifecycle_condition: Condition,
+    pub(super) treadle_lifecycle_condition: Condition,
+    pub(super) decision_crossover_charges: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -82,6 +91,13 @@ pub(super) struct SettlementPowerPlan {
     pub(super) walking_charge: ManualPowerProjection,
     pub(super) treadle_lifecycle_attention: u64,
     pub(super) walking_lifecycle_attention: u64,
+    pub(super) treadle_lifecycle_metabolic_nj: u128,
+    pub(super) walking_lifecycle_metabolic_nj: u128,
+    pub(super) treadle_lifecycle_hydration_ul: u64,
+    pub(super) walking_lifecycle_hydration_ul: u64,
+    pub(super) treadle_lifecycle_condition: Condition,
+    pub(super) walking_lifecycle_condition: Condition,
+    pub(super) decision_crossover_charges: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -97,6 +113,8 @@ struct ManualPowerRoute {
 struct ManualPowerLifecycleCost {
     attention_ticks: u64,
     metabolic_nj: u128,
+    hydration_ul: u64,
+    condition_after: Condition,
 }
 
 impl ManualPowerRoute {
@@ -133,6 +151,7 @@ impl ManualPowerRoute {
             .resource_budget()
             .metabolic_energy()
             .nanojoules();
+        let mut hydration_ul = first_charge.resource_budget().hydration().microliters();
         let mut condition = first_charge.condition_after();
 
         // Carry the canonical projected condition forward so each later charge pays for the wear
@@ -155,14 +174,109 @@ impl ManualPowerRoute {
                         self.context
                     )
                 });
+            hydration_ul = hydration_ul
+                .checked_add(charge.resource_budget().hydration().microliters())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "power-provider {} lifecycle hydration overflowed",
+                        self.context
+                    )
+                });
             condition = charge.condition_after();
         }
 
         ManualPowerLifecycleCost {
             attention_ticks,
             metabolic_nj,
+            hydration_ul,
+            condition_after: condition,
         }
     }
+}
+
+fn first_candidate_preferred_charge(
+    registries: &Registries,
+    baseline_route: ManualPowerRoute,
+    baseline_build: ShapedBuild,
+    candidate_route: ManualPowerRoute,
+    candidate_build: ShapedBuild,
+    maximum_charges: u64,
+) -> Option<u64> {
+    let mut baseline_attention = baseline_build.attention_ticks;
+    let mut baseline_metabolic = 0_u128;
+    let mut baseline_hydration = 0_u64;
+    let mut baseline_condition = Condition::PRISTINE;
+    let mut candidate_attention = candidate_build.attention_ticks;
+    let mut candidate_metabolic = 0_u128;
+    let mut candidate_hydration = 0_u64;
+    let mut candidate_condition = Condition::PRISTINE;
+
+    for charges in 1..=maximum_charges {
+        let baseline_charge = baseline_route.project(registries, baseline_condition);
+        baseline_attention = baseline_attention
+            .checked_add(baseline_charge.duration().value())
+            .unwrap_or_else(|| panic!("power-provider baseline crossover attention overflowed"));
+        baseline_metabolic = baseline_metabolic
+            .checked_add(
+                baseline_charge
+                    .resource_budget()
+                    .metabolic_energy()
+                    .nanojoules(),
+            )
+            .unwrap_or_else(|| panic!("power-provider baseline crossover metabolism overflowed"));
+        baseline_hydration = baseline_hydration
+            .checked_add(baseline_charge.resource_budget().hydration().microliters())
+            .unwrap_or_else(|| panic!("power-provider baseline crossover hydration overflowed"));
+        baseline_condition = baseline_charge.condition_after();
+
+        let candidate_charge = candidate_route.project(registries, candidate_condition);
+        candidate_attention = candidate_attention
+            .checked_add(candidate_charge.duration().value())
+            .unwrap_or_else(|| panic!("power-provider candidate crossover attention overflowed"));
+        candidate_metabolic = candidate_metabolic
+            .checked_add(
+                candidate_charge
+                    .resource_budget()
+                    .metabolic_energy()
+                    .nanojoules(),
+            )
+            .unwrap_or_else(|| panic!("power-provider candidate crossover metabolism overflowed"));
+        candidate_hydration = candidate_hydration
+            .checked_add(candidate_charge.resource_budget().hydration().microliters())
+            .unwrap_or_else(|| panic!("power-provider candidate crossover hydration overflowed"));
+        candidate_condition = candidate_charge.condition_after();
+
+        let baseline_key = (
+            baseline_attention,
+            baseline_build
+                .metabolic_nj
+                .checked_add(baseline_metabolic)
+                .unwrap_or_else(|| panic!("power-provider baseline total metabolism overflowed")),
+            baseline_build
+                .hydration_ul
+                .checked_add(baseline_hydration)
+                .unwrap_or_else(|| panic!("power-provider baseline total hydration overflowed")),
+            baseline_build.input_mass_mg,
+            0_u8,
+        );
+        let candidate_key = (
+            candidate_attention,
+            candidate_build
+                .metabolic_nj
+                .checked_add(candidate_metabolic)
+                .unwrap_or_else(|| panic!("power-provider candidate total metabolism overflowed")),
+            candidate_build
+                .hydration_ul
+                .checked_add(candidate_hydration)
+                .unwrap_or_else(|| panic!("power-provider candidate total hydration overflowed")),
+            candidate_build.input_mass_mg,
+            1_u8,
+        );
+        if candidate_key < baseline_key {
+            return Some(charges);
+        }
+    }
+    None
 }
 
 pub(super) fn settlement_power_plan(
@@ -206,6 +320,14 @@ pub(super) fn settlement_power_plan(
         requested,
         context: "settlement walking wheel",
     };
+    let decision_crossover_charges = first_candidate_preferred_charge(
+        registries,
+        treadle_route,
+        treadle_build,
+        walking_route,
+        walking_build,
+        MAX_SETTLEMENT_PLANNED_CHARGES,
+    );
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     let walking_charge = walking_route.project(registries, Condition::PRISTINE);
     let planned_charges = 1 + mix64(seed ^ 0x5345_5454_4C45_5057) % MAX_SETTLEMENT_PLANNED_CHARGES;
@@ -221,15 +343,33 @@ pub(super) fn settlement_power_plan(
         .attention_ticks
         .checked_add(walking_lifecycle.attention_ticks)
         .unwrap_or_else(|| panic!("settlement walking-wheel lifecycle attention overflowed"));
+    let treadle_lifecycle_metabolic_nj = treadle_build
+        .metabolic_nj
+        .checked_add(treadle_lifecycle.metabolic_nj)
+        .unwrap_or_else(|| panic!("settlement treadle total metabolism overflowed"));
+    let walking_lifecycle_metabolic_nj = walking_build
+        .metabolic_nj
+        .checked_add(walking_lifecycle.metabolic_nj)
+        .unwrap_or_else(|| panic!("settlement walking total metabolism overflowed"));
+    let treadle_lifecycle_hydration_ul = treadle_build
+        .hydration_ul
+        .checked_add(treadle_lifecycle.hydration_ul)
+        .unwrap_or_else(|| panic!("settlement treadle total hydration overflowed"));
+    let walking_lifecycle_hydration_ul = walking_build
+        .hydration_ul
+        .checked_add(walking_lifecycle.hydration_ul)
+        .unwrap_or_else(|| panic!("settlement walking total hydration overflowed"));
     let treadle_key = (
         treadle_lifecycle_attention,
-        treadle_lifecycle.metabolic_nj,
+        treadle_lifecycle_metabolic_nj,
+        treadle_lifecycle_hydration_ul,
         treadle_build.input_mass_mg,
         0_u8,
     );
     let walking_key = (
         walking_lifecycle_attention,
-        walking_lifecycle.metabolic_nj,
+        walking_lifecycle_metabolic_nj,
+        walking_lifecycle_hydration_ul,
         walking_build.input_mass_mg,
         1_u8,
     );
@@ -247,6 +387,13 @@ pub(super) fn settlement_power_plan(
         walking_charge,
         treadle_lifecycle_attention,
         walking_lifecycle_attention,
+        treadle_lifecycle_metabolic_nj,
+        walking_lifecycle_metabolic_nj,
+        treadle_lifecycle_hydration_ul,
+        walking_lifecycle_hydration_ul,
+        treadle_lifecycle_condition: treadle_lifecycle.condition_after,
+        walking_lifecycle_condition: walking_lifecycle.condition_after,
+        decision_crossover_charges,
     }
 }
 
@@ -291,6 +438,8 @@ fn project_power_package(
         attention_ticks: projection.attention_ticks,
         input_mass_mg: projection.input_mass_mg,
         embodied_mass_mg: projection.embodied_mass_mg,
+        metabolic_nj: projection.metabolic_nj,
+        hydration_ul: projection.hydration_ul,
     }
 }
 
@@ -344,6 +493,14 @@ pub(super) fn primitive_power_plan(
     let crank_lifecycle = crank_route.project_lifecycle(registries, planned_charges, crank_charge);
     let treadle_lifecycle =
         treadle_route.project_lifecycle(registries, planned_charges, treadle_charge);
+    let decision_crossover_charges = first_candidate_preferred_charge(
+        registries,
+        crank_route,
+        crank_build,
+        treadle_route,
+        treadle_build,
+        MAX_PRIMITIVE_PLANNED_CHARGES,
+    );
     let crank_lifecycle_attention = crank_build
         .attention_ticks
         .checked_add(crank_lifecycle.attention_ticks)
@@ -352,15 +509,33 @@ pub(super) fn primitive_power_plan(
         .attention_ticks
         .checked_add(treadle_lifecycle.attention_ticks)
         .unwrap_or_else(|| panic!("power provider treadle lifecycle attention overflowed"));
+    let crank_lifecycle_metabolic_nj = crank_build
+        .metabolic_nj
+        .checked_add(crank_lifecycle.metabolic_nj)
+        .unwrap_or_else(|| panic!("power provider crank total metabolism overflowed"));
+    let treadle_lifecycle_metabolic_nj = treadle_build
+        .metabolic_nj
+        .checked_add(treadle_lifecycle.metabolic_nj)
+        .unwrap_or_else(|| panic!("power provider treadle total metabolism overflowed"));
+    let crank_lifecycle_hydration_ul = crank_build
+        .hydration_ul
+        .checked_add(crank_lifecycle.hydration_ul)
+        .unwrap_or_else(|| panic!("power provider crank total hydration overflowed"));
+    let treadle_lifecycle_hydration_ul = treadle_build
+        .hydration_ul
+        .checked_add(treadle_lifecycle.hydration_ul)
+        .unwrap_or_else(|| panic!("power provider treadle total hydration overflowed"));
     let crank_key = (
         crank_lifecycle_attention,
-        crank_lifecycle.metabolic_nj,
+        crank_lifecycle_metabolic_nj,
+        crank_lifecycle_hydration_ul,
         crank_build.input_mass_mg,
         0_u8,
     );
     let treadle_key = (
         treadle_lifecycle_attention,
-        treadle_lifecycle.metabolic_nj,
+        treadle_lifecycle_metabolic_nj,
+        treadle_lifecycle_hydration_ul,
         treadle_build.input_mass_mg,
         1_u8,
     );
@@ -379,5 +554,12 @@ pub(super) fn primitive_power_plan(
         treadle_charge,
         crank_lifecycle_attention,
         treadle_lifecycle_attention,
+        crank_lifecycle_metabolic_nj,
+        treadle_lifecycle_metabolic_nj,
+        crank_lifecycle_hydration_ul,
+        treadle_lifecycle_hydration_ul,
+        crank_lifecycle_condition: crank_lifecycle.condition_after,
+        treadle_lifecycle_condition: treadle_lifecycle.condition_after,
+        decision_crossover_charges,
     }
 }

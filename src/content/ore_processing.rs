@@ -25,10 +25,10 @@ use super::materials::{
     FORM_TAILINGS, MATERIAL_COPPER,
 };
 use super::processes::{
-    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
-    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
-    PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
+    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_REGRIND_COPPER_TAILINGS,
+    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
 use crate::survival::SurvivalExertion;
 
@@ -174,6 +174,25 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     EnergyCarrier::Mechanical,
                     MassSpecificEnergy::from_nanojoules_per_milligram(250_000),
                     150,
+                ),
+            ),
+            // The material model represents liberated copper as the copper constituent itself, not
+            // as an oxide/sulfide compound. Rich concentrate therefore has an ordinary mechanical
+            // cleanup route instead of waiting for unmodeled chemical reduction. Finite recovery
+            // keeps the last dressing pass costly and leaves unrecovered copper in terminal tailings.
+            ConstituentSeparationProcessDefinition::new_sorting(
+                PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
+                FORM_CONCENTRATE,
+                MATERIAL_COPPER,
+                FORM_NATIVE_METAL,
+                FORM_EXHAUSTED_TAILINGS,
+                900_000,
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(300_000),
+                    175,
                 ),
             ),
             ConstituentSeparationProcessDefinition::new_concentration(

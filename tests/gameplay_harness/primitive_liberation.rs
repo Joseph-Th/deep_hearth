@@ -1,20 +1,21 @@
 //! Ordinary primitive liberation episode shared by progression gates and exploratory reports.
 
-use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
+use deep_hearth::capability::CapabilityValue;
+use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
-    ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
-    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR,
-    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_SCRAP,
-    FORM_SCREEN_PLATE, MATERIAL_COPPER, PROCESS_GRIND_CRUSHED_ORE,
-    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SCREEN_CRUSHED_ORE,
+    ENERGY_ELECTRICAL_BUFFER, ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_THERMAL_SINK,
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_CRUSHER,
+    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
+    MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER, PROCESS_GRIND_CRUSHED_ORE,
+    PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
-use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
-use deep_hearth::energy::EnergyStoreId;
-use deep_hearth::equipment::{EquipmentId, validate_upgrade_equipment};
-use deep_hearth::inventory::MaterialLotSelection;
+use deep_hearth::energy::{EnergyCarrier, EnergyStoreId};
+use deep_hearth::equipment::EquipmentId;
+use deep_hearth::inventory::{MaterialLotId, StockpileId};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -24,12 +25,16 @@ use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_runner::focused_probe_role_label;
-use super::focused_seeds::FocusedProbeCase;
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
+use super::manual_ore_recovery::{ManualOreRecoveryPlan, evaluate_manual_ore_recovery};
 use super::ore_fixture::copper_ore_composition;
-use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 
+#[path = "primitive_liberation/acquisition.rs"]
+mod acquisition;
+#[path = "primitive_liberation/cleanup.rs"]
+mod cleanup;
 #[path = "primitive_liberation/comparison.rs"]
 mod comparison;
 #[path = "primitive_liberation/primary.rs"]
@@ -38,6 +43,73 @@ mod primary;
 mod scavenging;
 #[path = "primitive_liberation/support.rs"]
 mod support;
+
+const PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES: u64 = 8;
+
+#[derive(Clone, Copy)]
+struct PrimitiveLiberationBootstrap {
+    ore: StockpileId,
+    crushed: StockpileId,
+    ground: StockpileId,
+    undersize: StockpileId,
+    oversize: StockpileId,
+    concentrate: StockpileId,
+    tailings: StockpileId,
+    fine_tailings: StockpileId,
+    exhausted_tailings: StockpileId,
+    native_copper: StockpileId,
+    manual_crushed: StockpileId,
+    manual_native: StockpileId,
+    manual_residue: StockpileId,
+    ore_lot: MaterialLotId,
+}
+
+fn bootstrap_liberation_inventory(
+    registries: &Registries,
+    state: &mut AppState,
+    batch_mass: Mass,
+    copper_ppm: u32,
+    clay_share_ppm: u32,
+) -> PrimitiveLiberationBootstrap {
+    let ore = add_solid_stockpile(state, batch_mass);
+    let crushed = add_solid_stockpile(state, batch_mass);
+    let ground = add_solid_stockpile(state, batch_mass);
+    let undersize = add_solid_stockpile(state, batch_mass);
+    let oversize = add_solid_stockpile(state, batch_mass);
+    let concentrate = add_solid_stockpile(state, batch_mass);
+    let tailings = add_solid_stockpile(state, batch_mass);
+    let fine_tailings = add_solid_stockpile(state, batch_mass);
+    let exhausted_tailings = add_solid_stockpile(state, batch_mass);
+    let native_copper = add_solid_stockpile(state, batch_mass);
+    let manual_crushed = add_solid_stockpile(state, batch_mass);
+    let manual_native = add_solid_stockpile(state, batch_mass);
+    let manual_residue = add_solid_stockpile(state, batch_mass);
+    let ore_lot = seed_composed_lot(
+        registries,
+        state,
+        ore,
+        CommodityKey::new(MATERIAL_COPPER, deep_hearth::content::FORM_ORE),
+        batch_mass,
+        ROOM_TEMPERATURE,
+        copper_ore_composition(copper_ppm, clay_share_ppm),
+    );
+    PrimitiveLiberationBootstrap {
+        ore,
+        crushed,
+        ground,
+        undersize,
+        oversize,
+        concentrate,
+        tailings,
+        fine_tailings,
+        exhausted_tailings,
+        native_copper,
+        manual_crushed,
+        manual_native,
+        manual_residue,
+        ore_lot,
+    }
+}
 
 #[derive(Clone)]
 struct PrimitiveLiberationScenario {
@@ -55,6 +127,7 @@ struct PrimitiveLiberationScenario {
     tailings: deep_hearth::inventory::StockpileId,
     fine_tailings: deep_hearth::inventory::StockpileId,
     exhausted_tailings: deep_hearth::inventory::StockpileId,
+    native_copper: deep_hearth::inventory::StockpileId,
     ore_lot: deep_hearth::inventory::MaterialLotId,
     crusher: EquipmentId,
     quern: EquipmentId,
@@ -88,74 +161,95 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     );
     let copper_ppm = 300_000 + (mix64(seed ^ 0x4C49_4245_5243_5550) % 300_001) as u32;
     let clay_share_ppm = (mix64(seed ^ 0x4C49_4245_5243_4C41) % 650_001) as u32;
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x51A2_1B3A_7100_0001));
-    let ore = add_solid_stockpile(&mut state, batch_mass);
-    let crushed = add_solid_stockpile(&mut state, batch_mass);
-    let ground = add_solid_stockpile(&mut state, batch_mass);
-    let undersize = add_solid_stockpile(&mut state, batch_mass);
-    let oversize = add_solid_stockpile(&mut state, batch_mass);
-    let concentrate = add_solid_stockpile(&mut state, batch_mass);
-    let tailings = add_solid_stockpile(&mut state, batch_mass);
-    let fine_tailings = add_solid_stockpile(&mut state, batch_mass);
-    let exhausted_tailings = add_solid_stockpile(&mut state, batch_mass);
-    let ore_lot = seed_composed_lot(
-        registries,
-        &mut state,
+    let (state, crusher, quern, screen, separator, treadle, drive, kit_acquisition, bootstrap) =
+        if case.role() == FocusedProbeRole::MaintainedAnchor {
+            let (acquired, bootstrap) = acquisition::acquire_raw_kit(
+                registries,
+                seed,
+                PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
+                |state| {
+                    bootstrap_liberation_inventory(
+                        registries,
+                        state,
+                        batch_mass,
+                        copper_ppm,
+                        clay_share_ppm,
+                    )
+                },
+            );
+            (
+                acquired.state,
+                acquired.crusher,
+                acquired.quern,
+                acquired.screen,
+                acquired.separator,
+                acquired.treadle,
+                acquired.drive,
+                Some(acquired.review),
+                bootstrap,
+            )
+        } else {
+            let mut state = AppState::new(WorldSeed::new(seed ^ 0x51A2_1B3A_7100_0001));
+            let crusher = support::assemble_equipment_from_authored_parts(
+                registries,
+                &mut state,
+                EQUIPMENT_STONE_CRUSHER,
+            );
+            let quern = support::assemble_equipment_from_authored_parts(
+                registries,
+                &mut state,
+                EQUIPMENT_STONE_ROTARY_QUERN,
+            );
+            let screen = support::assemble_equipment_from_authored_parts(
+                registries,
+                &mut state,
+                EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
+            );
+            let separator = support::assemble_equipment_from_authored_parts(
+                registries,
+                &mut state,
+                EQUIPMENT_STONE_SEPARATOR,
+            );
+            let treadle = support::assemble_equipment_from_authored_parts(
+                registries,
+                &mut state,
+                EQUIPMENT_TIMBER_TREADLE_DRIVE,
+            );
+            let drive = support::assemble_energy_store_from_authored_parts(
+                registries,
+                &mut state,
+                ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
+            );
+            let bootstrap = bootstrap_liberation_inventory(
+                registries,
+                &mut state,
+                batch_mass,
+                copper_ppm,
+                clay_share_ppm,
+            );
+            initialize_player_survival(registries, &mut state).unwrap_or_else(|error| {
+                panic!("primitive liberation survival setup failed: {error}")
+            });
+            (
+                state, crusher, quern, screen, separator, treadle, drive, None, bootstrap,
+            )
+        };
+    let PrimitiveLiberationBootstrap {
         ore,
-        CommodityKey::new(MATERIAL_COPPER, deep_hearth::content::FORM_ORE),
-        batch_mass,
-        ROOM_TEMPERATURE,
-        copper_ore_composition(copper_ppm, clay_share_ppm),
-    );
-    let crusher = support::assemble_equipment_from_authored_parts(
-        registries,
-        &mut state,
-        EQUIPMENT_STONE_CRUSHER,
-    );
-    let quern = support::assemble_equipment_from_authored_parts(
-        registries,
-        &mut state,
-        EQUIPMENT_STONE_ROTARY_QUERN,
-    );
-    let screen = support::assemble_equipment_from_authored_parts(
-        registries,
-        &mut state,
-        EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
-    );
-    let plate_craft = registries
-        .crafting()
-        .get_manual(PROCESS_PIERCE_COPPER_SCREEN_PLATE)
-        .unwrap_or_else(|| panic!("primitive sizing-plate craft definition disappeared"));
-    let screen_plate = plate_craft
-        .outputs()
-        .iter()
-        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE))
-        .unwrap_or_else(|| panic!("primitive sizing-plate craft lost its screen-plate output"));
-    let screen_upgrade_material = add_solid_stockpile(&mut state, plate_craft.input_mass());
-    let screen_plate_source = add_solid_stockpile(&mut state, plate_craft.input_mass());
-    let screen_plate_input = seed_lot(
-        registries,
-        &mut state,
-        screen_plate_source,
-        plate_craft.input(),
-        plate_craft.input_mass(),
-        ROOM_TEMPERATURE,
-    );
-    let separator = support::assemble_equipment_from_authored_parts(
-        registries,
-        &mut state,
-        EQUIPMENT_STONE_SEPARATOR,
-    );
-    let treadle = support::assemble_equipment_from_authored_parts(
-        registries,
-        &mut state,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-    );
-    let drive = support::assemble_energy_store_from_authored_parts(
-        registries,
-        &mut state,
-        ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
-    );
+        crushed,
+        ground,
+        undersize,
+        oversize,
+        concentrate,
+        tailings,
+        fine_tailings,
+        exhausted_tailings,
+        native_copper,
+        manual_crushed,
+        manual_native,
+        manual_residue,
+        ore_lot,
+    } = bootstrap;
     let drive_capacity = registries
         .energy()
         .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
@@ -164,64 +258,20 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("primitive liberation matter setup failed: {error}"))
         .total();
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("primitive liberation survival setup failed: {error}"));
-    let plate_job = validate_start_manual_craft(
+    let manual_recovery = evaluate_manual_ore_recovery(
         registries,
         &state,
-        ManualCraftStartRequest::single(
-            PROCESS_PIERCE_COPPER_SCREEN_PLATE,
-            screen_plate_source,
-            MaterialLotSelection::new(screen_plate_input, plate_craft.input_mass()),
-            screen_upgrade_material,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("primitive sizing-plate craft failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("primitive sizing-plate craft commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        &mut state,
-        plate_job,
-        "primitive copper sizing plate",
-    );
-    let authored_scrap = plate_craft
-        .outputs()
-        .iter()
-        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
-        .map(|output| output.mass())
-        .unwrap_or(Mass::ZERO);
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(screen_upgrade_material)
-            .map(|stockpile| {
-                stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP))
-            }),
-        Some(authored_scrap),
-        "piercing the sizing plate must retain its authored reworkable byproduct"
+        ManualOreRecoveryPlan {
+            ore_source: ore,
+            crushed_destination: manual_crushed,
+            native_destination: manual_native,
+            residue_destination: manual_residue,
+            feed_mass: batch_mass,
+        },
     );
     assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(screen_upgrade_material)
-            .map(|stockpile| stockpile.get_mass(screen_plate.commodity())),
-        Some(screen_plate.mass()),
-        "the authored plate output must become the exact additive screen-upgrade stock"
-    );
-    let upgraded_screen = validate_upgrade_equipment(
-        registries,
-        &state,
-        screen,
-        EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
-        screen_upgrade_material,
-    )
-    .unwrap_or_else(|error| panic!("primitive sizing-screen upgrade failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("primitive sizing-screen upgrade commit failed: {error}"));
-    assert_eq!(
-        upgraded_screen, screen,
-        "copper sizing plate must upgrade the existing timber riddle in place"
+        manual_recovery.feed_mass, batch_mass,
+        "primitive liberation manual comparison must use the exact powered feed mass"
     );
 
     let mut scenario = PrimitiveLiberationScenario {
@@ -239,6 +289,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         tailings,
         fine_tailings,
         exhausted_tailings,
+        native_copper,
         ore_lot,
         crusher,
         quern,
@@ -252,9 +303,14 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     let started_at = scenario.state.tick().value();
     let primary = primary::run(registries, &mut scenario);
     let primary_completed_at = scenario.state.tick().value();
+    let mut direct_cleanup = scenario.clone();
+    let direct_cleaned = cleanup::run(registries, &mut direct_cleanup);
     let scavenged = scavenging::run(registries, &mut scenario, &primary);
+    let scavenger_completed_at = scenario.state.tick().value();
+    let cleaned = cleanup::run(registries, &mut scenario);
     let baseline_primary = primary::run(registries, &mut full_buffer);
     let baseline_scavenged = scavenging::run(registries, &mut full_buffer, &baseline_primary);
+    let baseline_cleaned = cleanup::run(registries, &mut full_buffer);
     assert_eq!(
         primary, baseline_primary,
         "charging policy must preserve primary recovery"
@@ -263,14 +319,27 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         scavenged, baseline_scavenged,
         "charging policy must preserve scavenger recovery"
     );
+    assert_eq!(
+        cleaned, baseline_cleaned,
+        "charging policy must preserve final concentrate cleanup"
+    );
     comparison::review(
         registries,
         seed,
-        started_at,
-        primary_completed_at,
-        &scenario,
-        &full_buffer,
-        &scavenged,
+        comparison::LiberationComparison {
+            started_at,
+            primary_completed_at,
+            scavenger_completed_at,
+            demand: &scenario,
+            full: &full_buffer,
+            scavenged: &scavenged,
+            cleaned: &cleaned,
+            direct_cleanup: &direct_cleanup,
+            direct_cleaned: &direct_cleaned,
+            manual_recovery: &manual_recovery,
+            kit_acquisition: kit_acquisition.as_ref(),
+            planned_batches: PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
+        },
     );
     let state = &scenario.state;
     assert!(
@@ -305,6 +374,12 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .concentrate_copper_ppm_mg
         .checked_add(scavenged.additional_recovered_copper_ppm_mg)
         .unwrap_or_else(|| panic!("primitive liberation recovered-copper audit overflowed"));
+    let native_copper_mass = state
+        .inventory()
+        .get_stockpile(native_copper)
+        .map(|record| record.stored_mass())
+        .unwrap_or_else(|| panic!("primitive native-copper stockpile disappeared"));
+    assert_eq!(native_copper_mass, cleaned.native_copper_mass);
     // Use exact constituent numerators, not rounded concentrate grades. Keep any fractional
     // milligrams as decimal digits without floating point or truncating represented copper.
     let copper_mg = |numerator: u128| {
@@ -317,8 +392,95 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             format!("{whole}.{}", digits.trim_end_matches('0'))
         }
     };
+    let furnace = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_ELECTRIC_FURNACE)
+        .unwrap_or_else(|| panic!("foundry frontier furnace definition disappeared"));
+    let mold = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_CASTING_MOLD)
+        .unwrap_or_else(|| panic!("foundry frontier mold definition disappeared"));
+    let electrical_buffer = registries
+        .energy()
+        .get_store(ENERGY_ELECTRICAL_BUFFER)
+        .unwrap_or_else(|| panic!("foundry frontier electrical buffer definition disappeared"));
+    let thermal_sink = registries
+        .energy()
+        .get_store(ENERGY_THERMAL_SINK)
+        .unwrap_or_else(|| panic!("foundry frontier thermal sink definition disappeared"));
+    let manual_electrical_generation = [
+        MANUAL_POWER_HAND_CRANK,
+        MANUAL_POWER_FOOT_TREADLE,
+        MANUAL_POWER_WALKING_WHEEL,
+    ]
+    .into_iter()
+    .filter_map(|method| registries.labor().get_manual_power(method))
+    .any(|method| method.carrier() == EnergyCarrier::Electrical);
+    let melting = registries
+        .thermal()
+        .get_melting(PROCESS_MELT_PURE_COPPER)
+        .unwrap_or_else(|| panic!("foundry frontier copper melting definition disappeared"));
+    let furnace_heating_power = match furnace
+        .capabilities()
+        .get_capability(melting.heating_power_capability())
+    {
+        Some(CapabilityValue::Power(power)) => power,
+        Some(other) => panic!(
+            "foundry furnace heating capability changed physical kind: {:?}",
+            other.kind()
+        ),
+        None => panic!("foundry furnace lost its authored heating capability"),
+    };
+    let maximum_manual_mechanical_power = [
+        MANUAL_POWER_HAND_CRANK,
+        MANUAL_POWER_FOOT_TREADLE,
+        MANUAL_POWER_WALKING_WHEEL,
+    ]
+    .into_iter()
+    .filter_map(|method| registries.labor().get_manual_power(method))
+    .filter(|method| method.carrier() == EnergyCarrier::Mechanical)
+    .flat_map(|method| {
+        registries
+            .equipment()
+            .definitions()
+            .filter_map(move |equipment| {
+                match equipment
+                    .capabilities()
+                    .get_capability(method.power_capability())
+                {
+                    Some(CapabilityValue::Power(power)) => Some(power),
+                    Some(_) | None => None,
+                }
+            })
+    })
+    .max()
+    .unwrap_or_else(|| panic!("ordinary manual mechanical power has no authored provider"));
+    let manual_microwatts = maximum_manual_mechanical_power
+        .whole_microwatts()
+        .unwrap_or_else(|| panic!("manual mechanical frontier power is not a whole microwatt"));
+    let furnace_microwatts = furnace_heating_power
+        .whole_microwatts()
+        .unwrap_or_else(|| panic!("furnace heating frontier power is not a whole microwatt"));
+    let transfer_ceiling_ratio = furnace_heating_power
+        .picowatts()
+        .checked_div(maximum_manual_mechanical_power.picowatts())
+        .unwrap_or_else(|| panic!("manual mechanical frontier power unexpectedly vanished"));
+    let foundry_frontier = format!(
+        "assembly-edge=[furnace:{} mold:{} electrical-buffer:{} thermal-sink:{}] manual-electrical-generation:{} support-required=[furnace:{} mold:{}] energy-scale=[manual-mechanical-max:{}uW furnace-transfer-ceiling:{}uW ceiling-ratio:{}x melting-carrier:{:?} conversion-path:absent]",
+        furnace.assembly_profile().is_some(),
+        mold.assembly_profile().is_some(),
+        electrical_buffer.assembly_profile().is_some(),
+        thermal_sink.assembly_profile().is_some(),
+        manual_electrical_generation,
+        furnace.requires_structural_support(),
+        mold.requires_structural_support(),
+        manual_microwatts,
+        furnace_microwatts,
+        transfer_ceiling_ratio,
+        melting.energy_carrier(),
+    );
     reviewln!(
-        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} selected-by-current-player=false reason=no-ordinary-concentrate-sink route=treadle+paired-flywheel->crusher->quern->copper-screen->regrind->separator->tailings-regrind->scavenger input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
+        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} selected-by-current-player=true reason=ordinary-concentrate-cleanup-available route=treadle+paired-flywheel->crusher->quern->timber-riddle->regrind->separator->tailings-regrind->scavenger->concentrate-cleanup input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] native-copper={}mg cleanup-residue={}mg exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),
         copper_ppm,
@@ -330,12 +492,11 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         copper_mg(primary.concentrate_copper_ppm_mg),
         copper_mg(recovered_copper_ppm_mg),
         copper_mg(scavenged.additional_recovered_copper_ppm_mg),
-        scavenged.exhausted_tailings_mass.milligrams(),
+        cleaned.native_copper_mass.milligrams(),
+        cleaned.cleanup_residue_mass.milligrams(),
+        cleaned.exhausted_tailings_mass.milligrams(),
         final_energy.nanojoules(),
     );
-    // The concentrate stockpile has no ordinary sink yet: reduction/smelting into pure metal is
-    // still the STATUS.md frontier, so the scavenger leg reads as future-proofing rather than
-    // immediate copper. Report its share of recovered copper alongside that boundary.
     let scavenger_share_ppm = scavenged
         .additional_recovered_copper_ppm_mg
         .checked_mul(1_000_000)
@@ -344,7 +505,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .unwrap_or(0)
         .min(1_000_000);
     reviewln!(
-        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] sink=none-ordinary smelting-frontier=prepared-ore-concentrate->pure-metal reachability-authority=STATUS.md",
+        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] cleanup=[native-copper:{}mg recovery:{}ppm residue:{}mg] sink=usable-native-copper remaining-frontier=foundry-infrastructure foundry-frontier=[{}] reachability-authority=STATUS.md",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),
         copper_ppm,
@@ -352,5 +513,9 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         scavenged.concentrate_grade_ppm,
         scavenged.additional_recovered_copper_ppm_mg / 1_000_000,
         scavenger_share_ppm,
+        cleaned.native_copper_mass.milligrams(),
+        cleaned.target_recovery_ppm,
+        cleaned.cleanup_residue_mass.milligrams(),
+        foundry_frontier,
     );
 }

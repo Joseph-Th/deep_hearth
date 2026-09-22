@@ -213,8 +213,14 @@ each slice when concrete friction is exposed, so the repository becomes easier t
 Before opening major new domains, preferentially finish ordinary authorization around already-modeled physical
 transitions and capability-only systems where a small missing edge is the blocker. High-value examples are
 player-authorized construction/deconstruction or recovery steps, ordinary acquisition paths, and production
-read surfaces that currently require controlled setup. The copper progression gap between prepared ore and pure
-copper belongs here when its heat, reductant, byproduct, and equipment ownership can be modeled coherently.
+read surfaces that currently require controlled setup. Current copper progression already reaches usable native
+copper through hand sorting and finite-recovery concentrate cleanup. Its next high-leverage edge is ordinary
+foundry capability, but this is not a recipe-only acquisition gap. Current ordinary power is mechanical,
+copper melting requires the electrical carrier, and no mechanical-to-electrical conversion path exists. The
+electric furnace's 2 MW heating capability is a transfer ceiling rather than a minimum operating floor, so a
+future coherent vertical slice may trade lower source power for longer melt time. It still needs a real
+electrical generation/conversion route plus the required foundry equipment, stores, and support.
+Chemical reduction belongs later when authored compound ores actually require a reductant/byproduct model.
 
 Completion criterion: the capability can move from controlled/capability-only evidence toward ordinary play
 without adding an alternate semantic path.

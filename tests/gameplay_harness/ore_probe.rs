@@ -75,6 +75,17 @@ struct OreEnergyStop {
     requested: Energy,
 }
 
+fn ore_stage_input_storage(ids: OrePreparationProbeIds, stage: &str) -> StockpileId {
+    match stage {
+        "crush" => ids.ore_source,
+        "grind" => ids.crushed_storage,
+        "screen" => ids.ground_storage,
+        "regrind-oversize" => ids.oversize_storage,
+        "concentrate" => ids.undersize_storage,
+        _ => panic!("unknown ore preparation stage {stage}"),
+    }
+}
+
 fn report_ore_energy_stop(
     registries: &Registries,
     state: &AppState,
@@ -103,13 +114,23 @@ fn report_ore_energy_stop(
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("ore preparation drive disappeared at energy-limited stop"));
     assert_eq!(stored, available);
+    let retry_input = state
+        .inventory()
+        .get_stockpile(ore_stage_input_storage(ids, stage))
+        .map(|stockpile| stockpile.stored_mass())
+        .unwrap_or_else(|| panic!("ore preparation blocked-stage input stockpile disappeared"));
+    assert!(
+        !retry_input.is_zero(),
+        "finite-energy ore stop must retain the blocked stage input for a later retry"
+    );
     reviewln!(
-        "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=stopped stage={stage} blocker=finite-energy available={}nJ requested={}nJ tick={} matter=conserved",
+        "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=stopped stage={stage} blocker=finite-energy available={}nJ requested={}nJ tick={} retry=stage-input-retained retry-input={}mg matter=conserved",
         case.seed(),
         focused_probe_role_label(case.role()),
         available.nanojoules(),
         requested.nanojoules(),
         state.tick().value(),
+        retry_input.milligrams(),
     );
     OreProbeOutcome::Stopped {
         stage,

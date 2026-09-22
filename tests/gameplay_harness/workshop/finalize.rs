@@ -134,7 +134,7 @@ pub(super) fn finalize_scenario(
             )
         });
         println!(
-            "  process frontier: crushed mixed ore cannot enter pure-copper melting={} (the separate ore-preparation probe provides concentration; concentrate reduction/smelting remains outside this workshop)",
+            "  process frontier: crushed mixed ore cannot enter pure-copper melting={} (ordinary primitive processing can clean rich concentrate into native copper; this workshop does not execute that cleanup or ordinary foundry acquisition)",
             report.progress.ore_frontier_visible
         );
     }

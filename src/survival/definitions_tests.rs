@@ -23,6 +23,7 @@ fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefiniti
             Mass::from_milligrams(1),
             TickSpan::new(1),
             Volume::from_microliters(1),
+            Volume::from_microliters(1),
             TickSpan::new(1),
         ),
         starvation_loss,
@@ -31,12 +32,13 @@ fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefiniti
 }
 
 #[test]
-fn direct_consumption_definition_requires_nonzero_quantity_and_duration_limits() {
+fn direct_consumption_definition_requires_valid_quantity_and_duration_limits() {
     for definition in [
         || {
             DirectConsumptionDefinition::new(
                 Mass::ZERO,
                 TickSpan::new(1),
+                Volume::from_microliters(1),
                 Volume::from_microliters(1),
                 TickSpan::new(1),
             )
@@ -46,6 +48,7 @@ fn direct_consumption_definition_requires_nonzero_quantity_and_duration_limits()
                 Mass::from_milligrams(1),
                 TickSpan::ZERO,
                 Volume::from_microliters(1),
+                Volume::from_microliters(1),
                 TickSpan::new(1),
             )
         },
@@ -54,6 +57,7 @@ fn direct_consumption_definition_requires_nonzero_quantity_and_duration_limits()
                 Mass::from_milligrams(1),
                 TickSpan::new(1),
                 Volume::ZERO,
+                Volume::from_microliters(1),
                 TickSpan::new(1),
             )
         },
@@ -61,6 +65,16 @@ fn direct_consumption_definition_requires_nonzero_quantity_and_duration_limits()
             DirectConsumptionDefinition::new(
                 Mass::from_milligrams(1),
                 TickSpan::new(1),
+                Volume::from_microliters(2),
+                Volume::from_microliters(1),
+                TickSpan::new(1),
+            )
+        },
+        || {
+            DirectConsumptionDefinition::new(
+                Mass::from_milligrams(1),
+                TickSpan::new(1),
+                Volume::from_microliters(1),
                 Volume::from_microliters(1),
                 TickSpan::ZERO,
             )
@@ -75,6 +89,7 @@ fn direct_consumption_duration_scales_with_exact_quantity() {
     let definition = DirectConsumptionDefinition::new(
         Mass::from_milligrams(1_000),
         TickSpan::new(100),
+        Volume::from_microliters(100),
         Volume::from_microliters(1_000),
         TickSpan::new(20),
     );
@@ -91,6 +106,10 @@ fn direct_consumption_duration_scales_with_exact_quantity() {
     assert_eq!(
         definition.drink_duration(Volume::from_microliters(250)),
         Some(TickSpan::new(5))
+    );
+    assert_eq!(
+        definition.drink_duration(Volume::from_microliters(99)),
+        None
     );
 }
 

@@ -1,8 +1,18 @@
 //! Claim-driven continuation: hidden reserves never determine requests or stopping policy.
 
-use super::*;
+use deep_hearth::content::{MATERIAL_COPPER, MINING_METHOD_HAND_PICK};
+use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::state::AppState;
+use deep_hearth::equipment::EquipmentId;
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::maintenance::Condition;
-use deep_hearth::mining::{MiningClaimReceipt, ValidatedMiningStart};
+use deep_hearth::mining::{
+    MiningClaimReceipt, MiningStartError, MiningTargetRequest, MiningTargetResolution,
+    MiningTargetResolutionError, ValidatedMiningStart, resolve_mining_target,
+    validate_claim_mining_output, validate_start_mining,
+};
+use deep_hearth::registry::Registries;
+use deep_hearth::simulation::advance_tick;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FieldworkStop {
@@ -28,6 +38,7 @@ impl FieldworkStop {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct FieldworkExtraction {
     pub(super) extracted: Mass,
     pub(super) ticks: u64,

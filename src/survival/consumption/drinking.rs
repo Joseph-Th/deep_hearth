@@ -119,17 +119,27 @@ pub fn validate_drink(
     if player.hydration() > physiology.maximum_hydration() {
         return Err(DrinkError::HydrationOverflow);
     }
-    let maximum_drink_volume = physiology.direct_consumption().maximum_drink_volume();
+    let direct_consumption = physiology.direct_consumption();
+    if volume.is_zero() {
+        return Err(DrinkError::ZeroVolume);
+    }
+    let minimum_drink_volume = direct_consumption.minimum_drink_volume();
+    if volume < minimum_drink_volume {
+        return Err(DrinkError::DrinkVolumeBelowIntakeMinimum {
+            volume,
+            minimum: minimum_drink_volume,
+        });
+    }
+    let maximum_drink_volume = direct_consumption.maximum_drink_volume();
     if volume > maximum_drink_volume {
         return Err(DrinkError::DrinkVolumeExceedsIntakeLimit {
             volume,
             maximum: maximum_drink_volume,
         });
     }
-    let duration = physiology
-        .direct_consumption()
+    let duration = direct_consumption
         .drink_duration(volume)
-        .ok_or(DrinkError::ZeroVolume)?;
+        .unwrap_or_else(|| unreachable!("validated drink volume is inside authored bounds"));
     let completes_at = state
         .tick()
         .checked_add_span(duration)

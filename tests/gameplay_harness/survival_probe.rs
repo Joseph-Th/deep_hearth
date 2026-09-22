@@ -965,6 +965,19 @@ pub(super) struct ProvisioningWorld {
     drink: DrinkDefinition,
 }
 
+pub(super) fn minimum_visible_preservation_age_ticks(preservation_multiplier_ppm: u32) -> u64 {
+    const AMBIENT_PRESERVATION_PPM: u64 = 1_000_000;
+    let preservation = u64::from(preservation_multiplier_ppm);
+    assert!(
+        preservation > AMBIENT_PRESERVATION_PPM,
+        "preservation witness requires a rate strictly better than ambient"
+    );
+    // Choose the first whole elapsed tick n for which even the conservative rounded preserved
+    // age is at most n-1 ambient ticks:
+    // n * ambient / preservation <= n - 1.
+    preservation.div_ceil(preservation - AMBIENT_PRESERVATION_PPM)
+}
+
 pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> ProvisioningWorld {
     let physiology = registries.survival().physiology();
     let mut foods_by_category = BTreeMap::<FoodCategory, Vec<FoodDefinition>>::new();
@@ -1111,13 +1124,21 @@ pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> Provisio
                 .unwrap_or_else(|| panic!("survival pressure-world wait overflowed"))
         }
     };
+    let minimum_age_ticks =
+        minimum_visible_preservation_age_ticks(inherited_preservation_multiplier_ppm);
     let age_limit = (witness_food.shelf_life().value() / 4)
         .max(1)
         .min(provisioning_wait_ticks.saturating_sub(1).max(1));
+    assert!(
+        age_limit >= minimum_age_ticks,
+        "survival preservation witness has no room for a visibly different preserved age: limit={age_limit}t minimum={minimum_age_ticks}t multiplier={inherited_preservation_multiplier_ppm}ppm"
+    );
     // Inherited food age spans the full freshness range: young parcels, mid-life stores,
-    // and parcels near the quarter-shelf boundary. Organic worlds must exercise preservation
-    // payoff on genuinely aged food, not only on young parcels.
-    let age_ticks = mix64(seed ^ 0x4147_455F_464F_4F44) % age_limit.saturating_add(1);
+    // and parcels near the quarter-shelf boundary, but never an age so young that fixed-point
+    // rounding makes preserved and ambient exposure observationally identical.
+    let age_span = age_limit - minimum_age_ticks;
+    let age_ticks =
+        minimum_age_ticks + mix64(seed ^ 0x4147_455F_464F_4F44) % age_span.saturating_add(1);
     assert!(provisioning_wait_ticks > age_ticks);
     let mut drinks = registries.survival().drinks().copied().collect::<Vec<_>>();
     drinks.sort_by_key(|drink| drink.fluid());
@@ -1992,7 +2013,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         )
     });
     reviewln!(
-        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{inherited_preservation_label} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] separate-investment-scenario=[protected-reserve:{}mg raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] storage-policy:{} commitment:{committed_preservation_label} state:{preservation_commitment_state} commitment-reason:{preservation_commitment_reason} minimum-return:{preservation_minimum_return_ppm}ppm committed=[build:{}t raw:{}mg service:0t] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} preservation:{}ppm candidates:{} frontier=[physical:{}/{} budget-eligible:{}/{} selected-physical:{} selected-budget:{}] {preservation_comparison} build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg utilization:{}ppm dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] consequence=[reserve-improved:{} {diet_consequence} horizon:{}t] lived-wait=[drinks:{} volume:{}uL] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}uL/{}t prospect:{}t opportunity-power:{} reprovision:{}:{}uL/{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
+        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{inherited_preservation_label} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] separate-investment-scenario=[protected-reserve:{}mg raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] storage-policy:{} commitment:{committed_preservation_label} state:{preservation_commitment_state} commitment-reason:{preservation_commitment_reason} minimum-return:{preservation_minimum_return_ppm}ppm committed=[build:{}t raw:{}mg service:0t] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} preservation:{}ppm candidates:{} frontier=[physical:{}/{} budget-eligible:{}/{} selected-physical:{} selected-budget:{}] {preservation_comparison} build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg utilization:{}ppm dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] consequence=[reserve-improved:{} {diet_consequence} horizon:{}t] lived-wait=[drinks:{} volume:{}uL] work-interlock=[prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[drink:{}uL/{}t prospect:{}t opportunity-power:{} reprovision:{}:{}uL/{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{} hydration-policy:recover-to-half-capacity-then-task-floor]]",
         world.start_profile.label(),
         foods.len(),
         available_category_count,

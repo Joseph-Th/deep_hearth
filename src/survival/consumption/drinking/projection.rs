@@ -7,7 +7,7 @@ use crate::core::quantity::Volume;
 use crate::core::time::TickSpan;
 use crate::survival::{DrinkDefinition, PhysiologyDefinition};
 
-/// Minimum represented drink that leaves the player at or above one hydration target.
+/// Smallest legal represented drink that leaves the player at or above one hydration target.
 ///
 /// The projection includes basal hydration loss during the drinking action itself. It deliberately
 /// does not prove source availability, temperature, player attention, or current-state revisions;
@@ -79,7 +79,7 @@ impl Display for DrinkHydrationProjectionError {
 
 impl Error for DrinkHydrationProjectionError {}
 
-/// Projects the smallest represented drink that reaches target after drinking-time hydration loss.
+/// Projects the smallest legal represented drink that reaches target after drinking-time hydration loss.
 ///
 /// Ok(None) means the current reserve already satisfies the target. The fixed-point calculation
 /// starts from the drink-only requirement and increases the candidate only when its own authored
@@ -114,15 +114,19 @@ pub fn project_minimum_drink_to_hydration_target(
     }
 
     let direct = physiology.direct_consumption();
+    let minimum_drink_volume = direct.minimum_drink_volume();
     let maximum_drink_volume = direct.maximum_drink_volume();
     let reserve_gap = target
         .checked_sub(current)
         .unwrap_or_else(|| unreachable!("target above current hydration has a positive gap"));
-    let mut volume = drink.minimum_volume_for_hydration(reserve_gap).ok_or(
-        DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
-            maximum_drink_volume,
-        },
-    )?;
+    let mut volume = std::cmp::max(
+        drink.minimum_volume_for_hydration(reserve_gap).ok_or(
+            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+                maximum_drink_volume,
+            },
+        )?,
+        minimum_drink_volume,
+    );
 
     loop {
         if volume.is_zero() || volume > maximum_drink_volume {
@@ -153,11 +157,14 @@ pub fn project_minimum_drink_to_hydration_target(
                     maximum_drink_volume,
                 },
             )?;
-        let next = drink.minimum_volume_for_hydration(required_offer).ok_or(
-            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
-                maximum_drink_volume,
-            },
-        )?;
+        let next = std::cmp::max(
+            drink.minimum_volume_for_hydration(required_offer).ok_or(
+                DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+                    maximum_drink_volume,
+                },
+            )?,
+            minimum_drink_volume,
+        );
         if next > maximum_drink_volume {
             return Err(
                 DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {

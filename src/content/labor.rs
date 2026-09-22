@@ -65,31 +65,33 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             ),
         ],
         [
-            // Fast coarse single-voxel check: cheaper than one transect voxel in total time
-            // but coarser, so the transect remains the efficient fine-grained multi-voxel route.
+            // Prospecting is active player attention. Keep the information hierarchy expensive
+            // enough to matter without making repeated new-site localization dominate the physical
+            // extraction it unlocks. The faster authored durations preserve the prior total body
+            // cost and sampling-hammer wear by increasing per-tick exertion/wear proportionally.
             ProspectingDefinition::new(
                 PROSPECTING_FIELD_INSPECTION,
                 GeologicalEvidenceKind::SurfaceExposure,
-                TickSpan::new(24),
+                TickSpan::new(12),
                 1,
                 150_000,
                 SurvivalExertion::new(
-                    Energy::from_nanojoules(500_000_000_000),
-                    Volume::from_microliters(125),
+                    Energy::from_nanojoules(1_000_000_000_000),
+                    Volume::from_microliters(250),
                 ),
             ),
             ProspectingDefinition::new_with_equipment(
                 PROSPECTING_DETAILED_FIELD_SURVEY,
                 GeologicalEvidenceKind::ExcavationSample,
-                TickSpan::new(48),
+                TickSpan::new(24),
                 1,
                 25_000,
                 SurvivalExertion::new(
-                    Energy::from_nanojoules(650_000_000_000),
-                    Volume::from_microliters(160),
+                    Energy::from_nanojoules(1_300_000_000_000),
+                    Volume::from_microliters(320),
                 ),
-                ProspectingEquipmentProfile::new(EQUIPMENT_STONE_GEOLOGICAL_HAMMER, 120)
-                    .with_alternative(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, 60),
+                ProspectingEquipmentProfile::new(EQUIPMENT_STONE_GEOLOGICAL_HAMMER, 240)
+                    .with_alternative(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, 120),
             )
             .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
             .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
@@ -107,27 +109,30 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             ProspectingDefinition::new(
                 PROSPECTING_LOCAL_TRANSECT,
                 GeologicalEvidenceKind::SurfaceExposure,
-                TickSpan::new(48),
+                TickSpan::new(24),
                 4,
                 75_000,
                 SurvivalExertion::new(
-                    Energy::from_nanojoules(550_000_000_000),
-                    Volume::from_microliters(150),
+                    Energy::from_nanojoules(1_100_000_000_000),
+                    Volume::from_microliters(300),
                 ),
             ),
             ProspectingDefinition::new_with_equipment(
                 PROSPECTING_INDEXED_CHANNEL_SURVEY,
                 GeologicalEvidenceKind::ExcavationSample,
-                TickSpan::new(72),
+                // Copper reinforcement turns repeated point-by-point sampling into an indexed
+                // channel pass. Keep it slower than one detailed point sample, but fast enough
+                // that a multi-site campaign can repay the reinforcement in player attention.
+                TickSpan::new(30),
                 4,
                 25_000,
                 SurvivalExertion::new(
-                    Energy::from_nanojoules(650_000_000_000),
-                    Volume::from_microliters(175),
+                    Energy::from_nanojoules(1_560_000_000_000),
+                    Volume::from_microliters(420),
                 ),
                 ProspectingEquipmentProfile::new(
                     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
-                    150,
+                    360,
                 ),
             )
             .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel)

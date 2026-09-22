@@ -21,6 +21,8 @@ pub(super) struct ManualAssemblyProjection {
     pub(super) attention_ticks: u64,
     pub(super) input_mass_mg: u64,
     pub(super) embodied_mass_mg: u64,
+    pub(super) metabolic_nj: u128,
+    pub(super) hydration_ul: u64,
 }
 
 fn has_selectable_manual_craft_input(
@@ -302,6 +304,8 @@ pub(super) fn project_manual_assembly_package(
 
     let mut attention_ticks = 0_u64;
     let mut input_mass = Mass::ZERO;
+    let mut metabolic_nj = 0_u128;
+    let mut hydration_ul = 0_u64;
     let mut source_requirements = BTreeMap::<(StockpileId, CommodityKey), Mass>::new();
     for (commodity, required) in required_by_commodity {
         let available = destination_record.get_mass(commodity);
@@ -329,6 +333,23 @@ pub(super) fn project_manual_assembly_package(
         attention_ticks = attention_ticks
             .checked_add(resolution.duration().value())
             .unwrap_or_else(|| panic!("gameplay harness {context} attention overflowed"));
+        let batches_nonzero = NonZeroU64::new(batches)
+            .unwrap_or_else(|| unreachable!("nonzero component demand yields nonzero batches"));
+        let work = project_manual_craft_hand_work(registries, craft, batches_nonzero)
+            .unwrap_or_else(|error| {
+                panic!("gameplay harness {context} assembly hand-work projection failed: {error}")
+            });
+        assert_eq!(
+            work.duration(),
+            resolution.duration(),
+            "gameplay harness {context} assembly body-cost projection diverged from craft resolution"
+        );
+        metabolic_nj = metabolic_nj
+            .checked_add(work.resource_budget().metabolic_energy().nanojoules())
+            .unwrap_or_else(|| panic!("gameplay harness {context} metabolic budget overflowed"));
+        hydration_ul = hydration_ul
+            .checked_add(work.resource_budget().hydration().microliters())
+            .unwrap_or_else(|| panic!("gameplay harness {context} hydration budget overflowed"));
         let consumed = Mass::from_milligrams(
             craft
                 .input_mass()
@@ -361,5 +382,7 @@ pub(super) fn project_manual_assembly_package(
         attention_ticks,
         input_mass_mg: input_mass.milligrams(),
         embodied_mass_mg: embodied_mass.milligrams(),
+        metabolic_nj,
+        hydration_ul,
     }
 }

@@ -181,8 +181,11 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .unwrap_or_else(|| panic!("walking wheel must cost more build attention than the treadle"));
     let settlement_break_even_charges =
         settlement_build_attention_delta.div_ceil(settlement_charge_saving);
+    let settlement_decision_crossover = settlement_plan
+        .decision_crossover_charges
+        .map_or_else(|| "none".to_owned(), |charges| charges.to_string());
     reviewln!(
-        "POWER SETTLEMENT seed=0x{seed:016X} sample={} buffer:{}nJ planned-charges={} decision=[selected:{} policy:minimize-workload-attention-then-metabolic-then-material projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ break-even:{}charges estimate=initial-charge-rate-excludes-future-service] matter=conserved",
+        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-charge-horizon buffer:{}nJ planned-charges={} decision=[selected:{} policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] projected-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{}charges lifecycle=condition-carried-no-service] evidence=[build+first-charge:executed lifecycle:projected-canonical consumer:not-instantiated] matter=conserved",
         focused_probe_role_label(case.role()),
         settlement_capacity_nj,
         settlement_plan.planned_charges,
@@ -191,19 +194,34 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_plan.walking_lifecycle_attention,
         settlement_treadle_build_mass,
         settlement_treadle_build_attention,
+        settlement_plan.treadle_build.metabolic_nj,
+        settlement_plan.treadle_build.hydration_ul,
         settlement_treadle_charge.attention_ticks,
         settlement_treadle_charge.metabolic_nj,
         settlement_treadle_charge.hydration_ul,
         settlement_treadle_charge.condition_after_ppm,
         walking_build_mass,
         walking_build_attention,
+        settlement_plan.walking_build.metabolic_nj,
+        settlement_plan.walking_build.hydration_ul,
         walking_charge.attention_ticks,
         walking_charge.metabolic_nj,
         walking_charge.hydration_ul,
         walking_charge.condition_after_ppm,
+        settlement_plan.treadle_lifecycle_metabolic_nj,
+        settlement_plan.treadle_lifecycle_hydration_ul,
+        settlement_plan
+            .treadle_lifecycle_condition
+            .parts_per_million(),
+        settlement_plan.walking_lifecycle_metabolic_nj,
+        settlement_plan.walking_lifecycle_hydration_ul,
+        settlement_plan
+            .walking_lifecycle_condition
+            .parts_per_million(),
         settlement_charge_saving,
         settlement_treadle_charge.metabolic_nj - walking_charge.metabolic_nj,
         settlement_break_even_charges,
+        settlement_decision_crossover,
     );
 
     let charge_attention_reduction_ppm = u64::try_from(
@@ -248,6 +266,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     let build_attention_delta_ticks = treadle_build_attention.saturating_sub(crank_build_attention);
     let break_even_charges = build_attention_delta_ticks.div_ceil(charge_saving_per_job_ticks);
+    let decision_crossover = plan
+        .decision_crossover_charges
+        .map_or_else(|| "none".to_owned(), |charges| charges.to_string());
     let crank_embodied = crank_build.embodied_mass_mg + crank_drive_build.embodied_mass_mg;
     let treadle_embodied = treadle_build.embodied_mass_mg + treadle_drive_build.embodied_mass_mg;
     let crank_residual = crank_residual_mg;
@@ -284,7 +305,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         break_even_charges,
     );
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} job=[flywheel:{}nJ planned-charges:{}] decision=[selected:{} policy:minimize-workload-attention-then-metabolic-then-material projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t break-even-charges:{}] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-charge-horizon job=[flywheel:{}nJ planned-charges:{}] decision=[selected:{} policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] projected-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} wear-aware-decision-crossover:{} lifecycle=condition-carried-no-service] evidence=[build+first-charge:executed lifecycle:projected-canonical consumer:not-instantiated] matter=conserved",
         focused_probe_role_label(case.role()),
         capacity_nj,
         plan.planned_charges,
@@ -293,16 +314,26 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         plan.treadle_lifecycle_attention,
         crank_build_mass_mg,
         crank_build_attention,
+        plan.crank_build.metabolic_nj,
+        plan.crank_build.hydration_ul,
         crank_charge.attention_ticks,
         crank_charge.metabolic_nj,
         crank_charge.hydration_ul,
         crank_charge.condition_after_ppm,
         treadle_build_mass_mg,
         treadle_build_attention,
+        plan.treadle_build.metabolic_nj,
+        plan.treadle_build.hydration_ul,
         treadle_charge.attention_ticks,
         treadle_charge.metabolic_nj,
         treadle_charge.hydration_ul,
         treadle_charge.condition_after_ppm,
+        plan.crank_lifecycle_metabolic_nj,
+        plan.crank_lifecycle_hydration_ul,
+        plan.crank_lifecycle_condition.parts_per_million(),
+        plan.treadle_lifecycle_metabolic_nj,
+        plan.treadle_lifecycle_hydration_ul,
+        plan.treadle_lifecycle_condition.parts_per_million(),
         charge_attention_reduction_ppm,
         crank_build_mass_mg,
         treadle_build_mass_mg,
@@ -314,6 +345,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         treadle_charge.attention_ticks,
         charge_saving_per_job_ticks,
         break_even_charges,
+        decision_crossover,
     );
     // Post-copper catalog context without disturbing the copper-free matched comparison above.
     // The reinforced crank needs mined native copper, so it cannot join the copper-free arms;

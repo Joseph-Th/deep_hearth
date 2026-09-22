@@ -650,9 +650,11 @@ fully pay that expenditure, the installment first pays the exact energy/hydratio
 refill stored reserves, and starvation/dehydration damage is applied only when the installment cannot cover that
 shortfall. Nutrition intake is available for same-tick recovery before decay. Admission therefore does not require
 pre-action reserve headroom, because physiological expenditure during consumption can create capacity. A drink is
-rejected only when its selected volume resolves to no whole-unit hydration benefit. If the player dies while an
-intake is pending, no further physiological benefit is released; pending survival custody and its eating/drinking
-attention record are canceled together on the next authoritative tick.
+rejected when its selected volume is outside the authored direct-consumption serving bounds or resolves to no
+whole-unit hydration benefit. The minimum serving prevents physically meaningless microliter-scale drinking
+actions while remaining part of the same canonical duration, custody, and hydration calculation. If the player
+dies while an intake is pending, no further physiological benefit is released; pending survival custody and its
+eating/drinking attention record are canceled together on the next authoritative tick.
 Current-schema saves persist pending intake identity and timing, and trusted load validates that custody against
 the matching player-work interval. Each pending intake also persists the cumulative terminal-consumption
 baseline from immediately before admission, so trusted load requires `baseline + pending intake = current

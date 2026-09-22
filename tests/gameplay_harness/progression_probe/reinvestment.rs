@@ -7,6 +7,80 @@
 
 use super::*;
 
+fn verify_sizing_plate_continuation(
+    registries: &Registries,
+    state: &AppState,
+    native_storage: deep_hearth::inventory::StockpileId,
+    shaped: deep_hearth::inventory::StockpileId,
+) -> u64 {
+    let mut continuation = state.clone();
+    let matter_before = calculate_matter_accounting(&continuation)
+        .unwrap_or_else(|error| panic!("sizing-plate continuation matter setup failed: {error}"))
+        .total();
+    let plate = CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE);
+    let scrap = CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP);
+    let output_mass_before = |commodity| {
+        continuation
+            .inventory()
+            .get_stockpile(native_storage)
+            .map(|stockpile| stockpile.get_mass(commodity))
+            .unwrap_or_else(|| panic!("sizing-plate continuation output stockpile disappeared"))
+    };
+    let plate_before = output_mass_before(plate);
+    let scrap_before = output_mass_before(scrap);
+    let started_at = continuation.tick().value();
+    craft_batches(
+        registries,
+        &mut continuation,
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        native_storage,
+        shaped,
+        1,
+    );
+    craft_batches(
+        registries,
+        &mut continuation,
+        PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+        shaped,
+        native_storage,
+        1,
+    );
+    let definition = registries
+        .crafting()
+        .get_manual(PROCESS_PIERCE_COPPER_SCREEN_PLATE)
+        .unwrap_or_else(|| panic!("sizing-plate continuation craft disappeared"));
+    for (commodity, before) in [(plate, plate_before), (scrap, scrap_before)] {
+        let expected = definition
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == commodity)
+            .map(|output| output.mass())
+            .unwrap_or_else(|| panic!("sizing-plate continuation lost an authored output"));
+        let after = continuation
+            .inventory()
+            .get_stockpile(native_storage)
+            .map(|stockpile| stockpile.get_mass(commodity))
+            .unwrap_or_else(|| panic!("sizing-plate continuation output stockpile disappeared"));
+        assert_eq!(
+            after.checked_sub(before),
+            Some(expected),
+            "ordinary progression copper must feed the exact authored sizing-plate output"
+        );
+    }
+    assert_eq!(
+        calculate_matter_accounting(&continuation)
+            .unwrap_or_else(|error| panic!(
+                "sizing-plate continuation matter audit failed: {error}"
+            ))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(registries, &continuation)
+        .unwrap_or_else(|error| panic!("sizing-plate continuation state invalid: {error}"));
+    assert_eq!(continuation.player_work().active(), None);
+    duration(started_at, continuation.tick().value())
+}
+
 fn run_reinvestment_separation(
     registries: &Registries,
     state: &mut AppState,
@@ -424,6 +498,12 @@ fn try_run_mature_reinvestment(
             expected_target: reinforcement_mass,
         },
     );
+    assert!(
+        first_recovery.target_mass >= reinforcement_mass,
+        "first mature reinvestment recovery must fund the ordinary sizing-plate continuation"
+    );
+    let sizing_plate_continuation_ticks =
+        verify_sizing_plate_continuation(registries, state, native_storage, shaped);
     craft_for_profile(
         registries,
         state,
@@ -867,6 +947,7 @@ fn try_run_mature_reinvestment(
         stockpile_demand_energy,
         stockpile_demand_charge_ticks,
         stockpile_demand_separation_ticks,
+        sizing_plate_continuation_ticks,
         invested_copper_mass,
         base_crush_ticks,
         reinforced_crush_ticks,

@@ -574,12 +574,20 @@ fn drinking_moves_finite_water_volume_into_survival_owner() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0003));
     initialize_and_spend_reserves(&registries, &mut state);
+    for _ in 0..80 {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("water reserve-spend tick failed: {error}"));
+    }
+    let drink_volume = minimum_drink_volume(&registries);
+    let stored_volume = drink_volume
+        .checked_add(drink_volume)
+        .unwrap_or_else(|| panic!("water fixture volume overflowed"));
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(10_000),
+        stored_volume,
         FLUID_WATER,
-        Volume::from_microliters(5_000),
+        stored_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("water store fixture failed: {error}"));
@@ -589,7 +597,7 @@ fn drinking_moves_finite_water_volume_into_survival_owner() {
         .unwrap_or_else(|| panic!("water fixture survival state is missing"))
         .hydration();
 
-    let token = validate_drink(&registries, &state, store, Volume::from_microliters(625))
+    let token = validate_drink(&registries, &state, store, drink_volume)
         .unwrap_or_else(|error| panic!("drink validation failed: {error}"));
     let outcome = token
         .commit(&mut state)
@@ -603,16 +611,16 @@ fn drinking_moves_finite_water_volume_into_survival_owner() {
     assert_eq!(volume_before.total(), volume_after.total());
     assert_eq!(
         volume_after.get_volume(FLUID_WATER),
-        AggregateVolume::from_volume(Volume::from_microliters(5_000))
+        AggregateVolume::from_volume(stored_volume)
     );
     assert_eq!(
         state
             .fluid()
             .get_store(store)
             .map(|record| record.stored_volume()),
-        Some(Volume::from_microliters(4_375))
+        Some(drink_volume)
     );
-    assert_eq!(outcome.hydration_offered(), Volume::from_microliters(625));
+    assert_eq!(outcome.hydration_offered(), drink_volume);
     assert_eq!(hydration_at_admission, hydration_before);
     assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
     let hydration_after = assess_survival(&registries, &state)
@@ -621,9 +629,8 @@ fn drinking_moves_finite_water_volume_into_survival_owner() {
     assert_eq!(
         hydration_after,
         hydration_before
-            .checked_add(Volume::from_microliters(625))
-            .and_then(|value| value
-                .checked_sub(registries.survival().physiology().hydration_loss_per_tick()))
+            .checked_sub(registries.survival().physiology().hydration_loss_per_tick())
+            .and_then(|value| value.checked_add(drink_volume))
             .unwrap_or_else(|| panic!("hydration expectation overflowed"))
     );
     validate_loaded_state(&registries, &state)

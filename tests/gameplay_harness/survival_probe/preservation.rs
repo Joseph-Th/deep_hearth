@@ -48,7 +48,6 @@ enum PreservationRawOpportunityKind {
     ChoiceRichTimber,
     ScarceTimber,
     AlternateMaterial,
-    FiniteMaterial,
 }
 
 impl PreservationRawOpportunityKind {
@@ -57,7 +56,6 @@ impl PreservationRawOpportunityKind {
             Self::ChoiceRichTimber => "choice-rich-timber",
             Self::ScarceTimber => "scarce-timber",
             Self::AlternateMaterial => "alternate-material",
-            Self::FiniteMaterial => "finite-material",
         }
     }
 }
@@ -97,8 +95,7 @@ impl PreservationRawOpportunity {
                 1,
                 "scarce preservation opportunity must expose exactly one buildable enclosure"
             ),
-            PreservationRawOpportunityKind::AlternateMaterial
-            | PreservationRawOpportunityKind::FiniteMaterial => {}
+            PreservationRawOpportunityKind::AlternateMaterial => {}
         }
         assert!(
             buildable
@@ -193,16 +190,20 @@ pub(super) fn preservation_raw_opportunity(
         .filter(|(_, _, _, timber_only)| *timber_only)
         .collect::<Vec<_>>();
     if timber.is_empty() {
+        assert!(
+            !alternate_material.is_empty(),
+            "preservation opportunity must expose timber or alternate raw material"
+        );
         let index = usize::try_from(
             mix64(seed ^ 0x5052_4553_5241_574F)
-                % u64::try_from(opportunities.len()).unwrap_or(u64::MAX),
+                % u64::try_from(alternate_material.len()).unwrap_or(u64::MAX),
         )
-        .unwrap_or_else(|_| unreachable!("bounded preservation opportunity index fits usize"));
-        let (origin, available, _, _) = &opportunities[index];
+        .unwrap_or_else(|_| unreachable!("bounded alternate preservation opportunity fits usize"));
+        let (origin, available, _, _) = alternate_material[index];
         let opportunity = PreservationRawOpportunity {
             origin: *origin,
             available: available.clone(),
-            kind: PreservationRawOpportunityKind::FiniteMaterial,
+            kind: PreservationRawOpportunityKind::AlternateMaterial,
         };
         opportunity.assert_mode_contract(registries, protected_reserve_mass);
         return opportunity;

@@ -11,7 +11,7 @@ Current progression:
 
 `local clues -> coarse-to-fine prospecting -> physical sampling -> evidence-gated mining -> hand/primitive native-copper recovery -> copper upgrades -> reinforcement/recovery`
 
-Primitive grinding, sizing, concentration, and scavenging are ordinarily executable from retained processing residue, but concentrate currently has no ordinary reduction/smelting sink. They therefore form a reachable integration frontier rather than a rational next step in the selected current-player loop.
+Primitive grinding, sizing, concentration, scavenging, and final concentrate cleaning are ordinary. Authored ore represents liberated copper as elemental copper, so rich concentrate mechanically cleans to `FORM_NATIVE_METAL`; current copper needs no reduction step. The frontier is ordinary foundry infrastructure.
 
 | Area | Reachable capability |
 | --- | --- |
@@ -30,7 +30,7 @@ player-relevant flow stops today. [`DIRECTION.md`](DIRECTION.md) owns which boun
 
 | From | Missing edge | Current consequence |
 | --- | --- | --- |
-| Prepared ore / concentrate | reduction or smelting into pure metal | Prepared ore can be mechanically liberated and concentrated with material-backed primitive equipment, and native copper can be recovered, but concentrate cannot enter the foundry as foundry-ready pure copper. The foundry therefore remains a capability island rather than the continuation of the ore-preparation chain. |
+| Ordinary native copper | ordinary foundry infrastructure and electrical supply | Native copper is valid cold-work/melting feed, but foundry hardware and electrical energy are unobtainable. Ordinary power is mechanical and no mechanical-to-electrical conversion path exists. The furnace's 2 MW heating capability is a transfer ceiling, not a minimum operating floor. |
 | Local inventory custody | world-space carrying, haulage, delivery, access, and path cost | Matter can move through explicit local owner transitions, but there is no general player/world transport authority. Controlled harness delivery does not establish ordinary logistics. |
 | Structural physics and material embodiment | ordinary player construction/deconstruction authorization | Structures can own conserved members, support, load, damage, and failure, but ordinary play cannot yet construct the general structural graph. |
 | Physical equipment maintenance | world-space access and maintenance-tool requirements | Service already occupies exclusive player work, consumes authored survival exertion and replacement matter, and recovers condition only at completion; generic spatial access/tool authorization is still absent. |
@@ -63,7 +63,7 @@ play cannot yet acquire their required infrastructure.
 | --- | --- |
 | Workshop | Installed industrial machinery under finite stored work, survival pressure, wear, maintenance, structural support, suspension/recovery, and actor policy. |
 | Ore preparation | Installed industrial crushing, grinding, screening, regrinding, and concentration with exact constituent accounting/tailings. The same physics are ordinarily reachable through slower primitive providers; this surface is the industrial throughput benchmark. |
-| Foundry | Installed sensible heating, copper-bound pure-material melting/casting, remelting of ingot, reinforcement, native copper, and copper scrap, finite energy, equipment limits, phase boundaries, latent heat, heat recovery, and passive sink loss. Ore and concentrate still require an unimplemented reduction/smelting stage. |
+| Foundry | Installed pure-copper heating/melting/casting, remelting, finite energy, equipment limits, phase boundaries, latent heat, heat recovery, and sink loss. Ordinary cleanup already supplies accepted native-copper feed; capability-only because foundry infrastructure is not ordinarily obtainable. Reduction remains absent for future compound ores. |
 
 ## Absent scope
 

@@ -141,7 +141,7 @@ pub(super) fn run(
             drive,
         ),
     )
-    .unwrap_or_else(|error| panic!("primitive copper sizing screen failed: {error}"));
+    .unwrap_or_else(|error| panic!("primitive sizing screen failed: {error}"));
     let screen_job = validate_start_process_routed(
         registries,
         state,
@@ -152,15 +152,10 @@ pub(super) fn run(
             ProcessOutputRoute::new(ScreeningProcessDefinition::OVERSIZE_STREAM, oversize),
         ],
     )
-    .unwrap_or_else(|error| panic!("primitive copper sizing-screen start failed: {error}"))
+    .unwrap_or_else(|error| panic!("primitive sizing-screen start failed: {error}"))
     .commit(state)
-    .unwrap_or_else(|error| panic!("primitive copper sizing-screen commit failed: {error}"));
-    finish_uninterrupted_production_job(
-        registries,
-        state,
-        screen_job,
-        "primitive copper sizing screen",
-    );
+    .unwrap_or_else(|error| panic!("primitive sizing-screen commit failed: {error}"));
+    finish_uninterrupted_production_job(registries, state, screen_job, "primitive sizing screen");
 
     charges.push(support::prepare_stage(
         registries,

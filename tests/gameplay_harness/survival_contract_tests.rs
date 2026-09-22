@@ -19,11 +19,31 @@ use super::preservation_route::{
     is_disclosed_preservation_raw_material, preservation_construction_plan,
 };
 use super::survival_probe::preservation::preservation_storage_definition_for_policy_with_constraints;
-use super::survival_probe::preservation_decision::SignedResourceDelta;
+use super::survival_probe::preservation_decision::{
+    SignedResourceDelta, evaluate_preservation_decision,
+};
 use super::survival_probe::preservation_evaluation::{
     project_preservation_candidates_with_raw_opportunity, select_preservation_projection,
     select_preservation_projection_for_attention_value,
 };
+
+#[test]
+fn maintained_survival_coverage_keeps_the_strongest_preservation_endpoint_actionable() {
+    let registries = build_registries();
+    let world = provisioning_world(&registries, 6);
+    let decision = evaluate_preservation_decision(
+        &registries,
+        6,
+        0x0274_20B1_9FB8_38F7,
+        world.foods[world.witness_index],
+        world.preserved_reserve_mass,
+    );
+    assert_eq!(
+        decision.investment,
+        Some(STORAGE_INSULATED_TIMBER_PANTRY),
+        "maintained survival coverage must keep a patient, fully funded strongest-preservation choice visible"
+    );
+}
 
 #[test]
 fn preservation_can_decline_a_low_benefit_singleton() {
@@ -130,10 +150,26 @@ fn preservation_raw_bootstrap_is_explicit_not_inferred_from_missing_producers() 
 }
 use super::survival_probe::{
     DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
-    diet_provisioning_policy_for_behavior_seed, preservation_attention_value_ppm,
-    preservation_material_budget_ppm, preservation_minimum_return_ppm,
-    prospecting_method_for_work_pressure, provisioning_world,
+    diet_provisioning_policy_for_behavior_seed, minimum_visible_preservation_age_ticks,
+    preservation_attention_value_ppm, preservation_material_budget_ppm,
+    preservation_minimum_return_ppm, prospecting_method_for_work_pressure, provisioning_world,
 };
+
+#[test]
+fn generated_preservation_witnesses_are_old_enough_to_show_the_authored_rate() {
+    let registries = build_registries();
+    for seed in 1_u64..=256 {
+        let world = provisioning_world(&registries, seed);
+        let minimum =
+            minimum_visible_preservation_age_ticks(world.inherited_preservation_multiplier_ppm);
+        assert!(
+            world.age_ticks >= minimum,
+            "seed {seed:#x} generated age {}t below visible preservation threshold {minimum}t for {}ppm",
+            world.age_ticks,
+            world.inherited_preservation_multiplier_ppm,
+        );
+    }
+}
 
 #[test]
 fn survival_explanation_marks_singleton_enclosure_without_forcing_investment() {

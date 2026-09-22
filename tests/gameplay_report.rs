@@ -42,6 +42,8 @@ mod manual_craft_execution;
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[path = "gameplay_harness/manual_ore_recovery.rs"]
+mod manual_ore_recovery;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
@@ -108,7 +110,7 @@ fn main() {
         "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
     );
     std::println!(
-        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap probes=[survival-provisioning,primitive-progression,woodworking,fieldwork,power-provider] reachability-authority=STATUS.md"
+        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap integrated-anchors=[primitive-progression:single-state-all-samples primitive-liberation:raw-kit-to-native-copper-maintained-anchor] focused-episodes=[survival-provisioning,woodworking,fieldwork,power-provider] reachability-authority=STATUS.md"
     );
     run_focused_probe_with_registries(
         &registries,

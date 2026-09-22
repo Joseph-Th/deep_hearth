@@ -137,10 +137,16 @@ pub(super) fn evaluate_integrated_survival_work_loop(
             panic!("integrated survival prospecting work projection failed: {error}")
         });
     let prospecting_budget = prospecting_projection.resource_budget();
-    let initial_target = physiology
+    let prospecting_hydration_floor = physiology
         .thirsty_below()
         .checked_add(prospecting_budget.hydration())
         .unwrap_or_else(|| panic!("integrated survival prospecting hydration target overflowed"));
+    // A player already at the thirst warning should recover a useful working reserve instead of
+    // taking repeated minimum-volume sips that merely skim the warning boundary. Keep the task
+    // floor authoritative, but recover to at least half of the authored hydration capacity.
+    let working_reserve_target =
+        Volume::from_microliters(physiology.maximum_hydration().microliters() / 2);
+    let initial_target = std::cmp::max(prospecting_hydration_floor, working_reserve_target);
     let initial_drink_projection = project_minimum_drink_to_hydration_target(
         physiology,
         drink,
@@ -159,13 +165,13 @@ pub(super) fn evaluate_integrated_survival_work_loop(
     assert_eq!(
         initial_drink_ticks,
         initial_drink_projection.duration().value(),
-        "initial task-sized drink execution must match the owner projection"
+        "initial working-reserve drink execution must match the owner projection"
     );
     let after_drink = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("integrated survival player disappeared after drinking"));
     assert!(
         after_drink.hydration() >= initial_target,
-        "task-sized initial drink did not reserve the planned prospecting hydration"
+        "initial drink did not establish the planned working hydration reserve"
     );
 
     let prospecting = validate_start_field_prospecting(registries, &state, prospecting_request)
@@ -229,7 +235,7 @@ pub(super) fn evaluate_integrated_survival_work_loop(
             panic!("integrated survival manual-power projection failed: {error}")
         })
     });
-    let manual_power_target = power_projection.map(|projection| {
+    let manual_power_floor = power_projection.map(|projection| {
         physiology
             .thirsty_below()
             .checked_add(projection.resource_budget().hydration())
@@ -238,15 +244,19 @@ pub(super) fn evaluate_integrated_survival_work_loop(
             })
     });
     let reprovisioned_after_prospecting =
-        manual_power_target.is_some_and(|target| after_prospecting.hydration() < target);
+        manual_power_floor.is_some_and(|floor| after_prospecting.hydration() < floor);
     let reprovision_projection = if reprovisioned_after_prospecting {
+        let target = std::cmp::max(
+            manual_power_floor
+                .unwrap_or_else(|| unreachable!("reprovision requires a manual-power floor")),
+            working_reserve_target,
+        );
         Some(
             project_minimum_drink_to_hydration_target(
                 physiology,
                 drink,
                 after_prospecting.hydration(),
-                manual_power_target
-                    .unwrap_or_else(|| unreachable!("reprovision requires a manual-power target")),
+                target,
             )
             .unwrap_or_else(|error| {
                 panic!("integrated survival follow-up drink projection failed: {error}")

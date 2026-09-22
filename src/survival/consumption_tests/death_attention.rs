@@ -132,12 +132,13 @@ fn direct_consumption_rejects_unsafe_food_and_water_temperatures_without_mutatio
         hot_temperature,
     )
     .unwrap_or_else(|error| panic!("hot food fixture failed: {error}"));
+    let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(10),
+        drink_volume,
         FLUID_WATER,
-        Volume::from_microliters(10),
+        drink_volume,
         hot_temperature,
     )
     .unwrap_or_else(|error| panic!("hot water fixture failed: {error}"));
@@ -159,7 +160,7 @@ fn direct_consumption_rejects_unsafe_food_and_water_temperatures_without_mutatio
         })
     );
     assert_eq!(
-        validate_drink(&registries, &state, water, Volume::from_microliters(1)).err(),
+        validate_drink(&registries, &state, water, drink_volume).err(),
         Some(DrinkError::TemperatureOutsideConsumptionRange {
             store: water,
             temperature: hot_temperature,
@@ -186,12 +187,13 @@ fn direct_consumption_claims_quantity_scaled_player_attention() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("attention meal fixture failed: {error}"));
+    let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(1_000),
+        drink_volume,
         FLUID_WATER,
-        Volume::from_microliters(1_000),
+        drink_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("attention drink fixture failed: {error}"));
@@ -240,7 +242,7 @@ fn direct_consumption_claims_quantity_scaled_player_attention() {
         Some(EatError::PlayerBusy { active })
     );
     assert_eq!(
-        validate_drink(&registries, &state, water, Volume::from_microliters(100)).err(),
+        validate_drink(&registries, &state, water, drink_volume).err(),
         Some(DrinkError::PlayerBusy { active })
     );
     assert_eq!(state, before_rejected_actions);
@@ -252,7 +254,7 @@ fn direct_consumption_claims_quantity_scaled_player_attention() {
     }
     assert_eq!(state.player_work().active(), None);
     assert!(
-        validate_drink(&registries, &state, water, Volume::from_microliters(100)).is_ok(),
+        validate_drink(&registries, &state, water, drink_volume).is_ok(),
         "direct drinking must become available after the authored meal interval finishes"
     );
 }
@@ -286,6 +288,40 @@ fn drinking_rejects_volume_above_authored_intake_limit_without_consumption() {
         Some(DrinkError::DrinkVolumeExceedsIntakeLimit {
             volume: requested,
             maximum,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn drinking_rejects_volume_below_authored_intake_minimum_without_consumption() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0031));
+    initialize_and_spend_reserves(&registries, &mut state);
+    let minimum = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let requested = minimum
+        .checked_sub(Volume::from_microliters(1))
+        .unwrap_or_else(|| panic!("drink-minimum fixture underflowed"));
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        minimum,
+        FLUID_WATER,
+        minimum,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("drink-minimum water fixture failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_drink(&registries, &state, store, requested).err(),
+        Some(DrinkError::DrinkVolumeBelowIntakeMinimum {
+            volume: requested,
+            minimum,
         })
     );
     assert_eq!(state, before);

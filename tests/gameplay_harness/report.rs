@@ -753,10 +753,29 @@ mod exploratory_output {
         wear_maintenance_pressure: usize,
         structure_production_pressure: usize,
         multi_system_adaptation: usize,
+        clean_baselines: usize,
+        single_pressure_scenarios: usize,
         maintenance_terminal: usize,
         energy_terminal: usize,
         structural_terminal: usize,
         prework_terminal: usize,
+    }
+
+    fn scenario_pressure_dimensions(report: &ScenarioReport) -> u8 {
+        u8::from(
+            report.progress.energy_adaptive_batch_operations > 0
+                || report.limits.energy_bottleneck_batches > 0
+                || report.limits.energy_stop,
+        ) + u8::from(
+            report.choices.manual_recharges > 0
+                || report.limits.manual_recovery_declined
+                || report.limits.manual_recovery_survival_limited,
+        ) + u8::from(report.limits.maintenance_warning || report.maintenance.services > 0)
+            + u8::from(
+                report.structure.structural_consequence
+                    || report.structure.support_relocation
+                    || report.structure.production_suspension,
+            )
     }
 
     fn harness_observation_stats(reports: &[ScenarioReport]) -> HarnessObservationStats {
@@ -828,24 +847,15 @@ mod exploratory_output {
                 .count(),
             multi_system_adaptation: reports
                 .iter()
-                .filter(|report| {
-                    let dimensions = u8::from(
-                        report.progress.energy_adaptive_batch_operations > 0
-                            || report.limits.energy_bottleneck_batches > 0
-                            || report.limits.energy_stop,
-                    ) + u8::from(
-                        report.choices.manual_recharges > 0
-                            || report.limits.manual_recovery_declined
-                            || report.limits.manual_recovery_survival_limited,
-                    ) + u8::from(
-                        report.limits.maintenance_warning || report.maintenance.services > 0,
-                    ) + u8::from(
-                        report.structure.structural_consequence
-                            || report.structure.support_relocation
-                            || report.structure.production_suspension,
-                    );
-                    dimensions >= 2
-                })
+                .filter(|report| scenario_pressure_dimensions(report) >= 2)
+                .count(),
+            clean_baselines: reports
+                .iter()
+                .filter(|report| scenario_pressure_dimensions(report) == 0)
+                .count(),
+            single_pressure_scenarios: reports
+                .iter()
+                .filter(|report| scenario_pressure_dimensions(report) == 1)
                 .count(),
             maintenance_terminal: reports
                 .iter()
@@ -902,11 +912,12 @@ mod exploratory_output {
 
     fn print_experience_review(stats: HarnessObservationStats, scenario_count: usize) {
         std::println!(
-            "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{}/{} interlocks=[stored-work+throughput:{} body+power:{} wear+maintenance:{} structure+production:{}] terminal=[maintenance:{} energy:{} structural:{} before-first-operation:{}] recovery=[suspensions:{} resumed:{} stranded:{}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-in-this-workshop-scenario;concentration-is-exercised-by-the-separate-ore-probe]",
+            "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover pressure-shape=[clean:{} single:{} multi-system:{}] interlocks=[stored-work+throughput:{} body+power:{} wear+maintenance:{} structure+production:{}] terminal=[maintenance:{} energy:{} structural:{} before-first-operation:{}] recovery=[suspensions:{} resumed:{} stranded:{}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-in-this-workshop-scenario;concentration-is-exercised-by-the-separate-ore-probe]",
             stats.controlled_deliveries,
             scenario_count,
+            stats.clean_baselines,
+            stats.single_pressure_scenarios,
             stats.multi_system_adaptation,
-            scenario_count,
             stats.stored_work_pressure,
             stats.body_power_pressure,
             stats.wear_maintenance_pressure,
@@ -1212,7 +1223,7 @@ mod exploratory_output {
             reports.len() - compact_deliveries,
         );
         std::println!(
-            "WORKSHOP CAPABILITY mode={mode} scenarios={} orders=[complete:{completed_orders} partial:{partial_orders} productive:{productive_orders}/{}] ore={processed_mass_mg}/{target_mass_mg}mg operations={completed_operations} adaptive=[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}] events=[reached:{controlled_deliveries}/{} operations-before-reached:{operations_before_delivery}] stops=[structural:{} maintenance-required:{} energy:{} declined-manual:{} survival-limited-manual:{}] manual-recovery=[charges:{manual_recharges} generated:{manually_generated_energy}nJ ticks:{manual_power_ticks} metabolic:{manual_metabolic_energy}nJ hydration:{manual_hydration}uL] material=[mixed-ore-melt-rejected:{mixed_ore_melt_rejections}/{}]",
+            "WORKSHOP CAPABILITY mode={mode} scenarios={} orders=[complete:{completed_orders} partial:{partial_orders} productive:{productive_orders}/{}] ore={processed_mass_mg}/{target_mass_mg}mg operations={completed_operations} adaptive=[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}] events=[reached:{controlled_deliveries}/{} operations-before-reached:{operations_before_delivery}] stops=[structural:{} maintenance-required:{} energy:{} declined-manual:{} survival-limited-manual:{}] maintenance-blockers=[replacement-supply:{} service-labor:{}] manual-recovery=[charges:{manual_recharges} generated:{manually_generated_energy}nJ ticks:{manual_power_ticks} metabolic:{manual_metabolic_energy}nJ hydration:{manual_hydration}uL] material=[mixed-ore-melt-rejected:{mixed_ore_melt_rejections}/{}]",
             reports.len(),
             reports.len(),
             reports.len(),
@@ -1235,6 +1246,18 @@ mod exploratory_output {
             reports
                 .iter()
                 .filter(|report| report.limits.manual_recovery_survival_limited)
+                .count(),
+            reports
+                .iter()
+                .filter(|report| {
+                    report.limits.maintenance_stop && report.maintenance.supply_exhausted
+                })
+                .count(),
+            reports
+                .iter()
+                .filter(|report| {
+                    report.limits.maintenance_stop && report.maintenance.labor_unavailable
+                })
                 .count(),
             reports.len(),
         );

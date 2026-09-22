@@ -37,7 +37,13 @@ fn direct_consumption_reserves_survival_revisions_through_completion() {
         Some(EatError::SurvivalRevisionExhausted)
     );
     assert_eq!(
-        validate_drink(&registries, &state, water, Volume::from_microliters(1)).err(),
+        validate_drink(
+            &registries,
+            &state,
+            water,
+            minimum_drink_volume(&registries)
+        )
+        .err(),
         Some(DrinkError::SurvivalRevisionExhausted)
     );
 }
@@ -46,10 +52,15 @@ fn direct_consumption_reserves_survival_revisions_through_completion() {
 fn trusted_load_rejects_active_consumption_without_survival_revision_capacity() {
     let registries = build_registries();
     let (mut state, _, _, water) = direct_consumption_fixture(&registries, 0x5A70_0032);
-    let _ = validate_drink(&registries, &state, water, Volume::from_microliters(10))
-        .unwrap_or_else(|error| panic!("active-consumption revision validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("active-consumption revision commit failed: {error}"));
+    let _ = validate_drink(
+        &registries,
+        &state,
+        water,
+        minimum_drink_volume(&registries),
+    )
+    .unwrap_or_else(|error| panic!("active-consumption revision validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("active-consumption revision commit failed: {error}"));
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("active-consumption revision serialization failed: {error}")

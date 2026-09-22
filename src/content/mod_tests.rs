@@ -608,6 +608,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_RECOVER_WOOD_SCRAP_BOARDS,
         PROCESS_REGRIND_COPPER_TAILINGS,
         PROCESS_SCAVENGE_COPPER_TAILINGS,
+        PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
         PROCESS_SAW_WOOD_BOARDS,
         PROCESS_SHAPE_TIMBER_FLYWHEEL,
         PROCESS_SHAPE_TIMBER_RIDDLE_PANEL,
@@ -677,6 +678,12 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         registries
             .ore_processing()
             .get_constituent_separation(PROCESS_SCAVENGE_COPPER_TAILINGS)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_constituent_separation(PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE)
             .is_some()
     );
     assert!(
@@ -999,6 +1006,9 @@ fn retained_primitive_residue_has_one_coherent_later_concentration_route() {
     let scavenger = ore
         .get_constituent_separation(PROCESS_SCAVENGE_COPPER_TAILINGS)
         .unwrap_or_else(|| panic!("built-in tailings scavenger definition disappeared"));
+    let cleaning = ore
+        .get_constituent_separation(PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE)
+        .unwrap_or_else(|| panic!("built-in concentrate-cleaning definition disappeared"));
 
     assert_eq!(sorting.residue_output_form(), grinding.input_form());
     assert_eq!(grinding.output_form(), screening.input_form());
@@ -1014,6 +1024,20 @@ fn retained_primitive_residue_has_one_coherent_later_concentration_route() {
         tailings_regrind.input_form(),
         "first-pass tailings must be the explicit feed for the later finer liberation step"
     );
+    assert_eq!(
+        concentration.target_output_form(),
+        cleaning.input_form(),
+        "primary concentrate must feed the ordinary native-copper cleanup stage"
+    );
+    assert_eq!(
+        scavenger.target_output_form(),
+        cleaning.input_form(),
+        "scavenged concentrate must converge on the same ordinary cleanup stage"
+    );
+    assert_eq!(cleaning.target_output_form(), FORM_NATIVE_METAL);
+    assert_eq!(cleaning.residue_output_form(), FORM_EXHAUSTED_TAILINGS);
+    assert_eq!(cleaning.non_target_recovery_ppm(), 0);
+    assert_eq!(cleaning.target_recovery_ppm(), 900_000);
     assert_eq!(tailings_regrind.output_form(), scavenger.input_form());
     assert_eq!(scavenger.residue_output_form(), FORM_EXHAUSTED_TAILINGS);
     assert_ne!(

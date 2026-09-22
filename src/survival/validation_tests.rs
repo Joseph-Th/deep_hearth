@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::{FLUID_WATER, FORM_FOOD, MATERIAL_GRAIN, build_registries};
-use crate::core::quantity::{Mass, Temperature, Volume};
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError};
 use crate::core::time::WorldSeed;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
@@ -147,23 +147,31 @@ fn load_rejects_pending_drinking_reusing_historical_terminal_accounting() {
     let mut state = AppState::new(WorldSeed::new(0x5A70_1006));
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("pending-drinking baseline survival setup failed: {error}"));
+    let drink_volume = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let stored_volume = drink_volume
+        .checked_add(drink_volume)
+        .unwrap_or_else(|| panic!("pending-drinking baseline volume overflowed"));
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(2),
+        stored_volume,
         FLUID_WATER,
-        Volume::from_microliters(2),
+        stored_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("pending-drinking baseline water failed: {error}"));
 
-    let _ = validate_drink(&registries, &state, store, Volume::from_microliters(1))
+    let _ = validate_drink(&registries, &state, store, drink_volume)
         .unwrap_or_else(|error| panic!("historical drinking validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("historical drinking commit failed: {error}"));
     finish_pending_consumption(&registries, &mut state);
 
-    let _ = validate_drink(&registries, &state, store, Volume::from_microliters(1))
+    let _ = validate_drink(&registries, &state, store, drink_volume)
         .unwrap_or_else(|error| panic!("pending drinking validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("pending drinking commit failed: {error}"));
@@ -171,7 +179,7 @@ fn load_rejects_pending_drinking_reusing_historical_terminal_accounting() {
         .unwrap_or_else(|error| panic!("pending-drinking baseline serialization failed: {error}"));
     let baseline = &mut encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Drinking"]
         ["consumed_before"];
-    assert_eq!(baseline.as_u64(), Some(1));
+    assert_eq!(baseline.as_u64(), Some(drink_volume.microliters()));
     *baseline = serde_json::json!(0_u64);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("pending-drinking baseline tamper decode failed: {error}"));

@@ -105,6 +105,8 @@ fn build_provider(
             )
         });
     let raw_before = stockpile_mass(state, raw);
+    let survival_before = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("power provider {context} lost survival state before build"));
     let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
     let input_mass_mg = raw_before
         .checked_sub(stockpile_mass(state, raw))
@@ -118,12 +120,28 @@ fn build_provider(
         .unwrap_or_else(|error| panic!("power provider equipment assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("power provider equipment commit failed: {error}"));
+    let survival_after = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("power provider {context} lost survival state after build"));
     (
         equipment,
         ShapedBuild {
             attention_ticks,
             input_mass_mg,
             embodied_mass_mg: inputs.0.milligrams(),
+            metabolic_nj: survival_before
+                .metabolic_energy()
+                .nanojoules()
+                .checked_sub(survival_after.metabolic_energy().nanojoules())
+                .unwrap_or_else(|| {
+                    panic!("power provider {context} build metabolic audit underflowed")
+                }),
+            hydration_ul: survival_before
+                .hydration()
+                .microliters()
+                .checked_sub(survival_after.hydration().microliters())
+                .unwrap_or_else(|| {
+                    panic!("power provider {context} build hydration audit underflowed")
+                }),
         },
     )
 }
@@ -152,6 +170,8 @@ fn build_flywheel(
         })
         .unwrap_or_else(|| panic!("power provider flywheel lost authored assembly"));
     let raw_before = stockpile_mass(state, raw);
+    let survival_before = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("power provider {context} lost survival state before build"));
     let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
     let input_mass_mg = raw_before
         .checked_sub(stockpile_mass(state, raw))
@@ -165,12 +185,28 @@ fn build_flywheel(
         .unwrap_or_else(|error| panic!("power provider flywheel assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("power provider flywheel commit failed: {error}"));
+    let survival_after = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("power provider {context} lost survival state after build"));
     (
         store,
         ShapedBuild {
             attention_ticks,
             input_mass_mg,
             embodied_mass_mg: inputs.0.milligrams(),
+            metabolic_nj: survival_before
+                .metabolic_energy()
+                .nanojoules()
+                .checked_sub(survival_after.metabolic_energy().nanojoules())
+                .unwrap_or_else(|| {
+                    panic!("power provider {context} build metabolic audit underflowed")
+                }),
+            hydration_ul: survival_before
+                .hydration()
+                .microliters()
+                .checked_sub(survival_after.hydration().microliters())
+                .unwrap_or_else(|| {
+                    panic!("power provider {context} build hydration audit underflowed")
+                }),
         },
     )
 }
@@ -334,6 +370,22 @@ pub(super) fn execute_primitive_comparison(
             .unwrap_or_else(|| panic!("treadle package mass overflowed"))
     );
     assert_eq!(
+        plan.crank_build.metabolic_nj,
+        crank_build.metabolic_nj + crank_drive_build.metabolic_nj
+    );
+    assert_eq!(
+        plan.crank_build.hydration_ul,
+        crank_build.hydration_ul + crank_drive_build.hydration_ul
+    );
+    assert_eq!(
+        plan.treadle_build.metabolic_nj,
+        treadle_build.metabolic_nj + treadle_drive_build.metabolic_nj
+    );
+    assert_eq!(
+        plan.treadle_build.hydration_ul,
+        treadle_build.hydration_ul + treadle_drive_build.hydration_ul
+    );
+    assert_eq!(
         plan.crank_charge.duration().value(),
         crank_charge.attention_ticks
     );
@@ -495,6 +547,22 @@ pub(super) fn execute_settlement_comparison(
             .input_mass_mg
             .checked_add(walking_drive_build.input_mass_mg)
             .unwrap_or_else(|| panic!("walking-wheel package mass overflowed"))
+    );
+    assert_eq!(
+        plan.treadle_build.metabolic_nj,
+        settlement_treadle_build.metabolic_nj + settlement_treadle_drive_build.metabolic_nj
+    );
+    assert_eq!(
+        plan.treadle_build.hydration_ul,
+        settlement_treadle_build.hydration_ul + settlement_treadle_drive_build.hydration_ul
+    );
+    assert_eq!(
+        plan.walking_build.metabolic_nj,
+        walking_build.metabolic_nj + walking_drive_build.metabolic_nj
+    );
+    assert_eq!(
+        plan.walking_build.hydration_ul,
+        walking_build.hydration_ul + walking_drive_build.hydration_ul
     );
     assert_eq!(
         plan.treadle_charge.duration().value(),

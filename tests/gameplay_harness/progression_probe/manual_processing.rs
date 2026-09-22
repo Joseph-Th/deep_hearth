@@ -24,6 +24,7 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::inventory_support::add_solid_stockpile;
+use super::super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
 use super::super::material_selection::select_stockpile_mass;
 use super::super::ore_fixture::copper_ore_composition;
 use super::super::production_timing::finish_uninterrupted_production_job;
@@ -59,7 +60,6 @@ pub(super) struct OwnedOreManualBridgePlan {
     pub(super) copper_ppm: u32,
     pub(super) reinforcement_required: Mass,
 }
-
 /// Projects the hand-processing bridge from authored manual physics without executing a future
 /// branch. The caller supplies the observed homogeneous assay used for feed sizing.
 pub(super) fn project_owned_ore_manual_bridge(
@@ -138,19 +138,10 @@ pub(super) fn run_owned_ore_manual_bridge(
     state: &mut AppState,
     plan: OwnedOreManualBridgePlan,
 ) -> OwnedOreManualBridgeReview {
-    let breaking = registries
-        .ore_processing()
-        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
-        .unwrap_or_else(|| panic!("owned-ore manual bridge lost its hand-breaking definition"));
     let sorting = registries
         .ore_processing()
         .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
         .unwrap_or_else(|| panic!("owned-ore manual bridge lost its hand-sorting definition"));
-    let powered_sorting = registries
-        .ore_processing()
-        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
-        .unwrap_or_else(|| panic!("owned-ore manual bridge lost its powered comparison route"));
-    let manual_recovery_ppm = sorting.target_recovery_ppm();
     let feed_mass = sorting
         .minimum_homogeneous_feed_mass_for_target_recovery(
             plan.reinforcement_required,
@@ -159,88 +150,26 @@ pub(super) fn run_owned_ore_manual_bridge(
         .unwrap_or_else(|| {
             panic!("player-owned bulk ore cannot physically recover one manual reinforcement")
         });
-    assert!(
-        feed_mass <= breaking.max_batch_mass() && feed_mass <= sorting.max_batch_mass(),
-        "player-owned bulk ore cannot fund one reinforcement inside the authored manual batch envelope"
-    );
-    assert!(
-        state
-            .inventory()
-            .get_stockpile(plan.ore_source)
-            .is_some_and(|stockpile| stockpile.stored_mass() >= feed_mass),
-        "manual bridge requires its feed to be present in player-owned ore"
-    );
-
     let matter_before = calculate_matter_accounting(state)
         .unwrap_or_else(|error| panic!("owned-ore manual bridge matter setup failed: {error}"))
         .total();
     let survival_before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("owned-ore manual bridge player disappeared at decision point"));
-    let ore_selections = select_stockpile_mass(
+    let recovery = execute_manual_ore_recovery(
+        registries,
         state,
-        plan.ore_source,
-        feed_mass,
-        "owned-ore manual bridge feed",
+        ManualOreRecoveryPlan {
+            ore_source: plan.ore_source,
+            crushed_destination: plan.crushed_destination,
+            native_destination: plan.native_destination,
+            residue_destination: plan.residue_destination,
+            feed_mass,
+        },
     );
-    let breaking = resolve_manual_comminution_process(
-        registries,
-        state,
-        ManualComminutionRequest::new(PROCESS_HAND_BREAK_ORE, plan.ore_source, &ore_selections),
-    )
-    .unwrap_or_else(|error| panic!("owned-ore manual bridge hand breaking failed: {error}"));
-    let break_ticks = breaking.duration().value();
-    let break_job = validate_start_manual_comminution(
-        registries,
-        state,
-        &breaking,
-        plan.ore_source,
-        plan.crushed_destination,
-    )
-    .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking start failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking commit failed: {error}"));
-    finish_uninterrupted_production_job(registries, state, break_job, "owned-ore manual breaking");
-
-    let crushed_selections = select_stockpile_mass(
-        state,
-        plan.crushed_destination,
-        feed_mass,
-        "owned-ore manual sorting feed",
-    );
-    let sorting = resolve_manual_constituent_separation_process(
-        registries,
-        state,
-        ManualConstituentSeparationRequest::new(
-            PROCESS_HAND_SORT_NATIVE_COPPER,
-            plan.crushed_destination,
-            &crushed_selections,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("owned-ore manual bridge hand sorting failed: {error}"));
-    let sort_ticks = sorting.duration().value();
-    let recovered_native = sorting.target_mass();
-    let residue_mass = sorting.residue_mass();
     assert_eq!(
-        recovered_native, plan.reinforcement_required,
+        recovery.recovered_native, plan.reinforcement_required,
         "same-world manual bridge must recover exactly the one reinforcement parcel it planned"
     );
-    assert_eq!(
-        recovered_native.checked_add(residue_mass),
-        Some(feed_mass),
-        "same-world hand sorting must partition the complete selected ore feed"
-    );
-    let sort_job = validate_start_manual_constituent_separation(
-        registries,
-        state,
-        &sorting,
-        plan.crushed_destination,
-        plan.native_destination,
-        plan.residue_destination,
-    )
-    .unwrap_or_else(|error| panic!("owned-ore manual bridge sorting start failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("owned-ore manual bridge sorting commit failed: {error}"));
-    finish_uninterrupted_production_job(registries, state, sort_job, "owned-ore manual sorting");
 
     let cold_work_started_at = state.tick().value();
     craft_batches(
@@ -276,16 +205,16 @@ pub(super) fn run_owned_ore_manual_bridge(
         .checked_sub(survival_after.hydration())
         .unwrap_or_else(|| unreachable!("manual bridge cannot create hydration reserve"))
         .microliters();
-    let total_attention_ticks = break_ticks
-        .checked_add(sort_ticks)
-        .and_then(|ticks| ticks.checked_add(cold_work_ticks))
+    let total_attention_ticks = recovery
+        .attention_ticks
+        .checked_add(cold_work_ticks)
         .unwrap_or_else(|| panic!("owned-ore manual bridge attention overflowed"));
 
     OwnedOreManualBridgeReview {
         feed_mass,
         total_attention_ticks,
-        manual_recovery_ppm,
-        powered_recovery_ppm: powered_sorting.target_recovery_ppm(),
+        manual_recovery_ppm: recovery.manual_recovery_ppm,
+        powered_recovery_ppm: recovery.powered_recovery_ppm,
         metabolic_cost_nj,
         hydration_cost_ul,
     }

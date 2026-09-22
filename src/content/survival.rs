@@ -41,6 +41,7 @@ fn physiology() -> PhysiologyDefinition {
         DirectConsumptionDefinition::new(
             Mass::from_milligrams(1_000_000),
             TickSpan::new(100),
+            Volume::from_microliters(10_000),
             Volume::from_microliters(1_250_000),
             TickSpan::new(30),
         ),

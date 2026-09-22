@@ -1,6 +1,13 @@
 //! Regression coverage for fieldwork planning and tool-choice economics.
 
+use deep_hearth::content::gameplay_fixture::seed_lot;
+use deep_hearth::core::time::WorldSeed;
+use deep_hearth::survival::initialize_player_survival;
+
+use super::super::environment::ROOM_TEMPERATURE;
 use super::super::focused_seeds::FocusedProbeRole;
+use super::super::inventory_support::add_solid_stockpile;
+use super::extraction::FieldworkStop;
 use super::*;
 
 /// Preserves the executed follow-up order after a typed batch-cap adaptation.
@@ -254,9 +261,10 @@ fn wear_adjusted_order_can_favor_the_lighter_reinforced_tool() {
                 ..
             },
         ..
-    } = run_fieldwork_order(
+    } = run_fieldwork_with_supply(
         &registries,
         FocusedProbeCase::new(1, None, FocusedProbeRole::ExplicitReplay),
+        order,
         order,
     );
     assert_eq!(tool, EQUIPMENT_COPPER_REINFORCED_PICK);

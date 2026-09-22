@@ -4,6 +4,9 @@ use deep_hearth::core::state::validate_loaded_state;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 
+use super::super::manual_ore_recovery::ManualOreRecoveryReview;
+use super::acquisition::RawKitAcquisitionReview;
+use super::cleanup::CleanupOutcome;
 use super::{PrimitiveLiberationScenario, scavenging::ScavengingOutcome};
 
 fn charge_ticks(scenario: &PrimitiveLiberationScenario) -> u64 {
@@ -18,15 +21,36 @@ fn generated_nj(scenario: &PrimitiveLiberationScenario) -> u128 {
         .sum()
 }
 
-pub(super) fn review(
-    registries: &Registries,
-    seed: u64,
-    started_at: u64,
-    primary_completed_at: u64,
-    demand: &PrimitiveLiberationScenario,
-    full: &PrimitiveLiberationScenario,
-    scavenged: &ScavengingOutcome,
-) {
+pub(super) struct LiberationComparison<'a> {
+    pub(super) started_at: u64,
+    pub(super) primary_completed_at: u64,
+    pub(super) scavenger_completed_at: u64,
+    pub(super) demand: &'a PrimitiveLiberationScenario,
+    pub(super) full: &'a PrimitiveLiberationScenario,
+    pub(super) scavenged: &'a ScavengingOutcome,
+    pub(super) cleaned: &'a CleanupOutcome,
+    pub(super) direct_cleanup: &'a PrimitiveLiberationScenario,
+    pub(super) direct_cleaned: &'a CleanupOutcome,
+    pub(super) manual_recovery: &'a ManualOreRecoveryReview,
+    pub(super) kit_acquisition: Option<&'a RawKitAcquisitionReview>,
+    pub(super) planned_batches: u64,
+}
+
+pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationComparison<'_>) {
+    let LiberationComparison {
+        started_at,
+        primary_completed_at,
+        scavenger_completed_at,
+        demand,
+        full,
+        scavenged,
+        cleaned,
+        direct_cleanup,
+        direct_cleaned,
+        manual_recovery,
+        kit_acquisition,
+        planned_batches,
+    } = comparison;
     validate_loaded_state(registries, &full.state)
         .unwrap_or_else(|error| panic!("full-buffer branch must remain loadable: {error}"));
     assert_eq!(
@@ -67,7 +91,22 @@ pub(super) fn review(
     );
     let elapsed = demand.state.tick().value() - started_at;
     let primary_ticks = primary_completed_at - started_at;
-    let scavenger_ticks = demand.state.tick().value() - primary_completed_at;
+    let scavenger_ticks = scavenger_completed_at - primary_completed_at;
+    let cleanup_ticks = demand.state.tick().value() - scavenger_completed_at;
+    let direct_cleanup_ticks = direct_cleanup.state.tick().value() - primary_completed_at;
+    let scavenger_marginal_ticks = demand
+        .state
+        .tick()
+        .value()
+        .checked_sub(direct_cleanup.state.tick().value())
+        .unwrap_or_else(|| {
+            panic!("scavenging branch completed before direct-cleanup counterfactual")
+        });
+    let scavenger_marginal_native = cleaned
+        .native_copper_mass
+        .checked_sub(direct_cleaned.native_copper_mass)
+        .unwrap_or_else(|| panic!("scavenging reduced recovered native copper"));
+    assert!(scavenger_marginal_native > deep_hearth::core::quantity::Mass::ZERO);
     let remaining = |scenario: &PrimitiveLiberationScenario| {
         scenario
             .state
@@ -77,12 +116,18 @@ pub(super) fn review(
             .stored()
             .nanojoules()
     };
+    assert_eq!(
+        manual_recovery.feed_mass, demand.batch_mass,
+        "manual and powered liberation route evidence must use the same ore mass"
+    );
     // These are completion costs for the same finite job, not equal-horizon final reserves.
     // The full-buffer arm's remaining work stays visible: it could be useful for a later job.
     reviewln!(
-        "LIBERATION COST seed=0x{seed:016X} basis=matched-start-same-finite-pipeline setup=preowned-parts-and-ore primary={}t scavenger={}t total={}t charge=[demand:{}t full:{}t] generated=[demand:{}nJ full:{}nJ] retained=[demand:{}nJ full:{}nJ] scavenger-extra={}mg output=identical acquisition-cost=excluded",
+        "LIBERATION COST seed=0x{seed:016X} basis=matched-post-setup-same-finite-pipeline primary={}t scavenger={}t cleanup={}t direct-cleanup={}t total={}t charge=[demand:{}t full:{}t] generated=[demand:{}nJ full:{}nJ] retained=[demand:{}nJ full:{}nJ] scavenger-extra={}mg native-copper={}mg direct-native={}mg scavenger-marginal=[attention:{}t native:{}mg] output=identical-within-branch base-kit-cost=reported-separately",
         primary_ticks,
         scavenger_ticks,
+        cleanup_ticks,
+        direct_cleanup_ticks,
         elapsed,
         demand_ticks,
         full_ticks,
@@ -91,11 +136,121 @@ pub(super) fn review(
         remaining(demand),
         remaining(full),
         scavenged.additional_recovered_copper_ppm_mg / 1_000_000,
+        cleaned.native_copper_mass.milligrams(),
+        direct_cleaned.native_copper_mass.milligrams(),
+        scavenger_marginal_ticks,
+        scavenger_marginal_native.milligrams(),
+    );
+    let kit = kit_acquisition.map_or_else(
+        || "not-executed-this-sample".to_owned(),
+        |review| {
+            format!(
+                "executed attention:{}t body:{}nJ/{}uL",
+                review.attention_ticks, review.metabolic_cost_nj, review.hydration_cost_ul
+            )
+        },
+    );
+    let continuity = if kit_acquisition.is_some() {
+        "live-kit-used"
+    } else {
+        "controlled-preassembled-kit"
+    };
+    let campaign = kit_acquisition.map_or_else(
+        || format!(
+            "planned:{planned_batches}batches kit-payback:not-applicable economics:not-applicable justified:not-applicable"
+        ),
+        |review| {
+            let planned_batches_u128 = u128::from(planned_batches);
+            let attention_saved = manual_recovery
+                .attention_ticks
+                .checked_sub(demand_ticks)
+                .unwrap_or_else(|| panic!("powered route did not save player attention"));
+            assert!(
+                attention_saved > 0,
+                "powered route must save player attention before kit payback can be justified"
+            );
+            let payback = review.attention_ticks.div_ceil(attention_saved);
+            assert!(
+                payback <= planned_batches,
+                "primitive processing kit pays back in {payback} batches but only {planned_batches} were disclosed before build"
+            );
+            let manual_campaign_attention = manual_recovery
+                .attention_ticks
+                .checked_mul(planned_batches)
+                .unwrap_or_else(|| panic!("manual liberation campaign attention overflowed"));
+            let powered_campaign_attention = review
+                .attention_ticks
+                .checked_add(
+                    demand_ticks
+                        .checked_mul(planned_batches)
+                        .unwrap_or_else(|| panic!("powered liberation campaign charge attention overflowed")),
+                )
+                .unwrap_or_else(|| panic!("powered liberation campaign attention overflowed"));
+            assert!(
+                powered_campaign_attention <= manual_campaign_attention,
+                "disclosed primitive campaign must not spend more player attention after its claimed payback"
+            );
+            let manual_campaign_metabolic = manual_recovery
+                .metabolic_cost_nj
+                .checked_mul(planned_batches_u128)
+                .unwrap_or_else(|| panic!("manual liberation campaign metabolism overflowed"));
+            let powered_campaign_metabolic = review
+                .metabolic_cost_nj
+                .checked_add(
+                    demand_body
+                        .0
+                        .checked_mul(planned_batches_u128)
+                        .unwrap_or_else(|| panic!("powered liberation campaign charge metabolism overflowed")),
+                )
+                .unwrap_or_else(|| panic!("powered liberation campaign metabolism overflowed"));
+            let manual_campaign_hydration = manual_recovery
+                .hydration_cost_ul
+                .checked_mul(planned_batches)
+                .unwrap_or_else(|| panic!("manual liberation campaign hydration overflowed"));
+            let powered_campaign_hydration = review
+                .hydration_cost_ul
+                .checked_add(
+                    demand_body
+                        .1
+                        .checked_mul(planned_batches)
+                        .unwrap_or_else(|| panic!("powered liberation campaign charge hydration overflowed")),
+                )
+                .unwrap_or_else(|| panic!("powered liberation campaign hydration overflowed"));
+            format!(
+                concat!(
+                    "planned:{planned_batches}batches kit-payback:{payback}batches ",
+                    "attention:manual:{manual_campaign_attention}t/powered:{powered_campaign_attention}t ",
+                    "body:manual:{manual_campaign_metabolic}nJ/{manual_campaign_hydration}uL ",
+                    "powered:{powered_campaign_metabolic}nJ/{powered_campaign_hydration}uL justified:true"
+                ),
+                planned_batches = planned_batches,
+                payback = payback,
+                manual_campaign_attention = manual_campaign_attention,
+                powered_campaign_attention = powered_campaign_attention,
+                manual_campaign_metabolic = manual_campaign_metabolic,
+                manual_campaign_hydration = manual_campaign_hydration,
+                powered_campaign_metabolic = powered_campaign_metabolic,
+                powered_campaign_hydration = powered_campaign_hydration,
+            )
+        },
     );
     reviewln!(
-        "LIBERATION PACING seed=0x{seed:016X} primary={} scavenger={} charge-body=[demand:{}nJ/{}uL full:{}nJ/{}uL] machine-time={}t parallel-work=not-exercised interpretation=extra-recovery-is-not-free-metal",
+        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[{kit}] continuity={continuity} interpretation=manual-is-low-infrastructure-fallback;powered-route-buys-recovery-and-reusable-throughput",
+        manual_recovery.feed_mass.milligrams(),
+        manual_recovery.attention_ticks,
+        manual_recovery.recovered_native.milligrams(),
+        manual_recovery.manual_recovery_ppm,
+        manual_recovery.metabolic_cost_nj,
+        manual_recovery.hydration_cost_ul,
+        elapsed,
+        demand_ticks,
+        cleaned.native_copper_mass.milligrams(),
+    );
+    reviewln!(
+        "LIBERATION PACING seed=0x{seed:016X} primary={} scavenger={} cleanup={} charge-body=[demand:{}nJ/{}uL full:{}nJ/{}uL] machine-time={}t parallel-work=not-exercised interpretation=recovered-native-copper-pays-extra-dressing-cost",
         super::super::physical_time::format_physical_duration(registries, primary_ticks),
         super::super::physical_time::format_physical_duration(registries, scavenger_ticks),
+        super::super::physical_time::format_physical_duration(registries, cleanup_ticks),
         demand_body.0,
         demand_body.1,
         full_body.0,

@@ -37,6 +37,14 @@ fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) 
     }
 }
 
+fn minimum_drink_volume(registries: &Registries) -> Volume {
+    registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume()
+}
+
 fn load_with_owner_revisions(
     registries: &Registries,
     state: &AppState,
@@ -83,9 +91,9 @@ fn direct_consumption_fixture(
     let water = add_fluid_store_with_contents_for_fixture(
         registries,
         &mut state,
-        Volume::from_microliters(10),
+        minimum_drink_volume(registries),
         FLUID_WATER,
-        Volume::from_microliters(10),
+        minimum_drink_volume(registries),
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("direct-consumption revision water failed: {error}"));

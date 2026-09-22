@@ -19,12 +19,13 @@ fn eating_and_drinking_reject_active_player_work_without_mutation() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("attention food lot failed: {error}"));
+    let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(1),
+        drink_volume,
         FLUID_WATER,
-        Volume::from_microliters(1),
+        drink_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("attention water fixture failed: {error}"));
@@ -42,7 +43,7 @@ fn eating_and_drinking_reject_active_player_work_without_mutation() {
         Some(EatError::PlayerBusy { active })
     );
     assert_eq!(
-        validate_drink(&registries, &state, water, Volume::from_microliters(1)).err(),
+        validate_drink(&registries, &state, water, drink_volume).err(),
         Some(DrinkError::PlayerBusy { active })
     );
     assert_eq!(state, before);
@@ -243,16 +244,17 @@ fn validated_drink_rejects_player_work_started_before_commit_without_mutation() 
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0013));
     initialize_and_spend_reserves(&registries, &mut state);
+    let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(1),
+        drink_volume,
         FLUID_WATER,
-        Volume::from_microliters(1),
+        drink_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("stale-attention water fixture failed: {error}"));
-    let drink = validate_drink(&registries, &state, water, Volume::from_microliters(1))
+    let drink = validate_drink(&registries, &state, water, drink_volume)
         .unwrap_or_else(|error| panic!("stale-attention drink validation failed: {error}"));
 
     start_attention_owning_craft(&registries, &mut state);
@@ -346,16 +348,17 @@ fn validated_drink_rejects_survival_change_before_commit_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_001E));
     initialize_and_spend_reserves(&registries, &mut state);
+    let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(10),
+        drink_volume,
         FLUID_WATER,
-        Volume::from_microliters(10),
+        drink_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("stale-survival drink fixture failed: {error}"));
-    let token = validate_drink(&registries, &state, water, Volume::from_microliters(1))
+    let token = validate_drink(&registries, &state, water, drink_volume)
         .unwrap_or_else(|error| panic!("stale-survival drink validation failed: {error}"));
     let expected = state.survival().revision();
 
@@ -376,16 +379,17 @@ fn validated_drink_rejects_fluid_change_before_commit_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_001F));
     initialize_and_spend_reserves(&registries, &mut state);
+    let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
-        Volume::from_microliters(10),
+        drink_volume,
         FLUID_WATER,
-        Volume::from_microliters(10),
+        drink_volume,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("stale-fluid drink fixture failed: {error}"));
-    let token = validate_drink(&registries, &state, water, Volume::from_microliters(1))
+    let token = validate_drink(&registries, &state, water, drink_volume)
         .unwrap_or_else(|error| panic!("stale-fluid drink validation failed: {error}"));
     let expected = state.fluid().revision();
 

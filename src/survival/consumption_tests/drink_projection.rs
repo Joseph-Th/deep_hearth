@@ -31,6 +31,31 @@ fn minimum_drink_projection_prices_its_own_consumption_time() {
 }
 
 #[test]
+fn minimum_drink_projection_respects_authored_serving_floor() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let drink = registries
+        .survival()
+        .get_drink(FLUID_WATER)
+        .copied()
+        .unwrap_or_else(|| panic!("water drink definition disappeared"));
+    let current = physiology.thirsty_below();
+    let target = current
+        .checked_add(Volume::from_microliters(1))
+        .unwrap_or_else(|| panic!("minimum-serving target overflowed"));
+
+    let projection = project_minimum_drink_to_hydration_target(physiology, drink, current, target)
+        .unwrap_or_else(|error| panic!("minimum-serving drink projection failed: {error}"))
+        .unwrap_or_else(|| panic!("minimum-serving projection unexpectedly needed no drink"));
+
+    assert_eq!(
+        projection.volume(),
+        physiology.direct_consumption().minimum_drink_volume()
+    );
+    assert!(projection.hydration_after() >= target);
+}
+
+#[test]
 fn minimum_drink_projection_matches_canonical_execution() {
     let registries = build_registries();
     let physiology = registries.survival().physiology();

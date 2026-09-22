@@ -52,6 +52,7 @@ pub const PROCESS_REWORK_WOOD_SCRAP_HANDLE: ProcessId = ProcessId::new(36);
 pub const PROCESS_RECOVER_WOOD_SCRAP_BOARDS: ProcessId = ProcessId::new(37);
 pub const PROCESS_REGRIND_COPPER_TAILINGS: ProcessId = ProcessId::new(38);
 pub const PROCESS_SCAVENGE_COPPER_TAILINGS: ProcessId = ProcessId::new(39);
+pub const PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE: ProcessId = ProcessId::new(40);
 
 fn mass_flow_resolver_requirements(
     flow_capability: CapabilityId,
@@ -214,6 +215,11 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new(
             PROCESS_CONCENTRATE_COPPER,
             "concentrate copper from liberated ore",
+            mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
+        ),
+        ProcessDefinition::new(
+            PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE,
+            "clean native copper from rich concentrate",
             mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
         ),
         ProcessDefinition::new(PROCESS_KNAP_STONE_TOOL, "knap stone tool", Vec::new()),

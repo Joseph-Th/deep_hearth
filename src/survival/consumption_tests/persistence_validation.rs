@@ -150,7 +150,7 @@ fn drinking_state(registries: &Registries, seed: u64, volume: Volume) -> AppStat
 #[test]
 fn trusted_load_rejects_future_and_elapsed_pending_consumption_schedules() {
     let registries = build_registries();
-    let volume = Volume::from_microliters(1);
+    let volume = minimum_drink_volume(&registries);
     let state = drinking_state(&registries, 0x5A70_0033, volume);
     let current = state.tick().value();
 
@@ -202,7 +202,8 @@ fn trusted_load_rejects_future_and_elapsed_pending_consumption_schedules() {
 #[test]
 fn trusted_load_rejects_pending_drink_duration_mismatch() {
     let registries = build_registries();
-    let state = drinking_state(&registries, 0x5A70_0035, Volume::from_microliters(1));
+    let minimum = minimum_drink_volume(&registries);
+    let state = drinking_state(&registries, 0x5A70_0035, minimum);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending-drink-duration serialization failed: {error}"));
     let completes_at = encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]
@@ -214,6 +215,27 @@ fn trusted_load_rejects_pending_drink_duration_mismatch() {
 
     assert_eq!(
         decode_tampered(encoded, "pending-drink-duration").into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::PendingDrinkingVolumeInvalid
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_pending_drink_below_authored_minimum() {
+    let registries = build_registries();
+    let minimum = minimum_drink_volume(&registries);
+    let state = drinking_state(&registries, 0x5A70_0043, minimum);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("pending-drink-minimum serialization failed: {error}"));
+    let below_minimum = minimum
+        .checked_sub(Volume::from_microliters(1))
+        .unwrap_or_else(|| panic!("pending-drink minimum fixture underflowed"));
+    encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Drinking"]["volume"] =
+        serde_json::json!(below_minimum.microliters());
+
+    assert_eq!(
+        decode_tampered(encoded, "pending-drink-minimum").into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Survival(
             SurvivalValidationError::PendingDrinkingVolumeInvalid
         )))
@@ -265,7 +287,8 @@ fn trusted_load_rejects_pending_consumption_larger_than_terminal_accounting() {
         )))
     );
 
-    let drinking = drinking_state(&registries, 0x5A70_0037, Volume::from_microliters(2));
+    let minimum = minimum_drink_volume(&registries);
+    let drinking = drinking_state(&registries, 0x5A70_0037, minimum);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &drinking))
         .unwrap_or_else(|error| panic!("pending-drink accounting serialization failed: {error}"));
     let consumed_fluids = encoded["state"]["systems"]["survival"]["consumed_fluids"]

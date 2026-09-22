@@ -2,16 +2,16 @@
 
 use super::*;
 use crate::capability::{
-    CapabilityComparison, CapabilityDefinition, CapabilityProfile, CapabilityRequirement,
-    CapabilityValue, CapabilityValueKind,
+    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
+    CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{FORM_INGOT, FORM_MOLTEN, MATERIAL_COPPER, make_test_registries_with_casting};
 use crate::core::quantity::Mass;
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
 use crate::energy::{
-    EnergySinkError, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyStoreRecord,
-    PreciseEnergy, add_energy_store, add_energy_store_with_initial_for_fixture,
+    EnergyCarrier, EnergySinkError, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    EnergyStoreRecord, PreciseEnergy, add_energy_store, add_energy_store_with_initial_for_fixture,
     calculate_explicit_energy_accounting, validate_energy_sink,
 };
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
@@ -27,7 +27,9 @@ use crate::production::{
     apply_completion_plan, decide_due_completions, validate_start_process,
 };
 use crate::simulation::advance_tick;
-use crate::thermal::{PhaseChangeProcessProfile, ThermalJobValidationError};
+use crate::thermal::{
+    CastingPhaseChange, PhaseChangeForms, PhaseChangeProcessProfile, ThermalJobValidationError,
+};
 
 const COOLING_POWER: CapabilityId = CapabilityId::new(960_001);
 const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(960_002);

@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::capability::{
-    CapabilityComparison, CapabilityDefinition, CapabilityProfile, CapabilityRequirement,
-    CapabilityValue, CapabilityValueKind,
+    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
+    CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
     FORM_CONCENTRATE, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
@@ -15,8 +15,8 @@ use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::TickSpan;
 use crate::core::time::WorldSeed;
 use crate::energy::{
-    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
-    calculate_explicit_energy_accounting,
+    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    add_energy_store_with_initial_for_fixture, calculate_explicit_energy_accounting,
 };
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
 use crate::inventory::{

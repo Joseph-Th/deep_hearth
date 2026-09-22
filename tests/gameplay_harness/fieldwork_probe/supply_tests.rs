@@ -1,5 +1,6 @@
 //! Acquired resource scale informs investment without leaking exact hidden reserve.
 
+use super::extraction::FieldworkStop;
 use super::*;
 use deep_hearth::maintenance::Condition;
 
@@ -158,17 +159,50 @@ fn world_seeded_shallow_opportunity_reports_partial_order() {
 }
 
 #[test]
-fn acquired_resource_scale_can_change_bulk_tool_investment() {
+fn acquired_resource_scale_changes_current_project_workload_before_depletion() {
     let registries = deep_hearth::content::build_registries();
-    let demonstrated = (1_u64..=16).any(|seed| {
+    let demonstrated = (1_u64..=16).find_map(|seed| {
         let requested = fieldwork_order(&registries, seed);
         if fieldwork_supply(seed) >= requested {
-            return false;
+            return None;
         }
-        run_fieldwork_order(&registries, replay(seed), requested).resource_knowledge_changed_tool
+        let episode = run_fieldwork_order(&registries, replay(seed), requested);
+        (episode.planned_local_mass < requested).then_some(episode)
+    });
+    let episode = demonstrated.unwrap_or_else(|| {
+        panic!("bounded fieldwork variation lost its quantity-informed project workload")
     });
     assert!(
-        demonstrated,
-        "bounded fieldwork variation must include a shallow world where acquired reserve scale changes the rational tool investment"
+        episode.planned_local_mass <= Mass::from_milligrams(1_000_000),
+        "current shallow opportunity should become actionable through the authored one-kilogram resource-scale band"
     );
+}
+
+#[test]
+fn maintained_bulk_order_uses_reserve_knowledge_to_avoid_quarry_overinvestment() {
+    let registries = deep_hearth::content::build_registries();
+    let case = FocusedProbeCase::new(
+        FIELDWORK_RESERVE_SCALE_COVERAGE_SEED,
+        None,
+        FocusedProbeRole::MaintainedCoverage,
+    );
+    let requested = fieldwork_order_for_case(&registries, case);
+    assert_eq!(
+        requested,
+        multiplied_mass(
+            fieldwork_mining_limits(&registries).base_quarry_batch,
+            FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES,
+            "reserve-scale coverage expectation",
+        )
+    );
+    assert!(fieldwork_supply(case.seed()) < requested);
+
+    let episode = run_fieldwork_order(&registries, case, requested);
+    assert_eq!(
+        episode.full_order_tool,
+        Some(EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK)
+    );
+    assert_eq!(episode.tool, EQUIPMENT_COPPER_REINFORCED_PICK);
+    assert_eq!(episode.resource_knowledge_effect, "changed-tool");
+    assert!(episode.planned_local_mass < requested);
 }

@@ -116,6 +116,7 @@ impl HydrationDefinition {
 pub struct DirectConsumptionDefinition {
     maximum_meal_mass: Mass,
     maximum_meal_duration: TickSpan,
+    minimum_drink_volume: Volume,
     maximum_drink_volume: Volume,
     maximum_drink_duration: TickSpan,
 }
@@ -125,6 +126,7 @@ impl DirectConsumptionDefinition {
     pub fn new(
         maximum_meal_mass: Mass,
         maximum_meal_duration: TickSpan,
+        minimum_drink_volume: Volume,
         maximum_drink_volume: Volume,
         maximum_drink_duration: TickSpan,
     ) -> Self {
@@ -137,8 +139,16 @@ impl DirectConsumptionDefinition {
             "maximum direct meal duration must be nonzero"
         );
         assert!(
+            !minimum_drink_volume.is_zero(),
+            "minimum direct drink volume must be nonzero"
+        );
+        assert!(
             !maximum_drink_volume.is_zero(),
             "maximum direct drink volume must be nonzero"
+        );
+        assert!(
+            minimum_drink_volume <= maximum_drink_volume,
+            "minimum direct drink volume cannot exceed maximum direct drink volume"
         );
         assert!(
             !maximum_drink_duration.is_zero(),
@@ -147,6 +157,7 @@ impl DirectConsumptionDefinition {
         Self {
             maximum_meal_mass,
             maximum_meal_duration,
+            minimum_drink_volume,
             maximum_drink_volume,
             maximum_drink_duration,
         }
@@ -155,6 +166,11 @@ impl DirectConsumptionDefinition {
     #[must_use]
     pub const fn maximum_meal_mass(self) -> Mass {
         self.maximum_meal_mass
+    }
+
+    #[must_use]
+    pub const fn minimum_drink_volume(self) -> Volume {
+        self.minimum_drink_volume
     }
 
     #[must_use]
@@ -186,7 +202,7 @@ impl DirectConsumptionDefinition {
 
     #[must_use]
     pub fn drink_duration(self, volume: Volume) -> Option<TickSpan> {
-        if volume.is_zero() || volume > self.maximum_drink_volume {
+        if volume < self.minimum_drink_volume || volume > self.maximum_drink_volume {
             return None;
         }
         Some(Self::scaled_duration(

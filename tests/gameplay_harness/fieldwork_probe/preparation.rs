@@ -1,6 +1,18 @@
 //! Canonical field-tool fabrication and upgrade execution.
 
-use super::*;
+use deep_hearth::content::{
+    EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+};
+use deep_hearth::core::state::AppState;
+use deep_hearth::equipment::{
+    EquipmentDefinitionId, EquipmentId, validate_assemble_equipment, validate_upgrade_equipment,
+};
+use deep_hearth::inventory::StockpileId;
+use deep_hearth::registry::Registries;
+
+use super::super::manual_craft_execution::execute_manual_craft_batches;
+use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
+use super::planning::{FieldworkTool, equipment_component_requirements};
 
 fn craft_equipment_components(
     registries: &Registries,
@@ -102,6 +114,35 @@ pub(super) fn assemble_sampling_hammer(
                 panic!("fieldwork sampling-hammer assembly commit failed: {error}")
             });
     (hammer, setup_ticks)
+}
+
+pub(super) fn upgrade_sampling_hammer(
+    registries: &Registries,
+    state: &mut AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    hammer: EquipmentId,
+) -> u64 {
+    let reinforcement_ticks = craft_upgrade_additions(
+        registries,
+        state,
+        raw,
+        parts,
+        EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+        "fieldwork sampling-hammer reinforcement",
+    );
+    let upgraded = validate_upgrade_equipment(
+        registries,
+        state,
+        hammer,
+        EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
+        parts,
+    )
+    .unwrap_or_else(|error| panic!("fieldwork sampling-hammer upgrade failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("fieldwork sampling-hammer upgrade commit failed: {error}"));
+    assert_eq!(upgraded, hammer);
+    reinforcement_ticks
 }
 
 fn craft_upgrade_additions(

@@ -46,6 +46,10 @@ pub enum DrinkError {
     NoHydrationGain {
         volume: Volume,
     },
+    DrinkVolumeBelowIntakeMinimum {
+        volume: Volume,
+        minimum: Volume,
+    },
     DrinkVolumeExceedsIntakeLimit {
         volume: Volume,
         maximum: Volume,
@@ -121,6 +125,12 @@ impl Display for DrinkError {
                 "drink volume {} uL resolves to zero whole microliters of hydration",
                 volume.microliters()
             ),
+            Self::DrinkVolumeBelowIntakeMinimum { volume, minimum } => write!(
+                formatter,
+                "drink volume {} uL is below the direct-consumption minimum of {} uL",
+                volume.microliters(),
+                minimum.microliters()
+            ),
             Self::DrinkVolumeExceedsIntakeLimit { volume, maximum } => write!(
                 formatter,
                 "drink volume {} uL exceeds the direct-consumption limit of {} uL",
@@ -159,6 +169,7 @@ impl Error for DrinkError {
             | Self::CompletionTickOverflow { .. }
             | Self::HydrationOverflow
             | Self::NoHydrationGain { .. }
+            | Self::DrinkVolumeBelowIntakeMinimum { .. }
             | Self::DrinkVolumeExceedsIntakeLimit { .. }
             | Self::ConsumedFluidOverflow => None,
         }
