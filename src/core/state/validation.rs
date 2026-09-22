@@ -95,7 +95,8 @@ pub fn validate_loaded_state(
         state.tick(),
     )
     .map_err(StateValidationError::GeologicalKnowledge)?;
-    crate::geology::validate_loaded_hardness_against_live_geology(
+    crate::geology::validate_loaded_geological_evidence_against_world(
+        registries.labor(),
         &state.systems.geology,
         &state.systems.geological_knowledge,
     )

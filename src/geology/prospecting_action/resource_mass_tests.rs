@@ -65,6 +65,74 @@ fn fully_localized_single_body_returns_conservative_mass_bucket() {
 }
 
 #[test]
+fn resource_mass_resolution_tracks_owner_depletion_and_disappears_at_zero() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(7));
+    let region = voxel(0);
+    let initial = Mass::from_milligrams(4_300_000);
+    let spec = GeneratedDepositSpec::new(
+        region,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        initial,
+        Temperature::from_millikelvin(293_150),
+        Pressure::from_pascals(300_000_000),
+        MaterialComposition::pure(MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("depletion resource-mass fixture failed: {error}"));
+    let deposit = insert_generated_deposit(&registries, &mut state, spec)
+        .unwrap_or_else(|error| panic!("depletion resource-mass insertion failed: {error}"));
+    let resolution = Mass::from_milligrams(1_000_000);
+
+    assert_eq!(
+        resolve_region_resource_mass(&state, region, MATERIAL_COPPER, resolution),
+        Some(
+            super::ResourceMassEstimate::new(
+                Mass::from_milligrams(4_000_000),
+                Mass::from_milligrams(5_000_000),
+            )
+            .unwrap_or_else(|error| panic!("initial resource-mass expectation failed: {error}"))
+        )
+    );
+
+    let next_revision = state
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("depletion resource-mass revision overflowed"));
+    state.geology_state_mut().apply_extraction(
+        deposit,
+        Mass::from_milligrams(2_000_000),
+        next_revision,
+    );
+    assert_eq!(
+        resolve_region_resource_mass(&state, region, MATERIAL_COPPER, resolution),
+        Some(
+            super::ResourceMassEstimate::new(
+                Mass::from_milligrams(2_000_000),
+                Mass::from_milligrams(3_000_000),
+            )
+            .unwrap_or_else(|error| panic!("depleted resource-mass expectation failed: {error}"))
+        )
+    );
+
+    let next_revision = state
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("terminal resource-mass revision overflowed"));
+    state.geology_state_mut().apply_extraction(
+        deposit,
+        Mass::from_milligrams(2_300_000),
+        next_revision,
+    );
+    assert_eq!(
+        resolve_region_resource_mass(&state, region, MATERIAL_COPPER, resolution),
+        None,
+        "a fully depleted body must no longer produce a positive remaining-mass estimate"
+    );
+}
+
+#[test]
 fn exact_bucket_boundary_does_not_reveal_hidden_reserve_exactly() {
     let mut state = AppState::new(WorldSeed::new(4));
     let region = voxel(0);
@@ -127,6 +195,26 @@ fn overlapping_body_without_requested_material_does_not_create_false_ambiguity()
     .unwrap_or_else(|| panic!("zero-copper body must not count as a copper reserve"));
     assert_eq!(estimate.lower(), Mass::from_milligrams(4_000_000));
     assert_eq!(estimate.upper(), Mass::from_milligrams(5_000_000));
+}
+
+#[test]
+fn broader_observation_region_does_not_claim_single_body_resource_mass() {
+    let mut state = AppState::new(WorldSeed::new(8));
+    let body = voxel(0);
+    let broad = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(2, 1, 1))
+        .unwrap_or_else(|error| panic!("broad resource-mass bounds failed: {error}"));
+    insert_copper(&mut state, body, Mass::from_milligrams(4_300_000));
+
+    assert_eq!(
+        resolve_region_resource_mass(
+            &state,
+            broad,
+            MATERIAL_COPPER,
+            Mass::from_milligrams(1_000_000),
+        ),
+        None,
+        "an observation footprint broader than the hidden body must not reveal that body's total remaining mass"
+    );
 }
 
 #[test]

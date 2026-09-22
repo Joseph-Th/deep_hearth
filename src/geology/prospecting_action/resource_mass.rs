@@ -50,7 +50,7 @@ pub(super) fn resolve_region_resource_mass(
             && deposit.composition().parts_per_million(material) > 0
     });
     let deposit = matching.next()?;
-    if matching.next().is_some() || !region.contains_bounds(deposit.bounds()) {
+    if matching.next().is_some() || region != deposit.bounds() {
         return None;
     }
     Some(resource_mass_bucket(deposit.remaining_mass(), resolution))

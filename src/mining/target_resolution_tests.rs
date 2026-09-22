@@ -3,8 +3,8 @@
 use super::*;
 use crate::content::{FORM_ORE, MATERIAL_COPPER, build_registries};
 use crate::core::quantity::{Mass, Pressure, Temperature};
-use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
+use crate::core::state::{AppState, apply_clock_advance};
+use crate::core::time::{SimulationTick, WorldSeed};
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
     MaterialAbundanceEstimate, ProspectingResolution, insert_generated_deposit,
@@ -19,7 +19,11 @@ fn bounds(min_x: i64, max_x: i64) -> VoxelBounds {
         .unwrap_or_else(|error| panic!("mining target bounds fixture failed: {error}"))
 }
 
-fn insert_copper_deposit(registries: &Registries, state: &mut AppState, region: VoxelBounds) {
+fn insert_copper_deposit(
+    registries: &Registries,
+    state: &mut AppState,
+    region: VoxelBounds,
+) -> GeologicalDepositId {
     let spec = GeneratedDepositSpec::new(
         region,
         CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -30,7 +34,7 @@ fn insert_copper_deposit(registries: &Registries, state: &mut AppState, region: 
     )
     .unwrap_or_else(|error| panic!("mining target deposit fixture failed: {error}"));
     insert_generated_deposit(registries, state, spec)
-        .unwrap_or_else(|error| panic!("mining target deposit insertion failed: {error}"));
+        .unwrap_or_else(|error| panic!("mining target deposit insertion failed: {error}"))
 }
 
 fn record_copper_evidence(
@@ -49,6 +53,38 @@ fn record_copper_evidence(
     );
     record_prospecting_for_test(registries, state, resolution)
         .unwrap_or_else(|error| panic!("mining target evidence failed: {error}"));
+}
+
+#[test]
+fn evidence_cannot_authorize_a_deposit_generated_after_it_was_acquired() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_1013));
+    let region = bounds(0, 1);
+    let historical = insert_copper_deposit(&registries, &mut state, region);
+    record_copper_evidence(&registries, &mut state, region, 900_000, 1_000_000);
+    let next_revision = state
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("target-generation geology revision overflowed"));
+    state.geology_state_mut().apply_extraction(
+        historical,
+        Mass::from_milligrams(1_000),
+        next_revision,
+    );
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    let _replacement = insert_copper_deposit(&registries, &mut state, region);
+
+    assert_eq!(
+        resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER)),
+        Err(
+            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                material: MATERIAL_COPPER,
+                region,
+            }
+        ),
+        "evidence acquired before a body's generation must not authorize that later body"
+    );
 }
 
 fn record_copper_hardness_evidence(

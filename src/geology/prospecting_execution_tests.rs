@@ -1,14 +1,16 @@
 //! Contract tests for prospecting execution and acquired evidence.
 
 use super::*;
-use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
-use crate::core::quantity::{Mass, Pressure};
-use crate::core::state::validate_loaded_state;
-use crate::core::time::WorldSeed;
+use crate::content::{FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
+use crate::core::quantity::{Mass, Pressure, Temperature};
+use crate::core::state::{apply_clock_advance, validate_loaded_state};
+use crate::core::time::{SimulationTick, WorldSeed};
 use crate::geology::{
-    GeologicalEvidenceConsistency, MaterialAbundanceEstimate, ResourceMassEstimate,
-    assess_geological_knowledge, build_geological_knowledge_map,
+    ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceConsistency,
+    MaterialAbundanceEstimate, ResourceMassEstimate, assess_geological_knowledge,
+    build_geological_knowledge_map, insert_generated_deposit,
 };
+use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
@@ -18,6 +20,11 @@ fn bounds(min_x: i64, max_x: i64) -> VoxelBounds {
         Ok(bounds) => bounds,
         Err(error) => panic!("prospecting bounds fixture failed: {error}"),
     }
+}
+
+fn line_bounds(min_x: i64, max_x: i64) -> VoxelBounds {
+    VoxelBounds::new(VoxelCoord::new(min_x, -1, 0), VoxelCoord::new(max_x, 0, 1))
+        .unwrap_or_else(|error| panic!("prospecting line bounds fixture failed: {error}"))
 }
 
 #[test]
@@ -46,7 +53,7 @@ fn resource_mass_requires_definite_physical_single_material_context() {
 }
 
 #[test]
-fn resource_mass_assessment_exposes_best_acquired_band_without_live_truth() {
+fn same_tick_resource_mass_assessment_prefers_the_most_precise_acquired_band() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x6B00_00A4));
     let region = bounds(4, 6);
@@ -72,10 +79,247 @@ fn resource_mass_assessment_exposes_best_acquired_band_without_live_truth() {
             .with_resource_mass_for_fixture(resource_mass),
         );
     }
+    let assessment =
+        assess_geological_knowledge(state.geological_knowledge(), region, MATERIAL_COPPER);
+    assert_eq!(assessment.resource_mass(), Some(precise));
     assert_eq!(
-        assess_geological_knowledge(state.geological_knowledge(), region, MATERIAL_COPPER)
-            .resource_mass(),
-        Some(precise)
+        assessment.resource_mass_observed_at(),
+        Some(SimulationTick::ZERO)
+    );
+}
+
+#[test]
+fn newer_resource_mass_observation_supersedes_older_precision() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_00A5));
+    let region = bounds(4, 6);
+    let older_precise = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("older resource-mass fixture failed: {error}"));
+    let newer_broad = ResourceMassEstimate::new(
+        Mass::from_milligrams(500_000),
+        Mass::from_milligrams(3_000_000),
+    )
+    .unwrap_or_else(|error| panic!("newer resource-mass fixture failed: {error}"));
+
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution::new_for_fixture(
+            region,
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 400_000, 500_000)],
+        )
+        .with_resource_mass_for_fixture(older_precise),
+    );
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution::new_for_fixture(
+            region,
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 400_000, 500_000)],
+        )
+        .with_resource_mass_for_fixture(newer_broad),
+    );
+
+    let assessment =
+        assess_geological_knowledge(state.geological_knowledge(), region, MATERIAL_COPPER);
+    assert_eq!(assessment.resource_mass(), Some(newer_broad));
+    assert_eq!(
+        assessment.resource_mass_observed_at(),
+        Some(SimulationTick::new(1))
+    );
+}
+
+#[test]
+fn authored_resource_mass_recency_round_trips() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_00A8));
+    let region = VoxelBounds::new(VoxelCoord::new(4, -16, 0), VoxelCoord::new(5, -15, 1))
+        .unwrap_or_else(|error| panic!("authored resource-mass bounds failed: {error}"));
+    let deposit = insert_generated_deposit(
+        &registries,
+        &mut state,
+        GeneratedDepositSpec::new(
+            region,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(4_500_000),
+            Temperature::from_millikelvin(293_150),
+            Pressure::from_pascals(300_000_000),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap_or_else(|error| panic!("resource-mass history deposit fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("resource-mass history deposit insertion failed: {error}"));
+    let older_resource = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("older authored resource-mass fixture failed: {error}"));
+    let newer_resource = ResourceMassEstimate::new(
+        Mass::from_milligrams(2_000_000),
+        Mass::from_milligrams(3_000_000),
+    )
+    .unwrap_or_else(|error| panic!("newer authored resource-mass fixture failed: {error}"));
+    let hardness = ExcavationHardnessEstimate::new(
+        Pressure::from_pascals(250_000_000),
+        Pressure::from_pascals(300_000_000),
+    )
+    .unwrap_or_else(|error| panic!("authored resource-mass hardness fixture failed: {error}"));
+
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution::new_for_fixture(
+            region,
+            GeologicalEvidenceKind::ExcavationSample,
+            vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+        )
+        .with_excavation_hardness_for_fixture(hardness)
+        .with_resource_mass_for_fixture(older_resource),
+    );
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    let next_geology_revision = state
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("resource-mass history geology revision overflowed"));
+    state.geology_state_mut().apply_extraction(
+        deposit,
+        Mass::from_milligrams(2_000_000),
+        next_geology_revision,
+    );
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution::new_for_fixture(
+            region,
+            GeologicalEvidenceKind::ExcavationSample,
+            vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+        )
+        .with_excavation_hardness_for_fixture(hardness)
+        .with_resource_mass_for_fixture(newer_resource),
+    );
+
+    let assessment =
+        assess_geological_knowledge(state.geological_knowledge(), region, MATERIAL_COPPER);
+    assert_eq!(assessment.resource_mass(), Some(newer_resource));
+    assert_eq!(
+        assessment.resource_mass_observed_at(),
+        Some(SimulationTick::new(1))
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("resource-mass save serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("resource-mass save deserialization failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("resource-mass loaded-state validation failed: {error}"));
+    let loaded_assessment =
+        assess_geological_knowledge(loaded.geological_knowledge(), region, MATERIAL_COPPER);
+    assert_eq!(loaded_assessment.resource_mass(), Some(newer_resource));
+    assert_eq!(
+        loaded_assessment.resource_mass_observed_at(),
+        Some(SimulationTick::new(1))
+    );
+}
+
+#[test]
+fn conflicting_later_evidence_withholds_stale_resource_mass() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_00A6));
+    let region = bounds(4, 6);
+    let older_resource = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("stale resource-mass fixture failed: {error}"));
+
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution::new_for_fixture(
+            region,
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 400_000, 500_000)],
+        )
+        .with_resource_mass_for_fixture(older_resource),
+    );
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution::new_for_fixture(
+            region,
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 0, 25_000)],
+        ),
+    );
+
+    let assessment =
+        assess_geological_knowledge(state.geological_knowledge(), region, MATERIAL_COPPER);
+    assert_eq!(
+        assessment.consistency(),
+        GeologicalEvidenceConsistency::Conflicting {
+            highest_lower_ppm: 400_000,
+            lowest_upper_ppm: 25_000,
+        }
+    );
+    assert_eq!(
+        assessment.resource_mass(),
+        None,
+        "conflicting current evidence must not present an older positive remaining-mass estimate as current reserve scale"
+    );
+    assert_eq!(assessment.resource_mass_observed_at(), None);
+}
+
+#[test]
+fn later_non_resource_observation_does_not_relabel_resource_mass_freshness() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_00A7));
+    let region = bounds(4, 6);
+    let resource = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("resource freshness fixture failed: {error}"));
+
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution::new_for_fixture(
+            region,
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 400_000, 500_000)],
+        )
+        .with_resource_mass_for_fixture(resource),
+    );
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    record(
+        &registries,
+        &mut state,
+        ProspectingResolution::new_for_fixture(
+            region,
+            GeologicalEvidenceKind::MagneticSurvey,
+            vec![estimate(MATERIAL_COPPER, 425_000, 475_000)],
+        ),
+    );
+
+    let assessment =
+        assess_geological_knowledge(state.geological_knowledge(), region, MATERIAL_COPPER);
+    assert_eq!(assessment.resource_mass(), Some(resource));
+    assert_eq!(
+        assessment.resource_mass_observed_at(),
+        Some(SimulationTick::ZERO)
+    );
+    assert_eq!(
+        assessment.latest_observed_at(),
+        Some(SimulationTick::new(1))
     );
 }
 
@@ -180,14 +424,14 @@ fn observations_persist_quantitative_uncertainty_without_exposing_deposit_identi
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x6B00_0001));
     let broad = make_test_prospecting_resolution(
-        bounds(0, 16),
+        line_bounds(0, 4),
         GeologicalEvidenceKind::SurfaceExposure,
-        vec![estimate(MATERIAL_COPPER, 0, 700_000)],
+        vec![estimate(MATERIAL_COPPER, 0, 150_000)],
     );
     let focused = make_test_prospecting_resolution(
-        bounds(4, 8),
-        GeologicalEvidenceKind::CoreSample,
-        vec![estimate(MATERIAL_COPPER, 420_000, 520_000)],
+        line_bounds(2, 3),
+        GeologicalEvidenceKind::SurfaceExposure,
+        vec![estimate(MATERIAL_COPPER, 0, 150_000)],
     );
     let broad_id = record(&registries, &mut state, broad);
     if let Err(error) = advance_tick(&registries, &mut state) {
@@ -195,19 +439,22 @@ fn observations_persist_quantitative_uncertainty_without_exposing_deposit_identi
     }
     let focused_id = record(&registries, &mut state, focused);
 
-    let assessment =
-        assess_geological_knowledge(state.geological_knowledge(), bounds(5, 6), MATERIAL_COPPER);
+    let assessment = assess_geological_knowledge(
+        state.geological_knowledge(),
+        line_bounds(2, 3),
+        MATERIAL_COPPER,
+    );
     assert_eq!(assessment.observations(), &[broad_id, focused_id]);
     assert_eq!(
         assessment.consistency(),
         GeologicalEvidenceConsistency::Compatible {
-            lower_ppm: 420_000,
-            upper_ppm: 520_000,
+            lower_ppm: 0,
+            upper_ppm: 150_000,
         }
     );
-    assert_eq!(assessment.envelope(), Some((0, 700_000)));
-    assert_eq!(assessment.common_evidence_region(), Some(bounds(5, 6)));
-    assert_eq!(assessment.common_acquired_region(), Some(bounds(4, 8)));
+    assert_eq!(assessment.envelope(), Some((0, 150_000)));
+    assert_eq!(assessment.common_evidence_region(), Some(line_bounds(2, 3)));
+    assert_eq!(assessment.common_acquired_region(), Some(line_bounds(2, 3)));
     assert_eq!(assessment.most_precise(), Some(focused_id));
     assert_eq!(assessment.latest_observed_at(), Some(state.tick()));
     assert_eq!(state.geology().deposits().count(), 0);
@@ -533,12 +780,9 @@ fn prospecting_round_trip_preserves_deterministic_continuation() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x6B00_0005));
     let initial = make_test_prospecting_resolution(
-        bounds(0, 16),
+        line_bounds(0, 4),
         GeologicalEvidenceKind::SurfaceExposure,
-        vec![
-            estimate(MATERIAL_COPPER, 0, 600_000),
-            estimate(MATERIAL_SLAG, 0, 800_000),
-        ],
+        vec![estimate(MATERIAL_COPPER, 0, 150_000)],
     );
     record(&registries, &mut state, initial);
     if let Err(error) = advance_tick(&registries, &mut state) {

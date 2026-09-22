@@ -10,10 +10,13 @@ use crate::material::MaterialId;
 
 use super::{GeologicalEvidenceKind, MaterialAbundanceEstimate};
 
-/// Conservative estimate of one fully localized geological body's remaining extractable mass.
+/// Conservative observation-time estimate of one fully localized geological body's remaining
+/// extractable mass.
 ///
 /// The interval contains no geological owner identity. Physical sampling can bound the scale of a
-/// local opportunity without exposing exact hidden reserve state.
+/// local opportunity without exposing exact hidden reserve state. Because extraction can change
+/// remaining mass after acquisition, this value is historical evidence tied to its observation
+/// record rather than a timeless property of the body.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct ResourceMassEstimate {
     lower: Mass,

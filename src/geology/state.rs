@@ -194,6 +194,11 @@ impl GeologicalDepositRecord {
     }
 
     #[must_use]
+    pub(crate) const fn initial_mass(&self) -> Mass {
+        self.initial_mass
+    }
+
+    #[must_use]
     pub const fn remaining_mass(&self) -> Mass {
         self.remaining_mass
     }
@@ -225,6 +230,11 @@ impl GeologicalDepositRecord {
     #[must_use]
     pub const fn lifecycle(&self) -> GeologicalDepositLifecycle {
         self.lifecycle
+    }
+
+    #[must_use]
+    pub(crate) const fn generated_at(&self) -> SimulationTick {
+        self.generated_at
     }
 }
 

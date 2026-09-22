@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Pressure;
+use crate::core::quantity::{Mass, Pressure};
 use crate::core::time::SimulationTick;
 use crate::geology::GeologicalDepositId;
 use crate::material::MaterialId;
@@ -58,6 +58,24 @@ pub enum GeologicalKnowledgeValidationError {
         upper: Pressure,
         actual: Pressure,
     },
+    ExcavationHardnessCannotMatchHistoricalDeposit {
+        observation: GeologicalObservationId,
+        material: MaterialId,
+        lower: Pressure,
+        upper: Pressure,
+    },
+    ObservationCannotMatchAuthoredMethod {
+        observation: GeologicalObservationId,
+        evidence: GeologicalEvidenceKind,
+    },
+    AbundanceContradictsLiveDeposit {
+        observation: GeologicalObservationId,
+        deposit: GeologicalDepositId,
+        material: MaterialId,
+        lower_ppm: u32,
+        upper_ppm: u32,
+        actual_ppm: u32,
+    },
     ResourceMassUnsupportedEvidence {
         observation: GeologicalObservationId,
         evidence: GeologicalEvidenceKind,
@@ -69,6 +87,12 @@ pub enum GeologicalKnowledgeValidationError {
     ResourceMassWithoutDefinitePresence {
         observation: GeologicalObservationId,
         material: MaterialId,
+    },
+    ResourceMassCannotMatchHistoricalDeposit {
+        observation: GeologicalObservationId,
+        material: MaterialId,
+        lower: Mass,
+        upper: Mass,
     },
     ObservedInFuture {
         observation: GeologicalObservationId,
@@ -185,6 +209,45 @@ impl Display for GeologicalKnowledgeValidationError {
                 deposit.value(),
                 actual.pascals()
             ),
+            Self::ExcavationHardnessCannotMatchHistoricalDeposit {
+                observation,
+                material,
+                lower,
+                upper,
+            } => write!(
+                formatter,
+                "geological observation {} records excavation hardness {}..{} Pa for material {} but no deposit that existed at the observation tick could have produced that physical sample",
+                observation.value(),
+                lower.pascals(),
+                upper.pascals(),
+                material.value()
+            ),
+            Self::ObservationCannotMatchAuthoredMethod {
+                observation,
+                evidence,
+            } => write!(
+                formatter,
+                "geological observation {} carries {:?} evidence whose footprint, uncertainty, or physical metadata cannot be produced by any authored prospecting method",
+                observation.value(),
+                evidence
+            ),
+            Self::AbundanceContradictsLiveDeposit {
+                observation,
+                deposit,
+                material,
+                lower_ppm,
+                upper_ppm,
+                actual_ppm,
+            } => write!(
+                formatter,
+                "geological observation {} records material {} abundance {}..{} ppm but live matching deposit {} has {} ppm",
+                observation.value(),
+                material.value(),
+                lower_ppm,
+                upper_ppm,
+                deposit.value(),
+                actual_ppm
+            ),
             Self::ResourceMassUnsupportedEvidence {
                 observation,
                 evidence,
@@ -205,6 +268,19 @@ impl Display for GeologicalKnowledgeValidationError {
                 formatter,
                 "geological observation {} attaches resource mass while material {} may be absent",
                 observation.value(),
+                material.value()
+            ),
+            Self::ResourceMassCannotMatchHistoricalDeposit {
+                observation,
+                material,
+                lower,
+                upper,
+            } => write!(
+                formatter,
+                "geological observation {} records remaining resource mass {}..{} mg for material {} but no deposit that could have produced that exact-footprint historical observation exists",
+                observation.value(),
+                lower.milligrams(),
+                upper.milligrams(),
                 material.value()
             ),
             Self::ObservedInFuture {

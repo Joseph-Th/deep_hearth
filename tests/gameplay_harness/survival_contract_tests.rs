@@ -26,6 +26,7 @@ use super::survival_probe::preservation_evaluation::{
     project_preservation_candidates_with_raw_opportunity, select_preservation_projection,
     select_preservation_projection_for_attention_value,
 };
+use super::survival_probe::provisioning_world::minimum_visible_preservation_age_ticks;
 
 #[test]
 fn maintained_survival_coverage_keeps_the_strongest_preservation_endpoint_actionable() {
@@ -150,9 +151,9 @@ fn preservation_raw_bootstrap_is_explicit_not_inferred_from_missing_producers() 
 }
 use super::survival_probe::{
     DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
-    diet_provisioning_policy_for_behavior_seed, minimum_visible_preservation_age_ticks,
-    preservation_attention_value_ppm, preservation_material_budget_ppm,
-    preservation_minimum_return_ppm, prospecting_method_for_work_pressure, provisioning_world,
+    diet_provisioning_policy_for_behavior_seed, preservation_attention_value_ppm,
+    preservation_material_budget_ppm, preservation_minimum_return_ppm,
+    prospecting_method_for_work_pressure, provisioning_world,
 };
 
 #[test]

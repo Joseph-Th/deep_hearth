@@ -262,9 +262,26 @@ pub fn resolve_mining_target(
         );
     }
 
+    let earliest_observed_at = assessment
+        .observations()
+        .iter()
+        .map(|observation| {
+            state
+                .geological_knowledge()
+                .get_observation(*observation)
+                .unwrap_or_else(|| {
+                    unreachable!(
+                        "assessed geological observation must still exist in geological knowledge"
+                    )
+                })
+                .observed_at()
+        })
+        .min()
+        .unwrap_or_else(|| unreachable!("compatible geological assessment must contain evidence"));
     let mut matching = state.geology().deposits().filter(|deposit| {
         let abundance = deposit.composition().parts_per_million(request.material);
         deposit.lifecycle() == GeologicalDepositLifecycle::Available
+            && deposit.generated_at() <= earliest_observed_at
             && deposit.bounds().has_intersection(acquired_region)
             && abundance != 0
             && abundance >= lower_ppm

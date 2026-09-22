@@ -6,6 +6,7 @@ use crate::content::{
     EQUIPMENT_STONE_QUARRY_PICK, FORM_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP,
     FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
     MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE,
+    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
     STORAGE_TIMBER_PROVISIONS_CHEST, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Pressure, Temperature, Volume};
@@ -626,18 +627,50 @@ fn insert_known_deposit(
     let localized = VoxelBounds::new(min, VoxelCoord::new(min.x() + 1, min.y() + 1, min.z() + 1))
         .unwrap_or_else(|error| panic!("mining known-deposit localized bounds failed: {error}"));
     let material = spec.commodity().material();
+    let abundance = spec.composition().parts_per_million(material);
+    let detailed = registries
+        .labor()
+        .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
+        .copied()
+        .unwrap_or_else(|| panic!("authored detailed prospecting definition disappeared"));
+    let uncertainty = detailed.abundance_uncertainty_ppm();
+    let estimate = MaterialAbundanceEstimate::new(
+        material,
+        abundance.saturating_sub(uncertainty),
+        abundance.saturating_add(uncertainty).min(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("mining known-deposit estimate failed: {error}"));
+    let hardness_resolution = detailed
+        .excavation_hardness_resolution()
+        .unwrap_or_else(|| panic!("authored detailed prospecting hardness resolution disappeared"));
+    let resolution_pa = hardness_resolution.pascals();
+    let hardness_pa = excavation_hardness.pascals();
+    let lower_pa = hardness_pa
+        .saturating_sub(1)
+        .checked_div(resolution_pa)
+        .and_then(|bucket| bucket.checked_mul(resolution_pa))
+        .unwrap_or_else(|| panic!("mining known-deposit hardness lower bucket overflowed"));
+    let upper_pa = if hardness_pa.is_multiple_of(resolution_pa) {
+        hardness_pa
+    } else {
+        hardness_pa
+            .checked_div(resolution_pa)
+            .and_then(|bucket| bucket.checked_add(1))
+            .and_then(|bucket| bucket.checked_mul(resolution_pa))
+            .unwrap_or(u64::MAX)
+    };
     let deposit = crate::geology::insert_generated_deposit(registries, state, spec)?;
-    let estimate = MaterialAbundanceEstimate::new(material, 1, 1_000_000)
-        .unwrap_or_else(|error| panic!("mining known-deposit estimate failed: {error}"));
     let evidence = ProspectingResolution::new_for_fixture(
         localized,
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate],
     )
     .with_excavation_hardness_for_fixture(
-        ExcavationHardnessEstimate::new(excavation_hardness, excavation_hardness).unwrap_or_else(
-            |error| panic!("mining known-deposit hardness evidence failed: {error}"),
-        ),
+        ExcavationHardnessEstimate::new(
+            Pressure::from_pascals(lower_pa),
+            Pressure::from_pascals(upper_pa),
+        )
+        .unwrap_or_else(|error| panic!("mining known-deposit hardness evidence failed: {error}")),
     );
     record_prospecting_for_test(registries, state, evidence)
         .unwrap_or_else(|error| panic!("mining known-deposit evidence failed: {error}"));
@@ -655,9 +688,19 @@ fn insert_surface_known_deposit(
         .unwrap_or_else(|error| panic!("surface-known mining bounds failed: {error}"));
     let material = spec.commodity().material();
     let abundance = spec.composition().parts_per_million(material);
+    let inspection = registries
+        .labor()
+        .get_prospecting(PROSPECTING_FIELD_INSPECTION)
+        .copied()
+        .unwrap_or_else(|| panic!("authored field-inspection definition disappeared"));
+    let uncertainty = inspection.abundance_uncertainty_ppm();
     let deposit = crate::geology::insert_generated_deposit(registries, state, spec)?;
-    let estimate = MaterialAbundanceEstimate::new(material, abundance, abundance)
-        .unwrap_or_else(|error| panic!("surface-known mining estimate failed: {error}"));
+    let estimate = MaterialAbundanceEstimate::new(
+        material,
+        abundance.saturating_sub(uncertainty),
+        abundance.saturating_add(uncertainty).min(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("surface-known mining estimate failed: {error}"));
     let evidence = ProspectingResolution::new_for_fixture(
         localized,
         GeologicalEvidenceKind::SurfaceExposure,

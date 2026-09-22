@@ -5,10 +5,13 @@ use std::collections::BTreeSet;
 use super::*;
 use crate::content::{FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
 use crate::core::quantity::{Mass, Pressure, Temperature};
-use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+use crate::core::state::{
+    AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
+};
 use crate::core::time::{SimulationTick, WorldSeed};
-use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
 use crate::material::{CommodityKey, MaterialComposition, MaterialId};
+use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
 fn bounds() -> VoxelBounds {
@@ -16,6 +19,32 @@ fn bounds() -> VoxelBounds {
         Ok(bounds) => bounds,
         Err(error) => panic!("geological knowledge bounds fixture failed: {error}"),
     }
+}
+
+fn physical_bounds() -> VoxelBounds {
+    VoxelBounds::new(VoxelCoord::new(0, -8, 0), VoxelCoord::new(1, -7, 1))
+        .unwrap_or_else(|error| panic!("physical knowledge bounds fixture failed: {error}"))
+}
+
+fn insert_copper_deposit(
+    registries: &Registries,
+    app: &mut AppState,
+    mass: Mass,
+) -> GeologicalDepositId {
+    insert_generated_deposit(
+        registries,
+        app,
+        GeneratedDepositSpec::new(
+            physical_bounds(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            mass,
+            Temperature::from_millikelvin(293_150),
+            Pressure::from_pascals(350_000_000),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap_or_else(|error| panic!("knowledge deposit fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("knowledge deposit insertion failed: {error}"))
 }
 
 fn valid_hardness() -> ExcavationHardnessEstimate {
@@ -44,7 +73,7 @@ fn knowledge_with_hardness(
         id,
         GeologicalObservationRecord {
             id,
-            region: bounds(),
+            region: physical_bounds(),
             evidence,
             findings,
             excavation_hardness: Some(valid_hardness()),
@@ -53,6 +82,111 @@ fn knowledge_with_hardness(
         },
     );
     (state, id)
+}
+
+fn knowledge_with_resource_mass(
+    resource_mass: ResourceMassEstimate,
+) -> (GeologicalKnowledgeState, GeologicalObservationId) {
+    let id = GeologicalObservationId::new(1);
+    let mut state = GeologicalKnowledgeState::new();
+    state.next_observation_id = 2;
+    let finding = estimate(MATERIAL_COPPER, 975_000, 1_000_000);
+    state
+        .observations_by_material
+        .entry(MATERIAL_COPPER)
+        .or_default()
+        .insert(id);
+    state.observations.insert(
+        id,
+        GeologicalObservationRecord {
+            id,
+            region: physical_bounds(),
+            evidence: GeologicalEvidenceKind::ExcavationSample,
+            findings: vec![finding],
+            excavation_hardness: Some(valid_hardness()),
+            resource_mass: Some(resource_mass),
+            observed_at: SimulationTick::ZERO,
+        },
+    );
+    (state, id)
+}
+
+#[test]
+fn loaded_state_rejects_abundance_precision_no_authored_method_can_emit() {
+    let registries = build_registries();
+    let mut app = AppState::new(WorldSeed::new(0x6B00_00B7));
+    let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
+    let id = GeologicalObservationId::new(1);
+    let finding = estimate(MATERIAL_COPPER, 999_999, 1_000_000);
+    let mut knowledge = GeologicalKnowledgeState::new();
+    knowledge.next_observation_id = 2;
+    knowledge
+        .observations_by_material
+        .entry(MATERIAL_COPPER)
+        .or_default()
+        .insert(id);
+    knowledge.observations.insert(
+        id,
+        GeologicalObservationRecord {
+            id,
+            region: physical_bounds(),
+            evidence: GeologicalEvidenceKind::SurfaceExposure,
+            findings: vec![finding],
+            excavation_hardness: None,
+            resource_mass: None,
+            observed_at: SimulationTick::ZERO,
+        },
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
+                observation: id,
+                evidence: GeologicalEvidenceKind::SurfaceExposure,
+            }
+        ))
+    );
+}
+
+#[test]
+fn loaded_state_rejects_definite_physical_sample_missing_authored_hardness() {
+    let registries = build_registries();
+    let mut app = AppState::new(WorldSeed::new(0x6B00_00B8));
+    let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
+    let id = GeologicalObservationId::new(1);
+    let finding = estimate(MATERIAL_COPPER, 975_000, 1_000_000);
+    let mut knowledge = GeologicalKnowledgeState::new();
+    knowledge.next_observation_id = 2;
+    knowledge
+        .observations_by_material
+        .entry(MATERIAL_COPPER)
+        .or_default()
+        .insert(id);
+    knowledge.observations.insert(
+        id,
+        GeologicalObservationRecord {
+            id,
+            region: physical_bounds(),
+            evidence: GeologicalEvidenceKind::ExcavationSample,
+            findings: vec![finding],
+            excavation_hardness: None,
+            resource_mass: None,
+            observed_at: SimulationTick::ZERO,
+        },
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
+                observation: id,
+                evidence: GeologicalEvidenceKind::ExcavationSample,
+            }
+        ))
+    );
 }
 
 #[test]
@@ -135,7 +269,7 @@ fn loaded_state_rejects_hardness_band_that_excludes_live_matching_deposit() {
     .unwrap_or_else(|error| panic!("knowledge/live-geology deposit insertion failed: {error}"));
     let (knowledge, observation) = knowledge_with_hardness(
         GeologicalEvidenceKind::ExcavationSample,
-        vec![estimate(MATERIAL_COPPER, 600_000, 800_000)],
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
     );
     *app.geological_knowledge_state_mut() = knowledge;
 
@@ -151,6 +285,175 @@ fn loaded_state_rejects_hardness_band_that_excludes_live_matching_deposit() {
             }
         ))
     );
+}
+
+#[test]
+fn loaded_state_rejects_physical_hardness_without_historical_body() {
+    let registries = build_registries();
+    let mut app = AppState::new(WorldSeed::new(0x6B00_00B0));
+    let (knowledge, observation) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ExcavationHardnessCannotMatchHistoricalDeposit {
+                observation,
+                material: MATERIAL_COPPER,
+                lower: Pressure::from_pascals(300_000_000),
+                upper: Pressure::from_pascals(350_000_000),
+            }
+        ))
+    );
+}
+
+#[test]
+fn later_generated_body_does_not_retroactively_validate_older_hardness() {
+    let registries = build_registries();
+    let mut app = AppState::new(WorldSeed::new(0x6B00_00B1));
+    let (knowledge, observation) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+    apply_clock_advance(&mut app, SimulationTick::new(1));
+    let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ExcavationHardnessCannotMatchHistoricalDeposit {
+                observation,
+                material: MATERIAL_COPPER,
+                lower: Pressure::from_pascals(300_000_000),
+                upper: Pressure::from_pascals(350_000_000),
+            }
+        ))
+    );
+}
+
+#[test]
+fn depleted_body_can_still_support_historical_hardness_evidence() {
+    let registries = build_registries();
+    let mut app = AppState::new(WorldSeed::new(0x6B00_00B2));
+    let deposit = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
+    let (knowledge, _) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+    apply_clock_advance(&mut app, SimulationTick::new(1));
+    let next_revision = app
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("historical hardness geology revision overflowed"));
+    app.geology_state_mut().apply_extraction(
+        deposit,
+        Mass::from_milligrams(1_000_000),
+        next_revision,
+    );
+
+    assert_eq!(validate_loaded_state(&registries, &app), Ok(()));
+}
+
+#[test]
+fn loaded_state_rejects_resource_mass_without_exact_historical_body() {
+    let registries = build_registries();
+    let mut app = AppState::new(WorldSeed::new(0x6B00_00B3));
+    let _ = insert_generated_deposit(
+        &registries,
+        &mut app,
+        GeneratedDepositSpec::new(
+            bounds(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(4_500_000),
+            Temperature::from_millikelvin(293_150),
+            Pressure::from_pascals(350_000_000),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap_or_else(|error| panic!("nonlocalized resource deposit fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("nonlocalized resource deposit insertion failed: {error}"));
+    let resource_mass = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("missing-body resource fixture failed: {error}"));
+    let (knowledge, observation) = knowledge_with_resource_mass(resource_mass);
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ResourceMassCannotMatchHistoricalDeposit {
+                observation,
+                material: MATERIAL_COPPER,
+                lower: resource_mass.lower(),
+                upper: resource_mass.upper(),
+            }
+        ))
+    );
+}
+
+#[test]
+fn loaded_state_rejects_resource_mass_outside_possible_historical_range() {
+    let registries = build_registries();
+    for (seed, deposit_mass, lower, upper) in [
+        (0x6B00_00B4, 5_000_000, 1_000_000, 2_000_000),
+        (0x6B00_00B5, 1_000_000, 2_000_000, 3_000_000),
+        (0x6B00_00B9, 4_000_000, 3_000_000, 4_000_000),
+    ] {
+        let mut app = AppState::new(WorldSeed::new(seed));
+        let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(deposit_mass));
+        let resource_mass =
+            ResourceMassEstimate::new(Mass::from_milligrams(lower), Mass::from_milligrams(upper))
+                .unwrap_or_else(|error| panic!("range resource fixture failed: {error}"));
+        let (knowledge, observation) = knowledge_with_resource_mass(resource_mass);
+        *app.geological_knowledge_state_mut() = knowledge;
+
+        assert_eq!(
+            validate_loaded_state(&registries, &app),
+            Err(StateValidationError::GeologicalKnowledge(
+                GeologicalKnowledgeValidationError::ResourceMassCannotMatchHistoricalDeposit {
+                    observation,
+                    material: MATERIAL_COPPER,
+                    lower: resource_mass.lower(),
+                    upper: resource_mass.upper(),
+                }
+            ))
+        );
+    }
+}
+
+#[test]
+fn depleted_body_can_still_support_historical_resource_mass_evidence() {
+    let registries = build_registries();
+    let mut app = AppState::new(WorldSeed::new(0x6B00_00B6));
+    let deposit = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(4_500_000));
+    let resource_mass = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("historical resource fixture failed: {error}"));
+    let (knowledge, _) = knowledge_with_resource_mass(resource_mass);
+    *app.geological_knowledge_state_mut() = knowledge;
+    apply_clock_advance(&mut app, SimulationTick::new(1));
+    let next_revision = app
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("historical resource geology revision overflowed"));
+    app.geology_state_mut().apply_extraction(
+        deposit,
+        Mass::from_milligrams(4_500_000),
+        next_revision,
+    );
+
+    assert_eq!(validate_loaded_state(&registries, &app), Ok(()));
 }
 
 #[test]

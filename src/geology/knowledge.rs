@@ -23,7 +23,7 @@ pub(super) use observation::{
     total_lower_bound_ppm, validate_excavation_hardness_context, validate_resource_mass_context,
 };
 pub(crate) use validation::{
-    validate_loaded_geological_knowledge, validate_loaded_hardness_against_live_geology,
+    validate_loaded_geological_evidence_against_world, validate_loaded_geological_knowledge,
 };
 
 #[cfg(test)]

@@ -8,11 +8,12 @@ use super::{
     GeologicalObservationRecord, PARTS_PER_MILLION, ResourceMassContextError,
     total_lower_bound_ppm, validate_excavation_hardness_context, validate_resource_mass_context,
 };
-use crate::geology::{GeologicalDepositLifecycle, GeologyState};
 
 mod error;
+mod world;
 
 pub use error::GeologicalKnowledgeValidationError;
+pub(crate) use world::validate_loaded_geological_evidence_against_world;
 
 pub(crate) fn validate_loaded_geological_knowledge(
     materials: &MaterialRegistry,
@@ -24,47 +25,6 @@ pub(crate) fn validate_loaded_geological_knowledge(
         validate_observation(materials, state, *id, record, current)?;
     }
     validate_material_observation_index(materials, state)
-}
-
-/// Validates persisted physical hardness evidence against geological bodies that are still live.
-///
-/// Historical abundance may legitimately diverge after extraction, and depleted bodies no longer
-/// need to remain observable. Excavation hardness is immutable for a deposit's lifetime, however,
-/// so every still-available matching body inside a sampled region must remain inside the acquired
-/// physical band. This prevents malformed persistence from turning actor-visible evidence into an
-/// authorization value that canonical sampling could never have produced.
-pub(crate) fn validate_loaded_hardness_against_live_geology(
-    geology: &GeologyState,
-    knowledge: &GeologicalKnowledgeState,
-) -> Result<(), GeologicalKnowledgeValidationError> {
-    for (observation, record) in &knowledge.observations {
-        let Some(hardness) = record.excavation_hardness else {
-            continue;
-        };
-        let [finding] = record.findings.as_slice() else {
-            continue;
-        };
-        let material = finding.material();
-        for deposit in geology.deposits().filter(|deposit| {
-            deposit.lifecycle() == GeologicalDepositLifecycle::Available
-                && deposit.bounds().has_intersection(record.region)
-                && deposit.composition().parts_per_million(material) > 0
-        }) {
-            let actual = deposit.excavation_hardness();
-            if actual < hardness.lower() || actual > hardness.upper() {
-                return Err(
-                    GeologicalKnowledgeValidationError::ExcavationHardnessContradictsLiveDeposit {
-                        observation: *observation,
-                        deposit: deposit.id(),
-                        lower: hardness.lower(),
-                        upper: hardness.upper(),
-                        actual,
-                    },
-                );
-            }
-        }
-    }
-    Ok(())
 }
 
 fn validate_observation_cursor(
