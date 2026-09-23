@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{CapabilityEvaluationError, evaluate_capabilities};
+use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::{Energy, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
 use crate::core::throughput::{calculate_mass_flow_capacity, calculate_mass_flow_duration_ceiling};
@@ -21,7 +21,10 @@ use crate::production::ProcessId;
 use crate::registry::{ProcessExecutionFamily, Registries};
 
 use super::PoweredOreProcessProfile;
-use super::powered_physics::{PoweredOreEquipmentError, resolve_powered_ore_equipment_limits};
+use super::powered_physics::{
+    PoweredOreEquipmentError, resolve_powered_ore_equipment_limits,
+    validate_powered_ore_process_capabilities,
+};
 
 /// First shared scale constraint that rejects a requested powered ore batch.
 ///
@@ -291,14 +294,15 @@ pub fn assess_powered_ore_mass_envelope(
         .ok_or(PoweredOreMassEnvelopeError::UnknownPoweredProcess { process })?;
     let provider = resolve_available_equipment_provider(registries, state, equipment)
         .map_err(PoweredOreMassEnvelopeError::Equipment)?;
-    let process_definition = registries
+    registries
         .production()
         .get_process(process)
         .ok_or(PoweredOreMassEnvelopeError::UnknownPoweredProcess { process })?;
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
+    validate_powered_ore_process_capabilities(
+        registries,
+        process,
+        provider.definition(),
+        provider.condition(),
     )
     .map_err(PoweredOreMassEnvelopeError::Capability)?;
     let equipment_limits = resolve_powered_ore_equipment_limits(

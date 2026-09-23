@@ -2,23 +2,28 @@
 
 use super::*;
 use crate::capability::{
-    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
-    CapabilityRequirement, CapabilityValue, CapabilityValueKind,
+    CapabilityComparison, CapabilityDefinition, CapabilityEvaluationError, CapabilityId,
+    CapabilityImprovement, CapabilityProfile, CapabilityRequirement, CapabilityValue,
+    CapabilityValueKind,
 };
 use crate::content::{
     FORM_CRUSHED, MATERIAL_COPPER, MATERIAL_SLAG, make_test_registries_with_screening,
 };
-use crate::core::quantity::{Length, MassSpecificEnergy};
+use crate::core::quantity::{Length, MassSpecificEnergy, Pressure};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture,
 };
-use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
+use crate::equipment::{
+    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
+    add_equipment,
+};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_spec_for_test};
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::{CompositionComponent, ParticleSizeClass};
 use crate::matter::calculate_matter_accounting;
+use crate::ore_processing::powered_physics::PoweredOreJobValidationError;
 use crate::ore_processing::{PoweredOreProcessProfile, ScreeningProcessDefinition};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, ProcessOutputRoute, validate_start_process_routed};
@@ -26,6 +31,7 @@ use crate::simulation::advance_tick;
 
 const FLOW_CAPABILITY: CapabilityId = CapabilityId::new(971_001);
 const BATCH_CAPABILITY: CapabilityId = CapabilityId::new(971_002);
+const SAFETY_CAPABILITY: CapabilityId = CapabilityId::new(971_003);
 const SCREEN: EquipmentDefinitionId = EquipmentDefinitionId::new(971_001);
 const ENERGY_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(971_001);
 const COMPATIBLE_ENERGY_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(971_002);
@@ -155,6 +161,117 @@ fn registries_with_power_and_carrier(
         ],
         equipment,
         energy_definitions,
+        process,
+        ScreeningProcessDefinition::new(
+            PROCESS,
+            FORM_CRUSHED,
+            FORM_CRUSHED,
+            aperture,
+            PoweredOreProcessProfile::new(
+                FLOW_CAPABILITY,
+                BATCH_CAPABILITY,
+                EnergyCarrier::Mechanical,
+                MassSpecificEnergy::from_nanojoules_per_milligram(100),
+                1_000,
+            ),
+        ),
+    )
+}
+
+fn registries_with_condition_sensitive_process_requirement(aperture: Length) -> Registries {
+    let capabilities = CapabilityProfile::new([
+        (
+            FLOW_CAPABILITY,
+            CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(200)),
+        ),
+        (
+            BATCH_CAPABILITY,
+            CapabilityValue::Mass(Mass::from_milligrams(100)),
+        ),
+        (
+            SAFETY_CAPABILITY,
+            CapabilityValue::Pressure(Pressure::from_pascals(100)),
+        ),
+    ])
+    .unwrap_or_else(|error| panic!("screening capability fixture failed: {error}"));
+    let thresholds = MaintenanceThresholds::new(
+        Condition::new(600_000)
+            .unwrap_or_else(|error| panic!("screening warning fixture failed: {error}")),
+        Condition::new(250_000)
+            .unwrap_or_else(|error| panic!("screening critical fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("screening maintenance fixture failed: {error}"));
+    let condition_curve = CapabilityConditionCurve::new(
+        SAFETY_CAPABILITY,
+        vec![
+            CapabilityConditionPoint::new(
+                Condition::FAILED,
+                CapabilityValue::Pressure(Pressure::from_pascals(10)),
+            ),
+            CapabilityConditionPoint::new(
+                Condition::new(500_000)
+                    .unwrap_or_else(|error| panic!("screening curve fixture failed: {error}")),
+                CapabilityValue::Pressure(Pressure::from_pascals(40)),
+            ),
+        ],
+    );
+    let equipment = EquipmentDefinition::new_with_capability_condition_curves(
+        SCREEN,
+        "condition-sensitive dry screen",
+        Mass::from_milligrams(1_000_000),
+        capabilities,
+        thresholds,
+        vec![condition_curve],
+    );
+    let process = ProcessDefinition::new(
+        PROCESS,
+        "condition-sensitive dry screening",
+        vec![
+            CapabilityRequirement::new(
+                FLOW_CAPABILITY,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
+            ),
+            CapabilityRequirement::new(
+                BATCH_CAPABILITY,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Mass(Mass::from_milligrams(1)),
+            ),
+            CapabilityRequirement::new(
+                SAFETY_CAPABILITY,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Pressure(Pressure::from_pascals(50)),
+            ),
+        ],
+    );
+    make_test_registries_with_screening(
+        vec![
+            CapabilityDefinition::new(
+                FLOW_CAPABILITY,
+                "screen material throughput",
+                CapabilityValueKind::MassFlow,
+            ),
+            CapabilityDefinition::new(
+                BATCH_CAPABILITY,
+                "screen maximum batch mass",
+                CapabilityValueKind::Mass,
+            ),
+            CapabilityDefinition::new_with_improvement(
+                SAFETY_CAPABILITY,
+                "screen process safety pressure",
+                CapabilityValueKind::Pressure,
+                CapabilityImprovement::Higher,
+            ),
+        ],
+        equipment,
+        vec![EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_STORE,
+            "condition-sensitive screen energy buffer",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(1_000_000),
+            Power::ZERO,
+            Power::from_microwatts(100),
+        )],
         process,
         ScreeningProcessDefinition::new(
             PROCESS,
@@ -312,6 +429,90 @@ fn screening_partitions_resolved_size_classes_without_changing_material_identity
         .unwrap_or_else(|| panic!("screening coarse output lost particle-size state"));
     assert_eq!(fines_distribution.classes().len(), 1);
     assert_eq!(coarse_distribution.classes().len(), 2);
+}
+
+#[test]
+fn trusted_load_rejects_powered_screen_provider_that_fails_generic_requirement_at_traced_condition()
+{
+    let registries =
+        registries_with_condition_sensitive_process_requirement(Length::from_micrometers(2_000));
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("screening source fixture failed: {error}"));
+    let input = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        Mass::from_milligrams(10),
+        TEMPERATURE,
+        composition(),
+        distribution(),
+    )
+    .unwrap_or_else(|error| panic!("screening input fixture failed: {error}"));
+    let lot = deposit_lot_spec_for_test(&registries, &mut state, source, input)
+        .unwrap_or_else(|error| panic!("screening lot fixture failed: {error}"));
+    let equipment = add_equipment(&registries, &mut state, SCREEN, Condition::PRISTINE)
+        .unwrap_or_else(|error| panic!("screening equipment fixture failed: {error}"));
+    let energy = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_STORE,
+        Energy::from_nanojoules(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("screening energy fixture failed: {error}"));
+    let undersize = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("screening undersize destination failed: {error}"));
+    let oversize = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("screening oversize destination failed: {error}"));
+    let selections = [MaterialLotSelection::new(lot, Mass::from_milligrams(10))];
+    let resolved = resolve_screening_process(
+        &registries,
+        &state,
+        ScreeningRequest::new(PROCESS, source, &selections, equipment, energy),
+    )
+    .unwrap_or_else(|error| panic!("condition-sensitive screening resolution failed: {error}"));
+    let job = validate_start_process_routed(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        &[
+            ProcessOutputRoute::new(ScreeningProcessDefinition::UNDERSIZE_STREAM, undersize),
+            ProcessOutputRoute::new(ScreeningProcessDefinition::OVERSIZE_STREAM, oversize),
+        ],
+    )
+    .unwrap_or_else(|error| panic!("condition-sensitive screening start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("condition-sensitive screening commit failed: {error}"));
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("valid screening job failed replay: {error}"));
+
+    let degraded = 400_000_u32;
+    let mut tampered =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("screening capability tamper serialization failed: {error}")
+        });
+    tampered["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["condition"] =
+        serde_json::json!(degraded);
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["equipment"]["provider"]
+        ["condition"] = serde_json::json!(degraded);
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["equipment"]["condition_after"] =
+        serde_json::json!(399_000_u32);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("screening capability tamper decode failed: {error}"));
+
+    assert!(matches!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::ScreeningJob(
+            ScreeningJobValidationError::Powered {
+                job: rejected_job,
+                error: PoweredOreJobValidationError::Capability(
+                    CapabilityEvaluationError::ThresholdNotMet {
+                        capability: SAFETY_CAPABILITY,
+                        ..
+                    }
+                ),
+            }
+        ))) if rejected_job == job
+    ));
 }
 
 #[test]

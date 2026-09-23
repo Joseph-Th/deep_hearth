@@ -4,6 +4,7 @@ use std::error::Error;
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
+use crate::maintenance::Condition;
 use crate::material::{MaterialPhaseStateError, ParticleSizeStateError};
 use crate::structural::StructuralElementId;
 
@@ -113,6 +114,26 @@ pub enum EquipmentValidationError {
         equipment: EquipmentId,
         created_at: SimulationTick,
         current: SimulationTick,
+    },
+    MaintenanceAdmissionRevisionInvalid {
+        equipment: EquipmentId,
+        admission_revision: u64,
+        current_revision: u64,
+    },
+    MaintenanceAdmissionTickInvalid {
+        equipment: EquipmentId,
+        admitted_at: SimulationTick,
+        created_at: SimulationTick,
+        current: SimulationTick,
+    },
+    MaintenanceAdmissionProfileMissing {
+        equipment: EquipmentId,
+    },
+    MaintenanceAdmissionOutcomeInvalid {
+        equipment: EquipmentId,
+        before: Condition,
+        after: Condition,
+        required: Condition,
     },
 }
 

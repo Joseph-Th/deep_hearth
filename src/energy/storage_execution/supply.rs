@@ -59,6 +59,7 @@ pub(crate) struct EnergySupplyAccess {
     store: EnergyStoreId,
     definition: EnergyStoreDefinitionId,
     carrier: EnergyCarrier,
+    capacity: Energy,
     available: Energy,
     max_output_power: Power,
 }
@@ -79,6 +80,11 @@ impl EnergySupplyAccess {
     #[must_use]
     pub(crate) const fn carrier(self) -> EnergyCarrier {
         self.carrier
+    }
+
+    #[must_use]
+    pub(crate) const fn capacity(self) -> Energy {
+        self.capacity
     }
 
     #[must_use]
@@ -153,6 +159,7 @@ pub(crate) fn assess_energy_supply_access(
         store,
         definition: record.definition(),
         carrier: definition.carrier(),
+        capacity: definition.capacity(),
         available: record.stored(),
         max_output_power: definition.max_output_power(),
     })

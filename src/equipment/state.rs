@@ -12,9 +12,9 @@ use crate::structural::{
 mod condition;
 mod record;
 
-pub(crate) use record::EquipmentOperationConditionOutcome;
 pub(super) use record::{EquipmentComponentMaintenanceMutation, EquipmentUpgradeMutation};
 pub use record::{EquipmentId, EquipmentOperationTrace, EquipmentRecord};
+pub(crate) use record::{EquipmentMaintenanceAdmission, EquipmentOperationConditionOutcome};
 
 /// Authoritative equipment collection and monotonic mutation/version state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

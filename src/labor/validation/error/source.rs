@@ -70,6 +70,8 @@ impl Error for PlayerWorkValidationError {
             | Self::EquipmentMaintenanceDefinitionMismatch
             | Self::EquipmentMaintenanceConditionMismatch
             | Self::EquipmentMaintenanceProfileMissing
+            | Self::EquipmentMaintenanceAdmissionMissing
+            | Self::EquipmentMaintenanceAdmissionMismatch
             | Self::EquipmentMaintenanceTargetMismatch
             | Self::EquipmentMaintenanceScheduleInvalid
             | Self::EquipmentMaintenanceDurationMismatch

@@ -10,6 +10,7 @@ use super::super::equipment_physics::{
     ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalPowerTemperatureLimits,
     ThermalTransferTiming, ThermalTransferTimingError, resolve_thermal_power_temperature_limits,
     resolve_thermal_transfer_timing, validate_thermal_batch_mass,
+    validate_thermal_process_capabilities,
 };
 use super::super::phase_change_batch::PurePhaseChangeBatch;
 use super::{MeltingJobValidationError, MeltingProcessDefinition, resolve_melting_batch};
@@ -41,6 +42,16 @@ fn resolve_melting_replay_context(
     else {
         return Err(MeltingJobValidationError::UnknownEnergyDefinition { job: job.id() });
     };
+    validate_thermal_process_capabilities(
+        registries,
+        job.process(),
+        equipment_definition,
+        provider.condition(),
+    )
+    .map_err(|error| MeltingJobValidationError::Capability {
+        job: job.id(),
+        error,
+    })?;
     let limits = resolve_thermal_power_temperature_limits(
         equipment_definition,
         provider.condition(),

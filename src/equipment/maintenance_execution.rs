@@ -12,7 +12,7 @@ use crate::maintenance::Condition;
 #[cfg(test)]
 use crate::{AppState, Registries};
 
-use super::state::EquipmentId;
+use super::state::{EquipmentId, EquipmentMaintenanceAdmission};
 
 mod commit;
 mod errors;
@@ -105,6 +105,7 @@ pub struct ValidatedEquipmentMaintenance {
     condition_after: Condition,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
+    admission: EquipmentMaintenanceAdmission,
     material: ValidatedMaintenanceMaterial,
     work: EquipmentMaintenanceWork,
     player_work: ValidatedPlayerWorkStart,

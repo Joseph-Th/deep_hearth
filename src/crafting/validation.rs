@@ -2,24 +2,20 @@
 
 use std::num::NonZeroU64;
 
-use crate::capability::CapabilityValue;
 use crate::core::quantity::Temperature;
 use crate::core::time::TickSpan;
 use crate::energy::calculate_mass_specific_energy;
-use crate::equipment::{
-    evaluate_equipment_capabilities_at_condition, resolve_equipment_capability,
-};
 use crate::material::MaterialLotSpec;
 use crate::production::{ProcessOutputStreamId, ProductionJobRecord};
 use crate::registry::Registries;
 
-use super::powered::PoweredCraftTimingError;
+use super::powered::{PoweredCraftTimingError, resolve_powered_craft_rate};
 use super::{
     ManualCraftDefinition, ManualCraftEquipmentProfile, PoweredCraftDefinition,
     batch::{ManualCraftBatchError, validate_manual_craft_batch},
     physics::{
-        ManualCraftEquipmentScheduleError, resolve_manual_craft_equipment_schedule,
-        resolve_manual_craft_hand_duration,
+        ManualCraftEquipmentResolutionError, ManualCraftEquipmentScheduleError,
+        resolve_manual_craft_equipment_physics, resolve_manual_craft_hand_duration,
     },
 };
 
@@ -57,49 +53,42 @@ fn validate_manual_craft_resources(
             job: job.id(),
             definition: provider.definition(),
         })?;
-    let capability = profile.mass_flow_capability();
-    let rate = match resolve_equipment_capability(
+    let schedule = resolve_manual_craft_equipment_physics(
         equipment_definition,
         provider.condition(),
-        capability,
-    ) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(value) => {
-            return Err(
-                CraftingJobValidationError::EquipmentCapabilityKindMismatch {
-                    job: job.id(),
-                    capability,
-                    found: value.kind(),
-                },
-            );
-        }
-        None => {
-            return Err(CraftingJobValidationError::MissingEquipmentCapability {
-                job: job.id(),
-                capability,
-            });
-        }
-    };
-    let schedule = resolve_manual_craft_equipment_schedule(
-        rate,
+        profile.mass_flow_capability(),
         job.consumed_mass(),
         registries.core().physical_tick_duration(),
         profile.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
     )
     .map_err(|error| match error {
-        ManualCraftEquipmentScheduleError::Duration(error) => {
-            CraftingJobValidationError::EquipmentDuration {
+        ManualCraftEquipmentResolutionError::MissingCapability { capability } => {
+            CraftingJobValidationError::MissingEquipmentCapability {
                 job: job.id(),
-                error,
+                capability,
             }
         }
-        ManualCraftEquipmentScheduleError::Condition(error) => {
-            CraftingJobValidationError::EquipmentCondition {
+        ManualCraftEquipmentResolutionError::CapabilityKindMismatch { capability, found } => {
+            CraftingJobValidationError::EquipmentCapabilityKindMismatch {
                 job: job.id(),
-                error,
+                capability,
+                found,
             }
         }
+        ManualCraftEquipmentResolutionError::Schedule(error) => match error {
+            ManualCraftEquipmentScheduleError::Duration(error) => {
+                CraftingJobValidationError::EquipmentDuration {
+                    job: job.id(),
+                    error,
+                }
+            }
+            ManualCraftEquipmentScheduleError::Condition(error) => {
+                CraftingJobValidationError::EquipmentCondition {
+                    job: job.id(),
+                    error,
+                }
+            }
+        },
     })?;
     let stored_condition = job
         .equipment_condition_after()
@@ -165,17 +154,11 @@ fn validate_powered_craft_resources(
             job: job.id(),
             definition: provider.definition(),
         })?;
-    let process_definition = registries
-        .production()
-        .get_process(definition.process())
-        .unwrap_or_else(|| {
-            unreachable!("validated powered-craft definition lost its production process")
-        });
-    evaluate_equipment_capabilities_at_condition(
-        registries.capabilities(),
+    let rate = resolve_powered_craft_rate(
+        registries,
+        definition,
         equipment_definition,
         provider.condition(),
-        process_definition.capability_requirements(),
     )
     .map_err(
         |error| CraftingJobValidationError::PoweredEquipmentCapability {
@@ -183,17 +166,6 @@ fn validate_powered_craft_resources(
             error,
         },
     )?;
-    let capability = definition.mass_flow_capability();
-    let rate = match resolve_equipment_capability(
-        equipment_definition,
-        provider.condition(),
-        capability,
-    ) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(_) | None => unreachable!(
-            "validated powered-craft provider lost its resolver-owned throughput capability"
-        ),
-    };
     let (duration, condition_after) = super::powered::resolve_powered_craft_timing(
         registries,
         rate,

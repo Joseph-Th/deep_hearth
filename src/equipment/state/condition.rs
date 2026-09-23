@@ -6,8 +6,8 @@ use crate::core::quantity::Mass;
 use crate::maintenance::Condition;
 
 use super::{
-    EquipmentComponentMaintenanceMutation, EquipmentId, EquipmentOperationConditionOutcome,
-    EquipmentState,
+    EquipmentComponentMaintenanceMutation, EquipmentId, EquipmentMaintenanceAdmission,
+    EquipmentOperationConditionOutcome, EquipmentState,
 };
 
 impl EquipmentState {
@@ -38,6 +38,15 @@ impl EquipmentState {
             )
         });
         assert_eq!(record.condition, mutation.condition_before);
+        assert_eq!(
+            mutation.admission.condition_before(),
+            mutation.condition_before
+        );
+        assert_eq!(
+            mutation.admission.equipment_revision(),
+            next_revision,
+            "component maintenance receipt must bind the admission equipment revision"
+        );
         let replaced_mass = record
             .embodied_material
             .iter()
@@ -65,35 +74,45 @@ impl EquipmentState {
     pub(in crate::equipment) fn assert_maintenance_admission_available(
         &self,
         equipment: EquipmentId,
-        condition_before: Condition,
+        admission: EquipmentMaintenanceAdmission,
         expected_revision: u64,
         next_revision: u64,
     ) {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert_eq!(
+            admission.equipment_revision(),
+            next_revision,
+            "maintenance receipt must bind the admission equipment revision"
+        );
         let record = self.records.get(&equipment).unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: equipment {} disappeared before maintenance admission",
                 equipment.value()
             )
         });
-        assert_eq!(record.condition, condition_before);
+        assert_eq!(record.condition, admission.condition_before());
     }
 
     /// Advances equipment freshness when service begins without granting the future condition gain.
     pub(in crate::equipment) fn apply_maintenance_admission(
         &mut self,
         equipment: EquipmentId,
-        condition_before: Condition,
+        admission: EquipmentMaintenanceAdmission,
         expected_revision: u64,
         next_revision: u64,
     ) {
         self.assert_maintenance_admission_available(
             equipment,
-            condition_before,
+            admission,
             expected_revision,
             next_revision,
         );
+        let record = self
+            .records
+            .get_mut(&equipment)
+            .unwrap_or_else(|| unreachable!("maintenance-admission equipment was prechecked"));
+        record.last_maintenance_admission = Some(admission);
         self.revision = next_revision;
     }
 
@@ -126,6 +145,7 @@ impl EquipmentState {
         }
         assert!(inserted);
         record.embodied_material = next_embodied;
+        record.last_maintenance_admission = Some(mutation.admission);
         self.revision = next_revision;
     }
 

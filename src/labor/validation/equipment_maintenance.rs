@@ -40,6 +40,16 @@ pub(super) fn validate_equipment_maintenance_work(
         .get_equipment(record.definition())
         .and_then(|definition| definition.maintenance_profile())
         .ok_or(PlayerWorkValidationError::EquipmentMaintenanceProfileMissing)?;
+    let admission = record
+        .last_maintenance_admission()
+        .ok_or(PlayerWorkValidationError::EquipmentMaintenanceAdmissionMissing)?;
+    if admission.equipment_revision() != work.admission_revision()
+        || admission.condition_before() != work.condition_before()
+        || admission.condition_after() != work.condition_after()
+        || admission.admitted_at() != work.started_at()
+    {
+        return Err(PlayerWorkValidationError::EquipmentMaintenanceAdmissionMismatch);
+    }
     if work.condition_after() != profile.restored_condition()
         || work.condition_after() <= work.condition_before()
     {

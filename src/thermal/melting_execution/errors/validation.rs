@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, PowerDurationError};
@@ -25,6 +26,10 @@ pub enum MeltingJobValidationError {
     },
     UnknownEnergyDefinition {
         job: ProductionJobId,
+    },
+    Capability {
+        job: ProductionJobId,
+        error: CapabilityEvaluationError,
     },
     MissingHeatingPowerCapability {
         job: ProductionJobId,
@@ -111,6 +116,11 @@ impl Display for MeltingJobValidationError {
             Self::UnknownEnergyDefinition { job } => write!(
                 formatter,
                 "melting job {} references unavailable energy storage",
+                job.value()
+            ),
+            Self::Capability { job, error } => write!(
+                formatter,
+                "melting job {} provider fails authored process capabilities: {error}",
                 job.value()
             ),
             Self::MissingHeatingPowerCapability { job } => write!(
@@ -235,6 +245,7 @@ impl Display for MeltingJobValidationError {
 impl Error for MeltingJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Capability { error, .. } => Some(error),
             Self::Batch { error, .. } => Some(error),
             Self::Duration { error, .. } => Some(error),
             Self::ConditionDuration { error, .. } => Some(error),

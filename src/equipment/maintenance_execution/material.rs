@@ -15,7 +15,8 @@ use crate::equipment::maintenance_resolution::{
     EquipmentMaintenanceMaterialResolution, EquipmentMaintenanceResolution,
 };
 use crate::equipment::state::{
-    EquipmentComponentMaintenanceMutation, EquipmentId, EquipmentRecord,
+    EquipmentComponentMaintenanceMutation, EquipmentId, EquipmentMaintenanceAdmission,
+    EquipmentRecord,
 };
 
 mod component;
@@ -47,7 +48,7 @@ impl ValidatedMaintenanceMaterial {
         self,
         state: &mut AppState,
         equipment: EquipmentId,
-        condition_before: crate::maintenance::Condition,
+        admission: EquipmentMaintenanceAdmission,
         expected_equipment_revision: u64,
         next_equipment_revision: u64,
     ) -> Result<(), EquipmentMaintenanceCommitError> {
@@ -55,14 +56,14 @@ impl ValidatedMaintenanceMaterial {
             Self::Aggregate(material) => {
                 state.equipment().assert_maintenance_admission_available(
                     equipment,
-                    condition_before,
+                    admission,
                     expected_equipment_revision,
                     next_equipment_revision,
                 );
                 material.commit(state).map_err(map_reform_commit_error)?;
                 state.equipment_state_mut().apply_maintenance_admission(
                     equipment,
-                    condition_before,
+                    admission,
                     expected_equipment_revision,
                     next_equipment_revision,
                 );
@@ -77,8 +78,9 @@ impl ValidatedMaintenanceMaterial {
                 let mutation = EquipmentComponentMaintenanceMutation {
                     equipment,
                     component,
-                    condition_before,
+                    condition_before: admission.condition_before(),
                     replacement,
+                    admission,
                 };
                 state.equipment().assert_component_maintenance_available(
                     &mutation,

@@ -335,16 +335,14 @@ pub(super) fn primitive_machine_energy_plan(
                 "primitive progression charge target must fund crushing, separation, and useful follow-up work"
             )
         });
-    let specific_energy = u128::from(crusher_process.specific_energy().nanojoules_per_milligram());
-    let reserve_mass_mg =
-        u64::try_from(reserve_energy_budget / specific_energy).unwrap_or_else(|_| {
-            panic!("primitive progression reserve mass exceeds authoritative range")
-        });
+    let reserve_mass = calculate_mass_specific_energy_capacity(
+        Energy::from_nanojoules(reserve_energy_budget),
+        crusher_process.specific_energy(),
+    );
     assert!(
-        reserve_mass_mg > 0,
+        !reserve_mass.is_zero(),
         "primitive progression charge plan must bank a positive follow-up batch"
     );
-    let reserve_mass = Mass::from_milligrams(reserve_mass_mg);
     let reserve_energy =
         calculate_mass_specific_energy(reserve_mass, crusher_process.specific_energy());
     let charge_energy = primary_processing_energy

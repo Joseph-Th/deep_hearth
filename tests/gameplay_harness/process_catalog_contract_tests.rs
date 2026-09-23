@@ -1,6 +1,11 @@
 //! Cross-scope authored process-topology contracts that do not require gameplay simulation.
 
-use deep_hearth::content::build_registries;
+use std::collections::BTreeSet;
+
+use deep_hearth::content::{
+    PROCESS_CAST_PURE_COPPER, PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER,
+    build_registries,
+};
 
 use deep_hearth::registry::{ProcessEnergyRole, ProcessEquipmentRole};
 
@@ -48,4 +53,41 @@ fn every_authored_process_has_legible_physical_execution_topology() {
             ),
         }
     }
+}
+
+#[test]
+fn ordinary_process_reachability_can_only_stop_at_the_declared_foundry_frontier() {
+    let registries = build_registries();
+    let catalog = process_catalog_entries(&registries);
+    let declared_frontier = BTreeSet::from([
+        PROCESS_MELT_PURE_COPPER,
+        PROCESS_CAST_PURE_COPPER,
+        PROCESS_HEAT_MATERIAL_BATCH,
+    ]);
+
+    let equipment_frontier = catalog
+        .iter()
+        .filter(|entry| {
+            !matches!(entry.equipment_role, ProcessEquipmentRole::None)
+                && entry.authored_acquisition_provider_count == 0
+        })
+        .map(|entry| entry.process)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        equipment_frontier, declared_frontier,
+        "only the declared industrial foundry frontier may lack a player-acquirable equipment provider"
+    );
+
+    let energy_frontier = catalog
+        .iter()
+        .filter(|entry| {
+            !matches!(entry.energy_role, ProcessEnergyRole::None)
+                && entry.authored_assembly_energy_store_count == 0
+        })
+        .map(|entry| entry.process)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        energy_frontier, declared_frontier,
+        "only the declared industrial foundry frontier may lack a player-assembleable compatible energy store"
+    );
 }

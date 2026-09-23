@@ -1,33 +1,37 @@
 //! Finite-mechanical-work execution for unattended crafting transformations.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
-use crate::capability::{CapabilityEvaluationError, CapabilityValue, evaluate_capabilities};
-use crate::core::quantity::{Mass, MassFlow};
+use crate::capability::{CapabilityEvaluationError, CapabilityValue};
+use crate::core::quantity::{Energy, Mass, MassFlow, Power};
 use crate::core::state::AppState;
 use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::TickSpan;
 use crate::energy::{
-    EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
-    assess_energy_supply_access, calculate_mass_specific_energy, calculate_power_duration_ceiling,
+    EnergyStoreId, EnergySupplyAccess, PowerDurationError, assess_energy_supply_access,
+    calculate_mass_specific_energy, calculate_power_duration_ceiling,
     validate_energy_supply_request,
 };
-use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
+use crate::equipment::{
+    EquipmentDefinition, EquipmentId, ValidatedEquipmentUse,
+    evaluate_equipment_capabilities_at_condition, resolve_equipment_capability,
+    resolve_equipment_provider,
+};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
-use crate::material::MaterialLotSpecError;
 use crate::production::{
-    ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, StartProcessError,
-    ValidatedStartProcess, validate_process_inputs, validate_start_process,
+    ProcessId, ProcessResolution, ValidatedStartProcess, validate_process_inputs,
+    validate_start_process,
 };
 use crate::registry::Registries;
 
-use super::batch::{
-    ManualCraftBatchError, build_manual_craft_outputs, validate_manual_craft_batch,
-};
+use super::batch::{build_manual_craft_outputs, validate_manual_craft_batch};
+use super::definitions::{ManualCraftDefinition, PoweredCraftDefinition};
+
+mod errors;
+
+use errors::batch_error;
+pub use errors::{PoweredCraftError, StartPoweredCraftError};
 
 /// Exact powered crafting request with explicit matter, machine, and finite-work source.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,164 +73,19 @@ impl PoweredCraftRequest {
     }
 }
 
-/// Failure while resolving an unattended machine crafting operation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PoweredCraftError {
-    UnknownProcess {
-        process: ProcessId,
-    },
-    MissingTransform {
-        process: ProcessId,
-    },
-    Input(ProcessInputError),
-    EmptyInput,
-    InputCommodityMismatch,
-    InputCompositionMismatch,
-    MixedInputTemperature,
-    InputMassNotWholeBatches {
-        consumed: Mass,
-        batch_mass: Mass,
-    },
-    Equipment(EquipmentProviderError),
-    Capability(CapabilityEvaluationError),
-    Energy(EnergySupplyError),
-    WrongEnergyCarrier {
-        required: EnergyCarrier,
-        provided: EnergyCarrier,
-    },
-    ThroughputDuration(MassFlowDurationError),
-    EnergyDuration(PowerDurationError),
-    EquipmentCondition(ActiveConditionDurationError),
-    OutputMassOverflow,
-    Output(MaterialLotSpecError),
-    Resolution(ProcessResolutionError),
-}
-
-impl Display for PoweredCraftError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownProcess { process } => write!(
-                formatter,
-                "unknown powered craft process {}",
-                process.value()
-            ),
-            Self::MissingTransform { process } => write!(
-                formatter,
-                "powered craft process {} lost its material transform",
-                process.value()
-            ),
-            Self::Input(error) => write!(formatter, "powered craft input is invalid: {error}"),
-            Self::EmptyInput => formatter.write_str("powered craft selection is empty"),
-            Self::InputCommodityMismatch => formatter
-                .write_str("powered craft input commodity does not match its authored transform"),
-            Self::InputCompositionMismatch => formatter
-                .write_str("powered craft input composition does not match its authored transform"),
-            Self::MixedInputTemperature => {
-                formatter.write_str("powered craft cannot combine mixed input temperatures")
-            }
-            Self::InputMassNotWholeBatches {
-                consumed,
-                batch_mass,
-            } => write!(
-                formatter,
-                "powered craft selected {} mg, not a whole number of {} mg transform batches",
-                consumed.milligrams(),
-                batch_mass.milligrams()
-            ),
-            Self::Equipment(error) => {
-                write!(formatter, "powered craft equipment is unavailable: {error}")
-            }
-            Self::Capability(error) => {
-                write!(
-                    formatter,
-                    "powered craft equipment capability failed: {error}"
-                )
-            }
-            Self::Energy(error) => write!(
-                formatter,
-                "powered craft energy supply is unavailable: {error}"
-            ),
-            Self::WrongEnergyCarrier { required, provided } => write!(
-                formatter,
-                "powered craft requires {required:?} energy but selected store supplies {provided:?}"
-            ),
-            Self::ThroughputDuration(error) => write!(
-                formatter,
-                "powered craft throughput cannot schedule work: {error}"
-            ),
-            Self::EnergyDuration(error) => write!(
-                formatter,
-                "powered craft energy delivery cannot schedule work: {error}"
-            ),
-            Self::EquipmentCondition(error) => write!(
-                formatter,
-                "powered craft equipment cannot remain productive: {error}"
-            ),
-            Self::OutputMassOverflow => formatter.write_str("powered craft output mass overflowed"),
-            Self::Output(error) => write!(formatter, "powered craft output is invalid: {error}"),
-            Self::Resolution(error) => {
-                write!(formatter, "powered craft resolution is invalid: {error}")
-            }
-        }
-    }
-}
-
-impl Error for PoweredCraftError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Input(error) => Some(error),
-            Self::Equipment(error) => Some(error),
-            Self::Capability(error) => Some(error),
-            Self::Energy(error) => Some(error),
-            Self::ThroughputDuration(error) => Some(error),
-            Self::EnergyDuration(error) => Some(error),
-            Self::EquipmentCondition(error) => Some(error),
-            Self::Output(error) => Some(error),
-            Self::Resolution(error) => Some(error),
-            Self::UnknownProcess { .. }
-            | Self::MissingTransform { .. }
-            | Self::EmptyInput
-            | Self::InputCommodityMismatch
-            | Self::InputCompositionMismatch
-            | Self::MixedInputTemperature
-            | Self::InputMassNotWholeBatches { .. }
-            | Self::WrongEnergyCarrier { .. }
-            | Self::OutputMassOverflow => None,
-        }
-    }
-}
-
-fn batch_error(error: ManualCraftBatchError) -> PoweredCraftError {
-    match error {
-        ManualCraftBatchError::EmptyInput => PoweredCraftError::EmptyInput,
-        ManualCraftBatchError::InputCommodityMismatch => PoweredCraftError::InputCommodityMismatch,
-        ManualCraftBatchError::InputCompositionMismatch => {
-            PoweredCraftError::InputCompositionMismatch
-        }
-        ManualCraftBatchError::MixedInputTemperature => PoweredCraftError::MixedInputTemperature,
-        ManualCraftBatchError::InputMassNotWholeBatches {
-            consumed,
-            batch_mass,
-        } => PoweredCraftError::InputMassNotWholeBatches {
-            consumed,
-            batch_mass,
-        },
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PoweredCraftTimingError {
+pub(super) enum PoweredCraftTimingError {
     ThroughputDuration(MassFlowDurationError),
     EnergyDuration(PowerDurationError),
     EquipmentCondition(ActiveConditionDurationError),
 }
 
-pub(crate) fn resolve_powered_craft_timing(
+pub(super) fn resolve_powered_craft_timing(
     registries: &Registries,
     rate: MassFlow,
     mass: Mass,
-    required_energy: crate::core::quantity::Energy,
-    available_power: crate::core::quantity::Power,
+    required_energy: Energy,
+    available_power: Power,
     wear_ppm_per_active_tick: u32,
     condition_before: Condition,
 ) -> Result<(TickSpan, Condition), PoweredCraftTimingError> {
@@ -262,14 +121,14 @@ pub(crate) fn resolve_powered_craft_timing(
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PoweredCraftWorkProjection {
-    required_energy: crate::core::quantity::Energy,
+    required_energy: Energy,
     duration: TickSpan,
     condition_after: Condition,
 }
 
 impl PoweredCraftWorkProjection {
     #[must_use]
-    pub const fn required_energy(self) -> crate::core::quantity::Energy {
+    pub const fn required_energy(self) -> Energy {
         self.required_energy
     }
 
@@ -284,19 +143,21 @@ impl PoweredCraftWorkProjection {
     }
 }
 
-/// Projects powered-craft work from current observable machine/store state without requiring the
-/// store to already contain the projected work.
-pub fn project_powered_craft_work(
+struct ResolvedPoweredCraftProvider {
+    equipment: ValidatedEquipmentUse,
+    rate: MassFlow,
+    condition: Condition,
+}
+
+struct PoweredCraftEnergyAssessment {
+    access: EnergySupplyAccess,
+    required_energy: Energy,
+}
+
+fn resolve_powered_craft_definitions(
     registries: &Registries,
-    state: &AppState,
     process: ProcessId,
-    input_mass: Mass,
-    equipment: EquipmentId,
-    energy_store: EnergyStoreId,
-) -> Result<PoweredCraftWorkProjection, PoweredCraftError> {
-    if input_mass.is_zero() {
-        return Err(PoweredCraftError::EmptyInput);
-    }
+) -> Result<(PoweredCraftDefinition, &ManualCraftDefinition), PoweredCraftError> {
     let definition = registries
         .crafting()
         .get_powered(process)
@@ -305,35 +166,64 @@ pub fn project_powered_craft_work(
         .crafting()
         .get_manual(definition.transform())
         .ok_or(PoweredCraftError::MissingTransform { process })?;
-    if !input_mass
-        .milligrams()
-        .is_multiple_of(transform.input_mass().milligrams())
-    {
-        return Err(PoweredCraftError::InputMassNotWholeBatches {
-            consumed: input_mass,
-            batch_mass: transform.input_mass(),
-        });
-    }
+    Ok((definition, transform))
+}
 
+fn resolve_powered_craft_provider(
+    registries: &Registries,
+    state: &AppState,
+    definition: PoweredCraftDefinition,
+    equipment: EquipmentId,
+) -> Result<ResolvedPoweredCraftProvider, PoweredCraftError> {
     let provider = resolve_equipment_provider(registries, state, equipment)
         .map_err(PoweredCraftError::Equipment)?;
-    let process_definition = registries
-        .production()
-        .get_process(process)
-        .ok_or(PoweredCraftError::UnknownProcess { process })?;
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
+    let rate = resolve_powered_craft_rate(
+        registries,
+        definition,
+        provider.definition(),
+        provider.condition(),
     )
     .map_err(PoweredCraftError::Capability)?;
+    Ok(ResolvedPoweredCraftProvider {
+        equipment: provider.validated_use(),
+        rate,
+        condition: provider.condition(),
+    })
+}
+
+pub(super) fn resolve_powered_craft_rate(
+    registries: &Registries,
+    definition: PoweredCraftDefinition,
+    equipment: &EquipmentDefinition,
+    condition: Condition,
+) -> Result<MassFlow, CapabilityEvaluationError> {
+    let process_definition = registries
+        .production()
+        .get_process(definition.process())
+        .unwrap_or_else(|| unreachable!("validated powered-craft process disappeared"));
+    evaluate_equipment_capabilities_at_condition(
+        registries.capabilities(),
+        equipment,
+        condition,
+        process_definition.capability_requirements(),
+    )?;
     let capability = definition.mass_flow_capability();
-    let rate = match provider.get_capability(capability) {
+    let rate = match resolve_equipment_capability(equipment, condition, capability) {
         Some(CapabilityValue::MassFlow(rate)) => rate,
         Some(_) | None => unreachable!(
             "validated powered-craft provider lost its resolver-owned throughput capability"
         ),
     };
+    Ok(rate)
+}
+
+fn assess_powered_craft_energy(
+    registries: &Registries,
+    state: &AppState,
+    definition: PoweredCraftDefinition,
+    input_mass: Mass,
+    energy_store: EnergyStoreId,
+) -> Result<PoweredCraftEnergyAssessment, PoweredCraftError> {
     let access = assess_energy_supply_access(registries, state, energy_store)
         .map_err(PoweredCraftError::Energy)?;
     if access.carrier() != definition.energy_carrier() {
@@ -343,31 +233,29 @@ pub fn project_powered_craft_work(
         });
     }
     let required_energy = calculate_mass_specific_energy(input_mass, definition.specific_energy());
-    let store = state
-        .energy()
-        .get_store(energy_store)
-        .unwrap_or_else(|| unreachable!("assessed energy store remains present"));
-    let store_definition = registries
-        .energy()
-        .get_store(store.definition())
-        .unwrap_or_else(|| unreachable!("assessed energy store definition remains present"));
-    if required_energy > store_definition.capacity() {
-        return Err(PoweredCraftError::Energy(
-            EnergySupplyError::InsufficientEnergy {
-                store: energy_store,
-                available: store_definition.capacity(),
-                requested: required_energy,
-            },
-        ));
-    }
+    Ok(PoweredCraftEnergyAssessment {
+        access,
+        required_energy,
+    })
+}
+
+fn resolve_powered_craft_work(
+    registries: &Registries,
+    definition: PoweredCraftDefinition,
+    input_mass: Mass,
+    rate: MassFlow,
+    condition_before: Condition,
+    required_energy: Energy,
+    available_power: Power,
+) -> Result<PoweredCraftWorkProjection, PoweredCraftError> {
     let (duration, condition_after) = resolve_powered_craft_timing(
         registries,
         rate,
         input_mass,
         required_energy,
-        access.max_output_power(),
+        available_power,
         definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
+        condition_before,
     )
     .map_err(|error| match error {
         PoweredCraftTimingError::ThroughputDuration(error) => {
@@ -385,23 +273,57 @@ pub fn project_powered_craft_work(
     })
 }
 
+/// Projects powered-craft work from current observable machine/store state without requiring the
+/// store to already contain the projected work.
+pub fn project_powered_craft_work(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    input_mass: Mass,
+    equipment: EquipmentId,
+    energy_store: EnergyStoreId,
+) -> Result<PoweredCraftWorkProjection, PoweredCraftError> {
+    if input_mass.is_zero() {
+        return Err(PoweredCraftError::EmptyInput);
+    }
+    let (definition, transform) = resolve_powered_craft_definitions(registries, process)?;
+    if !input_mass
+        .milligrams()
+        .is_multiple_of(transform.input_mass().milligrams())
+    {
+        return Err(PoweredCraftError::InputMassNotWholeBatches {
+            consumed: input_mass,
+            batch_mass: transform.input_mass(),
+        });
+    }
+    let provider = resolve_powered_craft_provider(registries, state, definition, equipment)?;
+    let energy =
+        assess_powered_craft_energy(registries, state, definition, input_mass, energy_store)?;
+    if energy.required_energy > energy.access.capacity() {
+        return Err(PoweredCraftError::EnergyCapacityExceeded {
+            store: energy_store,
+            capacity: energy.access.capacity(),
+            requested: energy.required_energy,
+        });
+    }
+    resolve_powered_craft_work(
+        registries,
+        definition,
+        input_mass,
+        provider.rate,
+        provider.condition,
+        energy.required_energy,
+        energy.access.max_output_power(),
+    )
+}
+
 /// Resolves one powered crafting operation without claiming player attention.
 pub fn resolve_powered_craft(
     registries: &Registries,
     state: &AppState,
     request: &PoweredCraftRequest,
 ) -> Result<ProcessResolution, PoweredCraftError> {
-    let definition = registries.crafting().get_powered(request.process).ok_or(
-        PoweredCraftError::UnknownProcess {
-            process: request.process,
-        },
-    )?;
-    let transform = registries
-        .crafting()
-        .get_manual(definition.transform())
-        .ok_or(PoweredCraftError::MissingTransform {
-            process: request.process,
-        })?;
+    let (definition, transform) = resolve_powered_craft_definitions(registries, request.process)?;
     let inputs = validate_process_inputs(
         registries,
         state,
@@ -423,94 +345,38 @@ pub fn resolve_powered_craft(
             }
         })?;
 
-    let provider = resolve_equipment_provider(registries, state, request.equipment)
-        .map_err(PoweredCraftError::Equipment)?;
-    let process_definition = registries.production().get_process(request.process).ok_or(
-        PoweredCraftError::UnknownProcess {
-            process: request.process,
-        },
-    )?;
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
-    )
-    .map_err(PoweredCraftError::Capability)?;
-    let capability = definition.mass_flow_capability();
-    let rate = match provider.get_capability(capability) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(_) | None => unreachable!(
-            "validated powered-craft provider lost its resolver-owned throughput capability"
-        ),
-    };
-    let access = assess_energy_supply_access(registries, state, request.energy_store)
-        .map_err(PoweredCraftError::Energy)?;
-    if access.carrier() != definition.energy_carrier() {
-        return Err(PoweredCraftError::WrongEnergyCarrier {
-            required: definition.energy_carrier(),
-            provided: access.carrier(),
-        });
-    }
-    let required_energy =
-        calculate_mass_specific_energy(inputs.input_mass(), definition.specific_energy());
-    let energy_supply = validate_energy_supply_request(access, required_energy)
-        .map_err(PoweredCraftError::Energy)?;
-    let (duration, condition_after) = resolve_powered_craft_timing(
+    let provider =
+        resolve_powered_craft_provider(registries, state, definition, request.equipment)?;
+    let energy = assess_powered_craft_energy(
         registries,
-        rate,
+        state,
+        definition,
         inputs.input_mass(),
-        required_energy,
+        request.energy_store,
+    )?;
+    let energy_supply = validate_energy_supply_request(energy.access, energy.required_energy)
+        .map_err(PoweredCraftError::Energy)?;
+    let work = resolve_powered_craft_work(
+        registries,
+        definition,
+        inputs.input_mass(),
+        provider.rate,
+        provider.condition,
+        energy.required_energy,
         energy_supply.max_output_power(),
-        definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
-    )
-    .map_err(|error| match error {
-        PoweredCraftTimingError::ThroughputDuration(error) => {
-            PoweredCraftError::ThroughputDuration(error)
-        }
-        PoweredCraftTimingError::EnergyDuration(error) => PoweredCraftError::EnergyDuration(error),
-        PoweredCraftTimingError::EquipmentCondition(error) => {
-            PoweredCraftError::EquipmentCondition(error)
-        }
-    })?;
+    )?;
     inputs
         .resolve_with_energy_and_equipment(
-            duration,
+            work.duration,
             vec![crate::production::ProcessOutputStream::new(
                 crate::production::ProcessOutputStreamId::PRIMARY,
                 outputs,
             )],
             energy_supply,
-            provider.validated_use(),
-            condition_after,
+            provider.equipment,
+            work.condition_after,
         )
         .map_err(PoweredCraftError::Resolution)
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StartPoweredCraftError {
-    Resolution(PoweredCraftError),
-    Process(StartProcessError),
-}
-
-impl Display for StartPoweredCraftError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Resolution(error) => {
-                write!(formatter, "powered craft resolution failed: {error}")
-            }
-            Self::Process(error) => write!(formatter, "powered craft start failed: {error}"),
-        }
-    }
-}
-
-impl Error for StartPoweredCraftError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Resolution(error) => Some(error),
-            Self::Process(error) => Some(error),
-        }
-    }
 }
 
 /// Resolves and admits one unattended powered craft through canonical production ownership.

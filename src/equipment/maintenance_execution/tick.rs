@@ -32,6 +32,13 @@ pub(crate) fn decide_equipment_maintenance_tick(
         });
     assert_eq!(record.definition(), work.equipment_trace().definition());
     assert_eq!(record.condition(), work.condition_before());
+    let admission = record.last_maintenance_admission().unwrap_or_else(|| {
+        panic!("runtime invariant broken: active maintenance has no equipment admission receipt")
+    });
+    assert_eq!(admission.equipment_revision(), work.admission_revision());
+    assert_eq!(admission.condition_before(), work.condition_before());
+    assert_eq!(admission.condition_after(), work.condition_after());
+    assert_eq!(admission.admitted_at(), work.started_at());
     Some(EquipmentMaintenanceTickPlan {
         equipment: work.equipment(),
         condition_before: work.condition_before(),

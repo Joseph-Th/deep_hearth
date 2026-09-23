@@ -39,6 +39,7 @@ fn supply_access_reports_an_empty_but_currently_usable_store_without_reserving_i
     assert_eq!(access.store(), store);
     assert_eq!(access.definition(), STORE_DEFINITION);
     assert_eq!(access.carrier(), EnergyCarrier::Electrical);
+    assert_eq!(access.capacity(), Energy::from_nanojoules(1_000));
     assert_eq!(access.available(), Energy::ZERO);
     assert_eq!(access.max_output_power(), Power::from_microwatts(25));
     assert_eq!(

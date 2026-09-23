@@ -249,6 +249,62 @@ fn maintenance_due_on_fatal_tick_completes_before_player_work_is_released() {
 }
 
 #[test]
+fn trusted_load_rejects_maintenance_work_grafted_onto_unpaid_state() {
+    let registries = registries_with_service_duration(TickSpan::new(6));
+    let mut paid = AppState::new();
+    initialize_service_player(&registries, &mut paid);
+    let equipment = add_equipment(&registries, &mut paid, TEST_DEFINITION, Condition::FAILED)
+        .unwrap_or_else(|error| panic!("maintenance payment-proof equipment failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut paid, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("maintenance payment-proof source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut paid, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("maintenance payment-proof spent failed: {error}"));
+    add_material(&registries, &mut paid, source, Mass::from_milligrams(7));
+    let unpaid = paid.clone();
+
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &paid,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("maintenance payment-proof resolution failed: {error}"));
+    let _ = validate_equipment_maintenance(&registries, &paid, resolution)
+        .unwrap_or_else(|error| panic!("maintenance payment-proof validation failed: {error}"))
+        .commit(&mut paid)
+        .unwrap_or_else(|error| panic!("maintenance payment-proof commit failed: {error}"));
+    assert!(paid.player_work().active().is_some());
+    assert_eq!(
+        paid.inventory()
+            .get_stockpile(source)
+            .map(|record| record.stored_mass()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        unpaid
+            .inventory()
+            .get_stockpile(source)
+            .map(|record| record.stored_mass()),
+        Some(Mass::from_milligrams(7))
+    );
+
+    let paid_json = serde_json::to_value(SaveEnvelope::new(&registries, &paid))
+        .unwrap_or_else(|error| panic!("maintenance paid-state serialization failed: {error}"));
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &unpaid))
+        .unwrap_or_else(|error| panic!("maintenance unpaid-state serialization failed: {error}"));
+    forged["state"]["systems"]["player_work"] =
+        paid_json["state"]["systems"]["player_work"].clone();
+    let forged: LoadedSaveEnvelope = serde_json::from_value(forged)
+        .unwrap_or_else(|error| panic!("maintenance unpaid-work graft decode failed: {error}"));
+
+    assert_eq!(
+        forged.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::EquipmentMaintenanceAdmissionMissing,
+        )))
+    );
+}
+
+#[test]
 fn maintenance_rejects_revision_budget_that_cannot_complete_before_any_mutation() {
     let registries = registries();
     let mut state = AppState::new();

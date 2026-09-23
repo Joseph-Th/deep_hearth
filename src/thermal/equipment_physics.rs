@@ -1,15 +1,14 @@
 //! Shared condition-adjusted equipment limits and transfer timing for thermal operations.
 
-use crate::capability::{
-    CapabilityEvaluationError, CapabilityId, CapabilityValue, evaluate_capabilities,
-};
+use crate::capability::{CapabilityEvaluationError, CapabilityId, CapabilityValue};
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{PowerDurationError, calculate_power_duration_ceiling};
 use crate::equipment::{
     EquipmentDefinition, EquipmentId, EquipmentProviderError, ResolvedEquipmentProvider,
-    ValidatedEquipmentUse, resolve_equipment_capability, resolve_equipment_provider,
+    ValidatedEquipmentUse, evaluate_equipment_capabilities_at_condition,
+    resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
@@ -175,15 +174,16 @@ pub(super) fn resolve_runtime_thermal_equipment<'state>(
 ) -> Result<ResolvedThermalEquipment<'state>, ThermalEquipmentSetupError> {
     let provider = resolve_equipment_provider(registries, state, request.equipment)
         .map_err(ThermalEquipmentSetupError::Equipment)?;
-    let process_definition = registries.production().get_process(request.process).ok_or(
+    registries.production().get_process(request.process).ok_or(
         ThermalEquipmentSetupError::UnknownProcess {
             process: request.process,
         },
     )?;
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
+    validate_thermal_process_capabilities(
+        registries,
+        request.process,
+        provider.definition(),
+        provider.condition(),
     )
     .map_err(ThermalEquipmentSetupError::Capability)?;
     let limits = resolve_thermal_power_temperature_limits(
@@ -225,6 +225,33 @@ pub(super) fn resolve_runtime_thermal_equipment<'state>(
         provider,
         limits,
     })
+}
+
+/// Evaluates every authored process capability against one equipment definition at one condition.
+///
+/// Runtime resolution, planning, and trusted-load replay share this exact derivation so generic
+/// process requirements cannot drift away from thermal resolver-owned capability checks.
+pub(super) fn validate_thermal_process_capabilities(
+    registries: &Registries,
+    process: ProcessId,
+    equipment: &EquipmentDefinition,
+    condition: Condition,
+) -> Result<(), CapabilityEvaluationError> {
+    let process_definition = registries
+        .production()
+        .get_process(process)
+        .unwrap_or_else(|| {
+            panic!(
+                "validated thermal process {} lost its production definition",
+                process.value()
+            )
+        });
+    evaluate_equipment_capabilities_at_condition(
+        registries.capabilities(),
+        equipment,
+        condition,
+        process_definition.capability_requirements(),
+    )
 }
 
 /// Resolves the condition-adjusted single-batch mass ceiling without selecting a batch amount.

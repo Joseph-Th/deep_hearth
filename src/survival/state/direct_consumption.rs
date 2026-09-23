@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::{AggregateMass, AggregateVolume, Mass, Temperature, Volume};
 use crate::core::time::SimulationTick;
 use crate::fluid::FluidDefinitionId;
-use crate::inventory::{ConsumedMaterialTrace, MaterialStorageHistory, StockpileId};
+use crate::inventory::{ConsumedMaterialTrace, MaterialStorageHistory};
 use crate::material::MaterialId;
 
 /// Cumulative terminal-consumption total immediately before one pending meal crossed custody.
@@ -40,6 +40,10 @@ impl PendingConsumedMatterBaseline {
 }
 
 /// Exact food matter already removed from inventory while the player is still consuming it.
+///
+/// `storage_history` is checkpointed at meal admission under the source stockpile's then-current
+/// preservation rate. It is therefore a survival-owned admission fact, not a live dependency on
+/// whatever storage profile that stockpile may acquire later.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PendingConsumedFoodTrace {
@@ -71,12 +75,14 @@ impl PendingConsumedFoodTrace {
 }
 
 /// Exact food matter and admission-time storage evidence retained while intake is in progress.
+///
+/// The source stockpile is deliberately absent after custody transfer. Replay depends only on the
+/// checkpointed food traces and cumulative terminal-consumption baselines owned by survival.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PendingEating {
     consumed: Vec<PendingConsumedFoodTrace>,
     consumed_before: Vec<PendingConsumedMatterBaseline>,
-    source: StockpileId,
     started_at: SimulationTick,
     completes_at: SimulationTick,
 }
@@ -86,14 +92,12 @@ impl PendingEating {
     pub(crate) fn new(
         consumed: Vec<PendingConsumedFoodTrace>,
         consumed_before: Vec<PendingConsumedMatterBaseline>,
-        source: StockpileId,
         started_at: SimulationTick,
         completes_at: SimulationTick,
     ) -> Self {
         Self {
             consumed,
             consumed_before,
-            source,
             started_at,
             completes_at,
         }
@@ -121,11 +125,6 @@ impl PendingEating {
             .try_fold(Mass::ZERO, |total, consumed| {
                 total.checked_add(consumed.trace().mass())
             })
-    }
-
-    #[must_use]
-    pub(crate) const fn source(&self) -> StockpileId {
-        self.source
     }
 
     #[must_use]

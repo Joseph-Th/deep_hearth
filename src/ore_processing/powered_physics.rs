@@ -1,6 +1,6 @@
 //! Shared condition-adjusted physics for finite-energy ore-processing batches.
 
-use crate::capability::{CapabilityId, CapabilityValue, evaluate_capabilities};
+use crate::capability::{CapabilityEvaluationError, CapabilityId, CapabilityValue};
 use crate::core::quantity::{Energy, Mass, MassFlow, Power};
 use crate::core::state::AppState;
 use crate::core::throughput::calculate_mass_flow_duration_ceiling;
@@ -12,7 +12,8 @@ use crate::energy::{
 };
 use crate::equipment::{
     EquipmentDefinition, EquipmentId, ResolvedEquipmentProvider, ValidatedEquipmentUse,
-    resolve_equipment_capability, resolve_equipment_provider,
+    evaluate_equipment_capabilities_at_condition, resolve_equipment_capability,
+    resolve_equipment_provider,
 };
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::production::ProcessId;
@@ -123,14 +124,15 @@ pub(super) fn resolve_powered_ore_provider<'state>(
 ) -> Result<ResolvedPoweredOreProvider<'state>, PoweredOreProviderError> {
     let provider = resolve_equipment_provider(registries, state, equipment)
         .map_err(PoweredOreProviderError::Provider)?;
-    let process_definition = registries
+    registries
         .production()
         .get_process(process)
         .ok_or(PoweredOreProviderError::UnknownProcess { process })?;
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
+    validate_powered_ore_process_capabilities(
+        registries,
+        process,
+        provider.definition(),
+        provider.condition(),
     )
     .map_err(PoweredOreProviderError::Capability)?;
     let powered_equipment = resolve_powered_ore_equipment(
@@ -145,6 +147,31 @@ pub(super) fn resolve_powered_ore_provider<'state>(
         provider,
         processing_rate: powered_equipment.processing_rate(),
     })
+}
+
+/// Replays the condition-adjusted generic process requirements shared by powered ore planning,
+/// live admission, and trusted-load validation.
+pub(super) fn validate_powered_ore_process_capabilities(
+    registries: &Registries,
+    process: ProcessId,
+    equipment: &EquipmentDefinition,
+    condition: Condition,
+) -> Result<(), CapabilityEvaluationError> {
+    let process_definition = registries
+        .production()
+        .get_process(process)
+        .unwrap_or_else(|| {
+            panic!(
+                "validated powered ore process {} lost its production definition",
+                process.value()
+            )
+        });
+    evaluate_equipment_capabilities_at_condition(
+        registries.capabilities(),
+        equipment,
+        condition,
+        process_definition.capability_requirements(),
+    )
 }
 
 /// Resolves the common finite-energy, throughput, and condition-wear stage.

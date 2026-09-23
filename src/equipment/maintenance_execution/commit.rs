@@ -67,7 +67,7 @@ impl ValidatedEquipmentMaintenance {
         self.material.commit(
             state,
             self.equipment,
-            self.condition_before,
+            self.admission,
             self.expected_equipment_revision,
             self.next_equipment_revision,
         )?;

@@ -2,17 +2,18 @@
 
 use std::num::NonZeroU64;
 
-use crate::capability::CapabilityValue;
 use crate::core::quantity::Mass;
 use crate::core::time::TickSpan;
-use crate::equipment::{EquipmentDefinitionId, resolve_equipment_capability};
+use crate::equipment::EquipmentDefinitionId;
 use crate::maintenance::Condition;
 use crate::production::ProcessId;
 use crate::registry::Registries;
 
 use super::errors::ManualCraftEquipmentProjectionError;
-use super::physics::ManualCraftEquipmentScheduleError;
-use super::resolve_manual_craft_equipment_schedule;
+use super::physics::{
+    ManualCraftEquipmentResolutionError, ManualCraftEquipmentScheduleError,
+    resolve_manual_craft_equipment_physics,
+};
 
 /// Physical schedule projected from authored manual-craft and equipment definitions.
 ///
@@ -60,27 +61,6 @@ pub fn project_manual_craft_equipment(
         .equipment()
         .get_equipment(equipment)
         .ok_or(ManualCraftEquipmentProjectionError::UnknownEquipmentDefinition { equipment })?;
-    let capability = profile.mass_flow_capability();
-    let rate = match resolve_equipment_capability(equipment_definition, condition, capability) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(value) => {
-            return Err(
-                ManualCraftEquipmentProjectionError::EquipmentCapabilityKindMismatch {
-                    equipment,
-                    capability,
-                    found: value.kind(),
-                },
-            );
-        }
-        None => {
-            return Err(
-                ManualCraftEquipmentProjectionError::MissingEquipmentCapability {
-                    equipment,
-                    capability,
-                },
-            );
-        }
-    };
     let input_mass = Mass::from_milligrams(
         definition
             .input_mass()
@@ -88,20 +68,36 @@ pub fn project_manual_craft_equipment(
             .checked_mul(batches.get())
             .ok_or(ManualCraftEquipmentProjectionError::InputMassOverflow { process, batches })?,
     );
-    let schedule = resolve_manual_craft_equipment_schedule(
-        rate,
+    let schedule = resolve_manual_craft_equipment_physics(
+        equipment_definition,
+        condition,
+        profile.mass_flow_capability(),
         input_mass,
         registries.core().physical_tick_duration(),
         profile.condition_wear_ppm_per_active_tick(),
-        condition,
     )
     .map_err(|error| match error {
-        ManualCraftEquipmentScheduleError::Duration(error) => {
-            ManualCraftEquipmentProjectionError::EquipmentDuration(error)
+        ManualCraftEquipmentResolutionError::MissingCapability { capability } => {
+            ManualCraftEquipmentProjectionError::MissingEquipmentCapability {
+                equipment,
+                capability,
+            }
         }
-        ManualCraftEquipmentScheduleError::Condition(error) => {
-            ManualCraftEquipmentProjectionError::EquipmentCondition(error)
+        ManualCraftEquipmentResolutionError::CapabilityKindMismatch { capability, found } => {
+            ManualCraftEquipmentProjectionError::EquipmentCapabilityKindMismatch {
+                equipment,
+                capability,
+                found,
+            }
         }
+        ManualCraftEquipmentResolutionError::Schedule(error) => match error {
+            ManualCraftEquipmentScheduleError::Duration(error) => {
+                ManualCraftEquipmentProjectionError::EquipmentDuration(error)
+            }
+            ManualCraftEquipmentScheduleError::Condition(error) => {
+                ManualCraftEquipmentProjectionError::EquipmentCondition(error)
+            }
+        },
     })?;
     Ok(ManualCraftEquipmentProjection {
         duration: schedule.duration(),

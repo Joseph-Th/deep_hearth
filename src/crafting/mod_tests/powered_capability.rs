@@ -9,9 +9,12 @@ use crate::content::{
     FORM_LOG, FORM_REINFORCEMENT, FORM_SAW_BLADE, MATERIAL_COPPER, MATERIAL_WOOD,
     PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_SAW_WOOD_BOARDS,
 };
-use crate::core::quantity::{Energy, Mass, MassFlow, Temperature};
+use crate::core::quantity::{Energy, Mass, MassFlow, Power, Temperature};
 use crate::core::state::AppState;
-use crate::energy::add_energy_store_with_initial_for_fixture;
+use crate::energy::{
+    EnergyCarrier, EnergyRegistry, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    add_energy_store, add_energy_store_with_initial_for_fixture,
+};
 use crate::equipment::{degrade_equipment_condition_for_test, validate_assemble_equipment};
 use crate::inventory::{
     MaterialLotSelection, StockpileId, add_solid_stockpile_for_test, deposit_lot_for_test,
@@ -21,7 +24,11 @@ use crate::material::CommodityKey;
 use crate::registry::{Registries, RegistryDomains, RegistryPresentation};
 
 const TEST_POWERED_PROCESS: ProcessId = ProcessId::new(990_071);
+const TEST_POWERED_STORE_BELOW: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(990_071);
+const TEST_POWERED_STORE_EXACT: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(990_072);
+const TEST_POWERED_STORE_ABOVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(990_073);
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
+const TEST_POWERED_REQUIRED_ENERGY: Energy = Energy::from_nanojoules(250_000_000_000);
 
 fn augmented_powered_registries(
     throughput_comparison: CapabilityComparison,
@@ -68,11 +75,37 @@ fn augmented_powered_registries(
             ),
         ],
     ));
+    let energy = EnergyRegistry::new(base.energy().definitions().cloned().chain([
+        EnergyStoreDefinition::new_with_transfer_limits(
+            TEST_POWERED_STORE_BELOW,
+            "powered craft below-capacity fixture",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(TEST_POWERED_REQUIRED_ENERGY.nanojoules() - 1),
+            Power::ZERO,
+            Power::from_microwatts(1_000_000_000),
+        ),
+        EnergyStoreDefinition::new_with_transfer_limits(
+            TEST_POWERED_STORE_EXACT,
+            "powered craft exact-capacity fixture",
+            EnergyCarrier::Mechanical,
+            TEST_POWERED_REQUIRED_ENERGY,
+            Power::ZERO,
+            Power::from_microwatts(1_000_000_000),
+        ),
+        EnergyStoreDefinition::new_with_transfer_limits(
+            TEST_POWERED_STORE_ABOVE,
+            "powered craft above-capacity fixture",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(TEST_POWERED_REQUIRED_ENERGY.nanojoules() + 1),
+            Power::ZERO,
+            Power::from_microwatts(1_000_000_000),
+        ),
+    ]));
     let registries = Registries::new(
         base.schema_version(),
         base.core().clone(),
         RegistryDomains {
-            energy: base.energy().clone(),
+            energy,
             fluid: base.fluid().clone(),
             capabilities: base.capabilities().clone(),
             crafting,
@@ -125,6 +158,72 @@ fn powered_craft_registry_requires_minimum_throughput_semantics() {
     });
 
     assert!(result.is_err());
+}
+
+#[test]
+fn powered_craft_projection_enforces_replenished_capacity_boundary_exactly() {
+    let (registries, _) = augmented_powered_registries(CapabilityComparison::AtLeast);
+    let mut state = AppState::new();
+    let assembly = stockpile(&mut state, 6_000_000);
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 4_000_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 800_000),
+        (CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE), 54_000),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            20_000,
+        ),
+    ] {
+        deposit(&registries, &mut state, assembly, commodity, mass);
+    }
+    let sawmill =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_TIMBER_SASH_SAWMILL, assembly)
+            .unwrap_or_else(|error| panic!("capacity-boundary sawmill assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("capacity-boundary sawmill assembly commit failed: {error}")
+            });
+    let below = add_energy_store(&registries, &mut state, TEST_POWERED_STORE_BELOW)
+        .unwrap_or_else(|error| panic!("below-capacity store fixture failed: {error}"));
+    let exact = add_energy_store(&registries, &mut state, TEST_POWERED_STORE_EXACT)
+        .unwrap_or_else(|error| panic!("exact-capacity store fixture failed: {error}"));
+    let above = add_energy_store(&registries, &mut state, TEST_POWERED_STORE_ABOVE)
+        .unwrap_or_else(|error| panic!("above-capacity store fixture failed: {error}"));
+    let input_mass = Mass::from_milligrams(1_000_000);
+    let below_capacity = Energy::from_nanojoules(TEST_POWERED_REQUIRED_ENERGY.nanojoules() - 1);
+
+    assert_eq!(
+        project_powered_craft_work(
+            &registries,
+            &state,
+            TEST_POWERED_PROCESS,
+            input_mass,
+            sawmill,
+            below,
+        ),
+        Err(PoweredCraftError::EnergyCapacityExceeded {
+            store: below,
+            capacity: below_capacity,
+            requested: TEST_POWERED_REQUIRED_ENERGY,
+        })
+    );
+    for store in [exact, above] {
+        let projection = project_powered_craft_work(
+            &registries,
+            &state,
+            TEST_POWERED_PROCESS,
+            input_mass,
+            sawmill,
+            store,
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "capacity-boundary projection for store {} failed: {error}",
+                store.value()
+            )
+        });
+        assert_eq!(projection.required_energy(), TEST_POWERED_REQUIRED_ENERGY);
+    }
 }
 
 #[test]

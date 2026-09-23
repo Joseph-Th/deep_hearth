@@ -59,19 +59,79 @@ fn trusted_load_rejects_pending_meal_with_forged_spoiled_storage_history() {
 }
 
 #[test]
-fn trusted_load_rejects_pending_meal_with_missing_source_stockpile() {
+fn pending_meal_replay_keeps_admission_freshness_after_source_storage_improves() {
     let registries = build_registries();
-    let state = eating_state(&registries, Mass::from_milligrams(2));
-    let missing = crate::inventory::StockpileId::new(u32::MAX);
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("pending source serialization failed: {error}"));
-    encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Eating"]["source"] =
-        serde_json::json!(missing.value());
+    let mut state = AppState::new();
+    initialize_and_spend_reserves(&registries, &mut state);
+    let meal_mass = Mass::from_milligrams(2);
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000_000))
+        .unwrap_or_else(|error| panic!("pending-meal source stockpile failed: {error}"));
+    let food = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        meal_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("pending-meal food failed: {error}"));
+    let enclosure_source =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_400_000))
+            .unwrap_or_else(|error| panic!("pending-meal enclosure source failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        enclosure_source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+        Mass::from_milligrams(2_400_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("pending-meal enclosure body failed: {error}"));
+
+    let _ = validate_eat(
+        &registries,
+        &state,
+        source,
+        &[MaterialLotSelection::new(food, meal_mass)],
+    )
+    .unwrap_or_else(|error| panic!("pending-meal validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("pending-meal commit failed: {error}"));
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        source,
+        enclosure_source,
+    )
+    .unwrap_or_else(|error| panic!("pending-meal enclosure validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("pending-meal enclosure commit failed: {error}"));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("pending-meal enclosure serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("pending-meal enclosure decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("pending-meal enclosure trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("pending-meal history serialization failed: {error}"));
+    let pending =
+        &mut tampered["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Eating"];
+    let started_at = pending["started_at"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("pending meal start tick is not a u64"));
+    assert!(started_at > 0);
+    pending["consumed"][0]["storage_history"]["last_transition_at"] =
+        serde_json::json!(started_at - 1);
 
     assert_eq!(
-        decode_tampered(encoded, "pending-missing-source").into_state(&registries),
+        decode_tampered(tampered, "pending-pre-admission-history").into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Survival(
-            SurvivalValidationError::PendingEatingSourceMissing { stockpile: missing }
+            SurvivalValidationError::PendingEatingFreshnessInvalid
         )))
     );
 }

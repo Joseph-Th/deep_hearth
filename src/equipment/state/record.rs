@@ -43,6 +43,53 @@ pub(in crate::equipment) struct EquipmentComponentMaintenanceMutation {
     pub(in crate::equipment) component: crate::material::CommodityKey,
     pub(in crate::equipment) condition_before: Condition,
     pub(in crate::equipment) replacement: Vec<ConsumedMaterialTrace>,
+    pub(in crate::equipment) admission: EquipmentMaintenanceAdmission,
+}
+
+/// Durable receipt that one exact maintenance material exchange reached equipment authority.
+///
+/// The receipt remains as history after service completes or is interrupted. Active maintenance
+/// binds to its unique equipment revision so trusted-load replay can distinguish legitimately paid
+/// work from a work record grafted onto pre-admission state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EquipmentMaintenanceAdmission {
+    equipment_revision: u64,
+    condition_before: Condition,
+    condition_after: Condition,
+    admitted_at: SimulationTick,
+}
+
+impl EquipmentMaintenanceAdmission {
+    pub(crate) const fn new(
+        equipment_revision: u64,
+        condition_before: Condition,
+        condition_after: Condition,
+        admitted_at: SimulationTick,
+    ) -> Self {
+        Self {
+            equipment_revision,
+            condition_before,
+            condition_after,
+            admitted_at,
+        }
+    }
+
+    pub(crate) const fn equipment_revision(self) -> u64 {
+        self.equipment_revision
+    }
+
+    pub(crate) const fn condition_before(self) -> Condition {
+        self.condition_before
+    }
+
+    pub(crate) const fn condition_after(self) -> Condition {
+        self.condition_after
+    }
+
+    pub(crate) const fn admitted_at(self) -> SimulationTick {
+        self.admitted_at
+    }
 }
 
 /// Persistent mutable state of one maintainable equipment instance.
@@ -56,6 +103,7 @@ pub struct EquipmentRecord {
     pub(in crate::equipment) embodied_material: Vec<ConsumedMaterialTrace>,
     pub(in crate::equipment) supported_by: Option<StructuralElementId>,
     pub(in crate::equipment) created_at: SimulationTick,
+    pub(in crate::equipment) last_maintenance_admission: Option<EquipmentMaintenanceAdmission>,
 }
 
 impl EquipmentRecord {
@@ -95,6 +143,11 @@ impl EquipmentRecord {
     #[must_use]
     pub const fn created_at(&self) -> SimulationTick {
         self.created_at
+    }
+
+    #[must_use]
+    pub(crate) const fn last_maintenance_admission(&self) -> Option<EquipmentMaintenanceAdmission> {
+        self.last_maintenance_admission
     }
 }
 

@@ -117,6 +117,12 @@ impl FoodDefinition {
         self.dietary_energy
     }
 
+    /// Exact dietary energy represented by one whole-milligram food mass.
+    #[must_use]
+    pub fn dietary_energy_for_mass(self, mass: Mass) -> Energy {
+        crate::energy::calculate_mass_specific_energy(mass, self.dietary_energy)
+    }
+
     /// Minimum whole material mass whose authored dietary energy reaches `target`.
     ///
     /// This is the owner-side inverse of the exact whole-milligram energy offer used by eating.

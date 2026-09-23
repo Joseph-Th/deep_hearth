@@ -199,6 +199,12 @@ impl Display for PlayerWorkValidationError {
             Self::EquipmentMaintenanceProfileMissing => formatter.write_str(
                 "equipment maintenance work references equipment with no service profile",
             ),
+            Self::EquipmentMaintenanceAdmissionMissing => formatter.write_str(
+                "equipment maintenance work has no matching material-backed admission receipt",
+            ),
+            Self::EquipmentMaintenanceAdmissionMismatch => formatter.write_str(
+                "equipment maintenance work disagrees with its material-backed admission receipt",
+            ),
             Self::EquipmentMaintenanceTargetMismatch => formatter.write_str(
                 "equipment maintenance target condition disagrees with current authored service",
             ),

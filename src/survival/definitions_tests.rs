@@ -311,6 +311,10 @@ fn food_definition_projects_minimum_mass_for_dietary_energy() {
         food.minimum_mass_for_dietary_energy(Energy::ZERO),
         Some(Mass::ZERO)
     );
+    assert_eq!(
+        food.dietary_energy_for_mass(Mass::from_milligrams(3)),
+        Energy::from_nanojoules(120)
+    );
 }
 
 #[test]

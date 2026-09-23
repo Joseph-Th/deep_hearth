@@ -2,7 +2,6 @@
 
 use std::num::NonZeroU64;
 
-use crate::capability::CapabilityValue;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
@@ -27,7 +26,10 @@ mod projection;
 mod registry;
 mod validation;
 
-use physics::{ManualCraftEquipmentScheduleError, resolve_manual_craft_hand_duration};
+use physics::{
+    ManualCraftEquipmentResolutionError, ManualCraftEquipmentScheduleError,
+    resolve_manual_craft_hand_duration,
+};
 
 pub use definitions::{
     ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput, PoweredCraftDefinition,
@@ -36,7 +38,7 @@ pub use errors::{
     ManualCraftCommitError, ManualCraftEquipmentProjectionError, ManualCraftError,
     ManualCraftHandProjectionError, StartManualCraftError,
 };
-pub(crate) use physics::resolve_manual_craft_equipment_schedule;
+pub(crate) use physics::resolve_manual_craft_equipment_physics;
 pub use powered::{
     PoweredCraftError, PoweredCraftRequest, PoweredCraftWorkProjection, StartPoweredCraftError,
     project_powered_craft_work, resolve_powered_craft, validate_start_powered_craft,
@@ -254,37 +256,37 @@ pub fn resolve_manual_craft(
                 .ok_or(ManualCraftError::EquipmentNotSupported { process, equipment })?;
             let provider = resolve_equipment_provider(registries, state, equipment)
                 .map_err(ManualCraftError::Equipment)?;
-            let capability = profile.mass_flow_capability();
-            let rate = match provider.get_capability(capability) {
-                Some(CapabilityValue::MassFlow(rate)) => rate,
-                Some(value) => {
-                    return Err(ManualCraftError::EquipmentCapabilityKindMismatch {
-                        equipment,
-                        capability,
-                        found: value.kind(),
-                    });
-                }
-                None => {
-                    return Err(ManualCraftError::MissingEquipmentCapability {
-                        equipment,
-                        capability,
-                    });
-                }
-            };
-            let schedule = resolve_manual_craft_equipment_schedule(
-                rate,
+            let schedule = resolve_manual_craft_equipment_physics(
+                provider.definition(),
+                provider.condition(),
+                profile.mass_flow_capability(),
                 inputs.input_mass(),
                 registries.core().physical_tick_duration(),
                 profile.condition_wear_ppm_per_active_tick(),
-                provider.condition(),
             )
             .map_err(|error| match error {
-                ManualCraftEquipmentScheduleError::Duration(error) => {
-                    ManualCraftError::EquipmentDuration(error)
+                ManualCraftEquipmentResolutionError::MissingCapability { capability } => {
+                    ManualCraftError::MissingEquipmentCapability {
+                        equipment,
+                        capability,
+                    }
                 }
-                ManualCraftEquipmentScheduleError::Condition(error) => {
-                    ManualCraftError::EquipmentCondition(error)
-                }
+                ManualCraftEquipmentResolutionError::CapabilityKindMismatch {
+                    capability,
+                    found,
+                } => ManualCraftError::EquipmentCapabilityKindMismatch {
+                    equipment,
+                    capability,
+                    found,
+                },
+                ManualCraftEquipmentResolutionError::Schedule(error) => match error {
+                    ManualCraftEquipmentScheduleError::Duration(error) => {
+                        ManualCraftError::EquipmentDuration(error)
+                    }
+                    ManualCraftEquipmentScheduleError::Condition(error) => {
+                        ManualCraftError::EquipmentCondition(error)
+                    }
+                },
             })?;
             inputs
                 .resolve_with_equipment(

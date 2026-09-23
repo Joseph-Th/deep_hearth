@@ -2,6 +2,183 @@
 
 use super::*;
 
+const GENERIC_POWER: CapabilityId = CapabilityId::new(920_004);
+
+fn make_registries_with_condition_sensitive_generic_requirement() -> Registries {
+    let capabilities = CapabilityProfile::new([
+        (
+            HEATING_POWER,
+            CapabilityValue::Power(Power::from_microwatts(1_000_000)),
+        ),
+        (
+            MAX_TEMPERATURE,
+            CapabilityValue::Temperature(Temperature::from_millikelvin(500_000)),
+        ),
+        (
+            MAX_BATCH_MASS,
+            CapabilityValue::Mass(Mass::from_milligrams(20)),
+        ),
+        (
+            GENERIC_POWER,
+            CapabilityValue::Power(Power::from_picowatts(100)),
+        ),
+    ])
+    .unwrap_or_else(|error| panic!("thermal generic-capability fixture failed: {error}"));
+    let thresholds = MaintenanceThresholds::new(condition(600_000), condition(250_000))
+        .unwrap_or_else(|error| panic!("thermal maintenance fixture failed: {error}"));
+    let equipment = EquipmentDefinition::new_with_capability_condition_curves(
+        HEATER,
+        "condition-sensitive generic heater",
+        Mass::from_milligrams(1_000_000),
+        capabilities,
+        thresholds,
+        vec![CapabilityConditionCurve::new(
+            GENERIC_POWER,
+            vec![
+                CapabilityConditionPoint::new(
+                    Condition::FAILED,
+                    CapabilityValue::Power(Power::from_picowatts(10)),
+                ),
+                CapabilityConditionPoint::new(
+                    condition(500_000),
+                    CapabilityValue::Power(Power::from_picowatts(40)),
+                ),
+            ],
+        )],
+    );
+    let process = ProcessDefinition::new(
+        PROCESS,
+        "condition-sensitive generic sensible heating",
+        vec![
+            CapabilityRequirement::new(
+                HEATING_POWER,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Power(Power::from_picowatts(1)),
+            ),
+            CapabilityRequirement::new(
+                MAX_TEMPERATURE,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1)),
+            ),
+            CapabilityRequirement::new(
+                MAX_BATCH_MASS,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Mass(Mass::from_milligrams(1)),
+            ),
+            CapabilityRequirement::new(
+                GENERIC_POWER,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Power(Power::from_picowatts(50)),
+            ),
+        ],
+    );
+    make_test_registries_with_sensible_heating(
+        vec![
+            CapabilityDefinition::new_with_improvement(
+                HEATING_POWER,
+                "heating transfer power",
+                CapabilityValueKind::Power,
+                CapabilityImprovement::Higher,
+            ),
+            CapabilityDefinition::new(
+                MAX_TEMPERATURE,
+                "maximum chamber temperature",
+                CapabilityValueKind::Temperature,
+            ),
+            CapabilityDefinition::new(
+                MAX_BATCH_MASS,
+                "maximum chamber batch mass",
+                CapabilityValueKind::Mass,
+            ),
+            CapabilityDefinition::new_with_improvement(
+                GENERIC_POWER,
+                "generic thermal process power",
+                CapabilityValueKind::Power,
+                CapabilityImprovement::Higher,
+            ),
+        ],
+        equipment,
+        vec![EnergyStoreDefinition::new_with_transfer_limits(
+            BATTERY,
+            "generic-requirement test battery",
+            EnergyCarrier::Electrical,
+            Energy::from_nanojoules(1_000_000_000),
+            Power::ZERO,
+            Power::from_microwatts(500_000),
+        )],
+        process,
+        SensibleHeatingProcessDefinition::new(
+            PROCESS,
+            HEATING_POWER,
+            MAX_TEMPERATURE,
+            MAX_BATCH_MASS,
+            EnergyCarrier::Electrical,
+            1_000,
+        ),
+    )
+}
+
+#[test]
+fn trusted_load_rejects_sensible_heating_provider_that_fails_generic_requirement_at_traced_condition()
+ {
+    let registries = make_registries_with_condition_sensitive_generic_requirement();
+    let (registries, mut state, source, destination, equipment, energy_store) =
+        make_loaded_fixture_with_registries(
+            registries,
+            Condition::PRISTINE,
+            Temperature::from_millikelvin(300_000),
+            Energy::from_nanojoules(500_000_000),
+        );
+    let resolved = resolve_test_sensible_heating_process(
+        &registries,
+        &state,
+        PROCESS,
+        source,
+        equipment,
+        energy_store,
+        Temperature::from_millikelvin(303_000),
+    )
+    .unwrap_or_else(|error| panic!("generic-requirement heating resolution failed: {error}"));
+    let job = validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("generic-requirement heating start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("generic-requirement heating commit failed: {error}"));
+    validate_loaded_state(&registries, &state).unwrap_or_else(|error| {
+        panic!("valid generic-requirement heating job failed replay: {error}")
+    });
+
+    let degraded = 400_000_u32;
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("thermal capability tamper serialization failed: {error}"));
+    tampered["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["condition"] =
+        serde_json::json!(degraded);
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["equipment"]["provider"]
+        ["condition"] = serde_json::json!(degraded);
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["equipment"]["condition_after"] =
+        serde_json::json!(399_000_u32);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("thermal capability tamper decode failed: {error}"));
+
+    assert!(matches!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::ThermalJob(
+            ThermalJobValidationError::Capability {
+                job: rejected_job,
+                error: crate::capability::CapabilityEvaluationError::ThresholdNotMet {
+                    capability: GENERIC_POWER,
+                    ..
+                },
+            }
+        ))) if rejected_job == job
+    ));
+}
+
 #[test]
 fn same_tick_heating_completions_apply_all_wear_under_one_equipment_revision() {
     let (registries, mut state, source, destination, first_equipment, first_energy) =

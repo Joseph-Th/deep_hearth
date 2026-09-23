@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::{Energy, Mass, MassFlow, Power};
 use crate::core::throughput::MassFlowDurationError;
 use crate::energy::{EnergyCarrier, PowerDurationError, calculate_mass_specific_energy};
@@ -14,7 +15,7 @@ use crate::ore_processing::PoweredOreProcessProfile;
 
 use super::{
     PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment,
-    resolve_powered_ore_timing,
+    resolve_powered_ore_timing, validate_powered_ore_process_capabilities,
 };
 
 /// Corruption or authored-physics drift shared by every persisted powered ore-processing job.
@@ -29,6 +30,7 @@ pub enum PoweredOreJobValidationError {
     MissingEquipmentProvider,
     UnknownEquipmentDefinition,
     UnknownEnergyDefinition,
+    Capability(CapabilityEvaluationError),
     MissingMassFlowCapability,
     MissingMaximumBatchMassCapability,
     BatchMassExceeded {
@@ -72,6 +74,10 @@ impl Display for PoweredOreJobValidationError {
             Self::UnknownEnergyDefinition => {
                 formatter.write_str("references an unknown energy-store definition")
             }
+            Self::Capability(error) => write!(
+                formatter,
+                "equipment fails authored process capability requirements: {error}"
+            ),
             Self::MissingMassFlowCapability => {
                 formatter.write_str("equipment lacks the authored mass-flow capability")
             }
@@ -127,6 +133,7 @@ impl Display for PoweredOreJobValidationError {
 impl Error for PoweredOreJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Capability(error) => Some(error),
             Self::ThroughputDuration(error) => Some(error),
             Self::EnergyDuration(error) => Some(error),
             Self::ConditionDuration(error) => Some(error),
@@ -185,6 +192,13 @@ pub(in crate::ore_processing) fn resolve_powered_ore_job_replay(
         .energy()
         .get_store(consumed_energy.definition())
         .ok_or(PoweredOreJobValidationError::UnknownEnergyDefinition)?;
+    validate_powered_ore_process_capabilities(
+        registries,
+        job.process(),
+        equipment_definition,
+        provider.condition(),
+    )
+    .map_err(PoweredOreJobValidationError::Capability)?;
     let powered_equipment = resolve_powered_ore_equipment(
         equipment_definition,
         provider.condition(),

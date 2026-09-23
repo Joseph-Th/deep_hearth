@@ -12,7 +12,7 @@ pub use melting::{
     assess_melting_lot_mass_envelope,
 };
 
-use crate::capability::{CapabilityEvaluationError, CapabilityId, evaluate_capabilities};
+use crate::capability::{CapabilityEvaluationError, CapabilityId};
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
@@ -25,7 +25,7 @@ use crate::registry::Registries;
 
 use super::equipment_physics::{
     ThermalBatchLimitError, ThermalPowerTemperatureError, resolve_thermal_batch_mass_limit,
-    resolve_thermal_power_temperature_limits,
+    resolve_thermal_power_temperature_limits, validate_thermal_process_capabilities,
 };
 
 #[derive(Clone, Debug)]
@@ -101,14 +101,15 @@ fn resolve_thermal_equipment_envelope(
 ) -> Result<ThermalEquipmentEnvelope, ThermalEquipmentEnvelopeError> {
     let provider = resolve_available_equipment_provider(registries, state, equipment)
         .map_err(ThermalEquipmentEnvelopeError::Equipment)?;
-    let process_definition = registries
+    registries
         .production()
         .get_process(process)
         .ok_or(ThermalEquipmentEnvelopeError::UnknownProcess)?;
-    evaluate_capabilities(
-        registries.capabilities(),
-        &provider,
-        process_definition.capability_requirements(),
+    validate_thermal_process_capabilities(
+        registries,
+        process,
+        provider.definition(),
+        provider.condition(),
     )
     .map_err(ThermalEquipmentEnvelopeError::Capability)?;
     let limits = resolve_thermal_power_temperature_limits(

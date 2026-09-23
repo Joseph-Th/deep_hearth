@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, PowerDurationError};
@@ -28,6 +29,10 @@ pub enum CastingJobValidationError {
     },
     UnknownEnergyDefinition {
         job: ProductionJobId,
+    },
+    Capability {
+        job: ProductionJobId,
+        error: CapabilityEvaluationError,
     },
     MissingCoolingPowerCapability {
         job: ProductionJobId,
@@ -114,6 +119,11 @@ impl Display for CastingJobValidationError {
             Self::UnknownEnergyDefinition { job } => write!(
                 formatter,
                 "casting job {} references unavailable thermal sink definition",
+                job.value()
+            ),
+            Self::Capability { job, error } => write!(
+                formatter,
+                "casting job {} provider fails authored process capabilities: {error}",
                 job.value()
             ),
             Self::MissingCoolingPowerCapability { job } => write!(
@@ -227,6 +237,7 @@ impl Display for CastingJobValidationError {
 impl Error for CastingJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Capability { error, .. } => Some(error),
             Self::Batch { error, .. } => Some(error),
             Self::Duration { error, .. } => Some(error),
             Self::ConditionDuration { error, .. } => Some(error),

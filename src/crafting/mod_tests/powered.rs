@@ -11,7 +11,9 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
-use crate::energy::add_energy_store_with_initial_for_fixture;
+use crate::energy::{
+    EnergySupplyError, add_energy_store, add_energy_store_with_initial_for_fixture,
+};
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{
     MaterialLotSelection, StockpileId, add_solid_stockpile_for_test, deposit_lot_for_test,
@@ -240,6 +242,64 @@ fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
         1_000_000,
     );
     let destination = stockpile(&mut state, 1_000_000);
+    let empty_drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
+        .unwrap_or_else(|error| panic!("empty sash sawmill drive fixture failed: {error}"));
+    assert_eq!(
+        project_powered_craft_work(
+            &registries,
+            &state,
+            PROCESS_POWER_SAW_WOOD_BOARDS,
+            Mass::from_milligrams(801_000_000),
+            sawmill,
+            empty_drive,
+        ),
+        Err(PoweredCraftError::EnergyCapacityExceeded {
+            store: empty_drive,
+            capacity: Energy::from_nanojoules(200_000_000_000_000),
+            requested: Energy::from_nanojoules(200_250_000_000_000),
+        })
+    );
+    let projection = project_powered_craft_work(
+        &registries,
+        &state,
+        PROCESS_POWER_SAW_WOOD_BOARDS,
+        Mass::from_milligrams(1_000_000),
+        sawmill,
+        empty_drive,
+    )
+    .unwrap_or_else(|error| {
+        panic!("replenishable empty drive should remain projectable within capacity: {error}")
+    });
+    assert_eq!(
+        projection.required_energy(),
+        Energy::from_nanojoules(250_000_000_000)
+    );
+    assert_eq!(projection.duration().value(), 3);
+    assert_eq!(
+        projection.condition_after(),
+        Condition::new(997_600).unwrap_or_else(|error| panic!("condition failed: {error}"))
+    );
+    assert!(matches!(
+        resolve_powered_craft(
+            &registries,
+            &state,
+            &PoweredCraftRequest::single(
+                PROCESS_POWER_SAW_WOOD_BOARDS,
+                source,
+                MaterialLotSelection::new(log, Mass::from_milligrams(1_000_000)),
+                sawmill,
+                empty_drive,
+            ),
+        ),
+        Err(PoweredCraftError::Energy(
+            EnergySupplyError::InsufficientEnergy {
+                store,
+                available: Energy::ZERO,
+                requested,
+            }
+        )) if store == empty_drive && requested == projection.required_energy()
+    ));
+
     let initial_energy = Energy::from_nanojoules(1_000_000_000_000);
     let drive = add_energy_store_with_initial_for_fixture(
         &registries,

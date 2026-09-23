@@ -85,13 +85,6 @@ impl Display for MealMetabolicProjectionError {
 
 impl Error for MealMetabolicProjectionError {}
 
-fn offered_energy(food: FoodDefinition, mass: Mass) -> Energy {
-    let offered = u128::from(mass.milligrams())
-        .checked_mul(u128::from(food.dietary_energy().nanojoules_per_milligram()))
-        .unwrap_or_else(|| unreachable!("bounded authored food offer fits u128"));
-    Energy::from_nanojoules(offered)
-}
-
 /// Projects the smallest represented meal that reaches target after eating-time metabolism.
 ///
 /// `Ok(None)` means the current reserve already satisfies the target. The fixed-point calculation
@@ -163,7 +156,7 @@ pub fn project_minimum_meal_to_metabolic_target(
             continue;
         }
 
-        let energy_offered = offered_energy(food, mass);
+        let energy_offered = food.dietary_energy_for_mass(mass);
         let metabolic_energy_after = current
             .checked_add(energy_offered)
             .and_then(|value| value.checked_sub(meal_cost))

@@ -7,6 +7,7 @@ use crate::equipment::{
 use crate::labor::{EquipmentMaintenanceWork, PlayerWork, validate_player_work_start};
 use crate::registry::Registries;
 
+use super::super::state::EquipmentMaintenanceAdmission;
 use super::material::validate_maintenance_material;
 use super::{EquipmentMaintenanceError, ValidatedEquipmentMaintenance};
 use crate::equipment::maintenance_resolution::{
@@ -129,9 +130,16 @@ pub fn validate_equipment_maintenance(
             duration,
         },
     )?;
+    let admission = EquipmentMaintenanceAdmission::new(
+        next_equipment_revision,
+        condition_before,
+        condition_after,
+        state.tick(),
+    );
     let work = EquipmentMaintenanceWork::new(
         EquipmentOperationTrace::new(equipment, record.definition(), condition_before),
         condition_after,
+        admission.equipment_revision(),
         state.tick(),
         completes_at,
     );
@@ -150,6 +158,7 @@ pub fn validate_equipment_maintenance(
         condition_after,
         expected_equipment_revision,
         next_equipment_revision,
+        admission,
         material,
         work,
         player_work,

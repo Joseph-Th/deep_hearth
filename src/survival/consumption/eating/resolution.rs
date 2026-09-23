@@ -92,19 +92,15 @@ pub(super) fn meal_absorption_offer(
     })
 }
 
-fn energy_offer_for_mass(mass_mg: u64, food: FoodDefinition) -> Result<u128, EatError> {
-    u128::from(mass_mg)
-        .checked_mul(u128::from(food.dietary_energy().nanojoules_per_milligram()))
-        .ok_or(EatError::MetabolicEnergyOverflow)
-}
-
 fn accumulate_offer_energy(
     offered_energy_nj: &mut u128,
     category_energy: &mut NutritionEnergy,
     mass_mg: u64,
     food: FoodDefinition,
 ) -> Result<(), EatError> {
-    let energy_nj = energy_offer_for_mass(mass_mg, food)?;
+    let energy_nj = food
+        .dietary_energy_for_mass(crate::core::quantity::Mass::from_milligrams(mass_mg))
+        .nanojoules();
     *offered_energy_nj = offered_energy_nj
         .checked_add(energy_nj)
         .ok_or(EatError::MetabolicEnergyOverflow)?;
@@ -279,7 +275,7 @@ fn resolve_food_portion(
             age,
         });
     }
-    let energy_nj = energy_offer_for_mass(selection.mass().milligrams(), food)?;
+    let energy_nj = food.dietary_energy_for_mass(selection.mass()).nanojoules();
     Ok(ResolvedFoodPortion {
         outcome: EatPortionOutcome {
             lot: selection.lot(),

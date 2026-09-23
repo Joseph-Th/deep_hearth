@@ -20,7 +20,7 @@ pub(crate) use sink::{
     validate_energy_sink_release,
 };
 pub(crate) use supply::{
-    EnergyConsumptionReservation, EnergyReservationError,
+    EnergyConsumptionReservation, EnergyReservationError, EnergySupplyAccess,
     apply_prechecked_energy_consumption_reservation, assess_energy_supply_access,
     validate_energy_consumption_reservation, validate_energy_supply_request,
 };

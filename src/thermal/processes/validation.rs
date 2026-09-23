@@ -11,6 +11,7 @@ use super::super::equipment_physics::{
     ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalPowerTemperatureLimits,
     ThermalTransferTimingError, resolve_thermal_power_temperature_limits,
     resolve_thermal_transfer_timing, validate_thermal_batch_mass,
+    validate_thermal_process_capabilities,
 };
 use super::super::melting_execution::validate_loaded_melting_job;
 use super::registry::SensibleHeatingProcessDefinition;
@@ -49,6 +50,16 @@ fn resolve_sensible_heating_resources<'registry>(
         .energy()
         .get_store(consumed_energy.definition())
         .ok_or(ThermalJobValidationError::MissingEnergy { job: job.id() })?;
+    validate_thermal_process_capabilities(
+        registries,
+        job.process(),
+        equipment,
+        provider.condition(),
+    )
+    .map_err(|error| ThermalJobValidationError::Capability {
+        job: job.id(),
+        error,
+    })?;
     if consumed_energy.carrier() != definition.energy_carrier() {
         return Err(ThermalJobValidationError::WrongEnergyCarrier {
             job: job.id(),

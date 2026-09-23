@@ -93,6 +93,8 @@ pub enum PlayerWorkValidationError {
     EquipmentMaintenanceDefinitionMismatch,
     EquipmentMaintenanceConditionMismatch,
     EquipmentMaintenanceProfileMissing,
+    EquipmentMaintenanceAdmissionMissing,
+    EquipmentMaintenanceAdmissionMismatch,
     EquipmentMaintenanceTargetMismatch,
     EquipmentMaintenanceScheduleInvalid,
     EquipmentMaintenanceDurationMismatch,

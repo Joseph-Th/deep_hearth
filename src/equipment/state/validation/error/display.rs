@@ -192,6 +192,46 @@ impl Display for EquipmentValidationError {
                 created_at.value(),
                 current.value()
             ),
+            Self::MaintenanceAdmissionRevisionInvalid {
+                equipment,
+                admission_revision,
+                current_revision,
+            } => write!(
+                formatter,
+                "equipment {} maintenance receipt revision {admission_revision} is invalid for current equipment revision {current_revision}",
+                equipment.value()
+            ),
+            Self::MaintenanceAdmissionTickInvalid {
+                equipment,
+                admitted_at,
+                created_at,
+                current,
+            } => write!(
+                formatter,
+                "equipment {} maintenance receipt tick {} is outside equipment lifetime {}..={}",
+                equipment.value(),
+                admitted_at.value(),
+                created_at.value(),
+                current.value()
+            ),
+            Self::MaintenanceAdmissionProfileMissing { equipment } => write!(
+                formatter,
+                "equipment {} persists a maintenance receipt but its definition has no maintenance profile",
+                equipment.value()
+            ),
+            Self::MaintenanceAdmissionOutcomeInvalid {
+                equipment,
+                before,
+                after,
+                required,
+            } => write!(
+                formatter,
+                "equipment {} maintenance receipt records {} -> {} ppm but authored service requires an improvement to {} ppm",
+                equipment.value(),
+                before.parts_per_million(),
+                after.parts_per_million(),
+                required.parts_per_million()
+            ),
         }
     }
 }

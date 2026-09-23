@@ -84,6 +84,7 @@ pub(crate) fn add_equipment(
         embodied_material: Vec::new(),
         supported_by: None,
         created_at: state.tick(),
+        last_maintenance_admission: None,
     };
 
     let equipment_state = state.equipment_state_mut();

@@ -230,13 +230,13 @@ fn capture_pending_food_traces(
                 selected.mass(),
                 "validated food trace mass must match its selected lot slice"
             );
-            assert!(
-                lot.storage_history()
-                    .project(state.tick(), source_preservation)
-                    .is_some(),
-                "validated edible lot must carry projectable storage history"
-            );
-            PendingConsumedFoodTrace::new(trace, lot.storage_history())
+            let admission_history = lot
+                .storage_history()
+                .rebase(state.tick(), source_preservation)
+                .unwrap_or_else(|| {
+                    panic!("validated edible lot must carry projectable storage history")
+                });
+            PendingConsumedFoodTrace::new(trace, admission_history)
         })
         .collect()
 }
@@ -330,7 +330,6 @@ pub fn validate_eat(
     let pending = PendingEating::new(
         pending_consumed,
         consumed_accounting.baselines,
-        source,
         state.tick(),
         completes_at,
     );

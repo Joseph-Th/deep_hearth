@@ -3,7 +3,7 @@
 use crate::capability::CapabilityValue;
 use crate::core::time::TickSpan;
 use crate::crafting::{
-    ManualCraftDefinition, ManualCraftEquipmentProfile, resolve_manual_craft_equipment_schedule,
+    ManualCraftDefinition, ManualCraftEquipmentProfile, resolve_manual_craft_equipment_physics,
 };
 use crate::energy::EnergyRegistry;
 use crate::equipment::{EquipmentRegistry, resolve_equipment_capability};
@@ -67,19 +67,13 @@ fn best_operable_manual_craft_equipment_duration(
         .equipment
         .definitions()
         .filter_map(|equipment| {
-            let Some(CapabilityValue::MassFlow(flow)) = resolve_equipment_capability(
+            let Ok(schedule) = resolve_manual_craft_equipment_physics(
                 equipment,
                 Condition::PRISTINE,
                 profile.mass_flow_capability(),
-            ) else {
-                return None;
-            };
-            let Ok(schedule) = resolve_manual_craft_equipment_schedule(
-                flow,
                 definition.input_mass(),
                 core.physical_tick_duration(),
                 profile.condition_wear_ppm_per_active_tick(),
-                Condition::PRISTINE,
             ) else {
                 return None;
             };

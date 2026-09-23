@@ -4,7 +4,7 @@ use crate::core::time::SimulationTick;
 use crate::material::MaterialRegistry;
 use crate::structural::{SupportIndexValidationFault, validate_support_index};
 
-use super::super::definitions::EquipmentRegistry;
+use super::super::definitions::{EquipmentDefinition, EquipmentRegistry};
 use super::{EquipmentId, EquipmentRecord, EquipmentState};
 
 mod embodiment;
@@ -70,6 +70,7 @@ fn validate_equipment_record(
             definition: record.definition,
         });
     };
+    validate_maintenance_admission(state, record, definition, current_tick)?;
     validate_equipment_material(definitions, materials, record, definition, current_tick)?;
     if record.created_at > current_tick {
         return Err(EquipmentValidationError::CreatedInFuture {
@@ -77,6 +78,54 @@ fn validate_equipment_record(
             created_at: record.created_at,
             current: current_tick,
         });
+    }
+    Ok(())
+}
+
+fn validate_maintenance_admission(
+    state: &EquipmentState,
+    record: &EquipmentRecord,
+    definition: &EquipmentDefinition,
+    current_tick: SimulationTick,
+) -> Result<(), EquipmentValidationError> {
+    let Some(admission) = record.last_maintenance_admission else {
+        return Ok(());
+    };
+    if admission.equipment_revision() == 0 || admission.equipment_revision() > state.revision {
+        return Err(
+            EquipmentValidationError::MaintenanceAdmissionRevisionInvalid {
+                equipment: record.id,
+                admission_revision: admission.equipment_revision(),
+                current_revision: state.revision,
+            },
+        );
+    }
+    if admission.admitted_at() < record.created_at || admission.admitted_at() > current_tick {
+        return Err(EquipmentValidationError::MaintenanceAdmissionTickInvalid {
+            equipment: record.id,
+            admitted_at: admission.admitted_at(),
+            created_at: record.created_at,
+            current: current_tick,
+        });
+    }
+    let Some(profile) = definition.maintenance_profile() else {
+        return Err(
+            EquipmentValidationError::MaintenanceAdmissionProfileMissing {
+                equipment: record.id,
+            },
+        );
+    };
+    if admission.condition_before() >= admission.condition_after()
+        || admission.condition_after() != profile.restored_condition()
+    {
+        return Err(
+            EquipmentValidationError::MaintenanceAdmissionOutcomeInvalid {
+                equipment: record.id,
+                before: admission.condition_before(),
+                after: admission.condition_after(),
+                required: profile.restored_condition(),
+            },
+        );
     }
     Ok(())
 }

@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, PowerDurationError};
@@ -24,6 +25,10 @@ pub enum ThermalJobValidationError {
     },
     UnknownEquipmentDefinition {
         job: ProductionJobId,
+    },
+    Capability {
+        job: ProductionJobId,
+        error: CapabilityEvaluationError,
     },
     MissingHeatingPowerCapability {
         job: ProductionJobId,
@@ -115,6 +120,11 @@ impl Display for ThermalJobValidationError {
             Self::UnknownEquipmentDefinition { job } => write!(
                 formatter,
                 "sensible-heating job {} references an unavailable equipment definition",
+                job.value()
+            ),
+            Self::Capability { job, error } => write!(
+                formatter,
+                "sensible-heating job {} provider fails authored process capabilities: {error}",
                 job.value()
             ),
             Self::MissingHeatingPowerCapability { job } => write!(
@@ -261,6 +271,7 @@ impl Error for ThermalJobValidationError {
         match self {
             Self::Casting(error) => Some(error),
             Self::Melting(error) => Some(error),
+            Self::Capability { error, .. } => Some(error),
             Self::Heat { job: _job, error } => Some(error),
             Self::OutputConstruction { job: _job, error } => Some(error),
             Self::Duration { job: _job, error } => Some(error),

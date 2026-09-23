@@ -290,6 +290,7 @@ pub fn validate_assemble_equipment(
             embodied_material,
             supported_by: None,
             created_at: state.tick(),
+            last_maintenance_admission: None,
         },
         next_equipment_id,
         expected_equipment_revision,

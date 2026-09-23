@@ -170,6 +170,7 @@ impl StorageEnclosureDismantlingWork {
 pub struct EquipmentMaintenanceWork {
     equipment: EquipmentOperationTrace,
     condition_after: Condition,
+    admission_revision: u64,
     started_at: SimulationTick,
     completes_at: SimulationTick,
 }
@@ -178,12 +179,14 @@ impl EquipmentMaintenanceWork {
     pub(crate) const fn new(
         equipment: EquipmentOperationTrace,
         condition_after: Condition,
+        admission_revision: u64,
         started_at: SimulationTick,
         completes_at: SimulationTick,
     ) -> Self {
         Self {
             equipment,
             condition_after,
+            admission_revision,
             started_at,
             completes_at,
         }
@@ -207,6 +210,11 @@ impl EquipmentMaintenanceWork {
     #[must_use]
     pub const fn condition_after(self) -> Condition {
         self.condition_after
+    }
+
+    #[must_use]
+    pub const fn admission_revision(self) -> u64 {
+        self.admission_revision
     }
 
     #[must_use]
