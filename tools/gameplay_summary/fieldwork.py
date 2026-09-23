@@ -268,21 +268,39 @@ def _heavy_tool_market_summary(lines: list[str]) -> str:
         and " phase=acquired-evidence " in line
     ]
 
-    def signed_values(pattern: str) -> list[int]:
+    selected = [
+        line for line in tool_markets if " heavy-investment=selected" in line
+    ]
+    deferred = [
+        line for line in tool_markets if " heavy-investment=deferred" in line
+    ]
+
+    def signed_values(sample_lines: list[str], pattern: str) -> list[int]:
         return [
             int(match.group(1))
-            for line in tool_markets
+            for line in sample_lines
             if (match := re.search(pattern, line)) is not None
         ]
 
+    selected_net_savings = [
+        -value
+        for value in signed_values(
+            selected, r"\bheavy-total-delta=([+-]\d+)t"
+        )
+    ]
     return (
         "heavy-tool-market=["
-        f"selected:{sum(' heavy-investment=selected' in line for line in tool_markets)} "
-        f"deferred:{sum(' heavy-investment=deferred' in line for line in tool_markets)} "
+        f"selected:{len(selected)} "
+        f"deferred:{len(deferred)} "
         f"unavailable:{sum(' heavy-investment=unavailable' in line for line in tool_markets)} "
-        f"prep-extra:{_signed_span(signed_values(r'\bheavy-preparation-extra=([+-]\d+)t'))} "
-        f"order-saving:{_signed_span(signed_values(r'\bheavy-order-saving=([+-]\d+)t'))} "
-        f"total-delta:{_signed_span(signed_values(r'\bheavy-total-delta=([+-]\d+)t'))}]"
+        "selected-economics=["
+        f"prep-extra:{_signed_span(signed_values(selected, r'\bheavy-preparation-extra=([+-]\d+)t'))} "
+        f"order-saving:{_signed_span(signed_values(selected, r'\bheavy-order-saving=([+-]\d+)t'))} "
+        f"net-saving:{_signed_span(selected_net_savings)}] "
+        "deferred-economics=["
+        f"prep-extra:{_signed_span(signed_values(deferred, r'\bheavy-preparation-extra=([+-]\d+)t'))} "
+        f"order-saving:{_signed_span(signed_values(deferred, r'\bheavy-order-saving=([+-]\d+)t'))} "
+        f"net-penalty:{_signed_span(signed_values(deferred, r'\bheavy-total-delta=([+-]\d+)t'))}]]"
     )
 
 

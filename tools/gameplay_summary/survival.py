@@ -7,6 +7,10 @@ import re
 from .common import organic_only, sample_shape, scaled_span
 
 
+def _span(values: list[int], unit: str = "") -> str:
+    return f"{min(values)}..{max(values)}{unit}" if values else "n/a"
+
+
 def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
     meal_mass_mg: list[int] = []
     drink_volume_ul: list[int] = []
@@ -65,14 +69,22 @@ def survival_summary(lines: list[str]) -> str | None:
     ]
     initial_work_drinks = []
     follow_up_work_drinks = []
+    prospecting_ticks = []
+    power_ticks = []
+    final_hydration_ppm = []
     for line in survival:
         integrated = re.search(
-            r"integrated=\[drink:(\d+)uL/\d+t .*?reprovision:(?:true|false):(\d+)uL/\d+t",
+            r"integrated=\[hydration-policy:([^\s]+) drink:(\d+)uL/\d+t "
+            r"prospect:(\d+)t .*?reprovision:(?:true|false):(\d+)uL/\d+t "
+            r"power:(\d+)t .*?final-reserve:\d+ppmE/(\d+)ppmH",
             line,
         )
         if integrated is not None:
-            initial_work_drinks.append(int(integrated.group(1)))
-            follow_up_work_drinks.append(int(integrated.group(2)))
+            initial_work_drinks.append(int(integrated.group(2)))
+            prospecting_ticks.append(int(integrated.group(3)))
+            follow_up_work_drinks.append(int(integrated.group(4)))
+            power_ticks.append(int(integrated.group(5)))
+            final_hydration_ppm.append(int(integrated.group(6)))
     return (
         "ORDINARY SUMMARY probe=survival "
         f"samples={len(survival)} sample-shape=[{sample_shape(survival)}] "
@@ -91,11 +103,15 @@ def survival_summary(lines: list[str]) -> str | None:
         f"maximum:{count('storage-policy:maximum-protection')}] "
         f"commitment=[cleared:{count('commitment-reason:return-clears-threshold')} "
         f"declined-return:{count('commitment-reason:return-does-not-clear-threshold')}] "
-        f"work-interlock=[opportunity-power:{count('opportunity-power:true')} "
+        f"work-interlock=[policy=[task-floor:{count('hydration-policy:task-floor')} "
+        f"working-reserve:{count('hydration-policy:working-reserve')}] "
+        f"opportunity-power:{count('opportunity-power:true')} "
         f"follow-up-needed:{count('reprovision:true:')} "
         f"single-provision-sufficient:{count('reprovision:false:')}/{len(survival)} "
         f"initial-drink:{scaled_span(initial_work_drinks, 1_000, 'mL')} "
         f"follow-up-drink:{scaled_span(follow_up_work_drinks, 1_000, 'mL')} "
+        f"prospect:{_span(prospecting_ticks, 't')} power:{_span(power_ticks, 't')} "
+        f"final-hydration:{_span(final_hydration_ppm, 'ppm')} "
         f"warning-safe:{count('warning-safe:true')}/{len(survival)}] "
         f"organic-preservation=[declined:{sum('storage-policy:decline' in line for line in organic_survival)} "
         f"efficient:{sum('storage-policy:attention-efficient' in line for line in organic_survival)} "

@@ -1629,8 +1629,8 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_survival_summary_counts_selected_preservation_policy_only(self) -> None:
         lines = [
-            "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery meal:1000000mg drink:1250000uL] raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none commitment-reason:return-does-not-clear-threshold minimum-return:3000000ppm best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t] work-interlock=[integrated=[drink:6000uL/1t prospect:24t opportunity-power:true reprovision:true:800uL/1t power:3t warning-safe:true]]",
-            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy choice=[state:policy-sensitive diet:compact-calories meal:500000mg drink:0uL] raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 commitment-reason:return-clears-threshold minimum-return:1000000ppm best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t] work-interlock=[integrated=[drink:12000uL/1t prospect:48t opportunity-power:false reprovision:false:0uL/0t power:0t warning-safe:true]]",
+            "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery meal:1000000mg drink:1250000uL] raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none commitment-reason:return-does-not-clear-threshold minimum-return:3000000ppm best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t] work-interlock=[integrated=[hydration-policy:task-floor drink:6000uL/1t prospect:24t opportunity-power:true reprovision:true:800uL/1t power:3t stored:100nJ final-reserve:900000ppmE/750000ppmH warning-safe:true]]",
+            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy choice=[state:policy-sensitive diet:compact-calories meal:500000mg drink:0uL] raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 commitment-reason:return-clears-threshold minimum-return:1000000ppm best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t] work-interlock=[integrated=[hydration-policy:working-reserve drink:12000uL/1t prospect:48t opportunity-power:false reprovision:false:0uL/0t power:0t stored:0nJ final-reserve:950000ppmE/875000ppmH warning-safe:true]]",
             "SURVIVAL REVIEW seed=0x1 diet-evidence=[matched-counterfactual=[horizon:130t] tradeoff=[meal-mass-delta:+200000mg water-saved-delta:+0uL diet-quality-delta:+80000ppm recovery-delta:+1ppm/t] recovery-consequence=[choice:actionable deprivation:33000t provisioning-horizon:130t observe:1000t vitality:950000->[compact:953000 balanced:959000 delta:+6000ppm]]]",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
@@ -1647,8 +1647,10 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         self.assertIn("commitment=[cleared:1 declined-return:1]", summary)
         self.assertIn(
-            "work-interlock=[opportunity-power:1 follow-up-needed:1 single-provision-sufficient:1/2 initial-drink:6..12mL "
-            "follow-up-drink:0..0.8mL warning-safe:2/2]",
+            "work-interlock=[policy=[task-floor:1 working-reserve:1] opportunity-power:1 "
+            "follow-up-needed:1 single-provision-sufficient:1/2 initial-drink:6..12mL "
+            "follow-up-drink:0..0.8mL prospect:24..48t power:0..3t "
+            "final-hydration:750000..875000ppm warning-safe:2/2]",
             summary,
         )
 
@@ -1719,8 +1721,8 @@ class LocalCiPlanTests(unittest.TestCase):
             "FIELDWORK TOOL MARKET phase=acquired-evidence selected=stone-pick selected-total=24t heavy-best=stone-quarry heavy-total=37t heavy-preparation-extra=+20t heavy-order-saving=+7t heavy-total-delta=+13t heavy-investment=deferred",
             "FIELDWORK BULK CROSSOVER seed=0x1 available=true tool=stone-quarry order=16000000mg base-batches=32 current-order=1000000mg scope=diagnostic-visible-state no-hidden-reserve=true",
             "FIELDWORK PACING seed=0x1 search=10t/36.0s sampling-tool=20t/72.0s extraction-tool=30t/108.0s extraction=4t/14.4s batches=1 first-ore=64t/3.8m episode-end=64t/3.8m output=1mg outcome=completed requested=1mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade=500000ppm",
-            "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor job=[flywheel:1nJ planned-charges:1] decision=[selected:crank policy:minimize-workload-attention-then-metabolic-then-hydration-then-material] projected-lifecycle=[crank:body:10000000000000nJ/20000uL condition:990000ppm treadle:body:8000000000000nJ/18000uL condition:995000ppm] comparison=[charge-attention-reduction:1ppm metabolic-crank:2nJ metabolic-treadle:1nJ pristine-rate-break-even:2 wear-aware-decision-crossover:3 lifecycle=condition-carried-no-service] evidence=[build+first-charge:executed lifecycle:projected-canonical consumer:not-instantiated]",
-            "POWER SETTLEMENT seed=0x1 sample=anchor buffer:5000nJ planned-charges=80 decision=[selected:walking-wheel policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:2290t projected-attention-walking:2210t] projected-lifecycle=[treadle:body:100000000000000nJ/200000uL condition:800000ppm walking-wheel:body:80000000000000nJ/150000uL condition:900000ppm] comparison=[charge-saving:4t metabolic-saving:1nJ pristine-rate-break-even:60charges wear-aware-decision-crossover:56charges lifecycle=condition-carried-no-service] evidence=[build+first-charge:executed lifecycle:projected-canonical consumer:not-instantiated]",
+            "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:stone-crusher feed:1000000mg work:1000000000000nJ charge-events:1] buffer:1000000000000nJ decision=[selected:crank policy=minimize-workload-attention-then-metabolic-then-hydration-then-material] crank=[first-charge:2t second-charge:3t] treadle=[first-charge:1t second-charge:2t] productive-cycle=[consumer:stone-crusher crank:9t treadle:9t] projected-lifecycle=[crank:body:10000000000000nJ/20000uL condition:990000ppm treadle:body:8000000000000nJ/18000uL condition:995000ppm] comparison=[charge-attention-reduction:1ppm metabolic-crank:2nJ metabolic-treadle:1nJ pristine-rate-break-even:2 wear-aware-decision-crossover:3 lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed long-horizon:projected-canonical consumer:stone-crusher]",
+            "POWER SETTLEMENT seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:powered-saw feed:1600000000mg work:400000000000000nJ charge-events:80] buffer:5000000000000nJ decision=[selected:walking-wheel policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:2290t projected-attention-walking:2210t] treadle=[first-charge:14t second-charge:15t] walking-wheel=[first-charge:10t second-charge:11t] productive-cycle=[consumer:powered-saw treadle:56t walking:56t] projected-lifecycle=[treadle:body:100000000000000nJ/200000uL condition:800000ppm walking-wheel:body:80000000000000nJ/150000uL condition:900000ppm] comparison=[charge-saving:4t metabolic-saving:1nJ pristine-rate-break-even:60charges wear-aware-decision-crossover:56charges lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed long-horizon:projected-canonical consumer:powered-saw]",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=1 orders=[complete:1 partial:0 productive:1/1] adaptive=[total:0 condition:0 stored-work:0] stops=[structural:0 maintenance-required:1 energy:0 declined-manual:0 survival-limited-manual:0] maintenance-blockers=[replacement-supply:1 service-labor:0]",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt pressure-shape=[clean:1 single:0 multi-system:10] interlocks=[stored-work+throughput:11 body+power:5 wear+maintenance:6 structure+production:9] recovery=[suspensions:3 resumed:3 stranded:0]",
             "AGENCY SUMMARY worlds=1",
@@ -1736,8 +1738,6 @@ class LocalCiPlanTests(unittest.TestCase):
             "SIMULATION TIME ",
             "PLAYER FANTASY ",
             "EVALUATION SCOPE kind=ordinary-play ",
-            "CONTENT registry_schema=",
-            "CONTENT ACQUISITION EDGES ",
             "EVALUATION SCOPE kind=controlled-capability ",
             "ORDINARY SUMMARY probe=primitive-progression ",
             "ORDINARY SUMMARY probe=primitive-liberation ",
@@ -1773,6 +1773,8 @@ class LocalCiPlanTests(unittest.TestCase):
             "FIELDWORK DEPLETION ",
             "FIELDWORK DEPLETION RECOVERY ",
             "LIBERATION KIT ACQUISITION ",
+            "CONTENT registry_schema=",
+            "CONTENT ACQUISITION EDGES ",
         ):
             self.assertNotIn(noisy, concise)
         self.assertIn(
@@ -1847,13 +1849,22 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "settlement-choice=[treadle:0 walking:1] organic-settlement-choice=[treadle:0 walking:0] settlement-planned-charges=80..80 "
+            "settlement-choice=[treadle:0 walking:1] organic-settlement-choice=[treadle:0 walking:0] "
+            "settlement-project=[lumber-feed:1600..1600kg mechanical-work:400..400kJ charge-events:80..80] "
             "settlement-decision-crossover-charges=56..56 settlement-pristine-rate-break-even=60..60",
             concise,
         )
-        self.assertIn("choice-load=[crank:1..1 treadle:n/a]", concise)
         self.assertIn(
-            "evidence-scope=[first-charge-executed:1/1 repeated-lifecycle-projected:1/1]",
+            "project=[crusher-feed:1..1kg mechanical-work:1..1kJ charge-events:1..1]",
+            concise,
+        )
+        self.assertIn("choice-load=[crank:1..1kg treadle:n/a]", concise)
+        self.assertIn(
+            "productive-cycle=[consumer:stone-crusher executed:1/1 consumer-duration:9..9t carried-state-recharge:1/1]",
+            concise,
+        )
+        self.assertIn(
+            "evidence-scope=[productive-cycle-executed:1/1 long-horizon-projected:1/1]",
             concise,
         )
         self.assertIn(
@@ -1861,8 +1872,15 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn("lifecycle-end-condition=[crank:990000..990000ppm treadle:995000..995000ppm]", concise)
-        self.assertIn("settlement-load=[treadle:n/a walking:80..80]", concise)
-        self.assertIn("settlement-evidence-scope=[first-charge-executed:1/1 repeated-lifecycle-projected:1/1]", concise)
+        self.assertIn("settlement-load=[treadle:n/a walking:1600..1600kg]", concise)
+        self.assertIn(
+            "settlement-productive-cycle=[consumer:powered-saw executed:1/1 consumer-duration:56..56t carried-state-recharge:1/1]",
+            concise,
+        )
+        self.assertIn(
+            "settlement-evidence-scope=[productive-cycle-executed:1/1 long-horizon-projected:1/1]",
+            concise,
+        )
         self.assertIn(
             "settlement-lifecycle-end-condition=[treadle:800000..800000ppm walking:900000..900000ppm]",
             concise,
@@ -1911,7 +1929,9 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         self.assertIn(
             "heavy-tool-market=[selected:0 deferred:1 unavailable:0 "
-            "prep-extra:+20..+20t order-saving:+7..+7t total-delta:+13..+13t]",
+            "selected-economics=[prep-extra:n/a order-saving:n/a net-saving:n/a] "
+            "deferred-economics=[prep-extra:+20..+20t order-saving:+7..+7t "
+            "net-penalty:+13..+13t]]",
             concise,
         )
         self.assertIn(

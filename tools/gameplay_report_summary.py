@@ -14,12 +14,6 @@ from tools.gameplay_summary.survival import survival_summary
 from tools.gameplay_summary.woodworking import woodworking_summary
 
 
-REPORT_PREFIXES = (
-    "CONTENT registry_schema=",
-    "CONTENT ACQUISITION EDGES ",
-)
-
-
 def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
     """Return compact measured ordinary-play evidence without adding interpretation."""
 
@@ -49,8 +43,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     selected = [
         line
         for line in lines
-        if line.startswith(REPORT_PREFIXES)
-        or line.startswith("SIMULATION TIME ")
+        if line.startswith("SIMULATION TIME ")
         or line.startswith("PLAYER FANTASY ")
         or line.startswith("EVALUATION SCOPE kind=ordinary-play ")
         or line.startswith("EVALUATION SCOPE kind=controlled-capability ")

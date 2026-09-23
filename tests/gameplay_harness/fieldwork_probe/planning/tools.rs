@@ -381,23 +381,44 @@ pub(in super::super) fn choose_fieldwork_tool_with_market_phase(
                 )
             })
             .min_by_key(|estimate| estimate.policy_key());
+        let light = viable
+            .iter()
+            .filter(|estimate| {
+                !matches!(
+                    estimate.tool.target,
+                    EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
+                )
+            })
+            .min_by_key(|estimate| estimate.policy_key());
         if let Some(heavy) = heavy {
-            let preparation_extra =
-                i128::from(heavy.preparation_ticks) - i128::from(selected.preparation_ticks);
-            let order_saving = i128::from(selected.order_ticks) - i128::from(heavy.order_ticks);
-            let total_delta = i128::from(heavy.total_ticks()) - i128::from(selected.total_ticks());
-            reviewln!(
-                "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t heavy-best={} heavy-total={}t heavy-preparation-extra={preparation_extra:+}t heavy-order-saving={order_saving:+}t heavy-total-delta={total_delta:+}t heavy-investment={}",
-                selected.tool.label,
-                selected.total_ticks(),
-                heavy.tool.label,
-                heavy.total_ticks(),
-                if heavy.tool.target == selected.tool.target {
-                    "selected"
-                } else {
-                    "deferred"
-                },
-            );
+            if let Some(light) = light {
+                let preparation_extra =
+                    i128::from(heavy.preparation_ticks) - i128::from(light.preparation_ticks);
+                let order_saving = i128::from(light.order_ticks) - i128::from(heavy.order_ticks);
+                let total_delta = i128::from(heavy.total_ticks()) - i128::from(light.total_ticks());
+                reviewln!(
+                    "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t light-best={} light-total={}t heavy-best={} heavy-total={}t heavy-preparation-extra={preparation_extra:+}t heavy-order-saving={order_saving:+}t heavy-total-delta={total_delta:+}t heavy-investment={}",
+                    selected.tool.label,
+                    selected.total_ticks(),
+                    light.tool.label,
+                    light.total_ticks(),
+                    heavy.tool.label,
+                    heavy.total_ticks(),
+                    if heavy.tool.target == selected.tool.target {
+                        "selected"
+                    } else {
+                        "deferred"
+                    },
+                );
+            } else {
+                reviewln!(
+                    "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t light-best=unavailable heavy-best={} heavy-total={}t heavy-investment=selected",
+                    selected.tool.label,
+                    selected.total_ticks(),
+                    heavy.tool.label,
+                    heavy.total_ticks(),
+                );
+            }
         } else {
             reviewln!(
                 "FIELDWORK TOOL MARKET phase={market_phase} selected={} selected-total={}t heavy-best=unavailable heavy-investment=unavailable",

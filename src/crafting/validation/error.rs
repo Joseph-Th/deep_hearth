@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 
-use crate::capability::{CapabilityId, CapabilityValueKind};
+use crate::capability::{CapabilityEvaluationError, CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Energy, Mass};
 use crate::core::throughput::MassFlowDurationError;
 use crate::core::time::TickSpan;
@@ -14,7 +14,7 @@ use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::MaterialLotSpecError;
 use crate::production::ProductionJobId;
 
-/// Corruption or semantic drift in an in-flight manual shaping job.
+/// Corruption or semantic drift in an in-flight manual or powered shaping job.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CraftingJobValidationError {
     MissingEnergy {
@@ -53,6 +53,10 @@ pub enum CraftingJobValidationError {
     UnknownEquipmentDefinition {
         job: ProductionJobId,
         definition: EquipmentDefinitionId,
+    },
+    PoweredEquipmentCapability {
+        job: ProductionJobId,
+        error: CapabilityEvaluationError,
     },
     MissingEquipmentCapability {
         job: ProductionJobId,
@@ -171,14 +175,19 @@ impl Display for CraftingJobValidationError {
             ),
             Self::MissingRequiredEquipment { job } => write!(
                 formatter,
-                "manual craft job {} omits equipment required by its authored shaping process",
+                "craft job {} omits equipment required by its authored shaping process",
                 job.value()
             ),
             Self::UnknownEquipmentDefinition { job, definition } => write!(
                 formatter,
-                "manual craft job {} references unknown equipment definition {}",
+                "craft job {} references unknown equipment definition {}",
                 job.value(),
                 definition.value()
+            ),
+            Self::PoweredEquipmentCapability { job, error } => write!(
+                formatter,
+                "powered craft job {} equipment no longer satisfies its authored provider requirements: {error}",
+                job.value()
             ),
             Self::MissingEquipmentCapability { job, capability } => write!(
                 formatter,
@@ -198,12 +207,12 @@ impl Display for CraftingJobValidationError {
             ),
             Self::EquipmentDuration { job, error } => write!(
                 formatter,
-                "manual craft job {} equipment throughput cannot reproduce its duration: {error}",
+                "craft job {} equipment throughput cannot reproduce its duration: {error}",
                 job.value()
             ),
             Self::EquipmentCondition { job, error } => write!(
                 formatter,
-                "manual craft job {} equipment cannot reproduce its condition schedule: {error}",
+                "craft job {} equipment cannot reproduce its condition schedule: {error}",
                 job.value()
             ),
             Self::EquipmentConditionMismatch {
@@ -212,29 +221,29 @@ impl Display for CraftingJobValidationError {
                 required,
             } => write!(
                 formatter,
-                "manual craft job {} stores equipment condition {} ppm but tool-assisted work requires {} ppm",
+                "craft job {} stores equipment condition {} ppm but equipment-backed work requires {} ppm",
                 job.value(),
                 stored.parts_per_million(),
                 required.parts_per_million()
             ),
             Self::InputCommodityMismatch { job } => write!(
                 formatter,
-                "manual craft job {} consumed a commodity outside its authored hand recipe",
+                "craft job {} consumed a commodity outside its authored shaping transform",
                 job.value()
             ),
             Self::EmptyInput { job } => write!(
                 formatter,
-                "manual craft job {} has no consumed material",
+                "craft job {} has no consumed material",
                 job.value()
             ),
             Self::InputCompositionMismatch { job } => write!(
                 formatter,
-                "manual craft job {} consumed non-pure material that its hand-shaping resolver cannot transform",
+                "craft job {} consumed material whose composition its shaping transform cannot accept",
                 job.value()
             ),
             Self::MixedInputTemperature { job } => write!(
                 formatter,
-                "manual craft job {} combines different input temperatures without thermal physics",
+                "craft job {} combines different input temperatures without thermal physics",
                 job.value()
             ),
             Self::InputMassNotWholeBatches {
@@ -243,7 +252,7 @@ impl Display for CraftingJobValidationError {
                 batch_mass,
             } => write!(
                 formatter,
-                "manual craft job {} consumed {} mg, which is not a whole number of {} mg authored batches",
+                "craft job {} consumed {} mg, which is not a whole number of {} mg authored batches",
                 job.value(),
                 consumed.milligrams(),
                 batch_mass.milligrams()
@@ -267,18 +276,18 @@ impl Display for CraftingJobValidationError {
             ),
             Self::OutputMassOverflow { job, batches } => write!(
                 formatter,
-                "manual craft job {} output mass overflows when replaying {} batches",
+                "craft job {} output mass overflows when replaying {} batches",
                 job.value(),
                 batches.get()
             ),
             Self::OutputConstruction { job, error } => write!(
                 formatter,
-                "manual craft job {} authored output cannot be reconstructed: {error}",
+                "craft job {} authored output cannot be reconstructed: {error}",
                 job.value()
             ),
             Self::OutputMismatch { job } => write!(
                 formatter,
-                "manual craft job {} output snapshot disagrees with authored shaping semantics",
+                "craft job {} output snapshot disagrees with authored shaping semantics",
                 job.value()
             ),
         }
@@ -289,6 +298,7 @@ impl Error for CraftingJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::OutputConstruction { error, .. } => Some(error),
+            Self::PoweredEquipmentCapability { error, .. } => Some(error),
             Self::EquipmentDuration { error, .. } => Some(error),
             Self::EquipmentCondition { error, .. } => Some(error),
             Self::EnergyDuration { error, .. } => Some(error),

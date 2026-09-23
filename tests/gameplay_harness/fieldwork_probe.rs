@@ -20,7 +20,7 @@ use deep_hearth::mining::{MiningOrderRequest, resolve_mining_order};
 use deep_hearth::registry::Registries;
 
 use super::equipment_support::pristine_equipment_capability;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_seeds::FocusedProbeCase;
 use super::manual_craft_planning::{
     manual_craft_topology_plan_for_output, project_manual_assembly_package,
 };
@@ -31,6 +31,9 @@ use super::progression_probe::{STOCKPILE_WORK_ORDER_CYCLES, progression_mining_m
 use super::seed::mix64;
 
 const FIELDWORK_KNOWN_SITE_REPEAT_HORIZON: u64 = 12;
+const FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED: u64 = 2;
+const FIELDWORK_BULK_INVESTMENT_COVERAGE_BATCHES: u64 = 40;
+const FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_MG: u64 = 28_000_000;
 const FIELDWORK_RESERVE_SCALE_COVERAGE_SEED: u64 = 6;
 const FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES: u64 = 48;
 
@@ -78,8 +81,9 @@ use world::{FieldworkWorld, build_fieldwork_world, fieldwork_supply};
 
 /// Visible demand uses the same finite twelve-cycle ore workload that ordinary primitive
 /// progression actually prices before mechanizing. The alternative is one immediate local order.
-/// One maintained coverage case discloses a real infrastructure-scale order before surveying so
-/// reserve knowledge can prove that it prevents an otherwise-rational heavy-tool overinvestment.
+/// Maintained coverage includes both sides of the heavy-tool decision: one soft-rock world has a
+/// disclosed bulk order and enough actor-visible reserve for the quarry pick to earn its setup,
+/// while another discloses a bulk order that reserve evidence cuts back before construction.
 fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
     let batch = fieldwork_mining_limits(registries).base_quarry_batch;
     if mix64(seed ^ 0x4649_454C_4444_454D).is_multiple_of(2) {
@@ -93,9 +97,14 @@ fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
 }
 
 fn fieldwork_order_for_case(registries: &Registries, case: FocusedProbeCase) -> Mass {
-    if case.role() == FocusedProbeRole::MaintainedCoverage
-        && case.seed() == FIELDWORK_RESERVE_SCALE_COVERAGE_SEED
-    {
+    if case.seed() == FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED {
+        return multiplied_mass(
+            fieldwork_mining_limits(registries).base_quarry_batch,
+            FIELDWORK_BULK_INVESTMENT_COVERAGE_BATCHES,
+            "maintained bulk-investment fieldwork coverage order",
+        );
+    }
+    if case.seed() == FIELDWORK_RESERVE_SCALE_COVERAGE_SEED {
         return multiplied_mass(
             fieldwork_mining_limits(registries).base_quarry_batch,
             FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES,
@@ -103,6 +112,13 @@ fn fieldwork_order_for_case(registries: &Registries, case: FocusedProbeCase) -> 
         );
     }
     fieldwork_order(registries, case.seed())
+}
+
+fn fieldwork_supply_for_case(case: FocusedProbeCase) -> Mass {
+    if case.seed() == FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED {
+        return Mass::from_milligrams(FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_MG);
+    }
+    fieldwork_supply(case.seed())
 }
 
 fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
@@ -157,7 +173,7 @@ fn run_fieldwork_order(
         registries,
         case,
         requested_mine_mass,
-        fieldwork_supply(case.seed()),
+        fieldwork_supply_for_case(case),
     )
 }
 

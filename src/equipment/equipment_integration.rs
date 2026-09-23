@@ -1,7 +1,8 @@
 //! Resolves condition-adjusted equipment capabilities from immutable definitions and runtime state.
 
 use crate::capability::{
-    CapabilityId, CapabilitySource, CapabilityValue, interpolate_capability_value,
+    CapabilityEvaluationError, CapabilityId, CapabilityRegistry, CapabilityRequirement,
+    CapabilitySource, CapabilityValue, evaluate_capabilities, interpolate_capability_value,
 };
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
@@ -168,6 +169,39 @@ pub(crate) fn resolve_equipment_capability(
             Some(curve) => resolve_curve_value(curve, nominal, condition),
             None => nominal,
         },
+    )
+}
+
+struct ConditionedEquipmentCapabilities<'definition> {
+    definition: &'definition EquipmentDefinition,
+    condition: Condition,
+}
+
+impl CapabilitySource for ConditionedEquipmentCapabilities<'_> {
+    fn get_capability(&self, capability: CapabilityId) -> Option<CapabilityValue> {
+        resolve_equipment_capability(self.definition, self.condition, capability)
+    }
+}
+
+/// Evaluates authored provider requirements against one equipment definition at an explicit
+/// condition without requiring a live runtime record.
+///
+/// Runtime resolvers normally evaluate a resolved provider directly. Trusted-load replay uses
+/// this projection to reproduce that same condition-adjusted eligibility from the immutable
+/// definition and the condition recorded when the job started.
+pub(crate) fn evaluate_equipment_capabilities_at_condition(
+    registry: &CapabilityRegistry,
+    definition: &EquipmentDefinition,
+    condition: Condition,
+    requirements: &[CapabilityRequirement],
+) -> Result<(), CapabilityEvaluationError> {
+    evaluate_capabilities(
+        registry,
+        &ConditionedEquipmentCapabilities {
+            definition,
+            condition,
+        },
+        requirements,
     )
 }
 

@@ -6,7 +6,9 @@ use crate::capability::CapabilityValue;
 use crate::core::quantity::Temperature;
 use crate::core::time::TickSpan;
 use crate::energy::calculate_mass_specific_energy;
-use crate::equipment::resolve_equipment_capability;
+use crate::equipment::{
+    evaluate_equipment_capabilities_at_condition, resolve_equipment_capability,
+};
 use crate::material::MaterialLotSpec;
 use crate::production::{ProcessOutputStreamId, ProductionJobRecord};
 use crate::registry::Registries;
@@ -163,6 +165,24 @@ fn validate_powered_craft_resources(
             job: job.id(),
             definition: provider.definition(),
         })?;
+    let process_definition = registries
+        .production()
+        .get_process(definition.process())
+        .unwrap_or_else(|| {
+            unreachable!("validated powered-craft definition lost its production process")
+        });
+    evaluate_equipment_capabilities_at_condition(
+        registries.capabilities(),
+        equipment_definition,
+        provider.condition(),
+        process_definition.capability_requirements(),
+    )
+    .map_err(
+        |error| CraftingJobValidationError::PoweredEquipmentCapability {
+            job: job.id(),
+            error,
+        },
+    )?;
     let capability = definition.mass_flow_capability();
     let rate = match resolve_equipment_capability(
         equipment_definition,
@@ -170,21 +190,9 @@ fn validate_powered_craft_resources(
         capability,
     ) {
         Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(value) => {
-            return Err(
-                CraftingJobValidationError::EquipmentCapabilityKindMismatch {
-                    job: job.id(),
-                    capability,
-                    found: value.kind(),
-                },
-            );
-        }
-        None => {
-            return Err(CraftingJobValidationError::MissingEquipmentCapability {
-                job: job.id(),
-                capability,
-            });
-        }
+        Some(_) | None => unreachable!(
+            "validated powered-craft provider lost its resolver-owned throughput capability"
+        ),
     };
     let (duration, condition_after) = super::powered::resolve_powered_craft_timing(
         registries,

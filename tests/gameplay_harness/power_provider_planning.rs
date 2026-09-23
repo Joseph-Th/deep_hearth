@@ -15,10 +15,9 @@ use deep_hearth::maintenance::Condition;
 use deep_hearth::registry::Registries;
 
 use super::super::manual_craft_planning::project_manual_assembly_package;
-use super::super::seed::mix64;
 
-const MAX_PRIMITIVE_PLANNED_CHARGES: u64 = 160;
-const MAX_SETTLEMENT_PLANNED_CHARGES: u64 = 120;
+const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
+const MAX_SETTLEMENT_CROSSOVER_CHARGES: u64 = 160;
 
 #[derive(Clone, Copy)]
 pub(super) struct ShapedBuild {
@@ -64,7 +63,8 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) choice: PrimitivePowerChoice,
     pub(super) store_definition: EnergyStoreDefinitionId,
     pub(super) capacity_nj: u128,
-    pub(super) planned_charges: u64,
+    pub(super) declared_work_nj: u128,
+    pub(super) charge_events: u64,
     pub(super) crank_build: ShapedBuild,
     pub(super) treadle_build: ShapedBuild,
     pub(super) crank_charge: ManualPowerProjection,
@@ -84,7 +84,8 @@ pub(super) struct PrimitivePowerPlan {
 pub(super) struct SettlementPowerPlan {
     pub(super) choice: SettlementPowerChoice,
     pub(super) capacity_nj: u128,
-    pub(super) planned_charges: u64,
+    pub(super) declared_work_nj: u128,
+    pub(super) charge_events: u64,
     pub(super) treadle_build: ShapedBuild,
     pub(super) walking_build: ShapedBuild,
     pub(super) treadle_charge: ManualPowerProjection,
@@ -118,14 +119,24 @@ struct ManualPowerLifecycleCost {
 }
 
 impl ManualPowerRoute {
-    fn project(self, registries: &Registries, condition: Condition) -> ManualPowerProjection {
+    fn project_requested(
+        self,
+        registries: &Registries,
+        condition: Condition,
+        requested: Energy,
+    ) -> ManualPowerProjection {
+        assert!(
+            !requested.is_zero() && requested <= self.requested,
+            "power-provider {} partial charge must stay within one full buffer request",
+            self.context
+        );
         project_manual_power(
             registries,
             self.method,
             self.equipment,
             condition,
             self.store,
-            self.requested,
+            requested,
         )
         .unwrap_or_else(|error| {
             panic!(
@@ -135,29 +146,37 @@ impl ManualPowerRoute {
         })
     }
 
+    fn project(self, registries: &Registries, condition: Condition) -> ManualPowerProjection {
+        self.project_requested(registries, condition, self.requested)
+    }
+
     fn project_lifecycle(
         self,
         registries: &Registries,
-        planned_charges: u64,
-        first_charge: ManualPowerProjection,
+        declared_work: Energy,
     ) -> ManualPowerLifecycleCost {
         assert!(
-            planned_charges > 0,
-            "power-provider {} lifecycle requires at least one planned charge",
+            !declared_work.is_zero(),
+            "power-provider {} lifecycle requires positive declared work",
             self.context
         );
-        let mut attention_ticks = first_charge.duration().value();
-        let mut metabolic_nj = first_charge
-            .resource_budget()
-            .metabolic_energy()
-            .nanojoules();
-        let mut hydration_ul = first_charge.resource_budget().hydration().microliters();
-        let mut condition = first_charge.condition_after();
+        let mut remaining_nj = declared_work.nanojoules();
+        let full_request_nj = self.requested.nanojoules();
+        let mut attention_ticks = 0_u64;
+        let mut metabolic_nj = 0_u128;
+        let mut hydration_ul = 0_u64;
+        let mut condition = Condition::PRISTINE;
 
-        // Carry the canonical projected condition forward so each later charge pays for the wear
-        // created by the earlier projected work instead of extrapolating one pristine-rate sample.
-        for _ in 1..planned_charges {
-            let charge = self.project(registries, condition);
+        // Carry the canonical projected condition forward and charge only the useful work the
+        // declared project actually needs. The final event may therefore be a partial buffer
+        // charge rather than a fictitious full charge introduced by ceiling division.
+        while remaining_nj > 0 {
+            let requested_nj = remaining_nj.min(full_request_nj);
+            let charge = self.project_requested(
+                registries,
+                condition,
+                Energy::from_nanojoules(requested_nj),
+            );
             attention_ticks = attention_ticks
                 .checked_add(charge.duration().value())
                 .unwrap_or_else(|| {
@@ -183,6 +202,9 @@ impl ManualPowerRoute {
                     )
                 });
             condition = charge.condition_after();
+            remaining_nj = remaining_nj
+                .checked_sub(requested_nj)
+                .unwrap_or_else(|| unreachable!("projected charge is bounded by remaining work"));
         }
 
         ManualPowerLifecycleCost {
@@ -279,13 +301,27 @@ fn first_candidate_preferred_charge(
     None
 }
 
+fn charge_events_for_declared_work(
+    declared_work_nj: u128,
+    capacity_nj: u128,
+    context: &'static str,
+) -> u64 {
+    assert!(
+        declared_work_nj > 0 && capacity_nj > 0,
+        "power-provider {context} requires positive project work and buffer capacity"
+    );
+    let charges = declared_work_nj.div_ceil(capacity_nj);
+    u64::try_from(charges)
+        .unwrap_or_else(|_| panic!("power-provider {context} charge horizon exceeds u64"))
+}
+
 pub(super) fn settlement_power_plan(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
     shaped: StockpileId,
     capacity_nj: u128,
-    seed: u64,
+    declared_work_nj: u128,
 ) -> SettlementPowerPlan {
     let treadle_build = project_power_package(
         registries,
@@ -326,15 +362,15 @@ pub(super) fn settlement_power_plan(
         treadle_build,
         walking_route,
         walking_build,
-        MAX_SETTLEMENT_PLANNED_CHARGES,
+        MAX_SETTLEMENT_CROSSOVER_CHARGES,
     );
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     let walking_charge = walking_route.project(registries, Condition::PRISTINE);
-    let planned_charges = 1 + mix64(seed ^ 0x5345_5454_4C45_5057) % MAX_SETTLEMENT_PLANNED_CHARGES;
-    let treadle_lifecycle =
-        treadle_route.project_lifecycle(registries, planned_charges, treadle_charge);
-    let walking_lifecycle =
-        walking_route.project_lifecycle(registries, planned_charges, walking_charge);
+    let charge_events =
+        charge_events_for_declared_work(declared_work_nj, capacity_nj, "settlement project");
+    let declared_work = Energy::from_nanojoules(declared_work_nj);
+    let treadle_lifecycle = treadle_route.project_lifecycle(registries, declared_work);
+    let walking_lifecycle = walking_route.project_lifecycle(registries, declared_work);
     let treadle_lifecycle_attention = treadle_build
         .attention_ticks
         .checked_add(treadle_lifecycle.attention_ticks)
@@ -380,7 +416,8 @@ pub(super) fn settlement_power_plan(
             SettlementPowerChoice::WalkingWheel
         },
         capacity_nj,
-        planned_charges,
+        declared_work_nj,
+        charge_events,
         treadle_build,
         walking_build,
         treadle_charge,
@@ -450,7 +487,7 @@ pub(super) fn primitive_power_plan(
     shaped: StockpileId,
     store_definition: EnergyStoreDefinitionId,
     capacity_nj: u128,
-    seed: u64,
+    declared_work_nj: u128,
 ) -> PrimitivePowerPlan {
     let crank_build = project_power_package(
         registries,
@@ -487,19 +524,20 @@ pub(super) fn primitive_power_plan(
     };
     let crank_charge = crank_route.project(registries, Condition::PRISTINE);
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
-    // This is disclosed workload, not a hidden future outcome. The actor knows how many comparable
-    // full charges it expects this project to need and invests against that horizon.
-    let planned_charges = 1 + mix64(seed ^ 0x504F_5752_574F_524B) % MAX_PRIMITIVE_PLANNED_CHARGES;
-    let crank_lifecycle = crank_route.project_lifecycle(registries, planned_charges, crank_charge);
-    let treadle_lifecycle =
-        treadle_route.project_lifecycle(registries, planned_charges, treadle_charge);
+    // The project owns a fixed amount of useful mechanical work. Buffer choice only determines
+    // how many charging events are needed; it cannot silently resize the player's project.
+    let charge_events =
+        charge_events_for_declared_work(declared_work_nj, capacity_nj, "primitive project");
+    let declared_work = Energy::from_nanojoules(declared_work_nj);
+    let crank_lifecycle = crank_route.project_lifecycle(registries, declared_work);
+    let treadle_lifecycle = treadle_route.project_lifecycle(registries, declared_work);
     let decision_crossover_charges = first_candidate_preferred_charge(
         registries,
         crank_route,
         crank_build,
         treadle_route,
         treadle_build,
-        MAX_PRIMITIVE_PLANNED_CHARGES,
+        MAX_PRIMITIVE_CROSSOVER_CHARGES,
     );
     let crank_lifecycle_attention = crank_build
         .attention_ticks
@@ -547,7 +585,8 @@ pub(super) fn primitive_power_plan(
         },
         store_definition,
         capacity_nj,
-        planned_charges,
+        declared_work_nj,
+        charge_events,
         crank_build,
         treadle_build,
         crank_charge,

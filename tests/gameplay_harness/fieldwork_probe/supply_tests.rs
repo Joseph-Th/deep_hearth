@@ -12,6 +12,29 @@ fn replay(seed: u64) -> FocusedProbeCase {
     )
 }
 
+#[test]
+fn maintained_bulk_order_replays_quarry_investment_from_seed_alone() {
+    let registries = deep_hearth::content::build_registries();
+    let case = replay(FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED);
+    let requested = fieldwork_order_for_case(&registries, case);
+    assert_eq!(
+        requested,
+        multiplied_mass(
+            fieldwork_mining_limits(&registries).base_quarry_batch,
+            FIELDWORK_BULK_INVESTMENT_COVERAGE_BATCHES,
+            "bulk-investment coverage expectation",
+        )
+    );
+    assert!(fieldwork_supply_for_case(case) > requested);
+
+    let episode = run_fieldwork_order(&registries, case, requested);
+    assert_eq!(episode.full_order_tool, Some(EQUIPMENT_STONE_QUARRY_PICK));
+    assert_eq!(episode.tool, EQUIPMENT_STONE_QUARRY_PICK);
+    assert_eq!(episode.resource_knowledge_effect, "same-tool");
+    assert_eq!(episode.planned_local_mass, requested);
+    assert_eq!(episode.extraction.stop, FieldworkStop::OrderComplete);
+}
+
 fn assert_supply_stop(supply_batches: u64, half_batch: bool, expected_stop: FieldworkStop) {
     let registries = deep_hearth::content::build_registries();
     let requested =
@@ -179,13 +202,9 @@ fn acquired_resource_scale_changes_current_project_workload_before_depletion() {
 }
 
 #[test]
-fn maintained_bulk_order_uses_reserve_knowledge_to_avoid_quarry_overinvestment() {
+fn maintained_reserve_scale_case_replays_overinvestment_avoidance_from_seed_alone() {
     let registries = deep_hearth::content::build_registries();
-    let case = FocusedProbeCase::new(
-        FIELDWORK_RESERVE_SCALE_COVERAGE_SEED,
-        None,
-        FocusedProbeRole::MaintainedCoverage,
-    );
+    let case = replay(FIELDWORK_RESERVE_SCALE_COVERAGE_SEED);
     let requested = fieldwork_order_for_case(&registries, case);
     assert_eq!(
         requested,

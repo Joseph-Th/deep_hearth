@@ -5,211 +5,23 @@ use deep_hearth::content::{
     EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
     MANUAL_POWER_WALKING_WHEEL,
 };
-use deep_hearth::core::quantity::{AggregateMass, Mass};
+use deep_hearth::core::quantity::AggregateMass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::energy::{EnergyStoreDefinitionId, EnergyStoreId, validate_assemble_energy_store};
-use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
+use deep_hearth::energy::EnergyStoreId;
+use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{ManualPowerMethodId, ManualPowerRequest, validate_start_manual_power};
-use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::assess_survival;
 
-use super::super::manual_craft_execution::execute_manual_craft_batches;
-use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::super::manual_power_timing::finish_manual_power_work;
+use super::build::{build_flywheel, build_provider, stockpile_mass};
+use super::consumers::{
+    PrimitivePowerConsumer, SettlementPowerConsumer, consume_primitive_charge,
+    consume_settlement_charge,
+};
 use super::planning::{PrimitivePowerPlan, SettlementPowerPlan, ShapedBuild};
-
-fn stockpile_mass(state: &AppState, raw: StockpileId) -> Mass {
-    state
-        .inventory()
-        .get_stockpile(raw)
-        .unwrap_or_else(|| panic!("power build stockpile disappeared"))
-        .stored_mass()
-}
-
-fn shape_assembly_inputs(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
-    inputs: Vec<(CommodityKey, Mass)>,
-    context: &'static str,
-) -> u64 {
-    let mut attention_ticks = 0_u64;
-    for (commodity, required) in inputs {
-        let available = state
-            .inventory()
-            .get_stockpile(shaped)
-            .map(|stockpile| stockpile.get_mass(commodity))
-            .unwrap_or_else(|| panic!("power provider {context} shaped stockpile disappeared"));
-        if available >= required {
-            continue;
-        }
-        let missing = required
-            .checked_sub(available)
-            .unwrap_or_else(|| unreachable!("power provider component availability was checked"));
-        let (craft, batches, source) = manual_craft_plan_for_available_output(
-            registries,
-            state,
-            &[raw],
-            commodity,
-            missing,
-            context,
-        );
-        attention_ticks = attention_ticks
-            .checked_add(
-                execute_manual_craft_batches(
-                    registries,
-                    state,
-                    craft.process(),
-                    source,
-                    shaped,
-                    batches,
-                    context,
-                )
-                .value(),
-            )
-            .unwrap_or_else(|| panic!("power provider {context} attention overflowed"));
-    }
-    attention_ticks
-}
-
-fn build_provider(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
-    definition: deep_hearth::equipment::EquipmentDefinitionId,
-    context: &'static str,
-) -> (EquipmentId, ShapedBuild) {
-    let inputs = registries
-        .equipment()
-        .get_equipment(definition)
-        .and_then(|equipment| equipment.assembly_profile())
-        .map(|profile| {
-            (
-                profile.input_mass(),
-                profile
-                    .inputs()
-                    .iter()
-                    .map(|input| (input.commodity(), input.mass()))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "power provider equipment {} lost authored assembly",
-                definition.value()
-            )
-        });
-    let raw_before = stockpile_mass(state, raw);
-    let survival_before = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power provider {context} lost survival state before build"));
-    let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
-    let input_mass_mg = raw_before
-        .checked_sub(stockpile_mass(state, raw))
-        .unwrap_or_else(|| panic!("power build must withdraw raw matter"))
-        .milligrams();
-    assert!(
-        input_mass_mg >= inputs.0.milligrams(),
-        "raw bill must cover embodied matter"
-    );
-    let equipment = validate_assemble_equipment(registries, state, definition, shaped)
-        .unwrap_or_else(|error| panic!("power provider equipment assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("power provider equipment commit failed: {error}"));
-    let survival_after = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power provider {context} lost survival state after build"));
-    (
-        equipment,
-        ShapedBuild {
-            attention_ticks,
-            input_mass_mg,
-            embodied_mass_mg: inputs.0.milligrams(),
-            metabolic_nj: survival_before
-                .metabolic_energy()
-                .nanojoules()
-                .checked_sub(survival_after.metabolic_energy().nanojoules())
-                .unwrap_or_else(|| {
-                    panic!("power provider {context} build metabolic audit underflowed")
-                }),
-            hydration_ul: survival_before
-                .hydration()
-                .microliters()
-                .checked_sub(survival_after.hydration().microliters())
-                .unwrap_or_else(|| {
-                    panic!("power provider {context} build hydration audit underflowed")
-                }),
-        },
-    )
-}
-
-fn build_flywheel(
-    registries: &Registries,
-    state: &mut AppState,
-    raw: StockpileId,
-    shaped: StockpileId,
-    definition: EnergyStoreDefinitionId,
-    context: &'static str,
-) -> (EnergyStoreId, ShapedBuild) {
-    let inputs = registries
-        .energy()
-        .get_store(definition)
-        .and_then(|store| store.assembly_profile())
-        .map(|profile| {
-            (
-                profile.input_mass(),
-                profile
-                    .inputs()
-                    .iter()
-                    .map(|input| (input.commodity(), input.mass()))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .unwrap_or_else(|| panic!("power provider flywheel lost authored assembly"));
-    let raw_before = stockpile_mass(state, raw);
-    let survival_before = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power provider {context} lost survival state before build"));
-    let attention_ticks = shape_assembly_inputs(registries, state, raw, shaped, inputs.1, context);
-    let input_mass_mg = raw_before
-        .checked_sub(stockpile_mass(state, raw))
-        .unwrap_or_else(|| panic!("power build must withdraw raw matter"))
-        .milligrams();
-    assert!(
-        input_mass_mg >= inputs.0.milligrams(),
-        "raw bill must cover embodied matter"
-    );
-    let store = validate_assemble_energy_store(registries, state, definition, shaped)
-        .unwrap_or_else(|error| panic!("power provider flywheel assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("power provider flywheel commit failed: {error}"));
-    let survival_after = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power provider {context} lost survival state after build"));
-    (
-        store,
-        ShapedBuild {
-            attention_ticks,
-            input_mass_mg,
-            embodied_mass_mg: inputs.0.milligrams(),
-            metabolic_nj: survival_before
-                .metabolic_energy()
-                .nanojoules()
-                .checked_sub(survival_after.metabolic_energy().nanojoules())
-                .unwrap_or_else(|| {
-                    panic!("power provider {context} build metabolic audit underflowed")
-                }),
-            hydration_ul: survival_before
-                .hydration()
-                .microliters()
-                .checked_sub(survival_after.hydration().microliters())
-                .unwrap_or_else(|| {
-                    panic!("power provider {context} build hydration audit underflowed")
-                }),
-        },
-    )
-}
 
 pub(super) struct ChargeOutcome {
     pub(super) attention_ticks: u64,
@@ -277,6 +89,10 @@ pub(super) struct PrimitiveComparison {
     pub(super) treadle_build: ShapedBuild,
     pub(super) treadle_drive_build: ShapedBuild,
     pub(super) treadle_charge: ChargeOutcome,
+    pub(super) crank_second_charge: ChargeOutcome,
+    pub(super) treadle_second_charge: ChargeOutcome,
+    pub(super) crank_consumer_ticks: u64,
+    pub(super) treadle_consumer_ticks: u64,
     pub(super) crank_residual_mg: u64,
     pub(super) treadle_residual_mg: u64,
 }
@@ -288,7 +104,9 @@ pub(super) fn execute_primitive_comparison(
     shaped: StockpileId,
     matter_before: AggregateMass,
     plan: PrimitivePowerPlan,
+    consumer: PrimitivePowerConsumer,
 ) -> PrimitiveComparison {
+    let shaped_before_mg = stockpile_mass(state, shaped).milligrams();
     let mut crank_state = state.clone();
     let mut treadle_state = state.clone();
     let (crank, crank_build) = build_provider(
@@ -340,6 +158,42 @@ pub(super) fn execute_primitive_comparison(
         treadle_drive,
         plan.capacity_nj,
         "power provider treadle charge",
+    );
+    let crank_consumer_ticks = consume_primitive_charge(
+        registries,
+        &mut crank_state,
+        consumer,
+        crank_drive,
+        plan.capacity_nj,
+    );
+    let treadle_consumer_ticks = consume_primitive_charge(
+        registries,
+        &mut treadle_state,
+        consumer,
+        treadle_drive,
+        plan.capacity_nj,
+    );
+    assert_eq!(
+        crank_consumer_ticks, treadle_consumer_ticks,
+        "matched primitive power providers must feed the same productive consumer duration"
+    );
+    let crank_second_charge = charge_to_full(
+        registries,
+        &mut crank_state,
+        MANUAL_POWER_HAND_CRANK,
+        crank,
+        crank_drive,
+        plan.capacity_nj,
+        "power provider crank second charge",
+    );
+    let treadle_second_charge = charge_to_full(
+        registries,
+        &mut treadle_state,
+        MANUAL_POWER_FOOT_TREADLE,
+        treadle,
+        treadle_drive,
+        plan.capacity_nj,
+        "power provider treadle second charge",
     );
     assert_eq!(
         plan.crank_build.attention_ticks,
@@ -446,8 +300,18 @@ pub(super) fn execute_primitive_comparison(
         treadle_build,
         treadle_drive_build,
         treadle_charge,
-        crank_residual_mg: stockpile_mass(&crank_state, shaped).milligrams(),
-        treadle_residual_mg: stockpile_mass(&treadle_state, shaped).milligrams(),
+        crank_second_charge,
+        treadle_second_charge,
+        crank_consumer_ticks,
+        treadle_consumer_ticks,
+        crank_residual_mg: stockpile_mass(&crank_state, shaped)
+            .milligrams()
+            .checked_sub(shaped_before_mg)
+            .unwrap_or_else(|| panic!("crank branch removed shared shaped stock")),
+        treadle_residual_mg: stockpile_mass(&treadle_state, shaped)
+            .milligrams()
+            .checked_sub(shaped_before_mg)
+            .unwrap_or_else(|| panic!("treadle branch removed shared shaped stock")),
     }
 }
 
@@ -458,6 +322,10 @@ pub(super) struct SettlementComparison {
     pub(super) walking_build: ShapedBuild,
     pub(super) walking_drive_build: ShapedBuild,
     pub(super) walking_charge: ChargeOutcome,
+    pub(super) settlement_treadle_second_charge: ChargeOutcome,
+    pub(super) walking_second_charge: ChargeOutcome,
+    pub(super) settlement_treadle_consumer_ticks: u64,
+    pub(super) walking_consumer_ticks: u64,
 }
 
 pub(super) fn execute_settlement_comparison(
@@ -467,6 +335,7 @@ pub(super) fn execute_settlement_comparison(
     shaped: StockpileId,
     matter_before: AggregateMass,
     plan: SettlementPowerPlan,
+    consumer: SettlementPowerConsumer,
 ) -> SettlementComparison {
     let mut treadle_state = state.clone();
     let mut walking_state = state.clone();
@@ -519,6 +388,42 @@ pub(super) fn execute_settlement_comparison(
         walking_drive,
         plan.capacity_nj,
         "walking-wheel charge",
+    );
+    let settlement_treadle_consumer_ticks = consume_settlement_charge(
+        registries,
+        &mut treadle_state,
+        consumer,
+        settlement_treadle_drive,
+        plan.capacity_nj,
+    );
+    let walking_consumer_ticks = consume_settlement_charge(
+        registries,
+        &mut walking_state,
+        consumer,
+        walking_drive,
+        plan.capacity_nj,
+    );
+    assert_eq!(
+        settlement_treadle_consumer_ticks, walking_consumer_ticks,
+        "matched settlement power providers must feed the same productive consumer duration"
+    );
+    let settlement_treadle_second_charge = charge_to_full(
+        registries,
+        &mut treadle_state,
+        MANUAL_POWER_FOOT_TREADLE,
+        settlement_treadle,
+        settlement_treadle_drive,
+        plan.capacity_nj,
+        "settlement treadle second charge",
+    );
+    let walking_second_charge = charge_to_full(
+        registries,
+        &mut walking_state,
+        MANUAL_POWER_WALKING_WHEEL,
+        walking,
+        walking_drive,
+        plan.capacity_nj,
+        "walking-wheel second charge",
     );
     assert_eq!(
         plan.treadle_build.attention_ticks,
@@ -609,5 +514,9 @@ pub(super) fn execute_settlement_comparison(
         walking_build,
         walking_drive_build,
         walking_charge,
+        settlement_treadle_second_charge,
+        walking_second_charge,
+        settlement_treadle_consumer_ticks,
+        walking_consumer_ticks,
     }
 }

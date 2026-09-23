@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
+use crate::capability::{CapabilityEvaluationError, CapabilityValue, evaluate_capabilities};
 use crate::core::quantity::{Mass, MassFlow};
 use crate::core::state::AppState;
 use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
@@ -13,9 +13,7 @@ use crate::energy::{
     assess_energy_supply_access, calculate_mass_specific_energy, calculate_power_duration_ceiling,
     validate_energy_supply_request,
 };
-use crate::equipment::{
-    EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
-};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
@@ -90,15 +88,7 @@ pub enum PoweredCraftError {
         batch_mass: Mass,
     },
     Equipment(EquipmentProviderError),
-    MissingEquipmentCapability {
-        equipment: EquipmentId,
-        capability: CapabilityId,
-    },
-    EquipmentCapabilityKindMismatch {
-        equipment: EquipmentId,
-        capability: CapabilityId,
-        found: CapabilityValueKind,
-    },
+    Capability(CapabilityEvaluationError),
     Energy(EnergySupplyError),
     WrongEnergyCarrier {
         required: EnergyCarrier,
@@ -146,25 +136,12 @@ impl Display for PoweredCraftError {
             Self::Equipment(error) => {
                 write!(formatter, "powered craft equipment is unavailable: {error}")
             }
-            Self::MissingEquipmentCapability {
-                equipment,
-                capability,
-            } => write!(
-                formatter,
-                "powered craft equipment {} lacks throughput capability {}",
-                equipment.value(),
-                capability.value()
-            ),
-            Self::EquipmentCapabilityKindMismatch {
-                equipment,
-                capability,
-                found,
-            } => write!(
-                formatter,
-                "powered craft equipment {} capability {} has {found:?}, not mass throughput",
-                equipment.value(),
-                capability.value()
-            ),
+            Self::Capability(error) => {
+                write!(
+                    formatter,
+                    "powered craft equipment capability failed: {error}"
+                )
+            }
             Self::Energy(error) => write!(
                 formatter,
                 "powered craft energy supply is unavailable: {error}"
@@ -199,6 +176,7 @@ impl Error for PoweredCraftError {
         match self {
             Self::Input(error) => Some(error),
             Self::Equipment(error) => Some(error),
+            Self::Capability(error) => Some(error),
             Self::Energy(error) => Some(error),
             Self::ThroughputDuration(error) => Some(error),
             Self::EnergyDuration(error) => Some(error),
@@ -212,8 +190,6 @@ impl Error for PoweredCraftError {
             | Self::InputCompositionMismatch
             | Self::MixedInputTemperature
             | Self::InputMassNotWholeBatches { .. }
-            | Self::MissingEquipmentCapability { .. }
-            | Self::EquipmentCapabilityKindMismatch { .. }
             | Self::WrongEnergyCarrier { .. }
             | Self::OutputMassOverflow => None,
         }
@@ -316,25 +292,24 @@ pub fn resolve_powered_craft(
 
     let provider = resolve_equipment_provider(registries, state, request.equipment)
         .map_err(PoweredCraftError::Equipment)?;
+    let process_definition = registries.production().get_process(request.process).ok_or(
+        PoweredCraftError::UnknownProcess {
+            process: request.process,
+        },
+    )?;
+    evaluate_capabilities(
+        registries.capabilities(),
+        &provider,
+        process_definition.capability_requirements(),
+    )
+    .map_err(PoweredCraftError::Capability)?;
     let capability = definition.mass_flow_capability();
-    let rate =
-        match resolve_equipment_capability(provider.definition(), provider.condition(), capability)
-        {
-            Some(CapabilityValue::MassFlow(rate)) => rate,
-            Some(value) => {
-                return Err(PoweredCraftError::EquipmentCapabilityKindMismatch {
-                    equipment: request.equipment,
-                    capability,
-                    found: value.kind(),
-                });
-            }
-            None => {
-                return Err(PoweredCraftError::MissingEquipmentCapability {
-                    equipment: request.equipment,
-                    capability,
-                });
-            }
-        };
+    let rate = match provider.get_capability(capability) {
+        Some(CapabilityValue::MassFlow(rate)) => rate,
+        Some(_) | None => unreachable!(
+            "validated powered-craft provider lost its resolver-owned throughput capability"
+        ),
+    };
     let access = assess_energy_supply_access(registries, state, request.energy_store)
         .map_err(PoweredCraftError::Energy)?;
     if access.carrier() != definition.energy_carrier() {

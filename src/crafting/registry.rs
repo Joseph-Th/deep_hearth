@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::capability::{CapabilityRegistry, CapabilityValueKind};
+use crate::capability::{CapabilityComparison, CapabilityRegistry, CapabilityValueKind};
 use crate::material::{CommodityKey, MaterialRegistry, ParticleSizeStatePolicy};
 use crate::production::{ProcessId, ProductionRegistry};
 
@@ -242,15 +242,20 @@ impl CraftingRegistry {
                         definition.process().value()
                     )
                 });
-            assert!(
-                process
-                    .capability_requirements()
-                    .iter()
-                    .any(
-                        |requirement| requirement.capability() == definition.mass_flow_capability()
-                    ),
-                "powered craft {} production definition does not require its machine throughput capability",
-                definition.process().value()
+            let requirement = process
+                .get_capability_requirement(definition.mass_flow_capability())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "powered craft {} production definition does not require its machine throughput capability",
+                        definition.process().value()
+                    )
+                });
+            assert_eq!(
+                requirement.comparison(),
+                CapabilityComparison::AtLeast,
+                "powered craft {} machine throughput capability {} must use AtLeast comparison",
+                definition.process().value(),
+                definition.mass_flow_capability().value()
             );
             assert!(
                 production.get_process(transform.process()).is_some(),
