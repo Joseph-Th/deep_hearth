@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from .common import field, organic_only, sample_shape
 
 
@@ -27,6 +29,21 @@ def woodworking_summary(lines: list[str]) -> str | None:
         if choice_count(woodworking, choice) > 0
     }
     organic_woodworking = organic_only(woodworking)
+    feedback = [line for line in lines if line.startswith("WOODWORKING FEEDBACK ")]
+    attention_model_agrees = 0
+    timber_model_agrees = 0
+    choices_revised = 0
+    for line in feedback:
+        attention = re.search(
+            r"attention=\[budget-met:(true|false) actual-payback:(true|false)\]",
+            line,
+        )
+        timber = re.search(r"timber=\[nominal:([^ ]+) actual:([^\]]+)\]", line)
+        if attention is not None and attention.group(1) == attention.group(2):
+            attention_model_agrees += 1
+        if timber is not None and timber.group(1) == timber.group(2):
+            timber_model_agrees += 1
+        choices_revised += "choice-revised-after-outcome=true" in line
     return (
         "ORDINARY SUMMARY probe=woodworking "
         f"samples={len(woodworking)} sample-shape=[{sample_shape(woodworking)}] "
@@ -55,5 +72,9 @@ def woodworking_summary(lines: list[str]) -> str | None:
         f"fundable={count(' fundable:true ')} "
         f"attention-payback={count('attention-payback:true')} "
         f"timber-saving={count('timber-saving:true')} "
-        f"timber-neutral={count('timber-neutral:true')}"
+        f"timber-neutral={count('timber-neutral:true')} "
+        f"lifecycle-feedback=[samples:{len(feedback)}/{len(woodworking)} "
+        f"attention-model-agrees:{attention_model_agrees}/{len(feedback)} "
+        f"timber-model-agrees:{timber_model_agrees}/{len(feedback)} "
+        f"choice-revised:{choices_revised}/{len(feedback)}]"
     )

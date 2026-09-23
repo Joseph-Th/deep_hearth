@@ -237,9 +237,29 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
             if (match := re.search(pattern, line)) is not None
         ]
 
+    projected_savings: list[int] = []
+    realized_deltas: list[int] = []
+    for line in recoveries:
+        projected = re.search(
+            r"\bprojected-search=\[point:(\d+)t indexed:(\d+)t\]", line
+        )
+        if projected is not None:
+            projected_savings.append(int(projected.group(1)) - int(projected.group(2)))
+        realized = re.search(r"\battention-delta:([+-]\d+)t", line)
+        if realized is not None:
+            realized_deltas.append(int(realized.group(1)))
+
     return (
         "initial-shortfall-campaign=["
         f"cases:{len(recoveries)} "
+        f"strategy:point{sum(' strategy=point-search ' in line for line in recoveries)}"
+        f"/indexed{sum(' strategy=indexed-channel ' in line for line in recoveries)} "
+        f"survey-upgrade:{_span(values(r'\bsurvey-upgrade=(\d+)t'))} "
+        f"projected-search-saving:{_span(projected_savings)} "
+        f"realized=[positive:{sum(value > 0 for value in realized_deltas)} "
+        f"negative:{sum(value < 0 for value in realized_deltas)} "
+        f"flat:{sum(value == 0 for value in realized_deltas)} "
+        f"delta:{_signed_span(realized_deltas)}] "
         f"completed:{sum(' terminal=order-complete' in line for line in recoveries)} "
         f"local-area-exhausted:{sum(' terminal=local-search-area-exhausted' in line for line in recoveries)} "
         f"sites:{_span(values(r'\bsites-visited=(\d+)'), unit='')} "

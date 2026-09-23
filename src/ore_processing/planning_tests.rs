@@ -6,9 +6,10 @@ use crate::capability::{
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_CRUSHED, FORM_INGOT, FORM_ORE, MATERIAL_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
-    build_registries, make_test_registries_with_comminution,
+    ENERGY_ELECTRICAL_BUFFER, ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_CRUSHER, FORM_CRUSHED,
+    FORM_INGOT, FORM_ORE, MATERIAL_COPPER, PROCESS_CRUSH_ORE, PROCESS_MELT_PURE_COPPER,
+    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
+    make_test_registries_with_comminution,
 };
 use crate::core::quantity::{Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
@@ -26,7 +27,8 @@ use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
 use crate::ore_processing::{
     ComminutionProcessDefinition, ComminutionRequest, ComminutionResolutionError,
-    PoweredOreProcessProfile, resolve_comminution_process,
+    PoweredOreOrderError, PoweredOreOrderMaintenancePolicy, PoweredOreOrderRequest,
+    PoweredOreProcessProfile, project_powered_ore_order, resolve_comminution_process,
 };
 use crate::production::{ProcessDefinition, ProcessId, validate_start_process};
 use crate::registry::Registries;
@@ -48,6 +50,49 @@ struct PlanningConfig {
     stored_nj: u128,
     output_power: Power,
     store_carrier: EnergyCarrier,
+}
+
+#[test]
+fn powered_ore_order_honors_the_callers_batch_bound() {
+    let registries = build_registries();
+    assert_eq!(
+        project_powered_ore_order(
+            &registries,
+            PROCESS_CRUSH_ORE,
+            EQUIPMENT_STONE_CRUSHER,
+            ENERGY_STONE_FLYWHEEL_DRIVE,
+            PoweredOreOrderRequest::new(
+                Condition::PRISTINE,
+                Mass::from_milligrams(55_000_000),
+                1,
+                PoweredOreOrderMaintenancePolicy::ServiceAtCritical,
+            ),
+        ),
+        Err(PoweredOreOrderError::BatchLimitExceeded { maximum: 1 })
+    );
+}
+
+#[test]
+fn powered_ore_order_rejects_a_replenishment_store_with_the_wrong_carrier() {
+    let registries = build_registries();
+    assert_eq!(
+        project_powered_ore_order(
+            &registries,
+            PROCESS_CRUSH_ORE,
+            EQUIPMENT_STONE_CRUSHER,
+            ENERGY_ELECTRICAL_BUFFER,
+            PoweredOreOrderRequest::new(
+                Condition::PRISTINE,
+                Mass::from_milligrams(1_000_000),
+                8,
+                PoweredOreOrderMaintenancePolicy::Unserviced,
+            ),
+        ),
+        Err(PoweredOreOrderError::WrongEnergyCarrier {
+            required: EnergyCarrier::Mechanical,
+            provided: EnergyCarrier::Electrical,
+        })
+    );
 }
 
 impl Default for PlanningConfig {
@@ -347,6 +392,42 @@ fn replenishment_projection_refuses_mass_beyond_non_energy_constraints() {
     assert_eq!(
         envelope.duration_for_mass_with_replenished_energy(Mass::from_milligrams(11)),
         None
+    );
+}
+
+#[test]
+fn powered_ore_order_projects_wear_fragmentation_and_critical_service() {
+    let registries = build_registries();
+    let requested = Mass::from_milligrams(55_000_000);
+    let order = project_powered_ore_order(
+        &registries,
+        PROCESS_CRUSH_ORE,
+        EQUIPMENT_STONE_CRUSHER,
+        ENERGY_STONE_FLYWHEEL_DRIVE,
+        PoweredOreOrderRequest::new(
+            Condition::PRISTINE,
+            requested,
+            256,
+            PoweredOreOrderMaintenancePolicy::ServiceAtCritical,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("powered ore order projection failed: {error}"));
+
+    assert_eq!(order.batches().len(), 122);
+    assert_eq!(order.services(), 4);
+    assert_eq!(
+        order.batches().iter().fold(Mass::ZERO, |total, batch| total
+            .checked_add(batch.mass())
+            .unwrap_or_else(|| panic!("projected order mass overflowed"))),
+        requested
+    );
+    assert_eq!(
+        order
+            .batches()
+            .iter()
+            .map(|batch| batch.required_energy().nanojoules())
+            .sum::<u128>(),
+        55_000_000_000_000
     );
 }
 

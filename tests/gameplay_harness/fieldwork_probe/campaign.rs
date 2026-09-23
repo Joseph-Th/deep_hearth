@@ -68,6 +68,14 @@ pub(super) struct FieldworkSurveyCampaignReview {
     pub(super) first_extracted: Mass,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct FieldworkSurveyDecision {
+    pub(super) selected_strategy: FieldworkSurveyStrategy,
+    pub(super) projected_upgrade_ticks: Option<u64>,
+    pub(super) projected_point_search_ticks: u64,
+    pub(super) projected_indexed_search_ticks: Option<u64>,
+}
+
 const MINIMUM_SURVEY_INVESTMENT_RETURN_PPM: u128 = 100_000;
 
 pub(super) fn planned_future_sites(seed: u64) -> u64 {
@@ -149,6 +157,42 @@ fn select_survey_strategy(
     // expected tick delta is not enough to justify that capital spend; small expeditions retain
     // the already-owned stone hammer until the disclosed campaign clears a material return.
     FieldworkSurveyStrategy::PointSearch
+}
+
+pub(super) fn decide_fieldwork_survey_strategy(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    channel_voxels: i64,
+    planned_sites: u64,
+) -> FieldworkSurveyDecision {
+    assert!(
+        planned_sites > 0,
+        "fieldwork survey plan requires at least one future site"
+    );
+    let point_per_site = expected_point_search_ticks(registries, channel_voxels);
+    let indexed_per_site = indexed_search_ticks(registries);
+    let projected_point_search_ticks = point_per_site
+        .checked_mul(planned_sites)
+        .unwrap_or_else(|| panic!("fieldwork point campaign projection overflowed"));
+    let projected_upgrade_ticks =
+        project_sampling_hammer_upgrade_ticks(registries, state, raw, parts);
+    let projected_indexed_search_ticks = projected_upgrade_ticks.map(|upgrade| {
+        indexed_per_site
+            .checked_mul(planned_sites)
+            .and_then(|search| search.checked_add(upgrade))
+            .unwrap_or_else(|| panic!("fieldwork indexed campaign projection overflowed"))
+    });
+    FieldworkSurveyDecision {
+        selected_strategy: select_survey_strategy(
+            projected_point_search_ticks,
+            projected_indexed_search_ticks,
+        ),
+        projected_upgrade_ticks,
+        projected_point_search_ticks,
+        projected_indexed_search_ticks,
+    }
 }
 
 fn run_sites(
@@ -236,21 +280,15 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
         channel_voxels: plan.channel_voxels,
         sites: &plan.sites[..site_count],
     };
-    let point_per_site = expected_point_search_ticks(registries, plan.channel_voxels);
-    let indexed_per_site = indexed_search_ticks(registries);
-    let projected_point_search_ticks = point_per_site
-        .checked_mul(planned_sites)
-        .unwrap_or_else(|| panic!("fieldwork point campaign projection overflowed"));
-    let upgrade_projection =
-        project_sampling_hammer_upgrade_ticks(registries, state, plan.raw, plan.parts);
-    let projected_indexed_search_ticks = upgrade_projection.map(|upgrade| {
-        indexed_per_site
-            .checked_mul(planned_sites)
-            .and_then(|search| search.checked_add(upgrade))
-            .unwrap_or_else(|| panic!("fieldwork indexed campaign projection overflowed"))
-    });
-    let selected_strategy =
-        select_survey_strategy(projected_point_search_ticks, projected_indexed_search_ticks);
+    let decision = decide_fieldwork_survey_strategy(
+        registries,
+        state,
+        plan.raw,
+        plan.parts,
+        plan.channel_voxels,
+        planned_sites,
+    );
+    let selected_strategy = decision.selected_strategy;
 
     let mut baseline_state = state.clone();
     let baseline = run_sites(
@@ -269,7 +307,7 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
             plan.parts,
             plan.hammer,
         );
-        assert_eq!(Some(upgrade_ticks), upgrade_projection);
+        assert_eq!(Some(upgrade_ticks), decision.projected_upgrade_ticks);
         let selected = run_sites(
             registries,
             &mut selected_state,
@@ -295,10 +333,10 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
     FieldworkSurveyCampaignReview {
         planned_sites,
         selected_strategy,
-        upgrade_available: upgrade_projection.is_some(),
+        upgrade_available: decision.projected_upgrade_ticks.is_some(),
         upgrade_ticks,
-        projected_point_search_ticks,
-        projected_indexed_search_ticks,
+        projected_point_search_ticks: decision.projected_point_search_ticks,
+        projected_indexed_search_ticks: decision.projected_indexed_search_ticks,
         baseline_search_ticks: baseline.search_ticks,
         selected_search_ticks: selected.search_ticks,
         extraction_ticks: selected.extraction_ticks,

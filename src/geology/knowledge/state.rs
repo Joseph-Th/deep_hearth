@@ -71,12 +71,12 @@ impl GeologicalKnowledgeState {
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut observations_by_material =
             BTreeMap::<MaterialId, BTreeSet<GeologicalObservationId>>::new();
-        for observation in self.observations.values() {
+        for (observation_id, observation) in &self.observations {
             for finding in &observation.findings {
                 observations_by_material
                     .entry(finding.material())
                     .or_default()
-                    .insert(observation.id);
+                    .insert(*observation_id);
             }
         }
         self.observations_by_material = observations_by_material;

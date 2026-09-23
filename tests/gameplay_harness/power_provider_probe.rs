@@ -48,8 +48,8 @@ use execution::{
     execute_selected_settlement_project, execute_settlement_comparison,
 };
 use planning::{
-    PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
-    primitive_power_plan, settlement_power_plan,
+    PrimitivePowerChoice, PrimitivePowerPlan, PrimitivePowerProject, SettlementPowerChoice,
+    SettlementPowerPlan, primitive_power_plan, settlement_power_plan,
 };
 use provisioning::seed_power_project_provisions;
 
@@ -187,9 +187,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &state,
         raw,
         shaped,
-        store_definition,
-        capacity_nj,
-        primitive_project_work.nanojoules(),
+        PrimitivePowerProject {
+            store_definition,
+            capacity_nj,
+            consumer: primitive_consumer.equipment(),
+            declared_mass: primitive_project_mass,
+            declared_work_nj: primitive_project_work.nanojoules(),
+        },
     );
     let (settlement_project_mass, settlement_project_work) =
         declared_settlement_lumber_project(registries, seed);
@@ -356,11 +360,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         std::cmp::Ordering::Greater => "walking-wheel",
     };
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive selected={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserve-delta:{}nJ/{}uL] end=[provider-condition:{}ppm consumer-condition:{}ppm metabolic:{}nJ hydration:{}uL] full-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t attention-best:{} selected-agrees:{}] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive selected={} declared=[work:{}nJ pristine-charge-events:{} consumer-projected-charge-events:{} consumer-projected-services:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t attention-best:{} selected-agrees:{}] evidence=complete-selected-project-canonical",
         focused_probe_role_label(case.role()),
         plan.choice.label(),
         plan.declared_work_nj,
         plan.charge_events,
+        plan.consumer_projected_charge_events,
+        plan.consumer_projected_services,
         primitive_provisions.food_supply_mg,
         primitive_provisions.food_preservation_ppm,
         primitive_provisions.water_supply_ul,
@@ -380,12 +386,12 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         primitive_selected.meal_actions,
         primitive_selected.meal_mass_mg,
         primitive_selected.elapsed_ticks,
-        primitive_selected.metabolic_nj,
-        primitive_selected.hydration_ul,
-        primitive_selected.provider_condition_ppm,
-        primitive_selected.consumer_condition_ppm,
+        primitive_selected.initial_metabolic_nj,
+        primitive_selected.initial_hydration_ul,
         primitive_selected.final_metabolic_nj,
         primitive_selected.final_hydration_ul,
+        primitive_selected.provider_condition_ppm,
+        primitive_selected.consumer_condition_ppm,
         primitive_crank_project.active_attention_ticks(),
         primitive_treadle_project.active_attention_ticks(),
         primitive_actual_attention_best,
@@ -393,7 +399,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             || primitive_actual_attention_best == "tie",
     );
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement selected={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserve-delta:{}nJ/{}uL] end=[provider-condition:{}ppm consumer-condition:{}ppm metabolic:{}nJ hydration:{}uL] full-counterfactual=[treadle-active-attention:{}t walking-active-attention:{}t attention-best:{} selected-agrees:{}] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement selected={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[treadle-active-attention:{}t walking-active-attention:{}t attention-best:{} selected-agrees:{}] evidence=complete-selected-project-canonical",
         focused_probe_role_label(case.role()),
         settlement_plan.choice.label(),
         settlement_plan.declared_work_nj,
@@ -417,12 +423,12 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_selected.meal_actions,
         settlement_selected.meal_mass_mg,
         settlement_selected.elapsed_ticks,
-        settlement_selected.metabolic_nj,
-        settlement_selected.hydration_ul,
-        settlement_selected.provider_condition_ppm,
-        settlement_selected.consumer_condition_ppm,
+        settlement_selected.initial_metabolic_nj,
+        settlement_selected.initial_hydration_ul,
         settlement_selected.final_metabolic_nj,
         settlement_selected.final_hydration_ul,
+        settlement_selected.provider_condition_ppm,
+        settlement_selected.consumer_condition_ppm,
         settlement_treadle_project.active_attention_ticks(),
         settlement_walking_project.active_attention_ticks(),
         settlement_actual_attention_best,
@@ -512,7 +518,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_project_work.nanojoules()
     );
     reviewln!(
-        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{}charges provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t body:{}nJ/{}uL provider-condition:{}ppm consumer-condition:{}ppm final-reserve:{}nJ/{}uL] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
+        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{}charges provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
         focused_probe_role_label(case.role()),
         settlement_project_mass.milligrams(),
         settlement_project_work.nanojoules(),
@@ -563,12 +569,12 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_selected.service_ticks,
         settlement_selected.replacement_mass_mg,
         settlement_selected.elapsed_ticks,
-        settlement_selected.metabolic_nj,
-        settlement_selected.hydration_ul,
-        settlement_selected.provider_condition_ppm,
-        settlement_selected.consumer_condition_ppm,
+        settlement_selected.initial_metabolic_nj,
+        settlement_selected.initial_hydration_ul,
         settlement_selected.final_metabolic_nj,
         settlement_selected.final_hydration_ul,
+        settlement_selected.provider_condition_ppm,
+        settlement_selected.consumer_condition_ppm,
     );
 
     let charge_attention_reduction_ppm = u64::try_from(
@@ -653,11 +659,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         break_even_charges,
     );
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} wear-aware-decision-crossover:{} provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t body:{}nJ/{}uL provider-condition:{}ppm consumer-condition:{}ppm final-reserve:{}nJ/{}uL] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ buffer-lower-bound-charges:{} consumer-projected-charges:{} projected-services:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} wear-aware-decision-crossover:{} provider-lifecycle=consumer-batches+provider-condition] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
         focused_probe_role_label(case.role()),
         primitive_project_mass.milligrams(),
         primitive_project_work.nanojoules(),
         plan.charge_events,
+        plan.consumer_projected_charge_events,
+        plan.consumer_projected_services,
         capacity_nj,
         plan.choice.label(),
         plan.minimum_attention_return_ticks,
@@ -709,12 +717,12 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         primitive_selected.service_ticks,
         primitive_selected.replacement_mass_mg,
         primitive_selected.elapsed_ticks,
-        primitive_selected.metabolic_nj,
-        primitive_selected.hydration_ul,
-        primitive_selected.provider_condition_ppm,
-        primitive_selected.consumer_condition_ppm,
+        primitive_selected.initial_metabolic_nj,
+        primitive_selected.initial_hydration_ul,
         primitive_selected.final_metabolic_nj,
         primitive_selected.final_hydration_ul,
+        primitive_selected.provider_condition_ppm,
+        primitive_selected.consumer_condition_ppm,
     );
     // Post-copper catalog context without disturbing the copper-free matched comparison above.
     // The reinforced crank needs mined native copper, so it cannot join the copper-free arms;

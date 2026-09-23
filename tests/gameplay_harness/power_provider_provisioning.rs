@@ -124,7 +124,6 @@ pub(super) struct ProvisioningOutcome {
     pub(super) drink_volume_ul: u64,
     pub(super) meal_actions: u64,
     pub(super) meal_mass_mg: u64,
-    pub(super) meal_energy_nj: u128,
     pub(super) attention_ticks: u64,
 }
 
@@ -150,10 +149,6 @@ impl ProvisioningOutcome {
             .meal_mass_mg
             .checked_add(other.meal_mass_mg)
             .unwrap_or_else(|| panic!("power project meal mass overflowed"));
-        self.meal_energy_nj = self
-            .meal_energy_nj
-            .checked_add(other.meal_energy_nj)
-            .unwrap_or_else(|| panic!("power project meal energy overflowed"));
         self.attention_ticks = self
             .attention_ticks
             .checked_add(other.attention_ticks)
@@ -484,10 +479,6 @@ pub(super) fn provision_for_project_leg(
             .meal_mass_mg
             .checked_add(meal.total_mass().milligrams())
             .unwrap_or_else(|| panic!("power project meal mass overflowed"));
-        outcome.meal_energy_nj = outcome
-            .meal_energy_nj
-            .checked_add(meal.energy_offered().nanojoules())
-            .unwrap_or_else(|| panic!("power project meal energy overflowed"));
         let after_meal = assess_survival(registries, state)
             .unwrap_or_else(|| panic!("power project {context} lost player during planned meal"));
         assert!(

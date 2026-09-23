@@ -72,10 +72,13 @@ impl ProductionIndexes {
         }
     }
 
-    pub(super) fn rebuild<'a>(&mut self, jobs: impl Iterator<Item = &'a ProductionJobRecord>) {
+    pub(super) fn rebuild<'a>(
+        &mut self,
+        jobs: impl Iterator<Item = (&'a ProductionJobId, &'a ProductionJobRecord)>,
+    ) {
         *self = Self::new();
-        for job in jobs {
-            self.insert_rebuilt(job.id(), &ProductionJobIndexProjection::from_job(job));
+        for (id, job) in jobs {
+            self.insert_rebuilt(*id, &ProductionJobIndexProjection::from_job(job));
         }
     }
 

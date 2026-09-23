@@ -258,16 +258,8 @@ pub(in super::super::super) fn execute_selected_settlement_project(
             .value()
             .checked_sub(started_at)
             .unwrap_or_else(|| unreachable!("selected settlement project cannot run backward")),
-        metabolic_nj: survival_before
-            .metabolic_energy()
-            .nanojoules()
-            .checked_sub(survival_after.metabolic_energy().nanojoules())
-            .unwrap_or_else(|| panic!("selected settlement total metabolism underflowed")),
-        hydration_ul: survival_before
-            .hydration()
-            .microliters()
-            .checked_sub(survival_after.hydration().microliters())
-            .unwrap_or_else(|| panic!("selected settlement total hydration underflowed")),
+        initial_metabolic_nj: survival_before.metabolic_energy().nanojoules(),
+        initial_hydration_ul: survival_before.hydration().microliters(),
         provider_condition_ppm,
         consumer_condition_ppm,
         final_metabolic_nj: survival_after.metabolic_energy().nanojoules(),

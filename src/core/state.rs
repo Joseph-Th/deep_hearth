@@ -221,6 +221,9 @@ impl AppState {
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
+        // Trusted load calls this on decoded state before semantic validation. Rebuilders must
+        // therefore derive index identity from persisted collection keys, never from unchecked
+        // record-internal IDs; owner validation rejects any key/record mismatch afterward.
         self.systems.inventory.rebuild_derived_indexes();
         self.systems.equipment.rebuild_derived_indexes();
         self.systems.fluid.rebuild_derived_indexes();

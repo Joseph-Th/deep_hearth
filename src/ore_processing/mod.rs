@@ -3,6 +3,7 @@
 mod comminution_execution;
 mod definitions;
 mod manual_physics;
+mod order;
 mod planning;
 mod powered_physics;
 mod registry;
@@ -10,6 +11,10 @@ mod screening_execution;
 mod separation_execution;
 mod validation;
 
+pub use order::{
+    PoweredOreOrderBatch, PoweredOreOrderError, PoweredOreOrderMaintenancePolicy,
+    PoweredOreOrderRequest, PoweredOreOrderResolution, project_powered_ore_order,
+};
 pub use planning::{
     PoweredOreMassConstraint, PoweredOreMassEnvelope, PoweredOreMassEnvelopeError,
     assess_powered_ore_mass_envelope,

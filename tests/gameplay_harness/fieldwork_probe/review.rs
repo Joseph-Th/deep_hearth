@@ -23,9 +23,9 @@ use super::extraction::{
     FieldworkExtraction, FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction,
 };
 use super::planning::FieldworkToolEstimate;
+use super::recovery::execute_initial_shortfall_recovery;
 use super::survey::{
-    CHANNEL_COUNT, FieldworkSurveyStrategy, QUATERNARY_CHANNEL_START_X, SECONDARY_CHANNEL_START_X,
-    TERTIARY_CHANNEL_START_X, localize_target,
+    CHANNEL_COUNT, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
 };
 
 pub(super) struct FieldworkEpisodeReview<'a> {
@@ -36,6 +36,7 @@ pub(super) struct FieldworkEpisodeReview<'a> {
     pub(super) deposit_mass: Mass,
     pub(super) order_horizon: &'static str,
     pub(super) raw: StockpileId,
+    pub(super) parts: StockpileId,
     pub(super) followup_destination: StockpileId,
     pub(super) reroute_destination: StockpileId,
     pub(super) sampling_hammer: EquipmentId,
@@ -79,16 +80,6 @@ struct KnownSiteExploitation {
     metabolic_nj: u128,
     hydration_ul: u64,
     final_state: AppState,
-}
-
-struct InitialShortfallRecovery {
-    sites_visited: u64,
-    search_ticks: u64,
-    extraction_ticks: u64,
-    additional_extracted: Mass,
-    fulfilled: Mass,
-    remaining: Mass,
-    terminal: &'static str,
 }
 
 fn execute_known_site_exploitation(
@@ -244,99 +235,6 @@ fn execute_site_reroute(
     (search_ticks, extraction)
 }
 
-fn execute_initial_shortfall_recovery(
-    review: &FieldworkEpisodeReview<'_>,
-) -> InitialShortfallRecovery {
-    let mut state = review.state.clone();
-    let mut remaining = review
-        .requested
-        .checked_sub(review.extraction.extracted)
-        .unwrap_or_else(|| unreachable!("initial fieldwork extraction cannot exceed its order"));
-    assert!(
-        !remaining.is_zero(),
-        "initial shortfall recovery requires unfinished player demand"
-    );
-    let mut sites_visited = 0_u64;
-    let mut search_ticks = 0_u64;
-    let mut extraction_ticks = 0_u64;
-    let mut additional_extracted = Mass::ZERO;
-
-    for start_x in [
-        SECONDARY_CHANNEL_START_X,
-        TERTIARY_CHANNEL_START_X,
-        QUATERNARY_CHANNEL_START_X,
-    ] {
-        if remaining.is_zero() {
-            break;
-        }
-        let search_started_at = state.tick().value();
-        let localization = localize_target(
-            review.registries,
-            &mut state,
-            review.sampling_hammer,
-            review.channel_voxels,
-            start_x,
-            FieldworkSurveyStrategy::PointSearch,
-        );
-        search_ticks = search_ticks
-            .checked_add(state.tick().value() - search_started_at)
-            .unwrap_or_else(|| panic!("fieldwork multi-site recovery search time overflowed"));
-        sites_visited += 1;
-
-        let requested = remaining.min(localization.resource_mass.upper());
-        assert!(
-            !requested.is_zero(),
-            "fieldwork multi-site recovery must resolve a nonzero local opportunity"
-        );
-        let extraction = execute_fieldwork_extraction(
-            review.registries,
-            &mut state,
-            FieldworkExtractionOrder {
-                target: localization.target,
-                destination: review.followup_destination,
-                equipment: review.mining_equipment,
-                requested,
-                batch_limit: review.estimate.batch,
-            },
-        );
-        assert!(
-            !extraction.extracted.is_zero(),
-            "fieldwork multi-site recovery must make productive progress"
-        );
-        extraction_ticks = extraction_ticks
-            .checked_add(extraction.ticks)
-            .unwrap_or_else(|| panic!("fieldwork multi-site recovery extraction time overflowed"));
-        additional_extracted = additional_extracted
-            .checked_add(extraction.extracted)
-            .unwrap_or_else(|| panic!("fieldwork multi-site recovery mass overflowed"));
-        remaining = remaining
-            .checked_sub(extraction.extracted)
-            .unwrap_or_else(|| unreachable!("recovery extraction cannot exceed remaining demand"));
-    }
-
-    validate_loaded_state(review.registries, &state)
-        .unwrap_or_else(|error| panic!("fieldwork multi-site recovery state invalid: {error}"));
-    let fulfilled = review
-        .extraction
-        .extracted
-        .checked_add(additional_extracted)
-        .unwrap_or_else(|| panic!("fieldwork multi-site fulfilled mass overflowed"));
-    assert_eq!(fulfilled.checked_add(remaining), Some(review.requested));
-    InitialShortfallRecovery {
-        sites_visited,
-        search_ticks,
-        extraction_ticks,
-        additional_extracted,
-        fulfilled,
-        remaining,
-        terminal: if remaining.is_zero() {
-            "order-complete"
-        } else {
-            "local-search-area-exhausted"
-        },
-    }
-}
-
 fn survival_spend(review: &FieldworkEpisodeReview<'_>) -> (Energy, Volume) {
     let survival_after = review
         .state
@@ -444,6 +342,9 @@ fn report_known_site_exploitation(
             super::FIELDWORK_KNOWN_SITE_REPEAT_HORIZON,
         );
         let recovery = execute_initial_shortfall_recovery(review);
+        let indexed_projection = recovery
+            .projected_indexed_search_ticks
+            .map_or_else(|| "unfunded".to_owned(), |ticks| format!("{ticks}t"));
         let fulfillment_ppm = recovery
             .fulfilled
             .milligrams()
@@ -451,8 +352,16 @@ fn report_known_site_exploitation(
             .unwrap_or_else(|| panic!("fieldwork recovery fulfillment ratio overflowed"))
             / review.requested.milligrams();
         reviewln!(
-            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=true survey-base-kit-reused=true strategy=point-search survey-upgrade=0t sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=true survey-base-kit-reused=true strategy={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
             review.case.seed(),
+            recovery.strategy.label(),
+            recovery.upgrade_ticks,
+            recovery.projected_point_search_ticks,
+            indexed_projection,
+            recovery.baseline_search_ticks,
+            recovery.search_ticks,
+            recovery.upgrade_ticks,
+            recovery.realized_attention_delta,
             recovery.sites_visited,
             recovery.search_ticks,
             format_physical_duration(review.registries, recovery.search_ticks),

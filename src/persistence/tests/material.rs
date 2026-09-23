@@ -98,3 +98,46 @@ fn unknown_lot_composition_constituent_is_rejected_on_load() {
         )))
     );
 }
+
+#[test]
+fn duplicate_embedded_lot_identity_is_rejected_without_panicking_during_load() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("duplicate-identity stockpile fixture failed: {error}"));
+    let first = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(295_000),
+    )
+    .unwrap_or_else(|error| panic!("first duplicate-identity lot fixture failed: {error}"));
+    let second = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(296_000),
+    )
+    .unwrap_or_else(|error| panic!("second duplicate-identity lot fixture failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("duplicate-identity serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["lots"][second.value().to_string()]["id"] =
+        serde_json::json!(first.value());
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("duplicate-identity decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Inventory(
+            InventoryValidationError::LotIdMismatch {
+                key: second,
+                record: first,
+            }
+        )))
+    );
+}

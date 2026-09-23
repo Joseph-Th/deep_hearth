@@ -64,22 +64,22 @@ impl InventoryState {
         let mut lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();
         let mut stockpiles_by_support =
             BTreeMap::<StructuralElementId, BTreeSet<StockpileId>>::new();
-        for stockpile in self.stockpiles.values() {
+        for (stockpile_id, stockpile) in &self.stockpiles {
             if let Some(support) = stockpile.supported_by {
                 stockpiles_by_support
                     .entry(support)
                     .or_default()
-                    .insert(stockpile.id);
+                    .insert(*stockpile_id);
             }
         }
-        for lot in self.lots.values() {
+        for (lot_id, lot) in &self.lots {
             if !self.stockpiles.contains_key(&lot.stockpile) {
                 continue;
             }
             lot_indexes
                 .entry(lot.stockpile)
                 .or_default()
-                .insert(lot.id, lot.commodity());
+                .insert(*lot_id, lot.commodity());
         }
         self.lot_indexes = lot_indexes;
         self.stockpiles_by_support = stockpiles_by_support;

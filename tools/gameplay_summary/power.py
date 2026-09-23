@@ -120,8 +120,12 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
     ]
     values = {
         "pristine_charge_events": [],
+        "projected_charge_events": [],
+        "projected_services": [],
         "charge_events": [],
-        "extra_charge_events": [],
+        "wear_projected_extra_charge_events": [],
+        "unplanned_extra_charge_events": [],
+        "attention_regret": [],
         "limited_batches": [],
         "attention": [],
         "services": [],
@@ -156,12 +160,53 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
             match = re.search(pattern, line)
             if match is not None:
                 values[key].append(int(match.group(1)))
-    values["extra_charge_events"] = [
-        executed - pristine
-        for executed, pristine in zip(
-            values["charge_events"], values["pristine_charge_events"], strict=True
-        )
-    ]
+        pristine = re.search(r"pristine-charge-events:(\d+)", line)
+        executed = re.search(r"executed=\[charge-events:(\d+)", line)
+        projected = re.search(r"consumer-projected-charge-events:(\d+)", line)
+        projected_services = re.search(r"consumer-projected-services:(\d+)", line)
+        if pristine is not None and executed is not None:
+            pristine_count = int(pristine.group(1))
+            projected_count = (
+                int(projected.group(1)) if projected is not None else pristine_count
+            )
+            executed_count = int(executed.group(1))
+            values["projected_charge_events"].append(projected_count)
+            values["wear_projected_extra_charge_events"].append(
+                projected_count - pristine_count
+            )
+            values["unplanned_extra_charge_events"].append(
+                executed_count - projected_count
+            )
+        if projected_services is not None:
+            values["projected_services"].append(int(projected_services.group(1)))
+
+        selected_provider = re.search(r"\bselected=([^\s]+)", line)
+        if era == "primitive":
+            counterfactual = re.search(
+                r"crank-active-attention:(\d+)t treadle-active-attention:(\d+)t",
+                line,
+            )
+            provider_attention = (
+                {"crank": int(counterfactual.group(1)), "treadle": int(counterfactual.group(2))}
+                if counterfactual is not None
+                else None
+            )
+        else:
+            counterfactual = re.search(
+                r"treadle-active-attention:(\d+)t walking-active-attention:(\d+)t",
+                line,
+            )
+            provider_attention = (
+                {
+                    "treadle": int(counterfactual.group(1)),
+                    "walking-wheel": int(counterfactual.group(2)),
+                }
+                if counterfactual is not None
+                else None
+            )
+        if selected_provider is not None and provider_attention is not None:
+            chosen = provider_attention[selected_provider.group(1)]
+            values["attention_regret"].append(chosen - min(provider_attention.values()))
     values["selected_agrees"] = [
         1 if "selected-agrees:true" in line else 0 for line in selected
     ]
@@ -182,7 +227,12 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         power, r"project=\[consumer:stone-crusher feed:(\d+)mg"
     )
     project_work = _numeric_values(power, r"\bwork:(\d+)nJ")
-    charge_events = _numeric_values(power, r"charge-events:(\d+)")
+    buffer_lower_bound_charges = _numeric_values(
+        power, r"buffer-lower-bound-charges:(\d+)"
+    )
+    consumer_projected_charges = _numeric_values(
+        power, r"consumer-projected-charges:(\d+)"
+    )
     metabolic_wins = 0
     for line in power:
         crank_cost = re.search(r"metabolic-crank:(\d+)nJ", line)
@@ -210,7 +260,8 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"treadle:{sum('selected:treadle' in line for line in organic_power)}] "
         f"project=[crusher-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "
-        f"charge-events:{_span(charge_events)}] "
+        f"buffer-lower-bound-charges:{_span(buffer_lower_bound_charges)} "
+        f"consumer-projected-charges:{_span(consumer_projected_charges)}] "
         f"decision-crossover-charges={_span(decision_crossovers)} "
         f"pristine-rate-break-even={_span(pristine_break_evens)} "
         f"minimum-investment-return={_span(minimum_attention_return, 't')} "
@@ -232,8 +283,12 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"carried-state-recharge:{second_charge_pairs}/{len(power)}] "
         f"lived-project=[executed:{lived_samples}/{len(power)} "
         f"choice-agrees:{sum(lived['selected_agrees'])}/{lived_samples} "
+        f"attention-regret:{_span(lived['attention_regret'], 't')} "
         f"charge-events:{_span(lived['charge_events'])} "
-        f"wear-extra-charges:{_span(lived['extra_charge_events'])} "
+        f"consumer-projected-charges:{_span(lived['projected_charge_events'])} "
+        f"wear-projected-extra-charges:{_span(lived['wear_projected_extra_charge_events'])} "
+        f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])} "
+        f"projected-services:{_span(lived['projected_services'])} "
         f"survival-limited-batches:{_span(lived['limited_batches'])} "
         f"active-attention:{_span(lived['attention'], 't')} "
         f"services:{_span(lived['services'])} service-time:{_span(lived['service_ticks'], 't')} "
@@ -298,8 +353,9 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"carried-state-recharge:{second_charge_pairs}/{len(settlement)}] "
         f"settlement-lived-project=[executed:{lived_samples}/{len(settlement)} "
         f"choice-agrees:{sum(lived['selected_agrees'])}/{lived_samples} "
+        f"attention-regret:{_span(lived['attention_regret'], 't')} "
         f"charge-events:{_span(lived['charge_events'])} "
-        f"wear-extra-charges:{_span(lived['extra_charge_events'])} "
+        f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])} "
         f"survival-limited-batches:{_span(lived['limited_batches'])} "
         f"active-attention:{_span(lived['attention'], 't')} "
         f"services:{_span(lived['services'])} service-time:{_span(lived['service_ticks'], 't')} "

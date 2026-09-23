@@ -65,6 +65,9 @@ use planning::*;
 mod review;
 use review::{FieldworkEpisodeReview, finalize_fieldwork_episode};
 
+#[path = "fieldwork_probe/recovery.rs"]
+mod recovery;
+
 #[cfg(test)]
 #[path = "fieldwork_probe/planning_tests.rs"]
 mod planning_tests;
@@ -427,6 +430,7 @@ fn run_fieldwork_with_supply(
         deposit_mass,
         order_horizon,
         raw,
+        parts,
         followup_destination,
         reroute_destination: next_site_destination,
         sampling_hammer: hammer,

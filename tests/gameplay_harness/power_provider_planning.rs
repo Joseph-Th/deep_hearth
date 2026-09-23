@@ -3,15 +3,19 @@
 use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE,
     EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
-    MANUAL_POWER_WALKING_WHEEL,
+    MANUAL_POWER_WALKING_WHEEL, PROCESS_CRUSH_ORE,
 };
-use deep_hearth::core::quantity::Energy;
+use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreDefinitionId;
-use deep_hearth::equipment::EquipmentDefinitionId;
+use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{ManualPowerMethodId, ManualPowerProjection, project_manual_power};
 use deep_hearth::maintenance::Condition;
+use deep_hearth::ore_processing::{
+    PoweredOreOrderBatch, PoweredOreOrderMaintenancePolicy, PoweredOreOrderRequest,
+    project_powered_ore_order,
+};
 use deep_hearth::registry::Registries;
 
 use super::super::manual_craft_planning::project_manual_assembly_package;
@@ -23,6 +27,7 @@ use policy::{
 };
 
 const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
+const MAX_PRIMITIVE_PROJECT_BATCHES: u64 = 1_024;
 const MAX_SETTLEMENT_CROSSOVER_CHARGES: u64 = 160;
 
 #[derive(Clone, Copy)]
@@ -71,6 +76,8 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) capacity_nj: u128,
     pub(super) declared_work_nj: u128,
     pub(super) charge_events: u64,
+    pub(super) consumer_projected_charge_events: u64,
+    pub(super) consumer_projected_services: u64,
     pub(super) crank_build: ShapedBuild,
     pub(super) treadle_build: ShapedBuild,
     pub(super) crank_charge: ManualPowerProjection,
@@ -85,6 +92,15 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) treadle_lifecycle_condition: Condition,
     pub(super) minimum_attention_return_ticks: u64,
     pub(super) decision_crossover_charges: Option<u64>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct PrimitivePowerProject {
+    pub(super) store_definition: EnergyStoreDefinitionId,
+    pub(super) capacity_nj: u128,
+    pub(super) consumer: EquipmentId,
+    pub(super) declared_mass: Mass,
+    pub(super) declared_work_nj: u128,
 }
 
 #[derive(Clone, Copy)]
@@ -214,6 +230,56 @@ impl ManualPowerRoute {
                 .unwrap_or_else(|| unreachable!("projected charge is bounded by remaining work"));
         }
 
+        ManualPowerLifecycleCost {
+            attention_ticks,
+            metabolic_nj,
+            hydration_ul,
+            condition_after: condition,
+        }
+    }
+
+    fn project_lifecycle_batches(
+        self,
+        registries: &Registries,
+        batches: &[PoweredOreOrderBatch],
+    ) -> ManualPowerLifecycleCost {
+        assert!(
+            !batches.is_empty(),
+            "power-provider {} lifecycle requires at least one consumer batch",
+            self.context
+        );
+        let mut attention_ticks = 0_u64;
+        let mut metabolic_nj = 0_u128;
+        let mut hydration_ul = 0_u64;
+        let mut condition = Condition::PRISTINE;
+        for batch in batches {
+            let charge = self.project_requested(registries, condition, batch.required_energy());
+            attention_ticks = attention_ticks
+                .checked_add(charge.duration().value())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "power-provider {} consumer-aware lifecycle attention overflowed",
+                        self.context
+                    )
+                });
+            metabolic_nj = metabolic_nj
+                .checked_add(charge.resource_budget().metabolic_energy().nanojoules())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "power-provider {} consumer-aware lifecycle metabolism overflowed",
+                        self.context
+                    )
+                });
+            hydration_ul = hydration_ul
+                .checked_add(charge.resource_budget().hydration().microliters())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "power-provider {} consumer-aware lifecycle hydration overflowed",
+                        self.context
+                    )
+                });
+            condition = charge.condition_after();
+        }
         ManualPowerLifecycleCost {
             attention_ticks,
             metabolic_nj,
@@ -499,9 +565,7 @@ pub(super) fn primitive_power_plan(
     state: &AppState,
     raw: StockpileId,
     shaped: StockpileId,
-    store_definition: EnergyStoreDefinitionId,
-    capacity_nj: u128,
-    declared_work_nj: u128,
+    project: PrimitivePowerProject,
 ) -> PrimitivePowerPlan {
     let crank_build = project_power_package(
         registries,
@@ -509,7 +573,7 @@ pub(super) fn primitive_power_plan(
         raw,
         shaped,
         EQUIPMENT_STONE_HAND_CRANK,
-        store_definition,
+        project.store_definition,
         "power provider crank pre-action build",
     );
     let treadle_build = project_power_package(
@@ -518,21 +582,21 @@ pub(super) fn primitive_power_plan(
         raw,
         shaped,
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        store_definition,
+        project.store_definition,
         "power provider treadle pre-action build",
     );
-    let requested = Energy::from_nanojoules(capacity_nj);
+    let requested = Energy::from_nanojoules(project.capacity_nj);
     let crank_route = ManualPowerRoute {
         method: MANUAL_POWER_HAND_CRANK,
         equipment: EQUIPMENT_STONE_HAND_CRANK,
-        store: store_definition,
+        store: project.store_definition,
         requested,
         context: "primitive crank",
     };
     let treadle_route = ManualPowerRoute {
         method: MANUAL_POWER_FOOT_TREADLE,
         equipment: EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        store: store_definition,
+        store: project.store_definition,
         requested,
         context: "primitive treadle",
     };
@@ -540,11 +604,49 @@ pub(super) fn primitive_power_plan(
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     // The project owns a fixed amount of useful mechanical work. Buffer choice only determines
     // how many charging events are needed; it cannot silently resize the player's project.
-    let charge_events =
-        charge_events_for_declared_work(declared_work_nj, capacity_nj, "primitive project");
-    let declared_work = Energy::from_nanojoules(declared_work_nj);
-    let crank_lifecycle = crank_route.project_lifecycle(registries, declared_work);
-    let treadle_lifecycle = treadle_route.project_lifecycle(registries, declared_work);
+    let charge_events = charge_events_for_declared_work(
+        project.declared_work_nj,
+        project.capacity_nj,
+        "primitive project",
+    );
+    let consumer_record = state
+        .equipment()
+        .get_equipment(project.consumer)
+        .unwrap_or_else(|| panic!("power-provider primitive consumer disappeared before planning"));
+    let consumer_order = project_powered_ore_order(
+        registries,
+        PROCESS_CRUSH_ORE,
+        consumer_record.definition(),
+        project.store_definition,
+        PoweredOreOrderRequest::new(
+            consumer_record.condition(),
+            project.declared_mass,
+            MAX_PRIMITIVE_PROJECT_BATCHES,
+            PoweredOreOrderMaintenancePolicy::ServiceAtCritical,
+        ),
+    )
+    .unwrap_or_else(|error| {
+        panic!("power-provider primitive consumer order projection failed: {error}")
+    });
+    let consumer_projected_charge_events = u64::try_from(consumer_order.batches().len())
+        .unwrap_or_else(|_| panic!("power-provider projected charge count exceeds u64"));
+    assert!(
+        consumer_projected_charge_events >= charge_events,
+        "consumer wear cannot reduce the buffer-only charge lower bound"
+    );
+    let projected_work_nj = consumer_order
+        .batches()
+        .iter()
+        .map(|batch| batch.required_energy().nanojoules())
+        .sum::<u128>();
+    assert_eq!(
+        projected_work_nj, project.declared_work_nj,
+        "consumer-aware batch projection must preserve the declared useful work"
+    );
+    let crank_lifecycle =
+        crank_route.project_lifecycle_batches(registries, consumer_order.batches());
+    let treadle_lifecycle =
+        treadle_route.project_lifecycle_batches(registries, consumer_order.batches());
     let minimum_attention_return_ticks = primitive_treadle_minimum_attention_return(
         crank_build.attention_ticks,
         treadle_build.attention_ticks,
@@ -592,10 +694,12 @@ pub(super) fn primitive_power_plan(
         } else {
             PrimitivePowerChoice::Crank
         },
-        store_definition,
-        capacity_nj,
-        declared_work_nj,
+        store_definition: project.store_definition,
+        capacity_nj: project.capacity_nj,
+        declared_work_nj: project.declared_work_nj,
         charge_events,
+        consumer_projected_charge_events,
+        consumer_projected_services: consumer_order.services(),
         crank_build,
         treadle_build,
         crank_charge,

@@ -12,14 +12,14 @@ impl MiningState {
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut due_jobs = BTreeMap::<SimulationTick, BTreeSet<MiningJobId>>::new();
         let mut equipment_occupancy = BTreeMap::<EquipmentId, MiningJobId>::new();
-        for job in self.jobs.values().filter(|job| job.is_working()) {
+        for (job_id, job) in self.jobs.iter().filter(|(_, job)| job.is_working()) {
             due_jobs
                 .entry(job.completes_at())
                 .or_default()
-                .insert(job.id());
+                .insert(*job_id);
             equipment_occupancy
                 .entry(job.equipment())
-                .or_insert(job.id());
+                .or_insert(*job_id);
         }
         self.due_jobs = due_jobs;
         self.equipment_occupancy = equipment_occupancy;

@@ -88,12 +88,12 @@ impl EquipmentState {
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut equipment_by_support =
             BTreeMap::<StructuralElementId, BTreeSet<EquipmentId>>::new();
-        for record in self.records.values() {
+        for (equipment, record) in &self.records {
             if let Some(support) = record.supported_by {
                 equipment_by_support
                     .entry(support)
                     .or_default()
-                    .insert(record.id);
+                    .insert(*equipment);
             }
         }
         self.equipment_by_support = equipment_by_support;

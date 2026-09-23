@@ -68,7 +68,7 @@ impl ProductionState {
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
-        self.indexes.rebuild(self.jobs.values());
+        self.indexes.rebuild(self.jobs.iter());
     }
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {

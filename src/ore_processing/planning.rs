@@ -367,7 +367,7 @@ pub fn assess_powered_ore_mass_envelope(
     })
 }
 
-fn powered_profile(
+pub(super) fn powered_profile(
     registries: &Registries,
     process: ProcessId,
 ) -> Option<PoweredOreProcessProfile> {

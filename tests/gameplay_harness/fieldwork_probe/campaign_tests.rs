@@ -1,6 +1,11 @@
 //! Survey-campaign investment policy contracts.
 
 use super::*;
+use deep_hearth::content::build_registries;
+use deep_hearth::core::quantity::Mass;
+
+use super::super::preparation::assemble_sampling_hammer;
+use super::super::world::build_fieldwork_world;
 
 #[test]
 fn maintained_fieldwork_witnesses_span_campaign_horizons() {
@@ -40,4 +45,57 @@ fn survey_investment_requires_a_material_disclosed_attention_payoff() {
         select_survey_strategy(204, None),
         FieldworkSurveyStrategy::PointSearch
     );
+}
+
+#[test]
+fn three_site_survey_decision_respects_both_expected_return_and_upgrade_supply() {
+    let registries = build_registries();
+    let requested = Mass::from_milligrams(24_000_000);
+
+    let mut funded =
+        build_fieldwork_world(&registries, 1, requested, Mass::from_milligrams(4_500_000));
+    assert!(
+        funded.copper_rich,
+        "maintained funded witness lost copper supply"
+    );
+    let _ = assemble_sampling_hammer(&registries, &mut funded.state, funded.raw, funded.parts);
+    let funded_decision = decide_fieldwork_survey_strategy(
+        &registries,
+        &funded.state,
+        funded.raw,
+        funded.parts,
+        funded.channel_voxels,
+        3,
+    );
+    assert_eq!(
+        funded_decision.selected_strategy,
+        FieldworkSurveyStrategy::IndexedChannel
+    );
+    assert!(funded_decision.projected_upgrade_ticks.is_some());
+
+    let mut unfunded =
+        build_fieldwork_world(&registries, 2, requested, Mass::from_milligrams(4_500_000));
+    assert!(
+        !unfunded.copper_rich,
+        "maintained unfunded witness unexpectedly gained copper supply"
+    );
+    let _ = assemble_sampling_hammer(
+        &registries,
+        &mut unfunded.state,
+        unfunded.raw,
+        unfunded.parts,
+    );
+    let unfunded_decision = decide_fieldwork_survey_strategy(
+        &registries,
+        &unfunded.state,
+        unfunded.raw,
+        unfunded.parts,
+        unfunded.channel_voxels,
+        3,
+    );
+    assert_eq!(
+        unfunded_decision.selected_strategy,
+        FieldworkSurveyStrategy::PointSearch
+    );
+    assert_eq!(unfunded_decision.projected_upgrade_ticks, None);
 }

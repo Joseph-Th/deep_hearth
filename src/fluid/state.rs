@@ -151,12 +151,9 @@ impl FluidState {
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut stores_by_support = BTreeMap::<StructuralElementId, BTreeSet<FluidStoreId>>::new();
-        for record in self.records.values() {
+        for (store, record) in &self.records {
             if let Some(support) = record.supported_by {
-                stores_by_support
-                    .entry(support)
-                    .or_default()
-                    .insert(record.id);
+                stores_by_support.entry(support).or_default().insert(*store);
             }
         }
         self.stores_by_support = stores_by_support;

@@ -177,13 +177,6 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         .attention_ticks
         .checked_add(drive_build.attention_ticks)
         .unwrap_or_else(|| panic!("selected primitive provider build attention overflowed"));
-    let mut provider_metabolic_nj = provider_build
-        .metabolic_nj
-        .checked_add(drive_build.metabolic_nj)
-        .unwrap_or_else(|| panic!("selected primitive provider build metabolism overflowed"));
-    let mut provider_hydration_ul = u128::from(provider_build.hydration_ul)
-        .checked_add(u128::from(drive_build.hydration_ul))
-        .unwrap_or_else(|| panic!("selected primitive provider build hydration overflowed"));
     let mut charge_events = 0_u64;
     let mut survival_limited_batches = 0_u64;
     let mut consumer_ticks = 0_u64;
@@ -270,12 +263,6 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         provider_attention_ticks = provider_attention_ticks
             .checked_add(charge.attention_ticks)
             .unwrap_or_else(|| panic!("selected primitive charge attention overflowed"));
-        provider_metabolic_nj = provider_metabolic_nj
-            .checked_add(charge.metabolic_nj)
-            .unwrap_or_else(|| panic!("selected primitive charge metabolism overflowed"));
-        provider_hydration_ul = provider_hydration_ul
-            .checked_add(charge.hydration_ul)
-            .unwrap_or_else(|| panic!("selected primitive charge hydration overflowed"));
         let executed_consumer_ticks = consume_primitive_charge(
             registries,
             &mut selected_state,
@@ -297,6 +284,24 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         charge_events >= plan.charge_events,
         "condition-aware batching cannot require fewer charges than the pristine buffer-only lower bound"
     );
+    assert!(
+        charge_events >= plan.consumer_projected_charge_events,
+        "lived primitive execution cannot require fewer charges than its consumer-aware projection"
+    );
+    assert!(
+        consumer_services >= plan.consumer_projected_services,
+        "lived primitive execution cannot require fewer services than its consumer-aware projection"
+    );
+    if survival_limited_batches == 0 {
+        assert_eq!(
+            charge_events, plan.consumer_projected_charge_events,
+            "without survival batch splitting, lived charge count must match the consumer-aware projection"
+        );
+        assert_eq!(
+            consumer_services, plan.consumer_projected_services,
+            "without survival batch splitting, lived service count must match the consumer-aware projection"
+        );
+    }
     assert!(stockpile_mass(&selected_state, consumer.source()).is_zero());
     let provider_condition_ppm = selected_state
         .equipment()
@@ -348,16 +353,8 @@ pub(in super::super::super) fn execute_selected_primitive_project(
             .value()
             .checked_sub(started_at)
             .unwrap_or_else(|| unreachable!("selected primitive project cannot run backward")),
-        metabolic_nj: survival_before
-            .metabolic_energy()
-            .nanojoules()
-            .checked_sub(survival_after.metabolic_energy().nanojoules())
-            .unwrap_or_else(|| panic!("selected primitive total metabolism underflowed")),
-        hydration_ul: survival_before
-            .hydration()
-            .microliters()
-            .checked_sub(survival_after.hydration().microliters())
-            .unwrap_or_else(|| panic!("selected primitive total hydration underflowed")),
+        initial_metabolic_nj: survival_before.metabolic_energy().nanojoules(),
+        initial_hydration_ul: survival_before.hydration().microliters(),
         provider_condition_ppm,
         consumer_condition_ppm,
         final_metabolic_nj: survival_after.metabolic_energy().nanojoules(),

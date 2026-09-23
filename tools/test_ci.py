@@ -1659,6 +1659,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 geology=quarry-soft full-order-tool=copper-reinforced-hard-pick tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
             "FIELDWORK EXPERIENCE seed=0x2 sample=coverage outcome=known-target-supply order-horizon=project field-inspections=3 geology=quarry-reinforcement full-order-tool=stone-pick tool=copper-reinforced-quarry copper-opportunity=available requested=200mg planned-local-work=80mg mining=50mg resource-knowledge-effect=changed-tool",
             "FIELDWORK EXPERIENCE seed=0x3 sample=organic outcome=completed order-horizon=project field-inspections=2 geology=hard-pick-specialist full-order-tool=stone-quarry tool=copper-reinforced-hard-pick copper-opportunity=available requested=300mg planned-local-work=300mg mining=300mg resource-knowledge-effect=same-tool",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x2 initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=true survey-base-kit-reused=true strategy=indexed-channel survey-upgrade=40t projected-search=[point:234t indexed:202t] realized=[baseline-search:228t selected-search:162t upgrade:40t attention-delta:+26t] sites-visited=3 search=162t/9.7m extraction=12t/43.2s initial-extracted=50mg additional-extracted=100mg fulfilled=150mg requested=200mg fulfillment=750000ppm remaining=50mg terminal=local-search-area-exhausted",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn("sample-shape=[anchor:1 coverage:1 organic:1 replay:0]", summary)
@@ -1676,6 +1677,13 @@ class LocalCiPlanTests(unittest.TestCase):
             summary,
         )
         self.assertIn("orders=[short:1 project:2 bulk:0]", summary)
+        self.assertIn(
+            "initial-shortfall-campaign=[cases:1 strategy:point0/indexed1 survey-upgrade:40..40t "
+            "projected-search-saving:32..32t realized=[positive:1 negative:0 flat:0 delta:+26..+26t] "
+            "completed:0 local-area-exhausted:1 sites:3..3 "
+            "fulfillment:750000..750000ppm remaining:50..50mg]",
+            summary,
+        )
         self.assertIn(
             "geology=[soft:1 reinforcement:1 hard-specialist:1]", summary
         )
@@ -1712,6 +1720,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "LIBERATION FRONTIER CAPABILITY seed=0x1 selected-by-current-player=true reason=ordinary-concentrate-cleanup-available input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=foundry-infrastructure foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:false support-required=[furnace:true mold:true] energy-scale=[manual-mechanical-max:150000000uW furnace-transfer-ceiling:2000000000000uW ceiling-ratio:13333x melting-carrier:Electrical conversion-path:absent]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
+            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg geology=quarry-soft tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
             "FIELDWORK CONTINUATION seed=0x1 available=true reused-knowledge=true reused-tool=true requested=1mg extracted=1mg extraction=2t/7.2s avoided-search=10t/36.0s avoided-kit=50t/3.0m stop=order-complete scope=matched-repeat-order destination-capacity=diagnostic-only",
             "FIELDWORK DEPLETION seed=0x1 eligible=true repeat-orders=[complete:2 partial:1 horizon:12] extracted=5mg attention=6t/21.6s supply-ended=true terminal=short-claim condition-after=990000ppm body=[energy:1000000000000nJ hydration:1000uL] scope=matched-orders-on-known-site no-search=true no-new-tool=true diagnostic-only=true",
@@ -1721,9 +1730,9 @@ class LocalCiPlanTests(unittest.TestCase):
             "FIELDWORK TOOL MARKET phase=acquired-evidence selected=stone-pick selected-total=24t heavy-best=stone-quarry heavy-total=37t heavy-preparation-extra=+20t heavy-order-saving=+7t heavy-total-delta=+13t heavy-investment=deferred",
             "FIELDWORK BULK CROSSOVER seed=0x1 available=true tool=stone-quarry order=16000000mg base-batches=32 current-order=1000000mg scope=diagnostic-visible-state no-hidden-reserve=true",
             "FIELDWORK PACING seed=0x1 search=10t/36.0s sampling-tool=20t/72.0s extraction-tool=30t/108.0s extraction=4t/14.4s batches=1 first-ore=64t/3.8m episode-end=64t/3.8m output=1mg outcome=completed requested=1mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade=500000ppm",
-            "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=primitive selected=crank declared=[work:1000000000000nJ pristine-charge-events:1 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:2 survival-limited-batches:1 active-attention:20t provider-attention:5t consumer-runtime:9t maintenance=[services:1 preparation:4t service:3t replacement:1000mg] provisioning=[stops:1 attention:8t drinks:1 volume:10000uL meals:0 mass:0mg] elapsed:29t reserve-delta:100nJ/100uL] end=[provider-condition:990000ppm consumer-condition:900000ppm metabolic:1nJ hydration:1uL] full-counterfactual=[crank-active-attention:20t treadle-active-attention:21t attention-best:crank selected-agrees:true] evidence=complete-selected-project-canonical",
-            "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:stone-crusher feed:1000000mg work:1000000000000nJ charge-events:1] buffer:1000000000000nJ decision=[selected:crank policy=minimize-workload-attention-then-metabolic-then-hydration-then-material] crank=[first-charge:2t second-charge:3t] treadle=[first-charge:1t second-charge:2t] productive-cycle=[consumer:stone-crusher crank:9t treadle:9t] projected-provider-lifecycle=[crank:body:10000000000000nJ/20000uL condition:990000ppm treadle:body:8000000000000nJ/18000uL condition:995000ppm] comparison=[charge-attention-reduction:1ppm metabolic-crank:2nJ metabolic-treadle:1nJ pristine-rate-break-even:2 wear-aware-decision-crossover:3 provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher]",
-            "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=settlement selected=walking-wheel declared=[work:400000000000000nJ pristine-charge-events:80 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:80 survival-limited-batches:0 active-attention:2500t provider-attention:2200t consumer-runtime:5600t maintenance=[services:4 preparation:240t service:12t replacement:216000mg] provisioning=[stops:2 attention:48t drinks:2 volume:200000uL meals:0 mass:0mg] elapsed:8100t reserve-delta:1000nJ/1000uL] end=[provider-condition:900000ppm consumer-condition:800000ppm metabolic:1nJ hydration:1uL] full-counterfactual=[treadle-active-attention:2600t walking-active-attention:2500t attention-best:walking-wheel selected-agrees:true] evidence=complete-selected-project-canonical",
+            "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=primitive selected=crank declared=[work:1000000000000nJ pristine-charge-events:1 consumer-projected-charge-events:1 consumer-projected-services:1 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:2 survival-limited-batches:1 active-attention:20t provider-attention:5t consumer-runtime:9t maintenance=[services:1 preparation:4t service:3t replacement:1000mg] provisioning=[stops:1 attention:8t drinks:1 volume:10000uL meals:0 mass:0mg] elapsed:29t reserves=[start:101nJ/101uL end:1nJ/1uL]] condition=[provider:990000ppm consumer:900000ppm] full-counterfactual=[crank-active-attention:20t treadle-active-attention:21t attention-best:crank selected-agrees:true] evidence=complete-selected-project-canonical",
+            "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:stone-crusher feed:1000000mg work:1000000000000nJ buffer-lower-bound-charges:1 consumer-projected-charges:1 projected-services:1] buffer:1000000000000nJ decision=[selected:crank policy=minimize-workload-attention-then-metabolic-then-hydration-then-material] crank=[first-charge:2t second-charge:3t] treadle=[first-charge:1t second-charge:2t] productive-cycle=[consumer:stone-crusher crank:9t treadle:9t] projected-provider-lifecycle=[crank:body:10000000000000nJ/20000uL condition:990000ppm treadle:body:8000000000000nJ/18000uL condition:995000ppm] comparison=[charge-attention-reduction:1ppm metabolic-crank:2nJ metabolic-treadle:1nJ pristine-rate-break-even:2 wear-aware-decision-crossover:3 provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher]",
+            "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=settlement selected=walking-wheel declared=[work:400000000000000nJ pristine-charge-events:80 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:80 survival-limited-batches:0 active-attention:2500t provider-attention:2200t consumer-runtime:5600t maintenance=[services:4 preparation:240t service:12t replacement:216000mg] provisioning=[stops:2 attention:48t drinks:2 volume:200000uL meals:0 mass:0mg] elapsed:8100t reserves=[start:1001nJ/1001uL end:1nJ/1uL]] condition=[provider:900000ppm consumer:800000ppm] full-counterfactual=[treadle-active-attention:2600t walking-active-attention:2500t attention-best:walking-wheel selected-agrees:true] evidence=complete-selected-project-canonical",
             "POWER SETTLEMENT seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:powered-saw feed:1600000000mg work:400000000000000nJ charge-events:80] buffer:5000000000000nJ decision=[selected:walking-wheel policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:2290t projected-attention-walking:2210t] treadle=[first-charge:14t second-charge:15t] walking-wheel=[first-charge:10t second-charge:11t] productive-cycle=[consumer:powered-saw treadle:56t walking:56t] projected-provider-lifecycle=[treadle:body:100000000000000nJ/200000uL condition:800000ppm walking-wheel:body:80000000000000nJ/150000uL condition:900000ppm] comparison=[charge-saving:4t metabolic-saving:1nJ pristine-rate-break-even:60charges wear-aware-decision-crossover:56charges provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw]",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=1 orders=[complete:1 partial:0 productive:1/1] adaptive=[total:0 condition:0 stored-work:0] stops=[structural:0 maintenance-required:1 energy:0 declined-manual:0 survival-limited-manual:0] maintenance-blockers=[replacement-supply:1 service-labor:0]",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt pressure-shape=[clean:1 single:0 multi-system:10] interlocks=[stored-work+throughput:11 body+power:5 wear+maintenance:6 structure+production:9] recovery=[suspensions:3 resumed:3 stranded:0]",
@@ -1782,6 +1791,10 @@ class LocalCiPlanTests(unittest.TestCase):
             self.assertNotIn(noisy, concise)
         self.assertIn(
             "stockpiling-counterfactual=[returned-attention:315..315t returned-share:822454..822454ppm maintenance-prep-overlap:40..40t useful-overlap/setup:210526..210526ppm]",
+            concise,
+        )
+        self.assertIn(
+            "parallel-work=[feed-replenishment:28..28t maintenance-prep:40..40t useful-overlap:68..68t remaining-autonomous:315..315t]",
             concise,
         )
         self.assertIn(
@@ -1858,16 +1871,20 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "project=[crusher-feed:1..1kg mechanical-work:1..1kJ charge-events:1..1]",
+            "project=[crusher-feed:1..1kg mechanical-work:1..1kJ buffer-lower-bound-charges:1..1 consumer-projected-charges:1..1]",
             concise,
         )
         self.assertIn("choice-load=[crank:1..1kg treadle:n/a]", concise)
+        self.assertIn(
+            "lifecycle-feedback=[samples:1/1 attention-model-agrees:1/1 timber-model-agrees:1/1 choice-revised:0/1]",
+            concise,
+        )
         self.assertIn(
             "productive-cycle=[consumer:stone-crusher executed:1/1 consumer-duration:9..9t carried-state-recharge:1/1]",
             concise,
         )
         self.assertIn(
-            "lived-project=[executed:1/1 choice-agrees:1/1 charge-events:2..2 wear-extra-charges:1..1 survival-limited-batches:1..1 active-attention:20..20t services:1..1 service-time:3..3t provisioning-stops:1..1 provisioning-attention:8..8t break-actions=[drinks:1..1 meals:0..0] elapsed:29..29t cache-food:8..8kg cache-preservation:4000000..4000000ppm cache-water:256..256L]",
+            "lived-project=[executed:1/1 choice-agrees:1/1 attention-regret:0..0t charge-events:2..2 consumer-projected-charges:1..1 wear-projected-extra-charges:0..0 unplanned-extra-charges:1..1 projected-services:1..1 survival-limited-batches:1..1 active-attention:20..20t services:1..1 service-time:3..3t provisioning-stops:1..1 provisioning-attention:8..8t break-actions=[drinks:1..1 meals:0..0] elapsed:29..29t cache-food:8..8kg cache-preservation:4000000..4000000ppm cache-water:256..256L]",
             concise,
         )
         self.assertIn(
@@ -1885,7 +1902,7 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "settlement-lived-project=[executed:1/1 choice-agrees:1/1 charge-events:80..80 wear-extra-charges:0..0 survival-limited-batches:0..0 active-attention:2500..2500t services:4..4 service-time:12..12t provisioning-stops:2..2 provisioning-attention:48..48t break-actions=[drinks:2..2 meals:0..0] elapsed:8100..8100t cache-food:8..8kg cache-preservation:4000000..4000000ppm cache-water:256..256L]",
+            "settlement-lived-project=[executed:1/1 choice-agrees:1/1 attention-regret:0..0t charge-events:80..80 unplanned-extra-charges:0..0 survival-limited-batches:0..0 active-attention:2500..2500t services:4..4 service-time:12..12t provisioning-stops:2..2 provisioning-attention:48..48t break-actions=[drinks:2..2 meals:0..0] elapsed:8100..8100t cache-food:8..8kg cache-preservation:4000000..4000000ppm cache-water:256..256L]",
             concise,
         )
         self.assertIn(
@@ -1952,9 +1969,13 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn(
             "PLAYER LOOP EVIDENCE evidence-shape=[single-state-progression:1/1 domain-episodes:survival1/woodworking1/fieldwork1/power1/liberation1] observe-infer=[evidence-gated-extraction:1/1 "
             "reserve-knowledge-changed-plan:1/1 avoided-tool-overinvestment:1/1] "
-            "prepare-invest=[woodworking-tool:0/1 power-market:1/1 knowledge-tech:1/1] "
+            "prepare-invest=[woodworking-tool:0/1 power-market:1/1 knowledge-tech=[campaign:1/1 lived-shortfall:0/0]] "
             "extract=[fieldwork:1/1 liberation:1/1] "
-            "world-feedback=[initial-supply-ended:0/1 initial-shortfall-campaign-progressed:0/0 known-site-depletion:1/1 depletion-reroute-proved:1/1 horizon-live:0/1]",
+            "world-feedback=[initial-supply-ended:0/1 initial-shortfall-campaign-progressed:0/0 shortfall-knowledge-upgrade:0/0 known-site-depletion:1/1 depletion-reroute-proved:1/1 horizon-live:0/1]",
+            concise,
+        )
+        self.assertIn(
+            "delegate=[mechanized-processing:1/1 attention-saved:2041..2041t productive-overlap:68..68t autonomous-room:315..315t]",
             concise,
         )
         self.assertIn(
@@ -2050,7 +2071,7 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 mechanized-projects-serviced:0/0 mechanized-service-events:0]",
+            "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 mechanized-projects-with-service:0/0 mechanized-service-events:0]",
             concise,
         )
 
