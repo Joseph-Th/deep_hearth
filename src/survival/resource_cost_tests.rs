@@ -30,6 +30,42 @@ fn physiology(
 }
 
 #[test]
+fn duration_projection_matches_exact_tick_cost_multiplication() {
+    let definition = physiology(
+        Energy::from_nanojoules(10),
+        Volume::from_microliters(2),
+        Energy::from_nanojoules(10_000),
+        Volume::from_microliters(10_000),
+    );
+    let exertion = SurvivalExertion::new(Energy::from_nanojoules(30), Volume::from_microliters(3));
+
+    let budget = project_survival_resource_budget(definition, exertion, TickSpan::new(7))
+        .unwrap_or_else(|error| panic!("survival duration projection failed: {error:?}"));
+
+    assert_eq!(budget.metabolic_energy(), Energy::from_nanojoules(280));
+    assert_eq!(budget.hydration(), Volume::from_microliters(35));
+    assert_eq!(
+        budget.checked_add(SurvivalResourceBudget::ZERO),
+        Some(budget)
+    );
+}
+
+#[test]
+fn duration_projection_reports_multiplication_overflow() {
+    let definition = physiology(
+        Energy::from_nanojoules(u128::MAX / 2 + 1),
+        Volume::from_microliters(1),
+        Energy::from_nanojoules(u128::MAX),
+        Volume::from_microliters(10),
+    );
+
+    assert_eq!(
+        project_survival_resource_budget(definition, SurvivalExertion::REST, TickSpan::new(2)),
+        Err(SurvivalResourceProjectionError::EnergyOverflow)
+    );
+}
+
+#[test]
 fn tick_resource_cost_combines_basal_and_incremental_work_costs() {
     let definition = physiology(
         Energy::from_nanojoules(10),

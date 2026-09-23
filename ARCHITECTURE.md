@@ -45,9 +45,8 @@ Ordinary builds expose no whole-state cloning or equality for `AppState`. Unit t
 `test-gameplay` evaluation feature may derive those traits for atomicity, determinism, replay, and
 matched-counterfactual evidence only; they are not actor observation surfaces.
 
-A value type may expose mutation when it is independently ownable and mutation is its own complete contract,
-such as an explicitly owned deterministic RNG. That does not authorize bypassing `AppState` ownership for
-generated simulation state.
+A value type may expose mutation when it is independently ownable and mutation is its own complete contract.
+That does not authorize bypassing `AppState` ownership for generated simulation state.
 
 ## Agent-legible control grammar
 
@@ -414,16 +413,17 @@ unless mutation of that state is itself the explicit failure contract.
 ## Determinism
 
 Authoritative results depend only on immutable definitions, serialized runtime state, ordered explicit
-inputs, state-owned randomness, and explicitly modeled external snapshots.
+inputs, and explicitly modeled external snapshots.
 
 Deep Hearth claims semantic deterministic continuation for authoritative simulation state and `TickOutcome`
-values when the validated registries, serialized `AppState`, ordered external commands, and persisted random
-state are identical. Authoritative physics and state transitions use checked integer arithmetic, so supported
+values when the validated registries, serialized `AppState`, and ordered external commands are identical.
+Authoritative physics and state transitions use checked integer arithmetic, so supported
 platforms do not acquire a separate floating-point simulation ruleset. The claim does not cover byte-identical
 adapter encodings, renderer/frame output, wall-clock execution time, or continuation across different save or
 registry schemas.
 
-- Result-affecting randomness comes from persisted state-owned streams or an explicit state-owned input.
+- No runtime stochastic owner is currently implemented. If result-affecting randomness is introduced, it must
+  become explicit authoritative state or an explicit state-owned input before it can affect outcomes.
 - Order-sensitive work uses stable collections or explicit sorting with complete tie-breakers.
 - Wall-clock time, filesystem enumeration, hash iteration, UI timing, thread scheduling, and ambient entropy
   do not decide simulation results.
@@ -434,8 +434,8 @@ registry schemas.
 
 - Save/load preserves every value required for supported continuation.
 - Complete `AppState` persistence is serialized only through `SaveEnvelope`; the runtime root itself is not a
-  public serialization or deserialization target. This keeps hidden geology and exact PRNG continuation behind
-  the persistence boundary rather than ordinary read access. Untrusted bytes decode only through
+  public serialization or deserialization target. This keeps hidden geology behind the persistence boundary
+  rather than ordinary read access. Untrusted bytes decode only through
   `LoadedSaveEnvelope`; `into_state` is the promotion boundary that checks exact schemas, rebuilds derived
   indexes, and validates the complete state graph before returning runtime state.
 - Derived indexes may be omitted from persistence only when they rebuild deterministically and validate

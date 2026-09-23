@@ -97,14 +97,13 @@ impl PreservationDecisionReview {
 
 fn evaluate_no_build(
     registries: &Registries,
-    seed: u64,
     food: FoodDefinition,
     food_mass: Mass,
     available: &[(super::CommodityKey, Mass)],
     reference: &PreservationInfrastructureReview,
 ) -> PreservationNoBuildReview {
     use super::*;
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x5052_4553_4552_5643));
+    let mut state = AppState::new();
     let stockpile = seed_stockpile(
         &mut state,
         food_mass,
@@ -342,7 +341,6 @@ pub(in super::super) fn evaluate_preservation_decision(
 
     let no_build_review = evaluate_no_build(
         registries,
-        seed,
         protected_food,
         protected_reserve_mass,
         available,

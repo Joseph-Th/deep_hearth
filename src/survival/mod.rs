@@ -12,9 +12,11 @@ pub use assessment::{HungerState, HydrationState, SurvivalAssessment, assess_sur
 pub use consumption::{
     DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome, EatCommitError,
     EatError, EatOutcome, EatPortionOutcome, FoodFreshness, FoodFreshnessError,
-    FoodFreshnessProjectionError, MinimumDrinkHydrationProjection, NutritionGain, ValidatedDrink,
-    ValidatedEat, assess_food_freshness, project_food_freshness_after_storage_transition,
-    project_minimum_drink_to_hydration_target, validate_drink, validate_eat,
+    FoodFreshnessProjectionError, MealMetabolicProjectionError, MinimumDrinkHydrationProjection,
+    MinimumMealMetabolicProjection, NutritionGain, ValidatedDrink, ValidatedEat,
+    assess_food_freshness, project_food_freshness_after_storage_transition,
+    project_minimum_drink_to_hydration_target, project_minimum_meal_to_metabolic_target,
+    validate_drink, validate_eat,
 };
 pub use definitions::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
@@ -22,7 +24,10 @@ pub use definitions::{
     PhysiologyDefinition, SurvivalRegistry, calculate_food_hydration_offer,
 };
 pub use lifecycle::{InitializeSurvivalError, initialize_player_survival};
-pub use resource_cost::SurvivalExertion;
+pub use resource_cost::{
+    SurvivalExertion, SurvivalResourceBudget, SurvivalResourceProjectionError,
+    project_survival_resource_budget,
+};
 pub use state::{
     NUTRITION_PARTS_PER_MILLION, NutritionReserves, PlayerSurvivalRecord, SurvivalState, Vitality,
 };

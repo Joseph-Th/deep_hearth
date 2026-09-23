@@ -59,7 +59,7 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         .copied()
         .unwrap_or_else(|| panic!("integrated survival work loop requires one authored drink"));
     let maximum_drink_volume = direct.maximum_drink_volume();
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x494E_5445_4752_4154));
+    let mut state = AppState::new();
     let drink_store = seed_fluid_store(
         registries,
         &mut state,

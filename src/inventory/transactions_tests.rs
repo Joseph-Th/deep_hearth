@@ -10,7 +10,6 @@ use crate::content::{
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, apply_clock_advance, validate_loaded_state};
 use crate::core::time::SimulationTick;
-use crate::core::time::WorldSeed;
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::selection::apply_consumption_reservation;
 use crate::inventory::{
@@ -63,7 +62,7 @@ fn triple_preservation_profile() -> StockpileStorageProfile {
 
 fn split_transfer_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_E001));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("split-transfer source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))

@@ -14,7 +14,7 @@ use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
-use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{EnergyStoreId, add_energy_store_with_initial_for_fixture};
 use crate::equipment::{EquipmentId, add_equipment};
 use crate::inventory::{
@@ -259,7 +259,7 @@ fn deposit_test_wood(
 
 fn unstarted_process_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_E001));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);

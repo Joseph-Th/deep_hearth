@@ -10,7 +10,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::energy::{
     EnergySinkError, EnergyStoreRecord, EnergyValidationError, add_energy_store,
     calculate_explicit_energy_accounting, validate_assemble_energy_store,
@@ -52,7 +52,7 @@ fn assemble_stone_flywheel(registries: &Registries, state: &mut AppState) -> Ene
 #[test]
 fn upgraded_store_load_rejects_post_construction_base_material_provenance() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE660_1010));
+    let mut state = AppState::new();
     let store = assemble_stone_flywheel(&registries, &mut state);
     let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("flywheel chronology audit tick failed: {error}"));
@@ -130,7 +130,7 @@ fn assemble_stone_crank(
 #[test]
 fn copper_banded_flywheel_upgrade_preserves_identity_matter_and_replay() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE660_1001));
+    let mut state = AppState::new();
     let store = assemble_stone_flywheel(&registries, &mut state);
     let created_at = state
         .energy()
@@ -205,7 +205,7 @@ fn copper_banded_flywheel_upgrade_preserves_identity_matter_and_replay() {
 #[test]
 fn flywheel_upgrade_requires_empty_store_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE660_1002));
+    let mut state = AppState::new();
     let store = assemble_stone_flywheel(&registries, &mut state);
     let reinforcement = reinforcement_source(&registries, &mut state);
     state
@@ -233,7 +233,7 @@ fn flywheel_upgrade_requires_empty_store_without_mutation() {
 #[test]
 fn manual_power_start_invalidates_prior_flywheel_upgrade_without_energy_revision_change() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE660_1003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("flywheel race survival setup failed: {error}"));
     let crank = assemble_stone_crank(&registries, &mut state);
@@ -274,7 +274,7 @@ fn manual_power_start_invalidates_prior_flywheel_upgrade_without_energy_revision
 #[test]
 fn intervening_energy_mutation_invalidates_flywheel_upgrade_token() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE660_1004));
+    let mut state = AppState::new();
     let store = assemble_stone_flywheel(&registries, &mut state);
     let reinforcement = reinforcement_source(&registries, &mut state);
     let token = validate_upgrade_energy_store(
@@ -303,7 +303,7 @@ fn intervening_energy_mutation_invalidates_flywheel_upgrade_token() {
 #[test]
 fn upgraded_flywheel_disassembly_returns_reusable_reinforcement_exactly() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE660_1005));
+    let mut state = AppState::new();
     let store = assemble_stone_flywheel(&registries, &mut state);
     let reinforcement = reinforcement_source(&registries, &mut state);
     validate_upgrade_energy_store(
@@ -347,7 +347,7 @@ fn upgraded_flywheel_disassembly_returns_reusable_reinforcement_exactly() {
 #[test]
 fn flywheel_reinforcement_makes_a_seven_hundred_fifty_joule_manual_charge_reachable() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE660_1006));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("flywheel capacity survival setup failed: {error}"));
     let crank = assemble_stone_crank(&registries, &mut state);

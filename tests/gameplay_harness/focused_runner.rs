@@ -62,14 +62,21 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             &[3, 4, 6, 12, 14, 250, 0x36F7_E3A2_7870_3A8A],
             0x574F_4F44_5052_4F42,
         ),
-        // Maintained fieldwork spans soft, reinforcement, and hard-specialist geology plus
-        // one-, two-, and three-site survey horizons. Heavy quarry tools are bulk-order
-        // investments covered by planning contracts rather than forced into the current project.
-        // Organic worlds remain free to land in any tier or campaign horizon.
-        "fieldwork" => (1, &[2, 3, 6], 0x4649_454C_4450_5242),
-        // Report-only crank-vs-treadle charging comparison needs no gate: the probe asserts its
-        // own comparative contracts inline and organic variation owns broad exploration.
-        "power-provider" => (0xD33F_C01D_907E, &[7, 11], 0x504F_5752_5052_4F42),
+        // Maintained fieldwork spans all four extraction tools, soft/reinforcement/hard-specialist
+        // geology, and one-, two-, and three-site survey horizons. Paired reinforcement worlds
+        // expose both sides of heavy-tool investment: a large visible reserve selects the
+        // reinforced quarry, while a small localized reserve cuts the same nominal project back to
+        // the lighter hard pick before construction. Seed 5 keeps the short soft-rock stone-pick
+        // baseline visible without relying on organic sampling luck.
+        "fieldwork" => (1, &[0, 2, 3, 5, 6], 0x4649_454C_4450_5242),
+        // Keep one long-project coverage world because it crosses repeated crusher service and
+        // survival provisioning; this caught meal-time reserve planning that short cycles cannot.
+        // Organic variation still owns broad provider/workload exploration.
+        "power-provider" => (
+            0xD33F_C01D_907E,
+            &[7, 11, 0x10FA_D311_A1B9_7550],
+            0x504F_5752_5052_4F42,
+        ),
         "ore-preparation" => (0xD33F_C01D_0A11, &[2], 0x0AE5_1A5E_5052_4F42),
         "foundry" => (0xD33F_C01D_F001, &[2], 0xF0A1_DA7A_5052_4F42),
         unknown => panic!("unknown focused gameplay probe {unknown:?}"),

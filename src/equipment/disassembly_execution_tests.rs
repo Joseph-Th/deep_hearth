@@ -11,7 +11,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::validate_loaded_state;
-use crate::core::time::WorldSeed;
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     EquipmentDefinitionId, degrade_equipment_condition_for_test, validate_assemble_equipment,
@@ -113,7 +112,7 @@ fn upgrade_with_reinforcement(
 #[test]
 fn worn_pick_disassembly_reuses_intact_reinforcement_without_resetting_worn_head() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15A_0005));
+    let mut state = AppState::new();
     let first = assembled_pick(&registries, &mut state);
     let second = assembled_pick(&registries, &mut state);
     upgrade_pick(&registries, &mut state, first);
@@ -181,9 +180,8 @@ fn worn_pick_disassembly_reuses_intact_reinforcement_without_resetting_worn_head
 #[test]
 fn worn_reinforced_processing_machines_preserve_unworn_components() {
     let registries = build_registries();
-    for (seed, base, upgraded, total_mass, stone_mass, wood_mass) in [
+    for (base, upgraded, total_mass, stone_mass, wood_mass) in [
         (
-            0xD15A_1001,
             EQUIPMENT_STONE_CRUSHER,
             EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
             Mass::from_milligrams(2_020_000),
@@ -191,7 +189,6 @@ fn worn_reinforced_processing_machines_preserve_unworn_components() {
             Mass::from_milligrams(400_000),
         ),
         (
-            0xD15A_1002,
             EQUIPMENT_STONE_SEPARATOR,
             EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
             Mass::from_milligrams(1_220_000),
@@ -199,7 +196,7 @@ fn worn_reinforced_processing_machines_preserve_unworn_components() {
             Mass::from_milligrams(400_000),
         ),
     ] {
-        let mut state = AppState::new(WorldSeed::new(seed));
+        let mut state = AppState::new();
         let equipment = assembled_authored_equipment(&registries, &mut state, base);
         upgrade_with_reinforcement(&registries, &mut state, equipment, upgraded);
         degrade_equipment_condition_for_test(&mut state, equipment, 1);
@@ -284,7 +281,7 @@ fn explicit_energy(registries: &Registries, state: &AppState) -> crate::energy::
 #[test]
 fn worn_upgraded_equipment_preserves_unworn_components_and_upgrade_material() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15A_0004));
+    let mut state = AppState::new();
     let pick = assembled_pick(&registries, &mut state);
     upgrade_pick(&registries, &mut state, pick);
     degrade_equipment_condition_for_test(&mut state, pick, 1);
@@ -409,7 +406,7 @@ fn assembled_store(registries: &Registries, state: &mut AppState) -> crate::ener
 #[test]
 fn pristine_disassembly_recovers_exact_matter_without_reusing_identity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15A_0001));
+    let mut state = AppState::new();
     let pick = assembled_pick(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("disassembly destination failed: {error}"));
@@ -451,7 +448,7 @@ fn pristine_disassembly_recovers_exact_matter_without_reusing_identity() {
 #[test]
 fn worn_component_equipment_recovers_only_wear_component_as_spent_material() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15A_0002));
+    let mut state = AppState::new();
     let pick = assembled_pick(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("worn disassembly destination failed: {error}"));
@@ -498,7 +495,7 @@ fn worn_component_equipment_recovers_only_wear_component_as_spent_material() {
 #[test]
 fn worn_saw_disassembly_preserves_frame_and_spends_only_blade() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15A_0006));
+    let mut state = AppState::new();
     let saw =
         assembled_authored_equipment(&registries, &mut state, EQUIPMENT_TIMBER_FRAME_SAW_BENCH);
     degrade_equipment_condition_for_test(&mut state, saw, 1);
@@ -561,7 +558,7 @@ fn worn_saw_disassembly_preserves_frame_and_spends_only_blade() {
 #[test]
 fn manual_power_start_invalidates_prior_pristine_disassembly_without_equipment_revision_change() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15A_0003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("disassembly race survival setup failed: {error}"));
     let crank = assembled_crank(&registries, &mut state);

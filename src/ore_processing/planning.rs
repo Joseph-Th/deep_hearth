@@ -6,12 +6,12 @@ use std::fmt::{Display, Formatter};
 use crate::capability::{CapabilityEvaluationError, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
-use crate::core::throughput::calculate_mass_flow_capacity;
+use crate::core::throughput::{calculate_mass_flow_capacity, calculate_mass_flow_duration_ceiling};
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, assess_energy_supply_access,
     calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
-    integrate_power_or_saturate,
+    calculate_power_duration_ceiling, integrate_power_or_saturate,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::maintenance::{
@@ -59,6 +59,32 @@ impl PoweredOreMassEnvelope {
     #[must_use]
     pub const fn equipment_capacity(self) -> Mass {
         self.equipment_capacity
+    }
+
+    /// Exact active production duration for `requested` if this same store can be replenished first.
+    ///
+    /// This keeps current condition-adjusted throughput, output power, and the authored physical tick
+    /// duration authoritative while excluding only the store's current finite charge. `None` means
+    /// the requested mass already exceeds a non-energy constraint or a duration cannot be represented.
+    #[must_use]
+    pub fn duration_for_mass_with_replenished_energy(self, requested: Mass) -> Option<TickSpan> {
+        if requested > self.maximum_mass_with_replenished_energy() {
+            return None;
+        }
+        let throughput_duration = calculate_mass_flow_duration_ceiling(
+            self.processing_rate,
+            requested,
+            self.physical_tick_duration,
+        )
+        .ok()?;
+        let required_energy = calculate_mass_specific_energy(requested, self.specific_energy);
+        let energy_duration = calculate_power_duration_ceiling(
+            self.available_power,
+            required_energy,
+            self.physical_tick_duration,
+        )
+        .ok()?;
+        Some(std::cmp::max(throughput_duration, energy_duration))
     }
 
     /// Greatest mass that could be run if this same currently available supply were replenished.

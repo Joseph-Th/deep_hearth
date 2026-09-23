@@ -252,6 +252,139 @@ pub(crate) fn resolve_powered_craft_timing(
     Ok((duration, condition_after))
 }
 
+/// Read-side physical schedule for one powered-craft work order after replenishing the selected
+/// finite-work store to whatever level the order requires, bounded by that store's real capacity.
+///
+/// This projection validates the current machine, its condition-adjusted capabilities, process
+/// requirements, the store carrier/output power, whole transform batches, and equipment wear. It
+/// deliberately does not inspect a concrete material selection or reserve energy. Runtime
+/// authorization must still use [`resolve_powered_craft`] / [`validate_start_powered_craft`].
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoweredCraftWorkProjection {
+    required_energy: crate::core::quantity::Energy,
+    duration: TickSpan,
+    condition_after: Condition,
+}
+
+impl PoweredCraftWorkProjection {
+    #[must_use]
+    pub const fn required_energy(self) -> crate::core::quantity::Energy {
+        self.required_energy
+    }
+
+    #[must_use]
+    pub const fn duration(self) -> TickSpan {
+        self.duration
+    }
+
+    #[must_use]
+    pub const fn condition_after(self) -> Condition {
+        self.condition_after
+    }
+}
+
+/// Projects powered-craft work from current observable machine/store state without requiring the
+/// store to already contain the projected work.
+pub fn project_powered_craft_work(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    input_mass: Mass,
+    equipment: EquipmentId,
+    energy_store: EnergyStoreId,
+) -> Result<PoweredCraftWorkProjection, PoweredCraftError> {
+    if input_mass.is_zero() {
+        return Err(PoweredCraftError::EmptyInput);
+    }
+    let definition = registries
+        .crafting()
+        .get_powered(process)
+        .ok_or(PoweredCraftError::UnknownProcess { process })?;
+    let transform = registries
+        .crafting()
+        .get_manual(definition.transform())
+        .ok_or(PoweredCraftError::MissingTransform { process })?;
+    if !input_mass
+        .milligrams()
+        .is_multiple_of(transform.input_mass().milligrams())
+    {
+        return Err(PoweredCraftError::InputMassNotWholeBatches {
+            consumed: input_mass,
+            batch_mass: transform.input_mass(),
+        });
+    }
+
+    let provider = resolve_equipment_provider(registries, state, equipment)
+        .map_err(PoweredCraftError::Equipment)?;
+    let process_definition = registries
+        .production()
+        .get_process(process)
+        .ok_or(PoweredCraftError::UnknownProcess { process })?;
+    evaluate_capabilities(
+        registries.capabilities(),
+        &provider,
+        process_definition.capability_requirements(),
+    )
+    .map_err(PoweredCraftError::Capability)?;
+    let capability = definition.mass_flow_capability();
+    let rate = match provider.get_capability(capability) {
+        Some(CapabilityValue::MassFlow(rate)) => rate,
+        Some(_) | None => unreachable!(
+            "validated powered-craft provider lost its resolver-owned throughput capability"
+        ),
+    };
+    let access = assess_energy_supply_access(registries, state, energy_store)
+        .map_err(PoweredCraftError::Energy)?;
+    if access.carrier() != definition.energy_carrier() {
+        return Err(PoweredCraftError::WrongEnergyCarrier {
+            required: definition.energy_carrier(),
+            provided: access.carrier(),
+        });
+    }
+    let required_energy = calculate_mass_specific_energy(input_mass, definition.specific_energy());
+    let store = state
+        .energy()
+        .get_store(energy_store)
+        .unwrap_or_else(|| unreachable!("assessed energy store remains present"));
+    let store_definition = registries
+        .energy()
+        .get_store(store.definition())
+        .unwrap_or_else(|| unreachable!("assessed energy store definition remains present"));
+    if required_energy > store_definition.capacity() {
+        return Err(PoweredCraftError::Energy(
+            EnergySupplyError::InsufficientEnergy {
+                store: energy_store,
+                available: store_definition.capacity(),
+                requested: required_energy,
+            },
+        ));
+    }
+    let (duration, condition_after) = resolve_powered_craft_timing(
+        registries,
+        rate,
+        input_mass,
+        required_energy,
+        access.max_output_power(),
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
+    )
+    .map_err(|error| match error {
+        PoweredCraftTimingError::ThroughputDuration(error) => {
+            PoweredCraftError::ThroughputDuration(error)
+        }
+        PoweredCraftTimingError::EnergyDuration(error) => PoweredCraftError::EnergyDuration(error),
+        PoweredCraftTimingError::EquipmentCondition(error) => {
+            PoweredCraftError::EquipmentCondition(error)
+        }
+    })?;
+    Ok(PoweredCraftWorkProjection {
+        required_energy,
+        duration,
+        condition_after,
+    })
+}
+
 /// Resolves one powered crafting operation without claiming player attention.
 pub fn resolve_powered_craft(
     registries: &Registries,

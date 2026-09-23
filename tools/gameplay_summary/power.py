@@ -78,7 +78,7 @@ def _productive_cycle_values(
     for line in lines:
         if EXECUTED_CYCLE_MARKER in line and f"consumer:{consumer}]" in line:
             executed += 1
-        if "long-horizon:projected-canonical" in line:
+        if "comparator-lifecycle:projected-canonical" in line:
             projected += 1
         match = cycle_pattern.search(line)
         if match is not None:
@@ -98,7 +98,7 @@ def _lifecycle_values(
         second: {"energy": [], "hydration": [], "condition": []},
     }
     pattern = re.compile(
-        rf"projected-lifecycle=\[{re.escape(first)}:body:(\d+)nJ/(\d+)uL condition:(\d+)ppm "
+        rf"projected-provider-lifecycle=\[{re.escape(first)}:body:(\d+)nJ/(\d+)uL condition:(\d+)ppm "
         rf"{re.escape(second)}:body:(\d+)nJ/(\d+)uL condition:(\d+)ppm\]"
     )
     for line in lines:
@@ -112,9 +112,69 @@ def _lifecycle_values(
     return values
 
 
-def _primitive_evidence(power: list[str]) -> str:
+def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
+    selected = [
+        line
+        for line in lines
+        if line.startswith("POWER PROJECT EXPERIENCE ") and f" era={era} " in line
+    ]
+    values = {
+        "pristine_charge_events": [],
+        "charge_events": [],
+        "extra_charge_events": [],
+        "limited_batches": [],
+        "attention": [],
+        "services": [],
+        "service_ticks": [],
+        "provisioning_stops": [],
+        "provisioning_attention": [],
+        "drink_actions": [],
+        "meal_actions": [],
+        "elapsed": [],
+        "food": [],
+        "preservation": [],
+        "water": [],
+    }
+    patterns = {
+        "pristine_charge_events": r"pristine-charge-events:(\d+)",
+        "charge_events": r"executed=\[charge-events:(\d+)",
+        "limited_batches": r"survival-limited-batches:(\d+)",
+        "attention": r"active-attention:(\d+)t",
+        "services": r"maintenance=\[services:(\d+)",
+        "service_ticks": r"\bservice:(\d+)t",
+        "provisioning_stops": r"provisioning=\[stops:(\d+)",
+        "provisioning_attention": r"provisioning=\[stops:\d+ attention:(\d+)t",
+        "drink_actions": r"provisioning=\[.*?drinks:(\d+)",
+        "meal_actions": r"provisioning=\[.*?meals:(\d+)",
+        "elapsed": r"\belapsed:(\d+)t",
+        "food": r"project-cache=\[food:(\d+)mg",
+        "preservation": r"preservation:(\d+)ppm",
+        "water": r"preservation:\d+ppm water:(\d+)uL",
+    }
+    for line in selected:
+        for key, pattern in patterns.items():
+            match = re.search(pattern, line)
+            if match is not None:
+                values[key].append(int(match.group(1)))
+    values["extra_charge_events"] = [
+        executed - pristine
+        for executed, pristine in zip(
+            values["charge_events"], values["pristine_charge_events"], strict=True
+        )
+    ]
+    values["selected_agrees"] = [
+        1 if "selected-agrees:true" in line else 0 for line in selected
+    ]
+    values["samples"] = [len(selected)]
+    return values
+
+
+def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     organic_power = organic_only(power)
     pristine_break_evens = _numeric_values(power, r"pristine-rate-break-even:(\d+)")
+    minimum_attention_return = _numeric_values(
+        power, r"minimum-attention-return:(\d+)t"
+    )
     decision_crossovers = _numeric_values(
         power, r"wear-aware-decision-crossover:(\d+)"
     )
@@ -141,6 +201,8 @@ def _primitive_evidence(power: list[str]) -> str:
     )
     crank_load = _selected_project_mass(power, "stone-crusher", "crank")
     treadle_load = _selected_project_mass(power, "stone-crusher", "treadle")
+    lived = _project_experience(projects, "primitive")
+    lived_samples = lived["samples"][0]
     return (
         f"choice=[crank:{sum('selected:crank' in line for line in power)} "
         f"treadle:{sum('selected:treadle' in line for line in power)}] "
@@ -151,6 +213,7 @@ def _primitive_evidence(power: list[str]) -> str:
         f"charge-events:{_span(charge_events)}] "
         f"decision-crossover-charges={_span(decision_crossovers)} "
         f"pristine-rate-break-even={_span(pristine_break_evens)} "
+        f"minimum-investment-return={_span(minimum_attention_return, 't')} "
         f"choice-load=[crank:{scaled_span(crank_load, 1_000_000, 'kg')} "
         f"treadle:{scaled_span(treadle_load, 1_000_000, 'kg')}] "
         f"metabolic-lower-treadle={metabolic_wins} "
@@ -167,12 +230,27 @@ def _primitive_evidence(power: list[str]) -> str:
         f"productive-cycle=[consumer:stone-crusher executed:{executed_cycles}/{len(power)} "
         f"consumer-duration:{_span(consumer_ticks, 't')} "
         f"carried-state-recharge:{second_charge_pairs}/{len(power)}] "
+        f"lived-project=[executed:{lived_samples}/{len(power)} "
+        f"choice-agrees:{sum(lived['selected_agrees'])}/{lived_samples} "
+        f"charge-events:{_span(lived['charge_events'])} "
+        f"wear-extra-charges:{_span(lived['extra_charge_events'])} "
+        f"survival-limited-batches:{_span(lived['limited_batches'])} "
+        f"active-attention:{_span(lived['attention'], 't')} "
+        f"services:{_span(lived['services'])} service-time:{_span(lived['service_ticks'], 't')} "
+        f"provisioning-stops:{_span(lived['provisioning_stops'])} "
+        f"provisioning-attention:{_span(lived['provisioning_attention'], 't')} "
+        f"break-actions=[drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
+        f"elapsed:{_span(lived['elapsed'], 't')} "
+        f"cache-food:{scaled_span(lived['food'], 1_000_000, 'kg')} "
+        f"cache-preservation:{_span(lived['preservation'], 'ppm')} "
+        f"cache-water:{scaled_span(lived['water'], 1_000_000, 'L')}] "
         f"evidence-scope=[productive-cycle-executed:{executed_cycles}/{len(power)} "
-        f"long-horizon-projected:{projected_horizons}/{len(power)}]"
+        f"full-project-executed:{lived_samples}/{len(power)} "
+        f"provider-lifecycle-projected:{projected_horizons}/{len(power)}]"
     )
 
 
-def _settlement_evidence(settlement: list[str]) -> str:
+def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
     organic_settlement = organic_only(settlement)
     project_mass = _numeric_values(
         settlement, r"project=\[consumer:powered-saw feed:(\d+)mg"
@@ -195,6 +273,8 @@ def _settlement_evidence(settlement: list[str]) -> str:
     walking_load = _selected_project_mass(
         settlement, "powered-saw", "walking-wheel"
     )
+    lived = _project_experience(projects, "settlement")
+    lived_samples = lived["samples"][0]
     return (
         f"settlement-choice=[treadle:{sum('selected:treadle' in line for line in settlement)} "
         f"walking:{sum('selected:walking-wheel' in line for line in settlement)}] "
@@ -216,8 +296,23 @@ def _settlement_evidence(settlement: list[str]) -> str:
         f"settlement-productive-cycle=[consumer:powered-saw executed:{executed_cycles}/{len(settlement)} "
         f"consumer-duration:{_span(consumer_ticks, 't')} "
         f"carried-state-recharge:{second_charge_pairs}/{len(settlement)}] "
+        f"settlement-lived-project=[executed:{lived_samples}/{len(settlement)} "
+        f"choice-agrees:{sum(lived['selected_agrees'])}/{lived_samples} "
+        f"charge-events:{_span(lived['charge_events'])} "
+        f"wear-extra-charges:{_span(lived['extra_charge_events'])} "
+        f"survival-limited-batches:{_span(lived['limited_batches'])} "
+        f"active-attention:{_span(lived['attention'], 't')} "
+        f"services:{_span(lived['services'])} service-time:{_span(lived['service_ticks'], 't')} "
+        f"provisioning-stops:{_span(lived['provisioning_stops'])} "
+        f"provisioning-attention:{_span(lived['provisioning_attention'], 't')} "
+        f"break-actions=[drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
+        f"elapsed:{_span(lived['elapsed'], 't')} "
+        f"cache-food:{scaled_span(lived['food'], 1_000_000, 'kg')} "
+        f"cache-preservation:{_span(lived['preservation'], 'ppm')} "
+        f"cache-water:{scaled_span(lived['water'], 1_000_000, 'L')}] "
         f"settlement-evidence-scope=[productive-cycle-executed:{executed_cycles}/{len(settlement)} "
-        f"long-horizon-projected:{projected_horizons}/{len(settlement)}]"
+        f"full-project-executed:{lived_samples}/{len(settlement)} "
+        f"provider-lifecycle-projected:{projected_horizons}/{len(settlement)}]"
     )
 
 
@@ -226,10 +321,11 @@ def power_provider_summary(lines: list[str]) -> str | None:
     if not power:
         return None
     settlement = [line for line in lines if line.startswith("POWER SETTLEMENT ")]
+    projects = [line for line in lines if line.startswith("POWER PROJECT EXPERIENCE ")]
     return (
         "ORDINARY SUMMARY probe=power-provider "
         f"samples={len(power)} sample-shape=[{sample_shape(power)}] "
         "workload-source=declared-consumer-project "
-        f"{_primitive_evidence(power)} "
-        f"{_settlement_evidence(settlement)}"
+        f"{_primitive_evidence(power, projects)} "
+        f"{_settlement_evidence(settlement, projects)}"
     )

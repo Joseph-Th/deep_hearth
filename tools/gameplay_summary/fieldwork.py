@@ -64,6 +64,9 @@ def _pacing_summary(lines: list[str], fieldwork: list[str]) -> str:
         "project-first": [],
         "project-search": [],
         "project-extraction": [],
+        "bulk-first": [],
+        "bulk-search": [],
+        "bulk-extraction": [],
     }
     for line in lines:
         if not line.startswith("FIELDWORK PACING "):
@@ -93,7 +96,7 @@ def _pacing_summary(lines: list[str], fieldwork: list[str]) -> str:
         buckets["search"].append(searched_ticks)
         buckets["extraction"].append(extracted_ticks)
         horizon = horizon_by_seed.get(seed.group(1).lower())
-        if horizon in ("short", "project"):
+        if horizon in ("short", "project", "bulk"):
             buckets[f"{horizon}-first"].append(total_ticks)
             buckets[f"{horizon}-search"].append(searched_ticks)
             buckets[f"{horizon}-extraction"].append(extracted_ticks)
@@ -109,7 +112,10 @@ def _pacing_summary(lines: list[str], fieldwork: list[str]) -> str:
         f"short-extraction:{_span(buckets['short-extraction'])} "
         f"project-first:{_span(buckets['project-first'])} "
         f"project-search:{_span(buckets['project-search'])} "
-        f"project-extraction:{_span(buckets['project-extraction'])}] "
+        f"project-extraction:{_span(buckets['project-extraction'])} "
+        f"bulk-first:{_span(buckets['bulk-first'])} "
+        f"bulk-search:{_span(buckets['bulk-search'])} "
+        f"bulk-extraction:{_span(buckets['bulk-extraction'])}] "
         "pacing-physical=["
         f"first-expedition:{physical_duration_span(lines, buckets['first'])} "
         f"durable-kit:{physical_duration_span(lines, buckets['kit'])} "
@@ -214,6 +220,31 @@ def _depletion_summary(lines: list[str]) -> str:
         f"body:{scaled_span(energy, 1_000_000_000_000, 'kJ')}/"
         f"{scaled_span(hydration, 1_000, 'mL')} "
         f"condition:{_span(condition, unit='ppm')}]"
+    )
+
+
+def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
+    recoveries = [
+        line
+        for line in lines
+        if line.startswith("FIELDWORK INITIAL SHORTFALL RECOVERY ")
+    ]
+
+    def values(pattern: str) -> list[int]:
+        return [
+            int(match.group(1))
+            for line in recoveries
+            if (match := re.search(pattern, line)) is not None
+        ]
+
+    return (
+        "initial-shortfall-campaign=["
+        f"cases:{len(recoveries)} "
+        f"completed:{sum(' terminal=order-complete' in line for line in recoveries)} "
+        f"local-area-exhausted:{sum(' terminal=local-search-area-exhausted' in line for line in recoveries)} "
+        f"sites:{_span(values(r'\bsites-visited=(\d+)'), unit='')} "
+        f"fulfillment:{_span(values(r'\bfulfillment=(\d+)ppm'), unit='ppm')} "
+        f"remaining:{_span(values(r'\bremaining=(\d+)mg'), unit='mg')}]"
     )
 
 
@@ -361,10 +392,12 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         f"tool-changed:{count('resource-knowledge-effect=changed-tool')}] "
         f"organic-reserve-knowledge=[workload-capped:{organic_resource_capped} "
         f"tool-changed:{sum('resource-knowledge-effect=changed-tool' in line for line in organic_fieldwork)}] "
-        f"orders=[short:{count('order-horizon=short')} project:{count('order-horizon=project')}] "
+        f"orders=[short:{count('order-horizon=short')} project:{count('order-horizon=project')} "
+        f"bulk:{count('order-horizon=bulk')}] "
         f"{_pacing_summary(lines, fieldwork)} "
         f"{_reuse_summary(lines)} "
         f"{_depletion_summary(lines)} "
+        f"{_initial_shortfall_recovery_summary(lines)} "
         f"{_survey_campaign_summary(lines)} "
         f"{_heavy_tool_market_summary(lines)} "
         f"{_bulk_crossover_summary(lines)} "

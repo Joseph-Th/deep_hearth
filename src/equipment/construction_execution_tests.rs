@@ -6,7 +6,6 @@ use crate::content::{
 };
 use crate::core::quantity::Temperature;
 use crate::core::state::StateValidationError;
-use crate::core::time::WorldSeed;
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::equipment::EquipmentValidationError;
 use crate::inventory::{
@@ -18,7 +17,7 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
 fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::StockpileId) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA55E_00E0));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("assembly exhaustion source fixture failed: {error}"));
     for (commodity, mass) in [
@@ -89,7 +88,7 @@ fn assembly_rejects_exhausted_equipment_revision_without_consuming_material() {
 #[test]
 fn composite_pick_requires_both_authored_inputs_and_rejects_forged_embodiment() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA55E_0001));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("assembly source fixture failed: {error}"));
     deposit_lot_for_test(
@@ -166,7 +165,7 @@ fn composite_pick_requires_both_authored_inputs_and_rejects_forged_embodiment() 
 #[test]
 fn equipment_assembly_skips_older_contaminated_stock_when_pure_material_exists() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA55E_0002));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_800_000))
         .unwrap_or_else(|error| panic!("mixed assembly source fixture failed: {error}"));
     let mixed = MaterialComposition::new(vec![

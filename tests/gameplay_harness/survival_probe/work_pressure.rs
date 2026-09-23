@@ -41,7 +41,7 @@ pub(super) fn evaluate_survival_work_pressure_probe(
 ) -> SurvivalWorkPressureReview {
     let physiology = registries.survival().physiology();
 
-    let mut prospecting = AppState::new(WorldSeed::new(seed ^ 0x5052_4F53_5045_4354));
+    let mut prospecting = AppState::new();
     initialize_player_survival(registries, &mut prospecting)
         .unwrap_or_else(|error| panic!("work-pressure prospecting survival setup failed: {error}"));
     let prospecting_method = prospecting_method_for_work_pressure(registries, seed);
@@ -124,7 +124,7 @@ pub(super) fn evaluate_survival_work_pressure_probe(
     assert!(prospecting_energy_deficit_ppm > 0);
     assert!(prospecting_hydration_deficit_ppm > 0);
 
-    let mut power = AppState::new(WorldSeed::new(seed ^ 0x504F_5745_5257_4F52));
+    let mut power = AppState::new();
     let crank_profile = registries
         .equipment()
         .get_equipment(EQUIPMENT_STONE_HAND_CRANK)

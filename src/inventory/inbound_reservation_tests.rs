@@ -2,7 +2,6 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::inventory::{
     add_solid_stockpile_for_test, validate_inbound_reservation,
     validate_inbound_reservation_release,
@@ -10,7 +9,7 @@ use crate::inventory::{
 
 #[test]
 fn reservation_release_returns_exact_capacity_under_one_inventory_revision() {
-    let mut state = AppState::new(WorldSeed::new(0x1A70_4001));
+    let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("reservation-release stockpile failed: {error}"));
     let reservation =

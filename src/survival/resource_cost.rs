@@ -1,6 +1,7 @@
 //! Canonical per-tick survival resource costs shared by execution and work admission.
 
 use crate::core::quantity::{Energy, Volume};
+use crate::core::time::TickSpan;
 
 use super::definitions::PhysiologyDefinition;
 
@@ -13,6 +14,46 @@ use super::definitions::PhysiologyDefinition;
 pub struct SurvivalExertion {
     energy_cost_per_tick: Energy,
     hydration_loss_per_tick: Volume,
+}
+
+/// Failure to project exact survival reserve consumption across a bounded duration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurvivalResourceProjectionError {
+    EnergyOverflow,
+    HydrationOverflow,
+}
+
+/// Exact metabolic-energy and hydration reserve consumed across one projected interval.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SurvivalResourceBudget {
+    metabolic_energy: Energy,
+    hydration: Volume,
+}
+
+impl SurvivalResourceBudget {
+    pub const ZERO: Self = Self {
+        metabolic_energy: Energy::ZERO,
+        hydration: Volume::ZERO,
+    };
+
+    #[must_use]
+    pub const fn metabolic_energy(self) -> Energy {
+        self.metabolic_energy
+    }
+
+    #[must_use]
+    pub const fn hydration(self) -> Volume {
+        self.hydration
+    }
+
+    #[must_use]
+    pub fn checked_add(self, other: Self) -> Option<Self> {
+        Some(Self {
+            metabolic_energy: self.metabolic_energy.checked_add(other.metabolic_energy)?,
+            hydration: self.hydration.checked_add(other.hydration)?,
+        })
+    }
 }
 
 impl SurvivalExertion {
@@ -46,6 +87,43 @@ impl SurvivalExertion {
             "active player work exertion must consume metabolic energy"
         );
     }
+}
+
+/// Projects exact basal-plus-exertion reserve consumption for one future interval.
+///
+/// This is the planning counterpart to survival tick execution. It does not inspect current player
+/// reserves or authorize work; callers use it to decide whether to provision before advancing the
+/// same interval through canonical simulation ticks.
+pub fn project_survival_resource_budget(
+    physiology: PhysiologyDefinition,
+    exertion: SurvivalExertion,
+    duration: TickSpan,
+) -> Result<SurvivalResourceBudget, SurvivalResourceProjectionError> {
+    let per_tick =
+        resolve_survival_tick_resource_cost(physiology, exertion).map_err(|error| match error {
+            SurvivalTickResourceCostError::EnergyOverflow => {
+                SurvivalResourceProjectionError::EnergyOverflow
+            }
+            SurvivalTickResourceCostError::HydrationOverflow => {
+                SurvivalResourceProjectionError::HydrationOverflow
+            }
+        })?;
+    let metabolic_energy = per_tick
+        .metabolic_energy()
+        .nanojoules()
+        .checked_mul(u128::from(duration.value()))
+        .map(Energy::from_nanojoules)
+        .ok_or(SurvivalResourceProjectionError::EnergyOverflow)?;
+    let hydration = per_tick
+        .hydration()
+        .microliters()
+        .checked_mul(duration.value())
+        .map(Volume::from_microliters)
+        .ok_or(SurvivalResourceProjectionError::HydrationOverflow)?;
+    Ok(SurvivalResourceBudget {
+        metabolic_energy,
+        hydration,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

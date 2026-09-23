@@ -13,7 +13,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::equipment::validate_assemble_equipment;
 use crate::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use crate::inventory::{
@@ -147,7 +147,7 @@ fn make_fixture() -> (
     StockpileId,
 ) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual craft survival initialization failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))

@@ -1,4 +1,4 @@
-//! Strong types for persistent world seed and authoritative simulation time.
+//! Strong types for authoritative simulation time.
 
 use serde::{Deserialize, Serialize};
 
@@ -29,24 +29,6 @@ impl PhysicalTickDuration {
     #[must_use]
     pub(crate) fn span_microseconds(self, span: TickSpan) -> u128 {
         u128::from(self.0) * u128::from(span.value())
-    }
-}
-
-/// Persistent seed from which deterministic world generation and initial randomness are derived.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct WorldSeed(u64);
-
-impl WorldSeed {
-    /// Creates a world seed from its stable integer representation.
-    #[must_use]
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    /// Returns the stable integer representation.
-    #[must_use]
-    pub const fn value(self) -> u64 {
-        self.0
     }
 }
 

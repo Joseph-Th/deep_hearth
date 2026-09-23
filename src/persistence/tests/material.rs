@@ -1,36 +1,11 @@
-//! Random-state and material-composition persistence contracts.
+//! Material-composition persistence contracts.
 
 use super::*;
 
 #[test]
-fn tampered_random_root_seed_is_rejected_on_load() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5151));
-    let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-        Ok(encoded) => encoded,
-        Err(error) => panic!("save serialization failed: {error}"),
-    };
-    encoded["state"]["random"]["root_seed"] = serde_json::json!(0x5152_u64);
-    let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
-        Ok(decoded) => decoded,
-        Err(error) => panic!("tampered save failed structural decode: {error}"),
-    };
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(
-            StateValidationError::RandomWorldSeedMismatch {
-                world_seed: WorldSeed::new(0x5151),
-                random_seed: WorldSeed::new(0x5152),
-            }
-        ))
-    );
-}
-
-#[test]
 fn mixed_composition_round_trip_preserves_constituents_exactly() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC0A1_1051));
+    let mut state = AppState::new();
     let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture stockpile failed: {error}"),
@@ -79,7 +54,7 @@ fn mixed_composition_round_trip_preserves_constituents_exactly() {
 #[test]
 fn unknown_lot_composition_constituent_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xBAD0_C0DE));
+    let mut state = AppState::new();
     let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture stockpile failed: {error}"),

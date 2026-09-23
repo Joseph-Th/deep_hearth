@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn resolved_mining_target_survives_unrelated_remote_geological_knowledge() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0030));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("stale-target knowledge survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -57,7 +57,7 @@ fn resolved_mining_target_survives_unrelated_remote_geological_knowledge() {
 #[test]
 fn resolved_mining_target_is_invalidated_by_new_local_ambiguity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0033));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("ambiguous-target survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -101,7 +101,7 @@ fn resolved_mining_target_is_invalidated_by_new_local_ambiguity() {
 #[test]
 fn resolved_mining_target_is_invalidated_by_better_local_hardness_evidence() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0034));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("hardness-stale target survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -158,7 +158,7 @@ fn resolved_mining_target_is_invalidated_by_better_local_hardness_evidence() {
 #[test]
 fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0032));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("stale-start knowledge survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -219,7 +219,7 @@ fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
 #[test]
 fn validated_mining_start_rejects_hidden_reserve_change_without_disclosing_amounts() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0036));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("reserve-stale mining survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -256,7 +256,7 @@ fn validated_mining_start_rejects_hidden_reserve_change_without_disclosing_amoun
 #[test]
 fn validated_mining_start_is_invalidated_by_better_local_hardness_evidence() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0035));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("hardness-stale start survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -311,7 +311,7 @@ fn validated_mining_start_is_invalidated_by_better_local_hardness_evidence() {
 #[test]
 fn validated_mining_start_survives_unrelated_remote_geology_change() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0031));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("stale-target geology survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -367,7 +367,7 @@ fn validated_mining_start_survives_unrelated_remote_geology_change() {
 #[test]
 fn mining_rejects_work_that_would_continue_after_tool_failure() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0023));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("condition-lifetime survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -405,7 +405,7 @@ fn mining_rejects_work_that_would_continue_after_tool_failure() {
 #[test]
 fn loaded_mining_job_reconstructs_authored_condition_outcome() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0021));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining wear-audit survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -456,7 +456,7 @@ fn loaded_mining_job_reconstructs_authored_condition_outcome() {
 #[test]
 fn loaded_mining_state_rejects_job_map_key_identity_mismatch() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0024));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining key-audit survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -504,7 +504,7 @@ fn loaded_mining_state_rejects_job_map_key_identity_mismatch() {
 #[test]
 fn loaded_mining_state_rejects_equipment_double_booking_after_index_rebuild() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0025));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining double-book survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -547,7 +547,7 @@ fn loaded_mining_state_rejects_equipment_double_booking_after_index_rebuild() {
 #[test]
 fn deposit_excavation_hardness_is_independent_of_assay_composition() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_000A));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mixed-hardness survival initialization failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -607,7 +607,7 @@ fn deposit_excavation_hardness_is_independent_of_assay_composition() {
 #[test]
 fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0023));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining trace survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -695,7 +695,7 @@ fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
 #[test]
 fn loaded_working_mining_job_rejects_forged_source_mass_trace() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0031));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining source-trace survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -769,7 +769,7 @@ fn loaded_working_mining_job_rejects_forged_requested_mass() {
 #[test]
 fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0038));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("follow-on mining survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -955,7 +955,7 @@ fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
 #[test]
 fn trusted_load_rejects_multiple_working_mining_jobs_before_single_extraction_tick() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0034));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("multiple-mining survival setup failed: {error}"));
     let first_pick = assemble_pick_for_test(&registries, &mut state);
@@ -1015,7 +1015,7 @@ fn trusted_load_rejects_multiple_working_mining_jobs_before_single_extraction_ti
 #[test]
 fn loaded_ready_mining_job_reconstructs_authored_duration() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0022));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining duration-audit survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);

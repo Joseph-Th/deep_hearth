@@ -3,7 +3,7 @@
 use super::*;
 use crate::content::build_registries;
 use crate::core::quantity::{Energy, Volume};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::survival::{SurvivalExertion, assess_survival};
 
 fn next_tick(state: &AppState) -> SimulationTick {
@@ -20,7 +20,7 @@ use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 #[test]
 fn work_exertion_adds_exactly_to_basal_survival_cost() {
     let registries = build_registries();
-    let mut resting = AppState::new(WorldSeed::new(0x5100_0002));
+    let mut resting = AppState::new();
     initialize_player_survival(&registries, &mut resting)
         .unwrap_or_else(|error| panic!("resting survival initialization failed: {error}"));
     let mut working = resting.clone();
@@ -60,7 +60,7 @@ fn work_exertion_adds_exactly_to_basal_survival_cost() {
 #[test]
 fn exhausting_exact_reserves_does_not_apply_deficit_damage_until_the_next_tick() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0004));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("exact-reserve survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -112,7 +112,7 @@ fn exhausting_exact_reserves_does_not_apply_deficit_damage_until_the_next_tick()
 #[test]
 fn survival_initialization_and_tick_are_deterministic_and_visible() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("survival initialization failed: {error}"));
     let before = assess_survival(&registries, &state)
@@ -139,7 +139,7 @@ fn survival_initialization_and_tick_are_deterministic_and_visible() {
 #[test]
 fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
     let registries = build_registries();
-    let mut balanced = AppState::new(WorldSeed::new(0x5100_0003));
+    let mut balanced = AppState::new();
     initialize_player_survival(&registries, &mut balanced)
         .unwrap_or_else(|error| panic!("balanced nutrition initialization failed: {error}"));
     let expected_revision = balanced.survival().revision();
@@ -231,7 +231,7 @@ fn vitality_recovery_requires_both_energy_and_hydration_thresholds() {
         .and_then(|hydration| hydration.checked_sub(Volume::from_microliters(1)))
         .unwrap_or_else(|| panic!("hydration-threshold recovery fixture arithmetic failed"));
 
-    let mut energy_limited = AppState::new(WorldSeed::new(0x5100_0006));
+    let mut energy_limited = AppState::new();
     initialize_player_survival(&registries, &mut energy_limited)
         .unwrap_or_else(|error| panic!("energy-threshold survival initialization failed: {error}"));
     let expected_revision = energy_limited.survival().revision();
@@ -247,7 +247,7 @@ fn vitality_recovery_requires_both_energy_and_hydration_thresholds() {
         ),
     );
 
-    let mut hydration_limited = AppState::new(WorldSeed::new(0x5100_0007));
+    let mut hydration_limited = AppState::new();
     initialize_player_survival(&registries, &mut hydration_limited).unwrap_or_else(|error| {
         panic!("hydration-threshold survival initialization failed: {error}")
     });
@@ -284,7 +284,7 @@ fn vitality_recovery_requires_both_energy_and_hydration_thresholds() {
 #[test]
 fn paused_vitality_recovery_preserves_fractional_progress() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0008));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("paused recovery initialization failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -332,7 +332,7 @@ fn paused_vitality_recovery_preserves_fractional_progress() {
 #[test]
 fn fractional_diet_recovery_accumulates_instead_of_creating_rate_cliffs() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0005));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fractional recovery initialization failed: {error}"));
     let physiology = registries.survival().physiology();

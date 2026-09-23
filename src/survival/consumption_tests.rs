@@ -10,7 +10,7 @@ use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Temper
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
-use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::fluid::{add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting};
 use crate::inventory::{
@@ -68,14 +68,13 @@ fn load_with_owner_revisions(
 
 fn direct_consumption_fixture(
     registries: &Registries,
-    seed: u64,
 ) -> (
     AppState,
     crate::inventory::StockpileId,
     crate::inventory::MaterialLotId,
     crate::fluid::FluidStoreId,
 ) {
-    let mut state = AppState::new(WorldSeed::new(seed));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("direct-consumption revision stockpile failed: {error}"));
@@ -134,6 +133,9 @@ mod death_attention;
 
 #[path = "consumption_tests/drink_projection.rs"]
 mod drink_projection;
+
+#[path = "consumption_tests/meal_projection.rs"]
+mod meal_projection;
 
 fn start_attention_owning_craft(registries: &Registries, state: &mut AppState) -> PlayerWork {
     let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))

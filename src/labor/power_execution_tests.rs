@@ -13,7 +13,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{
     EnergySinkError, EnergyStoreRecord, EnergySupplyError, PowerRemainder, add_energy_store,
@@ -69,7 +69,7 @@ fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
 #[test]
 fn fatal_tick_cancels_unfinished_manual_power_without_energy_or_wear() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0012));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal manual-power survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
@@ -137,7 +137,7 @@ fn fatal_tick_cancels_unfinished_manual_power_without_energy_or_wear() {
 #[test]
 fn manual_power_due_on_fatal_tick_completes_before_attention_is_released() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0013));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal due manual-power survival setup failed: {error}"));
     let crank = assemble_crank_fixture(
@@ -195,7 +195,7 @@ fn manual_power_due_on_fatal_tick_completes_before_attention_is_released() {
 #[test]
 fn manual_power_rejects_completion_owner_revision_exhaustion_at_admission() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0010));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual power revision survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
@@ -233,7 +233,7 @@ fn manual_power_rejects_completion_owner_revision_exhaustion_at_admission() {
 #[test]
 fn active_manual_power_load_requires_completion_owner_revisions() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0011));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual power load revision survival failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
@@ -383,7 +383,7 @@ fn active_support(registries: &Registries, state: &mut AppState) -> StructuralEl
 #[test]
 fn manual_power_requires_portable_unmounted_equipment_and_rejects_mounted_work_on_load() {
     let registries = build_registries();
-    let mut mounted = AppState::new(WorldSeed::new(0x1A80_0003));
+    let mut mounted = AppState::new();
     initialize_player_survival(&registries, &mut mounted)
         .unwrap_or_else(|error| panic!("mounted manual power survival setup failed: {error}"));
     let crank =
@@ -442,7 +442,7 @@ fn manual_power_requires_portable_unmounted_equipment_and_rejects_mounted_work_o
 #[test]
 fn copper_reinforced_crank_halves_manual_charge_time_without_changing_energy_yield() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0002));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("crank comparison survival setup failed: {error}"));
     let stone_crank =
@@ -526,7 +526,7 @@ fn copper_reinforced_crank_halves_manual_charge_time_without_changing_energy_yie
 #[test]
 fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomically() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0004));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("shared-energy survival setup failed: {error}"));
     let crank = assemble_crank_fixture(
@@ -585,7 +585,7 @@ fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomical
 #[test]
 fn passive_loss_cannot_spend_energy_revision_reserved_for_later_manual_power_completion() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0014));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("reserved-energy survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
@@ -638,7 +638,7 @@ fn passive_loss_cannot_spend_energy_revision_reserved_for_later_manual_power_com
 #[test]
 fn partial_flywheel_recharge_preserves_passive_loss_of_preexisting_work() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0005));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("partial-recharge survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
@@ -721,7 +721,7 @@ fn partial_flywheel_recharge_preserves_passive_loss_of_preexisting_work() {
 #[test]
 fn manual_power_topoff_credits_guaranteed_pre_completion_flywheel_loss() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0006));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("topoff survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
@@ -788,7 +788,7 @@ fn manual_power_topoff_credits_guaranteed_pre_completion_flywheel_loss() {
 #[test]
 fn manual_power_topoff_does_not_credit_completion_tick_passive_loss() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0007));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("overfill-boundary survival setup failed: {error}"));
     let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
@@ -830,7 +830,7 @@ fn manual_power_topoff_does_not_credit_completion_tick_passive_loss() {
 #[test]
 fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_0001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual power survival initialization failed: {error}"));
     let raw = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))

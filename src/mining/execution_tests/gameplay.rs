@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn stone_pick_refuses_acquired_hardness_above_authored_capability() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0002));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("hardness survival initialization failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -60,7 +60,7 @@ fn stone_pick_refuses_acquired_hardness_above_authored_capability() {
 #[test]
 fn mining_requires_acquired_hardness_without_revealing_hidden_resistance() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0012));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("hardness-evidence survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -117,7 +117,7 @@ fn mining_requires_acquired_hardness_without_revealing_hidden_resistance() {
 #[test]
 fn mining_requires_enough_hydration_reserve_to_finish() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0005));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining reserve survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -155,7 +155,7 @@ fn mining_requires_enough_hydration_reserve_to_finish() {
 #[test]
 fn active_mining_save_requires_enough_hydration_to_finish_remaining_work() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0006));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining save reserve survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -218,7 +218,7 @@ fn active_mining_save_requires_enough_hydration_to_finish_remaining_work() {
 #[test]
 fn copper_reinforcement_turns_cold_worked_native_metal_into_more_capable_extraction() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0004));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("reinforced mining survival setup failed: {error}"));
     let stone_pick = assemble_pick_for_test(&registries, &mut state);
@@ -294,7 +294,7 @@ fn copper_reinforcement_turns_cold_worked_native_metal_into_more_capable_extract
 #[test]
 fn missing_mining_capability_reports_the_exact_authored_requirement() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("missing-capability survival setup failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -340,7 +340,7 @@ fn missing_mining_capability_reports_the_exact_authored_requirement() {
 #[test]
 fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining survival initialization failed: {error}"));
 
@@ -712,7 +712,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
 #[test]
 fn ready_mining_output_waits_for_destination_support_recovery() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0030));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining support-recovery survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -808,9 +808,9 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
 }
 
 #[cfg(feature = "test-soak")]
-fn run_mining_soak(seed: WorldSeed) -> AppState {
+fn run_mining_soak() -> AppState {
     let registries = build_registries();
-    let mut state = AppState::new(seed);
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining soak survival initialization failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -928,9 +928,8 @@ fn run_mining_soak(seed: WorldSeed) -> AppState {
 #[test]
 #[ignore = "long-horizon soak"]
 fn mining_soak_preserves_depletion_conservation_persistence_and_replay() {
-    let seed = WorldSeed::new(0xA11E_5000);
-    let first = run_mining_soak(seed);
-    let second = run_mining_soak(seed);
+    let first = run_mining_soak();
+    let second = run_mining_soak();
 
     assert_eq!(first, second);
 }

@@ -34,11 +34,11 @@ def _continuation_summary(lines: list[str]) -> str:
                 int(delayed.group(1)) - int(immediate.group(1))
             )
     return (
-        "continuation=["
-        f"immediate:{immediate_completed}/{immediate_blocked} "
-        f"stockpile-first:{delayed_completed}/{delayed_blocked} "
+        "reinvestment-timing=["
+        f"selected-immediate:{immediate_completed}/{immediate_blocked} "
+        f"stockpile-first-counterfactual:{delayed_completed}/{delayed_blocked} "
         f"delay-avoided:{_span(stockpiling_delay_avoided, fallback='not-comparable')}] "
-        "continuation-physical=["
+        "reinvestment-timing-physical=["
         f"delay-avoided:{physical_duration_span(lines, stockpiling_delay_avoided, 'not-comparable')}]"
     )
 
@@ -293,7 +293,7 @@ def progression_summary(lines: list[str]) -> str | None:
         f"converged:{sum('converged-both-upgrades:true' in line for line in progression)}] "
         f"hard-access-lead={hard_span} "
         f"{stockpiling} "
-        f"stockpile=[complete:{sum('economics:finite-stockpile-order-complete' in line for line in progression)} "
+        f"stockpiling-counterfactual-outcome=[complete:{sum('economics:finite-stockpile-order-complete' in line for line in progression)} "
         f"supply-ended:{sum('economics:supply-ended' in line for line in progression)}] "
         f"{processing_recovery} "
         f"{processing_crossover} "
@@ -304,7 +304,8 @@ def progression_summary(lines: list[str]) -> str | None:
         f"{_executed_power_loop(lines, progression)} "
         f"{_integration_evidence(lines, progression)} "
         f"reinvestment=[completed:{sum('selected-reinvestment=[completed' in line for line in progression)} "
-        f"blocked:{sum('selected-reinvestment=[blocked:' in line for line in progression)}] "
+        f"target-supply:{sum('selected-reinvestment=[blocked:known-target-supply' in line for line in progression)} "
+        f"storage-capacity:{sum('selected-reinvestment=[blocked:crushed-storage' in line for line in progression)}] "
         f"{_next_stage_continuation(lines, progression)} "
         f"{_continuation_summary(lines)}"
     )

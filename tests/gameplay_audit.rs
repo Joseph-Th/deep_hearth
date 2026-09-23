@@ -54,6 +54,8 @@ mod ore_fixture;
 mod ore_setup;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
+#[path = "gameplay_harness/power_provider_policy.rs"]
+mod power_provider_policy;
 #[path = "gameplay_harness/preservation_route.rs"]
 mod preservation_route;
 #[path = "gameplay_harness/primitive_liberation.rs"]

@@ -11,7 +11,7 @@ use crate::content::{
 };
 use crate::core::quantity::{AggregateMass, Area, Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
@@ -47,7 +47,7 @@ fn fixture() -> (
     MaterialLotId,
 ) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5702_2001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("dismantle survival fixture failed: {error}"));
     let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
@@ -463,7 +463,7 @@ fn dismantling_checkpoints_preservation_and_recovers_reusable_enclosure_matter()
 #[test]
 fn double_wall_enclosure_checkpoints_three_to_one_preservation_and_reuses_exact_body() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5702_2007));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("double-wall dismantle survival setup failed: {error}"));
     let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
@@ -574,7 +574,7 @@ fn double_wall_enclosure_checkpoints_three_to_one_preservation_and_reuses_exact_
 #[test]
 fn dismantled_double_wall_body_salvages_into_a_standard_enclosure_with_exact_residue() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5702_2008));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("storage salvage survival setup failed: {error}"));
     let body_mass = Mass::from_milligrams(4_000_000);

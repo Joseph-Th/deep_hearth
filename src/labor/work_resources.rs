@@ -3,8 +3,8 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::time::TickSpan;
 use crate::survival::{
-    PhysiologyDefinition, SurvivalExertion, SurvivalTickResourceCostError,
-    resolve_survival_tick_resource_cost,
+    PhysiologyDefinition, SurvivalExertion, SurvivalResourceProjectionError,
+    project_survival_resource_budget,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,30 +37,20 @@ pub(crate) fn calculate_player_work_resource_budget(
     exertion: SurvivalExertion,
     duration: TickSpan,
 ) -> Result<PlayerWorkResourceBudget, PlayerWorkResourceBudgetError> {
-    let per_tick =
-        resolve_survival_tick_resource_cost(physiology, exertion).map_err(|error| match error {
-            SurvivalTickResourceCostError::EnergyOverflow => {
-                PlayerWorkResourceBudgetError::EnergyOverflow
-            }
-            SurvivalTickResourceCostError::HydrationOverflow => {
-                PlayerWorkResourceBudgetError::HydrationOverflow
+    let projected =
+        project_survival_resource_budget(physiology, exertion, duration).map_err(|error| {
+            match error {
+                SurvivalResourceProjectionError::EnergyOverflow => {
+                    PlayerWorkResourceBudgetError::EnergyOverflow
+                }
+                SurvivalResourceProjectionError::HydrationOverflow => {
+                    PlayerWorkResourceBudgetError::HydrationOverflow
+                }
             }
         })?;
-    let metabolic_energy = per_tick
-        .metabolic_energy()
-        .nanojoules()
-        .checked_mul(u128::from(duration.value()))
-        .map(Energy::from_nanojoules)
-        .ok_or(PlayerWorkResourceBudgetError::EnergyOverflow)?;
-    let hydration = per_tick
-        .hydration()
-        .microliters()
-        .checked_mul(duration.value())
-        .map(Volume::from_microliters)
-        .ok_or(PlayerWorkResourceBudgetError::HydrationOverflow)?;
     Ok(PlayerWorkResourceBudget {
-        metabolic_energy,
-        hydration,
+        metabolic_energy: projected.metabolic_energy(),
+        hydration: projected.hydration(),
     })
 }
 

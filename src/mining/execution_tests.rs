@@ -11,7 +11,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::crafting::{
     ManualCraftStartRequest, StartManualCraftError, validate_start_manual_craft,
 };
@@ -98,7 +98,7 @@ fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
 #[test]
 fn fatal_tick_cancels_unfinished_mining_without_extracting_or_wearing_tool() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0112));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal mining survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -241,7 +241,7 @@ fn fatal_mining_cancellation_consumes_reserved_headroom_at_owner_limits() {
 #[test]
 fn fatal_tick_allows_mining_due_that_tick_to_finish_work() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_0113));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal due mining survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
@@ -327,8 +327,8 @@ fn fatal_tick_allows_mining_due_that_tick_to_finish_work() {
 #[test]
 fn mining_shortage_is_revealed_only_after_committing_requested_work() {
     let registries = build_registries();
-    let setup = |seed: u64, deposit_mass: Mass| {
-        let mut state = AppState::new(WorldSeed::new(seed));
+    let setup = |deposit_mass: Mass| {
+        let mut state = AppState::new();
         initialize_player_survival(&registries, &mut state)
             .unwrap_or_else(|error| panic!("shortage mining survival setup failed: {error}"));
         let pick = assemble_pick_for_test(&registries, &mut state);
@@ -344,10 +344,9 @@ fn mining_shortage_is_revealed_only_after_committing_requested_work() {
     };
     let requested = Mass::from_milligrams(100_000);
     let recoverable = Mass::from_milligrams(50_000);
-    let (mut scarce, scarce_deposit, scarce_destination, scarce_pick) =
-        setup(0xA11E_0110, recoverable);
+    let (mut scarce, scarce_deposit, scarce_destination, scarce_pick) = setup(recoverable);
     let (mut ample, ample_deposit, ample_destination, ample_pick) =
-        setup(0xA11E_0111, Mass::from_milligrams(1_000_000));
+        setup(Mass::from_milligrams(1_000_000));
 
     let scarce_before = scarce.clone();
     let scarce_start = validate_known_mining(
@@ -468,7 +467,7 @@ fn mining_order_projection_matches_executed_quarry_batches() {
     use crate::mining::{MiningOrderRequest, resolve_mining_order};
 
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(2));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("order survival setup failed: {error}"));
     let pick = assemble_quarry_pick_for_test(&registries, &mut state);
@@ -573,8 +572,8 @@ fn heavy_quarry_pick_reduces_bulk_soft_rock_attention_through_canonical_mining()
     let registries = build_registries();
     let mass = Mass::from_milligrams(200_000);
 
-    let duration_for = |seed: u64, quarry: bool| {
-        let mut state = AppState::new(WorldSeed::new(seed));
+    let duration_for = |quarry: bool| {
+        let mut state = AppState::new();
         initialize_player_survival(&registries, &mut state)
             .unwrap_or_else(|error| panic!("bulk-mining survival setup failed: {error}"));
         let equipment = if quarry {
@@ -608,8 +607,8 @@ fn heavy_quarry_pick_reduces_bulk_soft_rock_attention_through_canonical_mining()
         (record.completes_at().value() - start_tick.value(), budget)
     };
 
-    let (stone_ticks, stone_budget) = duration_for(0xA11E_0100, false);
-    let (quarry_ticks, quarry_budget) = duration_for(0xA11E_0101, true);
+    let (stone_ticks, stone_budget) = duration_for(false);
+    let (quarry_ticks, quarry_budget) = duration_for(true);
     assert_eq!(stone_ticks, 3);
     assert_eq!(quarry_ticks, 2);
     assert!(quarry_budget.metabolic_energy() < stone_budget.metabolic_energy());
@@ -797,7 +796,7 @@ fn unstarted_mining_fixture() -> (
     EquipmentId,
 ) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_E001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mining exhaustion survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);

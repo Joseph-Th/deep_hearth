@@ -16,6 +16,12 @@ use deep_hearth::registry::Registries;
 
 use super::super::manual_craft_planning::project_manual_assembly_package;
 
+#[path = "power_provider_policy.rs"]
+mod policy;
+use policy::{
+    primitive_treadle_clears_attention_return, primitive_treadle_minimum_attention_return,
+};
+
 const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
 const MAX_SETTLEMENT_CROSSOVER_CHARGES: u64 = 160;
 
@@ -77,6 +83,7 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) treadle_lifecycle_hydration_ul: u64,
     pub(super) crank_lifecycle_condition: Condition,
     pub(super) treadle_lifecycle_condition: Condition,
+    pub(super) minimum_attention_return_ticks: u64,
     pub(super) decision_crossover_charges: Option<u64>,
 }
 
@@ -223,6 +230,7 @@ fn first_candidate_preferred_charge(
     candidate_route: ManualPowerRoute,
     candidate_build: ShapedBuild,
     maximum_charges: u64,
+    minimum_attention_return_ticks: u64,
 ) -> Option<u64> {
     let mut baseline_attention = baseline_build.attention_ticks;
     let mut baseline_metabolic = 0_u128;
@@ -294,7 +302,12 @@ fn first_candidate_preferred_charge(
             candidate_build.input_mass_mg,
             1_u8,
         );
-        if candidate_key < baseline_key {
+        let attention_saving = baseline_attention.saturating_sub(candidate_attention);
+        if minimum_attention_return_ticks > 0 {
+            if attention_saving >= minimum_attention_return_ticks {
+                return Some(charges);
+            }
+        } else if candidate_key < baseline_key {
             return Some(charges);
         }
     }
@@ -363,6 +376,7 @@ pub(super) fn settlement_power_plan(
         walking_route,
         walking_build,
         MAX_SETTLEMENT_CROSSOVER_CHARGES,
+        0,
     );
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     let walking_charge = walking_route.project(registries, Condition::PRISTINE);
@@ -531,6 +545,10 @@ pub(super) fn primitive_power_plan(
     let declared_work = Energy::from_nanojoules(declared_work_nj);
     let crank_lifecycle = crank_route.project_lifecycle(registries, declared_work);
     let treadle_lifecycle = treadle_route.project_lifecycle(registries, declared_work);
+    let minimum_attention_return_ticks = primitive_treadle_minimum_attention_return(
+        crank_build.attention_ticks,
+        treadle_build.attention_ticks,
+    );
     let decision_crossover_charges = first_candidate_preferred_charge(
         registries,
         crank_route,
@@ -538,6 +556,7 @@ pub(super) fn primitive_power_plan(
         treadle_route,
         treadle_build,
         MAX_PRIMITIVE_CROSSOVER_CHARGES,
+        minimum_attention_return_ticks,
     );
     let crank_lifecycle_attention = crank_build
         .attention_ticks
@@ -563,25 +582,15 @@ pub(super) fn primitive_power_plan(
         .hydration_ul
         .checked_add(treadle_lifecycle.hydration_ul)
         .unwrap_or_else(|| panic!("power provider treadle total hydration overflowed"));
-    let crank_key = (
-        crank_lifecycle_attention,
-        crank_lifecycle_metabolic_nj,
-        crank_lifecycle_hydration_ul,
-        crank_build.input_mass_mg,
-        0_u8,
-    );
-    let treadle_key = (
-        treadle_lifecycle_attention,
-        treadle_lifecycle_metabolic_nj,
-        treadle_lifecycle_hydration_ul,
-        treadle_build.input_mass_mg,
-        1_u8,
-    );
     PrimitivePowerPlan {
-        choice: if crank_key <= treadle_key {
-            PrimitivePowerChoice::Crank
-        } else {
+        choice: if primitive_treadle_clears_attention_return(
+            crank_lifecycle_attention,
+            treadle_lifecycle_attention,
+            minimum_attention_return_ticks,
+        ) {
             PrimitivePowerChoice::Treadle
+        } else {
+            PrimitivePowerChoice::Crank
         },
         store_definition,
         capacity_nj,
@@ -599,6 +608,7 @@ pub(super) fn primitive_power_plan(
         treadle_lifecycle_hydration_ul,
         crank_lifecycle_condition: crank_lifecycle.condition_after,
         treadle_lifecycle_condition: treadle_lifecycle.condition_after,
+        minimum_attention_return_ticks,
         decision_crossover_charges,
     }
 }

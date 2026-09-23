@@ -45,7 +45,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Area, Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::{
     EnergySinkError, EnergyStoreId, EnergySupplyError, calculate_mass_specific_energy,
 };
@@ -323,7 +322,7 @@ fn setup_workshop(
     registries: &Registries,
     variation: ScenarioVariation,
 ) -> (AppState, WorkshopIds, Option<ControlledMaterialDelivery>) {
-    let mut state = AppState::new(WorldSeed::new(variation.world_seed));
+    let mut state = AppState::new();
     let ore_mass = variation.ore.order_mass;
     let ore_source = add_solid_stockpile(&mut state, ore_mass);
     let crushed_storage = add_solid_stockpile(&mut state, ore_mass);

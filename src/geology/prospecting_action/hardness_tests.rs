@@ -3,7 +3,6 @@
 use crate::content::build_registries;
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -19,7 +18,7 @@ fn bounds() -> VoxelBounds {
 
 fn observed_hardness(hardness_pa: u64) -> crate::geology::ExcavationHardnessEstimate {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(hardness_pa));
+    let mut state = AppState::new();
     insert_generated_deposit(
         &registries,
         &mut state,

@@ -4,7 +4,6 @@ use super::*;
 use crate::content::{MATERIAL_COPPER, PROSPECTING_FIELD_INSPECTION, build_registries};
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::survival::{NutritionReserves, Vitality, initialize_player_survival, player_record};
@@ -20,7 +19,7 @@ fn prospecting_projection_matches_admitted_work_budget() {
     let region = one_voxel();
     let projection = project_prospecting_work(&registries, PROSPECTING_FIELD_INSPECTION, region)
         .unwrap_or_else(|error| panic!("prospecting projection failed: {error}"));
-    let mut state = AppState::new(WorldSeed::new(0x1AB0_5001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("prospecting projection survival setup failed: {error}"));
     let admitted = validate_start_field_prospecting(
@@ -49,7 +48,7 @@ fn prospecting_projection_remains_available_when_current_reserve_cannot_admit_wo
         .unwrap_or_else(|error| panic!("prospecting projection failed: {error}"));
     assert!(projection.resource_budget().hydration() > Volume::ZERO);
 
-    let mut state = AppState::new(WorldSeed::new(0x1AB0_5002));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("prospecting low-reserve survival setup failed: {error}"));
     let expected_revision = state.survival().revision();

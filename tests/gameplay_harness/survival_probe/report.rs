@@ -155,7 +155,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     );
     let foods = world.foods.as_slice();
     let provisioning_wait_ticks = world.provisioning_wait_ticks;
-    let diet_comparison = evaluate_provisioning_comparison(registries, seed, behavior_seed, &world);
+    let diet_comparison = evaluate_provisioning_comparison(registries, behavior_seed, &world);
     let compact = diet_comparison.compact;
     let balanced = diet_comparison.balanced;
     let natural_policy = diet_comparison.natural_policy;

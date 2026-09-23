@@ -4,7 +4,7 @@ use super::*;
 use crate::content::{FORM_ORE, MATERIAL_COPPER, build_registries};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{AppState, apply_clock_advance};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
     MaterialAbundanceEstimate, ProspectingResolution, insert_generated_deposit,
@@ -58,7 +58,7 @@ fn record_copper_evidence(
 #[test]
 fn evidence_cannot_authorize_a_deposit_generated_after_it_was_acquired() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1013));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     let historical = insert_copper_deposit(&registries, &mut state, region);
     record_copper_evidence(&registries, &mut state, region, 900_000, 1_000_000);
@@ -111,7 +111,7 @@ fn record_copper_hardness_evidence(
 #[test]
 fn mining_target_requires_acquired_evidence() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1001));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     insert_copper_deposit(&registries, &mut state, region);
 
@@ -127,7 +127,7 @@ fn mining_target_requires_acquired_evidence() {
 #[test]
 fn compatible_local_evidence_resolves_one_opaque_target() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1002));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     insert_copper_deposit(&registries, &mut state, region);
     record_copper_evidence(&registries, &mut state, region, 900_000, 1_000_000);
@@ -146,7 +146,7 @@ fn compatible_local_evidence_resolves_one_opaque_target() {
 #[test]
 fn physical_sample_hardness_is_carried_as_actor_visible_target_evidence() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1012));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     insert_copper_deposit(&registries, &mut state, region);
     let lower = Pressure::from_pascals(325_000_000);
@@ -186,7 +186,7 @@ fn opaque_target_equality_cannot_reveal_hidden_deposit_identity() {
 #[test]
 fn opaque_target_debug_exposes_only_acquired_target_facts() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_100B));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     insert_copper_deposit(&registries, &mut state, region);
     record_copper_evidence(&registries, &mut state, region, 900_000, 1_000_000);
@@ -203,7 +203,7 @@ fn opaque_target_debug_exposes_only_acquired_target_facts() {
 #[test]
 fn zero_upper_bound_rules_out_target_even_when_hidden_truth_contains_material() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1003));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     insert_copper_deposit(&registries, &mut state, region);
     record_copper_evidence(&registries, &mut state, region, 0, 0);
@@ -220,7 +220,7 @@ fn zero_upper_bound_rules_out_target_even_when_hidden_truth_contains_material() 
 #[test]
 fn uncertain_zero_lower_bound_cannot_use_hidden_truth_as_presence_oracle() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1008));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     insert_copper_deposit(&registries, &mut state, region);
     record_copper_evidence(&registries, &mut state, region, 0, 100_000);
@@ -239,7 +239,7 @@ fn uncertain_zero_lower_bound_cannot_use_hidden_truth_as_presence_oracle() {
 #[test]
 fn broad_evidence_does_not_choose_between_multiple_hidden_deposits() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1004));
+    let mut state = AppState::new();
     let west = bounds(0, 1);
     let east = bounds(2, 3);
     let broad = bounds(0, 3);
@@ -261,7 +261,7 @@ fn broad_evidence_does_not_choose_between_multiple_hidden_deposits() {
 #[test]
 fn broad_positive_evidence_does_not_reveal_one_hidden_deposit() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1009));
+    let mut state = AppState::new();
     let target = bounds(1, 2);
     let broad = bounds(0, 3);
     insert_copper_deposit(&registries, &mut state, target);
@@ -282,7 +282,7 @@ fn broad_positive_evidence_does_not_reveal_one_hidden_deposit() {
 #[test]
 fn narrow_request_cannot_turn_broad_positive_evidence_into_localization() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1010));
+    let mut state = AppState::new();
     let target = bounds(1, 2);
     let broad = bounds(0, 3);
     insert_copper_deposit(&registries, &mut state, target);
@@ -303,7 +303,7 @@ fn narrow_request_cannot_turn_broad_positive_evidence_into_localization() {
 #[test]
 fn overlapping_acquired_observations_can_genuinely_localize_one_voxel() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1011));
+    let mut state = AppState::new();
     let west = bounds(0, 2);
     let east = bounds(1, 3);
     let localized = bounds(1, 2);
@@ -323,7 +323,7 @@ fn overlapping_acquired_observations_can_genuinely_localize_one_voxel() {
 #[test]
 fn abundance_bounds_must_fit_the_hidden_target_composition() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1007));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     insert_copper_deposit(&registries, &mut state, region);
     record_copper_evidence(&registries, &mut state, region, 100_000, 200_000);
@@ -342,7 +342,7 @@ fn abundance_bounds_must_fit_the_hidden_target_composition() {
 #[test]
 fn false_positive_evidence_uses_the_same_non_oracular_failure_as_ambiguous_evidence() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1006));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     record_copper_evidence(&registries, &mut state, region, 1, 900_000);
 
@@ -360,7 +360,7 @@ fn false_positive_evidence_uses_the_same_non_oracular_failure_as_ambiguous_evide
 #[test]
 fn contradictory_local_evidence_requires_more_information() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_1005));
+    let mut state = AppState::new();
     let region = bounds(0, 1);
     insert_copper_deposit(&registries, &mut state, region);
     record_copper_evidence(&registries, &mut state, region, 700_000, 900_000);

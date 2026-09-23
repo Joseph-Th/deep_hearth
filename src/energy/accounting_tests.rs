@@ -5,7 +5,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Temperature, Volume};
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::fluid::{FluidDefinition, FluidDefinitionId, add_fluid_store_with_contents_for_fixture};
 
 use super::{PreciseEnergy, calculate_explicit_energy_accounting};
@@ -13,7 +12,7 @@ use super::{PreciseEnergy, calculate_explicit_energy_accounting};
 #[test]
 fn stored_liquid_water_thermal_energy_includes_sensible_and_fusion_energy() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xEACC_0001));
+    let mut state = AppState::new();
     let volume = Volume::from_microliters(10);
     let temperature = Temperature::from_millikelvin(293_150);
     add_fluid_store_with_contents_for_fixture(
@@ -54,7 +53,7 @@ fn fractional_fluid_sensible_heat_is_retained_without_rounding() {
         "copper fluid energy fixture",
         MATERIAL_COPPER,
     )]);
-    let mut state = AppState::new(WorldSeed::new(0xEACC_0002));
+    let mut state = AppState::new();
     let volume = Volume::from_microliters(1);
     let temperature = Temperature::from_millikelvin(1_357_771);
     add_fluid_store_with_contents_for_fixture(
@@ -98,7 +97,7 @@ fn fractional_fluid_remainders_carry_across_stores_without_per_store_rounding() 
         "copper fluid carry fixture",
         MATERIAL_COPPER,
     )]);
-    let mut state = AppState::new(WorldSeed::new(0xEACC_0003));
+    let mut state = AppState::new();
     let volume = Volume::from_microliters(1);
     let temperature = Temperature::from_millikelvin(1_357_771);
     for _ in 0..2 {

@@ -12,7 +12,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::{EnergyCarrier, EnergyStoreId};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
@@ -189,7 +188,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
                 bootstrap,
             )
         } else {
-            let mut state = AppState::new(WorldSeed::new(seed ^ 0x51A2_1B3A_7100_0001));
+            let mut state = AppState::new();
             let crusher = support::assemble_equipment_from_authored_parts(
                 registries,
                 &mut state,

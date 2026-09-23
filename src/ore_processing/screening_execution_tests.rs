@@ -10,7 +10,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Length, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture,
@@ -207,7 +206,7 @@ fn fixture_with_power_carrier_and_energy(
     initial_energy: Energy,
 ) -> Fixture {
     let registries = registries_with_power_and_carrier(aperture, max_output_power, carrier);
-    let mut state = AppState::new(WorldSeed::new(0x9710_0001));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("screening source fixture failed: {error}"));
     let input = MaterialLotSpec::with_composition_and_particle_size(
@@ -533,11 +532,11 @@ fn screening_job_round_trip_rejects_tampered_output_distribution() {
 }
 
 #[cfg(feature = "test-soak")]
-fn run_screening_soak(seed: WorldSeed) -> AppState {
+fn run_screening_soak() -> AppState {
     const OPERATIONS: u64 = 300;
     const BATCH_MILLIGRAMS: u64 = 10;
     let registries = registries(Length::from_micrometers(2_000));
-    let mut state = AppState::new(seed);
+    let mut state = AppState::new();
     let total_mass = Mass::from_milligrams(OPERATIONS * BATCH_MILLIGRAMS);
     let source = add_solid_stockpile_for_test(&mut state, total_mass)
         .unwrap_or_else(|error| panic!("screening soak source failed: {error}"));
@@ -665,8 +664,7 @@ fn run_screening_soak(seed: WorldSeed) -> AppState {
 #[test]
 #[ignore = "long-horizon soak"]
 fn screening_soak_preserves_conservation_persistence_and_replay() {
-    let seed = WorldSeed::new(0x9710_50A5);
-    let first = run_screening_soak(seed);
-    let second = run_screening_soak(seed);
+    let first = run_screening_soak();
+    let second = run_screening_soak();
     assert_eq!(first, second);
 }

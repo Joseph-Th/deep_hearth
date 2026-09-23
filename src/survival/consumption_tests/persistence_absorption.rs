@@ -6,7 +6,7 @@ use super::*;
 fn trusted_load_replays_direct_consumption_attention_durations() {
     let registries = build_registries();
 
-    let mut eating = AppState::new(WorldSeed::new(0x5A70_0020));
+    let mut eating = AppState::new();
     initialize_and_spend_reserves(&registries, &mut eating);
     let stockpile = add_solid_stockpile_for_test(&mut eating, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("eating-duration stockpile failed: {error}"));
@@ -58,7 +58,7 @@ fn trusted_load_replays_direct_consumption_attention_durations() {
         )))
     );
 
-    let mut drinking = AppState::new(WorldSeed::new(0x5A70_0021));
+    let mut drinking = AppState::new();
     initialize_and_spend_reserves(&registries, &mut drinking);
     let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
@@ -112,7 +112,7 @@ fn trusted_load_replays_direct_consumption_attention_durations() {
 #[test]
 fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0022));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("multi-tick drinking survival setup failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -209,7 +209,7 @@ fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
 #[test]
 fn dead_player_pending_consumption_cancels_on_next_tick_with_player_work() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0026));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("dead-consumption survival setup failed: {error}"));
     let volume = Volume::from_microliters(125_000);
@@ -259,7 +259,7 @@ fn dead_player_pending_consumption_cancels_on_next_tick_with_player_work() {
 #[test]
 fn obsolete_save_without_direct_consumption_state_is_rejected_during_decode() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0023));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("current-schema survival setup failed: {error}"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -281,7 +281,7 @@ fn obsolete_save_without_direct_consumption_state_is_rejected_during_decode() {
 #[test]
 fn drinking_near_capacity_absorbs_after_same_tick_basal_loss() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0016));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
         panic!("partial-hydration survival initialization failed: {error}")
     });
@@ -350,7 +350,7 @@ fn drinking_near_capacity_absorbs_after_same_tick_basal_loss() {
 #[test]
 fn drink_hydration_first_covers_same_tick_hydration_shortfall() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0025));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("drink-shortfall survival setup failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -405,7 +405,7 @@ fn drink_hydration_first_covers_same_tick_hydration_shortfall() {
 #[test]
 fn eating_at_full_reserves_absorbs_as_basal_cost_creates_capacity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0010));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("full-reserve survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -449,7 +449,7 @@ fn eating_at_full_reserves_absorbs_as_basal_cost_creates_capacity() {
 #[test]
 fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0014));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("nutrition-clamp survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -514,7 +514,7 @@ fn very_large_meal_is_rejected_by_authored_intake_limit_without_consumption() {
     const MEAL_MASS_MG: u64 = 7_000_000_000;
 
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0019));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("large-meal survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -565,7 +565,7 @@ fn very_large_meal_is_rejected_by_authored_intake_limit_without_consumption() {
 #[test]
 fn drinking_at_full_hydration_absorbs_as_basal_loss_creates_capacity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0011));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("full-hydration survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();

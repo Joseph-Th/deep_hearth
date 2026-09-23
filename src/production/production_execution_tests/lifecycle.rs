@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(10));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
@@ -84,7 +84,7 @@ fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
 #[test]
 fn production_preserves_input_storage_exposure_and_ages_work_in_process() {
     let registries = make_test_registries_with_standard_sensible_heating(TEST_PERISHABLE_PROCESS);
-    let mut state = AppState::new(WorldSeed::new(0x9000_0003));
+    let mut state = AppState::new();
     let preserved_profile = StockpileStorageProfile::with_preservation(
         true,
         false,
@@ -154,7 +154,7 @@ fn production_preserves_input_storage_exposure_and_ages_work_in_process() {
 #[test]
 fn persisted_production_storage_history_must_be_rebased_to_job_start() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_0004));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
@@ -199,7 +199,7 @@ fn persisted_production_storage_history_must_be_rebased_to_job_start() {
 #[test]
 fn production_started_after_time_elapsed_rebases_storage_history_to_ownership_boundary() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_0017));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
@@ -225,7 +225,7 @@ fn production_started_after_time_elapsed_rebases_storage_history_to_ownership_bo
 #[test]
 fn persisted_production_job_cannot_start_in_the_future() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_0005));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
@@ -258,7 +258,7 @@ fn persisted_production_job_cannot_start_in_the_future() {
 #[test]
 fn persisted_running_production_job_cannot_already_be_due() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_0006));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
@@ -290,7 +290,7 @@ fn persisted_running_production_job_cannot_already_be_due() {
 #[test]
 fn persisted_running_production_job_cannot_complete_before_active_duration() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_0016));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
@@ -331,7 +331,7 @@ fn persisted_running_production_job_cannot_complete_before_active_duration() {
 fn persisted_heating_job_rejects_consumed_state_hotter_than_committed_target() {
     let input = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
     let registries = make_test_registries_with_standard_sensible_heating(TEST_COMPOSITION_PROCESS);
-    let mut state = AppState::new(WorldSeed::new(0x9000_0007));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 20);
     let destination = add_test_stockpile(&mut state, 20);
     deposit_lot_for_test(

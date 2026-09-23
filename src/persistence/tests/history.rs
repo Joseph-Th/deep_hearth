@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn future_material_storage_transition_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0028));
+    let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("storage-history stockpile fixture failed: {error}"));
     let lot = deposit_lot_for_test(
@@ -41,7 +41,7 @@ fn future_material_storage_transition_is_rejected_on_load() {
 #[test]
 fn impossible_material_history_times_are_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0029));
+    let mut state = AppState::new();
     apply_clock_advance(&mut state, SimulationTick::new(2));
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("material-history stockpile fixture failed: {error}"));
@@ -93,7 +93,7 @@ fn impossible_material_history_times_are_rejected_on_load() {
 #[test]
 fn rewound_inventory_identity_cursors_are_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0030));
+    let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("cursor-tamper stockpile fixture failed: {error}"));
     let lot = deposit_lot_for_test(
@@ -141,7 +141,7 @@ fn rewound_inventory_identity_cursors_are_rejected_on_load() {
 #[test]
 fn tampered_structural_unauthored_embodiment_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0018));
+    let mut state = AppState::new();
     let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
     let molten_wood = CommodityKey::new(MATERIAL_WOOD, FORM_MOLTEN);
     let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {

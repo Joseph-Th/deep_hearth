@@ -10,7 +10,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::validate_loaded_state;
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::add_equipment;
 use crate::inventory::{
@@ -52,7 +52,7 @@ impl Deref for StructuralHeatingResolution {
 #[test]
 fn suspended_production_rechecks_inventory_revision_capacity_before_resume() {
     let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_013));
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0013));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let recovery_support = active_support(&registries, &mut state, 2);
     let source = seeded_stockpile(
@@ -245,7 +245,7 @@ fn expected_weight(registries: &Registries, mass: Mass) -> Force {
 #[test]
 fn multiple_stockpiles_aggregate_mass_before_rounding_weight() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0001));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let first = seeded_stockpile(
         &registries,
@@ -290,7 +290,7 @@ fn multiple_stockpiles_aggregate_mass_before_rounding_weight() {
 fn same_tick_production_completions_apply_one_aggregate_destination_load() {
     let process_id = ProcessId::new(971_006);
     let registries = make_test_registries_with_standard_sensible_heating(process_id);
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0012));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let source = seeded_stockpile(
         &registries,
@@ -372,7 +372,7 @@ fn same_tick_production_completions_apply_one_aggregate_destination_load() {
 #[test]
 fn new_production_rejects_failed_destination_support() {
     let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_002));
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0009));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let source = seeded_stockpile(
         &registries,
@@ -439,7 +439,7 @@ fn new_production_rejects_failed_destination_support() {
 #[test]
 fn validated_production_start_rejects_destination_support_collapse_before_commit() {
     let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_004));
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0011));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let source = seeded_stockpile(
         &registries,
@@ -508,7 +508,7 @@ fn validated_production_start_rejects_destination_support_collapse_before_commit
 #[test]
 fn production_suspends_until_failed_destination_support_is_recovered() {
     let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_003));
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0010));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let recovery_support = active_support(&registries, &mut state, 2);
     let source = seeded_stockpile(
@@ -633,7 +633,7 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
 #[test]
 fn suspended_perishable_work_in_process_keeps_aging_in_wall_clock_time() {
     let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_005));
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0011));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("perishable suspension source failed: {error}"));
@@ -739,7 +739,7 @@ fn suspended_perishable_work_in_process_keeps_aging_in_wall_clock_time() {
 #[test]
 fn production_moves_supported_weight_with_authoritative_matter_ownership() {
     let registries = make_test_registries_with_standard_sensible_heating(ProcessId::new(971_001));
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0006));
+    let mut state = AppState::new();
     let source_support = active_support(&registries, &mut state, 0);
     let destination_support = active_support(&registries, &mut state, 2);
     let source = seeded_stockpile(
@@ -808,7 +808,7 @@ fn production_moves_supported_weight_with_authoritative_matter_ownership() {
 #[test]
 fn transfer_between_supported_stockpiles_updates_both_loads_atomically() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0002));
+    let mut state = AppState::new();
     let source_support = active_support(&registries, &mut state, 0);
     let destination_support = active_support(&registries, &mut state, 2);
     let source = seeded_stockpile(
@@ -875,7 +875,7 @@ fn transfer_between_supported_stockpiles_updates_both_loads_atomically() {
 #[test]
 fn supported_transfer_rejects_stale_structure_before_moving_matter() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0003));
+    let mut state = AppState::new();
     let source_support = active_support(&registries, &mut state, 0);
     let destination_support = active_support(&registries, &mut state, 2);
     let source = seeded_stockpile(
@@ -954,7 +954,7 @@ fn supported_transfer_rejects_stale_structure_before_moving_matter() {
 #[test]
 fn empty_stockpile_mount_rejects_stale_structure_without_a_load_delta() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0007));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let stockpile = seeded_stockpile(
         &registries,
@@ -1002,7 +1002,7 @@ fn empty_stockpile_mount_rejects_stale_structure_without_a_load_delta() {
 #[test]
 fn same_support_transfer_binds_structure_even_when_aggregate_weight_is_unchanged() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0008));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let source = seeded_stockpile(
         &registries,
@@ -1080,7 +1080,7 @@ fn same_support_transfer_binds_structure_even_when_aggregate_weight_is_unchanged
 #[test]
 fn stored_matter_load_is_inventory_owned_and_blocks_support_removal() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0004));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let stockpile = seeded_stockpile(
         &registries,
@@ -1114,7 +1114,7 @@ fn stored_matter_load_is_inventory_owned_and_blocks_support_removal() {
 #[test]
 fn overload_from_stored_matter_can_fail_support_and_failed_debris_can_be_unloaded() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A71_0005));
+    let mut state = AppState::new();
     let support = active_support(&registries, &mut state, 0);
     let mass = Mass::from_milligrams(5_000_000_000);
     let stockpile = seeded_stockpile(
@@ -1192,9 +1192,9 @@ fn overload_from_stored_matter_can_fail_support_and_failed_debris_can_be_unloade
 }
 
 #[cfg(feature = "test-soak")]
-fn run_supported_transfer_soak(seed: WorldSeed) -> AppState {
+fn run_supported_transfer_soak() -> AppState {
     let registries = build_registries();
-    let mut state = AppState::new(seed);
+    let mut state = AppState::new();
     let left_support = active_support(&registries, &mut state, 0);
     let right_support = active_support(&registries, &mut state, 2);
     let left = seeded_stockpile(
@@ -1246,8 +1246,7 @@ fn run_supported_transfer_soak(seed: WorldSeed) -> AppState {
 #[test]
 #[ignore = "long-horizon soak"]
 fn supported_transfer_soak_preserves_invariants_and_deterministic_replay() {
-    let seed = WorldSeed::new(0x1A71_5000);
-    let first = run_supported_transfer_soak(seed);
-    let second = run_supported_transfer_soak(seed);
+    let first = run_supported_transfer_soak();
+    let second = run_supported_transfer_soak();
     assert_eq!(first, second);
 }

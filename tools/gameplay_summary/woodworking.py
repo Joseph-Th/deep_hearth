@@ -54,5 +54,6 @@ def woodworking_summary(lines: list[str]) -> str | None:
         f"reserve-protected={count('reason=copper-reserve-protected')} "
         f"fundable={count(' fundable:true ')} "
         f"attention-payback={count('attention-payback:true')} "
-        f"net-timber-payback={count('net-timber-payback:true')}"
+        f"timber-saving={count('timber-saving:true')} "
+        f"timber-neutral={count('timber-neutral:true')}"
     )

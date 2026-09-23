@@ -3,7 +3,6 @@
 use super::*;
 use crate::content::{FORM_FLYWHEEL, MATERIAL_STONE, make_test_registries_with_energy_store};
 use crate::core::quantity::{Mass, Power};
-use crate::core::time::WorldSeed;
 use crate::energy::{EnergyCarrier, EnergyStoreDefinition, EnergyStoreRecord};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
@@ -42,7 +41,7 @@ fn assembly_registries() -> Registries {
 #[test]
 fn fixture_allocation_rejects_store_that_requires_material_assembly() {
     let registries = assembly_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_000A));
+    let mut state = AppState::new();
     let before = state.clone();
 
     assert_eq!(
@@ -62,7 +61,7 @@ fn fixture_allocation_rejects_store_that_requires_material_assembly() {
 #[test]
 fn fixture_allocation_rejects_energy_above_authored_capacity_without_mutation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0001));
+    let mut state = AppState::new();
     let before = state.clone();
 
     assert_eq!(
@@ -83,7 +82,7 @@ fn fixture_allocation_rejects_energy_above_authored_capacity_without_mutation() 
 #[test]
 fn empty_fixture_allocation_creates_store_without_free_energy() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0005));
+    let mut state = AppState::new();
 
     let store = add_energy_store(&registries, &mut state, STORE_DEFINITION)
         .unwrap_or_else(|error| panic!("empty energy-store fixture failed: {error}"));

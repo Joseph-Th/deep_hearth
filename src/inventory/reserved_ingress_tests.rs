@@ -4,7 +4,7 @@ use super::*;
 use crate::content::{FORM_LUMP, MATERIAL_STONE, build_registries};
 use crate::core::quantity::Temperature;
 use crate::core::state::{AppState, apply_clock_advance};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, STORAGE_AGE_PARTS_PER_TICK, add_solid_stockpile_for_test,
     deposit_lot_for_test,
@@ -14,7 +14,7 @@ use crate::material::CommodityKey;
 #[test]
 fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3001));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("reserved ingress stockpile fixture failed: {error}"));
     let expected_revision = state.inventory().revision();
@@ -67,7 +67,7 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
 #[test]
 fn reserved_deposit_mass_projection_rejects_stale_inventory_revision() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3008));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("stale reserved projection stockpile failed: {error}"));
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
@@ -100,7 +100,7 @@ fn reserved_deposit_mass_projection_rejects_stale_inventory_revision() {
 #[test]
 fn reserved_deposit_projection_matches_consuming_commit_without_mutating_source() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3007));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("reserved projection stockpile fixture failed: {error}"));
     deposit_lot_for_test(
@@ -139,7 +139,7 @@ fn reserved_deposit_projection_matches_consuming_commit_without_mutating_source(
 #[test]
 fn empty_reserved_deposit_plan_is_a_true_noop() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3002));
+    let mut state = AppState::new();
     let before = state.clone();
     let plan = decide_reserved_deposits(
         &registries,
@@ -159,7 +159,7 @@ fn empty_reserved_deposit_plan_is_a_true_noop() {
 #[test]
 fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3003));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("reserved ingress stockpile fixture failed: {error}"));
     deposit_lot_for_test(
@@ -210,7 +210,7 @@ fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
 #[test]
 fn delayed_reserved_output_uses_admission_time_for_merging_and_preserves_creation_time() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3004));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("delayed ingress stockpile fixture failed: {error}"));
     let admitted_at = SimulationTick::new(5);
@@ -268,7 +268,7 @@ fn delayed_reserved_output_uses_admission_time_for_merging_and_preserves_creatio
 #[test]
 fn malformed_reserved_deposit_identity_plan_fails_before_authoritative_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3005));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("malformed reserved ingress stockpile failed: {error}"));
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
@@ -300,7 +300,7 @@ fn malformed_reserved_deposit_identity_plan_fails_before_authoritative_mutation(
 #[test]
 fn shape_valid_but_wrong_reserved_identity_fails_before_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3006));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("wrong reserved identity stockpile failed: {error}"));
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
@@ -332,7 +332,7 @@ fn shape_valid_but_wrong_reserved_identity_fails_before_mutation() {
 #[test]
 fn shape_valid_but_wrong_reserved_cursor_fails_before_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3007));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("wrong reserved cursor stockpile failed: {error}"));
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
@@ -364,7 +364,7 @@ fn shape_valid_but_wrong_reserved_cursor_fails_before_mutation() {
 #[test]
 fn same_destination_reserved_entries_are_preflighted_as_one_total() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_3008));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("combined reserved stockpile failed: {error}"));
     get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =

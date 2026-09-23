@@ -4,7 +4,6 @@ use super::*;
 use crate::content::{FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::inventory::state::get_stockpile_mut_or_panic;
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
@@ -14,7 +13,7 @@ use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 #[test]
 fn implicit_selection_uses_ordered_eligible_lots_and_stops_at_requested_mass() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_0003));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("implicit selection source fixture failed: {error}"));
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -74,7 +73,7 @@ fn implicit_selection_uses_ordered_eligible_lots_and_stops_at_requested_mass() {
 #[test]
 fn implicit_selection_shortage_reports_only_composition_eligible_free_mass() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_0004));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("implicit shortage source fixture failed: {error}"));
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -121,7 +120,7 @@ fn implicit_selection_shortage_reports_only_composition_eligible_free_mass() {
 #[test]
 fn explicit_selection_binds_partial_lot_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_0001));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("explicit selection source fixture failed: {error}"));
     let lot = deposit_lot_for_test(
@@ -158,7 +157,7 @@ fn explicit_selection_binds_partial_lot_without_mutation() {
 #[test]
 fn consumption_plan_integrity_rejects_divergent_parallel_representations() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_0005));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("integrity source fixture failed: {error}"));
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -241,7 +240,7 @@ fn consumption_plan_integrity_rejects_divergent_parallel_representations() {
 #[test]
 fn consumption_plan_integrity_rejects_corrupt_source_aggregates_and_lot_index() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_0006));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("aggregate integrity source fixture failed: {error}"));
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -301,7 +300,7 @@ fn consumption_plan_integrity_rejects_corrupt_source_aggregates_and_lot_index() 
 #[test]
 fn explicit_selection_rejects_duplicate_lot_and_wrong_source() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_0002));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("explicit selection source fixture failed: {error}"));
     let other = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))

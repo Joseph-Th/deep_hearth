@@ -137,9 +137,8 @@ manual-power completion, prospecting completion, mining output readiness, or a s
 peek at hidden geology, controlled future events, or later outcomes to choose an earlier stopping point.
 
 No semantic interval-skipping/fast-forward contract is currently implemented. Any future optimized interval
-integrator must first prove equivalence across all tick phases it skips. Static `PeriodicSchedule` next-due
-queries and persisted dynamic completion ticks identify boundaries; they do not establish that the interval
-between those boundaries is semantically empty.
+integrator must first prove equivalence across all tick phases it skips. Persisted dynamic completion ticks may
+identify boundaries, but they do not establish that the interval between those boundaries is semantically empty.
 
 ### Cross-owner edge contract
 
@@ -196,7 +195,7 @@ then read the owning section/source for exact semantics and errors.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |
-| Root simulation and time | core definitions, `WorldSeed`, typed quantities/time | `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_tick`; direct clock/owner applies stay crate-private |
+| Root simulation and time | core definitions, typed quantities/time | `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_tick`; direct clock/owner applies stay crate-private |
 | Registries and built-in content | `Registries` plus domain registries; `build_registries` validates cross-references | public immutable `Registries::*()` accessors; derived authored topology may provide goal-directed reverse lookup | callers inspect authored possibilities; topology never claims current legality or ordinary reachability | none; registries and derived definition indexes are immutable after construction |
 | Inventory and storage | material/form/storage definitions | `AppState::inventory()`, stockpile/lot records and stable iterators | feature owners construct explicit lot selections; enclosure validators derive storage consequences | no generic public transport command; feature-specific validators own ingress/egress/reform, enclosure, and support transitions |
 | Geological knowledge | prospecting methods plus hidden finite geology | `AppState::geological_knowledge()`, `assess_geological_knowledge`, knowledge map | field prospecting authorization; evidence combination remains actor-safe | `validate_start_field_prospecting` -> tick records observations |
@@ -224,12 +223,11 @@ projection/command or whether the caller is trying to cross an ownership boundar
 - `SimulationTick` is absolute world time; `TickSpan` is relative duration.
 - The built-in calendar maps 24,000 ticks to 86,400 seconds; one tick is 3.6 seconds.
 - Rate-authored physics integrate against physical tick duration. Per-tick gameplay costs use world ticks.
-- `WorldSeed` is deterministic creation and persistence input, not public actor-readable runtime state; replay
-  metadata retains the seed outside actor policy when diagnostics need it.
-- `RandomState` is persisted and owns typed RNG streams derived from the world seed.
+- No runtime stochastic owner is currently implemented. Add persisted random state only with a concrete system
+  whose outcomes require authoritative stochastic continuation.
 - Implemented authoritative physical calculations use checked integer arithmetic, not floating point.
-- Dynamic scheduled work persists as explicit records. `PeriodicSchedule` is for static clock-derived
-  phase scheduling.
+- Dynamic scheduled work persists as explicit records. Add static clock-derived schedule machinery only when an
+  implemented owner has a concrete recurring-phase contract that requires it.
 - Known due ticks may bound batched caller stepping, but do not authorize skipping intervening canonical tick
   semantics.
 - `advance_tick` decides all fallible phase work against one pre-tick snapshot. Its application stage
@@ -760,7 +758,7 @@ Cross-owner validation covers, as applicable:
 - exact represented matter, fluid, and modeled-energy ownership;
 - structural topology, embodiment, damage, and source-owned load channels;
 - support assignments and independently recomputed loads;
-- persisted RNG, schedules, and operation-specific physical replay.
+- persisted schedules and operation-specific physical replay.
 
 New systems define an immutable authored contract where appropriate, one owner for each consequential
 fact, one canonical mutation path, persistence semantics, typed failures, and invariant coverage before

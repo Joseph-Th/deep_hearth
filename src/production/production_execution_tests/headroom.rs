@@ -76,7 +76,7 @@ fn trusted_load_rejects_running_production_without_future_material_lot_identity_
 #[test]
 fn later_inventory_ingress_cannot_consume_identity_reserved_for_running_production() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_E006));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     let unrelated_destination = add_test_stockpile(&mut state, 100);
@@ -247,7 +247,7 @@ fn trusted_load_rejects_running_production_without_inventory_completion_revision
 #[test]
 fn process_start_preserves_inventory_revisions_owed_to_existing_due_buckets() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_E002));
+    let mut state = AppState::new();
     let first_source = add_test_stockpile(&mut state, 100);
     let first_destination = add_test_stockpile(&mut state, 100);
     let second_source = add_test_stockpile(&mut state, 100);
@@ -373,7 +373,7 @@ fn trusted_load_rejects_running_production_without_equipment_completion_revision
 #[test]
 fn process_start_preserves_equipment_revisions_owed_to_existing_wear_buckets() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_E003));
+    let mut state = AppState::new();
     let first_source = add_test_stockpile(&mut state, 100);
     let first_destination = add_test_stockpile(&mut state, 100);
     let second_source = add_test_stockpile(&mut state, 100);
@@ -509,7 +509,7 @@ fn trusted_load_rejects_supported_output_without_structure_completion_revision_c
 #[test]
 fn process_start_preserves_structure_revisions_owed_to_existing_supported_output_buckets() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_E004));
+    let mut state = AppState::new();
     let first_source = add_test_stockpile(&mut state, 100);
     let first_destination = add_test_stockpile(&mut state, 100);
     let second_source = add_test_stockpile(&mut state, 100);

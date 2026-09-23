@@ -7,7 +7,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Force, Length};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::energy::{PreciseEnergy, calculate_explicit_energy_accounting};
 use crate::inventory::{
     MaterialLotSelection, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
@@ -38,7 +37,7 @@ fn wood_length_for_mass(mass: Mass) -> Length {
 #[test]
 fn liquid_material_cannot_become_structural_embodiment() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0012));
+    let mut state = AppState::new();
     let bounds = match VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1)) {
         Ok(bounds) => bounds,
         Err(error) => panic!("liquid construction bounds failed: {error}"),
@@ -109,7 +108,7 @@ fn liquid_material_cannot_become_structural_embodiment() {
 #[test]
 fn particulate_material_requires_consolidation_before_structural_embodiment() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0013));
+    let mut state = AppState::new();
     let bounds = match VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1)) {
         Ok(bounds) => bounds,
         Err(error) => panic!("particulate construction bounds failed: {error}"),
@@ -220,7 +219,7 @@ fn unmaterialized_construction_fixture() -> (
     crate::inventory::MaterialLotId,
 ) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_E001));
+    let mut state = AppState::new();
     let mass = Mass::from_milligrams(10);
     let element = member(&registries, &mut state, mass);
     let source = add_solid_stockpile_for_test(&mut state, mass)
@@ -298,7 +297,7 @@ fn construction_rejects_exhausted_structure_revision_without_consuming_material(
 #[test]
 fn material_requirement_uses_member_geometry_and_authored_density() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0010));
+    let mut state = AppState::new();
     let bounds = match VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1)) {
         Ok(bounds) => bounds,
         Err(error) => panic!("material-requirement bounds failed: {error}"),
@@ -331,7 +330,7 @@ fn material_requirement_uses_member_geometry_and_authored_density() {
 #[test]
 fn material_requirement_is_not_limited_by_unneeded_volume_projection() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0014));
+    let mut state = AppState::new();
     let bounds = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1))
         .unwrap_or_else(|error| panic!("large-member bounds failed: {error}"));
     let geometry = crate::structural::StructuralElementGeometry::new(
@@ -363,7 +362,7 @@ fn material_requirement_is_not_limited_by_unneeded_volume_projection() {
 #[test]
 fn construction_rejects_under_and_over_materialization_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0011));
+    let mut state = AppState::new();
     let element = member(&registries, &mut state, Mass::from_milligrams(10));
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(source) => source,
@@ -410,7 +409,7 @@ fn construction_rejects_under_and_over_materialization_without_mutation() {
 #[test]
 fn activation_requires_conserved_construction_matter() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0001));
+    let mut state = AppState::new();
     let element = member(&registries, &mut state, Mass::from_milligrams(1));
     assert_eq!(
         validate_activate_structural_element(&registries, &state, element),
@@ -421,7 +420,7 @@ fn activation_requires_conserved_construction_matter() {
 #[test]
 fn construction_moves_exact_matter_and_derives_self_weight() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0002));
+    let mut state = AppState::new();
     let element = member(&registries, &mut state, Mass::from_milligrams(2_000_000));
     let support_bounds =
         match VoxelBounds::new(VoxelCoord::new(10, 0, 0), VoxelCoord::new(11, 1, 1)) {
@@ -531,7 +530,7 @@ fn construction_moves_exact_matter_and_derives_self_weight() {
 #[test]
 fn persisted_structure_rejects_forged_embodied_particle_state() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0013));
+    let mut state = AppState::new();
     let element = member(&registries, &mut state, Mass::from_milligrams(100));
     materialize_structural_element_for_test(&registries, &mut state, element, FORM_LOG);
     let particle_size = ParticleSizeDistribution::from(
@@ -561,7 +560,7 @@ fn persisted_structure_rejects_forged_embodied_particle_state() {
 #[test]
 fn persisted_structure_rejects_trace_mass_overflow_before_derived_mass_is_used() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0014));
+    let mut state = AppState::new();
     let element = member(&registries, &mut state, Mass::from_milligrams(100));
     materialize_structural_element_for_test(&registries, &mut state, element, FORM_LOG);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -591,7 +590,7 @@ fn persisted_structure_rejects_trace_mass_overflow_before_derived_mass_is_used()
 #[test]
 fn wrong_material_cannot_become_structural_strength_material() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0003));
+    let mut state = AppState::new();
     let element = member(&registries, &mut state, Mass::from_milligrams(100));
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(source) => source,
@@ -632,7 +631,7 @@ fn wrong_material_cannot_become_structural_strength_material() {
 #[test]
 fn mixed_composition_cannot_claim_pure_material_structural_strength() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0004));
+    let mut state = AppState::new();
     let element = member(&registries, &mut state, Mass::from_milligrams(100));
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(source) => source,
@@ -680,7 +679,7 @@ fn mixed_composition_cannot_claim_pure_material_structural_strength() {
 #[test]
 fn construction_rechecks_both_owner_revisions_before_consuming_matter() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5C00_0005));
+    let mut state = AppState::new();
     let element = member(&registries, &mut state, Mass::from_milligrams(10));
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(source) => source,

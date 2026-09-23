@@ -13,8 +13,8 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::equipment::EquipmentDefinitionId;
+use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::labor::ManualPowerMethodId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -38,13 +38,20 @@ mod consumers;
 mod execution;
 #[path = "power_provider_planning.rs"]
 mod planning;
+#[path = "power_provider_provisioning.rs"]
+mod provisioning;
 
 use consumers::{build_primitive_power_consumer, build_settlement_power_consumer};
 use execution::{
-    PrimitiveComparison, SettlementComparison, execute_primitive_comparison,
-    execute_settlement_comparison,
+    PrimitiveComparison, ProjectExecutionResources, SettlementComparison,
+    execute_primitive_comparison, execute_selected_primitive_project,
+    execute_selected_settlement_project, execute_settlement_comparison,
 };
-use planning::{primitive_power_plan, settlement_power_plan};
+use planning::{
+    PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
+    primitive_power_plan, settlement_power_plan,
+};
+use provisioning::seed_power_project_provisions;
 
 fn declared_primitive_crushing_project(registries: &Registries, seed: u64) -> (Mass, Energy) {
     let kilograms = 5 + mix64(seed ^ 0x5052_494D_5F4F_5245) % 146;
@@ -112,7 +119,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     };
     let (primitive_project_mass, primitive_project_work) =
         declared_primitive_crushing_project(registries, seed);
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x504F_5752_5052_0001));
+    let mut state = AppState::new();
     // Raw gathered nature only: every shaped component below is player-crafted through
     // canonical manual production, so build attention and material costs are earned.
     let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(60_000_000));
@@ -134,6 +141,14 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     let primitive_feed = add_solid_stockpile(&mut state, primitive_project_mass);
     let primitive_output = add_solid_stockpile(&mut state, primitive_project_mass);
+    let primitive_service_replacement =
+        add_solid_stockpile(&mut state, Mass::from_milligrams(15_000_000));
+    let primitive_service_spent =
+        // The generated crusher campaign reaches 120 kg and can cross ten component services.
+        // Keep the spent sink finite but large enough for that declared horizon so this probe
+        // measures provider/maintenance lifecycle rather than an unrelated waste-bin ceiling.
+        add_solid_stockpile(&mut state, Mass::from_milligrams(20_000_000));
+    let primitive_provisions = seed_power_project_provisions(registries, &mut state);
     seed_composed_lot(
         registries,
         &mut state,
@@ -157,6 +172,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("power provider initial matter audit failed: {error}"))
         .total();
+    let fluid_before = calculate_fluid_volume_accounting(&state)
+        .unwrap_or_else(|error| panic!("power provider initial fluid audit failed: {error}"))
+        .total();
     let capacity_nj = registries
         .energy()
         .get_store(store_definition)
@@ -175,9 +193,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     let (settlement_project_mass, settlement_project_work) =
         declared_settlement_lumber_project(registries, seed);
-    let mut settlement_state = AppState::new(WorldSeed::new(seed ^ 0x504F_5752_5345_5454));
+    let mut settlement_state = AppState::new();
     let settlement_raw =
-        add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(60_100_000));
+        add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(61_000_000));
     seed_lot(
         registries,
         &mut settlement_state,
@@ -199,7 +217,10 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &mut settlement_state,
         settlement_raw,
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        Mass::from_milligrams(100_000),
+        // The generated lumber campaign reaches 2,000 kg. Keep its sawmill blade-service copper
+        // finite but sufficiently funded so this provider probe reaches the declared workload
+        // instead of turning into a separate copper-depletion episode.
+        Mass::from_milligrams(1_000_000),
         ROOM_TEMPERATURE,
     );
     let settlement_feed = add_solid_stockpile(&mut settlement_state, settlement_project_mass);
@@ -214,6 +235,11 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_shaped =
         add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(50_000_000));
     let settlement_output = add_solid_stockpile(&mut settlement_state, settlement_project_mass);
+    let settlement_service_replacement =
+        add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(1_000_000));
+    let settlement_service_spent =
+        add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(1_000_000));
+    let settlement_provisions = seed_power_project_provisions(registries, &mut settlement_state);
     initialize_player_survival(registries, &mut settlement_state)
         .unwrap_or_else(|error| panic!("settlement power survival setup failed: {error}"));
     let settlement_consumer = build_settlement_power_consumer(
@@ -227,6 +253,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_matter_before = calculate_matter_accounting(&settlement_state)
         .unwrap_or_else(|error| panic!("settlement power initial matter audit failed: {error}"))
         .total();
+    let settlement_fluid_before = calculate_fluid_volume_accounting(&settlement_state)
+        .unwrap_or_else(|error| panic!("settlement power initial fluid audit failed: {error}"))
+        .total();
     let settlement_capacity_nj = registries
         .energy()
         .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
@@ -239,6 +268,166 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_shaped,
         settlement_capacity_nj,
         settlement_project_work.nanojoules(),
+    );
+
+    // Experience the complete project through the actor-selected provider. The matched branches
+    // below still isolate provider deltas over one productive cycle, while these selected runs pay
+    // every repeated charge and any consumer maintenance that the declared project actually reaches.
+    let primitive_resources = ProjectExecutionResources::new(
+        raw,
+        shaped,
+        primitive_service_replacement,
+        primitive_service_spent,
+        primitive_provisions,
+        matter_before,
+        fluid_before,
+    );
+    let primitive_crank_project = execute_selected_primitive_project(
+        registries,
+        &state,
+        primitive_resources,
+        PrimitivePowerPlan {
+            choice: PrimitivePowerChoice::Crank,
+            ..plan
+        },
+        primitive_consumer,
+    );
+    let primitive_treadle_project = execute_selected_primitive_project(
+        registries,
+        &state,
+        primitive_resources,
+        PrimitivePowerPlan {
+            choice: PrimitivePowerChoice::Treadle,
+            ..plan
+        },
+        primitive_consumer,
+    );
+    let primitive_selected = match plan.choice {
+        PrimitivePowerChoice::Crank => primitive_crank_project,
+        PrimitivePowerChoice::Treadle => primitive_treadle_project,
+    };
+    let settlement_resources = ProjectExecutionResources::new(
+        settlement_raw,
+        settlement_shaped,
+        settlement_service_replacement,
+        settlement_service_spent,
+        settlement_provisions,
+        settlement_matter_before,
+        settlement_fluid_before,
+    );
+    let settlement_treadle_project = execute_selected_settlement_project(
+        registries,
+        &settlement_state,
+        settlement_resources,
+        SettlementPowerPlan {
+            choice: SettlementPowerChoice::Treadle,
+            ..settlement_plan
+        },
+        settlement_consumer,
+    );
+    let settlement_walking_project = execute_selected_settlement_project(
+        registries,
+        &settlement_state,
+        settlement_resources,
+        SettlementPowerPlan {
+            choice: SettlementPowerChoice::WalkingWheel,
+            ..settlement_plan
+        },
+        settlement_consumer,
+    );
+    let settlement_selected = match settlement_plan.choice {
+        SettlementPowerChoice::Treadle => settlement_treadle_project,
+        SettlementPowerChoice::WalkingWheel => settlement_walking_project,
+    };
+    let primitive_actual_attention_best = match primitive_crank_project
+        .active_attention_ticks()
+        .cmp(&primitive_treadle_project.active_attention_ticks())
+    {
+        std::cmp::Ordering::Less => "crank",
+        std::cmp::Ordering::Equal => "tie",
+        std::cmp::Ordering::Greater => "treadle",
+    };
+    let settlement_actual_attention_best = match settlement_treadle_project
+        .active_attention_ticks()
+        .cmp(&settlement_walking_project.active_attention_ticks())
+    {
+        std::cmp::Ordering::Less => "treadle",
+        std::cmp::Ordering::Equal => "tie",
+        std::cmp::Ordering::Greater => "walking-wheel",
+    };
+    reviewln!(
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive selected={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserve-delta:{}nJ/{}uL] end=[provider-condition:{}ppm consumer-condition:{}ppm metabolic:{}nJ hydration:{}uL] full-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t attention-best:{} selected-agrees:{}] evidence=complete-selected-project-canonical",
+        focused_probe_role_label(case.role()),
+        plan.choice.label(),
+        plan.declared_work_nj,
+        plan.charge_events,
+        primitive_provisions.food_supply_mg,
+        primitive_provisions.food_preservation_ppm,
+        primitive_provisions.water_supply_ul,
+        primitive_selected.charge_events,
+        primitive_selected.survival_limited_batches,
+        primitive_selected.active_attention_ticks(),
+        primitive_selected.provider_attention_ticks,
+        primitive_selected.consumer_ticks,
+        primitive_selected.consumer_services,
+        primitive_selected.service_preparation_ticks,
+        primitive_selected.service_ticks,
+        primitive_selected.replacement_mass_mg,
+        primitive_selected.provisioning_stops,
+        primitive_selected.provisioning_attention_ticks,
+        primitive_selected.drink_actions,
+        primitive_selected.drink_volume_ul,
+        primitive_selected.meal_actions,
+        primitive_selected.meal_mass_mg,
+        primitive_selected.elapsed_ticks,
+        primitive_selected.metabolic_nj,
+        primitive_selected.hydration_ul,
+        primitive_selected.provider_condition_ppm,
+        primitive_selected.consumer_condition_ppm,
+        primitive_selected.final_metabolic_nj,
+        primitive_selected.final_hydration_ul,
+        primitive_crank_project.active_attention_ticks(),
+        primitive_treadle_project.active_attention_ticks(),
+        primitive_actual_attention_best,
+        plan.choice.label() == primitive_actual_attention_best
+            || primitive_actual_attention_best == "tie",
+    );
+    reviewln!(
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement selected={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserve-delta:{}nJ/{}uL] end=[provider-condition:{}ppm consumer-condition:{}ppm metabolic:{}nJ hydration:{}uL] full-counterfactual=[treadle-active-attention:{}t walking-active-attention:{}t attention-best:{} selected-agrees:{}] evidence=complete-selected-project-canonical",
+        focused_probe_role_label(case.role()),
+        settlement_plan.choice.label(),
+        settlement_plan.declared_work_nj,
+        settlement_plan.charge_events,
+        settlement_provisions.food_supply_mg,
+        settlement_provisions.food_preservation_ppm,
+        settlement_provisions.water_supply_ul,
+        settlement_selected.charge_events,
+        settlement_selected.survival_limited_batches,
+        settlement_selected.active_attention_ticks(),
+        settlement_selected.provider_attention_ticks,
+        settlement_selected.consumer_ticks,
+        settlement_selected.consumer_services,
+        settlement_selected.service_preparation_ticks,
+        settlement_selected.service_ticks,
+        settlement_selected.replacement_mass_mg,
+        settlement_selected.provisioning_stops,
+        settlement_selected.provisioning_attention_ticks,
+        settlement_selected.drink_actions,
+        settlement_selected.drink_volume_ul,
+        settlement_selected.meal_actions,
+        settlement_selected.meal_mass_mg,
+        settlement_selected.elapsed_ticks,
+        settlement_selected.metabolic_nj,
+        settlement_selected.hydration_ul,
+        settlement_selected.provider_condition_ppm,
+        settlement_selected.consumer_condition_ppm,
+        settlement_selected.final_metabolic_nj,
+        settlement_selected.final_hydration_ul,
+        settlement_treadle_project.active_attention_ticks(),
+        settlement_walking_project.active_attention_ticks(),
+        settlement_actual_attention_best,
+        settlement_plan.choice.label() == settlement_actual_attention_best
+            || settlement_actual_attention_best == "tie",
     );
 
     // Matched arms inherit the same actor-visible state. Execution owns projection agreement,
@@ -323,7 +512,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_project_work.nanojoules()
     );
     reviewln!(
-        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{}charges lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed long-horizon:projected-canonical consumer:powered-saw] matter=conserved",
+        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{}charges provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t body:{}nJ/{}uL provider-condition:{}ppm consumer-condition:{}ppm final-reserve:{}nJ/{}uL] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
         focused_probe_role_label(case.role()),
         settlement_project_mass.milligrams(),
         settlement_project_work.nanojoules(),
@@ -366,6 +555,20 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_treadle_charge.metabolic_nj - walking_charge.metabolic_nj,
         settlement_break_even_charges,
         settlement_decision_crossover,
+        settlement_selected.charge_events,
+        settlement_selected.provider_attention_ticks,
+        settlement_selected.consumer_ticks,
+        settlement_selected.consumer_services,
+        settlement_selected.service_preparation_ticks,
+        settlement_selected.service_ticks,
+        settlement_selected.replacement_mass_mg,
+        settlement_selected.elapsed_ticks,
+        settlement_selected.metabolic_nj,
+        settlement_selected.hydration_ul,
+        settlement_selected.provider_condition_ppm,
+        settlement_selected.consumer_condition_ppm,
+        settlement_selected.final_metabolic_nj,
+        settlement_selected.final_hydration_ul,
     );
 
     let charge_attention_reduction_ppm = u64::try_from(
@@ -450,13 +653,14 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         break_even_charges,
     );
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} wear-aware-decision-crossover:{} lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed long-horizon:projected-canonical consumer:stone-crusher] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} wear-aware-decision-crossover:{} provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t body:{}nJ/{}uL provider-condition:{}ppm consumer-condition:{}ppm final-reserve:{}nJ/{}uL] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
         focused_probe_role_label(case.role()),
         primitive_project_mass.milligrams(),
         primitive_project_work.nanojoules(),
         plan.charge_events,
         capacity_nj,
         plan.choice.label(),
+        plan.minimum_attention_return_ticks,
         plan.crank_lifecycle_attention,
         plan.treadle_lifecycle_attention,
         crank_build_mass_mg,
@@ -497,6 +701,20 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         charge_saving_per_job_ticks,
         break_even_charges,
         decision_crossover,
+        primitive_selected.charge_events,
+        primitive_selected.provider_attention_ticks,
+        primitive_selected.consumer_ticks,
+        primitive_selected.consumer_services,
+        primitive_selected.service_preparation_ticks,
+        primitive_selected.service_ticks,
+        primitive_selected.replacement_mass_mg,
+        primitive_selected.elapsed_ticks,
+        primitive_selected.metabolic_nj,
+        primitive_selected.hydration_ul,
+        primitive_selected.provider_condition_ppm,
+        primitive_selected.consumer_condition_ppm,
+        primitive_selected.final_metabolic_nj,
+        primitive_selected.final_hydration_ul,
     );
     // Post-copper catalog context without disturbing the copper-free matched comparison above.
     // The reinforced crank needs mined native copper, so it cannot join the copper-free arms;

@@ -8,7 +8,7 @@ use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
 use crate::material::{CommodityKey, MaterialComposition, MaterialId};
 use crate::registry::Registries;
@@ -114,7 +114,7 @@ fn knowledge_with_resource_mass(
 #[test]
 fn loaded_state_rejects_abundance_precision_no_authored_method_can_emit() {
     let registries = build_registries();
-    let mut app = AppState::new(WorldSeed::new(0x6B00_00B7));
+    let mut app = AppState::new();
     let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
     let id = GeologicalObservationId::new(1);
     let finding = estimate(MATERIAL_COPPER, 999_999, 1_000_000);
@@ -153,7 +153,7 @@ fn loaded_state_rejects_abundance_precision_no_authored_method_can_emit() {
 #[test]
 fn loaded_state_rejects_definite_physical_sample_missing_authored_hardness() {
     let registries = build_registries();
-    let mut app = AppState::new(WorldSeed::new(0x6B00_00B8));
+    let mut app = AppState::new();
     let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
     let id = GeologicalObservationId::new(1);
     let finding = estimate(MATERIAL_COPPER, 975_000, 1_000_000);
@@ -252,7 +252,7 @@ fn loaded_validation_rejects_ambiguous_multi_material_hardness() {
 #[test]
 fn loaded_state_rejects_hardness_band_that_excludes_live_matching_deposit() {
     let registries = build_registries();
-    let mut app = AppState::new(WorldSeed::new(0x6B00_00A2));
+    let mut app = AppState::new();
     let deposit = insert_generated_deposit(
         &registries,
         &mut app,
@@ -290,7 +290,7 @@ fn loaded_state_rejects_hardness_band_that_excludes_live_matching_deposit() {
 #[test]
 fn loaded_state_rejects_physical_hardness_without_historical_body() {
     let registries = build_registries();
-    let mut app = AppState::new(WorldSeed::new(0x6B00_00B0));
+    let mut app = AppState::new();
     let (knowledge, observation) = knowledge_with_hardness(
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
@@ -313,7 +313,7 @@ fn loaded_state_rejects_physical_hardness_without_historical_body() {
 #[test]
 fn later_generated_body_does_not_retroactively_validate_older_hardness() {
     let registries = build_registries();
-    let mut app = AppState::new(WorldSeed::new(0x6B00_00B1));
+    let mut app = AppState::new();
     let (knowledge, observation) = knowledge_with_hardness(
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
@@ -338,7 +338,7 @@ fn later_generated_body_does_not_retroactively_validate_older_hardness() {
 #[test]
 fn depleted_body_can_still_support_historical_hardness_evidence() {
     let registries = build_registries();
-    let mut app = AppState::new(WorldSeed::new(0x6B00_00B2));
+    let mut app = AppState::new();
     let deposit = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
     let (knowledge, _) = knowledge_with_hardness(
         GeologicalEvidenceKind::ExcavationSample,
@@ -363,7 +363,7 @@ fn depleted_body_can_still_support_historical_hardness_evidence() {
 #[test]
 fn loaded_state_rejects_resource_mass_without_exact_historical_body() {
     let registries = build_registries();
-    let mut app = AppState::new(WorldSeed::new(0x6B00_00B3));
+    let mut app = AppState::new();
     let _ = insert_generated_deposit(
         &registries,
         &mut app,
@@ -402,12 +402,12 @@ fn loaded_state_rejects_resource_mass_without_exact_historical_body() {
 #[test]
 fn loaded_state_rejects_resource_mass_outside_possible_historical_range() {
     let registries = build_registries();
-    for (seed, deposit_mass, lower, upper) in [
-        (0x6B00_00B4, 5_000_000, 1_000_000, 2_000_000),
-        (0x6B00_00B5, 1_000_000, 2_000_000, 3_000_000),
-        (0x6B00_00B9, 4_000_000, 3_000_000, 4_000_000),
+    for (deposit_mass, lower, upper) in [
+        (5_000_000, 1_000_000, 2_000_000),
+        (1_000_000, 2_000_000, 3_000_000),
+        (4_000_000, 3_000_000, 4_000_000),
     ] {
-        let mut app = AppState::new(WorldSeed::new(seed));
+        let mut app = AppState::new();
         let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(deposit_mass));
         let resource_mass =
             ResourceMassEstimate::new(Mass::from_milligrams(lower), Mass::from_milligrams(upper))
@@ -432,7 +432,7 @@ fn loaded_state_rejects_resource_mass_outside_possible_historical_range() {
 #[test]
 fn depleted_body_can_still_support_historical_resource_mass_evidence() {
     let registries = build_registries();
-    let mut app = AppState::new(WorldSeed::new(0x6B00_00B6));
+    let mut app = AppState::new();
     let deposit = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(4_500_000));
     let resource_mass = ResourceMassEstimate::new(
         Mass::from_milligrams(4_000_000),

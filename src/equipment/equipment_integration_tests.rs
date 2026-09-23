@@ -9,7 +9,6 @@ use crate::capability::{
 use crate::content::make_test_registries_with_equipment;
 use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
 use crate::core::quantity::{Area, Force, Mass};
-use crate::core::time::WorldSeed;
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
     add_equipment, validate_mount_equipment,
@@ -87,7 +86,7 @@ fn provider_resolution_keeps_static_capability_and_runtime_condition_separate() 
             thresholds,
         ),
     );
-    let mut state = AppState::new(WorldSeed::new(29));
+    let mut state = AppState::new();
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -149,7 +148,7 @@ fn provider_resolution_derates_authored_capability_from_runtime_condition() {
             vec![curve],
         ),
     );
-    let mut state = AppState::new(WorldSeed::new(31));
+    let mut state = AppState::new();
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(750_000)) {
             Ok(equipment) => equipment,
@@ -214,7 +213,7 @@ fn failed_equipment_exposes_no_capabilities() {
             thresholds,
         ),
     );
-    let mut state = AppState::new(WorldSeed::new(0x8200_0004));
+    let mut state = AppState::new();
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, Condition::FAILED)
         .unwrap_or_else(|error| panic!("failed-equipment fixture failed: {error}"));
     let provider = resolve_equipment_provider(&registries, &state, equipment)
@@ -263,7 +262,7 @@ fn fixed_equipment_requires_active_structural_installation_before_use() {
         )
         .with_required_structural_support(),
     );
-    let mut state = AppState::new(WorldSeed::new(0x8200_0002));
+    let mut state = AppState::new();
     let equipment = add_equipment(
         &registries,
         &mut state,
@@ -316,7 +315,7 @@ fn collapsed_structural_support_blocks_new_equipment_use() {
             thresholds,
         ),
     );
-    let mut state = AppState::new(WorldSeed::new(0x8200_0003));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let equipment = match add_equipment(
         &registries,

@@ -7,7 +7,7 @@ use crate::maintenance::Condition;
 #[test]
 fn treadle_and_paired_flywheel_are_craftable_from_raw_ordinary_materials() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_1003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("treadle raw-route survival setup failed: {error}"));
     let raw = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(11_000_000))
@@ -205,7 +205,7 @@ fn treadle_package_trades_more_material_for_less_copper_free_charging_attention(
     let registries = build_registries();
     let requested = Energy::from_nanojoules(500_000_000_000);
 
-    let mut hand_state = AppState::new(WorldSeed::new(0x1A80_1001));
+    let mut hand_state = AppState::new();
     initialize_player_survival(&registries, &mut hand_state)
         .unwrap_or_else(|error| panic!("hand comparison survival setup failed: {error}"));
     let hand_crank = assemble_crank_fixture(
@@ -222,7 +222,7 @@ fn treadle_package_trades_more_material_for_less_copper_free_charging_attention(
     )
     .unwrap_or_else(|error| panic!("hand comparison power validation failed: {error}"));
 
-    let mut treadle_state = AppState::new(WorldSeed::new(0x1A80_1002));
+    let mut treadle_state = AppState::new();
     initialize_player_survival(&registries, &mut treadle_state)
         .unwrap_or_else(|error| panic!("treadle comparison survival setup failed: {error}"));
     let treadle = assemble_authored_equipment_fixture(

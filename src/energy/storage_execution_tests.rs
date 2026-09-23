@@ -4,7 +4,7 @@ use super::*;
 use crate::content::make_test_registries_with_energy_store;
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinitionId, EnergyStoreRecord, add_energy_store,
     add_energy_store_with_initial_for_fixture,
@@ -29,7 +29,7 @@ fn registries() -> Registries {
 #[test]
 fn supply_access_reports_an_empty_but_currently_usable_store_without_reserving_it() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0010));
+    let mut state = AppState::new();
     let store = add_energy_store(&registries, &mut state, STORE_DEFINITION)
         .unwrap_or_else(|error| panic!("empty supply-access fixture failed: {error}"));
 
@@ -89,7 +89,7 @@ fn sink_registries() -> Registries {
 #[test]
 fn validated_supply_consumes_exact_energy_and_preserves_trace() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0002));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -129,7 +129,7 @@ fn validated_supply_consumes_exact_energy_and_preserves_trace() {
 #[test]
 fn stale_supply_is_rejected_after_independent_energy_mutation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0003));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -163,7 +163,7 @@ fn stale_supply_is_rejected_after_independent_energy_mutation() {
 #[test]
 fn deferred_sink_capacity_counts_only_passive_ticks_before_completion_ingress() {
     let registries = dissipative_sink_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0010));
+    let mut state = AppState::new();
     let store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -224,7 +224,7 @@ fn deferred_sink_capacity_counts_only_passive_ticks_before_completion_ingress() 
 #[test]
 fn supply_rejects_insufficient_energy_without_mutation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0004));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -250,7 +250,7 @@ fn supply_rejects_insufficient_energy_without_mutation() {
 #[test]
 fn output_only_store_rejects_energy_sink_binding_without_mutation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0006));
+    let mut state = AppState::new();
     let store = match add_energy_store(&registries, &mut state, STORE_DEFINITION) {
         Ok(store) => store,
         Err(error) => panic!("output-only store fixture failed: {error}"),
@@ -267,7 +267,7 @@ fn output_only_store_rejects_energy_sink_binding_without_mutation() {
 #[test]
 fn sink_only_store_rejects_energy_supply_binding_without_mutation() {
     let registries = sink_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0007));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -289,7 +289,7 @@ fn sink_only_store_rejects_energy_supply_binding_without_mutation() {
 #[test]
 fn sink_binding_reserves_exact_capacity_and_is_revision_bound() {
     let registries = sink_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0008));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -331,7 +331,7 @@ fn sink_binding_reserves_exact_capacity_and_is_revision_bound() {
 #[test]
 fn sink_rejects_capacity_overrun_without_mutation() {
     let registries = sink_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0009));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,

@@ -5,17 +5,12 @@ use super::*;
 #[test]
 fn every_builtin_material_backed_component_service_executes_from_its_real_assembly_traces() {
     let registries = build_registries();
-    for (case, definition) in registries
-        .equipment()
-        .definitions()
-        .filter(|definition| {
-            definition.assembly_profile().is_some()
-                && definition
-                    .maintenance_profile()
-                    .is_some_and(|maintenance| maintenance.is_component_replacement())
-        })
-        .enumerate()
-    {
+    for definition in registries.equipment().definitions().filter(|definition| {
+        definition.assembly_profile().is_some()
+            && definition
+                .maintenance_profile()
+                .is_some_and(|maintenance| maintenance.is_component_replacement())
+    }) {
         let definition_id = definition.id();
         let assembly_profile = definition.assembly_profile().unwrap_or_else(|| {
             panic!(
@@ -31,13 +26,7 @@ fn every_builtin_material_backed_component_service_executes_from_its_real_assemb
         });
         assert!(maintenance.is_component_replacement());
 
-        let mut state = AppState::new(WorldSeed::new(
-            0x8120_C100_u64
-                .checked_add(
-                    u64::try_from(case).unwrap_or_else(|_| unreachable!("bounded case fits u64")),
-                )
-                .unwrap_or_else(|| unreachable!("bounded component service seed cannot overflow")),
-        ));
+        let mut state = AppState::new();
         initialize_service_player(&registries, &mut state);
         let assembly = add_solid_stockpile_for_test(&mut state, definition.mass())
             .unwrap_or_else(|error| panic!("component service assembly stockpile failed: {error}"));
@@ -167,7 +156,7 @@ fn every_builtin_material_backed_component_service_executes_from_its_real_assemb
 #[test]
 fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_C102));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("stone scrap maintenance survival setup failed: {error}"));
 
@@ -375,7 +364,7 @@ fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
 #[test]
 fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_C001));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("component service assembly stockpile failed: {error}"));

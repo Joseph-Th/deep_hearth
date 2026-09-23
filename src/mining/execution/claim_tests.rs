@@ -4,7 +4,7 @@ use super::*;
 use crate::content::{FORM_ORE, MATERIAL_COPPER, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, apply_clock_advance};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentOperationTrace};
 use crate::geology::GeologicalDepositId;
 use crate::inventory::{
@@ -20,7 +20,7 @@ use crate::mining::{MiningJobRecord, MiningMethodId};
 #[test]
 fn mining_claim_returns_merge_aware_inventory_landing_identity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC1A1_0001));
+    let mut state = AppState::new();
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("claim receipt destination failed: {error}"));
     let completion_tick = SimulationTick::new(1);

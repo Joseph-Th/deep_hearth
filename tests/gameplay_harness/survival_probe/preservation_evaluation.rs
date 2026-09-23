@@ -129,7 +129,7 @@ pub(in super::super) fn project_preservation_candidates_with_raw_opportunity(
         "protected reserve exceeds every authored preservation enclosure"
     );
     let scenario = preservation_scenario_spec(seed, &candidates, food, food_mass);
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x5052_4553_4552_5643));
+    let mut state = AppState::new();
     let stockpile = seed_stockpile(
         &mut state,
         scenario.food_mass,
@@ -360,7 +360,7 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
         )
         .unwrap_or_else(|| panic!("preservation matched observation duration overflowed"));
     let food_mass = scenario.food_mass;
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x5052_4553_4552_5643));
+    let mut state = AppState::new();
     let enclosed_food = seed_stockpile(
         &mut state,
         food_mass,

@@ -31,6 +31,11 @@ use super::progression_probe::{STOCKPILE_WORK_ORDER_CYCLES, progression_mining_m
 use super::seed::mix64;
 
 const FIELDWORK_KNOWN_SITE_REPEAT_HORIZON: u64 = 12;
+const FIELDWORK_BULK_ORDER_BATCHES: u64 = 48;
+const FIELDWORK_BULK_ORDER_MIN_BATCHES: u64 = 32;
+const FIELDWORK_REINFORCED_BULK_COVERAGE_SEED: u64 = 0;
+const FIELDWORK_REINFORCED_BULK_COVERAGE_BATCHES: u64 = 48;
+const FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_MG: u64 = 28_000_000;
 const FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED: u64 = 2;
 const FIELDWORK_BULK_INVESTMENT_COVERAGE_BATCHES: u64 = 40;
 const FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_MG: u64 = 28_000_000;
@@ -79,24 +84,53 @@ use survey::{
 mod world;
 use world::{FieldworkWorld, build_fieldwork_world, fieldwork_supply};
 
-/// Visible demand uses the same finite twelve-cycle ore workload that ordinary primitive
-/// progression actually prices before mechanizing. The alternative is one immediate local order.
-/// Maintained coverage includes both sides of the heavy-tool decision: one soft-rock world has a
-/// disclosed bulk order and enough actor-visible reserve for the quarry pick to earn its setup,
-/// while another discloses a bulk order that reserve evidence cuts back before construction.
+/// Visible demand spans one immediate local order, the finite twelve-cycle ore workload that
+/// ordinary primitive progression prices before mechanizing, and a settlement-scale bulk order.
+/// Demand variation is independent of hidden reserve. Maintained coverage includes both sides of
+/// heavy-tool investment: large actor-visible opportunity can repay quarry setup, while small
+/// localized reserve can cut the same nominal bulk project back before construction.
 fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
     let batch = fieldwork_mining_limits(registries).base_quarry_batch;
-    if mix64(seed ^ 0x4649_454C_4444_454D).is_multiple_of(2) {
-        return short_fieldwork_order(batch, seed);
+    match mix64(seed ^ 0x4649_454C_4444_454D) % 4 {
+        0 => short_fieldwork_order(batch, seed),
+        1 => multiplied_mass(
+            batch,
+            FIELDWORK_BULK_ORDER_BATCHES,
+            "settlement-scale bulk fieldwork project",
+        ),
+        _ => multiplied_mass(
+            progression_mining_mass(registries, seed),
+            STOCKPILE_WORK_ORDER_CYCLES,
+            "current primitive processing project",
+        ),
     }
-    multiplied_mass(
-        progression_mining_mass(registries, seed),
-        STOCKPILE_WORK_ORDER_CYCLES,
-        "current primitive processing project",
-    )
+}
+
+fn fieldwork_order_horizon(registries: &Registries, requested: Mass) -> &'static str {
+    let batch = fieldwork_mining_limits(registries).base_quarry_batch;
+    if requested <= batch {
+        "short"
+    } else if requested
+        >= multiplied_mass(
+            batch,
+            FIELDWORK_BULK_ORDER_MIN_BATCHES,
+            "bulk fieldwork horizon threshold",
+        )
+    {
+        "bulk"
+    } else {
+        "project"
+    }
 }
 
 fn fieldwork_order_for_case(registries: &Registries, case: FocusedProbeCase) -> Mass {
+    if case.seed() == FIELDWORK_REINFORCED_BULK_COVERAGE_SEED {
+        return multiplied_mass(
+            fieldwork_mining_limits(registries).base_quarry_batch,
+            FIELDWORK_REINFORCED_BULK_COVERAGE_BATCHES,
+            "maintained reinforced bulk-investment fieldwork coverage order",
+        );
+    }
     if case.seed() == FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED {
         return multiplied_mass(
             fieldwork_mining_limits(registries).base_quarry_batch,
@@ -115,6 +149,9 @@ fn fieldwork_order_for_case(registries: &Registries, case: FocusedProbeCase) -> 
 }
 
 fn fieldwork_supply_for_case(case: FocusedProbeCase) -> Mass {
+    if case.seed() == FIELDWORK_REINFORCED_BULK_COVERAGE_SEED {
+        return Mass::from_milligrams(FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_MG);
+    }
     if case.seed() == FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED {
         return Mass::from_milligrams(FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_MG);
     }
@@ -206,11 +243,7 @@ fn run_fieldwork_with_supply(
         native_copper,
         matter_before,
     } = build_fieldwork_world(registries, seed, requested_mine_mass, deposit_mass);
-    let order_horizon = if requested_mine_mass <= mining_limits.base_quarry_batch {
-        "short"
-    } else {
-        "project"
-    };
+    let order_horizon = fieldwork_order_horizon(registries, requested_mine_mass);
 
     let episode_started_at = state.tick();
     let survival_before = *state

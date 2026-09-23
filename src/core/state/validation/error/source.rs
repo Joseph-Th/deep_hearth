@@ -7,7 +7,6 @@ use super::StateValidationError;
 impl Error for StateValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Random(error) => Some(error),
             Self::Energy(error) => Some(error),
             Self::Fluid(error) => Some(error),
             Self::Equipment(error) => Some(error),
@@ -31,10 +30,6 @@ impl Error for StateValidationError {
             Self::InvalidJobConsumedParticleSizeState { job: _job, error } => Some(error),
             Self::InvalidJobConsumedPhaseState { job: _job, error } => Some(error),
             Self::FluidStructuralLoad(error) => Some(error),
-            Self::RandomWorldSeedMismatch {
-                world_seed: _world_seed,
-                random_seed: _random_seed,
-            } => None,
             Self::UnresolvedStructuralDamage { event: _event } => None,
             Self::UnknownStoredCommodity {
                 stockpile: _stockpile,

@@ -10,8 +10,6 @@ use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSI
 
 #[cfg(feature = "test-soak")]
 use crate::core::quantity::{Area, Force, Mass};
-use crate::core::rng::{RandomStateValidationError, RngAlgorithm, RngStreamId};
-use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
 #[cfg(feature = "test-soak")]
 use crate::inventory::{
@@ -221,9 +219,9 @@ fn transfer_soak_output(
 }
 
 #[cfg(feature = "test-soak")]
-fn run_test_soak(seed: WorldSeed) -> AppState {
+fn run_test_soak() -> AppState {
     let registries = build_registries();
-    let mut state = AppState::new(seed);
+    let mut state = AppState::new();
     let source = add_soak_stockpile(&mut state, 30_000);
     let processing = add_soak_stockpile(&mut state, 10_000);
     let archive = add_soak_stockpile(&mut state, 10_000);
@@ -285,177 +283,30 @@ fn run_test_soak(seed: WorldSeed) -> AppState {
 }
 
 #[test]
-fn new_state_starts_at_zero_with_versioned_rng() {
+fn new_state_starts_at_zero_and_validates() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(42));
+    let state = AppState::new();
 
     assert_eq!(state.tick(), SimulationTick::ZERO);
-    assert_eq!(state.rng_algorithm(), RngAlgorithm::Xoshiro256StarStarV1);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
-fn app_state_debug_does_not_expose_hidden_world_or_random_stream_state() {
-    const HIDDEN_SEED: u64 = 0xD1A6_0001_D15C_105E;
-    let state = AppState::new(WorldSeed::new(HIDDEN_SEED));
+fn app_state_debug_does_not_expose_hidden_geology() {
+    let state = AppState::new();
 
     let debug = format!("{state:?}");
 
-    assert!(debug.contains("rng_algorithm"));
     assert!(debug.contains("geological_knowledge"));
-    assert!(!debug.contains("world_seed"));
-    assert!(!debug.contains(&HIDDEN_SEED.to_string()));
-    assert!(!debug.contains("random:"));
     assert!(!debug.contains("geology:"));
-}
-
-#[test]
-fn trusted_load_rejects_random_world_seed_mismatch() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(42));
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("random seed mismatch serialization failed: {error}"));
-    encoded["state"]["random"]["root_seed"] = serde_json::json!(43_u64);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("random seed mismatch decode failed: {error}"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(
-            StateValidationError::RandomWorldSeedMismatch {
-                world_seed: WorldSeed::new(42),
-                random_seed: WorldSeed::new(43),
-            }
-        ))
-    );
-}
-
-#[test]
-fn trusted_load_rejects_missing_core_random_stream() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(42));
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("missing random stream serialization failed: {error}"));
-    encoded["state"]["random"]["streams"]
-        .as_object_mut()
-        .unwrap_or_else(|| panic!("serialized random streams were not an object"))
-        .remove(&RngStreamId::CORE.value().to_string());
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("missing random stream decode failed: {error}"));
-    let debug = format!("{decoded:?}");
-    assert!(debug.contains("rng_algorithm: None"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Random(
-            RandomStateValidationError::MissingCoreStream
-        )))
-    );
-}
-
-#[test]
-fn trusted_load_rejects_zero_random_stream_id() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(42));
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("zero random stream serialization failed: {error}"));
-    let streams = encoded["state"]["random"]["streams"]
-        .as_object_mut()
-        .unwrap_or_else(|| panic!("serialized random streams were not an object"));
-    let core = streams
-        .get(&RngStreamId::CORE.value().to_string())
-        .cloned()
-        .unwrap_or_else(|| panic!("serialized random state lost its core stream"));
-    streams.insert("0".to_owned(), core);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("zero random stream decode failed: {error}"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Random(
-            RandomStateValidationError::ZeroStreamId
-        )))
-    );
-}
-
-#[test]
-fn trusted_load_rejects_extra_valid_random_stream_unreachable_by_gameplay() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(42));
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("extra random stream serialization failed: {error}"));
-    let streams = encoded["state"]["random"]["streams"]
-        .as_object_mut()
-        .unwrap_or_else(|| panic!("serialized random streams were not an object"));
-    let core = streams
-        .get(&RngStreamId::CORE.value().to_string())
-        .cloned()
-        .unwrap_or_else(|| panic!("serialized random state lost its core stream"));
-    streams.insert("2".to_owned(), core);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("extra random stream decode failed: {error}"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Random(
-            RandomStateValidationError::UnreachableCurrentAppState
-        )))
-    );
-}
-
-#[test]
-fn trusted_load_rejects_advanced_core_random_stream_unreachable_by_gameplay() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(42));
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("advanced random stream serialization failed: {error}"));
-    let words =
-        encoded["state"]["random"]["streams"][RngStreamId::CORE.value().to_string()]["words"]
-            .as_array_mut()
-            .unwrap_or_else(|| panic!("serialized core random words were not an array"));
-    let first = words[0]
-        .as_u64()
-        .unwrap_or_else(|| panic!("serialized core random word was not a u64"));
-    words[0] = serde_json::json!(first ^ 1);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("advanced random stream decode failed: {error}"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Random(
-            RandomStateValidationError::UnreachableCurrentAppState
-        )))
-    );
-}
-
-#[test]
-fn trusted_load_rejects_invalid_random_stream_state() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(42));
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("invalid random stream serialization failed: {error}"));
-    encoded["state"]["random"]["streams"][RngStreamId::CORE.value().to_string()]["words"] =
-        serde_json::json!([0_u64, 0, 0, 0]);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("invalid random stream decode failed: {error}"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Random(
-            RandomStateValidationError::InvalidStreamState {
-                stream: RngStreamId::CORE,
-            }
-        )))
-    );
 }
 
 #[cfg(feature = "test-soak")]
 #[test]
 #[ignore = "long-horizon soak"]
 fn test_headless_mixed_system_soak_preserves_invariants_and_determinism() {
-    let seed = WorldSeed::new(0x5A0C_D37E_4D11_0001);
-    let first = run_test_soak(seed);
-    let second = run_test_soak(seed);
+    let first = run_test_soak();
+    let second = run_test_soak();
 
     assert_eq!(first, second);
     assert_eq!(first.tick(), SimulationTick::new(10_000));

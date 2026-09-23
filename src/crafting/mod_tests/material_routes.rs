@@ -57,7 +57,7 @@ fn manual_craft_definition_rejects_zero_exertion() {
 #[test]
 fn native_copper_reinforcement_rejects_ordinary_ore_form_without_inventing_separation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7009));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("native copper survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
@@ -108,7 +108,7 @@ fn native_copper_reinforcement_rejects_ordinary_ore_form_without_inventing_separ
 #[test]
 fn native_copper_reinforcement_filters_contaminated_native_metal() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7010));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
         panic!("contaminated native copper survival setup failed: {error}")
     });
@@ -157,7 +157,7 @@ fn native_copper_reinforcement_filters_contaminated_native_metal() {
 #[test]
 fn native_copper_reinforcement_skips_contaminated_stock_when_pure_metal_exists() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7011));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mixed-stock craft survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(40_000))
@@ -218,7 +218,7 @@ fn copper_scrap_rework_is_slower_than_native_work_and_replays_exactly() {
         "irregular scrap rework must cost more player attention than starting from native copper"
     );
 
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7012));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("scrap recovery survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
@@ -326,7 +326,7 @@ fn stone_scrap_reknapping_is_slower_than_fresh_knapping_and_replays_exactly() {
     );
     assert_eq!(reknap.input_mass(), Mass::from_milligrams(1_000_000));
 
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7018));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("stone scrap reknap survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
@@ -424,7 +424,7 @@ fn stone_scrap_reknapping_is_slower_than_fresh_knapping_and_replays_exactly() {
 #[test]
 fn stone_scrap_reknapping_rejects_contaminated_scrap_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7019));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("contaminated stone scrap survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
@@ -472,7 +472,7 @@ fn stone_scrap_reknapping_rejects_contaminated_scrap_without_mutation() {
 #[test]
 fn stone_scrap_reknapping_rejects_mixed_temperatures_without_inventing_heat_exchange() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7020));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("mixed-temperature reknap survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
@@ -518,7 +518,7 @@ fn stone_scrap_reknapping_rejects_mixed_temperatures_without_inventing_heat_exch
 #[test]
 fn manual_craft_selection_is_not_poisoned_by_unselected_different_temperature_matter() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7021));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("temperature-selection survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
@@ -568,7 +568,7 @@ fn manual_craft_selection_is_not_poisoned_by_unselected_different_temperature_ma
 #[test]
 fn copper_scrap_rework_rejects_contaminated_scrap_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7013));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("contaminated scrap survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))

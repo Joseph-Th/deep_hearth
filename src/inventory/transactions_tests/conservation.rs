@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn transfer_split_sequence_preserves_inventory_quantity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2001));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("source fixture failed: {error}"),
@@ -76,7 +76,7 @@ fn transfer_split_sequence_preserves_inventory_quantity() {
 #[test]
 fn stale_transfer_commit_leaves_matter_accounting_unchanged() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2002));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("source fixture failed: {error}"),
@@ -186,7 +186,7 @@ fn stale_transfer_commit_leaves_matter_accounting_unchanged() {
 #[test]
 fn consumption_reservation_and_reserved_deposit_preserve_final_quantity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2003));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("source fixture failed: {error}"),
@@ -300,7 +300,7 @@ fn consumption_reservation_and_reserved_deposit_preserve_final_quantity() {
 #[test]
 fn egress_and_ingress_round_trip_preserves_exact_quantity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2004));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("source fixture failed: {error}"),
@@ -377,7 +377,7 @@ fn egress_and_ingress_round_trip_preserves_exact_quantity() {
 #[test]
 fn exact_relocation_preserves_inventory_quantity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2005));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("source fixture failed: {error}"),

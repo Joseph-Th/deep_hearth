@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn validated_withdrawal_mass_projections_reject_stale_inventory_revision() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2005));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("stale projection source fixture failed: {error}"));
     deposit_bulk_for_test(
@@ -103,7 +103,7 @@ fn split_transfer_rejects_exhausted_inventory_revision_without_mutation() {
 #[test]
 fn default_stockpile_rejects_liquid_material_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_1001));
+    let mut state = AppState::new();
     let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(stockpile) => stockpile,
         Err(error) => panic!("solid stockpile fixture failed: {error}"),
@@ -134,7 +134,7 @@ fn default_stockpile_rejects_liquid_material_without_mutation() {
 #[test]
 fn liquid_storage_accepts_matching_phase_but_enforces_temperature_limit() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_1002));
+    let mut state = AppState::new();
     let maximum = Temperature::from_millikelvin(1_400_000);
     let profile = match StockpileStorageProfile::new(false, true, maximum) {
         Ok(profile) => profile,
@@ -184,7 +184,7 @@ fn liquid_storage_accepts_matching_phase_but_enforces_temperature_limit() {
 #[test]
 fn transfer_rechecks_destination_containment_for_actual_selected_lots() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_1003));
+    let mut state = AppState::new();
     let source_profile =
         match StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(2_000_000)) {
             Ok(profile) => profile,
@@ -232,7 +232,7 @@ fn transfer_rechecks_destination_containment_for_actual_selected_lots() {
 #[test]
 fn failed_transfer_leaves_both_stockpiles_unchanged() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(1));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture stockpile failed: {error}"),
@@ -276,7 +276,7 @@ fn failed_transfer_leaves_both_stockpiles_unchanged() {
 #[test]
 fn same_stockpile_transfer_is_rejected_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(11));
+    let mut state = AppState::new();
     let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture stockpile failed: {error}"),
@@ -309,7 +309,7 @@ fn same_stockpile_transfer_is_rejected_without_mutation() {
 #[test]
 fn validated_transfer_updates_cached_mass_and_contents_atomically() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(2));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture stockpile failed: {error}"),
@@ -370,7 +370,7 @@ fn validated_transfer_updates_cached_mass_and_contents_atomically() {
 #[test]
 fn partial_transfer_splits_lots_without_erasing_thermal_history() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(3));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture source failed: {error}"),
@@ -463,7 +463,7 @@ fn partial_transfer_splits_lots_without_erasing_thermal_history() {
 #[test]
 fn stale_transfer_token_is_rejected_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(4));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture source failed: {error}"),
@@ -512,7 +512,7 @@ fn stale_transfer_token_is_rejected_without_mutation() {
 #[test]
 fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(41));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture source failed: {error}"),
@@ -578,7 +578,7 @@ fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
 #[test]
 fn fully_consumed_lot_identity_is_not_reused_by_later_ingress() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2011));
+    let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("lot-reuse stockpile fixture failed: {error}"));
     let removed = deposit_lot_for_test(
@@ -631,7 +631,7 @@ fn fully_consumed_lot_identity_is_not_reused_by_later_ingress() {
 #[test]
 fn material_reform_reuses_compatible_destination_identity_without_advancing_cursor() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2010));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("reform source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
@@ -685,7 +685,7 @@ fn material_reform_reuses_compatible_destination_identity_without_advancing_curs
 #[test]
 fn full_lot_transfer_coalesces_compatible_destination_lot() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(42));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("fixture source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -739,7 +739,7 @@ fn full_lot_transfer_coalesces_compatible_destination_lot() {
 #[test]
 fn full_lot_transfer_keeps_food_with_distinct_storage_exposure_separate() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(43));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("fixture source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -794,7 +794,7 @@ fn full_lot_transfer_keeps_food_with_distinct_storage_exposure_separate() {
 #[test]
 fn composed_lot_split_preserves_normalized_constituent_profile() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(5));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture source failed: {error}"),

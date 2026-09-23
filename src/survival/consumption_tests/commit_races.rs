@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn eating_and_drinking_reject_active_player_work_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0012));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("attention survival initialization failed: {error}"));
     let food_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
@@ -52,7 +52,7 @@ fn eating_and_drinking_reject_active_player_work_without_mutation() {
 #[test]
 fn eating_with_any_reserve_room_consumes_the_exact_selected_portion() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0015));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("partial-reserve survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -127,7 +127,7 @@ fn eating_with_any_reserve_room_consumes_the_exact_selected_portion() {
 #[test]
 fn meal_energy_first_covers_same_tick_metabolic_shortfall() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0024));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("meal-shortfall survival setup failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -192,7 +192,7 @@ fn meal_energy_first_covers_same_tick_metabolic_shortfall() {
 #[test]
 fn eating_rejects_over_capacity_hydration_without_normalizing_or_consuming_food() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0017));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
         panic!("invalid-hydration survival initialization failed: {error}")
     });
@@ -242,7 +242,7 @@ fn eating_rejects_over_capacity_hydration_without_normalizing_or_consuming_food(
 #[test]
 fn validated_drink_rejects_player_work_started_before_commit_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0013));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
@@ -272,7 +272,7 @@ fn validated_drink_rejects_player_work_started_before_commit_without_mutation() 
 #[test]
 fn validated_eat_rejects_survival_change_before_commit_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_001C));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("stale-survival meal stockpile failed: {error}"));
@@ -309,7 +309,7 @@ fn validated_eat_rejects_survival_change_before_commit_without_mutation() {
 #[test]
 fn validated_eat_rejects_inventory_change_before_commit_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_001D));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("stale-inventory meal stockpile failed: {error}"));
@@ -346,7 +346,7 @@ fn validated_eat_rejects_inventory_change_before_commit_without_mutation() {
 #[test]
 fn validated_drink_rejects_survival_change_before_commit_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_001E));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(
@@ -377,7 +377,7 @@ fn validated_drink_rejects_survival_change_before_commit_without_mutation() {
 #[test]
 fn validated_drink_rejects_fluid_change_before_commit_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_001F));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let drink_volume = minimum_drink_volume(&registries);
     let water = add_fluid_store_with_contents_for_fixture(

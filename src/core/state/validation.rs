@@ -31,21 +31,6 @@ pub fn validate_loaded_state(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
-    state
-        .random
-        .validate()
-        .map_err(StateValidationError::Random)?;
-    if state.random.root_seed() != state.world_seed {
-        return Err(StateValidationError::RandomWorldSeedMismatch {
-            world_seed: state.world_seed,
-            random_seed: state.random.root_seed(),
-        });
-    }
-    state
-        .random
-        .validate_current_app_state_reachability()
-        .map_err(StateValidationError::Random)?;
-
     validate_loaded_energy(
         registries.energy(),
         registries.materials(),
@@ -206,10 +191,6 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
 
 /// Asserts every cheap runtime invariant in debug builds.
 pub fn validate_invariants(registries: &Registries, state: &AppState) {
-    debug_assert!(
-        state.random.has_valid_core_stream(),
-        "Runtime Invariant 11 (Serialization Completeness): core RNG stream must remain valid"
-    );
     debug_assert!(
         state.systems.mining.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain above every allocated job"

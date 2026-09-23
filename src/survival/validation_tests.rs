@@ -4,7 +4,6 @@ use super::*;
 use crate::content::{FLUID_WATER, FORM_FOOD, MATERIAL_GRAIN, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError};
-use crate::core::time::WorldSeed;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::PlayerWork;
@@ -40,7 +39,7 @@ fn finish_pending_consumption(registries: &Registries, state: &mut AppState) {
 #[test]
 fn load_rejects_primary_player_reserves_above_their_authoritative_maxima() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_1004));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("primary-reserve validation setup failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -87,7 +86,7 @@ fn load_rejects_primary_player_reserves_above_their_authoritative_maxima() {
 #[test]
 fn load_rejects_pending_eating_reusing_historical_terminal_accounting() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_1005));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("pending-eating baseline survival setup failed: {error}"));
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2))
@@ -144,7 +143,7 @@ fn load_rejects_pending_eating_reusing_historical_terminal_accounting() {
 #[test]
 fn load_rejects_pending_drinking_reusing_historical_terminal_accounting() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_1006));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("pending-drinking baseline survival setup failed: {error}"));
     let drink_volume = registries
@@ -195,7 +194,7 @@ fn load_rejects_pending_drinking_reusing_historical_terminal_accounting() {
 #[test]
 fn load_rejects_nutrition_reserve_above_normalized_maximum() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_1001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("nutrition validation setup failed: {error}"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -219,7 +218,7 @@ fn load_rejects_nutrition_reserve_above_normalized_maximum() {
 #[test]
 fn load_rejects_fractional_recovery_carry_at_maximum_vitality() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_1003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
         panic!("maximum-vitality recovery validation setup failed: {error}")
     });
@@ -241,7 +240,7 @@ fn load_rejects_fractional_recovery_carry_at_maximum_vitality() {
 #[test]
 fn load_rejects_vitality_recovery_remainder_outside_fractional_scale() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_1002));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("recovery remainder validation setup failed: {error}"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))

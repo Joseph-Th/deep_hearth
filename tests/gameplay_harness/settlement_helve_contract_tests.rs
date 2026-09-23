@@ -11,7 +11,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{
     PoweredCraftRequest, resolve_manual_craft, validate_start_powered_craft,
 };
@@ -53,7 +52,7 @@ fn seed_material(
 #[test]
 fn helve_hammer_converts_treadle_workshop_when_repeated_copper_work_repays_attention() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x4845_4C56_4500_0001));
+    let mut state = AppState::new();
 
     let bootstrap = seed_stockpile(
         &mut state,

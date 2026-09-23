@@ -6,7 +6,6 @@ use crate::content::{
     make_test_registries_with_standard_sensible_heating,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
-use crate::core::time::WorldSeed;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::add_equipment;
 use crate::inventory::{
@@ -67,7 +66,7 @@ fn resolve_all_source_matter(
 #[test]
 fn process_start_and_completion_preserve_world_matter_ownership_total() {
     let registries = make_test_registries_with_standard_sensible_heating(PROCESS);
-    let mut state = AppState::new(WorldSeed::new(0x0ACC_0017));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(id) => id,
         Err(error) => panic!("source fixture failed: {error}"),
@@ -132,7 +131,7 @@ fn process_start_and_completion_preserve_world_matter_ownership_total() {
 #[test]
 fn transfer_split_then_process_lifecycle_preserves_world_matter_total() {
     let registries = make_test_registries_with_standard_sensible_heating(PROCESS);
-    let mut state = AppState::new(WorldSeed::new(0x0ACC_0018));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("source fixture failed: {error}"),

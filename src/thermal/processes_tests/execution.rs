@@ -601,7 +601,7 @@ fn sensible_heating_stops_at_material_phase_boundary() {
         EnergyCarrier::Electrical,
         Temperature::from_millikelvin(2_000_000),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9200_0020));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(source) => source,
         Err(error) => panic!("phase-boundary source allocation failed: {error}"),
@@ -813,9 +813,9 @@ struct SensibleHeatingSoakFixture {
 
 #[cfg(feature = "test-soak")]
 impl SensibleHeatingSoakFixture {
-    fn new(seed: WorldSeed) -> Self {
+    fn new() -> Self {
         let registries = make_registries(EnergyCarrier::Electrical);
-        let mut state = AppState::new(seed);
+        let mut state = AppState::new();
         let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200))
             .unwrap_or_else(|error| panic!("heating soak source allocation failed: {error}"));
         let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200))
@@ -978,8 +978,8 @@ impl SensibleHeatingSoakFixture {
 }
 
 #[cfg(feature = "test-soak")]
-fn run_sensible_heating_soak(seed: WorldSeed) -> AppState {
-    let mut fixture = SensibleHeatingSoakFixture::new(seed);
+fn run_sensible_heating_soak() -> AppState {
+    let mut fixture = SensibleHeatingSoakFixture::new();
     for step in 0_u64..5_000 {
         fixture.maybe_start_batch(step);
         fixture.advance(step);
@@ -994,9 +994,8 @@ fn run_sensible_heating_soak(seed: WorldSeed) -> AppState {
 #[test]
 #[ignore = "long-horizon soak"]
 fn sensible_heating_soak_preserves_determinism_matter_and_finite_energy() {
-    let seed = WorldSeed::new(0x9200_5000);
-    let first = run_sensible_heating_soak(seed);
-    let second = run_sensible_heating_soak(seed);
+    let first = run_sensible_heating_soak();
+    let second = run_sensible_heating_soak();
 
     assert_eq!(first, second);
     assert_eq!(first.tick().value(), 5_000);

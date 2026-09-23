@@ -88,7 +88,7 @@ another owner or runtime boundary.
 | Validated command became stale | token dependencies and revisions | one intervening mutation per dependency plus typed stale rejection |
 | Wrong matter/fluid/energy total | owning custody edge and accounting helper | first owner-by-owner discrepancy |
 | Save fails trusted load | `LoadedSaveEnvelope::into_state`, then named validator | exact schema or typed validation error on the smallest state |
-| Save continuation diverges | persisted schedule/RNG/provider traces | first differing authoritative outcome/tick |
+| Save continuation diverges | persisted schedules/provider traces and explicit inputs | first differing authoritative outcome/tick |
 | Unexpected tick result | relevant `TickOutcome` and phase decision/apply | first differing tick plus driving pre-tick owner state |
 | Production lifecycle wrong | job, resolution, availability, provider/support | remaining time, suspension reason, due tick, matching outcome |
 | Mining extraction/claim mismatch | job, deposit, reservation, claim validator | lifecycle, mass bound, ready custody, reservation, claimed mass |

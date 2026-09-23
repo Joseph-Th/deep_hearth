@@ -7,7 +7,6 @@ use crate::capability::{
 use crate::content::make_test_registries_with_equipment;
 use crate::content::{EQUIPMENT_STONE_PICK, build_registries};
 use crate::core::quantity::Mass;
-use crate::core::time::WorldSeed;
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId};
 use crate::maintenance::MaintenanceThresholds;
 
@@ -24,7 +23,7 @@ fn condition(parts_per_million: u32) -> Condition {
 #[test]
 fn bootstrap_creation_cannot_bypass_authored_assembly() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(19));
+    let mut state = AppState::new();
     let before = state.clone();
 
     assert_eq!(
@@ -72,7 +71,7 @@ fn make_registries() -> Registries {
 #[test]
 fn creation_and_condition_fixture_use_canonical_revisioned_state() {
     let registries = make_registries();
-    let mut state = AppState::new(WorldSeed::new(17));
+    let mut state = AppState::new();
     let equipment = match add_equipment(
         &registries,
         &mut state,

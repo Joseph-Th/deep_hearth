@@ -8,7 +8,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::material::{COMPOSITION_PARTS_PER_MILLION, CommodityKey};
 use deep_hearth::matter::calculate_matter_accounting;
@@ -302,7 +301,7 @@ pub(super) fn evaluate_manual_processing_fallback(
 ) -> ManualProcessingFallbackReview {
     let setup = manual_processing_setup(registries, seed);
     let composition = copper_ore_composition(setup.copper_ppm, setup.clay_share_ppm);
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x4841_4E44_5F4F_5245));
+    let mut state = AppState::new();
     let ore = add_solid_stockpile(&mut state, setup.ore_mass);
     let crushed = add_solid_stockpile(&mut state, setup.ore_mass);
     let native = add_solid_stockpile(&mut state, setup.ore_mass);

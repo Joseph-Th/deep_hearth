@@ -10,7 +10,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::equipment::{
     EquipmentDisassemblyError, validate_assemble_equipment, validate_disassemble_equipment,
     validate_upgrade_equipment,
@@ -132,7 +131,7 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
         .unwrap_or_else(|| panic!("reinforced geological hammer lost authored upgrade"));
     assert_eq!(reinforcement.from(), EQUIPMENT_STONE_GEOLOGICAL_HAMMER);
 
-    let mut state = AppState::new(WorldSeed::new(0x51A2_5A6D_504C_4501));
+    let mut state = AppState::new();
     let hammer_source = add_solid_stockpile(&mut state, base_assembly.input_mass());
     for input in base_assembly.inputs() {
         seed_lot(

@@ -1,86 +1,55 @@
 //! Canonical matched-arm execution for human-power gameplay evidence.
 
+use std::num::NonZeroU64;
+
 use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE,
     EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
-    MANUAL_POWER_WALKING_WHEEL,
+    MANUAL_POWER_WALKING_WHEEL, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
-use deep_hearth::core::quantity::AggregateMass;
+use deep_hearth::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::core::time::TickSpan;
+use deep_hearth::crafting::{project_manual_craft_hand_work, project_powered_craft_work};
 use deep_hearth::energy::EnergyStoreId;
-use deep_hearth::equipment::EquipmentId;
+use deep_hearth::equipment::{
+    EquipmentId, EquipmentMaintenanceRequest, resolve_equipment_maintenance,
+    validate_equipment_maintenance,
+};
+use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::labor::{ManualPowerMethodId, ManualPowerRequest, validate_start_manual_power};
+use deep_hearth::labor::{
+    ManualPowerMethodId, ManualPowerRequest, project_manual_power, validate_start_manual_power,
+};
+use deep_hearth::maintenance::MaintenanceBand;
 use deep_hearth::matter::calculate_matter_accounting;
+use deep_hearth::ore_processing::assess_powered_ore_mass_envelope;
 use deep_hearth::registry::Registries;
-use deep_hearth::survival::assess_survival;
+use deep_hearth::survival::{SurvivalExertion, assess_survival, project_survival_resource_budget};
 
+use super::super::maintenance_timing::finish_active_equipment_maintenance;
+use super::super::manual_craft_execution::execute_manual_craft_batches;
+use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::super::manual_power_timing::finish_manual_power_work;
 use super::build::{build_flywheel, build_provider, stockpile_mass};
 use super::consumers::{
     PrimitivePowerConsumer, SettlementPowerConsumer, consume_primitive_charge,
     consume_settlement_charge,
 };
-use super::planning::{PrimitivePowerPlan, SettlementPowerPlan, ShapedBuild};
+use super::planning::{
+    PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
+    ShapedBuild,
+};
+use super::provisioning::{PowerProjectProvisions, ProvisioningOutcome, provision_for_project_leg};
 
-pub(super) struct ChargeOutcome {
-    pub(super) attention_ticks: u64,
-    pub(super) metabolic_nj: u128,
-    pub(super) hydration_ul: u128,
-    pub(super) condition_after_ppm: u32,
-}
+#[path = "power_provider_execution/project.rs"]
+mod project;
 
-fn charge_to_full(
-    registries: &Registries,
-    state: &mut AppState,
-    method: ManualPowerMethodId,
-    equipment: EquipmentId,
-    store: EnergyStoreId,
-    capacity_nj: u128,
-    context: &'static str,
-) -> ChargeOutcome {
-    let capacity = deep_hearth::core::quantity::Energy::from_nanojoules(capacity_nj);
-    let before = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power provider {context} lost the player before charging"));
-    let charge = validate_start_manual_power(
-        registries,
-        state,
-        ManualPowerRequest::new(method, equipment, store, capacity),
-    )
-    .unwrap_or_else(|error| panic!("power provider {context} charge failed: {error}"));
-    let work = charge.work();
-    charge
-        .commit(state)
-        .unwrap_or_else(|error| panic!("power provider {context} charge commit failed: {error}"));
-    let attention_ticks = finish_manual_power_work(registries, state, work, context);
-    assert_eq!(
-        state
-            .energy()
-            .get_store(store)
-            .map(|record| record.stored().nanojoules()),
-        Some(capacity_nj),
-        "power provider {context} must deliver the full requested flywheel charge"
-    );
-    let after = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power provider {context} lost the player after charging"));
-    let condition_after_ppm = state
-        .equipment()
-        .get_equipment(equipment)
-        .map(|record| record.condition().parts_per_million())
-        .unwrap_or_else(|| panic!("power provider {context} equipment disappeared"));
-    ChargeOutcome {
-        attention_ticks,
-        metabolic_nj: before
-            .metabolic_energy()
-            .nanojoules()
-            .checked_sub(after.metabolic_energy().nanojoules())
-            .unwrap_or_else(|| panic!("power provider {context} metabolic audit underflowed")),
-        hydration_ul: u128::from(before.hydration().microliters())
-            .checked_sub(u128::from(after.hydration().microliters()))
-            .unwrap_or_else(|| panic!("power provider {context} hydration audit underflowed")),
-        condition_after_ppm,
-    }
-}
+use project::{ChargeOutcome, charge_store};
+pub(super) use project::{
+    ProjectExecutionResources, execute_selected_primitive_project,
+    execute_selected_settlement_project,
+};
 
 pub(super) struct PrimitiveComparison {
     pub(super) crank_build: ShapedBuild,
@@ -125,7 +94,7 @@ pub(super) fn execute_primitive_comparison(
         plan.store_definition,
         "power provider crank flywheel",
     );
-    let crank_charge = charge_to_full(
+    let crank_charge = charge_store(
         registries,
         &mut crank_state,
         MANUAL_POWER_HAND_CRANK,
@@ -150,7 +119,7 @@ pub(super) fn execute_primitive_comparison(
         plan.store_definition,
         "power provider treadle flywheel",
     );
-    let treadle_charge = charge_to_full(
+    let treadle_charge = charge_store(
         registries,
         &mut treadle_state,
         MANUAL_POWER_FOOT_TREADLE,
@@ -177,7 +146,7 @@ pub(super) fn execute_primitive_comparison(
         crank_consumer_ticks, treadle_consumer_ticks,
         "matched primitive power providers must feed the same productive consumer duration"
     );
-    let crank_second_charge = charge_to_full(
+    let crank_second_charge = charge_store(
         registries,
         &mut crank_state,
         MANUAL_POWER_HAND_CRANK,
@@ -186,7 +155,7 @@ pub(super) fn execute_primitive_comparison(
         plan.capacity_nj,
         "power provider crank second charge",
     );
-    let treadle_second_charge = charge_to_full(
+    let treadle_second_charge = charge_store(
         registries,
         &mut treadle_state,
         MANUAL_POWER_FOOT_TREADLE,
@@ -355,7 +324,7 @@ pub(super) fn execute_settlement_comparison(
         ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
         "settlement treadle flywheel bank",
     );
-    let settlement_treadle_charge = charge_to_full(
+    let settlement_treadle_charge = charge_store(
         registries,
         &mut treadle_state,
         MANUAL_POWER_FOOT_TREADLE,
@@ -380,7 +349,7 @@ pub(super) fn execute_settlement_comparison(
         ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
         "walking-wheel flywheel bank",
     );
-    let walking_charge = charge_to_full(
+    let walking_charge = charge_store(
         registries,
         &mut walking_state,
         MANUAL_POWER_WALKING_WHEEL,
@@ -407,7 +376,7 @@ pub(super) fn execute_settlement_comparison(
         settlement_treadle_consumer_ticks, walking_consumer_ticks,
         "matched settlement power providers must feed the same productive consumer duration"
     );
-    let settlement_treadle_second_charge = charge_to_full(
+    let settlement_treadle_second_charge = charge_store(
         registries,
         &mut treadle_state,
         MANUAL_POWER_FOOT_TREADLE,
@@ -416,7 +385,7 @@ pub(super) fn execute_settlement_comparison(
         plan.capacity_nj,
         "settlement treadle second charge",
     );
-    let walking_second_charge = charge_to_full(
+    let walking_second_charge = charge_store(
         registries,
         &mut walking_state,
         MANUAL_POWER_WALKING_WHEEL,

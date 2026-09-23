@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn authored_maintenance_resolution_rejects_unneeded_or_understocked_service() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_000A));
+    let mut state = AppState::new();
     let healthy = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(700_000))
         .unwrap_or_else(|error| panic!("healthy maintenance equipment fixture failed: {error}"));
     let worn = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
@@ -50,7 +50,7 @@ fn authored_maintenance_resolution_rejects_unneeded_or_understocked_service() {
 #[test]
 fn maintenance_filters_contaminated_stock_and_rejects_forged_impure_selection() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_000B));
+    let mut state = AppState::new();
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
         .unwrap_or_else(|error| panic!("impure maintenance equipment fixture failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(27))
@@ -124,7 +124,7 @@ fn maintenance_filters_contaminated_stock_and_rejects_forged_impure_selection() 
 #[test]
 fn maintenance_moves_exact_material_to_spent_storage_and_preserves_conservation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0001));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
@@ -216,7 +216,7 @@ fn maintenance_moves_exact_material_to_spent_storage_and_preserves_conservation(
 #[test]
 fn maintenance_rejects_non_improvement_and_allows_spent_material_to_return_to_source() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0002));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
@@ -291,7 +291,7 @@ fn maintenance_rejects_non_improvement_and_allows_spent_material_to_return_to_so
 #[test]
 fn maintenance_rechecks_inventory_and_equipment_before_any_partial_commit() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0003));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
@@ -374,7 +374,7 @@ fn maintenance_rechecks_inventory_and_equipment_before_any_partial_commit() {
 #[test]
 fn maintenance_resolution_is_invalidated_by_equipment_change_before_validation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0009));
+    let mut state = AppState::new();
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
@@ -415,7 +415,7 @@ fn maintenance_resolution_is_invalidated_by_equipment_change_before_validation()
 #[test]
 fn maintenance_material_relocation_updates_supported_stockpile_loads_atomically() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0004));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
@@ -500,7 +500,7 @@ fn maintenance_material_relocation_updates_supported_stockpile_loads_atomically(
 #[test]
 fn maintenance_preserves_multiple_lot_profiles_without_id_collision() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0005));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
@@ -583,7 +583,7 @@ fn maintenance_preserves_multiple_lot_profiles_without_id_collision() {
 #[test]
 fn maintenance_spent_capacity_failure_is_atomic() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0006));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {

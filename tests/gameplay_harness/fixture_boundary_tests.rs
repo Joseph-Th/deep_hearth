@@ -9,7 +9,6 @@ use deep_hearth::content::gameplay_fixture::{
 use deep_hearth::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::survival::initialize_player_survival;
@@ -51,7 +50,7 @@ fn assert_fixture_rejected_without_mutation(
 #[test]
 fn gameplay_bootstrap_rejects_world_seeding_after_actor_admission() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x4649_5854_5552_4501));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fixture-boundary survival setup failed: {error}"));
 
@@ -67,7 +66,7 @@ fn gameplay_bootstrap_rejects_world_seeding_after_actor_admission() {
 #[test]
 fn controlled_delivery_cannot_be_authorized_after_actor_admission() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x4649_5854_5552_4502));
+    let mut state = AppState::new();
     let (source, destination) = seed_delivery_endpoints(&registries, &mut state);
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fixture-boundary survival setup failed: {error}"));
@@ -87,7 +86,7 @@ fn controlled_delivery_cannot_be_authorized_after_actor_admission() {
 #[test]
 fn controlled_delivery_cannot_commit_before_actor_admission() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x4649_5854_5552_4503));
+    let mut state = AppState::new();
     let (source, destination) = seed_delivery_endpoints(&registries, &mut state);
     let delivery = authorize_controlled_material_delivery(
         &registries,
@@ -106,7 +105,7 @@ fn controlled_delivery_cannot_commit_before_actor_admission() {
 #[test]
 fn controlled_delivery_authorization_requires_a_real_pre_admission_transfer() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x4649_5854_5552_4504));
+    let state = AppState::new();
     let before = state.clone();
 
     let result = catch_unwind(AssertUnwindSafe(|| {

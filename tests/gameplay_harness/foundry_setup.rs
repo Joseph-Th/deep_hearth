@@ -13,7 +13,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::AppState;
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::EnergyStoreId;
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
@@ -46,7 +45,6 @@ pub(super) struct FoundrySetup {
 
 pub(super) fn setup_foundry_probe(
     registries: &Registries,
-    seed: u64,
     setup: FoundrySetup,
 ) -> (AppState, FoundryIds) {
     let FoundrySetup {
@@ -58,7 +56,7 @@ pub(super) fn setup_foundry_probe(
         electrical_energy,
         thermal_sink_energy,
     } = setup;
-    let mut state = AppState::new(WorldSeed::new(seed));
+    let mut state = AppState::new();
     let pure_copper_source = add_solid_stockpile(&mut state, mass);
     let preheated_source = add_solid_stockpile(&mut state, mass);
     let molten_temperature = registries

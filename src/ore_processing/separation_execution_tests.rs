@@ -11,7 +11,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use crate::inventory::{
@@ -363,7 +362,7 @@ fn fixture_with_host_form_and_particle_size(
     particle_size: ParticleSizeRange,
 ) -> Fixture {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9720_0001));
+    let mut state = AppState::new();
     let source_capacity = mass
         .checked_add(Mass::from_milligrams(1))
         .unwrap_or_else(|| panic!("separation source fixture capacity overflowed"));
@@ -464,7 +463,7 @@ struct ManualFixture {
 
 fn manual_fixture(mass: Mass, composition: MaterialComposition) -> ManualFixture {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9720_1001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual separation survival fixture failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, mass)

@@ -6,7 +6,7 @@ use crate::content::PROSPECTING_LOCAL_TRANSECT;
 use crate::content::{FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{apply_clock_advance, validate_loaded_state};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceConsistency,
     MaterialAbundanceEstimate, ResourceMassEstimate, assess_geological_knowledge,
@@ -32,7 +32,7 @@ fn line_bounds(min_x: i64, max_x: i64) -> VoxelBounds {
 #[test]
 fn resource_mass_requires_definite_physical_single_material_context() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x6B00_00A3));
+    let state = AppState::new();
     let region = bounds(0, 1);
     let estimate = ResourceMassEstimate::new(
         Mass::from_milligrams(4_000_000),
@@ -57,7 +57,7 @@ fn resource_mass_requires_definite_physical_single_material_context() {
 #[test]
 fn same_tick_resource_mass_assessment_prefers_the_most_precise_acquired_band() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_00A4));
+    let mut state = AppState::new();
     let region = bounds(4, 6);
     let broad = ResourceMassEstimate::new(
         Mass::from_milligrams(2_000_000),
@@ -93,7 +93,7 @@ fn same_tick_resource_mass_assessment_prefers_the_most_precise_acquired_band() {
 #[test]
 fn newer_resource_mass_observation_supersedes_older_precision() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_00A5));
+    let mut state = AppState::new();
     let region = bounds(4, 6);
     let older_precise = ResourceMassEstimate::new(
         Mass::from_milligrams(4_000_000),
@@ -140,7 +140,7 @@ fn newer_resource_mass_observation_supersedes_older_precision() {
 #[test]
 fn authored_resource_mass_recency_round_trips() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_00A8));
+    let mut state = AppState::new();
     let region = VoxelBounds::new(VoxelCoord::new(4, -16, 0), VoxelCoord::new(5, -15, 1))
         .unwrap_or_else(|error| panic!("authored resource-mass bounds failed: {error}"));
     let deposit = insert_generated_deposit(
@@ -234,7 +234,7 @@ fn authored_resource_mass_recency_round_trips() {
 #[test]
 fn conflicting_later_evidence_withholds_stale_resource_mass() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_00A6));
+    let mut state = AppState::new();
     let region = bounds(4, 6);
     let older_resource = ResourceMassEstimate::new(
         Mass::from_milligrams(4_000_000),
@@ -283,7 +283,7 @@ fn conflicting_later_evidence_withholds_stale_resource_mass() {
 #[test]
 fn later_non_resource_observation_does_not_relabel_resource_mass_freshness() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_00A7));
+    let mut state = AppState::new();
     let region = bounds(4, 6);
     let resource = ResourceMassEstimate::new(
         Mass::from_milligrams(4_000_000),
@@ -336,7 +336,7 @@ fn hardness() -> ExcavationHardnessEstimate {
 #[test]
 fn record_rejects_hardness_without_definite_physical_sample_context() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x6B00_00A1));
+    let state = AppState::new();
     let region = bounds(0, 1);
 
     let nonphysical = ProspectingResolution {
@@ -424,7 +424,7 @@ fn record(
 #[test]
 fn observations_persist_quantitative_uncertainty_without_exposing_deposit_identity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0001));
+    let mut state = AppState::new();
     let broad = make_test_prospecting_resolution(
         line_bounds(0, 4),
         GeologicalEvidenceKind::SurfaceExposure,
@@ -466,7 +466,7 @@ fn observations_persist_quantitative_uncertainty_without_exposing_deposit_identi
 #[test]
 fn precision_ranking_uses_width_then_footprint_then_recency_then_identity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0010));
+    let mut state = AppState::new();
     let query = bounds(4, 6);
 
     let wider_small = record(
@@ -551,7 +551,7 @@ fn precision_ranking_uses_width_then_footprint_then_recency_then_identity() {
 #[test]
 fn hardness_assessment_prefers_the_most_precise_acquired_physical_band() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0011));
+    let mut state = AppState::new();
     let query = bounds(4, 6);
     let finding = vec![estimate(MATERIAL_COPPER, 400_000, 500_000)];
     let broad = ExcavationHardnessEstimate::new(
@@ -598,7 +598,7 @@ fn hardness_assessment_prefers_the_most_precise_acquired_physical_band() {
 #[test]
 fn contradictory_surveys_remain_visible_instead_of_being_averaged() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0002));
+    let mut state = AppState::new();
     let first = make_test_prospecting_resolution(
         bounds(0, 8),
         GeologicalEvidenceKind::MagneticSurvey,
@@ -627,7 +627,7 @@ fn contradictory_surveys_remain_visible_instead_of_being_averaged() {
 #[test]
 fn nonoverlapping_observations_do_not_leak_into_local_assessment() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0003));
+    let mut state = AppState::new();
     let remote = make_test_prospecting_resolution(
         bounds(100, 110),
         GeologicalEvidenceKind::SeismicSurvey,
@@ -650,7 +650,7 @@ fn nonoverlapping_observations_do_not_leak_into_local_assessment() {
 #[test]
 fn disjoint_evidence_inside_a_large_query_is_not_reported_as_a_false_conflict() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0007));
+    let mut state = AppState::new();
     let west = ProspectingResolution {
         region: bounds(0, 4),
         evidence: GeologicalEvidenceKind::CoreSample,
@@ -700,7 +700,7 @@ fn disjoint_evidence_inside_a_large_query_is_not_reported_as_a_false_conflict() 
 #[test]
 fn empty_common_overlap_stays_empty_after_later_evidence() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0008));
+    let mut state = AppState::new();
     for (region, lower, upper) in [
         (bounds(0, 4), 700_000, 900_000),
         (bounds(6, 10), 100_000, 300_000),
@@ -728,7 +728,7 @@ fn empty_common_overlap_stays_empty_after_later_evidence() {
 #[test]
 fn regional_geological_map_is_stable_and_omits_remote_only_materials() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0006));
+    let mut state = AppState::new();
     let local = make_test_prospecting_resolution(
         bounds(0, 8),
         GeologicalEvidenceKind::CoreSample,
@@ -758,7 +758,7 @@ fn regional_geological_map_is_stable_and_omits_remote_only_materials() {
 #[test]
 fn prospecting_rejects_physically_impossible_combined_abundance_minima() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x6B00_0009));
+    let state = AppState::new();
     let resolution = make_test_prospecting_resolution(
         bounds(0, 8),
         GeologicalEvidenceKind::LaboratoryAssay,
@@ -780,7 +780,7 @@ fn prospecting_rejects_physically_impossible_combined_abundance_minima() {
 #[test]
 fn prospecting_round_trip_preserves_deterministic_continuation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_0005));
+    let mut state = AppState::new();
     let initial = make_test_prospecting_resolution(
         line_bounds(0, 4),
         GeologicalEvidenceKind::SurfaceExposure,
@@ -821,9 +821,9 @@ fn prospecting_round_trip_preserves_deterministic_continuation() {
 }
 
 #[cfg(feature = "test-soak")]
-fn run_prospecting_soak(seed: WorldSeed) -> AppState {
+fn run_prospecting_soak() -> AppState {
     let registries = build_registries();
-    let mut state = AppState::new(seed);
+    let mut state = AppState::new();
     let method = registries
         .labor()
         .get_prospecting(PROSPECTING_LOCAL_TRANSECT)
@@ -879,8 +879,7 @@ fn run_prospecting_soak(seed: WorldSeed) -> AppState {
 #[test]
 #[ignore = "long-horizon soak"]
 fn prospecting_soak_preserves_indexes_persistence_invariants_and_replay() {
-    let seed = WorldSeed::new(0x6B00_5000);
-    let first = run_prospecting_soak(seed);
-    let second = run_prospecting_soak(seed);
+    let first = run_prospecting_soak();
+    let second = run_prospecting_soak();
     assert_eq!(first, second);
 }

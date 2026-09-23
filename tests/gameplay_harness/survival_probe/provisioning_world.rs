@@ -297,7 +297,6 @@ pub(super) struct PreparedProvisioningWorld {
 
 pub(super) fn prepare_provisioning_world(
     registries: &Registries,
-    seed: u64,
     world: &ProvisioningWorld,
     drink_supply: Volume,
 ) -> PreparedProvisioningWorld {
@@ -325,7 +324,7 @@ pub(super) fn prepare_provisioning_world(
         .try_fold(Mass::ZERO, |total, mass| total.checked_add(*mass))
         .unwrap_or_else(|| panic!("survival probe offered-food capacity overflowed"));
 
-    let mut state = AppState::new(WorldSeed::new(seed));
+    let mut state = AppState::new();
     let ambient_meal = seed_stockpile(
         &mut state,
         ambient_capacity,

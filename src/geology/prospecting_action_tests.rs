@@ -9,7 +9,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
@@ -56,7 +55,7 @@ fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
 #[test]
 fn fatal_tick_cancels_unfinished_equipment_prospecting_without_evidence_or_wear() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_E003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal prospecting survival setup failed: {error}"));
     let region = one_voxel(42);
@@ -160,7 +159,7 @@ fn prospecting_due_on_fatal_tick_records_evidence_before_attention_is_released()
 #[test]
 fn local_transect_reduces_repeated_point_work_without_revealing_an_exact_target() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2011));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("local-transect survival setup failed: {error}"));
     let region = horizontal_region(50, 4);
@@ -229,7 +228,7 @@ fn local_transect_reduces_repeated_point_work_without_revealing_an_exact_target(
 #[test]
 fn positive_local_transect_stays_area_evidence_even_with_one_hidden_deposit() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2012));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("positive local-transect survival setup failed: {error}"));
     let region = horizontal_region(60, 4);
@@ -290,7 +289,7 @@ fn insert_copper(registries: &Registries, state: &mut AppState, region: VoxelBou
 #[test]
 fn regional_reconnaissance_trades_precision_for_footprint_then_local_inspection_resolves_target() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2010));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("regional prospecting survival setup failed: {error}"));
     let region = horizontal_region(40, 4);
@@ -468,7 +467,7 @@ fn prospecting_duration(registries: &Registries, method: ProspectingMethodId) ->
 
 fn inspection_ready_to_complete_fixture() -> (Registries, AppState) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_E001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("prospecting exhaustion survival setup failed: {error}"));
     let region = one_voxel(40);
@@ -528,7 +527,7 @@ fn trusted_load_rejects_active_prospecting_without_completion_knowledge_revision
 #[test]
 fn prospecting_admission_reserves_completion_identity_and_owner_revisions() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_E002));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
         panic!("prospecting revision-budget survival setup failed: {error}")
     });
@@ -596,7 +595,7 @@ fn prospecting_admission_reserves_completion_identity_and_owner_revisions() {
 #[test]
 fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("field prospecting survival setup failed: {error}"));
     let region = one_voxel(0);
@@ -665,7 +664,7 @@ fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
 #[test]
 fn empty_ground_produces_uncertain_negative_evidence_without_hidden_presence_oracle() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2002));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("empty prospecting survival setup failed: {error}"));
     let region = one_voxel(10);
@@ -683,7 +682,7 @@ fn empty_ground_produces_uncertain_negative_evidence_without_hidden_presence_ora
 #[test]
 fn regional_abundance_includes_uncovered_ground_in_lower_bound() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2007));
+    let mut state = AppState::new();
     let west = one_voxel(0);
     let region = VoxelBounds::new(VoxelCoord::new(0, -1, 0), VoxelCoord::new(2, 0, 1))
         .unwrap_or_else(|error| panic!("regional prospecting bounds failed: {error}"));
@@ -698,7 +697,7 @@ fn regional_abundance_includes_uncovered_ground_in_lower_bound() {
 #[test]
 fn adjacent_deposits_jointly_cover_regional_abundance() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2008));
+    let mut state = AppState::new();
     let region = VoxelBounds::new(VoxelCoord::new(0, -1, 0), VoxelCoord::new(2, 0, 1))
         .unwrap_or_else(|error| panic!("joint prospecting bounds failed: {error}"));
     insert_low_grade_copper(&registries, &mut state, one_voxel(0));
@@ -713,7 +712,7 @@ fn adjacent_deposits_jointly_cover_regional_abundance() {
 #[test]
 fn overlapping_deposits_all_contribute_to_regional_abundance_range() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2009));
+    let mut state = AppState::new();
     let region = one_voxel(0);
     insert_low_grade_copper(&registries, &mut state, region);
     insert_copper(&registries, &mut state, region);
@@ -727,7 +726,7 @@ fn overlapping_deposits_all_contribute_to_regional_abundance_range() {
 #[test]
 fn field_inspection_rejects_region_larger_than_authored_local_footprint() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("large prospecting survival setup failed: {error}"));
     let region = VoxelBounds::new(VoxelCoord::new(0, -1, 0), VoxelCoord::new(2, 0, 1))
@@ -751,7 +750,7 @@ fn field_inspection_rejects_region_larger_than_authored_local_footprint() {
 #[test]
 fn completed_field_inspection_provides_the_evidence_required_for_mining_target_resolution() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2004));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("target prospecting survival setup failed: {error}"));
     let region = one_voxel(20);
@@ -771,7 +770,7 @@ fn completed_field_inspection_provides_the_evidence_required_for_mining_target_r
 #[test]
 fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2006));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("refinement prospecting survival setup failed: {error}"));
     let region = one_voxel(25);
@@ -922,7 +921,7 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
 #[test]
 fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2005));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("round-trip prospecting survival setup failed: {error}"));
     let region = one_voxel(30);
@@ -962,7 +961,7 @@ fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation(
 #[test]
 fn trusted_load_rejects_forged_field_prospecting_duration() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6B00_2006));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
         panic!("prospecting duration-tamper survival setup failed: {error}")
     });

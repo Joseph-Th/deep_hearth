@@ -11,7 +11,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{project_manual_craft_equipment, resolve_manual_craft};
 use deep_hearth::equipment::{
     EquipmentId, EquipmentMaintenanceRequest, resolve_equipment_maintenance,
@@ -35,6 +34,14 @@ use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::physical_time::format_physical_duration;
 use super::seed::mix64;
+
+#[path = "woodworking_probe/policy.rs"]
+mod policy;
+
+use policy::{
+    WoodworkingInvestmentPreference, WoodworkingInvestmentReason, WoodworkingTimberBalance,
+    woodworking_investment_decision, woodworking_timber_balance,
+};
 
 fn signed_physical_duration(registries: &Registries, ticks: i128) -> String {
     let magnitude = u64::try_from(ticks.unsigned_abs())
@@ -294,71 +301,6 @@ fn assemble_saw(
         equipment,
         attention_ticks: attention,
         raw_timber,
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WoodworkingInvestmentPreference {
-    ConserveScarceCopper,
-    ConserveTimber,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WoodworkingInvestmentReason {
-    BareHandsAvoidsInvestmentCost,
-    CopperSupplyLimited,
-    CopperReserveProtected,
-    PipelineTooShortForAttentionPayback,
-    SurplusCopperAttentionPayback,
-    PipelineTooShortForNetTimberPayback,
-    PipelineNetTimberPayback,
-}
-
-impl WoodworkingInvestmentReason {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::BareHandsAvoidsInvestmentCost => "bare-hands-avoids-investment-cost",
-            Self::CopperSupplyLimited => "copper-supply-limited",
-            Self::CopperReserveProtected => "copper-reserve-protected",
-            Self::PipelineTooShortForAttentionPayback => "pipeline-too-short-for-attention-payback",
-            Self::SurplusCopperAttentionPayback => "surplus-copper-attention-payback",
-            Self::PipelineTooShortForNetTimberPayback => {
-                "pipeline-too-short-for-net-timber-payback"
-            }
-            Self::PipelineNetTimberPayback => "pipeline-net-timber-payback",
-        }
-    }
-}
-
-fn woodworking_investment_decision(
-    preference: WoodworkingInvestmentPreference,
-    saw_fundable: bool,
-    reserve_safe: bool,
-    attention_budget_met: bool,
-    nominal_timber_payback: bool,
-) -> (bool, WoodworkingInvestmentReason) {
-    if !saw_fundable {
-        return (false, WoodworkingInvestmentReason::CopperSupplyLimited);
-    }
-    match preference {
-        WoodworkingInvestmentPreference::ConserveScarceCopper if !reserve_safe => {
-            (false, WoodworkingInvestmentReason::CopperReserveProtected)
-        }
-        WoodworkingInvestmentPreference::ConserveScarceCopper if !attention_budget_met => (
-            false,
-            WoodworkingInvestmentReason::PipelineTooShortForAttentionPayback,
-        ),
-        WoodworkingInvestmentPreference::ConserveScarceCopper => (
-            true,
-            WoodworkingInvestmentReason::SurplusCopperAttentionPayback,
-        ),
-        WoodworkingInvestmentPreference::ConserveTimber if !nominal_timber_payback => (
-            false,
-            WoodworkingInvestmentReason::PipelineTooShortForNetTimberPayback,
-        ),
-        WoodworkingInvestmentPreference::ConserveTimber => {
-            (true, WoodworkingInvestmentReason::PipelineNetTimberPayback)
-        }
     }
 }
 
@@ -782,23 +724,6 @@ fn execute_saw_pipeline(
     }
 }
 
-impl WoodworkingInvestmentPreference {
-    const fn from_behavior_seed(seed: u64) -> Self {
-        if seed.is_multiple_of(2) {
-            Self::ConserveScarceCopper
-        } else {
-            Self::ConserveTimber
-        }
-    }
-
-    const fn label(self) -> &'static str {
-        match self {
-            Self::ConserveScarceCopper => "conserve-scarce-copper",
-            Self::ConserveTimber => "conserve-timber",
-        }
-    }
-}
-
 fn authored_output_mass(
     definition: &deep_hearth::crafting::ManualCraftDefinition,
     commodity: CommodityKey,
@@ -904,7 +829,7 @@ fn evaluate_woodworking_probe(
     // Reserve covers two future copper reinforcements; it stands in for opportunity cost.
     let protected_copper_reserve = Mass::from_milligrams(40_000);
 
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x574F_4F44_574F_524C));
+    let mut state = AppState::new();
     let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(80_500_000));
     seed_lot(
         registries,
@@ -1034,12 +959,13 @@ fn evaluate_woodworking_probe(
                 .and_then(|ticks| ticks.checked_mul(2))
                 .unwrap_or_else(|| panic!("investment willingness budget fits"))
     });
+    let nominal_timber_balance =
+        woodworking_timber_balance(nominal_saw_timber, nominal_adze_timber);
     let (invest_in_saw, saw_reason) = woodworking_investment_decision(
         preference,
-        saw_fundable,
         reserve_safe_now,
         attention_budget_met,
-        nominal_saw_timber.is_some_and(|mass| mass <= nominal_adze_timber),
+        nominal_timber_balance,
     );
     let use_bare_hands = !invest_in_saw
         && bare_attention
@@ -1229,11 +1155,10 @@ fn evaluate_woodworking_probe(
     }
     let saw_attention_payback =
         saw_total_attention.is_some_and(|ticks| ticks < adze_total_attention);
-    // Timber-neutral with an attention win is weakly dominant under either preference:
-    // same timber, less attention. Gate conserve-timber on `<=` so the exact-amortization
-    // pipeline invests instead of rejecting a free attention saving.
-    let saw_net_timber_payback =
-        saw_total_timber.is_some_and(|mass| mass <= adze_route.project_timber);
+    let actual_timber_balance =
+        woodworking_timber_balance(saw_total_timber, adze_route.project_timber);
+    let saw_timber_saving = actual_timber_balance == WoodworkingTimberBalance::Saving;
+    let saw_timber_neutral = actual_timber_balance == WoodworkingTimberBalance::Neutral;
     let saw_copper_consumed = saw_counterfactual
         .as_ref()
         .map_or(Mass::ZERO, |(_, _, route)| {
@@ -1252,10 +1177,7 @@ fn evaluate_woodworking_probe(
     // Counterfactual lifecycle values assess the frozen intent; they never revise it.
     match (case.role(), seed) {
         (FocusedProbeRole::MaintainedAnchor, 1) => {
-            assert_eq!(
-                reason,
-                WoodworkingInvestmentReason::PipelineNetTimberPayback
-            );
+            assert_eq!(reason, WoodworkingInvestmentReason::PipelineNetTimberSaving);
             assert!(saw_fallback_due_to_copper);
         }
         (FocusedProbeRole::MaintainedCoverage, 3 | 12) => {
@@ -1263,9 +1185,7 @@ fn evaluate_woodworking_probe(
         }
         (FocusedProbeRole::MaintainedCoverage, 4) => assert_eq!(
             reason,
-            // Exactly amortized: same net timber as the adze route while saving attention.
-            // The weakly-dominant pipeline invests rather than rejecting a free saving.
-            WoodworkingInvestmentReason::PipelineNetTimberPayback
+            WoodworkingInvestmentReason::PipelineTimberNeutralAttentionPayback
         ),
         (FocusedProbeRole::MaintainedCoverage, 6) => {
             assert_eq!(reason, WoodworkingInvestmentReason::CopperReserveProtected);
@@ -1279,10 +1199,7 @@ fn evaluate_woodworking_probe(
             assert!(bare_attention < adze_total_attention);
         }
         (FocusedProbeRole::MaintainedCoverage, 0x36F7_E3A2_7870_3A8A) => {
-            assert_eq!(
-                reason,
-                WoodworkingInvestmentReason::PipelineNetTimberPayback
-            );
+            assert_eq!(reason, WoodworkingInvestmentReason::PipelineNetTimberSaving);
             assert!(saw_service_count > 0);
         }
         _ => {}
@@ -1404,7 +1321,7 @@ fn evaluate_woodworking_probe(
     let adze_immediate_time =
         format_physical_duration(registries, immediate_adze_projection.duration().value());
     reviewln!(
-        "WOODWORKING EXPERIENCE seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={} demand-horizon={demand_horizon} demand=[immediate:{}mg queued:{}mg pipeline:{}mg boards] preference={} policy-basis=pre-action-budget-not-lifecycle-oracle copper-counterfactual=[available:{}mg blade:{}mg protected-reserve:{}mg lifecycle-spend:{}mg after-saw:{}mg] routes=[adze:{}logs timber:{}mg attention:{}t/{adze_route_time} production:{}t maintenance:{}t/{}services final-condition:{}ppm; saw-assisted:min-saw-logs:{} fundable:{saw_fundable} setup-timber:{}mg actual=[saw:{} adze-fallback:{} fallback-copper:{} saw-services:{} adze-services:{}] timber:{}mg attention:{}t/{saw_route_time} attention-payback:{saw_attention_payback} net-timber-payback:{saw_net_timber_payback} counterfactual-vs-adze=[{saw_counterfactual_tradeoff}]] choice={choice} reason={reason} selected=[setup:{}t/{selected_setup_time} active:{}t/{selected_active_time} total:{}t/{selected_total_time} timber:{}mg project-timber:{}mg boards:{}mg surplus:{}mg chips:{}mg condition:{selected_condition}] selected-vs-adze=[attention:{:+}t/{attention_delta_time} timber:{:+}mg] immediate-baseline=[bare:{}t/{bare_immediate_time} adze:{adze_immediate_total}t/{adze_immediate_total_time} adze-work-only:{}t/{adze_immediate_time}] matter=conserved",
+        "WOODWORKING EXPERIENCE seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={} demand-horizon={demand_horizon} demand=[immediate:{}mg queued:{}mg pipeline:{}mg boards] preference={} policy-basis=pre-action-budget-not-lifecycle-oracle copper-counterfactual=[available:{}mg blade:{}mg protected-reserve:{}mg lifecycle-spend:{}mg after-saw:{}mg] routes=[adze:{}logs timber:{}mg attention:{}t/{adze_route_time} production:{}t maintenance:{}t/{}services final-condition:{}ppm; saw-assisted:min-saw-logs:{} fundable:{saw_fundable} setup-timber:{}mg actual=[saw:{} adze-fallback:{} fallback-copper:{} saw-services:{} adze-services:{}] timber:{}mg attention:{}t/{saw_route_time} attention-payback:{saw_attention_payback} timber-saving:{saw_timber_saving} timber-neutral:{saw_timber_neutral} counterfactual-vs-adze=[{saw_counterfactual_tradeoff}]] choice={choice} reason={reason} selected=[setup:{}t/{selected_setup_time} active:{}t/{selected_active_time} total:{}t/{selected_total_time} timber:{}mg project-timber:{}mg boards:{}mg surplus:{}mg chips:{}mg condition:{selected_condition}] selected-vs-adze=[attention:{:+}t/{attention_delta_time} timber:{:+}mg] immediate-baseline=[bare:{}t/{bare_immediate_time} adze:{adze_immediate_total}t/{adze_immediate_total_time} adze-work-only:{}t/{adze_immediate_time}] matter=conserved",
         focused_probe_role_label(case.role()),
         immediate_board_demand.milligrams(),
         pipeline_board_demand
@@ -1447,65 +1364,12 @@ fn evaluate_woodworking_probe(
         bare_projection.duration().value(),
         immediate_adze_projection.duration().value(),
     );
-    let nominal_timber_payback = nominal_saw_timber.is_some_and(|mass| mass <= nominal_adze_timber);
     reviewln!(
-        "WOODWORKING FEEDBACK seed=0x{seed:016X} basis=executed-lifecycle-versus-pre-action-policy-model attention=[budget-met:{attention_budget_met} actual-payback:{saw_attention_payback}] timber=[nominal-payback:{nominal_timber_payback} actual-payback:{saw_net_timber_payback}] selected={choice} choice-revised-after-outcome=false"
+        "WOODWORKING FEEDBACK seed=0x{seed:016X} basis=executed-lifecycle-versus-pre-action-policy-model attention=[budget-met:{attention_budget_met} actual-payback:{saw_attention_payback}] timber=[nominal:{} actual:{}] selected={choice} choice-revised-after-outcome=false",
+        nominal_timber_balance.label(),
+        actual_timber_balance.label(),
     );
     (choice, selected_attention, saw_total_attention)
-}
-
-#[cfg(test)]
-#[test]
-fn woodworking_policy_prices_observed_budget_and_copper_before_execution() {
-    use WoodworkingInvestmentPreference::{ConserveScarceCopper, ConserveTimber};
-    use WoodworkingInvestmentReason::*;
-    for (preference, fundable, reserve, budget, timber, expected) in [
-        (
-            ConserveScarceCopper,
-            true,
-            true,
-            false,
-            false,
-            (false, PipelineTooShortForAttentionPayback),
-        ),
-        (
-            ConserveScarceCopper,
-            true,
-            true,
-            true,
-            false,
-            (true, SurplusCopperAttentionPayback),
-        ),
-        (
-            ConserveScarceCopper,
-            true,
-            false,
-            true,
-            true,
-            (false, CopperReserveProtected),
-        ),
-        (
-            ConserveTimber,
-            true,
-            false,
-            false,
-            true,
-            (true, PipelineNetTimberPayback),
-        ),
-        (
-            ConserveTimber,
-            false,
-            true,
-            true,
-            true,
-            (false, CopperSupplyLimited),
-        ),
-    ] {
-        assert_eq!(
-            woodworking_investment_decision(preference, fundable, reserve, budget, timber),
-            expected
-        );
-    }
 }
 
 #[cfg(test)]

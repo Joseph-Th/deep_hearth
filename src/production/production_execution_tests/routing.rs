@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
     let registries = make_test_registries_with_standard_screening(TEST_PROCESS);
-    let mut state = AppState::new(WorldSeed::new(10_001));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 20);
     let undersize_destination = add_test_stockpile(&mut state, 10);
     let oversize_destination = add_test_stockpile(&mut state, 10);
@@ -267,7 +267,7 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
 #[test]
 fn duplicate_output_route_is_rejected_atomically() {
     let registries = make_test_registries_with_standard_screening(TEST_PROCESS);
-    let mut state = AppState::new(WorldSeed::new(10_002));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 20);
     let first_destination = add_test_stockpile(&mut state, 10);
     let second_destination = add_test_stockpile(&mut state, 10);
@@ -304,7 +304,7 @@ fn duplicate_output_route_is_rejected_atomically() {
 #[test]
 fn shared_destination_capacity_is_checked_against_aggregate_stream_mass() {
     let registries = make_test_registries_with_standard_screening(TEST_PROCESS);
-    let mut state = AppState::new(WorldSeed::new(10_003));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 20);
     let destination = add_test_stockpile(&mut state, 9);
     let resolved = make_test_multi_stream_resolution(&registries, &mut state, source);
@@ -337,7 +337,7 @@ fn shared_destination_capacity_is_checked_against_aggregate_stream_mass() {
 #[test]
 fn failed_process_start_is_atomic() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(11));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 5);
@@ -370,7 +370,7 @@ fn failed_process_start_is_atomic() {
 #[test]
 fn process_start_rejects_resolution_that_bypasses_registered_resource_topology() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9000_0014));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
@@ -405,7 +405,7 @@ fn process_start_rejects_resolution_that_bypasses_registered_resource_topology()
 #[test]
 fn resolved_process_cannot_create_or_destroy_unaccounted_matter() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(111));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
     let inputs = bind_source_mass(
@@ -440,7 +440,7 @@ fn resolved_process_cannot_create_or_destroy_unaccounted_matter() {
 #[test]
 fn reserved_output_capacity_cannot_be_taken_by_later_deposits() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(12));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 12);
     deposit_test_wood(&registries, &mut state, source, 10);
@@ -476,7 +476,7 @@ fn reserved_output_capacity_cannot_be_taken_by_later_deposits() {
 #[test]
 fn same_stockpile_process_accounts_for_consumed_space_before_reserving_output() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(13));
+    let mut state = AppState::new();
     let stockpile = add_test_stockpile(&mut state, 10);
     deposit_test_wood(&registries, &mut state, stockpile, 10);
     let resolution = make_test_resolution(&registries, &mut state, stockpile);

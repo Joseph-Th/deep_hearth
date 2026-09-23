@@ -8,7 +8,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::equipment::{
     EquipmentMaintenanceRequest, degrade_equipment_condition_for_test,
     resolve_equipment_maintenance, validate_assemble_equipment, validate_equipment_maintenance,
@@ -23,7 +22,7 @@ use crate::survival::initialize_player_survival;
 #[test]
 fn maintained_timber_scrap_flows_into_lossy_handle_and_board_recovery() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7031));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("wood scrap recovery survival setup failed: {error}"));
     let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_600_000))

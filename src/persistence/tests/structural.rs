@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn structural_graph_damage_and_load_round_trip_exactly() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0001));
+    let mut state = AppState::new();
     let left = make_test_structural_element(&registries, &mut state, 0, 0, true);
     let right = make_test_structural_element(&registries, &mut state, 2, 0, true);
     let deck = make_test_structural_element(&registries, &mut state, 1, 0, false);
@@ -72,7 +72,7 @@ fn structural_graph_damage_and_load_round_trip_exactly() {
 #[test]
 fn obsolete_structural_embodied_mass_field_is_rejected_during_decode() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0013));
+    let mut state = AppState::new();
     let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
     let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
         Ok(encoded) => encoded,
@@ -86,7 +86,7 @@ fn obsolete_structural_embodied_mass_field_is_rejected_during_decode() {
 #[test]
 fn tampered_structural_length_cannot_change_required_embodied_mass() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0017));
+    let mut state = AppState::new();
     let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
     let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
         Ok(encoded) => encoded,
@@ -114,7 +114,7 @@ fn tampered_structural_length_cannot_change_required_embodied_mass() {
 #[test]
 fn tampered_structural_self_weight_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0014));
+    let mut state = AppState::new();
     let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
     let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
         Ok(encoded) => encoded,
@@ -142,7 +142,7 @@ fn tampered_structural_self_weight_is_rejected_on_load() {
 #[test]
 fn tampered_planned_structural_damage_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0015));
+    let mut state = AppState::new();
     let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
     let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
         Ok(encoded) => encoded,
@@ -166,7 +166,7 @@ fn tampered_planned_structural_damage_is_rejected_on_load() {
 #[test]
 fn tampered_structural_cycle_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0003));
+    let mut state = AppState::new();
     let first = make_test_structural_element(&registries, &mut state, 0, 0, false);
     let second = make_test_structural_element(&registries, &mut state, 1, 0, false);
     link_test_structural_support(&registries, &mut state, first, second);
@@ -195,7 +195,7 @@ fn tampered_structural_cycle_is_rejected_on_load() {
 #[test]
 fn tampered_structural_support_across_empty_space_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0013));
+    let mut state = AppState::new();
     let member = make_test_structural_element(&registries, &mut state, 0, 0, false);
     let nearby_support = make_test_structural_element(&registries, &mut state, 1, 0, false);
     let distant_support = make_test_structural_element(&registries, &mut state, 4, 0, false);
@@ -225,7 +225,7 @@ fn tampered_structural_support_across_empty_space_is_rejected_on_load() {
 #[test]
 fn tampered_structural_support_with_only_edge_contact_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0014));
+    let mut state = AppState::new();
     let member = make_test_structural_element(&registries, &mut state, 0, 0, false);
     let face_support = make_test_structural_element(&registries, &mut state, 1, 0, false);
     let edge_support = make_test_structural_element(&registries, &mut state, 1, 1, false);
@@ -255,7 +255,7 @@ fn tampered_structural_support_with_only_edge_contact_is_rejected_on_load() {
 #[test]
 fn save_with_unresolved_structural_overload_is_rejected() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0004));
+    let mut state = AppState::new();
     let column = make_test_structural_element(&registries, &mut state, 0, 0, true);
     activate_test_structural_element(&registries, &mut state, column);
     let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
@@ -288,7 +288,7 @@ fn save_with_unresolved_structural_overload_is_rejected() {
 #[test]
 fn current_save_rejects_registry_schema_mismatch() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_0005));
+    let state = AppState::new();
     let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
         Ok(encoded) => encoded,
         Err(error) => panic!("registry mismatch save serialization failed: {error}"),
@@ -312,7 +312,7 @@ fn current_save_rejects_registry_schema_mismatch() {
 #[test]
 fn supported_stockpile_round_trip_preserves_reverse_index_and_derived_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0021));
+    let mut state = AppState::new();
     let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
     activate_test_structural_element(&registries, &mut state, support);
     let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
@@ -374,7 +374,7 @@ fn supported_stockpile_round_trip_preserves_reverse_index_and_derived_load() {
 #[test]
 fn tampered_stored_matter_load_is_rejected_on_load() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_0022));
+    let mut state = AppState::new();
     let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
     activate_test_structural_element(&registries, &mut state, support);
     let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {

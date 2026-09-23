@@ -4,7 +4,6 @@ use super::*;
 use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::material::CommodityKey;
 
 use super::super::fixture::add_stockpile;
@@ -28,7 +27,7 @@ fn add_test_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
 #[test]
 fn validated_ingress_mass_projection_rejects_stale_inventory_revision() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0007));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let current_tick = state.tick();
     let ingress = validate_material_ingress(
@@ -63,7 +62,7 @@ fn wood_log_spec(mass: Mass) -> MaterialLotSpec {
 #[test]
 fn projected_exchange_mass_projection_rejects_stale_inventory_revision() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0008));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     deposit_lot_for_test(
         &registries,
@@ -110,7 +109,7 @@ fn projected_exchange_mass_projection_rejects_stale_inventory_revision() {
 #[test]
 fn empty_ingress_is_rejected_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0001));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let before = state.clone();
     let current_tick = state.tick();
@@ -130,7 +129,7 @@ fn empty_ingress_is_rejected_without_mutation() {
 #[test]
 fn malformed_ingress_identity_plan_fails_before_authoritative_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0007));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let current_tick = state.tick();
     let mut ingress = validate_material_ingress(
@@ -158,7 +157,7 @@ fn malformed_ingress_identity_plan_fails_before_authoritative_mutation() {
 #[test]
 fn shape_valid_but_wrong_ingress_identity_fails_before_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0008));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let current_tick = state.tick();
     let mut ingress = validate_material_ingress(
@@ -186,7 +185,7 @@ fn shape_valid_but_wrong_ingress_identity_fails_before_mutation() {
 #[test]
 fn shape_valid_but_wrong_ingress_cursor_fails_before_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0009));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let current_tick = state.tick();
     let mut ingress = validate_material_ingress(
@@ -214,7 +213,7 @@ fn shape_valid_but_wrong_ingress_cursor_fails_before_mutation() {
 #[test]
 fn compatible_ingress_reuses_existing_identity_without_advancing_lot_cursor() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0004));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let current_tick = state.tick();
     let first = validate_material_ingress(
@@ -267,7 +266,7 @@ fn compatible_ingress_reuses_existing_identity_without_advancing_lot_cursor() {
 #[test]
 fn compatible_parcels_in_one_ingress_allocate_only_one_persistent_identity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0005));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let current_tick = state.tick();
     let cursor_before = state.inventory().next_lot_id();
@@ -299,7 +298,7 @@ fn compatible_parcels_in_one_ingress_allocate_only_one_persistent_identity() {
 #[test]
 fn projected_post_egress_ingress_excludes_fully_consumed_source_identity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0006));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let original = deposit_lot_for_test(
         &registries,
@@ -357,7 +356,7 @@ fn projected_post_egress_ingress_excludes_fully_consumed_source_identity() {
 #[test]
 fn future_provenance_is_rejected_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0002));
+    let mut state = AppState::new();
     let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
     let current_tick = state.tick();
     let future_tick = SimulationTick::new(current_tick.value() + 1);
@@ -386,7 +385,7 @@ fn future_provenance_is_rejected_without_mutation() {
 #[test]
 fn aggregate_capacity_is_checked_before_any_ingress_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A61_0003));
+    let mut state = AppState::new();
     let capacity = Mass::from_milligrams(5);
     let destination = add_test_stockpile(&mut state, capacity);
     let current_tick = state.tick();

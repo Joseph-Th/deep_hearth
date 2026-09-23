@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_target() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0000));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
         .unwrap_or_else(|error| panic!("maintenance resolver equipment fixture failed: {error}"));
@@ -108,7 +108,7 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
 #[test]
 fn fatal_tick_interrupts_unfinished_maintenance_without_refunding_committed_service_material() {
     let registries = registries_with_service_duration(TickSpan::new(6));
-    let mut state = AppState::new(WorldSeed::new(0x8120_0015));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
         .unwrap_or_else(|error| panic!("fatal maintenance equipment fixture failed: {error}"));
@@ -202,7 +202,7 @@ fn fatal_tick_interrupts_unfinished_maintenance_without_refunding_committed_serv
 #[test]
 fn maintenance_due_on_fatal_tick_completes_before_player_work_is_released() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0016));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
         .unwrap_or_else(|error| panic!("fatal due maintenance equipment fixture failed: {error}"));
@@ -251,7 +251,7 @@ fn maintenance_due_on_fatal_tick_completes_before_player_work_is_released() {
 #[test]
 fn maintenance_rejects_revision_budget_that_cannot_complete_before_any_mutation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0011));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
         .unwrap_or_else(|error| panic!("revision-budget maintenance equipment failed: {error}"));
@@ -289,7 +289,7 @@ fn maintenance_rejects_revision_budget_that_cannot_complete_before_any_mutation(
 #[test]
 fn trusted_load_rejects_active_maintenance_without_completion_equipment_revision() {
     let registries = registries_with_service_duration(TickSpan::new(6));
-    let mut state = AppState::new(WorldSeed::new(0x8120_0012));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, Condition::FAILED)
         .unwrap_or_else(|error| panic!("maintenance load-budget equipment failed: {error}"));
@@ -326,7 +326,7 @@ fn trusted_load_rejects_active_maintenance_without_completion_equipment_revision
 #[test]
 fn maintenance_start_preserves_equipment_revision_owed_to_running_production() {
     let registries = occupied_registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0013));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let production_equipment =
         add_equipment(&registries, &mut state, TEST_DEFINITION, condition(700_000))
@@ -414,7 +414,7 @@ fn maintenance_start_preserves_equipment_revision_owed_to_running_production() {
 #[test]
 fn trusted_load_rejects_combined_production_and_maintenance_equipment_revision_overcommit() {
     let registries = occupied_registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0014));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let production_equipment =
         add_equipment(&registries, &mut state, TEST_DEFINITION, condition(700_000))
@@ -506,7 +506,7 @@ fn trusted_load_rejects_combined_production_and_maintenance_equipment_revision_o
 #[test]
 fn in_progress_maintenance_round_trip_preserves_material_payment_and_continuation() {
     let registries = registries_with_service_duration(TickSpan::new(6));
-    let mut state = AppState::new(WorldSeed::new(0x8120_0010));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, Condition::FAILED)
         .unwrap_or_else(|error| panic!("maintenance continuation equipment failed: {error}"));

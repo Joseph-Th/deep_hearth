@@ -9,16 +9,6 @@ use super::StateValidationError;
 impl Display for StateValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Random(error) => write!(formatter, "invalid random state: {error}"),
-            Self::RandomWorldSeedMismatch {
-                world_seed,
-                random_seed,
-            } => write!(
-                formatter,
-                "world seed {} disagrees with random-state root seed {}",
-                world_seed.value(),
-                random_seed.value()
-            ),
             Self::Energy(error) => write!(formatter, "invalid energy state: {error}"),
             Self::Fluid(error) => write!(formatter, "invalid fluid state: {error}"),
             Self::Equipment(error) => write!(formatter, "invalid equipment state: {error}"),

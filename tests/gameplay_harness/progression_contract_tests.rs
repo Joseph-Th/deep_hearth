@@ -17,7 +17,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::ProcessEquipmentRole;
 
@@ -73,7 +72,7 @@ fn bootstrap_planning_excludes_faster_required_equipment_producers() {
 #[test]
 fn current_manual_craft_planning_ignores_unowned_salvage_inputs() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x504C_414E_0001));
+    let mut state = AppState::new();
     let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(10_000_000));
     seed_lot(
         &registries,

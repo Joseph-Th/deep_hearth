@@ -12,7 +12,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Force, Mass, Power, Temperature};
 use crate::core::state::apply_clock_advance;
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyValidationError,
     add_energy_store_with_initial_for_fixture,
@@ -156,9 +156,9 @@ fn make_test_heating_registries() -> Registries {
     )
 }
 
-fn make_started_test_heating_state(seed: WorldSeed) -> (Registries, AppState) {
+fn make_started_test_heating_state() -> (Registries, AppState) {
     let registries = make_test_heating_registries();
-    let mut state = AppState::new(seed);
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("heating persistence source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -375,5 +375,5 @@ mod equipment_energy;
 #[path = "tests/inflight.rs"]
 mod inflight;
 
-#[path = "tests/rng_material.rs"]
-mod rng_material;
+#[path = "tests/material.rs"]
+mod material;

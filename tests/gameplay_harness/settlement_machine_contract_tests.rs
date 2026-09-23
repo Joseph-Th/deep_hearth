@@ -10,7 +10,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{
     PoweredCraftRequest, resolve_manual_craft, validate_start_powered_craft,
 };
@@ -52,7 +51,7 @@ fn seed_material(
 #[test]
 fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_repays_attention() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A57_4D49_4C4C_0001));
+    let mut state = AppState::new();
 
     // Disclosed bootstrap: the settlement already owns the earlier frame-saw and mechanical-work
     // tier. The decision under test is whether to keep using that durable infrastructure or spend

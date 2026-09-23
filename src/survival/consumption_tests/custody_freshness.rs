@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn eating_moves_exact_food_mass_into_consumption_boundary_and_round_trips() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0001));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
         .unwrap_or_else(|error| panic!("food stockpile fixture failed: {error}"));
@@ -108,7 +108,7 @@ fn eating_moves_exact_food_mass_into_consumption_boundary_and_round_trips() {
 #[test]
 fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0004));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
         .unwrap_or_else(|error| panic!("varied meal stockpile fixture failed: {error}"));
@@ -205,7 +205,7 @@ fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
 #[test]
 fn meal_result_is_independent_of_selection_order() {
     let registries = build_registries();
-    let mut base = AppState::new(WorldSeed::new(0x5A70_0006));
+    let mut base = AppState::new();
     initialize_and_spend_reserves(&registries, &mut base);
     let stockpile = add_solid_stockpile_for_test(&mut base, Mass::from_milligrams(1_000))
         .unwrap_or_else(|error| panic!("meal-order stockpile fixture failed: {error}"));
@@ -265,7 +265,7 @@ fn meal_result_is_independent_of_selection_order() {
 #[test]
 fn meal_rejects_duplicate_lot_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0005));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("duplicate meal stockpile fixture failed: {error}"));
@@ -291,7 +291,7 @@ fn meal_rejects_duplicate_lot_without_mutation() {
 #[test]
 fn preservation_multiplier_extends_food_shelf_life_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0002));
+    let mut state = AppState::new();
     let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
     let shelf_life = registries
         .survival()
@@ -329,7 +329,7 @@ fn preservation_multiplier_extends_food_shelf_life_without_mutation() {
 #[test]
 fn preservation_transfer_slows_future_spoilage_without_rewriting_prior_age() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0007));
+    let mut state = AppState::new();
     let ticks_per_day = registries.core().calendar().ticks_per_day();
     let ambient = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
         .unwrap_or_else(|error| panic!("ambient food stockpile failed: {error}"));
@@ -394,7 +394,7 @@ fn preservation_transfer_slows_future_spoilage_without_rewriting_prior_age() {
 #[test]
 fn freshness_remaining_horizon_preserves_storage_projection_phase() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0027));
+    let mut state = AppState::new();
     let source_profile = StockpileStorageProfile::with_preservation(
         true,
         false,
@@ -481,7 +481,7 @@ fn freshness_remaining_horizon_preserves_storage_projection_phase() {
 #[test]
 fn partial_transfer_preserves_distinct_food_storage_age_cohorts() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0008));
+    let mut state = AppState::new();
     let ambient = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
         .unwrap_or_else(|error| panic!("merge-age ambient stockpile failed: {error}"));
     let preserved_profile = StockpileStorageProfile::with_preservation(
@@ -572,7 +572,7 @@ fn partial_transfer_preserves_distinct_food_storage_age_cohorts() {
 #[test]
 fn drinking_moves_finite_water_volume_into_survival_owner() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0003));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     for _ in 0..80 {
         let _ = advance_tick(&registries, &mut state)

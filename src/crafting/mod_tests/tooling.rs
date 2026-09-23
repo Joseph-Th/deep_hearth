@@ -7,7 +7,7 @@ use super::*;
 #[test]
 fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_exactly() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7020));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("woodworking survival setup failed: {error}"));
 
@@ -197,7 +197,7 @@ fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_e
 #[test]
 fn treadle_hammer_reduces_copper_work_attention_without_changing_yield() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7021));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("treadle-hammer survival setup failed: {error}"));
 

@@ -4,7 +4,6 @@ use super::*;
 use crate::content::{FORM_CHIP, FORM_LOG, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::inventory::{
     MaterialIngressEntry, add_solid_stockpile_for_test, apply_material_ingress,
     deposit_lot_for_test, validate_consumption_selection, validate_material_ingress,
@@ -27,9 +26,9 @@ fn next_random(state: &mut u64) -> u64 {
     *state
 }
 
-fn run_transaction_soak(seed: WorldSeed) -> AppState {
+fn run_transaction_soak(seed: u64) -> AppState {
     let registries = build_registries();
-    let mut state = AppState::new(seed);
+    let mut state = AppState::new();
     let stockpiles = [
         add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000)),
         add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000)),
@@ -53,7 +52,7 @@ fn run_transaction_soak(seed: WorldSeed) -> AppState {
     let initial_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("transaction soak initial accounting failed: {error:?}"))
         .total();
-    let mut random = seed.value() ^ 0xD00D_2026_1A70_5000;
+    let mut random = seed ^ 0xD00D_2026_1A70_5000;
     let mut committed = [0_u64; 5];
 
     for step in 1..=OPERATIONS {
@@ -212,7 +211,7 @@ fn run_transaction_soak(seed: WorldSeed) -> AppState {
 #[test]
 #[ignore = "long-horizon soak"]
 fn randomized_inventory_transaction_soak_preserves_conservation_persistence_and_replay() {
-    let seed = WorldSeed::new(0x1A70_5000_D00D_2026);
+    let seed = 0x1A70_5000_D00D_2026;
     let first = run_transaction_soak(seed);
     let second = run_transaction_soak(seed);
     assert_eq!(first, second);

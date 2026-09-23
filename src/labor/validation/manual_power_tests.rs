@@ -4,14 +4,13 @@ use super::*;
 
 use crate::content::{EQUIPMENT_JAW_CRUSHER, build_registries};
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::equipment::{EquipmentOperationTrace, add_equipment};
 use crate::maintenance::Condition;
 
 #[test]
 fn trusted_replay_rejects_unmounted_equipment_that_requires_installation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A80_5101));
+    let mut state = AppState::new();
     let equipment = add_equipment(
         &registries,
         &mut state,

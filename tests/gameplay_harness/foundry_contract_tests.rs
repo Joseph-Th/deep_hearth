@@ -71,7 +71,7 @@ fn same_source_preheat_stays_diagnostic_until_it_has_a_real_physical_advantage()
     let setup = probe_setup(&registries, seed);
     let mass = setup.mass;
     let target = setup.preheat_target;
-    let (state, ids) = setup_foundry_probe(&registries, seed, setup);
+    let (state, ids) = setup_foundry_probe(&registries, setup);
     let decision = choose_heating_strategy(&registries, &state, ids, mass, target);
     let direct = decision
         .direct

@@ -552,7 +552,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     let preheat_target = setup.preheat_target;
     let initial_furnace_condition = setup.furnace_condition;
     let initial_mold_condition = setup.mold_condition;
-    let (mut state, ids) = setup_foundry_probe(registries, seed, setup);
+    let (mut state, ids) = setup_foundry_probe(registries, setup);
     let initial = capture_initial_accounting(&state, ids);
     let heating = choose_heating_strategy(registries, &state, ids, mass, preheat_target);
     let preheat = PreheatResult::skipped(ids.pure_copper_source);

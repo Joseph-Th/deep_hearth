@@ -38,8 +38,8 @@ pub use errors::{
 };
 pub(crate) use physics::resolve_manual_craft_equipment_schedule;
 pub use powered::{
-    PoweredCraftError, PoweredCraftRequest, StartPoweredCraftError, resolve_powered_craft,
-    validate_start_powered_craft,
+    PoweredCraftError, PoweredCraftRequest, PoweredCraftWorkProjection, StartPoweredCraftError,
+    project_powered_craft_work, resolve_powered_craft, validate_start_powered_craft,
 };
 pub use projection::{ManualCraftEquipmentProjection, project_manual_craft_equipment};
 pub use registry::CraftingRegistry;

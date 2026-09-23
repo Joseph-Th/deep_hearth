@@ -3,7 +3,6 @@
 use super::*;
 use crate::content::build_registries;
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::ProductionJobId;
 use crate::survival::initialize_player_survival;
@@ -11,7 +10,7 @@ use crate::survival::initialize_player_survival;
 #[test]
 fn player_work_admission_requires_revision_capacity_for_later_release() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1AB0_0001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("player-work revision fixture survival failed: {error}"));
 
@@ -46,7 +45,7 @@ fn player_work_admission_requires_revision_capacity_for_later_release() {
 #[test]
 fn player_work_admission_requires_survival_revision_capacity_for_full_interval() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1AB0_0002));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("survival-revision fixture setup failed: {error}"));
 

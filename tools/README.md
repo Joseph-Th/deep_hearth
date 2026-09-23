@@ -4,7 +4,9 @@
 commands answer a named engineering question; they are not completion gates and do not replace the
 proof lanes in [`../TESTING.md`](../TESTING.md).
 
-The workspace owns the pinned compatible tool versions and installation workflow.
+The workspace owns the pinned compatible tool versions and installation workflow. The compatibility
+vocabulary is `cargo modules structure`, `cargo mutants --list`, and `cargo expand`; the project-owned
+wrappers below remain the preferred interface.
 
 ## Module ownership and dependency shape
 

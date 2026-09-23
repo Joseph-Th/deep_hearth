@@ -14,7 +14,7 @@ use crate::content::{
 };
 use crate::core::quantity::{AggregateMass, Length, Mass, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture,
@@ -63,7 +63,7 @@ fn crushed_particle_size() -> ParticleSizeRange {
 #[test]
 fn copper_reinforced_stone_crusher_increases_real_throughput_and_single_batch_capacity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9700_1001));
+    let mut state = AppState::new();
     let full_upgraded_batch = Mass::from_milligrams(1_500_000);
     let source = add_solid_stockpile_for_test(&mut state, full_upgraded_batch)
         .unwrap_or_else(|error| panic!("reinforced crusher source failed: {error}"));
@@ -233,7 +233,7 @@ fn comminution_preserves_gangue_host_and_copper_content_while_preparing_tailings
             ),
         ),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9700_0009));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("tailings grinding source failed: {error}"));
     let input = MaterialLotSpec::with_composition_and_particle_size(
@@ -460,7 +460,7 @@ fn provider_batch_capability_threshold_does_not_become_an_operation_minimum_batc
         ),
         Mass::from_milligrams(50),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9700_0010));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("minimum selection source failed: {error}"));
     let lot = deposit_composed_lot_for_test(
@@ -522,7 +522,7 @@ fn comminution_can_reduce_particle_size_without_relabeling_the_material_form() {
             ),
         ),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9700_0006));
+    let mut state = AppState::new();
     assert_eq!(
         registries
             .ore_processing()
@@ -607,7 +607,7 @@ fn constrained_comminution_rejects_out_of_range_feed_without_mutation() {
             ),
         ),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9700_0007));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("constrained grinding source failed: {error}"));
     let input = MaterialLotSpec::with_composition_and_particle_size(
@@ -677,7 +677,7 @@ fn constrained_comminution_persistence_rejects_forged_feed_size_trace() {
             ),
         ),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9700_0008));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("constrained persistence source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -763,12 +763,11 @@ struct Fixture {
 
 fn make_fixture_with_registries(
     registries: Registries,
-    seed: WorldSeed,
     input_mass: Mass,
     equipment_condition: Condition,
     initial_energy: Energy,
 ) -> Fixture {
-    let mut state = AppState::new(seed);
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
         Ok(source) => source,
         Err(error) => panic!("comminution source fixture failed: {error}"),
@@ -813,10 +812,9 @@ fn make_fixture_with_registries(
     }
 }
 
-fn make_fixture(seed: WorldSeed, input_mass: Mass, equipment_condition: Condition) -> Fixture {
+fn make_fixture(input_mass: Mass, equipment_condition: Condition) -> Fixture {
     make_fixture_with_registries(
         make_registries(),
-        seed,
         input_mass,
         equipment_condition,
         Energy::from_nanojoules(1_000_000),
@@ -858,11 +856,7 @@ fn finish_job(registries: &Registries, state: &mut AppState, duration: TickSpan)
 
 #[test]
 fn comminution_preserves_exact_mixed_profile_and_derates_throughput_with_wear() {
-    let mut fixture = make_fixture(
-        WorldSeed::new(0x9700_0001),
-        Mass::from_milligrams(20),
-        condition(500_000),
-    );
+    let mut fixture = make_fixture(Mass::from_milligrams(20), condition(500_000));
     let initial_matter = matter_total(&fixture.state);
     let resolved = match resolve_mass(&fixture, &fixture.state, Mass::from_milligrams(20)) {
         Ok(resolved) => resolved,
@@ -943,7 +937,6 @@ fn comminution_preserves_exact_mixed_profile_and_derates_throughput_with_wear() 
 fn weak_energy_delivery_extends_active_time_and_equipment_wear() {
     let fixture = make_fixture_with_registries(
         make_registries_with_energy(EnergyCarrier::Mechanical, Power::from_picowatts(100_000)),
-        WorldSeed::new(0x9700_0004),
         Mass::from_milligrams(20),
         Condition::PRISTINE,
         Energy::from_nanojoules(1_000_000),
@@ -974,7 +967,6 @@ fn weak_energy_delivery_extends_active_time_and_equipment_wear() {
 fn comminution_reports_wrong_energy_carrier_before_insufficient_energy() {
     let fixture = make_fixture_with_registries(
         make_registries_with_energy(EnergyCarrier::Electrical, Power::from_microwatts(100)),
-        WorldSeed::new(0x9700_0005),
         Mass::from_milligrams(20),
         Condition::PRISTINE,
         Energy::ZERO,
@@ -994,7 +986,7 @@ fn comminution_reports_wrong_energy_carrier_before_insufficient_energy() {
 #[test]
 fn comminution_rejects_wrong_form_and_oversized_batch_without_mutation() {
     let registries = make_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9700_0002));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(500)) {
         Ok(source) => source,
         Err(error) => panic!("comminution rejection source failed: {error}"),
@@ -1084,11 +1076,7 @@ fn comminution_rejects_wrong_form_and_oversized_batch_without_mutation() {
 
 #[test]
 fn comminution_job_round_trip_revalidates_exact_outputs_and_continues() {
-    let mut fixture = make_fixture(
-        WorldSeed::new(0x9700_0003),
-        Mass::from_milligrams(20),
-        Condition::PRISTINE,
-    );
+    let mut fixture = make_fixture(Mass::from_milligrams(20), Condition::PRISTINE);
     let resolved = match resolve_mass(&fixture, &fixture.state, Mass::from_milligrams(20)) {
         Ok(resolved) => resolved,
         Err(error) => panic!("round-trip comminution resolution failed: {error}"),
@@ -1213,7 +1201,7 @@ struct ManualComminutionFixture {
 
 fn manual_comminution_fixture(mass: Mass) -> ManualComminutionFixture {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9700_6001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual comminution survival fixture failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, mass)
@@ -1465,8 +1453,8 @@ fn in_progress_hand_breaking_round_trip_replays_exact_manual_physics() {
 }
 
 #[cfg(feature = "test-soak")]
-fn run_comminution_soak(seed: WorldSeed) -> AppState {
-    let fixture = make_fixture(seed, Mass::from_milligrams(300), Condition::PRISTINE);
+fn run_comminution_soak() -> AppState {
+    let fixture = make_fixture(Mass::from_milligrams(300), Condition::PRISTINE);
     let initial_matter = matter_total(&fixture.state);
     let mut state = fixture.state.clone();
     for step in 0..300_u64 {
@@ -1518,8 +1506,7 @@ fn run_comminution_soak(seed: WorldSeed) -> AppState {
 #[test]
 #[ignore = "long-horizon soak"]
 fn comminution_soak_preserves_matter_and_deterministic_replay() {
-    let seed = WorldSeed::new(0x9700_5000);
-    let first = run_comminution_soak(seed);
-    let second = run_comminution_soak(seed);
+    let first = run_comminution_soak();
+    let second = run_comminution_soak();
     assert_eq!(first, second);
 }

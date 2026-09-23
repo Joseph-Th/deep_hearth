@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn destination_capacity_rejection_does_not_reveal_short_hidden_reserve() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA11E_E002));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("non-oracular mining survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);

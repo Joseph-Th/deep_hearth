@@ -140,7 +140,7 @@ pub(super) fn prepare_ore_probe(
     let initial_crusher_condition = setup.crusher_condition;
     let initial_grinder_condition = setup.grinder_condition;
     let initial_screen_condition = setup.screen_condition;
-    let (state, ids) = setup_ore_preparation_probe(registries, seed, setup);
+    let (state, ids) = setup_ore_preparation_probe(registries, setup);
     let initial_separator_condition = state
         .equipment()
         .get_equipment(ids.separator)

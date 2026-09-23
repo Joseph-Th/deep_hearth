@@ -8,7 +8,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{AggregateMass, Mass, Pressure};
 use deep_hearth::core::state::AppState;
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -52,17 +51,29 @@ struct FieldworkGeologyProfile {
 }
 
 /// Controlled world generation, independent of demand and tool capabilities. One quarter of mixed
-/// worlds are shallow, so finite-opportunity surprise remains present without dominating ordinary
-/// exploration. Exact reserve stays hidden from the actor.
+/// worlds are shallow, while a sparse large-reserve tail gives bulk extraction tools a legitimate
+/// organic opportunity instead of making every non-shallow site the same 4-8 kg scale. Exact
+/// reserve stays hidden from the actor and demand never influences which reserve class is generated.
 pub(super) fn fieldwork_supply(seed: u64) -> Mass {
     let variation = mix64(seed ^ 0x4649_454C_4452_5356);
     let shallow = mix64(seed ^ 0x4649_454C_4453_5554) % 4 == 1;
+    let bulk = !shallow && mix64(seed ^ 0x4649_454C_4442_554C).is_multiple_of(8);
     let milligrams = if shallow {
         600_000 + variation % 300_001
+    } else if bulk {
+        24_000_000 + variation % 8_000_001
     } else {
         4_000_000 + variation % 4_000_001
     };
     Mass::from_milligrams(milligrams)
+}
+
+pub(super) fn fieldwork_followup_supplies(seed: u64) -> [Mass; 3] {
+    [
+        fieldwork_supply(mix64(seed ^ 0x4649_454C_4453_3252)),
+        fieldwork_supply(mix64(seed ^ 0x4649_454C_4453_3352)),
+        fieldwork_supply(mix64(seed ^ 0x4649_454C_4453_3452)),
+    ]
 }
 
 fn hidden_location(
@@ -184,7 +195,7 @@ pub(super) fn build_fieldwork_world(
 
     let mining_limits = fieldwork_mining_limits(registries);
     let (hardness_tier, geology_label, profile) = geology_profile(seed, mining_limits);
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x4649_454C_4457_524C));
+    let mut state = AppState::new();
     let (mut raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
     let native_copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
     let copper_rich = hardness_tier != 0 || !mix64(seed ^ 0x4649_454C_445F_4355).is_multiple_of(2);
@@ -261,23 +272,22 @@ pub(super) fn build_fieldwork_world(
         deposit_mass,
         profile,
     );
-    let campaign_supply = multiplied_mass(
-        mining_limits.maximum_candidate_batch,
-        4,
-        "secondary fieldwork reserve",
-    );
-    for (start_x, hidden) in [
+    let followup_supplies = fieldwork_followup_supplies(seed);
+    for ((start_x, hidden), supply) in [
         (SECONDARY_CHANNEL_START_X, secondary),
         (TERTIARY_CHANNEL_START_X, tertiary),
         (QUATERNARY_CHANNEL_START_X, quaternary),
-    ] {
+    ]
+    .into_iter()
+    .zip(followup_supplies)
+    {
         seed_channel_deposit(
             registries,
             &mut state,
             start_x,
             channel_voxels,
             hidden,
-            campaign_supply,
+            supply,
             profile,
         );
     }

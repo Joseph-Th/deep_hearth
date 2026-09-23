@@ -43,6 +43,6 @@ pub mod texture;
 
 pub use content::build_registries;
 pub use core::state::AppState;
-pub use core::time::{SimulationTick, TickSpan, WorldSeed};
+pub use core::time::{SimulationTick, TickSpan};
 pub use registry::Registries;
 pub use simulation::{TickError, TickOutcome, advance_tick};

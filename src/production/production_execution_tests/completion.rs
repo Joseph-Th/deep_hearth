@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn same_tick_completions_are_emitted_in_stable_job_id_order() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(14));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
@@ -70,7 +70,7 @@ fn same_tick_completions_are_emitted_in_stable_job_id_order() {
 #[test]
 fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_range() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(141));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
@@ -143,7 +143,7 @@ fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_
 #[test]
 fn resolution_source_mismatch_is_rejected_before_any_start_mutation() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(1415));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let other_source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
@@ -165,7 +165,7 @@ fn resolution_source_mismatch_is_rejected_before_any_start_mutation() {
 #[test]
 fn resolved_inputs_become_stale_after_inventory_changes_before_start_validation() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(1416));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
@@ -187,7 +187,7 @@ fn resolved_inputs_become_stale_after_inventory_changes_before_start_validation(
 #[test]
 fn stale_inventory_revision_rejects_validated_process_without_mutation() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(15));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
@@ -215,7 +215,7 @@ fn stale_inventory_revision_rejects_validated_process_without_mutation() {
 #[test]
 fn stale_production_revision_rejects_second_validated_token_without_mutation() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(16));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 30);
@@ -248,7 +248,7 @@ fn stale_production_revision_rejects_second_validated_token_without_mutation() {
 #[test]
 fn in_flight_job_uses_committed_output_snapshot_after_later_resolution_differs() {
     let registries = make_test_registries();
-    let mut state = AppState::new(WorldSeed::new(17));
+    let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);

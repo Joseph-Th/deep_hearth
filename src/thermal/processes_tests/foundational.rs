@@ -9,7 +9,7 @@ fn sensible_heating_sums_fractional_trace_energy_before_transaction_quantization
         Temperature::from_millikelvin(400_000),
         Power::from_microwatts(5_000),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9200_0102));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("fractional-batch source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
@@ -146,7 +146,7 @@ fn sensible_heating_can_superheat_liquid_without_reapplying_fusion_energy() {
         EnergyCarrier::Electrical,
         Temperature::from_millikelvin(1_500_000),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9200_0101));
+    let mut state = AppState::new();
     let liquid_profile =
         match StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_500_000)) {
             Ok(profile) => profile,

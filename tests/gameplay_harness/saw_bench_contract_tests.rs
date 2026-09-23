@@ -10,7 +10,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{
     ManualCraftError, ManualCraftStartRequest, resolve_manual_craft, validate_start_manual_craft,
 };
@@ -29,7 +28,7 @@ use super::manual_craft_selection::select_manual_craft_request;
 #[test]
 fn frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5341_575F_4245_4E43));
+    let mut state = AppState::new();
     let raw = seed_stockpile(
         &mut state,
         Mass::from_milligrams(20_000_000),

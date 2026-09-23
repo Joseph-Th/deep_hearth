@@ -478,7 +478,7 @@ fn manual_craft_load_audit_rejects_forged_duration() {
 #[test]
 fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7016));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("timber chest joinery survival setup failed: {error}"));
     let chest_mass = Mass::from_milligrams(2_400_000);
@@ -573,7 +573,7 @@ fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuat
 #[test]
 fn double_wall_chest_joinery_round_trip_preserves_full_cost_and_output() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7017));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("double-wall chest survival setup failed: {error}"));
     let body_mass = Mass::from_milligrams(4_000_000);

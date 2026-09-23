@@ -72,7 +72,7 @@ fn minimum_drink_projection_matches_canonical_execution() {
         .unwrap_or_else(|error| panic!("minimum drink projection failed: {error}"))
         .unwrap_or_else(|| panic!("drink execution unexpectedly needed no drink"));
 
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0030));
+    let mut state = AppState::new();
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,

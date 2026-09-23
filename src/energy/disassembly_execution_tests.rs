@@ -7,7 +7,6 @@ use crate::content::{
 };
 use crate::core::quantity::Temperature;
 use crate::core::state::validate_loaded_state;
-use crate::core::time::WorldSeed;
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
@@ -77,7 +76,7 @@ fn assembled_crank(registries: &Registries, state: &mut AppState) -> crate::equi
 #[test]
 fn empty_store_disassembly_recovers_exact_matter_without_reusing_identity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15E_0001));
+    let mut state = AppState::new();
     let store = assembled_store(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_100_000))
         .unwrap_or_else(|error| panic!("store disassembly destination failed: {error}"));
@@ -128,7 +127,7 @@ fn empty_store_disassembly_recovers_exact_matter_without_reusing_identity() {
 #[test]
 fn nonempty_store_cannot_be_disassembled_and_destroy_energy() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15E_0002));
+    let mut state = AppState::new();
     let store = assembled_store(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_100_000))
         .unwrap_or_else(|error| panic!("nonempty store destination failed: {error}"));
@@ -150,7 +149,7 @@ fn nonempty_store_cannot_be_disassembled_and_destroy_energy() {
 #[test]
 fn manual_power_start_invalidates_prior_empty_store_disassembly_without_energy_revision_change() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xD15E_0003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("store-disassembly survival setup failed: {error}"));
     let store = assembled_store(&registries, &mut state);

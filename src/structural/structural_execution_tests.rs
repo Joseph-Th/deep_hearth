@@ -5,7 +5,6 @@ use crate::content::{
     FORM_LOG, MATERIAL_WATER, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Length};
-use crate::core::time::WorldSeed;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
@@ -55,7 +54,7 @@ fn structural_geometry_rejects_zero_length_before_allocation() {
 #[test]
 fn allocation_revalidates_geometry_before_mutating_state() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_1002));
+    let mut state = AppState::new();
     let invalid = StructuralElementGeometry {
         bounds: make_test_bounds(0, 0),
         length: Length::ZERO,
@@ -82,7 +81,7 @@ fn allocation_revalidates_geometry_before_mutating_state() {
 #[test]
 fn allocation_rejects_material_without_authored_structural_strength() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5700_1003));
+    let mut state = AppState::new();
     let geometry = crate::structural::make_test_structural_geometry(
         make_test_bounds(0, 0),
         Length::from_micrometers(1_000),
@@ -109,7 +108,7 @@ fn allocation_rejects_material_without_authored_structural_strength() {
 #[test]
 fn allocation_rejects_exhausted_element_id_without_mutating_state() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_E001));
+    let state = AppState::new();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("structural id exhaustion serialization failed: {error}"));
     encoded["state"]["systems"]["structures"]["next_element_id"] = serde_json::json!(u32::MAX);
@@ -142,7 +141,7 @@ fn allocation_rejects_exhausted_element_id_without_mutating_state() {
 #[test]
 fn allocation_rejects_exhausted_structure_revision_without_mutating_state() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_E002));
+    let state = AppState::new();
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("structural revision exhaustion serialization failed: {error}")
@@ -257,7 +256,7 @@ fn find_assessment(
 #[test]
 fn load_distribution_preserves_force_and_uses_stable_support_order() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0001));
+    let mut state = AppState::new();
     let left = make_test_element(&registries, &mut state, 0, 0, true);
     let right = make_test_element(&registries, &mut state, 2, 0, true);
     let deck = make_test_element(&registries, &mut state, 1, 0, false);
@@ -303,7 +302,7 @@ fn load_distribution_preserves_force_and_uses_stable_support_order() {
 #[test]
 fn independent_load_sources_accumulate_without_overwriting_and_zero_removes_source() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0008));
+    let mut state = AppState::new();
     let column = make_test_element(&registries, &mut state, 0, 0, true);
     activate_test_element(&registries, &mut state, column);
 
@@ -381,7 +380,7 @@ fn independent_load_sources_accumulate_without_overwriting_and_zero_removes_sour
 #[test]
 fn self_weight_load_channel_rejects_generic_writes() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0013));
+    let mut state = AppState::new();
     let member = make_test_element(&registries, &mut state, 0, 0, true);
     let before = state.clone();
 
@@ -403,7 +402,7 @@ fn self_weight_load_channel_rejects_generic_writes() {
 #[test]
 fn mutation_analysis_is_scoped_to_connected_structure_components() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0012));
+    let mut state = AppState::new();
     let support = make_test_element(&registries, &mut state, 0, 0, true);
     let deck = make_test_element(&registries, &mut state, 0, 1, false);
     activate_test_element(&registries, &mut state, support);
@@ -448,7 +447,7 @@ fn mutation_analysis_is_scoped_to_connected_structure_components() {
 #[test]
 fn planned_load_contribution_overflow_is_rejected_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0009));
+    let mut state = AppState::new();
     let member = make_test_element(&registries, &mut state, 0, 0, true);
     let maximum = match validate_set_structural_load(
         &registries,
@@ -481,7 +480,7 @@ fn planned_load_contribution_overflow_is_rejected_without_mutation() {
 #[test]
 fn crack_damage_persists_after_unloading_and_reduces_later_failure_capacity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0002));
+    let mut state = AppState::new();
     let column = make_test_element(&registries, &mut state, 0, 0, true);
     activate_test_element(&registries, &mut state, column);
 
@@ -566,7 +565,7 @@ fn crack_damage_persists_after_unloading_and_reduces_later_failure_capacity() {
 #[test]
 fn unchanged_public_load_is_rejected_without_revision_churn() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0010));
+    let mut state = AppState::new();
     let member = make_test_element(&registries, &mut state, 0, 0, true);
     activate_test_element(&registries, &mut state, member);
     let load = Force::from_millinewtons(1_000_000);
@@ -601,7 +600,7 @@ fn unchanged_public_load_is_rejected_without_revision_churn() {
 #[test]
 fn removing_one_load_path_cascades_failure_through_dependents_atomically() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0003));
+    let mut state = AppState::new();
     let foundation = make_test_element(&registries, &mut state, 0, 0, true);
     let middle = make_test_element(&registries, &mut state, 0, 1, false);
     let top = make_test_element(&registries, &mut state, 0, 2, false);
@@ -659,7 +658,7 @@ fn removing_one_load_path_cascades_failure_through_dependents_atomically() {
 #[test]
 fn failed_embodied_debris_cannot_be_deleted_without_a_recovery_system() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0011));
+    let mut state = AppState::new();
     let foundation = make_test_element(&registries, &mut state, 0, 0, true);
     activate_test_element(&registries, &mut state, foundation);
     let overload = validate_set_structural_load(
@@ -694,7 +693,7 @@ fn failed_embodied_debris_cannot_be_deleted_without_a_recovery_system() {
 #[test]
 fn support_cycle_is_rejected_before_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0004));
+    let mut state = AppState::new();
     let first = make_test_element(&registries, &mut state, 0, 0, false);
     let second = make_test_element(&registries, &mut state, 1, 0, false);
     link_test_support(&registries, &mut state, first, second);
@@ -713,7 +712,7 @@ fn support_cycle_is_rejected_before_mutation() {
 #[test]
 fn support_link_cannot_bridge_empty_space() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0013));
+    let mut state = AppState::new();
     let support = make_test_element(&registries, &mut state, 0, 0, true);
     let member = make_test_element(&registries, &mut state, 3, 0, false);
     activate_test_element(&registries, &mut state, support);
@@ -732,7 +731,7 @@ fn support_link_cannot_bridge_empty_space() {
 #[test]
 fn support_link_rejects_zero_area_edge_contact() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0014));
+    let mut state = AppState::new();
     let support = make_test_element(&registries, &mut state, 1, 1, true);
     let member = make_test_element(&registries, &mut state, 0, 0, false);
     activate_test_element(&registries, &mut state, support);
@@ -751,7 +750,7 @@ fn support_link_rejects_zero_area_edge_contact() {
 #[test]
 fn unsupported_planned_member_cannot_activate() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0005));
+    let mut state = AppState::new();
     let member = make_test_element(&registries, &mut state, 0, 0, false);
     let before = state.clone();
 
@@ -765,7 +764,7 @@ fn unsupported_planned_member_cannot_activate() {
 #[test]
 fn stale_structural_token_cannot_overwrite_later_structural_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0006));
+    let mut state = AppState::new();
     let member = make_test_element(&registries, &mut state, 0, 0, true);
     activate_test_element(&registries, &mut state, member);
     let expected_revision = state.structures().revision();
@@ -795,7 +794,7 @@ fn stale_structural_token_cannot_overwrite_later_structural_mutation() {
 #[test]
 fn long_support_chain_collapse_is_complete_and_deterministically_ordered() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0007));
+    let mut state = AppState::new();
     let foundation = make_test_element(&registries, &mut state, 0, 0, true);
     activate_test_element(&registries, &mut state, foundation);
     let mut support = foundation;

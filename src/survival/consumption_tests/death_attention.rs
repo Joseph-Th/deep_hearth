@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn death_during_drinking_releases_attention_and_discards_unabsorbed_intake_immediately() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0026));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("death-during-drink survival setup failed: {error}"));
     let physiology = registries.survival().physiology();
@@ -80,7 +80,7 @@ fn death_during_drinking_releases_attention_and_discards_unabsorbed_intake_immed
 #[test]
 fn load_rejects_dead_player_with_pending_direct_consumption() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0029));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("dead-pending-load survival setup failed: {error}"));
     let volume = registries
@@ -118,7 +118,7 @@ fn load_rejects_dead_player_with_pending_direct_consumption() {
 #[test]
 fn direct_consumption_rejects_unsafe_food_and_water_temperatures_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0018));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let hot_temperature = Temperature::from_millikelvin(333_151);
     let food_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
@@ -174,7 +174,7 @@ fn direct_consumption_rejects_unsafe_food_and_water_temperatures_without_mutatio
 #[test]
 fn direct_consumption_claims_quantity_scaled_player_attention() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_001B));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(300_000))
         .unwrap_or_else(|error| panic!("attention meal stockpile failed: {error}"));
@@ -262,7 +262,7 @@ fn direct_consumption_claims_quantity_scaled_player_attention() {
 #[test]
 fn drinking_rejects_volume_above_authored_intake_limit_without_consumption() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_001A));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let maximum = registries
         .survival()
@@ -296,7 +296,7 @@ fn drinking_rejects_volume_above_authored_intake_limit_without_consumption() {
 #[test]
 fn drinking_rejects_volume_below_authored_intake_minimum_without_consumption() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0031));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let minimum = registries
         .survival()

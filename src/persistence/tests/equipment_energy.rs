@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn energy_store_round_trip_preserves_definition_energy_and_revision() {
     let registries = make_test_energy_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE900_0001));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -42,7 +42,7 @@ fn energy_store_round_trip_preserves_definition_energy_and_revision() {
 #[test]
 fn deserialized_zero_energy_store_id_is_rejected_on_load() {
     let registries = make_test_energy_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE900_0003));
+    let mut state = AppState::new();
     let store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -74,7 +74,7 @@ fn deserialized_zero_energy_store_id_is_rejected_on_load() {
 #[test]
 fn mounted_equipment_round_trip_preserves_support_and_derived_structural_load() {
     let registries = make_test_equipment_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE011_0010));
+    let mut state = AppState::new();
     let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
     activate_test_structural_element(&registries, &mut state, support);
     let equipment = match add_equipment(
@@ -131,7 +131,7 @@ fn mounted_equipment_round_trip_preserves_support_and_derived_structural_load() 
 #[test]
 fn mounted_equipment_with_missing_support_is_rejected_on_load() {
     let registries = make_test_equipment_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE011_0011));
+    let mut state = AppState::new();
     let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
     activate_test_structural_element(&registries, &mut state, support);
     let equipment = match add_equipment(
@@ -176,7 +176,7 @@ fn mounted_equipment_with_missing_support_is_rejected_on_load() {
 #[test]
 fn tampered_equipment_structural_load_is_rejected_on_load() {
     let registries = make_test_equipment_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE011_0012));
+    let mut state = AppState::new();
     let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
     activate_test_structural_element(&registries, &mut state, support);
     let equipment = match add_equipment(
@@ -226,7 +226,7 @@ fn tampered_equipment_structural_load_is_rejected_on_load() {
 #[test]
 fn energy_store_with_unknown_definition_is_rejected_on_load() {
     let registries = make_test_energy_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE900_0002));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -262,7 +262,7 @@ fn energy_store_with_unknown_definition_is_rejected_on_load() {
 #[test]
 fn energy_store_above_authored_capacity_is_rejected_on_load() {
     let registries = make_test_energy_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE900_0003));
+    let mut state = AppState::new();
     let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -298,7 +298,7 @@ fn energy_store_above_authored_capacity_is_rejected_on_load() {
 #[test]
 fn equipment_round_trip_preserves_definition_condition_and_revision() {
     let registries = make_test_equipment_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE011_0001));
+    let mut state = AppState::new();
     let equipment = match add_equipment(
         &registries,
         &mut state,
@@ -335,7 +335,7 @@ fn equipment_round_trip_preserves_definition_condition_and_revision() {
 #[test]
 fn equipment_with_unknown_definition_is_rejected_on_load() {
     let registries = make_test_equipment_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE011_0002));
+    let mut state = AppState::new();
     let equipment = match add_equipment(
         &registries,
         &mut state,

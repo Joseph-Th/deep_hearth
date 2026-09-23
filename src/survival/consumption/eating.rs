@@ -1,6 +1,7 @@
 //! Exact conserved food-consumption transaction and physiological reserve resolution.
 
 mod errors;
+mod projection;
 mod resolution;
 
 use std::collections::BTreeMap;
@@ -25,6 +26,10 @@ use crate::registry::Registries;
 use super::super::FoodCategory;
 use super::super::state::{PendingConsumedFoodTrace, PendingConsumedMatterBaseline, PendingEating};
 pub use errors::{EatCommitError, EatError};
+pub use projection::{
+    MealMetabolicProjectionError, MinimumMealMetabolicProjection,
+    project_minimum_meal_to_metabolic_target,
+};
 use resolution::{meal_absorption_offer, resolve_meal_offer};
 
 pub(crate) use resolution::trace_absorption_offer;

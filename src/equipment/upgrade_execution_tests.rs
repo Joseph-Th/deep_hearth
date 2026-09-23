@@ -11,7 +11,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     EquipmentValidationError, degrade_equipment_condition_for_test, validate_assemble_equipment,
@@ -56,7 +56,7 @@ fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> Equipme
 #[test]
 fn upgraded_equipment_load_rejects_late_unreplaceable_base_material() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA66D_1010));
+    let mut state = AppState::new();
     let equipment = assemble_stone_pick(&registries, &mut state);
     let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("equipment chronology audit tick failed: {error}"));
@@ -143,21 +143,19 @@ fn reinforcement_source(registries: &Registries, state: &mut AppState) -> Stockp
 #[test]
 fn primitive_processing_upgrades_preserve_identity_wear_matter_and_replay() {
     let registries = build_registries();
-    for (seed, base, upgraded, expected_mass) in [
+    for (base, upgraded, expected_mass) in [
         (
-            0xA66D_1001,
             EQUIPMENT_STONE_CRUSHER,
             EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
             Mass::from_milligrams(2_020_000),
         ),
         (
-            0xA66D_1002,
             EQUIPMENT_STONE_SEPARATOR,
             EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
             Mass::from_milligrams(1_220_000),
         ),
     ] {
-        let mut state = AppState::new(WorldSeed::new(seed));
+        let mut state = AppState::new();
         let equipment = assemble_authored_equipment(&registries, &mut state, base);
         let reinforcement = reinforcement_source(&registries, &mut state);
         degrade_equipment_condition_for_test(&mut state, equipment, 123_456);
@@ -283,7 +281,7 @@ fn assemble_store(registries: &Registries, state: &mut AppState) -> crate::energ
 #[test]
 fn additive_upgrade_preserves_identity_wear_and_world_matter() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA66D_0001));
+    let mut state = AppState::new();
     let pick = assemble_stone_pick(&registries, &mut state);
     let reinforcement = reinforcement_source(&registries, &mut state);
     degrade_equipment_condition_for_test(&mut state, pick, 87_654);
@@ -351,7 +349,7 @@ fn additive_upgrade_preserves_identity_wear_and_world_matter() {
 #[test]
 fn persisted_upgraded_equipment_rejects_impossible_embodied_phase_state() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA66D_0004));
+    let mut state = AppState::new();
     let pick = assemble_stone_pick(&registries, &mut state);
     let reinforcement = reinforcement_source(&registries, &mut state);
     validate_upgrade_equipment(
@@ -401,7 +399,7 @@ fn persisted_upgraded_equipment_rejects_impossible_embodied_phase_state() {
 #[test]
 fn intervening_equipment_mutation_invalidates_upgrade_token() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA66D_0002));
+    let mut state = AppState::new();
     let pick = assemble_stone_pick(&registries, &mut state);
     let reinforcement = reinforcement_source(&registries, &mut state);
     let token = validate_upgrade_equipment(
@@ -441,7 +439,7 @@ fn intervening_equipment_mutation_invalidates_upgrade_token() {
 #[test]
 fn manual_power_start_invalidates_prior_crank_upgrade_without_equipment_revision_change() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xA66D_0003));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("upgrade race survival setup failed: {error}"));
     let crank = assemble_stone_crank(&registries, &mut state);

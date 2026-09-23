@@ -1,5 +1,7 @@
 //! Acquired resource scale informs investment without leaking exact hidden reserve.
 
+use std::collections::BTreeSet;
+
 use super::extraction::FieldworkStop;
 use super::*;
 use deep_hearth::maintenance::Condition;
@@ -10,6 +12,68 @@ fn replay(seed: u64) -> FocusedProbeCase {
         None,
         super::super::focused_seeds::FocusedProbeRole::ExplicitReplay,
     )
+}
+
+#[test]
+fn exploratory_supply_spans_shallow_common_and_bulk_opportunities() {
+    let supplies = (0_u64..256)
+        .map(fieldwork_supply)
+        .map(Mass::milligrams)
+        .collect::<Vec<_>>();
+    assert!(supplies.iter().any(|&mass| mass < 1_000_000));
+    assert!(
+        supplies
+            .iter()
+            .any(|&mass| (4_000_000..=8_000_000).contains(&mass))
+    );
+    assert!(supplies.iter().any(|&mass| mass >= 24_000_000));
+}
+
+#[test]
+fn exploratory_demand_and_reserve_scale_are_not_coupled() {
+    let registries = deep_hearth::content::build_registries();
+    let combinations = (0_u64..256)
+        .map(|seed| {
+            let supply = fieldwork_supply(seed).milligrams();
+            let supply_class = if supply < 1_000_000 {
+                "shallow"
+            } else if supply >= 24_000_000 {
+                "bulk"
+            } else {
+                "common"
+            };
+            let order = fieldwork_order(&registries, seed);
+            (fieldwork_order_horizon(&registries, order), supply_class)
+        })
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        combinations.len(),
+        9,
+        "short/project/bulk demand must each occur against shallow/common/bulk reserves so the evaluator does not manufacture investment payback by correlating goals with hidden supply"
+    );
+}
+
+#[test]
+fn followup_sites_have_independent_reserve_opportunities() {
+    let supplies = (0_u64..128)
+        .flat_map(super::world::fieldwork_followup_supplies)
+        .map(Mass::milligrams)
+        .collect::<Vec<_>>();
+    assert!(supplies.iter().any(|&mass| mass < 1_000_000));
+    assert!(
+        supplies
+            .iter()
+            .any(|&mass| (4_000_000..=8_000_000).contains(&mass))
+    );
+    assert!(supplies.iter().any(|&mass| mass >= 24_000_000));
+    assert!(
+        (0_u64..128).any(|seed| {
+            let [a, b, c] = super::world::fieldwork_followup_supplies(seed);
+            a != b || b != c
+        }),
+        "follow-up sites must not copy one reserve value across the local search area"
+    );
 }
 
 #[test]
@@ -30,6 +94,32 @@ fn maintained_bulk_order_replays_quarry_investment_from_seed_alone() {
     let episode = run_fieldwork_order(&registries, case, requested);
     assert_eq!(episode.full_order_tool, Some(EQUIPMENT_STONE_QUARRY_PICK));
     assert_eq!(episode.tool, EQUIPMENT_STONE_QUARRY_PICK);
+    assert_eq!(episode.resource_knowledge_effect, "same-tool");
+    assert_eq!(episode.planned_local_mass, requested);
+    assert_eq!(episode.extraction.stop, FieldworkStop::OrderComplete);
+}
+
+#[test]
+fn maintained_reinforcement_bulk_order_selects_reinforced_quarry_from_visible_scale() {
+    let registries = deep_hearth::content::build_registries();
+    let case = replay(FIELDWORK_REINFORCED_BULK_COVERAGE_SEED);
+    let requested = fieldwork_order_for_case(&registries, case);
+    assert_eq!(
+        requested,
+        multiplied_mass(
+            fieldwork_mining_limits(&registries).base_quarry_batch,
+            FIELDWORK_REINFORCED_BULK_COVERAGE_BATCHES,
+            "reinforced bulk-investment coverage expectation",
+        )
+    );
+    assert!(fieldwork_supply_for_case(case) > requested);
+
+    let episode = run_fieldwork_order(&registries, case, requested);
+    assert_eq!(
+        episode.full_order_tool,
+        Some(EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK)
+    );
+    assert_eq!(episode.tool, EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK);
     assert_eq!(episode.resource_knowledge_effect, "same-tool");
     assert_eq!(episode.planned_local_mass, requested);
     assert_eq!(episode.extraction.stop, FieldworkStop::OrderComplete);
@@ -184,9 +274,14 @@ fn world_seeded_shallow_opportunity_reports_partial_order() {
 #[test]
 fn acquired_resource_scale_changes_current_project_workload_before_depletion() {
     let registries = deep_hearth::content::build_registries();
-    let demonstrated = (1_u64..=16).find_map(|seed| {
+    let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
+    let demonstrated = (1_u64..=64).find_map(|seed| {
         let requested = fieldwork_order(&registries, seed);
-        if fieldwork_supply(seed) >= requested {
+        let supply = fieldwork_supply(seed);
+        if requested <= base_batch
+            || supply >= requested
+            || supply >= Mass::from_milligrams(1_000_000)
+        {
             return None;
         }
         let episode = run_fieldwork_order(&registries, replay(seed), requested);

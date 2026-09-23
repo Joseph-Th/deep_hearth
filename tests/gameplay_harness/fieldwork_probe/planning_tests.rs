@@ -1,7 +1,6 @@
 //! Regression coverage for fieldwork planning and tool-choice economics.
 
 use deep_hearth::content::gameplay_fixture::seed_lot;
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::survival::initialize_player_survival;
 
 use super::super::environment::ROOM_TEMPERATURE;
@@ -30,9 +29,10 @@ fn batch_capped_mining_finishes_the_requested_order() {
                     ..
                 },
             ..
-        } = run_fieldwork_order(
+        } = run_fieldwork_with_supply(
             &registries,
             FocusedProbeCase::new(seed, None, FocusedProbeRole::ExplicitReplay),
+            fieldwork_order(&registries, seed),
             fieldwork_order(&registries, seed),
         );
         assert_eq!(stop, FieldworkStop::OrderComplete);
@@ -85,7 +85,7 @@ fn fieldwork_planning_fixture(
     registries: &Registries,
     include_copper: bool,
 ) -> (AppState, StockpileId) {
-    let mut state = AppState::new(WorldSeed::new(71));
+    let mut state = AppState::new();
     let (raw_opportunity, capacity) = fieldwork_raw_opportunity(registries);
     let raw = add_solid_stockpile(&mut state, capacity);
     for (commodity, mass) in raw_opportunity {

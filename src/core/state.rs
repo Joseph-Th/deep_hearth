@@ -15,39 +15,32 @@ use crate::production::ProductionState;
 use crate::structural::StructureState;
 use crate::survival::SurvivalState;
 
-use super::rng::{RandomState, RngStreamId};
-use super::time::{SimulationTick, WorldSeed};
+use super::time::SimulationTick;
 
 /// Mutable runtime state that must survive execution and restart boundaries.
 #[cfg_attr(any(test, feature = "test-gameplay"), derive(Clone, PartialEq, Eq))]
 pub struct AppState {
-    world_seed: WorldSeed,
     clock: ClockState,
-    random: RandomState,
     systems: SystemState,
 }
 
 /// Serializes the complete trusted runtime root only through the persistence envelope.
 ///
 /// `AppState` intentionally does not implement `Serialize`: public read access must not become an
-/// alternate route to exact PRNG continuation or hidden geological truth. Persistence is the sole
-/// owner of that complete representation.
+/// alternate route to hidden geological truth. Persistence is the sole owner of that complete
+/// representation.
 pub(crate) fn serialize_app_state<S>(state: &&AppState, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
     #[derive(Serialize)]
     struct PersistentAppState<'state> {
-        world_seed: WorldSeed,
         clock: &'state ClockState,
-        random: &'state RandomState,
         systems: &'state SystemState,
     }
 
     PersistentAppState {
-        world_seed: state.world_seed,
         clock: &state.clock,
-        random: &state.random,
         systems: &state.systems,
     }
     .serialize(serializer)
@@ -55,18 +48,14 @@ where
 
 /// Actor-safe diagnostics for the runtime root.
 ///
-/// Persistence deliberately owns exact random-stream continuation and hidden geological truth, but
-/// neither is part of the public read surface. A derived `Debug` implementation would bypass those
-/// boundaries and turn ordinary diagnostics into an oracle for future randomness and deposit truth.
+/// Persistence deliberately owns hidden geological truth, which is not part of the public read
+/// surface. A derived `Debug` implementation would bypass that boundary and turn ordinary
+/// diagnostics into an oracle for deposit truth.
 impl Debug for AppState {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("AppState")
             .field("tick", &self.clock.tick)
-            .field(
-                "rng_algorithm",
-                &self.random.stream_algorithm(RngStreamId::CORE),
-            )
             .field("energy", &self.systems.energy)
             .field("fluid", &self.systems.fluid)
             .field("equipment", &self.systems.equipment)
@@ -85,9 +74,7 @@ impl Debug for AppState {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AppStateRepresentation {
-    world_seed: WorldSeed,
     clock: ClockState,
-    random: RandomState,
     systems: SystemState,
 }
 
@@ -101,9 +88,7 @@ where
 {
     let representation = AppStateRepresentation::deserialize(deserializer)?;
     Ok(AppState {
-        world_seed: representation.world_seed,
         clock: representation.clock,
-        random: representation.random,
         systems: representation.systems,
     })
 }
@@ -133,15 +118,13 @@ struct ClockState {
 }
 
 impl AppState {
-    /// Builds a fresh deterministic runtime state for one world.
+    /// Builds a fresh deterministic runtime state.
     #[must_use]
-    pub fn new(world_seed: WorldSeed) -> Self {
+    pub fn new() -> Self {
         Self {
-            world_seed,
             clock: ClockState {
                 tick: SimulationTick::ZERO,
             },
-            random: RandomState::new(world_seed),
             systems: SystemState {
                 energy: EnergyState::new(),
                 fluid: FluidState::new(),
@@ -162,15 +145,6 @@ impl AppState {
     #[must_use]
     pub const fn tick(&self) -> SimulationTick {
         self.clock.tick
-    }
-
-    /// Returns the persisted random algorithm identity without exposing mutable PRNG state.
-    #[must_use]
-    pub fn rng_algorithm(&self) -> super::rng::RngAlgorithm {
-        match self.random.stream_algorithm(RngStreamId::CORE) {
-            Some(algorithm) => algorithm,
-            None => panic!("runtime invariant broken: core random stream is missing"),
-        }
     }
 
     /// Returns read-only authoritative finite-energy state.
@@ -296,6 +270,12 @@ impl AppState {
 
     pub(crate) fn survival_state_mut(&mut self) -> &mut SurvivalState {
         &mut self.systems.survival
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

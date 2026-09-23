@@ -10,7 +10,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Mass};
 use crate::core::state::validate_loaded_state;
-use crate::core::time::WorldSeed;
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -115,7 +114,7 @@ fn commit_support(
 #[test]
 fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per_record() {
     let registries = make_registries(Mass::from_milligrams(1));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0001));
+    let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let first = add_test_equipment(&registries, &mut state);
@@ -193,7 +192,7 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
 #[test]
 fn relocation_remains_revision_bound_when_force_rounding_hides_both_load_deltas() {
     let registries = make_registries(Mass::from_milligrams(1));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0012));
+    let mut state = AppState::new();
     let source = add_member(&registries, &mut state, 0);
     let target = add_member(&registries, &mut state, 2);
     activate_member(&registries, &mut state, source);
@@ -261,7 +260,7 @@ fn relocation_remains_revision_bound_when_force_rounding_hides_both_load_deltas(
 #[test]
 fn rounded_noop_relocation_still_rejects_a_stale_structure() {
     let registries = make_registries(Mass::from_milligrams(1));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0013));
+    let mut state = AppState::new();
     let source = add_member(&registries, &mut state, 0);
     let target = add_member(&registries, &mut state, 2);
     activate_member(&registries, &mut state, source);
@@ -315,7 +314,7 @@ fn rounded_noop_relocation_still_rejects_a_stale_structure() {
 #[test]
 fn relocation_moves_equipment_and_structural_load_as_one_transaction() {
     let registries = make_registries(Mass::from_milligrams(3_600_000_000));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0010));
+    let mut state = AppState::new();
     let source = add_member(&registries, &mut state, 0);
     let target = add_member(&registries, &mut state, 2);
     activate_member(&registries, &mut state, source);
@@ -369,7 +368,7 @@ fn relocation_moves_equipment_and_structural_load_as_one_transaction() {
 #[test]
 fn stale_relocation_leaves_equipment_on_original_support() {
     let registries = make_registries(Mass::from_milligrams(3_600_000_000));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0011));
+    let mut state = AppState::new();
     let source = add_member(&registries, &mut state, 0);
     let target = add_member(&registries, &mut state, 2);
     activate_member(&registries, &mut state, source);
@@ -415,7 +414,7 @@ fn stale_relocation_leaves_equipment_on_original_support() {
 #[test]
 fn heavy_equipment_cracks_support_and_unloading_does_not_repair_damage() {
     let registries = make_registries(Mass::from_milligrams(3_600_000_000));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0002));
+    let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let equipment = add_test_equipment(&registries, &mut state);
@@ -488,7 +487,7 @@ fn heavy_equipment_cracks_support_and_unloading_does_not_repair_damage() {
 #[test]
 fn failed_support_can_be_unloaded_without_resurrecting_it() {
     let registries = make_registries(Mass::from_milligrams(4_100_000_000));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0003));
+    let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let equipment = add_test_equipment(&registries, &mut state);
@@ -524,7 +523,7 @@ fn failed_support_can_be_unloaded_without_resurrecting_it() {
 #[test]
 fn stale_equipment_revision_rejects_mount_without_structural_mutation() {
     let registries = make_registries(Mass::from_milligrams(1_000_000));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0004));
+    let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let equipment = add_test_equipment(&registries, &mut state);
@@ -549,7 +548,7 @@ fn stale_equipment_revision_rejects_mount_without_structural_mutation() {
 #[test]
 fn stale_structural_revision_rejects_mount_without_equipment_mutation() {
     let registries = make_registries(Mass::from_milligrams(1_000_000));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0006));
+    let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let equipment = add_test_equipment(&registries, &mut state);
@@ -588,7 +587,7 @@ fn stale_structural_revision_rejects_mount_without_equipment_mutation() {
 #[test]
 fn equipment_load_channel_rejects_direct_structural_writes() {
     let registries = make_registries(Mass::from_milligrams(1_000_000));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0007));
+    let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let before = state.clone();
@@ -611,7 +610,7 @@ fn equipment_load_channel_rejects_direct_structural_writes() {
 #[test]
 fn mounting_requires_an_active_structural_target() {
     let registries = make_registries(Mass::from_milligrams(1_000_000));
-    let mut state = AppState::new(WorldSeed::new(0x8300_0005));
+    let mut state = AppState::new();
     let planned = add_member(&registries, &mut state, 0);
     let equipment = add_test_equipment(&registries, &mut state);
     let before = state.clone();

@@ -7,7 +7,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Length, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::energy::{
     AddEnergyStoreError, EnergyValidationError, add_energy_store,
     calculate_explicit_energy_accounting,
@@ -22,7 +21,7 @@ use crate::simulation::advance_tick;
 
 fn unassembled_store_fixture() -> (Registries, AppState, crate::inventory::StockpileId) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE57E_0001));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_100_000))
         .unwrap_or_else(|error| panic!("energy assembly stockpile fixture failed: {error}"));
     deposit_lot_for_test(
@@ -125,7 +124,7 @@ fn assembly_rejects_exhausted_energy_revision_without_consuming_material() {
 #[test]
 fn buildable_energy_store_requires_material_and_preserves_world_matter() {
     let registries = build_registries();
-    let mut empty_state = AppState::new(WorldSeed::new(0xE57E_0000));
+    let mut empty_state = AppState::new();
     assert_eq!(
         add_energy_store(&registries, &mut empty_state, ENERGY_STONE_FLYWHEEL_DRIVE,),
         Err(AddEnergyStoreError::RequiresAssembly {

@@ -1,8 +1,7 @@
 //! Root-state validation error taxonomy and diagnostics.
 
 use crate::core::quantity::{Energy, Force, Mass};
-use crate::core::rng::RandomStateValidationError;
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::time::SimulationTick;
 use crate::crafting::CraftingJobValidationError;
 use crate::energy::EnergyValidationError;
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentValidationError};
@@ -30,11 +29,6 @@ use crate::thermal::ThermalJobValidationError;
 /// Error returned when decoded runtime state violates a required persistent invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateValidationError {
-    Random(RandomStateValidationError),
-    RandomWorldSeedMismatch {
-        world_seed: WorldSeed,
-        random_seed: WorldSeed,
-    },
     Energy(EnergyValidationError),
     Fluid(FluidValidationError),
     Equipment(EquipmentValidationError),

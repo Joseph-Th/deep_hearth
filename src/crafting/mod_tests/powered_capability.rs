@@ -11,7 +11,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, MassFlow, Temperature};
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::{degrade_equipment_condition_for_test, validate_assemble_equipment};
 use crate::inventory::{
@@ -132,7 +131,7 @@ fn powered_craft_registry_requires_minimum_throughput_semantics() {
 fn powered_craft_enforces_all_condition_adjusted_provider_requirements() {
     let (registries, extra_capability) =
         augmented_powered_registries(CapabilityComparison::AtLeast);
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_71C0));
+    let mut state = AppState::new();
     let assembly = stockpile(&mut state, 6_000_000);
     for (commodity, mass) in [
         (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 4_000_000),

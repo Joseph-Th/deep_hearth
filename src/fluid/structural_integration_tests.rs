@@ -7,7 +7,6 @@ use crate::content::{
 };
 use crate::core::quantity::{AggregateMass, Area, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::fluid::{
     FluidDefinition, FluidDefinitionId, FluidEgressError, FluidValidationError, add_fluid_store,
     add_fluid_store_with_contents_for_fixture, validate_fluid_egress,
@@ -36,7 +35,7 @@ fn registries_with_material(material: crate::material::MaterialId) -> Registries
 #[test]
 fn trusted_load_rejects_absolute_zero_fluid_contents() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0009));
+    let mut state = AppState::new();
     let store = add_filled(&registries, &mut state, 1_000);
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
@@ -62,7 +61,7 @@ fn registries() -> Registries {
 #[test]
 fn trusted_load_rejects_fluid_below_authored_melting_point() {
     let registries = registries_with_material(MATERIAL_COPPER);
-    let mut state = AppState::new(WorldSeed::new(0x9410_000C));
+    let mut state = AppState::new();
     let melting_point = Temperature::from_millikelvin(1_357_770);
     let valid_temperature = Temperature::from_millikelvin(1_357_771);
     let store = add_fluid_store_with_contents_for_fixture(
@@ -98,7 +97,7 @@ fn trusted_load_rejects_fluid_below_authored_melting_point() {
 #[test]
 fn fluid_fixture_rejects_material_below_authored_melting_point_without_mutation() {
     let registries = registries_with_material(MATERIAL_COPPER);
-    let mut state = AppState::new(WorldSeed::new(0x9410_000D));
+    let mut state = AppState::new();
     let before = state.clone();
     let melting_point = Temperature::from_millikelvin(1_357_770);
     let temperature = Temperature::from_millikelvin(1_357_769);
@@ -126,7 +125,7 @@ fn fluid_fixture_rejects_material_below_authored_melting_point_without_mutation(
 #[test]
 fn fluid_fixture_rejects_absolute_zero_contents_without_mutation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_000A));
+    let mut state = AppState::new();
     let before = state.clone();
 
     assert_eq!(
@@ -218,7 +217,7 @@ fn mount(
 #[test]
 fn mounted_fluid_uses_material_density_for_structural_weight() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0001));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000_000);
 
@@ -252,7 +251,7 @@ fn mounted_fluid_uses_material_density_for_structural_weight() {
 #[test]
 fn fluid_mass_rounding_occurs_after_support_local_aggregation() {
     let registries = registries_with_material(MATERIAL_WOOD);
-    let mut state = AppState::new(WorldSeed::new(0x9410_0002));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let first = add_filled(&registries, &mut state, 1);
     let _ = mount(&registries, &mut state, first, support);
@@ -284,7 +283,7 @@ fn fluid_mass_rounding_occurs_after_support_local_aggregation() {
 #[test]
 fn fractional_fluid_mass_does_not_round_up_before_weight_conversion() {
     let registries = registries_with_material(MATERIAL_WOOD);
-    let mut state = AppState::new(WorldSeed::new(0x9410_000B));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 156);
 
@@ -309,7 +308,7 @@ fn fractional_fluid_mass_does_not_round_up_before_weight_conversion() {
 #[test]
 fn direct_fluid_load_write_and_supported_member_removal_are_blocked() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0003));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000);
     let _ = mount(&registries, &mut state, store, support);
@@ -338,7 +337,7 @@ fn direct_fluid_load_write_and_supported_member_removal_are_blocked() {
 #[test]
 fn failed_support_can_be_drained_and_rejects_new_mounts() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0004));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let source = add_filled(&registries, &mut state, 5_000_000_000);
     let outcome = mount(&registries, &mut state, source, support);
@@ -401,7 +400,7 @@ fn failed_support_can_be_drained_and_rejects_new_mounts() {
 #[test]
 fn fluid_support_change_rejects_stale_fluid_owner_before_structural_mutation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0006));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000_000);
     let token = match validate_mount_fluid_store(&registries, &state, store, support) {
@@ -433,7 +432,7 @@ fn fluid_support_change_rejects_stale_fluid_owner_before_structural_mutation() {
 #[test]
 fn fluid_mount_rejects_exhausted_fluid_revision_without_structural_mutation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_E001));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000_000);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -456,7 +455,7 @@ fn fluid_mount_rejects_exhausted_fluid_revision_without_structural_mutation() {
 #[test]
 fn fluid_egress_rejects_exhausted_revision_without_withdrawing_volume() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_E002));
+    let mut state = AppState::new();
     let store = add_filled(&registries, &mut state, 1_000_000);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("fluid egress exhaustion serialization failed: {error}"));
@@ -478,7 +477,7 @@ fn fluid_egress_rejects_exhausted_revision_without_withdrawing_volume() {
 #[test]
 fn supported_fluid_round_trip_preserves_support_index_and_derived_load() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0007));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000_000);
     let _ = mount(&registries, &mut state, store, support);
@@ -520,7 +519,7 @@ fn supported_fluid_round_trip_preserves_support_index_and_derived_load() {
 #[test]
 fn tampered_fluid_derived_load_is_rejected_on_load() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0008));
+    let mut state = AppState::new();
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000_000);
     let _ = mount(&registries, &mut state, store, support);

@@ -7,8 +7,8 @@ fn decode_tampered(encoded: serde_json::Value, context: &str) -> LoadedSaveEnvel
         .unwrap_or_else(|error| panic!("{context} tampered save failed to decode: {error}"))
 }
 
-fn eating_state(registries: &Registries, seed: u64, mass: Mass) -> AppState {
-    let mut state = AppState::new(WorldSeed::new(seed));
+fn eating_state(registries: &Registries, mass: Mass) -> AppState {
+    let mut state = AppState::new();
     initialize_and_spend_reserves(registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("pending-meal stockpile failed: {error}"));
@@ -36,7 +36,7 @@ fn eating_state(registries: &Registries, seed: u64, mass: Mass) -> AppState {
 #[test]
 fn trusted_load_rejects_pending_meal_with_forged_spoiled_storage_history() {
     let registries = build_registries();
-    let state = eating_state(&registries, 0x5A70_0040, Mass::from_milligrams(2));
+    let state = eating_state(&registries, Mass::from_milligrams(2));
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending freshness serialization failed: {error}"));
@@ -61,7 +61,7 @@ fn trusted_load_rejects_pending_meal_with_forged_spoiled_storage_history() {
 #[test]
 fn trusted_load_rejects_pending_meal_with_missing_source_stockpile() {
     let registries = build_registries();
-    let state = eating_state(&registries, 0x5A70_0041, Mass::from_milligrams(2));
+    let state = eating_state(&registries, Mass::from_milligrams(2));
     let missing = crate::inventory::StockpileId::new(u32::MAX);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending source serialization failed: {error}"));
@@ -79,7 +79,7 @@ fn trusted_load_rejects_pending_meal_with_missing_source_stockpile() {
 #[test]
 fn aged_fresh_pending_meal_round_trips_with_admission_history_intact() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0042));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let mass = Mass::from_milligrams(2);
     let stockpile = add_solid_stockpile_for_test(&mut state, mass)
@@ -128,8 +128,8 @@ fn aged_fresh_pending_meal_round_trips_with_admission_history_intact() {
     assert_eq!(loaded, state);
 }
 
-fn drinking_state(registries: &Registries, seed: u64, volume: Volume) -> AppState {
-    let mut state = AppState::new(WorldSeed::new(seed));
+fn drinking_state(registries: &Registries, volume: Volume) -> AppState {
+    let mut state = AppState::new();
     initialize_and_spend_reserves(registries, &mut state);
     let store = add_fluid_store_with_contents_for_fixture(
         registries,
@@ -151,7 +151,7 @@ fn drinking_state(registries: &Registries, seed: u64, volume: Volume) -> AppStat
 fn trusted_load_rejects_future_and_elapsed_pending_consumption_schedules() {
     let registries = build_registries();
     let volume = minimum_drink_volume(&registries);
-    let state = drinking_state(&registries, 0x5A70_0033, volume);
+    let state = drinking_state(&registries, volume);
     let current = state.tick().value();
 
     let mut future = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -172,7 +172,7 @@ fn trusted_load_rejects_future_and_elapsed_pending_consumption_schedules() {
         .physiology()
         .direct_consumption()
         .maximum_drink_volume();
-    let mut elapsed_state = drinking_state(&registries, 0x5A70_0034, maximum);
+    let mut elapsed_state = drinking_state(&registries, maximum);
     let PlayerWork::Drinking { work } = elapsed_state
         .player_work()
         .active()
@@ -203,7 +203,7 @@ fn trusted_load_rejects_future_and_elapsed_pending_consumption_schedules() {
 fn trusted_load_rejects_pending_drink_duration_mismatch() {
     let registries = build_registries();
     let minimum = minimum_drink_volume(&registries);
-    let state = drinking_state(&registries, 0x5A70_0035, minimum);
+    let state = drinking_state(&registries, minimum);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending-drink-duration serialization failed: {error}"));
     let completes_at = encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]
@@ -225,7 +225,7 @@ fn trusted_load_rejects_pending_drink_duration_mismatch() {
 fn trusted_load_rejects_pending_drink_below_authored_minimum() {
     let registries = build_registries();
     let minimum = minimum_drink_volume(&registries);
-    let state = drinking_state(&registries, 0x5A70_0043, minimum);
+    let state = drinking_state(&registries, minimum);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending-drink-minimum serialization failed: {error}"));
     let below_minimum = minimum
@@ -246,7 +246,7 @@ fn trusted_load_rejects_pending_drink_below_authored_minimum() {
 fn trusted_load_rejects_pending_consumption_larger_than_terminal_accounting() {
     let registries = build_registries();
 
-    let mut eating = AppState::new(WorldSeed::new(0x5A70_0036));
+    let mut eating = AppState::new();
     initialize_and_spend_reserves(&registries, &mut eating);
     let stockpile = add_solid_stockpile_for_test(&mut eating, Mass::from_milligrams(2))
         .unwrap_or_else(|error| panic!("pending-meal accounting stockpile failed: {error}"));
@@ -288,7 +288,7 @@ fn trusted_load_rejects_pending_consumption_larger_than_terminal_accounting() {
     );
 
     let minimum = minimum_drink_volume(&registries);
-    let drinking = drinking_state(&registries, 0x5A70_0037, minimum);
+    let drinking = drinking_state(&registries, minimum);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &drinking))
         .unwrap_or_else(|error| panic!("pending-drink accounting serialization failed: {error}"));
     let consumed_fluids = encoded["state"]["systems"]["survival"]["consumed_fluids"]
@@ -310,7 +310,7 @@ fn trusted_load_rejects_pending_consumption_larger_than_terminal_accounting() {
 #[test]
 fn trusted_load_rejects_noncanonical_pending_eating_baseline_order() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0039));
+    let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2))
         .unwrap_or_else(|error| panic!("pending-baseline-order stockpile failed: {error}"));
@@ -371,7 +371,7 @@ fn maximum_pending_drink_round_trips_at_the_authored_boundary() {
         .physiology()
         .direct_consumption()
         .maximum_drink_volume();
-    let state = drinking_state(&registries, 0x5A70_0038, maximum);
+    let state = drinking_state(&registries, maximum);
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("maximum pending drink serialization failed: {error}"));
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)

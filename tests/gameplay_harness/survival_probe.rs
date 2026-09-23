@@ -13,7 +13,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Pressure, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::{SimulationTick, WorldSeed};
+use deep_hearth::core::time::SimulationTick;
 use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::validate_assemble_equipment;
@@ -86,7 +86,7 @@ mod report;
 pub(super) use report::run_survival_provisioning_probe;
 
 #[path = "survival_probe/provisioning_support.rs"]
-mod provisioning_support;
+pub(super) mod provisioning_support;
 use provisioning_support::*;
 
 #[path = "survival_probe/provisioning_world.rs"]
@@ -421,7 +421,6 @@ fn run_diet_recovery_branch(
 
 fn evaluate_diet_recovery_consequence(
     registries: &Registries,
-    seed: u64,
     world: &ProvisioningWorld,
 ) -> DietRecoveryReview {
     let authored_category_count = registries
@@ -434,7 +433,7 @@ fn evaluate_diet_recovery_consequence(
         return DietRecoveryReview::supply_collapsed();
     }
 
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x4449_4554_5F52_4543));
+    let mut state = AppState::new();
     let physiology = registries.survival().physiology();
     let offered_masses = world
         .foods

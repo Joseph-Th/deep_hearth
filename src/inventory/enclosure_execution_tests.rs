@@ -12,7 +12,7 @@ use crate::content::{
 };
 use crate::core::quantity::{AggregateMass, Area, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
@@ -45,7 +45,7 @@ fn construction_fixture(
     MaterialLotId,
 ) {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5702_1001));
+    let mut state = AppState::new();
     let target = add_solid_stockpile_for_test(&mut state, target_capacity)
         .unwrap_or_else(|error| panic!("preservation target fixture failed: {error}"));
     let food = deposit_lot_for_test(
@@ -74,7 +74,7 @@ fn construction_fixture(
 #[test]
 fn bulk_crate_encloses_large_reserve_that_standard_chest_cannot() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5702_1011));
+    let mut state = AppState::new();
     let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(40_000_000))
         .unwrap_or_else(|error| panic!("bulk crate target fixture failed: {error}"));
     deposit_lot_for_test(
@@ -162,7 +162,7 @@ fn bulk_crate_encloses_large_reserve_that_standard_chest_cannot() {
 #[test]
 fn raw_stone_can_be_shaped_into_a_timber_free_preservation_crock() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5702_1013));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("stone crock survival setup failed: {error}"));
     let raw_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_000_000))
@@ -270,7 +270,7 @@ fn raw_stone_can_be_shaped_into_a_timber_free_preservation_crock() {
 #[test]
 fn insulated_pantry_slows_only_future_food_age_four_to_one() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5702_1012));
+    let mut state = AppState::new();
     let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
         .unwrap_or_else(|error| panic!("insulated pantry target fixture failed: {error}"));
     let food = deposit_lot_for_test(
@@ -530,7 +530,7 @@ fn enclosure_rejects_existing_contents_outside_completed_profile_without_mutatio
 #[test]
 fn enclosure_allows_incompatible_construction_lot_when_target_source_consumes_it_fully() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5702_1008));
+    let mut state = AppState::new();
     let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
         .unwrap_or_else(|error| panic!("self-enclosure target fixture failed: {error}"));
     let hot_temperature = Temperature::from_millikelvin(340_000);

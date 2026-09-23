@@ -14,7 +14,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
@@ -330,7 +329,7 @@ pub(super) fn acquire_raw_kit<T>(
         .copied()
         .unwrap_or(Mass::ZERO);
 
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x4C49_4245_4B49_5401));
+    let mut state = AppState::new();
     let raw = add_solid_stockpile(&mut state, raw_mass);
     for (commodity, mass) in raw_requirements {
         seed_lot(

@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn save_round_trip_preserves_authoritative_runtime_state() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5EED));
+    let mut state = AppState::new();
     let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("fixture stockpile failed: {error}"),
@@ -81,18 +81,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
             "schema_version": 999,
             "registry_schema_version": 5,
             "state": {
-                "world_seed": 11,
                 "clock": {"tick": 0},
-                "random": {
-                    "root_seed": 11,
-                    "derivation": "SplitMix64V1",
-                    "streams": {
-                        "1": {
-                            "algorithm": "Xoshiro256StarStarV1",
-                            "words": [1, 2, 3, 4]
-                        }
-                    }
-                },
                 "systems": {
                     "energy": {"revision": 0, "next_store_id": 1, "records": {}},
                 "fluid": {
@@ -166,7 +155,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
 #[test]
 fn previous_save_schema_is_rejected_without_compatibility_path() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_0022));
+    let state = AppState::new();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("previous-schema fixture serialization failed: {error}"));
     let previous = CURRENT_SAVE_SCHEMA_VERSION
@@ -188,7 +177,7 @@ fn previous_save_schema_is_rejected_without_compatibility_path() {
 #[test]
 fn unknown_fields_are_rejected_at_envelope_and_nested_state_boundaries() {
     let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_0020));
+    let state = AppState::new();
     let base = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("strict-field fixture serialization failed: {error}"));
 

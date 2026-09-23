@@ -29,7 +29,7 @@ pub(super) fn evaluate_survival_pressure_response_probe(registries: &Registries,
     let physiology = registries.survival().physiology();
     let drink_volume = physiology.direct_consumption().minimum_drink_volume();
 
-    let mut hunger = AppState::new(WorldSeed::new(seed ^ 0x4855_4E47_4552_0001));
+    let mut hunger = AppState::new();
     let hunger_food_store = seed_stockpile(
         &mut hunger,
         food_mass,
@@ -92,7 +92,7 @@ pub(super) fn evaluate_survival_pressure_response_probe(registries: &Registries,
         .unwrap_or_else(|| panic!("hunger-pressure baseline player disappeared"));
     assert!(hunger_after.metabolic_energy() > hunger_baseline_after.metabolic_energy());
 
-    let mut thirst = AppState::new(WorldSeed::new(seed ^ 0x5448_4952_5354_0002));
+    let mut thirst = AppState::new();
     let thirst_food_store = seed_stockpile(
         &mut thirst,
         food_mass,

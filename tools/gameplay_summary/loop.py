@@ -3,8 +3,74 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from .common import field
+
+
+@dataclass(frozen=True)
+class _LoopEvidenceLines:
+    progression: list[str]
+    progression_reviews: list[str]
+    liberation: list[str]
+    woodworking: list[str]
+    fieldwork: list[str]
+    power: list[str]
+    power_projects: list[str]
+    survival: list[str]
+    survey_campaigns: list[str]
+    bulk_crossovers: list[str]
+
+
+def _lines_with_prefix(lines: list[str], prefix: str) -> list[str]:
+    return [line for line in lines if line.startswith(prefix)]
+
+
+def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
+    return _LoopEvidenceLines(
+        progression=_lines_with_prefix(lines, "PROGRESSION EXPERIENCE "),
+        progression_reviews=_lines_with_prefix(lines, "PROGRESSION REVIEW "),
+        liberation=_lines_with_prefix(lines, "LIBERATION FRONTIER CAPABILITY "),
+        woodworking=_lines_with_prefix(lines, "WOODWORKING EXPERIENCE "),
+        fieldwork=_lines_with_prefix(lines, "FIELDWORK EXPERIENCE "),
+        power=_lines_with_prefix(lines, "POWER PROVIDER EXPERIENCE "),
+        power_projects=_lines_with_prefix(lines, "POWER PROJECT EXPERIENCE "),
+        survival=_lines_with_prefix(lines, "SURVIVAL EXPERIENCE "),
+        survey_campaigns=_lines_with_prefix(lines, "FIELDWORK SURVEY CAMPAIGN "),
+        bulk_crossovers=_lines_with_prefix(lines, "FIELDWORK BULK CROSSOVER "),
+    )
+
+
+def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
+    single_state = sum(
+        " continuity=single-state " in line for line in evidence.progression_reviews
+    )
+    return (
+        "evidence-shape=["
+        f"single-state-progression:{single_state}/{len(evidence.progression_reviews)} "
+        f"domain-episodes:survival{len(evidence.survival)}/"
+        f"woodworking{len(evidence.woodworking)}/fieldwork{len(evidence.fieldwork)}/"
+        f"power{len(evidence.power)}/liberation{len(evidence.liberation)}]"
+    )
+
+
+def _observe_infer_evidence(fieldwork: list[str], extracted: int) -> str:
+    return (
+        "observe-infer=["
+        f"evidence-gated-extraction:{extracted}/{len(fieldwork)} "
+        f"reserve-knowledge-changed-plan:{_reserve_knowledge_changed_plan(fieldwork)}/{len(fieldwork)} "
+        f"avoided-tool-overinvestment:{sum('resource-knowledge-effect=changed-tool' in line for line in fieldwork)}/{len(fieldwork)}]"
+    )
+
+
+def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: int) -> str:
+    selected_liberation = sum(
+        "selected-by-current-player=true" in line for line in liberation
+    )
+    return (
+        f"extract=[fieldwork:{extracted}/{len(fieldwork)} "
+        f"liberation:{selected_liberation}/{len(liberation)}]"
+    )
 
 
 def _reserve_knowledge_changed_plan(fieldwork: list[str]) -> int:
@@ -79,8 +145,8 @@ def _choice_diversity(
     return (
         "choice-diversity=["
         f"woodworking:{len(woodworking_choices)}/3 "
-        f"fieldwork-selected:{len(fieldwork_tools)} "
-        f"fieldwork-catalog:4 bulk-crossover-tools:{len(bulk_tools)}/2 "
+        f"fieldwork-selected:{len(fieldwork_tools)}/4 "
+        f"bulk-crossover-tools:{len(bulk_tools)}/2 "
         f"power-market:{len(power_choices)}/2 "
         f"survey-strategy:{len(survey_strategies)}/2 "
         f"preservation:{len(preservation_policies)}/5]"
@@ -123,6 +189,63 @@ def _delegate_reinvest_evidence(progression: list[str]) -> tuple[str, str]:
     return delegate, reinvest
 
 
+def _survival_adaptation_evidence(
+    survival: list[str], power_projects: list[str]
+) -> str:
+    follow_up = sum(" reprovision:true:" in line for line in survival)
+    task_floor = sum("hydration-policy:task-floor " in line for line in survival)
+    working_reserve = sum("hydration-policy:working-reserve " in line for line in survival)
+    opportunity_power = sum(" opportunity-power:true " in line for line in survival)
+    executed_power = 0
+    for line in survival:
+        match = re.search(r"\bpower:(\d+)t stored:(\d+)nJ", line)
+        if match is not None and int(match.group(1)) > 0 and int(match.group(2)) > 0:
+            executed_power += 1
+    project_breaks = []
+    for line in power_projects:
+        match = re.search(r"provisioning=\[stops:(\d+)", line)
+        if match is not None:
+            project_breaks.append(int(match.group(1)))
+    return (
+        "survive-adapt=["
+        f"reprovisioned-after-work:{follow_up}/{len(survival)} "
+        f"hydration-policy:task-floor{task_floor}/working-reserve{working_reserve} "
+        f"opportunistic-power:{executed_power}/{opportunity_power} "
+        f"mechanized-project-breaks:{sum(value > 0 for value in project_breaks)}/{len(project_breaks)} "
+        f"break-count:{sum(project_breaks)} "
+        f"warning-safe:{sum(' warning-safe:true' in line for line in survival)}/{len(survival)}]"
+    )
+
+
+def _selected_woodworking_services(line: str) -> int:
+    choice = field(line, "choice")
+    if choice == "stone-adze":
+        match = re.search(r"routes=\[adze:.*?maintenance:\d+t/(\d+)services", line)
+        return int(match.group(1)) if match is not None else 0
+    if choice == "frame-saw":
+        match = re.search(r"actual=\[.*?saw-services:(\d+) adze-services:(\d+)\]", line)
+        return int(match.group(1)) + int(match.group(2)) if match is not None else 0
+    return 0
+
+
+def _maintenance_evidence(
+    woodworking: list[str], power_projects: list[str]
+) -> str:
+    service_counts = [_selected_woodworking_services(line) for line in woodworking]
+    power_service_counts = []
+    for line in power_projects:
+        match = re.search(r"maintenance=\[services:(\d+)", line)
+        if match is not None:
+            power_service_counts.append(int(match.group(1)))
+    return (
+        "maintain-recover=["
+        f"woodworking-service-worlds:{sum(count > 0 for count in service_counts)}/{len(woodworking)} "
+        f"woodworking-service-events:{sum(service_counts)} "
+        f"mechanized-projects-serviced:{sum(count > 0 for count in power_service_counts)}/{len(power_service_counts)} "
+        f"mechanized-service-events:{sum(power_service_counts)}]"
+    )
+
+
 def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
     depletion = [
         line
@@ -146,7 +269,7 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
     return (
         "world-feedback=["
         f"initial-supply-ended:{initial_supply_ended}/{len(fieldwork)} "
-        f"initial-shortfall-reroute-proved:{initial_reroute_proved}/{initial_supply_ended} "
+        f"initial-shortfall-campaign-progressed:{initial_reroute_proved}/{initial_supply_ended} "
         f"known-site-depletion:{depleted}/{len(eligible)} "
         f"depletion-reroute-proved:{reroute_proved}/{depleted} "
         f"horizon-live:{sum(' terminal=horizon-live-target ' in line for line in eligible)}/{len(eligible)}]"
@@ -155,36 +278,31 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
 
 def player_loop_evidence(lines: list[str]) -> str | None:
     """Summarize whether ordinary probes actually exercise the stated player-control loop."""
-
-    progression = [line for line in lines if line.startswith("PROGRESSION EXPERIENCE ")]
-    liberation = [
-        line for line in lines if line.startswith("LIBERATION FRONTIER CAPABILITY ")
-    ]
-    woodworking = [line for line in lines if line.startswith("WOODWORKING EXPERIENCE ")]
-    fieldwork = [line for line in lines if line.startswith("FIELDWORK EXPERIENCE ")]
-    power = [line for line in lines if line.startswith("POWER PROVIDER EXPERIENCE ")]
-    survival = [line for line in lines if line.startswith("SURVIVAL EXPERIENCE ")]
-    survey_campaigns = [
-        line for line in lines if line.startswith("FIELDWORK SURVEY CAMPAIGN ")
-    ]
-    bulk_crossovers = [
-        line for line in lines if line.startswith("FIELDWORK BULK CROSSOVER ")
-    ]
-    if not any((progression, liberation, woodworking, fieldwork, power, survival)):
+    evidence = _collect_loop_evidence(lines)
+    if not any(
+        (
+            evidence.progression,
+            evidence.liberation,
+            evidence.woodworking,
+            evidence.fieldwork,
+            evidence.power,
+            evidence.survival,
+        )
+    ):
         return None
 
-    extracted = _fieldwork_extracted(fieldwork)
-    delegate, reinvest = _delegate_reinvest_evidence(progression)
+    extracted = _fieldwork_extracted(evidence.fieldwork)
+    delegate, reinvest = _delegate_reinvest_evidence(evidence.progression)
     return (
         "PLAYER LOOP EVIDENCE "
-        f"observe-infer=[evidence-gated-extraction:{extracted}/{len(fieldwork)} "
-        f"reserve-knowledge-changed-plan:{_reserve_knowledge_changed_plan(fieldwork)}/{len(fieldwork)} "
-        f"avoided-tool-overinvestment:{sum('resource-knowledge-effect=changed-tool' in line for line in fieldwork)}/{len(fieldwork)}] "
-        f"{_prepare_invest_evidence(woodworking, power, survey_campaigns)} "
-        f"extract=[fieldwork:{extracted}/{len(fieldwork)} "
-        f"liberation:{sum('selected-by-current-player=true' in line for line in liberation)}/{len(liberation)}] "
-        f"{_world_feedback_evidence(lines, fieldwork)} "
+        f"{_evidence_shape(evidence)} "
+        f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
+        f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.survey_campaigns)} "
+        f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted)} "
+        f"{_world_feedback_evidence(lines, evidence.fieldwork)} "
+        f"{_survival_adaptation_evidence(evidence.survival, evidence.power_projects)} "
+        f"{_maintenance_evidence(evidence.woodworking, evidence.power_projects)} "
         f"{delegate} "
         f"{reinvest} "
-        f"{_choice_diversity(woodworking, fieldwork, power, survival, survey_campaigns, bulk_crossovers)}"
+        f"{_choice_diversity(evidence.woodworking, evidence.fieldwork, evidence.power, evidence.survival, evidence.survey_campaigns, evidence.bulk_crossovers)}"
     )

@@ -4,8 +4,7 @@ use super::*;
 
 #[test]
 fn duplicate_persistent_map_and_set_entries_are_rejected_during_decode() {
-    let (registries, production_state) =
-        make_started_test_heating_state(WorldSeed::new(0xD001_0001));
+    let (registries, production_state) = make_started_test_heating_state();
     let production_value = serde_json::to_value(SaveEnvelope::new(&registries, &production_state))
         .unwrap_or_else(|error| panic!("duplicate-job fixture serialization failed: {error}"));
     let production_json = serde_json::to_string(&production_value)
@@ -18,7 +17,7 @@ fn duplicate_persistent_map_and_set_entries_are_rejected_during_decode() {
     assert!(serde_json::from_str::<LoadedSaveEnvelope>(&duplicate_jobs).is_err());
 
     let registries = build_registries();
-    let mut inventory_state = AppState::new(WorldSeed::new(0xD001_0002));
+    let mut inventory_state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut inventory_state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("duplicate-inventory stockpile failed: {error}"));
     deposit_bulk_for_test(
@@ -41,7 +40,7 @@ fn duplicate_persistent_map_and_set_entries_are_rejected_during_decode() {
     );
     assert!(serde_json::from_str::<LoadedSaveEnvelope>(&duplicate_contents).is_err());
 
-    let mut structure_state = AppState::new(WorldSeed::new(0xD001_0003));
+    let mut structure_state = AppState::new();
     let foundation = make_test_structural_element(&registries, &mut structure_state, 0, 0, true);
     let upper = make_test_structural_element(&registries, &mut structure_state, 0, 1, false);
     link_test_structural_support(&registries, &mut structure_state, upper, foundation);

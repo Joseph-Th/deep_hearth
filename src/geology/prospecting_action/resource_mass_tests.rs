@@ -3,7 +3,6 @@
 use crate::content::{FORM_LUMP, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE, build_registries};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -47,7 +46,7 @@ fn insert_stone(state: &mut AppState, bounds: VoxelBounds, mass: Mass) {
 
 #[test]
 fn fully_localized_single_body_returns_conservative_mass_bucket() {
-    let mut state = AppState::new(WorldSeed::new(1));
+    let mut state = AppState::new();
     let region = voxel(0);
     let actual = Mass::from_milligrams(4_300_000);
     insert_copper(&mut state, region, actual);
@@ -67,7 +66,7 @@ fn fully_localized_single_body_returns_conservative_mass_bucket() {
 #[test]
 fn resource_mass_resolution_tracks_owner_depletion_and_disappears_at_zero() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(7));
+    let mut state = AppState::new();
     let region = voxel(0);
     let initial = Mass::from_milligrams(4_300_000);
     let spec = GeneratedDepositSpec::new(
@@ -134,7 +133,7 @@ fn resource_mass_resolution_tracks_owner_depletion_and_disappears_at_zero() {
 
 #[test]
 fn exact_bucket_boundary_does_not_reveal_hidden_reserve_exactly() {
-    let mut state = AppState::new(WorldSeed::new(4));
+    let mut state = AppState::new();
     let region = voxel(0);
     let actual = Mass::from_milligrams(4_000_000);
     insert_copper(&mut state, region, actual);
@@ -163,7 +162,7 @@ fn representational_ceiling_does_not_collapse_resource_mass_uncertainty() {
 
 #[test]
 fn unrelated_remote_copper_body_does_not_make_a_localized_body_ambiguous() {
-    let mut state = AppState::new(WorldSeed::new(5));
+    let mut state = AppState::new();
     let region = voxel(0);
     insert_copper(&mut state, region, Mass::from_milligrams(4_300_000));
     insert_copper(&mut state, voxel(10), Mass::from_milligrams(7_000_000));
@@ -181,7 +180,7 @@ fn unrelated_remote_copper_body_does_not_make_a_localized_body_ambiguous() {
 
 #[test]
 fn overlapping_body_without_requested_material_does_not_create_false_ambiguity() {
-    let mut state = AppState::new(WorldSeed::new(6));
+    let mut state = AppState::new();
     let region = voxel(0);
     insert_copper(&mut state, region, Mass::from_milligrams(4_300_000));
     insert_stone(&mut state, region, Mass::from_milligrams(9_000_000));
@@ -199,7 +198,7 @@ fn overlapping_body_without_requested_material_does_not_create_false_ambiguity()
 
 #[test]
 fn broader_observation_region_does_not_claim_single_body_resource_mass() {
-    let mut state = AppState::new(WorldSeed::new(8));
+    let mut state = AppState::new();
     let body = voxel(0);
     let broad = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(2, 1, 1))
         .unwrap_or_else(|error| panic!("broad resource-mass bounds failed: {error}"));
@@ -220,7 +219,7 @@ fn broader_observation_region_does_not_claim_single_body_resource_mass() {
 #[test]
 fn partial_or_ambiguous_body_localization_does_not_claim_resource_mass() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(2));
+    let mut state = AppState::new();
     let wide = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(2, 1, 1))
         .unwrap_or_else(|error| panic!("wide resource-mass bounds failed: {error}"));
     let spec = GeneratedDepositSpec::new(
@@ -245,7 +244,7 @@ fn partial_or_ambiguous_body_localization_does_not_claim_resource_mass() {
         "a partial sample must not reveal the total mass of a larger hidden body"
     );
 
-    let mut ambiguous = AppState::new(WorldSeed::new(3));
+    let mut ambiguous = AppState::new();
     insert_copper(&mut ambiguous, voxel(10), Mass::from_milligrams(2_000_000));
     insert_copper(&mut ambiguous, voxel(11), Mass::from_milligrams(3_000_000));
     let combined = VoxelBounds::new(VoxelCoord::new(10, 0, 0), VoxelCoord::new(12, 1, 1))

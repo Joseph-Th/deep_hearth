@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn in_flight_sensible_heating_round_trip_preserves_energy_trace_and_continuation() {
     let registries = make_test_heating_registries();
-    let mut state = AppState::new(WorldSeed::new(0xE900_0100));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("heating persistence source failed: {error}"),

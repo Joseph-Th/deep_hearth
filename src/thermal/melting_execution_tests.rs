@@ -13,7 +13,6 @@ use crate::core::quantity::{Length, Mass};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 #[cfg(feature = "test-soak")]
 use crate::core::time::TickSpan;
-use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture, calculate_explicit_energy_accounting,
@@ -399,7 +398,7 @@ fn make_fixture_with_resources(
     initial_energy: Energy,
 ) -> MeltingFixture {
     let registries = make_registries(maximum_temperature, carrier);
-    let mut state = AppState::new(WorldSeed::new(0x9500_0001));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
         Ok(source) => source,
         Err(error) => panic!("melting source fixture failed: {error}"),
@@ -1086,7 +1085,7 @@ fn melting_rejects_feed_hotter_than_equipment_maximum() {
     assert!(feed < COPPER_MELTING_POINT);
     assert!(feed > maximum);
     let registries = make_registries(maximum, EnergyCarrier::Electrical);
-    let mut state = AppState::new(WorldSeed::new(0x9500_0007));
+    let mut state = AppState::new();
     let source_profile =
         match StockpileStorageProfile::new(true, false, Temperature::from_millikelvin(1_500_000)) {
             Ok(profile) => profile,

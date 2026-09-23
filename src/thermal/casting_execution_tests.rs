@@ -8,7 +8,7 @@ use crate::capability::{
 use crate::content::{FORM_INGOT, FORM_MOLTEN, MATERIAL_COPPER, make_test_registries_with_casting};
 use crate::core::quantity::Mass;
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, EnergySinkError, EnergyStoreDefinition, EnergyStoreDefinitionId,
     EnergyStoreRecord, PreciseEnergy, add_energy_store, add_energy_store_with_initial_for_fixture,
@@ -452,7 +452,7 @@ fn make_fixture_with_sink_configuration(
         sink_input_power,
         sink_passive_dissipation,
     );
-    let mut state = AppState::new(WorldSeed::new(0x9600_0001));
+    let mut state = AppState::new();
     let source_profile =
         match StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_600_001)) {
             Ok(profile) => profile,
@@ -883,7 +883,7 @@ fn casting_rejects_wrong_energy_sink_carrier_without_mutation() {
         Energy::from_nanojoules(10_000_000_000),
         Power::from_microwatts(10_000_000),
     );
-    let mut state = AppState::new(WorldSeed::new(0x9600_0002));
+    let mut state = AppState::new();
     let source_profile =
         match StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_500_000)) {
             Ok(profile) => profile,

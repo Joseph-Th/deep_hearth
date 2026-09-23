@@ -7,7 +7,7 @@ use super::*;
 #[ignore = "long-horizon soak"]
 fn equipment_maintenance_soak_preserves_timed_service_resources_and_replay() {
     let registries = registries();
-    let mut first = AppState::new(WorldSeed::new(0x8120_0007));
+    let mut first = AppState::new();
     initialize_service_player(&registries, &mut first);
     let equipment =
         match add_equipment(&registries, &mut first, TEST_DEFINITION, condition(700_000)) {
@@ -107,7 +107,7 @@ fn equipment_maintenance_soak_preserves_timed_service_resources_and_replay() {
 #[test]
 fn maintenance_commit_rechecks_late_production_occupancy_before_moving_material() {
     let registries = occupied_registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0008));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
@@ -236,7 +236,7 @@ fn maintenance_commit_rechecks_late_production_occupancy_before_moving_material(
 #[test]
 fn production_commit_reports_late_maintenance_occupancy_before_stale_revision() {
     let registries = occupied_registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_000A));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
@@ -353,7 +353,7 @@ fn production_commit_reports_late_maintenance_occupancy_before_stale_revision() 
 #[test]
 fn maintenance_counts_reserved_inbound_as_capacity_but_not_structural_weight() {
     let registries = occupied_registries();
-    let mut state = AppState::new(WorldSeed::new(0x8120_0009));
+    let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
     let process_equipment = match add_equipment(
         &registries,

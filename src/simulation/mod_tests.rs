@@ -6,7 +6,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::apply_clock_advance;
-use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture,
@@ -36,7 +35,7 @@ fn passive_dissipation_registries() -> Registries {
 #[test]
 fn unreachable_inventory_storage_history_is_rejected_during_decode() {
     let registries = build_registries();
-    let mut source = AppState::new(WorldSeed::new(0x5100_000C));
+    let mut source = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut source, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("storage-age stockpile fixture failed: {error}"));
     let lot = deposit_lot_for_test(
@@ -64,7 +63,7 @@ fn unreachable_inventory_storage_history_is_rejected_during_decode() {
 #[test]
 fn canonical_tick_advances_exactly_once() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(7));
+    let mut state = AppState::new();
 
     let result = advance_tick(&registries, &mut state);
     let outcome = match result {
@@ -79,7 +78,7 @@ fn canonical_tick_advances_exactly_once() {
 #[test]
 fn canonical_tick_applies_exact_passive_energy_dissipation() {
     let registries = passive_dissipation_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0001));
+    let mut state = AppState::new();
     let store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -103,7 +102,7 @@ fn canonical_tick_applies_exact_passive_energy_dissipation() {
 #[test]
 fn clock_exhaustion_leaves_state_unchanged() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(9));
+    let mut state = AppState::new();
     apply_clock_advance(&mut state, SimulationTick::new(u64::MAX));
     let before = state.clone();
 
@@ -121,7 +120,7 @@ fn clock_exhaustion_leaves_state_unchanged() {
 #[test]
 fn exhausted_survival_revision_reloaded_from_save_rejects_tick_atomically() {
     let registries = build_registries();
-    let mut source = AppState::new(WorldSeed::new(0x5100_000A));
+    let mut source = AppState::new();
     initialize_player_survival(&registries, &mut source)
         .unwrap_or_else(|error| panic!("survival-revision fixture failed: {error}"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &source))
@@ -144,7 +143,7 @@ fn exhausted_survival_revision_reloaded_from_save_rejects_tick_atomically() {
 #[test]
 fn exhausted_energy_revision_reloaded_from_save_rejects_passive_tick_atomically() {
     let registries = passive_dissipation_registries();
-    let mut source = AppState::new(WorldSeed::new(0x5100_000B));
+    let mut source = AppState::new();
     let _store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut source,
@@ -192,7 +191,7 @@ fn shared_owner_revision_capacity_accounts_for_all_same_tick_mutations() {
 #[test]
 fn dead_player_remains_visible_in_tick_survival_outcome_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_1001));
+    let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("dead-player survival initialization failed: {error}"));
     let player = state

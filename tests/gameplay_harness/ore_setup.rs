@@ -14,7 +14,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::EnergyStoreId;
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
@@ -53,7 +52,6 @@ pub(super) struct OrePreparationSetup {
 
 pub(super) fn setup_ore_preparation_probe(
     registries: &Registries,
-    seed: u64,
     setup: OrePreparationSetup,
 ) -> (AppState, OrePreparationProbeIds) {
     let OrePreparationSetup {
@@ -66,7 +64,7 @@ pub(super) fn setup_ore_preparation_probe(
         separator_condition,
         drive_energy,
     } = setup;
-    let mut state = AppState::new(WorldSeed::new(seed));
+    let mut state = AppState::new();
     let ore_source = add_solid_stockpile(&mut state, batch_mass);
     let crushed_storage = add_solid_stockpile(&mut state, batch_mass);
     let ground_storage = add_solid_stockpile(&mut state, batch_mass);

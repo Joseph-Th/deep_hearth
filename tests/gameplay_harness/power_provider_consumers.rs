@@ -70,6 +70,16 @@ pub(super) struct PrimitivePowerConsumer {
     crusher: EquipmentId,
 }
 
+impl PrimitivePowerConsumer {
+    pub(super) const fn equipment(self) -> EquipmentId {
+        self.crusher
+    }
+
+    pub(super) const fn source(self) -> StockpileId {
+        self.source
+    }
+}
+
 pub(super) fn build_primitive_power_consumer(
     registries: &Registries,
     state: &mut AppState,
@@ -98,20 +108,20 @@ pub(super) fn consume_primitive_charge(
     state: &mut AppState,
     consumer: PrimitivePowerConsumer,
     drive: EnergyStoreId,
-    capacity_nj: u128,
+    requested_nj: u128,
 ) -> u64 {
     let definition = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
         .unwrap_or_else(|| panic!("power-provider primitive consumer process disappeared"));
     let mass = deep_hearth::energy::calculate_mass_specific_energy_capacity(
-        Energy::from_nanojoules(capacity_nj),
+        Energy::from_nanojoules(requested_nj),
         definition.specific_energy(),
     );
     assert_eq!(
         deep_hearth::energy::calculate_mass_specific_energy(mass, definition.specific_energy()),
-        Energy::from_nanojoules(capacity_nj),
-        "primitive power consumer must convert one full flywheel charge into an exact ore batch"
+        Energy::from_nanojoules(requested_nj),
+        "primitive power consumer must convert the requested flywheel work into an exact ore batch"
     );
     let selections = select_stockpile_mass(
         state,
@@ -133,7 +143,7 @@ pub(super) fn consume_primitive_charge(
     .unwrap_or_else(|error| panic!("power-provider primitive consumer resolution failed: {error}"));
     assert_eq!(
         resolved.required_energy(),
-        Energy::from_nanojoules(capacity_nj)
+        Energy::from_nanojoules(requested_nj)
     );
     let ticks = resolved.process_resolution().duration().value();
     let job = validate_start_process(
@@ -167,6 +177,16 @@ pub(super) struct SettlementPowerConsumer {
     sawmill: EquipmentId,
 }
 
+impl SettlementPowerConsumer {
+    pub(super) const fn equipment(self) -> EquipmentId {
+        self.sawmill
+    }
+
+    pub(super) const fn source(self) -> StockpileId {
+        self.source
+    }
+}
+
 pub(super) fn build_settlement_power_consumer(
     registries: &Registries,
     state: &mut AppState,
@@ -195,14 +215,14 @@ pub(super) fn consume_settlement_charge(
     state: &mut AppState,
     consumer: SettlementPowerConsumer,
     drive: EnergyStoreId,
-    capacity_nj: u128,
+    requested_nj: u128,
 ) -> u64 {
     let definition = registries
         .crafting()
         .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
         .unwrap_or_else(|| panic!("power-provider settlement saw process disappeared"));
     let input_mass = deep_hearth::energy::calculate_mass_specific_energy_capacity(
-        Energy::from_nanojoules(capacity_nj),
+        Energy::from_nanojoules(requested_nj),
         definition.specific_energy(),
     );
     assert_eq!(
@@ -210,8 +230,8 @@ pub(super) fn consume_settlement_charge(
             input_mass,
             definition.specific_energy(),
         ),
-        Energy::from_nanojoules(capacity_nj),
-        "settlement power consumer must convert one full bank charge into an exact lumber batch"
+        Energy::from_nanojoules(requested_nj),
+        "settlement power consumer must convert the requested bank work into an exact lumber batch"
     );
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
     let selection = select_stockpile_commodity_mass(
@@ -246,8 +266,8 @@ pub(super) fn consume_settlement_charge(
         record
             .consumed_energy()
             .map(|trace| trace.energy().nanojoules()),
-        Some(capacity_nj),
-        "settlement consumer must use the entire matched flywheel-bank charge"
+        Some(requested_nj),
+        "settlement consumer must use the entire requested flywheel-bank charge"
     );
     let ticks = record.active_duration().value();
     finish_uninterrupted_production_job(

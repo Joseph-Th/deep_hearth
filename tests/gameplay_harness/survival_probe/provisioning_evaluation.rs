@@ -225,7 +225,6 @@ pub(super) fn run_provisioning_case(
 
 pub(super) fn evaluate_provisioning_comparison(
     registries: &Registries,
-    seed: u64,
     behavior_seed: u64,
     world: &ProvisioningWorld,
 ) -> DietComparisonReview {
@@ -238,7 +237,7 @@ pub(super) fn evaluate_provisioning_comparison(
         .collect::<BTreeSet<_>>()
         .len();
     let drink_supply = provisioning_drink_supply(registries, world);
-    let prepared = prepare_provisioning_world(registries, seed, world, drink_supply);
+    let prepared = prepare_provisioning_world(registries, world, drink_supply);
     let compact_plan = provisioning_plan(
         registries,
         world,
@@ -334,7 +333,7 @@ pub(super) fn evaluate_provisioning_comparison(
         recovery_rate_delta_ppm_per_tick: i64::from(balanced.recovery_rate_after_ppm_per_tick)
             - i64::from(compact.recovery_rate_after_ppm_per_tick),
         reserve_recovered: compact.reserve_recovered && balanced.reserve_recovered,
-        recovery: evaluate_diet_recovery_consequence(registries, seed, world),
+        recovery: evaluate_diet_recovery_consequence(registries, world),
     }
 }
 

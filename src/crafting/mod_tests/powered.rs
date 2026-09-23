@@ -11,7 +11,6 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
-use crate::core::time::WorldSeed;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{
@@ -33,7 +32,7 @@ fn stockpile(state: &mut AppState, capacity_mg: u64) -> StockpileId {
 #[test]
 fn helve_hammer_executes_scrap_rework_and_saw_blade_routes() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7103));
+    let mut state = AppState::new();
     let assembly = stockpile(&mut state, 7_000_000);
     for (commodity, mass) in [
         (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 4_000_000),
@@ -196,7 +195,7 @@ fn finish_job(
 #[test]
 fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7101));
+    let mut state = AppState::new();
     let assembly = stockpile(&mut state, 6_000_000);
     deposit(
         &registries,
@@ -334,7 +333,7 @@ fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
 #[test]
 fn helve_hammer_turns_native_copper_into_reinforcement_without_player_work() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0xC4AF_7102));
+    let mut state = AppState::new();
     let assembly = stockpile(&mut state, 7_000_000);
     for (commodity, mass) in [
         (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 4_000_000),

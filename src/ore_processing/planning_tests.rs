@@ -13,7 +13,7 @@ use crate::content::{
 use crate::core::quantity::{Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
 use crate::core::throughput::calculate_mass_flow_capacity;
-use crate::core::time::{TickSpan, WorldSeed};
+use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergySupplyError,
     add_energy_store_with_initial_for_fixture,
@@ -172,7 +172,7 @@ fn make_registries(config: PlanningConfig) -> Registries {
 
 fn make_fixture(config: PlanningConfig) -> PlanningFixture {
     let registries = make_registries(config);
-    let mut state = AppState::new(WorldSeed::new(0x9760_0001));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000))
         .unwrap_or_else(|error| panic!("planning source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000))
@@ -319,6 +319,11 @@ fn replenishment_projection_refuses_mass_beyond_non_energy_constraints() {
         stored_nj: 100,
         ..PlanningConfig::default()
     });
+    let replenished = make_fixture(PlanningConfig {
+        max_batch_mg: 10,
+        stored_nj: 1_000,
+        ..PlanningConfig::default()
+    });
     let envelope = envelope(&fixture);
 
     assert_eq!(
@@ -331,6 +336,16 @@ fn replenishment_projection_refuses_mass_beyond_non_energy_constraints() {
     );
     assert_eq!(
         envelope.additional_energy_required_for(Mass::from_milligrams(11)),
+        None
+    );
+    assert_eq!(
+        envelope.duration_for_mass_with_replenished_energy(Mass::from_milligrams(10)),
+        resolve(&replenished, &replenished.state, Mass::from_milligrams(10))
+            .ok()
+            .map(|resolved| resolved.process_resolution().duration())
+    );
+    assert_eq!(
+        envelope.duration_for_mass_with_replenished_energy(Mass::from_milligrams(11)),
         None
     );
 }

@@ -11,7 +11,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Force, Mass, Power, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyStoreId,
     EnergySupplyError, add_energy_store, add_energy_store_with_initial_for_fixture,
@@ -322,7 +322,7 @@ fn make_loaded_fixture_with_registries(
     EquipmentId,
     EnergyStoreId,
 ) {
-    let mut state = AppState::new(WorldSeed::new(0x9200_0001));
+    let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(id) => id,
         Err(error) => panic!("thermal source fixture failed: {error}"),

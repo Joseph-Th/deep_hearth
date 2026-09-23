@@ -10,7 +10,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::resolve_manual_craft;
 use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use deep_hearth::inventory::{StockpileStorageProfile, validate_build_storage_enclosure};
@@ -25,7 +24,7 @@ use super::manual_craft_selection::select_manual_craft_request;
 #[test]
 fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x574F_4F44_4144_5A45));
+    let mut state = AppState::new();
 
     let raw = seed_stockpile(
         &mut state,

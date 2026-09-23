@@ -11,8 +11,9 @@ pub use drinking::{
     validate_drink,
 };
 pub use eating::{
-    EatCommitError, EatError, EatOutcome, EatPortionOutcome, NutritionGain, ValidatedEat,
-    validate_eat,
+    EatCommitError, EatError, EatOutcome, EatPortionOutcome, MealMetabolicProjectionError,
+    MinimumMealMetabolicProjection, NutritionGain, ValidatedEat,
+    project_minimum_meal_to_metabolic_target, validate_eat,
 };
 pub(crate) use freshness::freshness_from_history;
 pub use freshness::{

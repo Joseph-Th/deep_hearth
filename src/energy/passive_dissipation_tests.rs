@@ -4,7 +4,6 @@ use super::*;
 use crate::content::make_test_registries_with_energy_store;
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture, apply_released_energy_outcomes,
@@ -31,7 +30,7 @@ fn registries() -> Registries {
 #[test]
 fn passive_dissipation_removes_exact_pre_tick_energy_once() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0xE930_0001));
+    let mut state = AppState::new();
     let initial = Energy::from_nanojoules(5_000_000_000_000_000);
     let store = add_energy_store_with_initial_for_fixture(
         &registries,
@@ -59,7 +58,7 @@ fn passive_dissipation_removes_exact_pre_tick_energy_once() {
 #[test]
 fn empty_dissipative_store_does_not_churn_energy_revision() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0xE930_0002));
+    let mut state = AppState::new();
     add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -143,7 +142,7 @@ fn passive_dissipation_horizon_rejects_impossible_over_capacity_state() {
 #[test]
 fn passive_dissipation_batches_multiple_stores_under_one_owner_revision() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0xE930_0003));
+    let mut state = AppState::new();
     let first = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
@@ -184,7 +183,7 @@ fn passive_dissipation_batches_multiple_stores_under_one_owner_revision() {
 #[test]
 fn same_tick_ingress_is_not_erased_by_pre_tick_passive_dissipation() {
     let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0xE930_0004));
+    let mut state = AppState::new();
     let initial = Energy::from_nanojoules(1_000_000_000_000_000);
     let incoming = Energy::from_nanojoules(1_000_000_000_000_000);
     let store = add_energy_store_with_initial_for_fixture(

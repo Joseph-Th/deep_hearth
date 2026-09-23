@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn relocation_consolidates_repeated_slices_that_exhaust_one_source_lot() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2020));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("consolidated relocation source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -60,7 +60,7 @@ fn relocation_consolidates_repeated_slices_that_exhaust_one_source_lot() {
 #[test]
 fn relocation_rejects_corrupt_source_lot_index_before_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2021));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("corrupt relocation source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -104,7 +104,7 @@ fn relocation_rejects_corrupt_source_lot_index_before_mutation() {
 #[test]
 fn exact_reform_changes_only_physical_form_and_conserves_matter() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2007));
+    let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("reform source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -193,7 +193,7 @@ fn exact_reform_changes_only_physical_form_and_conserves_matter() {
 #[test]
 fn exact_reform_rejects_phase_change_at_shared_melting_boundary_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2013));
+    let mut state = AppState::new();
     let profile =
         StockpileStorageProfile::new(true, true, Temperature::from_millikelvin(2_000_000))
             .unwrap_or_else(|error| panic!("phase-change reform storage profile failed: {error}"));
@@ -241,7 +241,7 @@ fn exact_reform_rejects_phase_change_at_shared_melting_boundary_without_mutation
 #[test]
 fn exact_reform_rejects_unauthored_material_form_pair_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2012));
+    let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("unsupported reform stockpile failed: {error}"));
     deposit_bulk_for_test(
@@ -273,7 +273,7 @@ fn exact_reform_rejects_unauthored_material_form_pair_without_mutation() {
 #[test]
 fn exact_reform_can_return_changed_form_to_the_source_stockpile() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2008));
+    let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("in-place reform stockpile failed: {error}"));
     deposit_bulk_for_test(
@@ -318,7 +318,7 @@ fn exact_reform_can_return_changed_form_to_the_source_stockpile() {
 #[test]
 fn material_reform_rejects_a_noop_target_form_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2011));
+    let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
         .unwrap_or_else(|error| panic!("noop reform stockpile failed: {error}"));
     deposit_bulk_for_test(
@@ -355,7 +355,7 @@ fn material_reform_rejects_a_noop_target_form_without_mutation() {
 #[test]
 fn equal_preservation_relocations_do_not_accumulate_checkpoint_rounding() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2012));
+    let mut state = AppState::new();
     let source = add_stockpile(
         &mut state,
         Mass::from_milligrams(100),
@@ -430,7 +430,7 @@ fn equal_preservation_relocations_do_not_accumulate_checkpoint_rounding() {
 #[test]
 fn equal_preservation_coalescing_does_not_reencode_storage_age() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2013));
+    let mut state = AppState::new();
     let source = add_stockpile(
         &mut state,
         Mass::from_milligrams(100),
@@ -508,7 +508,7 @@ fn equal_preservation_coalescing_does_not_reencode_storage_age() {
 #[test]
 fn age_sensitive_lots_with_equal_current_age_but_divergent_future_age_do_not_merge() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2015));
+    let mut state = AppState::new();
     let source_profile = StockpileStorageProfile::with_preservation(
         true,
         false,
@@ -579,7 +579,7 @@ fn age_sensitive_lots_with_equal_current_age_but_divergent_future_age_do_not_mer
 #[test]
 fn same_rate_reform_preserves_uninterrupted_storage_history() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2014));
+    let mut state = AppState::new();
     let stockpile = add_stockpile(
         &mut state,
         Mass::from_milligrams(100),
@@ -655,7 +655,7 @@ fn same_rate_reform_preserves_uninterrupted_storage_history() {
 #[test]
 fn material_reform_preserves_accumulated_storage_exposure() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2009));
+    let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("reform-age stockpile failed: {error}"));
     let source_commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -726,7 +726,7 @@ fn material_reform_preserves_accumulated_storage_exposure() {
 #[test]
 fn randomized_complete_transaction_sequence_conserves_inventory_quantity() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x1A70_2006));
+    let mut state = AppState::new();
     let a = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(500))
         .unwrap_or_else(|error| panic!("pile a allocation failed: {error}"));
     let b = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(500))

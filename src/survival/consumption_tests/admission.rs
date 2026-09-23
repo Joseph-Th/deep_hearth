@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn direct_consumption_reserves_attention_release_revision_before_admission() {
     let registries = build_registries();
-    let (state, stockpile, food, _) = direct_consumption_fixture(&registries, 0x5A70_0030);
+    let (state, stockpile, food, _) = direct_consumption_fixture(&registries);
     let state = load_with_owner_revisions(&registries, &state, Some(u64::MAX - 1), None);
 
     assert_eq!(
@@ -23,7 +23,7 @@ fn direct_consumption_reserves_attention_release_revision_before_admission() {
 #[test]
 fn direct_consumption_reserves_survival_revisions_through_completion() {
     let registries = build_registries();
-    let (state, stockpile, food, water) = direct_consumption_fixture(&registries, 0x5A70_0031);
+    let (state, stockpile, food, water) = direct_consumption_fixture(&registries);
     let state = load_with_owner_revisions(&registries, &state, None, Some(u64::MAX - 1));
 
     assert_eq!(
@@ -51,7 +51,7 @@ fn direct_consumption_reserves_survival_revisions_through_completion() {
 #[test]
 fn trusted_load_rejects_active_consumption_without_survival_revision_capacity() {
     let registries = build_registries();
-    let (mut state, _, _, water) = direct_consumption_fixture(&registries, 0x5A70_0032);
+    let (mut state, _, _, water) = direct_consumption_fixture(&registries);
     let _ = validate_drink(
         &registries,
         &state,
@@ -80,7 +80,7 @@ fn trusted_load_rejects_active_consumption_without_survival_revision_capacity() 
 #[test]
 fn prospective_storage_freshness_matches_the_canonical_future_enclosure_transition() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0028));
+    let mut state = AppState::new();
     let food_store = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("freshness projection food stockpile failed: {error}"));
     let berries = deposit_lot_for_test(
@@ -149,7 +149,7 @@ fn prospective_storage_freshness_matches_the_canonical_future_enclosure_transiti
 #[test]
 fn prospective_storage_freshness_rejects_invalid_horizons_and_unknown_storage() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5A70_0029));
+    let mut state = AppState::new();
     let food_store = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
         .unwrap_or_else(|error| panic!("freshness projection rejection stockpile failed: {error}"));
     let berries = deposit_lot_for_test(

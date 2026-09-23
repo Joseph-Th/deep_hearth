@@ -6,7 +6,6 @@ use crate::content::{
     build_registries,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
-use crate::core::time::WorldSeed;
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialId, MaterialPhase,
 };
@@ -20,7 +19,7 @@ fn bounds(x: i64) -> VoxelBounds {
 #[test]
 fn generated_geological_owner_rejects_unauthored_material_form_pair_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6E00_0013));
+    let mut state = AppState::new();
     let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LOG);
     let spec = GeneratedDepositSpec::new(
         bounds(0),
@@ -43,7 +42,7 @@ fn generated_geological_owner_rejects_unauthored_material_form_pair_without_muta
 #[test]
 fn generated_geological_owner_rejects_liquid_material_form_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6E00_0011));
+    let mut state = AppState::new();
     let spec = GeneratedDepositSpec::new(
         bounds(0),
         CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
@@ -68,7 +67,7 @@ fn generated_geological_owner_rejects_liquid_material_form_without_mutation() {
 #[test]
 fn generated_geological_owner_rejects_processed_particulate_form_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6E00_0012));
+    let mut state = AppState::new();
     let spec = GeneratedDepositSpec::new(
         bounds(0),
         CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
@@ -90,7 +89,7 @@ fn generated_geological_owner_rejects_processed_particulate_form_without_mutatio
 #[test]
 fn generated_deposit_insertion_resolves_all_material_references_before_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x6E00_0000));
+    let mut state = AppState::new();
     let unknown = MaterialId::new(999_999);
     let unknown_host = GeneratedDepositSpec::new(
         bounds(0),
