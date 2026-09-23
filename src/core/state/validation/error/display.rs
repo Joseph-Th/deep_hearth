@@ -363,8 +363,8 @@ impl Display for StateValidationError {
                 write!(formatter, "invalid screening production job: {error}")
             }
             Self::ThermalJob(error) => write!(formatter, "invalid thermal production job: {error}"),
-            Self::ManualCraftJob(error) => {
-                write!(formatter, "invalid manual crafting production job: {error}")
+            Self::CraftingJob(error) => {
+                write!(formatter, "invalid crafting production job: {error}")
             }
             Self::NonManualJobSuspendedForPlayerLabor { job, process } => write!(
                 formatter,

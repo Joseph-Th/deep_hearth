@@ -133,6 +133,9 @@ mod tooling;
 #[path = "mod_tests/material_routes.rs"]
 mod material_routes;
 
+#[path = "mod_tests/powered.rs"]
+mod powered;
+
 fn make_fixture() -> (
     Registries,
     AppState,

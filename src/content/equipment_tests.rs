@@ -241,7 +241,7 @@ fn constructible_equipment_uses_assembly_as_its_physical_mass_authority() {
         }
     }
 
-    assert_eq!(constructible, 24);
+    assert_eq!(constructible, 26);
 }
 
 #[test]
@@ -1155,6 +1155,8 @@ fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
         EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
         EQUIPMENT_TIMBER_TREADLE_HAMMER,
+        EQUIPMENT_TIMBER_HELVE_HAMMER,
+        EQUIPMENT_TIMBER_SASH_SAWMILL,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
         EQUIPMENT_STONE_ROTARY_QUERN,

@@ -15,6 +15,7 @@ mod woodworking;
 pub(super) fn definitions() -> Vec<EquipmentDefinition> {
     vec![
         metalworking::timber_treadle_hammer(),
+        metalworking::timber_helve_hammer(),
         mining::stone_pick(),
         power::stone_hand_crank(),
         mining::copper_reinforced_pick(),
@@ -38,6 +39,7 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         woodworking::stone_woodworking_adze(),
         woodworking::copper_reinforced_woodworking_adze(),
         woodworking::timber_frame_saw_bench(),
+        woodworking::timber_sash_sawmill(),
     ]
 }
 

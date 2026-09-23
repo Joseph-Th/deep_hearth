@@ -5,9 +5,10 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Energy, Mass};
 use crate::core::throughput::MassFlowDurationError;
 use crate::core::time::TickSpan;
+use crate::energy::{EnergyCarrier, EnergyStoreDefinitionId, PowerDurationError};
 use crate::equipment::EquipmentDefinitionId;
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::MaterialLotSpecError;
@@ -15,9 +16,33 @@ use crate::production::ProductionJobId;
 
 /// Corruption or semantic drift in an in-flight manual shaping job.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ManualCraftJobValidationError {
+pub enum CraftingJobValidationError {
+    MissingEnergy {
+        job: ProductionJobId,
+    },
     UnexpectedEnergy {
         job: ProductionJobId,
+    },
+    UnexpectedReleasedEnergy {
+        job: ProductionJobId,
+    },
+    UnknownEnergyDefinition {
+        job: ProductionJobId,
+        definition: EnergyStoreDefinitionId,
+    },
+    EnergyCarrierMismatch {
+        job: ProductionJobId,
+        stored: EnergyCarrier,
+        required: EnergyCarrier,
+    },
+    EnergyAmountMismatch {
+        job: ProductionJobId,
+        stored: Energy,
+        required: Energy,
+    },
+    EnergyDuration {
+        job: ProductionJobId,
+        error: PowerDurationError,
     },
     UnexpectedEquipment {
         job: ProductionJobId,
@@ -90,12 +115,53 @@ pub enum ManualCraftJobValidationError {
     },
 }
 
-impl Display for ManualCraftJobValidationError {
+impl Display for CraftingJobValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::MissingEnergy { job } => write!(
+                formatter,
+                "powered craft job {} omits its authored finite energy input",
+                job.value()
+            ),
             Self::UnexpectedEnergy { job } => write!(
                 formatter,
                 "manual craft job {} carries energy despite having no authored energy resource",
+                job.value()
+            ),
+            Self::UnexpectedReleasedEnergy { job } => write!(
+                formatter,
+                "powered craft job {} releases energy despite having no authored energy output",
+                job.value()
+            ),
+            Self::UnknownEnergyDefinition { job, definition } => write!(
+                formatter,
+                "powered craft job {} references unknown energy-store definition {}",
+                job.value(),
+                definition.value()
+            ),
+            Self::EnergyCarrierMismatch {
+                job,
+                stored,
+                required,
+            } => write!(
+                formatter,
+                "powered craft job {} stores {stored:?} energy but requires {required:?}",
+                job.value()
+            ),
+            Self::EnergyAmountMismatch {
+                job,
+                stored,
+                required,
+            } => write!(
+                formatter,
+                "powered craft job {} stores {} nJ of consumed work but its authored transform requires {} nJ",
+                job.value(),
+                stored.nanojoules(),
+                required.nanojoules()
+            ),
+            Self::EnergyDuration { job, error } => write!(
+                formatter,
+                "powered craft job {} cannot reproduce its energy-delivery duration: {error}",
                 job.value()
             ),
             Self::UnexpectedEquipment { job } => write!(
@@ -219,13 +285,19 @@ impl Display for ManualCraftJobValidationError {
     }
 }
 
-impl Error for ManualCraftJobValidationError {
+impl Error for CraftingJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::OutputConstruction { error, .. } => Some(error),
             Self::EquipmentDuration { error, .. } => Some(error),
             Self::EquipmentCondition { error, .. } => Some(error),
-            Self::UnexpectedEnergy { .. }
+            Self::EnergyDuration { error, .. } => Some(error),
+            Self::MissingEnergy { .. }
+            | Self::UnexpectedEnergy { .. }
+            | Self::UnexpectedReleasedEnergy { .. }
+            | Self::UnknownEnergyDefinition { .. }
+            | Self::EnergyCarrierMismatch { .. }
+            | Self::EnergyAmountMismatch { .. }
             | Self::UnexpectedEquipment { .. }
             | Self::MissingRequiredEquipment { .. }
             | Self::UnknownEquipmentDefinition { .. }

@@ -48,6 +48,8 @@ pub const EQUIPMENT_TIMBER_ORE_DRESSING_TABLE: EquipmentDefinitionId =
 pub const EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE: EquipmentDefinitionId =
     EquipmentDefinitionId::new(29);
 pub const EQUIPMENT_TIMBER_TREADLE_HAMMER: EquipmentDefinitionId = EquipmentDefinitionId::new(30);
+pub const EQUIPMENT_TIMBER_SASH_SAWMILL: EquipmentDefinitionId = EquipmentDefinitionId::new(31);
+pub const EQUIPMENT_TIMBER_HELVE_HAMMER: EquipmentDefinitionId = EquipmentDefinitionId::new(32);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

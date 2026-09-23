@@ -9,6 +9,7 @@ use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
 use super::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
+    CAPABILITY_POWERED_COPPER_HAMMERING_FLOW, CAPABILITY_POWERED_SAWING_FLOW,
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
     CAPABILITY_SEPARATOR_FLOW, CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
@@ -53,6 +54,18 @@ pub const PROCESS_RECOVER_WOOD_SCRAP_BOARDS: ProcessId = ProcessId::new(37);
 pub const PROCESS_REGRIND_COPPER_TAILINGS: ProcessId = ProcessId::new(38);
 pub const PROCESS_SCAVENGE_COPPER_TAILINGS: ProcessId = ProcessId::new(39);
 pub const PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE: ProcessId = ProcessId::new(40);
+pub const PROCESS_POWER_SAW_WOOD_BOARDS: ProcessId = ProcessId::new(41);
+pub const PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT: ProcessId = ProcessId::new(42);
+pub const PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT: ProcessId = ProcessId::new(43);
+pub const PROCESS_POWER_HAMMER_COPPER_SAW_BLADE: ProcessId = ProcessId::new(44);
+
+fn single_mass_flow_requirement(capability: CapabilityId) -> Vec<CapabilityRequirement> {
+    vec![CapabilityRequirement::new(
+        capability,
+        CapabilityComparison::AtLeast,
+        CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
+    )]
+}
 
 fn mass_flow_resolver_requirements(
     flow_capability: CapabilityId,
@@ -283,6 +296,26 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             PROCESS_SCAVENGE_COPPER_TAILINGS,
             "scavenge copper from reground tailings",
             mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
+        ),
+        ProcessDefinition::new(
+            PROCESS_POWER_SAW_WOOD_BOARDS,
+            "power-saw timber boards",
+            single_mass_flow_requirement(CAPABILITY_POWERED_SAWING_FLOW),
+        ),
+        ProcessDefinition::new(
+            PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
+            "power-hammer native copper reinforcement",
+            single_mass_flow_requirement(CAPABILITY_POWERED_COPPER_HAMMERING_FLOW),
+        ),
+        ProcessDefinition::new(
+            PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT,
+            "power-hammer copper scrap reinforcement",
+            single_mass_flow_requirement(CAPABILITY_POWERED_COPPER_HAMMERING_FLOW),
+        ),
+        ProcessDefinition::new(
+            PROCESS_POWER_HAMMER_COPPER_SAW_BLADE,
+            "power-hammer copper saw blade",
+            single_mass_flow_requirement(CAPABILITY_POWERED_COPPER_HAMMERING_FLOW),
         ),
     ] {
         registry.register_process(process);

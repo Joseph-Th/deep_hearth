@@ -65,10 +65,11 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             ),
         ],
         [
-            // Prospecting is active player attention. Keep the information hierarchy expensive
-            // enough to matter without making repeated new-site localization dominate the physical
-            // extraction it unlocks. The faster authored durations preserve the prior total body
-            // cost and sampling-hammer wear by increasing per-tick exertion/wear proportionally.
+            // Prospecting is active player attention. Broad reconnaissance and transects are
+            // compressed so repeated localization does not dominate the extraction they unlock;
+            // their higher per-tick exertion preserves the same total physical work. Instrumented
+            // sampling retains its slower timing and wear economics so better information still
+            // repays deliberate tool investment.
             ProspectingDefinition::new(
                 PROSPECTING_FIELD_INSPECTION,
                 GeologicalEvidenceKind::SurfaceExposure,
@@ -98,23 +99,23 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             ProspectingDefinition::new(
                 PROSPECTING_REGIONAL_RECONNAISSANCE,
                 GeologicalEvidenceKind::LooseIndicator,
-                TickSpan::new(96),
+                TickSpan::new(48),
                 16,
                 250_000,
                 SurvivalExertion::new(
-                    Energy::from_nanojoules(400_000_000_000),
-                    Volume::from_microliters(100),
+                    Energy::from_nanojoules(800_000_000_000),
+                    Volume::from_microliters(200),
                 ),
             ),
             ProspectingDefinition::new(
                 PROSPECTING_LOCAL_TRANSECT,
                 GeologicalEvidenceKind::SurfaceExposure,
-                TickSpan::new(24),
+                TickSpan::new(12),
                 4,
                 75_000,
                 SurvivalExertion::new(
-                    Energy::from_nanojoules(1_100_000_000_000),
-                    Volume::from_microliters(300),
+                    Energy::from_nanojoules(2_200_000_000_000),
+                    Volume::from_microliters(600),
                 ),
             ),
             ProspectingDefinition::new_with_equipment(

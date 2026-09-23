@@ -7,9 +7,9 @@ use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::mining::{
-    MiningClaimReceipt, MiningStartError, MiningTargetRequest, MiningTargetResolution,
-    MiningTargetResolutionError, ValidatedMiningStart, resolve_mining_target,
-    validate_claim_mining_output, validate_start_mining,
+    MiningClaimReceipt, MiningTargetRequest, MiningTargetResolution, MiningTargetResolutionError,
+    ValidatedMiningStart, resolve_mining_target, validate_claim_mining_output,
+    validate_start_mining,
 };
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -141,32 +141,22 @@ pub(super) fn execute_fieldwork_extraction(
         requested,
         batch_limit,
     } = order;
-    let (start, first_batch, adaptation) = match validate_start_mining(
+    let first_batch = requested.min(batch_limit);
+    let adaptation = if first_batch < requested {
+        "preparation-plus-order+batch-limit"
+    } else {
+        "preparation-plus-order"
+    };
+    let start = validate_start_mining(
         registries,
         state,
         MINING_METHOD_HAND_PICK,
         target,
         destination,
         equipment,
-        requested,
-    ) {
-        Ok(start) => (start, requested, "preparation-plus-order"),
-        Err(MiningStartError::BatchTooLarge { maximum, .. }) => {
-            assert_eq!(maximum, batch_limit);
-            let start = validate_start_mining(
-                registries,
-                state,
-                MINING_METHOD_HAND_PICK,
-                target,
-                destination,
-                equipment,
-                maximum,
-            )
-            .unwrap_or_else(|error| panic!("fieldwork batch-adapted mining failed: {error}"));
-            (start, maximum, "preparation-plus-order+batch-limit")
-        }
-        Err(error) => panic!("fieldwork selected-tool mining failed: {error}"),
-    };
+        first_batch,
+    )
+    .unwrap_or_else(|error| panic!("fieldwork selected-tool mining failed: {error}"));
     let first = complete_batch(registries, state, start);
     let mut result = FieldworkExtraction {
         extracted: Mass::ZERO,

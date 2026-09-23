@@ -10,10 +10,11 @@ use super::super::inventory_support::add_solid_stockpile;
 use super::extraction::FieldworkStop;
 use super::*;
 
-/// Preserves the executed follow-up order after a typed batch-cap adaptation.
+/// Preserves the executed follow-up order when the selected tool's known batch cap applies.
 ///
-/// The exploration report exposed a capped hard-pick batch silently becoming the whole work
-/// order. This regression keeps the requested mass, not the tool limit, as the player goal.
+/// The actor already knows the selected tool's batch capacity from its planning frame, so it must
+/// size the first admitted batch directly instead of probing an oversized request for rejection.
+/// The requested mass, not the per-batch tool limit, remains the player goal.
 #[test]
 fn batch_capped_mining_finishes_the_requested_order() {
     let registries = deep_hearth::content::build_registries();
@@ -25,6 +26,7 @@ fn batch_capped_mining_finishes_the_requested_order() {
                     ticks: actual_ticks,
                     batches,
                     stop,
+                    adaptation,
                     ..
                 },
             ..
@@ -38,6 +40,7 @@ fn batch_capped_mining_finishes_the_requested_order() {
             batches > 1,
             "the requested order must outlive its first claim"
         );
+        assert_eq!(adaptation, "preparation-plus-order+batch-limit");
         assert_eq!(
             actual_ticks, projected_ticks,
             "wear-adjusted effort must match execution"

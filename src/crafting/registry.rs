@@ -1,4 +1,4 @@
-//! Deterministic manual-crafting topology indexes and authored reference validation.
+//! Deterministic crafting topology indexes and authored reference validation.
 
 use std::collections::BTreeMap;
 
@@ -6,24 +6,47 @@ use crate::capability::{CapabilityRegistry, CapabilityValueKind};
 use crate::material::{CommodityKey, MaterialRegistry, ParticleSizeStatePolicy};
 use crate::production::{ProcessId, ProductionRegistry};
 
-use super::ManualCraftDefinition;
+use super::{ManualCraftDefinition, PoweredCraftDefinition};
 
-/// Deterministic immutable lookup for manual shaping semantics.
+/// Deterministic immutable lookup for manual and powered shaping semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CraftingRegistry {
     manual: BTreeMap<ProcessId, ManualCraftDefinition>,
+    powered: BTreeMap<ProcessId, PoweredCraftDefinition>,
     producers_by_output: BTreeMap<CommodityKey, Vec<ProcessId>>,
     consumers_by_input: BTreeMap<CommodityKey, Vec<ProcessId>>,
 }
 
 impl CraftingRegistry {
+    #[cfg(test)]
     pub(crate) fn new(definitions: impl IntoIterator<Item = ManualCraftDefinition>) -> Self {
+        Self::new_with_powered(definitions, std::iter::empty())
+    }
+
+    pub(crate) fn new_with_powered(
+        definitions: impl IntoIterator<Item = ManualCraftDefinition>,
+        powered_definitions: impl IntoIterator<Item = PoweredCraftDefinition>,
+    ) -> Self {
         let mut manual = BTreeMap::new();
         for definition in definitions {
             let process = definition.process();
             assert!(
                 manual.insert(process, definition).is_none(),
                 "duplicate manual craft process {}",
+                process.value()
+            );
+        }
+        let mut powered = BTreeMap::new();
+        for definition in powered_definitions {
+            let process = definition.process();
+            assert!(
+                powered.insert(process, definition).is_none(),
+                "duplicate powered craft process {}",
+                process.value()
+            );
+            assert!(
+                !manual.contains_key(&process),
+                "process {} cannot be both manual and powered crafting",
                 process.value()
             );
         }
@@ -43,6 +66,7 @@ impl CraftingRegistry {
         }
         Self {
             manual,
+            powered,
             producers_by_output,
             consumers_by_input,
         }
@@ -55,6 +79,15 @@ impl CraftingRegistry {
 
     pub fn definitions(&self) -> impl Iterator<Item = &ManualCraftDefinition> {
         self.manual.values()
+    }
+
+    #[must_use]
+    pub fn get_powered(&self, process: ProcessId) -> Option<PoweredCraftDefinition> {
+        self.powered.get(&process).copied()
+    }
+
+    pub fn powered_definitions(&self) -> impl Iterator<Item = PoweredCraftDefinition> + '_ {
+        self.powered.values().copied()
     }
 
     /// Iterates manual processes that directly produce the requested commodity in stable process-ID
@@ -175,6 +208,54 @@ impl CraftingRegistry {
                 process.capability_requirements().is_empty(),
                 "manual craft {} production definition cannot require machine capabilities because equipment use is a crafting-owned path",
                 definition.process().value()
+            );
+        }
+        for definition in self.powered.values().copied() {
+            let transform = self.manual.get(&definition.transform()).unwrap_or_else(|| {
+                panic!(
+                    "powered craft {} references unknown manual transform {}",
+                    definition.process().value(),
+                    definition.transform().value()
+                )
+            });
+            let capability = capabilities
+                .get_capability(definition.mass_flow_capability())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "powered craft {} references unknown capability {}",
+                        definition.process().value(),
+                        definition.mass_flow_capability().value()
+                    )
+                });
+            assert_eq!(
+                capability.kind(),
+                CapabilityValueKind::MassFlow,
+                "powered craft {} capability {} must be material throughput",
+                definition.process().value(),
+                definition.mass_flow_capability().value()
+            );
+            let process = production
+                .get_process(definition.process())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "powered craft {} has no production definition",
+                        definition.process().value()
+                    )
+                });
+            assert!(
+                process
+                    .capability_requirements()
+                    .iter()
+                    .any(
+                        |requirement| requirement.capability() == definition.mass_flow_capability()
+                    ),
+                "powered craft {} production definition does not require its machine throughput capability",
+                definition.process().value()
+            );
+            assert!(
+                production.get_process(transform.process()).is_some(),
+                "powered craft transform {} lost its production definition",
+                transform.process().value()
             );
         }
     }

@@ -26,7 +26,7 @@ impl Error for StateValidationError {
             Self::ConstituentSeparationJob(error) => Some(error),
             Self::ScreeningJob(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
-            Self::ManualCraftJob(error) => Some(error),
+            Self::CraftingJob(error) => Some(error),
             Self::JobOutputStorage { job: _job, error } => Some(error),
             Self::InvalidJobConsumedParticleSizeState { job: _job, error } => Some(error),
             Self::InvalidJobConsumedPhaseState { job: _job, error } => Some(error),

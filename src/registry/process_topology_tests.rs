@@ -3,15 +3,18 @@
 use std::collections::BTreeSet;
 
 use crate::content::{
-    ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
-    EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL,
-    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
-    EQUIPMENT_TIMBER_TREADLE_HAMMER, PROCESS_CAST_PURE_COPPER,
+    ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
+    ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+    EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_WOODWORKING_ADZE,
+    EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+    EQUIPMENT_TIMBER_HELVE_HAMMER, EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
+    EQUIPMENT_TIMBER_SASH_SAWMILL, EQUIPMENT_TIMBER_TREADLE_HAMMER, PROCESS_CAST_PURE_COPPER,
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
     PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_GRIND_CRUSHED_ORE,
     PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_MELT_PURE_COPPER,
-    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_SAW_WOOD_BOARDS, PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
+    PROCESS_POWER_HAMMER_COPPER_SAW_BLADE, PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT,
+    PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_SAW_WOOD_BOARDS, PROCESS_SCREEN_CRUSHED_ORE,
     PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::energy::EnergyCarrier;
@@ -42,6 +45,56 @@ fn every_builtin_process_has_one_derived_execution_topology() {
                 assert!(!topology.compatible_energy_stores().is_empty());
             }
         }
+    }
+}
+
+#[test]
+fn settlement_powered_craft_has_distinct_machine_and_mechanical_work_topology() {
+    let registries = build_registries();
+    for (process, provider) in [
+        (PROCESS_POWER_SAW_WOOD_BOARDS, EQUIPMENT_TIMBER_SASH_SAWMILL),
+        (
+            PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
+            EQUIPMENT_TIMBER_HELVE_HAMMER,
+        ),
+        (
+            PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT,
+            EQUIPMENT_TIMBER_HELVE_HAMMER,
+        ),
+        (
+            PROCESS_POWER_HAMMER_COPPER_SAW_BLADE,
+            EQUIPMENT_TIMBER_HELVE_HAMMER,
+        ),
+    ] {
+        let topology = registries
+            .process_topology(process)
+            .unwrap_or_else(|| panic!("powered craft process {} lost topology", process.value()));
+        assert_eq!(
+            topology.execution_family(),
+            ProcessExecutionFamily::PoweredCraft
+        );
+        assert_eq!(topology.equipment_role(), ProcessEquipmentRole::Required);
+        assert_eq!(topology.nominal_providers(), &[provider]);
+        assert_eq!(
+            topology.energy_role(),
+            ProcessEnergyRole::Supply(EnergyCarrier::Mechanical)
+        );
+        assert!(
+            topology
+                .compatible_energy_stores()
+                .contains(&ENERGY_MECHANICAL_SMALL_DRIVE)
+        );
+        assert!(
+            topology
+                .compatible_energy_stores()
+                .contains(&ENERGY_MECHANICAL_LARGE_DRIVE)
+        );
+        assert!(
+            !topology
+                .compatible_energy_stores()
+                .contains(&ENERGY_ELECTRICAL_BUFFER)
+        );
+        assert_eq!(registries.manual_process_exertion(process), None);
     }
 }
 
@@ -166,7 +219,10 @@ fn manual_craft_topology_exposes_optional_and_required_tool_providers() {
     assert_eq!(sawing.equipment_role(), ProcessEquipmentRole::Required);
     assert_eq!(
         sawing.nominal_providers(),
-        &[EQUIPMENT_TIMBER_FRAME_SAW_BENCH]
+        &[
+            EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+            EQUIPMENT_TIMBER_SASH_SAWMILL,
+        ]
     );
 
     for process in [
@@ -184,7 +240,10 @@ fn manual_craft_topology_exposes_optional_and_required_tool_providers() {
         assert_eq!(hammering.equipment_role(), ProcessEquipmentRole::Optional);
         assert_eq!(
             hammering.nominal_providers(),
-            &[EQUIPMENT_TIMBER_TREADLE_HAMMER]
+            &[
+                EQUIPMENT_TIMBER_TREADLE_HAMMER,
+                EQUIPMENT_TIMBER_HELVE_HAMMER,
+            ]
         );
         assert_eq!(hammering.energy_role(), ProcessEnergyRole::None);
     }

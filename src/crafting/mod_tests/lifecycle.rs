@@ -443,13 +443,13 @@ fn manual_craft_load_audit_rejects_forged_duration() {
 
     assert_eq!(
         tampered.into_state(&registries),
-        Err(LoadError::InvalidState(
-            StateValidationError::ManualCraftJob(ManualCraftJobValidationError::DurationMismatch {
+        Err(LoadError::InvalidState(StateValidationError::CraftingJob(
+            CraftingJobValidationError::DurationMismatch {
                 job,
                 stored: TickSpan::new(41),
                 required: TickSpan::new(40),
-            })
-        ))
+            }
+        )))
     );
 
     let mut coordinated = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -465,13 +465,13 @@ fn manual_craft_load_audit_rejects_forged_duration() {
 
     assert_eq!(
         coordinated.into_state(&registries),
-        Err(LoadError::InvalidState(
-            StateValidationError::ManualCraftJob(ManualCraftJobValidationError::DurationMismatch {
+        Err(LoadError::InvalidState(StateValidationError::CraftingJob(
+            CraftingJobValidationError::DurationMismatch {
                 job,
                 stored: TickSpan::new(39),
                 required: TickSpan::new(40),
-            })
-        ))
+            }
+        )))
     );
 }
 

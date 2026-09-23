@@ -1,8 +1,9 @@
-//! Immutable physical definitions for manual shaping operations.
+//! Immutable physical definitions for manual and finite-work shaping operations.
 
 use crate::capability::CapabilityId;
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, MassSpecificEnergy};
 use crate::core::time::TickSpan;
+use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::CommodityKey;
 use crate::production::ProcessId;
@@ -13,6 +14,81 @@ use crate::survival::SurvivalExertion;
 pub struct ManualCraftOutput {
     commodity: CommodityKey,
     mass: Mass,
+}
+
+/// Finite-work machine route for a material transform already authored by manual crafting.
+///
+/// Powered routes deliberately reference an existing manual transform instead of restating its
+/// material inputs, yields, or output forms. The powered definition owns only the distinct process
+/// identity and machine-resource physics needed to execute that same transformation unattended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoweredCraftDefinition {
+    process: ProcessId,
+    transform: ProcessId,
+    mass_flow_capability: CapabilityId,
+    energy_carrier: EnergyCarrier,
+    specific_energy: MassSpecificEnergy,
+    condition_wear_ppm_per_active_tick: u32,
+}
+
+impl PoweredCraftDefinition {
+    #[must_use]
+    pub fn new(
+        process: ProcessId,
+        transform: ProcessId,
+        mass_flow_capability: CapabilityId,
+        energy_carrier: EnergyCarrier,
+        specific_energy: MassSpecificEnergy,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert_ne!(
+            process, transform,
+            "powered craft process must have a distinct execution identity"
+        );
+        assert!(
+            specific_energy.nanojoules_per_milligram() != 0,
+            "powered craft specific energy must be nonzero"
+        );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        Self {
+            process,
+            transform,
+            mass_flow_capability,
+            energy_carrier,
+            specific_energy,
+            condition_wear_ppm_per_active_tick,
+        }
+    }
+
+    #[must_use]
+    pub const fn process(self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn transform(self) -> ProcessId {
+        self.transform
+    }
+
+    #[must_use]
+    pub const fn mass_flow_capability(self) -> CapabilityId {
+        self.mass_flow_capability
+    }
+
+    #[must_use]
+    pub const fn energy_carrier(self) -> EnergyCarrier {
+        self.energy_carrier
+    }
+
+    #[must_use]
+    pub const fn specific_energy(self) -> MassSpecificEnergy {
+        self.specific_energy
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.condition_wear_ppm_per_active_tick
+    }
 }
 
 /// Durable equipment semantics for a manual shaping process.

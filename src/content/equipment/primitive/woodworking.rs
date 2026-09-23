@@ -2,10 +2,12 @@
 
 use crate::capability::CapabilityValue;
 use crate::core::quantity::{Mass, MassFlow};
-use crate::equipment::EquipmentDefinition;
+use crate::equipment::{EquipmentDefinition, EquipmentUpgradeProfile};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
-use crate::content::capabilities::{CAPABILITY_SAWING_FLOW, CAPABILITY_WOODWORKING_FLOW};
+use crate::content::capabilities::{
+    CAPABILITY_POWERED_SAWING_FLOW, CAPABILITY_SAWING_FLOW, CAPABILITY_WOODWORKING_FLOW,
+};
 use crate::content::crafted_parts::COPPER_SAW_BLADE_MASS;
 use crate::content::materials::{
     FORM_BOARD, FORM_HANDLE, FORM_SAW_BLADE, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
@@ -18,7 +20,7 @@ use super::super::authoring::{
 };
 use super::super::{
     EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE, EQUIPMENT_STONE_WOODWORKING_ADZE,
-    EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_SASH_SAWMILL,
 };
 use super::{copper_reinforcement_input, copper_upgrade};
 
@@ -52,6 +54,70 @@ pub(super) fn stone_woodworking_adze() -> EquipmentDefinition {
         )],
     )
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+}
+
+/// A flywheel-driven sash saw for settlement lumber runs. It preserves the frame-saw transform
+/// and its 90% board recovery, but moves repetitive stroke work from player attention into finite
+/// mechanical energy. The larger frame, shafting, copper bearing strap, and replaceable blade make
+/// it a campaign investment rather than a free upgrade over the portable bench.
+pub(super) fn timber_sash_sawmill() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_TIMBER_SASH_SAWMILL,
+        "timber sash sawmill",
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(4_000_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
+                COPPER_SAW_BLADE_MASS,
+            ),
+            copper_reinforcement_input(),
+        ]),
+        profile([
+            (
+                CAPABILITY_SAWING_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(40_000)),
+            ),
+            (
+                CAPABILITY_POWERED_SAWING_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(100_000)),
+            ),
+        ]),
+        thresholds(),
+        vec![
+            mass_flow_condition_curve(
+                CAPABILITY_SAWING_FLOW,
+                500_000,
+                MassFlow::from_milligrams_per_second(20_000),
+            ),
+            mass_flow_condition_curve(
+                CAPABILITY_POWERED_SAWING_FLOW,
+                500_000,
+                MassFlow::from_milligrams_per_second(50_000),
+            ),
+        ],
+    )
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE))
+    .with_upgrade_profile(EquipmentUpgradeProfile::new(
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(2_400_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(600_000),
+            ),
+            copper_reinforcement_input(),
+        ]),
+    ))
 }
 
 /// Copper edge reinforcement doubles pristine shaping throughput without discarding the stone

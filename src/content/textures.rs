@@ -108,6 +108,8 @@ pub const OBJECT_TIMBER_FRAME_COMMINUTION_MILL: ObjectAppearanceId = ObjectAppea
 pub const OBJECT_TIMBER_ORE_DRESSING_TABLE: ObjectAppearanceId = ObjectAppearanceId::new(56);
 pub const OBJECT_TIMBER_WALKING_WHEEL_DRIVE: ObjectAppearanceId = ObjectAppearanceId::new(57);
 pub const OBJECT_TIMBER_TREADLE_HAMMER: ObjectAppearanceId = ObjectAppearanceId::new(58);
+pub const OBJECT_TIMBER_SASH_SAWMILL: ObjectAppearanceId = ObjectAppearanceId::new(59);
+pub const OBJECT_TIMBER_HELVE_HAMMER: ObjectAppearanceId = ObjectAppearanceId::new(60);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

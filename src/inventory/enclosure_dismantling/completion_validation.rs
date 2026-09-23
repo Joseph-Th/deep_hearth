@@ -1,4 +1,4 @@
-//! Completion and trusted-load compatibility replay for enclosure removal.
+//! Completion and trusted-load replay for enclosure removal.
 
 use crate::core::time::SimulationTick;
 use crate::registry::Registries;

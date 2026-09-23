@@ -282,7 +282,8 @@ impl Registries {
                     })
                     .exertion(),
             ),
-            ProcessExecutionFamily::Comminution
+            ProcessExecutionFamily::PoweredCraft
+            | ProcessExecutionFamily::Comminution
             | ProcessExecutionFamily::Screening
             | ProcessExecutionFamily::ConstituentSeparation
             | ProcessExecutionFamily::SensibleHeating

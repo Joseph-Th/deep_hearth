@@ -1,6 +1,6 @@
 //! Trusted-load replay of production subsystem-specific contracts.
 
-use crate::crafting::validate_loaded_manual_craft_job;
+use crate::crafting::validate_loaded_crafting_job;
 use crate::ore_processing::{
     validate_loaded_comminution_job, validate_loaded_constituent_separation_job,
     validate_loaded_screening_job,
@@ -30,5 +30,5 @@ pub(super) fn validate_job_subsystem_contracts(
         .map_err(StateValidationError::ConstituentSeparationJob)?;
     validate_loaded_screening_job(registries, job).map_err(StateValidationError::ScreeningJob)?;
     validate_loaded_thermal_job(registries, job).map_err(StateValidationError::ThermalJob)?;
-    validate_loaded_manual_craft_job(registries, job).map_err(StateValidationError::ManualCraftJob)
+    validate_loaded_crafting_job(registries, job).map_err(StateValidationError::CraftingJob)
 }

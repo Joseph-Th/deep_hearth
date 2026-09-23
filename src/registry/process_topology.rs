@@ -13,6 +13,7 @@ use super::RegistryDomains;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProcessExecutionFamily {
     ManualCraft,
+    PoweredCraft,
     ManualComminution,
     ManualSeparation,
     Comminution,
@@ -112,7 +113,8 @@ fn derive_process_topology(
         ProcessExecutionFamily::ManualComminution | ProcessExecutionFamily::ManualSeparation => {
             Vec::new()
         }
-        ProcessExecutionFamily::Comminution
+        ProcessExecutionFamily::PoweredCraft
+        | ProcessExecutionFamily::Comminution
         | ProcessExecutionFamily::Screening
         | ProcessExecutionFamily::ConstituentSeparation
         | ProcessExecutionFamily::SensibleHeating
@@ -157,7 +159,8 @@ fn process_equipment_role(
         ProcessExecutionFamily::ManualComminution | ProcessExecutionFamily::ManualSeparation => {
             ProcessEquipmentRole::None
         }
-        ProcessExecutionFamily::Comminution
+        ProcessExecutionFamily::PoweredCraft
+        | ProcessExecutionFamily::Comminution
         | ProcessExecutionFamily::Screening
         | ProcessExecutionFamily::ConstituentSeparation
         | ProcessExecutionFamily::SensibleHeating
@@ -259,6 +262,12 @@ fn process_execution_semantics(
             .crafting
             .get_manual(process)
             .map(|_| (ProcessExecutionFamily::ManualCraft, ProcessEnergyRole::None)),
+        domains.crafting.get_powered(process).map(|definition| {
+            (
+                ProcessExecutionFamily::PoweredCraft,
+                ProcessEnergyRole::Supply(definition.energy_carrier()),
+            )
+        }),
         domains
             .ore_processing
             .get_manual_comminution(process)

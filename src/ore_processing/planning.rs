@@ -380,6 +380,7 @@ fn powered_profile(
                 .operating_profile(),
         ),
         ProcessExecutionFamily::ManualCraft
+        | ProcessExecutionFamily::PoweredCraft
         | ProcessExecutionFamily::ManualComminution
         | ProcessExecutionFamily::ManualSeparation
         | ProcessExecutionFamily::SensibleHeating

@@ -22,22 +22,29 @@ mod batch;
 mod definitions;
 mod errors;
 mod physics;
+mod powered;
 mod projection;
 mod registry;
 mod validation;
 
 use physics::{ManualCraftEquipmentScheduleError, resolve_manual_craft_hand_duration};
 
-pub use definitions::{ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput};
+pub use definitions::{
+    ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput, PoweredCraftDefinition,
+};
 pub use errors::{
     ManualCraftCommitError, ManualCraftEquipmentProjectionError, ManualCraftError,
     ManualCraftHandProjectionError, StartManualCraftError,
 };
 pub(crate) use physics::resolve_manual_craft_equipment_schedule;
+pub use powered::{
+    PoweredCraftError, PoweredCraftRequest, StartPoweredCraftError, resolve_powered_craft,
+    validate_start_powered_craft,
+};
 pub use projection::{ManualCraftEquipmentProjection, project_manual_craft_equipment};
 pub use registry::CraftingRegistry;
-pub use validation::ManualCraftJobValidationError;
-pub(crate) use validation::validate_loaded_manual_craft_job;
+pub use validation::CraftingJobValidationError;
+pub(crate) use validation::validate_loaded_crafting_job;
 
 /// Authored equipment-free hand-work cost before current-state authorization.
 #[must_use]

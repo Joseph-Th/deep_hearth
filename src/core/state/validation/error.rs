@@ -3,7 +3,7 @@
 use crate::core::quantity::{Energy, Force, Mass};
 use crate::core::rng::RandomStateValidationError;
 use crate::core::time::{SimulationTick, WorldSeed};
-use crate::crafting::ManualCraftJobValidationError;
+use crate::crafting::CraftingJobValidationError;
 use crate::energy::EnergyValidationError;
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentValidationError};
 use crate::fluid::{FluidStoreId, FluidStructuralLoadError, FluidValidationError};
@@ -213,7 +213,7 @@ pub enum StateValidationError {
     ConstituentSeparationJob(ConstituentSeparationJobValidationError),
     ScreeningJob(ScreeningJobValidationError),
     ThermalJob(ThermalJobValidationError),
-    ManualCraftJob(ManualCraftJobValidationError),
+    CraftingJob(CraftingJobValidationError),
     NonManualJobSuspendedForPlayerLabor {
         job: ProductionJobId,
         process: ProcessId,

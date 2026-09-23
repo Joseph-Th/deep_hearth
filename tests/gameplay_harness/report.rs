@@ -18,6 +18,7 @@ use super::scenario::ScenarioVariation;
 fn process_resolver_label(resolver: ProcessResolverKind) -> &'static str {
     match resolver {
         ProcessResolverKind::ManualCraft => "manual-craft",
+        ProcessResolverKind::PoweredCraft => "powered-craft",
         ProcessResolverKind::ManualComminution => "manual-comminution",
         ProcessResolverKind::ManualSeparation => "manual-separation",
         ProcessResolverKind::Comminution => "comminution",
