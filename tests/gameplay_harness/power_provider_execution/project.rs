@@ -94,10 +94,10 @@ fn service_consumer_if_critical(
     );
     let craft_batches = NonZeroU64::new(batches)
         .unwrap_or_else(|| unreachable!("positive service replacement requires craft batches"));
-    let craft_projection = project_manual_craft_hand_work(registries, craft, craft_batches)
-        .unwrap_or_else(|error| {
-            panic!("power provider {context} replacement craft projection failed: {error}")
-        });
+    let craft_projection =
+        project_manual_craft_hand_work(registries, craft.process(), craft_batches).unwrap_or_else(
+            |error| panic!("power provider {context} replacement craft projection failed: {error}"),
+        );
     let mut provisioning = provision_for_project_leg(
         registries,
         state,

@@ -58,7 +58,7 @@ fn manual_hand_work_projection_matches_shared_labor_budget() {
     let batches = std::num::NonZeroU64::new(2)
         .unwrap_or_else(|| unreachable!("two manual-craft batches are nonzero"));
 
-    let projected = project_manual_craft_hand_work(&registries, definition, batches)
+    let projected = project_manual_craft_hand_work(&registries, PROCESS_KNAP_STONE_TOOL, batches)
         .unwrap_or_else(|error| panic!("manual hand-work projection failed: {error}"));
     let expected_duration = resolve_manual_craft_hand_duration(definition.duration(), batches)
         .unwrap_or_else(|| panic!("bounded manual hand-work duration overflowed"));
@@ -76,15 +76,11 @@ fn manual_hand_work_projection_matches_shared_labor_budget() {
 #[test]
 fn manual_hand_work_projection_rejects_equipment_required_processes() {
     let registries = build_registries();
-    let definition = registries
-        .crafting()
-        .get_manual(PROCESS_SAW_WOOD_BOARDS)
-        .unwrap_or_else(|| panic!("saw-board definition disappeared"));
     let one = std::num::NonZeroU64::new(1)
         .unwrap_or_else(|| unreachable!("one manual-craft batch is nonzero"));
 
     assert_eq!(
-        project_manual_craft_hand_work(&registries, definition, one),
+        project_manual_craft_hand_work(&registries, PROCESS_SAW_WOOD_BOARDS, one),
         Err(ManualCraftHandProjectionError::EquipmentRequired {
             process: PROCESS_SAW_WOOD_BOARDS,
         })
@@ -92,37 +88,46 @@ fn manual_hand_work_projection_rejects_equipment_required_processes() {
 }
 
 #[test]
-fn manual_hand_work_projection_reports_duration_and_resource_overflow_separately() {
-    let process = ProcessId::new(99_001);
-    let definition = ManualCraftDefinition::new(
-        process,
-        stone_lump(),
-        Mass::from_milligrams(1),
-        TickSpan::new(u64::MAX),
-        SurvivalExertion::new(Energy::from_nanojoules(1), Volume::from_microliters(1)),
-        vec![ManualCraftOutput::new(
-            stone_lump(),
-            Mass::from_milligrams(1),
-        )],
-    );
+fn manual_hand_work_projection_rejects_unknown_process_and_reports_overflow_separately() {
     let registries = build_registries();
-    let two = std::num::NonZeroU64::new(2)
-        .unwrap_or_else(|| unreachable!("two manual-craft batches are nonzero"));
-    assert_eq!(
-        project_manual_craft_hand_work(&registries, &definition, two),
-        Err(ManualCraftHandProjectionError::DurationOverflow {
-            process,
-            batches: two,
-        })
-    );
-
+    let unknown = ProcessId::new(99_001);
     let one = std::num::NonZeroU64::new(1)
         .unwrap_or_else(|| unreachable!("one manual-craft batch is nonzero"));
     assert_eq!(
-        project_manual_craft_hand_work(&registries, &definition, one),
+        project_manual_craft_hand_work(&registries, unknown, one),
+        Err(ManualCraftHandProjectionError::UnknownManualProcess { process: unknown })
+    );
+
+    let definition = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("stone knapping definition disappeared"));
+    let duration_overflow_batches = std::num::NonZeroU64::new(u64::MAX)
+        .unwrap_or_else(|| unreachable!("maximum batch count is nonzero"));
+    assert_eq!(
+        project_manual_craft_hand_work(
+            &registries,
+            PROCESS_KNAP_STONE_TOOL,
+            duration_overflow_batches,
+        ),
+        Err(ManualCraftHandProjectionError::DurationOverflow {
+            process: PROCESS_KNAP_STONE_TOOL,
+            batches: duration_overflow_batches,
+        })
+    );
+
+    let maximum_duration_batches =
+        std::num::NonZeroU64::new(u64::MAX / definition.duration().value())
+            .unwrap_or_else(|| unreachable!("positive authored duration admits a nonzero batch"));
+    assert_eq!(
+        project_manual_craft_hand_work(
+            &registries,
+            PROCESS_KNAP_STONE_TOOL,
+            maximum_duration_batches,
+        ),
         Err(ManualCraftHandProjectionError::ResourceBudgetOverflow {
-            process,
-            batches: one,
+            process: PROCESS_KNAP_STONE_TOOL,
+            batches: maximum_duration_batches,
         })
     );
 }

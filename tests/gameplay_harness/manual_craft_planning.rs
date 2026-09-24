@@ -89,10 +89,11 @@ fn manual_craft_plan_for_output_matching<'a>(
             }
             let batches_nonzero = NonZeroU64::new(batches)
                 .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));
-            let work = project_manual_craft_hand_work(registries, definition, batches_nonzero)
-                .unwrap_or_else(|error| {
-                    panic!("gameplay harness {context} hand-work projection failed: {error}")
-                });
+            let work =
+                project_manual_craft_hand_work(registries, definition.process(), batches_nonzero)
+                    .unwrap_or_else(|error| {
+                        panic!("gameplay harness {context} hand-work projection failed: {error}")
+                    });
             let total_input_mg = definition
                 .input_mass()
                 .milligrams()
@@ -216,7 +217,7 @@ pub(super) fn manual_craft_plan_for_available_output<'a>(
             let resolution = resolve_manual_craft(registries, state, &request).ok()?;
             let batches_nonzero = NonZeroU64::new(batches)
                 .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));
-            let work = project_manual_craft_hand_work(registries, definition, batches_nonzero)
+            let work = project_manual_craft_hand_work(registries, definition.process(), batches_nonzero)
                 .unwrap_or_else(|error| {
                     panic!("gameplay harness {context} hand-work projection failed: {error}")
                 });
@@ -335,7 +336,7 @@ pub(super) fn project_manual_assembly_package(
             .unwrap_or_else(|| panic!("gameplay harness {context} attention overflowed"));
         let batches_nonzero = NonZeroU64::new(batches)
             .unwrap_or_else(|| unreachable!("nonzero component demand yields nonzero batches"));
-        let work = project_manual_craft_hand_work(registries, craft, batches_nonzero)
+        let work = project_manual_craft_hand_work(registries, craft.process(), batches_nonzero)
             .unwrap_or_else(|error| {
                 panic!("gameplay harness {context} assembly hand-work projection failed: {error}")
             });

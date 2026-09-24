@@ -1,5 +1,9 @@
 //! Copper reinforcement, machine investment, assembly, and charging for primitive progression.
 
+use std::num::NonZeroU64;
+
+use deep_hearth::crafting::project_manual_craft_hand_work;
+
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -459,11 +463,16 @@ pub(super) fn project_primitive_processing_investment(
             .unwrap_or_else(|| panic!("primitive projected repeated charging overflowed"));
         condition = charge.condition_after();
     }
-    let reinforcement_allowance_ticks = registries
-        .crafting()
-        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
-        .map(|definition| definition.duration().value())
-        .unwrap_or_else(|| panic!("primitive copper reinforcement route disappeared"));
+    let reinforcement_allowance_ticks = project_manual_craft_hand_work(
+        registries,
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        NonZeroU64::MIN,
+    )
+    .unwrap_or_else(|error| {
+        panic!("primitive copper reinforcement hand-work projection failed: {error}")
+    })
+    .duration()
+    .value();
     let conservative_attention_ticks = assembly
         .attention_ticks
         .checked_add(initial_charge.duration().value())

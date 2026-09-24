@@ -10,6 +10,11 @@ use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
     GATE_VARIATION_COUNT, focused_probe_cases_from, probe_uses_behavior_seed,
 };
+
+pub(super) const PROGRESSION_REFINEMENT_COVERAGE_SEED: u64 = 3;
+pub(super) const PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED: u64 = 4;
+pub(super) const ORE_FINITE_ENERGY_COVERAGE_SEED: u64 = 2;
+pub(super) const FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED: u64 = 2;
 #[cfg(test)]
 use super::seed::MAINTAINED_VARIATION_ROOT;
 
@@ -52,7 +57,14 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             &[1, 2, 5, 6, 0x043C_561D_398D_32BA, 0xF495_6470_1464_3BC2],
             0x5355_5256_5052_4F42,
         ),
-        "primitive-progression" => (0xD33F_C01D_5052, &[3, 4], 0x5052_4F47_5052_4F42),
+        "primitive-progression" => (
+            0xD33F_C01D_5052,
+            &[
+                PROGRESSION_REFINEMENT_COVERAGE_SEED,
+                PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
+            ],
+            0x5052_4F47_5052_4F42,
+        ),
         // Coverage spans break-even net-timber investment, setup-budget rejection,
         // outright copper blocking, protected-reserve refusal despite a profitable saw route,
         // a short queued job just below the saw crossover, a long saw-to-adze fallback, and a
@@ -77,8 +89,16 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             &[7, 11, 0x10FA_D311_A1B9_7550],
             0x504F_5752_5052_4F42,
         ),
-        "ore-preparation" => (0xD33F_C01D_0A11, &[2], 0x0AE5_1A5E_5052_4F42),
-        "foundry" => (0xD33F_C01D_F001, &[2], 0xF0A1_DA7A_5052_4F42),
+        "ore-preparation" => (
+            0xD33F_C01D_0A11,
+            &[ORE_FINITE_ENERGY_COVERAGE_SEED],
+            0x0AE5_1A5E_5052_4F42,
+        ),
+        "foundry" => (
+            0xD33F_C01D_F001,
+            &[FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED],
+            0xF0A1_DA7A_5052_4F42,
+        ),
         unknown => panic!("unknown focused gameplay probe {unknown:?}"),
     }
 }

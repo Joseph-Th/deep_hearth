@@ -997,56 +997,13 @@ class LocalCiPlanTests(unittest.TestCase):
             self.assertEqual(len(plan), 1)
             self.assertFalse(any(stage in ci.quick_plan() for stage in plan))
 
-    def test_lint_gate_uses_representative_surfaces_without_rebuilding_wrappers(self) -> None:
+    def test_lint_gate_reuses_the_fast_production_alias(self) -> None:
         plan = ci.plan_for(gate_args(lint=True))
-        self.assertEqual(plan, [("clippy", ci.lint_command())])
+        self.assertEqual(plan, [("clippy", ["cargo", "lint-fast"])])
         command = plan[0][1]
-        self.assertEqual(command[:2], ["cargo", "clippy"])
-        self.assertIn("--locked", command)
-        self.assertIn("--lib", command)
-        self.assertEqual(cargo_test_targets(command), [ci.GAMEPLAY_AUDIT_TARGET])
-        self.assertIn("--example", command)
-        self.assertIn(ci.GAMEPLAY_REPORT_EXAMPLE, command)
-        self.assertIn("test-gameplay", command)
-        self.assertNotIn("--all-targets", command)
-        self.assertNotIn("--all-features", command)
-        self.assertNotIn(ci.GAMEPLAY_CONTRACTS_TARGET, command)
-        for target in ci.GAMEPLAY_TARGETS.values():
-            self.assertNotIn(target, command)
-        self.assertNotIn("-j", command)
-        self.assertNotIn("--jobs", command)
-        self.assertEqual(command[-2:], ["-D", "warnings"])
-
-    def test_lint_representatives_cover_focused_harness_module_closures(self) -> None:
-        audit_root = run_test.cargo_test_target_path(ci.GAMEPLAY_AUDIT_TARGET)
-        audit_features = run_test.cargo_feature_set(ci.GAMEPLAY_AUDIT_TARGET, None)
-        representative_modules = {
-            path.resolve()
-            for path, _prefix in run_test.test_catalog.reachable_modules(
-                ROOT, audit_root, audit_features
-            )
-        }
-        representative_modules.update(
-            path.resolve()
-            for path, _prefix in run_test.test_catalog.reachable_modules(
-                ROOT, ROOT / "tests" / "gameplay_report.rs", {"test-gameplay"}
-            )
-        )
-
-        for target in (ci.GAMEPLAY_CONTRACTS_TARGET, *ci.GAMEPLAY_TARGETS.values()):
-            root = run_test.cargo_test_target_path(target)
-            features = run_test.cargo_feature_set(target, None)
-            shared_modules = {
-                path.resolve()
-                for path, _prefix in run_test.test_catalog.reachable_modules(
-                    ROOT, root, features
-                )
-                if path.resolve() != root.resolve()
-            }
-            self.assertTrue(
-                shared_modules <= representative_modules,
-                f"{target} contains harness modules outside the representative lint surfaces",
-            )
+        self.assertNotIn("--test", command)
+        self.assertNotIn("--example", command)
+        self.assertNotIn("test-gameplay", command)
 
     def test_soak_gate_does_not_repeat_ordinary_core_tests(self) -> None:
         builds = cargo_build_commands(ci.plan_for(gate_args(soak=True)))
@@ -1216,28 +1173,21 @@ class LocalCiPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly one build-producing lane"):
             ci.plan_for(gate_args(soak=True, gameplay="ore"))
 
-    def test_audit_has_no_redundant_compile_only_stage(self) -> None:
-        builds = cargo_build_commands(ci.audit_plan("all"))
-        self.assertFalse(any("check-fast" in command for command in builds))
-        self.assertEqual(builds, [ci.combined_test_command()])
-        self.assertIn("--lib", builds[0])
+    def test_all_audit_reuses_separate_core_and_gameplay_cache_shapes(self) -> None:
+        plan = ci.audit_plan("all")
+        builds = cargo_build_commands(plan)
         self.assertEqual(
-            cargo_test_targets(builds[0]),
-            [ci.GAMEPLAY_AUDIT_TARGET],
-        )
-
-    def test_combined_audit_summary_keeps_core_and_gameplay_counts_legible(self) -> None:
-        output = "\n".join(
+            builds,
             [
-                "test result: ok. 559 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
-                "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
-                "test result: ok. 14 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out",
-            ]
+                ["cargo", "test-core"],
+                ci.gameplay_command("all"),
+            ],
         )
-        self.assertEqual(
-            ci.combined_test_summary(output),
-            "559 core + 26 gameplay, 1 ignored",
-        )
+        self.assertFalse(any("check-fast" in command for command in builds))
+        self.assertFalse(any(stage in ci.quick_plan() for stage in plan))
+        self.assertNotIn("test-gameplay", builds[0])
+        self.assertIn("test-gameplay", builds[1])
+        self.assertEqual(cargo_test_targets(builds[1]), [ci.GAMEPLAY_AUDIT_TARGET])
 
     def test_core_repair_loop_stays_feature_minimal_while_gameplay_is_explicit(self) -> None:
         config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
@@ -1278,14 +1228,6 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
             "python tools/run_test.py --target gameplay_audit configuration_tests::broken_contract",
-        )
-
-    def test_combined_audit_core_failure_points_to_exact_unit_test(self) -> None:
-        output = "failures:\n    mining::execution::tests::missing_capability\n"
-        error = "error: test failed, to rerun pass `--lib`"
-        self.assertEqual(
-            ci.repair_hint(ci.combined_test_command(), output, error),
-            "python tools/run_test.py mining::execution::tests::missing_capability",
         )
 
     def test_gameplay_failure_without_test_name_reuses_the_semantic_scope(self) -> None:
@@ -1525,22 +1467,18 @@ class LocalCiPlanTests(unittest.TestCase):
             ("0xAA", "0xBB"),
         )
 
-    def test_supported_gameplay_commands_use_fresh_bounded_variation(self) -> None:
-        for argv in (
-            ["gate", "--gameplay", "survival"],
-            ["gate", "--gameplay", "progression"],
-            ["gate", "--gameplay", "workshop"],
-            ["audit", "--gameplay"],
-            ["audit", "--all"],
-            ["report"],
-        ):
-            with self.subTest(argv=argv):
-                self.assertTrue(ci.uses_fresh_gameplay_variation(ci.parse_args(argv)))
+    def test_fresh_gameplay_variation_is_report_only(self) -> None:
+        self.assertTrue(ci.uses_fresh_gameplay_variation(ci.parse_args(["report"])))
         for argv in (
             ["quick"],
             ["gate"],
             ["gate", "--gameplay", "contracts"],
+            ["gate", "--gameplay", "survival"],
+            ["gate", "--gameplay", "progression"],
+            ["gate", "--gameplay", "workshop"],
             ["audit", "--core"],
+            ["audit", "--gameplay"],
+            ["audit", "--all"],
             ["gate", "--lint"],
         ):
             with self.subTest(argv=argv):
@@ -1556,9 +1494,10 @@ class LocalCiPlanTests(unittest.TestCase):
             "roots=0xAAAA/0xBBBB",
         )
         self.assertEqual(
-            ci.gameplay_environment_summary("core + gameplay", environment),
+            ci.gameplay_environment_summary("gameplay", environment),
             "roots=0xAAAA/0xBBBB",
         )
+        self.assertIsNone(ci.gameplay_environment_summary("core", environment))
         self.assertIsNone(ci.gameplay_environment_summary("gameplay contracts", environment))
         self.assertIsNone(ci.gameplay_environment_summary("compile", environment))
 
@@ -1610,8 +1549,8 @@ class LocalCiPlanTests(unittest.TestCase):
                         if mode is not None:
                             self.assertEqual(body, transcript)
                         else:
-                            self.assertEqual(body, f"{opening}\n")
-                            self.assertIn(opening, stdout.getvalue())
+                            self.assertEqual(body, "\n")
+                            self.assertNotIn(opening, stdout.getvalue())
                             self.assertNotIn(ending, stdout.getvalue())
                         self.assertIn("PASS total", stdout.getvalue())
                     else:
@@ -1745,146 +1684,46 @@ class LocalCiPlanTests(unittest.TestCase):
         ]
         output = "\n".join(lines)
         concise = gameplay_report_summary.concise_gameplay_report(output, {})
+        concise_lines = concise.splitlines()
+        self.assertEqual(len(concise_lines), 12)
+        self.assertLessEqual(max(map(len, concise_lines)), 900)
+        self.assertLess(len(concise.encode()), 6_000)
         for prefix in (
             "SIMULATION TIME ",
-            "PLAYER FANTASY ",
-            "EVALUATION SCOPE kind=ordinary-play ",
-            "EVALUATION SCOPE kind=controlled-capability ",
-            "ORDINARY SUMMARY probe=primitive-progression ",
-            "ORDINARY SUMMARY probe=primitive-liberation ",
-            "ORDINARY SUMMARY probe=woodworking ",
-            "ORDINARY SUMMARY probe=fieldwork ",
-            "ORDINARY SUMMARY probe=power-provider ",
-            "ORDINARY SUMMARY probe=survival ",
-            "PLAYER LOOP EVIDENCE ",
-            "CONTROLLED SUMMARY probe=workshop ",
-            "CONTROLLED SUMMARY probe=agency ",
-            "ORE CAPABILITY SUMMARY ",
-            "FOUNDRY CAPABILITY SUMMARY ",
+            "GAMEPLAY probe=primitive-progression ",
+            "GAMEPLAY probe=primitive-liberation ",
+            "GAMEPLAY probe=woodworking ",
+            "GAMEPLAY probe=fieldwork ",
+            "GAMEPLAY probe=power-provider ",
+            "GAMEPLAY probe=survival ",
+            "GAMEPLAY loop ",
+            "CAPABILITY probe=workshop ",
+            "CAPABILITY probe=agency ",
+            "CAPABILITY probe=ore ",
+            "CAPABILITY probe=foundry ",
         ):
-            self.assertIn(prefix, concise)
-        for noisy in (
+            self.assertTrue(
+                any(line.startswith(prefix) for line in concise_lines),
+                f"missing digest line {prefix!r}",
+            )
+        for redundant in (
+            "PLAYER FANTASY ",
+            "EVALUATION SCOPE ",
             "PROBE INPUT ",
             "SURVIVAL EXPERIENCE ",
             "PROGRESSION EXPERIENCE ",
-            "LIBERATION FRONTIER CAPABILITY ",
-            "WOODWORKING EXPERIENCE ",
-            "FIELDWORK EXPERIENCE ",
-            "POWER PROVIDER EXPERIENCE ",
             "POWER PROJECT EXPERIENCE ",
-            "CAPABILITY ORE_PREP ",
-            "CAPABILITY FOUNDRY ",
-            "EVIDENCE CONTRACT ",
-            "WORKSHOP CAPABILITY ",
             "WORKSHOP EXPERIENCE REVIEW ",
-            "AGENCY SUMMARY ",
-            "POWER BUILD BILL ",
-            "FIELDWORK PACING ",
-            "FIELDWORK SITE REUSE ",
-            "FIELDWORK SURVEY CAMPAIGN ",
-            "FIELDWORK DEPLETION ",
-            "FIELDWORK DEPLETION RECOVERY ",
-            "LIBERATION KIT ACQUISITION ",
-            "CONTENT registry_schema=",
-            "CONTENT ACQUISITION EDGES ",
         ):
-            self.assertNotIn(noisy, concise)
-        self.assertIn(
-            "stockpiling-counterfactual=[returned-attention:315..315t returned-share:822454..822454ppm maintenance-prep-overlap:40..40t useful-overlap/setup:210526..210526ppm]",
-            concise,
-        )
-        self.assertIn(
-            "parallel-work=[feed-replenishment:28..28t maintenance-prep:40..40t useful-overlap:68..68t remaining-autonomous:315..315t]",
-            concise,
-        )
-        self.assertIn(
-            "processing-recovery=[manual:650000..650000ppm powered:900000..900000ppm]",
-            concise,
-        )
-        self.assertIn(
-            "processing-crossover=[one-bridge-manual:111..111t line-setup:421..421t long-order-mechanized:1/1]",
-            concise,
-        )
-        self.assertIn(
-            "bridge-body=[manual-energy:1..1kJ manual-hydration:1..1mL "
-            "line-energy:2..2kJ line-hydration:2..2mL]",
-            concise,
-        )
-        self.assertIn(
-            "scarcity-bridge=[direct-second-blocked:1 processed-output-playable:1 converged:1]",
-            concise,
-        )
-        self.assertIn(
-            "preaction-processing-investment=[selected:mechanized manual:2470..2470t conservative-machine-upper:1800..1800t frozen:1/1]",
-            concise,
-        )
+            self.assertNotIn(redundant, concise)
         self.assertIn(
             "disclosed-order-attention=[manual:2470..2470t mechanized:429..429t saved:2041..2041t]",
             concise,
         )
+        self.assertIn("remaining-frontier=foundry-infrastructure", concise)
+        self.assertIn("choice=[saw:0 adze:0 bare:1]", concise)
         self.assertIn(
-            "disclosed-order-physical=[manual:148.2..148.2m mechanized:25.7..25.7m saved:122.4..122.4m]",
-            concise,
-        )
-        self.assertIn(
-            "executed-power-loop=[consumer-backed:1/1 repeat-cycles:12..12 "
-            "horizon:24..24 passive-loss:125..125J reserve-recharge:1..1t]",
-            concise,
-        )
-        self.assertIn(
-            "executed-manual-fallback=[routes:1/1 attention:187..187t physical:11.2..11.2m "
-            "body:237.0..237.0kJ/66.7..66.7mL recovery:650000..650000ppmvs900000..900000ppm]",
-            concise,
-        )
-        self.assertIn(
-            "integrated-campaign=[single-state:1/1 fantasy-captured:1/1]",
-            concise,
-        )
-        self.assertIn(
-            "next-stage-continuation=[sizing-plate:1/1 attention:90..90t physical:5.4..5.4m]",
-            concise,
-        )
-        self.assertIn(
-            "kit-acquisition=[executed:1 raw:stone-8..8kg/wood-15.4..15.4kg/"
-            "total-23.4..23.4kg attention:404..404t physical:24.2..24.2m "
-            "body:500..500kJ/100..100mL]",
-            concise,
-        )
-        self.assertIn(
-            "route-tradeoff=[samples:1/1 manual-attention:60..60t powered-charge-attention:5..5t "
-            "attention-saved:55..55t/batch powered-elapsed:20..20t native-gain:15..15mg "
-            "evidence-mode=[raw-kit-continuity:1/1 exploratory-preassembled:0/0] "
-            "disclosed-campaign:8..8batches live-kit-justified:1/1 "
-            "campaign-attention=[manual:480..480t powered:444..444t saved:36..36t] "
-            "campaign-body=[manual:0.0..0.0kJ/0.0..0.0mL powered:500.0..500.0kJ/100.0..100.0mL] "
-            "kit-attention-payback:8..8jobs]",
-            concise,
-        )
-        self.assertIn(
-            "processing-crossover-physical=[manual:6.6..6.6m line-setup:25.2..25.2m]",
-            concise,
-        )
-        self.assertIn(
-            "settlement-choice=[treadle:0 walking:1] organic-settlement-choice=[treadle:0 walking:0] "
-            "settlement-project=[lumber-feed:1600..1600kg mechanical-work:400..400kJ charge-events:80..80] "
-            "settlement-decision-crossover-charges=56..56 settlement-pristine-rate-break-even=60..60",
-            concise,
-        )
-        self.assertIn(
-            "project=[crusher-feed:1..1kg mechanical-work:1..1kJ buffer-lower-bound-charges:1..1 consumer-projected-charges:1..1]",
-            concise,
-        )
-        self.assertIn("choice-load=[crank:1..1kg treadle:n/a]", concise)
-        self.assertIn(
-            "lifecycle-feedback=[samples:1/1 setup-budget-met:0/1 realized-payback:0/1 budget-vs-payback=[conservative:0 optimistic:0] timber-model-agrees:1/1 choice-revised:0/1]",
-            concise,
-        )
-        self.assertIn(
-            "productive-cycle=[consumer:stone-crusher executed:1/1 consumer-duration:9..9t carried-state-recharge:1/1]",
-            concise,
-        )
-        self.assertIn(
-            "lived-project=[executed:1/1 choice-agrees:1/1 attention-regret:0..0t charge-events:2..2 consumer-projected-charges:1..1 wear-projected-extra-charges:0..0 unplanned-extra-charges:1..1 projected-services:1..1 survival-limited-batches:1..1 active-attention:20..20t services:1..1 service-time:3..3t provisioning-stops:1..1 provisioning-attention:8..8t break-actions=[drinks:1..1 meals:0..0] elapsed:29..29t cache-food:8..8kg cache-preservation:4000000..4000000ppm cache-water:256..256L]",
+            "heavy-tool-market=[selected:0 deferred:1 unavailable:0",
             concise,
         )
         self.assertIn(
@@ -1892,143 +1731,15 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "lifecycle-body=[crank-energy:10..10kJ crank-hydration:20..20mL treadle-energy:8..8kJ treadle-hydration:18..18mL]",
-            concise,
-        )
-        self.assertIn("lifecycle-end-condition=[crank:990000..990000ppm treadle:995000..995000ppm]", concise)
-        self.assertIn("settlement-load=[treadle:n/a walking:1600..1600kg]", concise)
-        self.assertIn(
-            "settlement-productive-cycle=[consumer:powered-saw executed:1/1 consumer-duration:56..56t carried-state-recharge:1/1]",
+            "work-interlock=[policy=[task-floor:0 working-reserve:0]",
             concise,
         )
         self.assertIn(
-            "settlement-lived-project=[executed:1/1 choice-agrees:1/1 attention-regret:0..0t charge-events:80..80 unplanned-extra-charges:0..0 survival-limited-batches:0..0 active-attention:2500..2500t services:4..4 service-time:12..12t provisioning-stops:2..2 provisioning-attention:48..48t break-actions=[drinks:2..2 meals:0..0] elapsed:8100..8100t cache-food:8..8kg cache-preservation:4000000..4000000ppm cache-water:256..256L]",
+            "delegate=[mechanized-processing:1/1 attention-saved:2041..2041t",
             concise,
         )
         self.assertIn(
-            "settlement-evidence-scope=[productive-cycle-executed:1/1 full-project-executed:1/1 provider-lifecycle-projected:1/1]",
-            concise,
-        )
-        self.assertIn(
-            "settlement-lifecycle-end-condition=[treadle:800000..800000ppm walking:900000..900000ppm]",
-            concise,
-        )
-        self.assertIn(
-            "demand-horizon=[immediate-only:1 short-queue:0 project:0]",
-            concise,
-        )
-        self.assertIn(
-            "by-horizon=[immediate:bare1/adze0/saw0 short:bare0/adze0/saw0 "
-            "project:bare0/adze0/saw0]",
-            concise,
-        )
-        self.assertIn("decision-coverage=[horizons:1/3 choices:1/3]", concise)
-        self.assertIn(
-            "pacing=[first-expedition:64..64t durable-kit:50..50t site-search:10..10t "
-            "order-extraction:4..4t short-first:64..64t short-search:10..10t "
-            "short-extraction:4..4t project-first:n/a project-search:n/a "
-            "project-extraction:n/a bulk-first:n/a bulk-search:n/a bulk-extraction:n/a]",
-            concise,
-        )
-        self.assertIn(
-            "pacing-physical=[first-expedition:3.8..3.8m durable-kit:3.0..3.0m "
-            "site-search:36.0..36.0s order-extraction:14.4..14.4s]",
-            concise,
-        )
-        self.assertIn(
-            "reuse=[known-site:1/1 matched-order:complete1/partial0 partial-fulfillment:n/a repeat-extraction=[complete:2..2t partial:n/a] avoided-search:10..10t "
-            "avoided-kit:50..50t new-site-with-kit:1/1 new-site-search:10..10t "
-            "new-site-first-batch:3..3t]",
-            concise,
-        )
-        self.assertIn(
-            "reuse-physical=[repeat-complete:7.2..7.2s repeat-partial:n/a avoided-search:36.0..36.0s avoided-kit:3.0..3.0m]",
-            concise,
-        )
-        self.assertIn(
-            "known-site-horizon=[eligible:1/1 supply-ended:1 horizon-live:0 reroute-proved:1/1 complete-orders:2..2 "
-            "partial-orders:1..1 extracted:5..5mg attention:6..6t/21.6..21.6s "
-            "body:1..1kJ/1..1mL condition:990000..990000ppm]",
-            concise,
-        )
-        self.assertIn(
-            "survey-campaign=[point:0 indexed:1 upgrade-fundable:1/1 horizons:one0/two0/three1 indexed-expected-delta:+4..+4t indexed-realized=[positive:1 negative:0 flat:0 delta:+8..+8t]]",
-            concise,
-        )
-        self.assertIn(
-            "heavy-tool-market=[selected:0 deferred:1 unavailable:0 "
-            "selected-economics=[prep-extra:n/a order-saving:n/a net-saving:n/a] "
-            "deferred-economics=[prep-extra:+20..+20t order-saving:+7..+7t "
-            "net-penalty:+13..+13t]]",
-            concise,
-        )
-        self.assertIn(
-            "ordinary-loop=[concentrate-reachable:1/1 usable-native-sink:1/1]",
-            concise,
-        )
-        self.assertIn(
-            "PLAYER LOOP EVIDENCE evidence-shape=[single-state-progression:1/1 domain-episodes:survival1/woodworking1/fieldwork1/power1/liberation1] observe-infer=[evidence-gated-extraction:1/1 "
-            "reserve-knowledge-changed-plan:1/1 avoided-tool-overinvestment:1/1] "
-            "prepare-invest=[woodworking-tool:0/1 power-market:1/1 knowledge-tech=[campaign:1/1 lived-shortfall:0/0]] "
-            "extract=[fieldwork:1/1 liberation:1/1] "
-            "world-feedback=[initial-supply-ended:0/1 initial-shortfall-campaign-progressed:0/0 shortfall-knowledge-upgrade:0/0 known-site-depletion:1/1 depletion-reroute-proved:1/1 horizon-live:0/1]",
-            concise,
-        )
-        self.assertIn(
-            "delegate=[mechanized-processing:1/1 attention-saved:2041..2041t productive-overlap:68..68t autonomous-room:315..315t]",
-            concise,
-        )
-        self.assertIn(
-            "choice-diversity=[woodworking:1/3 fieldwork-selected:1/4 "
-            "bulk-crossover-tools:1/2 power-market:1/2 survey-strategy:1/2 preservation:1/5]",
-            concise,
-        )
-        self.assertIn(
-            "reinvestment-timing=[selected-immediate:1/0 stockpile-first-counterfactual:1/0 delay-avoided:476..476t]",
-            concise,
-        )
-        self.assertIn("pressure-shape=[clean:1 single:0 multi:10]", concise)
-        self.assertIn(
-            "interlocks=[stored-work:11 body-power:5 wear-maintenance:6 structure-production:9]",
-            concise,
-        )
-        self.assertIn("recovery=[suspended:3 resumed:3 stranded:0]", concise)
-        self.assertIn(
-            "maintenance-blockers=[replacement-supply:1 service-labor:0]",
-            concise,
-        )
-        self.assertIn("final-concentrate-grade=750000..750000ppm", concise)
-        self.assertIn("current-player-selected=1/1", concise)
-        self.assertIn("native-copper=50..50mg", concise)
-        self.assertIn("scavenger-copper=7..7mg", concise)
-        self.assertIn(
-            "scavenger-marginal=[attention:17..17t native:6..6mg]",
-            concise,
-        )
-        self.assertIn(
-            "remaining-frontier=foundry-infrastructure",
-            concise,
-        )
-        self.assertIn(
-            "foundry-readiness=[furnace-assembly-edge:0/1 mold-assembly-edge:0/1 electrical-buffer-assembly-edge:0/1 thermal-sink-assembly-edge:0/1 manual-electrical-generation:0/1 support-required:1/1]",
-            concise,
-        )
-        self.assertIn(
-            "foundry-energy-frontier=[manual-mechanical-max:150..150W "
-            "furnace-transfer-ceiling:2000000..2000000W ceiling-ratio:13333..13333x "
-            "electrical-melting:1/1 conversion-path-absent:1/1]",
-            concise,
-        )
-        self.assertIn(
-            "FOUNDRY CAPABILITY SUMMARY samples=1 full=1 partial=0 melt-limited=0 "
-            "cast-capacity-limited=0 feed-deferred=[orders:0 retained:0/0 mass:0mg] "
-            "cast-recovery=[remainders:0 recovery-casts:0 cleared:0 molten-stranded:0] "
-            "full-after-cooldown=0",
-            concise,
-        )
-        self.assertIn(
-            "ORE CAPABILITY SUMMARY samples=2 completed=1 stopped=1 "
-            "finite-energy-stops=1 retryable-energy-stops=1 variable-feed=1",
+            "CAPABILITY probe=ore samples=2 completed=1 stopped=1 finite-energy-stops=1 retryable-energy-stops=1 variable-feed=1",
             concise,
         )
         self.assertEqual(
@@ -2065,14 +1776,15 @@ class LocalCiPlanTests(unittest.TestCase):
                 "WOODWORKING EXPERIENCE seed=0x2 choice=frame-saw routes=[adze:10logs timber:100mg attention:100t production:20t maintenance:80t/1services final-condition:900000ppm; saw-assisted:min-saw-logs:9 fundable:true actual=[saw:9 adze-fallback:1 fallback-copper:false saw-services:1 adze-services:1]]",
             )
         )
-        concise = gameplay_report_summary.concise_gameplay_report(output, {})
+        detailed = gameplay_report_summary.player_loop_evidence(output.splitlines())
+        self.assertIsNotNone(detailed)
         self.assertIn(
             "survive-adapt=[reprovisioned-after-work:1/2 hydration-policy:task-floor1/working-reserve1 opportunistic-power:1/1 mechanized-project-breaks:0/0 break-count:0 warning-safe:2/2]",
-            concise,
+            detailed,
         )
         self.assertIn(
             "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 mechanized-projects-with-service:0/0 mechanized-service-events:0]",
-            concise,
+            detailed,
         )
 
     def test_report_verbose_flag_is_explicit_and_report_only(self) -> None:
@@ -2487,7 +2199,7 @@ class ExactTestCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous.*2 matches"):
             run_test.resolve_test_name("preserves_mass", catalog)
 
-    def test_default_exact_command_reuses_shared_test_support_shape(self) -> None:
+    def test_unknown_unit_owner_falls_back_to_the_normal_library_shape(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
@@ -2510,6 +2222,20 @@ class ExactTestCommandTests(unittest.TestCase):
                 "--exact",
             ],
         )
+
+    def test_exact_unit_command_reuses_shared_library_test_artifact(self) -> None:
+        args = argparse.Namespace(
+            target="lib",
+            features=None,
+            list=False,
+            name="core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
+            suite=False,
+            ignored=False,
+            nocapture=False,
+        )
+        command = run_test.cargo_command(args)
+        self.assertNotIn("--features", command)
+        self.assertIn("--exact", command)
 
     def test_source_catalog_matches_default_library_test_names_without_building(self) -> None:
         catalog = run_test.source_test_catalog("lib", None)

@@ -1,7 +1,7 @@
 //! Focused ore-preparation capability probe.
 
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_runner::focused_probe_role_label;
+use super::focused_runner::{ORE_FINITE_ENERGY_COVERAGE_SEED, focused_probe_role_label};
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::material_selection::select_stockpile_mass;
 use super::ore_setup::{OrePreparationProbeIds, OrePreparationSetup, setup_ore_preparation_probe};
@@ -340,14 +340,14 @@ pub(super) fn run_ore_preparation_capability_probe(
 ) {
     let outcome = evaluate_ore_preparation_capability_probe(registries, case);
     if case.role() == FocusedProbeRole::MaintainedCoverage {
-        assert_eq!(case.seed(), 2, "unknown maintained ore coverage seed");
+        assert_eq!(case.seed(), ORE_FINITE_ENERGY_COVERAGE_SEED);
         assert_eq!(
             outcome,
             OreProbeOutcome::Stopped {
                 stage: "grind",
                 reason: OreStopReason::FiniteEnergy,
             },
-            "ore coverage seed 2 must preserve a canonical mid-chain finite-work blocker"
+            "maintained ore finite-energy coverage must preserve a canonical mid-chain blocker"
         );
     }
 }

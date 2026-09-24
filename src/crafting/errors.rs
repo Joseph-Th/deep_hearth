@@ -54,6 +54,9 @@ pub enum ManualCraftEquipmentProjectionError {
 /// Failure while projecting equipment-free manual work from immutable authored definitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ManualCraftHandProjectionError {
+    UnknownManualProcess {
+        process: ProcessId,
+    },
     EquipmentRequired {
         process: ProcessId,
     },
@@ -70,6 +73,11 @@ pub enum ManualCraftHandProjectionError {
 impl Display for ManualCraftHandProjectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::UnknownManualProcess { process } => write!(
+                formatter,
+                "process {} is not authored as a manual craft",
+                process.value()
+            ),
             Self::EquipmentRequired { process } => write!(
                 formatter,
                 "manual craft process {} has no equipment-free hand-work route",

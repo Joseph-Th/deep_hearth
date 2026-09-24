@@ -7,7 +7,7 @@ mod reporting;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_runner::focused_probe_role_label;
+use super::focused_runner::{FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED, focused_probe_role_label};
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::foundry_setup::{FoundryIds, FoundrySetup, setup_foundry_probe};
 use super::material_selection::select_stockpile_mass;
@@ -699,11 +699,11 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         final_molten_remaining,
     );
     if case.role() == FocusedProbeRole::MaintainedCoverage {
-        assert_eq!(case.seed(), 2, "unknown maintained foundry coverage seed");
+        assert_eq!(case.seed(), FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED);
         assert_eq!(
             primary_cast.limit,
             CastBatchLimit::ThermalSinkCapacity,
-            "foundry coverage seed 2 must preserve thermal-sink-limited first casting"
+            "maintained foundry recovery coverage must preserve thermal-sink-limited first casting"
         );
         assert!(
             !primary_cast.molten_remaining.is_zero(),

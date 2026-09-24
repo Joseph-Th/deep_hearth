@@ -6,10 +6,28 @@ import re
 
 
 def field(line: str, name: str) -> str | None:
-    """Extract one top-level whitespace-delimited key=value field."""
+    """Extract one top-level key=value field, including balanced bracketed values."""
 
-    match = re.search(rf"(?:^|\s){re.escape(name)}=(\[[^]]*\]|\S+)", line)
-    return match.group(1) if match is not None else None
+    match = re.search(rf"(?:^|\s){re.escape(name)}=", line)
+    if match is None:
+        return None
+    start = match.end()
+    if start >= len(line):
+        return ""
+    if line[start] != "[":
+        end = line.find(" ", start)
+        return line[start:] if end < 0 else line[start:end]
+
+    depth = 0
+    for index in range(start, len(line)):
+        character = line[index]
+        if character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                return line[start : index + 1]
+    raise ValueError(f"unterminated bracketed field {name!r}: {line}")
 
 
 def compact_fields(line: str, names: tuple[str, ...]) -> str:

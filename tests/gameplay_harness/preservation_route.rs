@@ -129,7 +129,7 @@ fn discover_manual_construction_route(
                 .checked_mul(batches)
                 .unwrap_or_else(|| panic!("preservation construction input mass overflowed")),
         );
-        let work = project_manual_craft_hand_work(registries, producer, batches_nonzero)
+        let work = project_manual_craft_hand_work(registries, producer.process(), batches_nonzero)
             .unwrap_or_else(|error| {
                 panic!("preservation construction hand-work projection failed: {error}")
             });

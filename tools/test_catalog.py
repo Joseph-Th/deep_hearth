@@ -29,6 +29,35 @@ def cached_file_text(path: Path) -> str:
     return _file_text_cache[path]
 
 
+def logical_source_lines(source: str) -> list[str]:
+    """Join rustfmt-wrapped attributes while leaving ordinary source lines untouched."""
+
+    raw = source.splitlines()
+    logical: list[str] = []
+    index = 0
+    while index < len(raw):
+        line = raw[index]
+        stripped = line.strip()
+        if not stripped.startswith("#[") or stripped.endswith("]"):
+            logical.append(line)
+            index += 1
+            continue
+
+        indent = line[: len(line) - len(line.lstrip())]
+        parts = [stripped]
+        index += 1
+        while index < len(raw):
+            part = raw[index].strip()
+            parts.append(part)
+            index += 1
+            if part.endswith("]"):
+                break
+        else:
+            raise ValueError("unterminated Rust attribute in source catalog")
+        logical.append(indent + " ".join(parts))
+    return logical
+
+
 def split_cfg_arguments(expression: str) -> list[str]:
     """Split one cfg combinator argument list without guessing nested expression structure."""
 
@@ -98,7 +127,7 @@ def file_test_names(path: Path, prefix: tuple[str, ...], features: set[str]) -> 
     pending_attributes: list[str] = []
     inline_test_module: str | None = None
 
-    for line in cached_file_text(path).splitlines():
+    for line in logical_source_lines(cached_file_text(path)):
         stripped = line.strip()
         if ATTRIBUTE.match(line):
             pending_attributes.append(stripped)
@@ -174,7 +203,7 @@ def external_modules(
     modules: list[tuple[str, Path]] = []
     pending_attributes: list[str] = []
 
-    for line in cached_file_text(path).splitlines():
+    for line in logical_source_lines(cached_file_text(path)):
         stripped = line.strip()
         if line == stripped and ATTRIBUTE.match(line):
             pending_attributes.append(stripped)
@@ -231,7 +260,7 @@ def root_sibling_imports(
     required: set[str] = set()
     prefix = "super::" * module_depth
     pending_attributes: list[str] = []
-    lines = source.splitlines()
+    lines = logical_source_lines(source)
     index = 0
     while index < len(lines):
         line = lines[index]

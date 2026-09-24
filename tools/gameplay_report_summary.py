@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from tools.gameplay_summary.common import compact_fields, field
 from tools.gameplay_summary.controlled import controlled_gameplay_summary
 from tools.gameplay_summary.fieldwork import fieldwork_summary
 from tools.gameplay_summary.liberation import liberation_summary
@@ -31,8 +32,108 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
     return summaries
 
 
+_ORDINARY_DIGEST_FIELDS = {
+    "primitive-progression": (
+        "samples",
+        "first-copper",
+        "processing-crossover",
+        "disclosed-order-attention",
+        "reinvestment",
+        "next-stage-continuation",
+    ),
+    "primitive-liberation": (
+        "samples",
+        "current-player-selected",
+        "native-copper",
+        "kit-acquisition",
+        "ordinary-loop",
+        "remaining-frontier",
+        "foundry-energy-frontier",
+    ),
+    "woodworking": (
+        "samples",
+        "choice",
+        "decision-coverage",
+        "attention-payback",
+        "timber-saving",
+        "lifecycle-feedback",
+    ),
+    "fieldwork": (
+        "samples",
+        "outcomes",
+        "reserve-knowledge",
+        "orders",
+        "heavy-tool-market",
+        "initial-shortfall-campaign",
+    ),
+    "power-provider": (
+        "samples",
+        "choice",
+        "decision-crossover-charges",
+        "evidence-scope",
+        "settlement-choice",
+        "settlement-decision-crossover-charges",
+        "settlement-evidence-scope",
+    ),
+    "survival": (
+        "samples",
+        "pressure",
+        "preservation",
+        "commitment",
+        "work-interlock",
+    ),
+}
+
+
+def _digest_summary(summary: str) -> str:
+    if summary.startswith("ORDINARY SUMMARY "):
+        probe = field(summary, "probe")
+        if probe is None:
+            return summary
+        detail = compact_fields(summary, _ORDINARY_DIGEST_FIELDS.get(probe, ("samples",)))
+        return f"GAMEPLAY probe={probe} {detail}".rstrip()
+
+    if summary.startswith("PLAYER LOOP EVIDENCE "):
+        detail = compact_fields(
+            summary,
+            (
+                "observe-infer",
+                "world-feedback",
+                "delegate",
+                "reassess-reinvest",
+                "choice-diversity",
+            ),
+        )
+        return f"GAMEPLAY loop {detail}".rstrip()
+
+    if summary.startswith("CONTROLLED SUMMARY probe=workshop "):
+        return (
+            "CAPABILITY probe=workshop "
+            + compact_fields(summary, ("scenarios", "orders", "stops", "recovery"))
+        ).rstrip()
+    if summary.startswith("CONTROLLED SUMMARY probe=agency "):
+        return (
+            "CAPABILITY probe=agency "
+            + compact_fields(
+                summary,
+                (
+                    "worlds",
+                    "worlds-with-multiple-signatures",
+                    "observed-counterfactual-effects",
+                ),
+            )
+        ).rstrip()
+    if summary.startswith("ORE CAPABILITY SUMMARY "):
+        return "CAPABILITY probe=ore " + summary.removeprefix("ORE CAPABILITY SUMMARY ")
+    if summary.startswith("FOUNDRY CAPABILITY SUMMARY "):
+        return "CAPABILITY probe=foundry " + summary.removeprefix(
+            "FOUNDRY CAPABILITY SUMMARY "
+        )
+    return summary
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
-    """Keep one compact factual summary per probe; verbose retains the full transcript."""
+    """Return a decision-oriented digest; verbose retains every detailed evidence line."""
 
     environment = os.environ if environ is None else environ
     if environment.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is not None or environment.get(
@@ -40,17 +141,12 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ) is not None:
         return stdout.rstrip()
     lines = stdout.splitlines()
-    selected = [
-        line
-        for line in lines
-        if line.startswith("SIMULATION TIME ")
-        or line.startswith("PLAYER FANTASY ")
-        or line.startswith("EVALUATION SCOPE kind=ordinary-play ")
-        or line.startswith("EVALUATION SCOPE kind=controlled-capability ")
-    ]
-    selected.extend(ordinary_gameplay_summary(lines))
+    selected = [line for line in lines if line.startswith("SIMULATION TIME ")]
+    selected.extend(_digest_summary(summary) for summary in ordinary_gameplay_summary(lines))
     loop_evidence = player_loop_evidence(lines)
     if loop_evidence is not None:
-        selected.append(loop_evidence)
-    selected.extend(controlled_gameplay_summary(lines))
+        selected.append(_digest_summary(loop_evidence))
+    selected.extend(
+        _digest_summary(summary) for summary in controlled_gameplay_summary(lines)
+    )
     return "\n".join(selected)

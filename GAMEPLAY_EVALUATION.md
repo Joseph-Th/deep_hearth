@@ -208,12 +208,12 @@ cross-cutting contracts stay in the broad contract/audit targets.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed pure-copper heating/melting/casting with finite energy, adaptive batches, remelting coverage, and sink recovery. Direct melting is the current live route; same-furnace/same-source sensible preheat is diagnostic energy-partition evidence only until content gives it a distinct physical advantage. Capability-only because the industrial foundry stack is not ordinarily acquirable; native copper from ordinary hand sorting or concentrate cleanup is already a valid melting feed. |
 
-Supported focused gameplay gates and gameplay audits run maintained deterministic cases plus one fresh bounded
-organic-variation case per probe. The generated roots are printed as replay evidence; explicit variation or behavior
-roots replace them when reproducing a case. `python ci.py report` samples a broader fresh bounded set. Concise
-summaries expose `sample-shape`; maintained anchor/coverage cases prove contracts and must not be read as prevalence.
-When frequency matters, interpret the separately reported organic slice as bounded fresh-world evidence, not as a
-population estimate. Direct Cargo execution remains deterministic for low-level debugging. Full episodes are
+Supported gameplay gates and audits run maintained deterministic cases plus bounded organic-variation cases from
+stable fallback roots, so both repair loops and checkpoints are repeatable. `python ci.py report` alone samples a
+broader fresh set. Printed roots are replay evidence;
+explicit variation or behavior roots replace them when reproducing a case. Concise summaries expose `sample-shape`;
+maintained anchor/coverage cases prove contracts and must not be read as prevalence. When frequency matters,
+interpret the separately reported organic slice as bounded sampled-world evidence, not as a population estimate. Full episodes are
 reserved for behavior that requires executed cross-system consequences. A world may succeed, adapt, or stop at a
 canonical constraint; every partial or blocked outcome must preserve trusted-load validity and relevant conservation.
 Selected-path summaries must never count an unselected coverage branch, diagnostic counterfactual, or forced

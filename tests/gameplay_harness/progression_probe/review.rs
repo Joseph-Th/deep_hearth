@@ -1,5 +1,8 @@
 //! Matched-counterfactual progression review, evidence classification, and report output.
 
+use super::super::focused_runner::{
+    PROGRESSION_REFINEMENT_COVERAGE_SEED, PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
+};
 use super::manual_processing::ManualProcessingFallbackReview;
 use super::*;
 
@@ -1552,23 +1555,23 @@ pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: Foc
     let review = evaluate_primitive_progression_probe(registries, case);
     if case.role() == FocusedProbeRole::MaintainedCoverage {
         match case.seed() {
-            3 => {
+            PROGRESSION_REFINEMENT_COVERAGE_SEED => {
                 assert_eq!(review.natural_priority, PrimitivePriority::CrankFirst);
                 assert!(review.information_refinement_required);
                 assert!(
                     review.extraction_reassessment_avoided_worse_feed,
-                    "progression coverage seed 3 must preserve a worse hard-seam sample"
+                    "refinement coverage must preserve a worse hard-seam sample"
                 );
                 assert!(
                     !review.post_convergence_mining_target_is_hard,
-                    "progression coverage seed 3 must switch subsequent extraction back to the known better bulk ore"
+                    "refinement coverage must switch subsequent extraction back to the known better bulk ore"
                 );
             }
-            4 => {
+            PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED => {
                 assert_eq!(review.natural_priority, PrimitivePriority::PickFirst);
                 assert!(
                     !review.information_refinement_required,
-                    "progression coverage seed 4 must preserve the surface-resolved information path"
+                    "surface-resolved coverage must preserve the no-refinement information path"
                 );
                 assert_eq!(review.detailed_survey_ticks, 0);
                 assert_eq!(review.refined_clue_sample_mg, 0);

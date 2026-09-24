@@ -1,5 +1,7 @@
 //! Bounded zero-powered ore-processing fallback from owned ore to a usable copper reinforcement.
 
+use std::num::NonZeroU64;
+
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE,
@@ -8,6 +10,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::crafting::project_manual_craft_hand_work;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::material::{COMPOSITION_PARTS_PER_MILLION, CommodityKey};
 use deep_hearth::matter::calculate_matter_accounting;
@@ -97,11 +100,14 @@ pub(super) fn project_owned_ore_manual_bridge(
     )
     .unwrap_or_else(|error| panic!("manual bridge sorting projection failed: {error}"))
     .value();
-    let cold_work = registries
-        .crafting()
-        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
-        .unwrap_or_else(|| panic!("manual bridge copper cold-work route disappeared"));
-    let cold_work_ticks = cold_work.duration().value();
+    let cold_work_ticks = project_manual_craft_hand_work(
+        registries,
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        NonZeroU64::MIN,
+    )
+    .unwrap_or_else(|error| panic!("manual bridge cold-work projection failed: {error}"))
+    .duration()
+    .value();
     let processing_attention_ticks = breaking_ticks
         .checked_add(sorting_ticks)
         .unwrap_or_else(|| panic!("manual bridge processing projection overflowed"));

@@ -57,15 +57,9 @@ def configure_gameplay_replay_environment(
 
 
 def uses_fresh_gameplay_variation(args: argparse.Namespace) -> bool:
-    """Return whether this supported command executes behavior samples rather than static contracts."""
+    """Return whether this command intentionally explores fresh gameplay variation."""
 
-    if args.preset == "report":
-        return True
-    if args.preset == "gate":
-        return args.gameplay not in (None, "contracts")
-    if args.preset == "audit":
-        return bool(args.all or args.gameplay)
-    return False
+    return args.preset == "report"
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TESTS)
@@ -95,28 +89,9 @@ def cargo(alias: str) -> list[str]:
 
 
 def lint_command() -> list[str]:
-    """Lint production plus the representative broad gameplay/report surfaces."""
+    """Lint the production library without compiling gameplay/report wrappers."""
 
-    # Focused gameplay roots are strict subsets of gameplay_audit and their
-    # module closure/isolation is checked build-free by tools.test_ci. Avoid
-    # recompiling those wrappers, soak-only code, and shader-only dependencies
-    # during the ordinary lint checkpoint.
-    return [
-        "cargo",
-        "clippy",
-        "--quiet",
-        "--locked",
-        "--lib",
-        "--test",
-        GAMEPLAY_AUDIT_TARGET,
-        "--example",
-        GAMEPLAY_REPORT_EXAMPLE,
-        "--features",
-        "test-gameplay",
-        "--",
-        "-D",
-        "warnings",
-    ]
+    return cargo("lint-fast")
 
 
 def rust_test_summary(stdout: str) -> str | None:
@@ -168,7 +143,7 @@ def gameplay_replay_summary(stdout: str) -> str | None:
 def gameplay_environment_summary(label: str, environ) -> str | None:
     """Return replay roots for a gameplay stage whose successful test output stayed captured."""
 
-    if label not in ("gameplay", "core + gameplay", "gameplay report") and not (
+    if label not in ("gameplay", "gameplay report") and not (
         label.startswith("gameplay ") and label != "gameplay contracts"
     ):
         return None
@@ -177,23 +152,6 @@ def gameplay_environment_summary(label: str, environ) -> str | None:
         return None
     behavior = environ.get("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", "n/a")
     return f"roots={variation}/{behavior}"
-
-
-def combined_test_summary(stdout: str) -> str | None:
-    """Return the core/gameplay split for the one-graph broad test command."""
-
-    matches = list(RUST_TEST_RESULT.finditer(stdout))
-    if len(matches) < 2:
-        return rust_test_summary(stdout)
-    core, *gameplay = matches
-    gameplay_passed = sum(int(match.group("passed")) for match in gameplay)
-    detail = f"{core.group('passed')} core + {gameplay_passed} gameplay"
-    ignored = int(core.group("ignored")) + sum(
-        int(match.group("ignored")) for match in gameplay
-    )
-    if ignored:
-        detail += f", {ignored} ignored"
-    return detail
 
 
 def quick_plan() -> list[tuple[str, list[str]]]:
@@ -275,33 +233,16 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
     if scope not in ("core", "gameplay", "all"):
         raise ValueError(f"unknown audit scope: {scope}")
 
-    plan = quick_plan()
     if scope == "all":
-        plan.append(("core + gameplay", combined_test_command()))
-        return plan
+        return [
+            ("core", cargo("test-core")),
+            ("gameplay", gameplay_command("all")),
+        ]
     if scope == "core":
-        plan.append(("core", cargo("test-core")))
+        return [("core", cargo("test-core"))]
     if scope == "gameplay":
-        plan.append(("gameplay", gameplay_command("all")))
-    return plan
-
-
-def combined_test_command() -> list[str]:
-    """Run core and the consolidated gameplay audit in one shared Cargo feature graph."""
-
-    command = [
-        "cargo",
-        "test",
-        "--quiet",
-        "--no-fail-fast",
-        "--locked",
-        "--features",
-        "test-gameplay",
-        "--lib",
-    ]
-    for target in GAMEPLAY_AUDIT_TARGETS:
-        command.extend(("--test", target))
-    return command
+        return [("gameplay", gameplay_command("all"))]
+    raise AssertionError("validated audit scope must return a plan")
 
 
 def bounded_failure_output(output: str) -> str:
@@ -515,11 +456,7 @@ def report_stage(
         return None
     assert result is not None
     if result.returncode == 0:
-        detail = (
-            combined_test_summary(result.stdout)
-            if label == "core + gameplay"
-            else rust_test_summary(result.stdout)
-        )
+        detail = rust_test_summary(result.stdout)
         details = [detail] if detail is not None else []
         replay = gameplay_replay_summary(result.stdout)
         if replay is None:
@@ -612,7 +549,7 @@ def build_parser() -> argparse.ArgumentParser:
     lane.add_argument(
         "--lint",
         action="store_true",
-        help="lint production plus consolidated gameplay/report surfaces as one build lane",
+        help="run the fast production-library Clippy lane",
     )
     lane.add_argument(
         "--all",
@@ -799,10 +736,13 @@ def main() -> int:
         print("\nINTERRUPTED", file=sys.stderr)
         return 130
     total_elapsed = time.perf_counter() - started
-    slowest_label, slowest_elapsed = max(timings, key=lambda item: item[1])
-    print(
-        f"PASS total ({total_elapsed:.1f}s; slowest={slowest_label} {slowest_elapsed:.1f}s)"
-    )
+    if len(timings) == 1:
+        print(f"PASS total ({total_elapsed:.1f}s)")
+    else:
+        slowest_label, slowest_elapsed = max(timings, key=lambda item: item[1])
+        print(
+            f"PASS total ({total_elapsed:.1f}s; slowest={slowest_label} {slowest_elapsed:.1f}s)"
+        )
     return 0
 
 

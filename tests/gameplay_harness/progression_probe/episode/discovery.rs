@@ -170,10 +170,15 @@ pub(super) fn discover_primitive_progression(
         }
     }
     let trace_surface_bounds = observed_copper_bounds(state, trace_target);
+    let visible_clue_count = u8::try_from(clue_requests.len())
+        .unwrap_or_else(|_| panic!("primitive progression visible clue count exceeds u8"));
+    let unresolved_clue_count = visible_clue_count
+        .checked_sub(surface_resolved_clues)
+        .unwrap_or_else(|| panic!("resolved surface clues exceeded visible clues"));
     // Resolve trace/surface clues from observation; boundary traces may need revisit-after-shortage.
     if deferred_trace_refinement {
         assert_eq!(
-            surface_resolved_clues, 3,
+            unresolved_clue_count, 1,
             "maintained information path should leave one low-grade clue unresolved after cheap inspection"
         );
         assert_eq!(
@@ -181,20 +186,19 @@ pub(super) fn discover_primitive_progression(
             Some(trace_target),
             "maintained information path lost its deferred trace-copper clue"
         );
-    } else if refinement.is_none() {
+    } else if let Some((request, _, _)) = refinement {
         assert_eq!(
-            surface_resolved_clues, 4,
-            "surface-resolved organic information path should make every visible clue actionable after cheap inspection"
-        );
-    } else {
-        assert_eq!(
-            surface_resolved_clues, 3,
+            unresolved_clue_count, 1,
             "boundary-trace organic information path should leave only the poor trace clue unresolved after cheap inspection"
         );
         assert_eq!(
-            refinement.map(|(request, _, _)| request),
-            Some(trace_target),
+            request, trace_target,
             "boundary-trace organic refinement must target the poor trace-copper clue"
+        );
+    } else {
+        assert_eq!(
+            unresolved_clue_count, 0,
+            "surface-resolved organic information path should make every visible clue actionable after cheap inspection"
         );
     }
     let information_refinement_required = refinement.is_some();
