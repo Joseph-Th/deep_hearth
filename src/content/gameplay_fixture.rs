@@ -1,4 +1,4 @@
-//! Controlled pre-admission starting-state construction; setup-only mutation stays here.
+//! Controlled gameplay fixture boundary for pre-admission state and preauthorized events.
 
 use crate::core::quantity::{Energy, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};
@@ -10,13 +10,11 @@ use crate::equipment::{EquipmentDefinitionId, EquipmentId, add_equipment};
 use crate::fluid::{FluidDefinitionId, FluidStoreId, add_fluid_store_with_contents_for_fixture};
 use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
-    ValidatedMaterialRelocation, add_stockpile, deposit_composed_lot_for_fixture,
-    deposit_lot_for_fixture, validate_consumption_selection,
-    validate_material_relocation_from_selection,
+    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
+    deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
 };
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId, MaterialInputSpec};
+use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId};
 use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
 use crate::structural::{
@@ -29,7 +27,14 @@ use crate::survival::{
     initialize_player_survival_at_hydration_warning_boundary_for_fixture,
 };
 
-fn assert_pre_admission(state: &AppState, operation: &str) {
+mod delivery;
+
+pub use delivery::{
+    ControlledMaterialDelivery, authorize_controlled_material_delivery,
+    commit_controlled_material_delivery,
+};
+
+pub(super) fn assert_pre_admission(state: &AppState, operation: &str) {
     assert!(
         state.survival().player().is_none(),
         "gameplay bootstrap {operation} must occur before actor admission"
@@ -233,82 +238,6 @@ pub fn seed_composed_lot(
         composition,
     )
     .unwrap_or_else(|error| panic!("gameplay bootstrap composed-material seed failed: {error}"))
-}
-
-/// Creates the harness-only logistics authorization for one controlled material-delivery event.
-///
-/// Call this during scenario setup, before the acting policy starts. Authorization first proves the
-/// exact relocation is physically valid against the setup state, but does not move matter or reveal
-/// event timing to the actor. Event-time commit revalidates the same relocation against live state.
-/// This is a controlled audit authorization because world logistics is outside current production
-/// scope and ordinary runtime cannot create pathless relocations.
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-pub struct ControlledMaterialDelivery {
-    source: StockpileId,
-    destination: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-}
-
-fn validate_controlled_material_delivery(
-    registries: &Registries,
-    state: &AppState,
-    delivery: &ControlledMaterialDelivery,
-) -> ValidatedMaterialRelocation {
-    assert!(
-        !delivery.mass.is_zero(),
-        "controlled material delivery mass must be nonzero"
-    );
-    let selection = validate_consumption_selection(
-        state.inventory(),
-        delivery.source,
-        &[MaterialInputSpec::new(delivery.commodity, delivery.mass)],
-    )
-    .unwrap_or_else(|error| {
-        panic!("gameplay controlled delivery material selection failed: {error:?}")
-    });
-    validate_material_relocation_from_selection(registries, state, delivery.destination, selection)
-        .unwrap_or_else(|error| panic!("gameplay controlled delivery relocation failed: {error}"))
-}
-
-pub fn authorize_controlled_material_delivery(
-    registries: &Registries,
-    state: &AppState,
-    source: StockpileId,
-    destination: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-) -> ControlledMaterialDelivery {
-    assert_pre_admission(state, "controlled-delivery authorization");
-    let delivery = ControlledMaterialDelivery {
-        source,
-        destination,
-        commodity,
-        mass,
-    };
-    let _validated_setup_relocation =
-        validate_controlled_material_delivery(registries, state, &delivery);
-    delivery
-}
-
-/// Applies one previously authorized controlled delivery through canonical inventory validation.
-///
-/// Keeping the inventory relocation proof private prevents the gameplay harness from manufacturing
-/// arbitrary pathless logistics after actor admission. The scenario controller can only retain and
-/// later consume this opaque authorization created during controlled setup.
-pub fn commit_controlled_material_delivery(
-    registries: &Registries,
-    state: &mut AppState,
-    delivery: ControlledMaterialDelivery,
-) {
-    assert!(
-        state.survival().player().is_some(),
-        "gameplay controlled delivery may only commit after actor admission"
-    );
-    validate_controlled_material_delivery(registries, state, &delivery)
-        .commit(state)
-        .unwrap_or_else(|error| panic!("gameplay controlled delivery commit failed: {error}"));
 }
 
 fn materialize_structure(

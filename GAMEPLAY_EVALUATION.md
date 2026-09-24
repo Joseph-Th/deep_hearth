@@ -22,8 +22,11 @@ capability-only state; setup never establishes ordinary reachability.
 After setup, actor code must use production resolvers, validators, commits, and simulation ticks; read only
 legitimate observable state, explicit actor policy, and canonical projections; never inspect hidden geology,
 future controlled events, setup authorization, or comparison-branch outcomes; and preserve ordinary ownership,
-persistence, conservation, capability, and survival rules. `src/content/gameplay_fixture.rs` owns controlled
-scenario construction before actor admission.
+persistence, conservation, capability, and survival rules. `src/content/gameplay_fixture.rs` is the
+controlled-scenario fixture boundary: it owns pre-admission starting-state construction and any opaque
+authorizations created during setup for disclosed controlled events. Those authorizations may commit later only
+through their canonical production validators/commits and must not become actor observations or arbitrary
+post-admission mutation authority.
 
 The actor may reason from observable attention, material demand, survival cost, throughput, capacity, condition,
 and acquired evidence. Registry order, implementation identity, hidden truth, and future outcomes are not policy
