@@ -13,13 +13,14 @@ use crate::core::time::SimulationTick;
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::selection::apply_consumption_reservation;
 use crate::inventory::{
-    MaterialFixtureError, MaterialIngressEntry, MaterialIngressError, MaterialLotId,
-    MaterialLotRecord, ReservedDepositRequest, StockpileId, StockpileStorageError,
+    ConsumptionSelectionError, MaterialFixtureError, MaterialIngressEntry, MaterialIngressError,
+    MaterialLotId, MaterialLotRecord, MaterialRelocationCommitError, MaterialRelocationError,
+    MaterialRelocationTestError, ReservedDepositRequest, StockpileId, StockpileStorageError,
     StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile, apply_material_ingress,
     apply_reserved_deposits, decide_reserved_deposits, deposit_bulk_for_test,
     deposit_composed_lot_for_test, deposit_lot_for_test,
     validate_consumption_reservation_from_selection, validate_consumption_selection,
-    validate_loaded_inventory, validate_material_ingress, validate_material_transfer_for_test,
+    validate_loaded_inventory, validate_material_ingress, validate_material_relocation_for_test,
 };
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialInputSpec, MaterialLotSpec,
@@ -60,13 +61,13 @@ fn triple_preservation_profile() -> StockpileStorageProfile {
     .unwrap_or_else(|error| panic!("triple-preservation fixture profile failed: {error}"))
 }
 
-fn split_transfer_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
+fn split_relocation_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
-        .unwrap_or_else(|error| panic!("split-transfer source fixture failed: {error}"));
+        .unwrap_or_else(|error| panic!("split-relocation source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
-        .unwrap_or_else(|error| panic!("split-transfer destination fixture failed: {error}"));
+        .unwrap_or_else(|error| panic!("split-relocation destination fixture failed: {error}"));
     deposit_lot_for_test(
         &registries,
         &mut state,
@@ -75,12 +76,12 @@ fn split_transfer_fixture() -> (Registries, AppState, StockpileId, StockpileId) 
         Mass::from_milligrams(10),
         Temperature::from_millikelvin(300_000),
     )
-    .unwrap_or_else(|error| panic!("split-transfer material fixture failed: {error}"));
+    .unwrap_or_else(|error| panic!("split-relocation material fixture failed: {error}"));
     (registries, state, source, destination)
 }
 
-#[path = "transactions_tests/transfer.rs"]
-mod transfer;
+#[path = "transactions_tests/relocation.rs"]
+mod relocation;
 
 fn stored_lot_total(state: &AppState) -> Mass {
     state.inventory().lots().fold(Mass::ZERO, |acc, lot| {

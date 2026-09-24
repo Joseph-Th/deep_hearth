@@ -13,7 +13,7 @@ use crate::core::quantity::{Area, Force, Mass};
 
 #[cfg(feature = "test-soak")]
 use crate::inventory::{
-    add_solid_stockpile_for_test, deposit_bulk_for_test, validate_material_transfer_for_test,
+    add_solid_stockpile_for_test, deposit_bulk_for_test, validate_material_relocation_for_test,
 };
 
 #[cfg(feature = "test-soak")]
@@ -171,7 +171,7 @@ fn transfer_soak_input(
     if available < Mass::from_milligrams(10) {
         return;
     }
-    let token = match validate_material_transfer_for_test(
+    let token = match validate_material_relocation_for_test(
         registries,
         state,
         source,
@@ -202,7 +202,7 @@ fn transfer_soak_output(
     if available < Mass::from_milligrams(1) {
         return;
     }
-    let token = match validate_material_transfer_for_test(
+    let token = match validate_material_relocation_for_test(
         registries,
         state,
         processing,

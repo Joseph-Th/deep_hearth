@@ -7,7 +7,7 @@ use crate::core::state::{AppState, validate_loaded_state};
 use crate::inventory::{
     MaterialIngressEntry, add_solid_stockpile_for_test, apply_material_ingress,
     deposit_lot_for_test, validate_consumption_selection, validate_material_ingress,
-    validate_material_transfer_for_test,
+    validate_material_relocation_for_test,
 };
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::matter::calculate_matter_accounting;
@@ -64,7 +64,7 @@ fn run_transaction_soak(seed: u64) -> AppState {
 
         match operation {
             0 if source != destination => {
-                if let Ok(transfer) = validate_material_transfer_for_test(
+                if let Ok(transfer) = validate_material_relocation_for_test(
                     &registries,
                     &state,
                     source,

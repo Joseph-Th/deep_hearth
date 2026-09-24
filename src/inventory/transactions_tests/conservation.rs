@@ -32,7 +32,7 @@ fn transfer_split_sequence_preserves_inventory_quantity() {
         Mass::from_milligrams(4),
         Mass::from_milligrams(3),
     ] {
-        let token = validate_material_transfer_for_test(
+        let token = validate_material_relocation_for_test(
             &registries,
             &state,
             source,
@@ -100,7 +100,7 @@ fn stale_transfer_commit_leaves_matter_accounting_unchanged() {
         .total();
 
     assert_eq!(
-        validate_material_transfer_for_test(
+        validate_material_relocation_for_test(
             &registries,
             &state,
             source,
@@ -108,15 +108,17 @@ fn stale_transfer_commit_leaves_matter_accounting_unchanged() {
             wood_log(),
             Mass::from_milligrams(11),
         ),
-        Err(MaterialTransferError::InsufficientMass {
-            stockpile: source,
-            commodity: wood_log(),
-            available: Mass::from_milligrams(10),
-            requested: Mass::from_milligrams(11),
-        })
+        Err(MaterialRelocationTestError::Selection(
+            ConsumptionSelectionError::InsufficientMass {
+                stockpile: source,
+                commodity: wood_log(),
+                available: Mass::from_milligrams(10),
+                requested: Mass::from_milligrams(11),
+            }
+        ))
     );
     assert_eq!(
-        validate_material_transfer_for_test(
+        validate_material_relocation_for_test(
             &registries,
             &state,
             source,
@@ -124,16 +126,18 @@ fn stale_transfer_commit_leaves_matter_accounting_unchanged() {
             wood_log(),
             Mass::from_milligrams(9),
         ),
-        Err(MaterialTransferError::CapacityExceeded {
-            stockpile: destination,
-            capacity: Mass::from_milligrams(5),
-            committed: Mass::ZERO,
-            requested: Mass::from_milligrams(9),
-        })
+        Err(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::DestinationCapacityExceeded {
+                stockpile: destination,
+                capacity: Mass::from_milligrams(5),
+                committed: Mass::ZERO,
+                requested: Mass::from_milligrams(9),
+            }
+        ))
     );
     assert_eq!(state, before, "failed validation must not mutate inventory");
 
-    let valid = validate_material_transfer_for_test(
+    let valid = validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -148,7 +152,7 @@ fn stale_transfer_commit_leaves_matter_accounting_unchanged() {
     assert!(
         matches!(
             result,
-            Err(MaterialTransferCommitError::StaleInventoryRevision {
+            Err(MaterialRelocationCommitError::StaleInventoryRevision {
                 expected: _expected,
                 actual: _actual,
             })

@@ -18,10 +18,10 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{EnergyStoreId, add_energy_store_with_initial_for_fixture};
 use crate::equipment::{EquipmentId, add_equipment};
 use crate::inventory::{
-    MaterialFixtureError, MaterialIngressError, MaterialLotSelection, MaterialTransferError,
-    StockpileId, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
-    deposit_bulk_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
-    validate_material_transfer_for_test, validate_mount_stockpile,
+    MaterialFixtureError, MaterialIngressError, MaterialLotSelection, MaterialRelocationError,
+    MaterialRelocationTestError, StockpileId, StockpileStorageProfile,
+    add_solid_stockpile_for_test, add_stockpile, deposit_bulk_for_test, deposit_lot_for_test,
+    deposit_lot_spec_for_test, validate_material_relocation_for_test, validate_mount_stockpile,
 };
 use crate::maintenance::Condition;
 use crate::material::{

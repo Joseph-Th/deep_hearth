@@ -394,7 +394,7 @@ fn equal_preservation_relocations_do_not_accumulate_checkpoint_rounding() {
     .unwrap_or_else(|error| panic!("same-rate relocation control lot failed: {error}"));
 
     apply_clock_advance(&mut state, SimulationTick::new(1));
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -406,7 +406,7 @@ fn equal_preservation_relocations_do_not_accumulate_checkpoint_rounding() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("same-rate first relocation commit failed: {error}"));
     apply_clock_advance(&mut state, SimulationTick::new(2));
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         destination,
@@ -478,7 +478,7 @@ fn equal_preservation_coalescing_does_not_reencode_storage_age() {
     .unwrap_or_else(|error| panic!("same-rate merge control lot failed: {error}"));
 
     apply_clock_advance(&mut state, SimulationTick::new(1));
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -550,7 +550,7 @@ fn age_sensitive_lots_with_equal_current_age_but_divergent_future_age_do_not_mer
     assert_eq!(source_age, 333_334);
     assert_eq!(destination_age, source_age);
 
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -761,7 +761,7 @@ fn randomized_complete_transaction_sequence_conserves_inventory_quantity() {
 
         match choice {
             0 => {
-                if let Ok(validated) = validate_material_transfer_for_test(
+                if let Ok(validated) = validate_material_relocation_for_test(
                     &registries,
                     &state,
                     source,

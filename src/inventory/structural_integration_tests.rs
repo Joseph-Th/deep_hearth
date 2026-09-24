@@ -14,8 +14,9 @@ use crate::core::time::TickSpan;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::add_equipment;
 use crate::inventory::{
-    MaterialLotSelection, MaterialTransferCommitError, MaterialTransferError,
-    add_solid_stockpile_for_test, deposit_lot_for_test, validate_material_transfer_for_test,
+    MaterialLotSelection, MaterialRelocationCommitError, MaterialRelocationError,
+    MaterialRelocationTestError, add_solid_stockpile_for_test, deposit_lot_for_test,
+    validate_material_relocation_for_test,
 };
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
@@ -826,7 +827,7 @@ fn transfer_between_supported_stockpiles_updates_both_loads_atomically() {
     let _ = mount(&registries, &mut state, source, source_support);
     let _ = mount(&registries, &mut state, destination, destination_support);
 
-    let transfer = match validate_material_transfer_for_test(
+    let transfer = match validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -892,7 +893,7 @@ fn supported_transfer_rejects_stale_structure_before_moving_matter() {
     );
     let _ = mount(&registries, &mut state, source, source_support);
     let _ = mount(&registries, &mut state, destination, destination_support);
-    let transfer = match validate_material_transfer_for_test(
+    let transfer = match validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -928,7 +929,7 @@ fn supported_transfer_rejects_stale_structure_before_moving_matter() {
 
     assert!(matches!(
         transfer.commit(&mut state),
-        Err(MaterialTransferCommitError::Structure(
+        Err(MaterialRelocationCommitError::Structure(
             StructuralCommitError::StaleRevision {
                 expected: _expected,
                 actual: _actual,
@@ -1018,7 +1019,7 @@ fn same_support_transfer_binds_structure_even_when_aggregate_weight_is_unchanged
     );
     let _ = mount(&registries, &mut state, source, support);
     let _ = mount(&registries, &mut state, destination, support);
-    let transfer = match validate_material_transfer_for_test(
+    let transfer = match validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -1054,7 +1055,7 @@ fn same_support_transfer_binds_structure_even_when_aggregate_weight_is_unchanged
 
     assert!(matches!(
         transfer.commit(&mut state),
-        Err(MaterialTransferCommitError::Structure(
+        Err(MaterialRelocationCommitError::Structure(
             StructuralCommitError::StaleRevision {
                 expected: _expected,
                 actual: _actual,
@@ -1149,7 +1150,7 @@ fn overload_from_stored_matter_can_fail_support_and_failed_debris_can_be_unloade
     );
     let before_rejected_transfer = state.clone();
     assert!(matches!(
-        validate_material_transfer_for_test(
+        validate_material_relocation_for_test(
             &registries,
             &state,
             source,
@@ -1157,12 +1158,14 @@ fn overload_from_stored_matter_can_fail_support_and_failed_debris_can_be_unloade
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
             Mass::from_milligrams(1),
         ),
-        Err(MaterialTransferError::StructuralLoad(
-            StockpileStructuralLoadError::SupportNotActiveForIncrease {
-                stockpile: rejected_stockpile,
-                element,
-                lifecycle: StructuralLifecycle::Failed,
-            }
+        Err(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::StructuralLoad(
+                StockpileStructuralLoadError::SupportNotActiveForIncrease {
+                    stockpile: rejected_stockpile,
+                    element,
+                    lifecycle: StructuralLifecycle::Failed,
+                }
+            )
         )) if rejected_stockpile == stockpile && element == support
     ));
     assert_eq!(state, before_rejected_transfer);
@@ -1218,7 +1221,7 @@ fn run_supported_transfer_soak() -> AppState {
         } else {
             (right, left)
         };
-        let transfer = match validate_material_transfer_for_test(
+        let transfer = match validate_material_relocation_for_test(
             &registries,
             &state,
             source,

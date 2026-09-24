@@ -15,7 +15,7 @@ use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::fluid::{add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting};
 use crate::inventory::{
     MaterialLotSelection, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
-    deposit_lot_for_test, validate_build_storage_enclosure, validate_material_transfer_for_test,
+    deposit_lot_for_test, validate_build_storage_enclosure, validate_material_relocation_for_test,
 };
 use crate::labor::{PlayerWork, PlayerWorkValidationError};
 use crate::material::CommodityKey;

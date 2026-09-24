@@ -1,4 +1,4 @@
-//! Inventory transfer admission, identity, coalescing, and physical-profile contracts.
+//! Inventory relocation admission, identity, coalescing, and physical-profile contracts.
 
 use super::*;
 
@@ -45,8 +45,8 @@ fn validated_withdrawal_mass_projections_reject_stale_inventory_revision() {
 }
 
 #[test]
-fn split_transfer_rejects_exhausted_lot_id_without_mutation() {
-    let (registries, state, source, destination) = split_transfer_fixture();
+fn split_relocation_rejects_exhausted_lot_id_without_mutation() {
+    let (registries, state, source, destination) = split_relocation_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("lot-id exhaustion serialization failed: {error}"));
     encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
@@ -58,7 +58,7 @@ fn split_transfer_rejects_exhausted_lot_id_without_mutation() {
     let before = loaded.clone();
 
     assert_eq!(
-        validate_material_transfer_for_test(
+        validate_material_relocation_for_test(
             &registries,
             &loaded,
             source,
@@ -66,14 +66,16 @@ fn split_transfer_rejects_exhausted_lot_id_without_mutation() {
             wood_log(),
             Mass::from_milligrams(3),
         ),
-        Err(MaterialTransferError::LotIdExhausted)
+        Err(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::LotIdExhausted
+        ))
     );
     assert_eq!(loaded, before);
 }
 
 #[test]
-fn split_transfer_rejects_exhausted_inventory_revision_without_mutation() {
-    let (registries, state, source, destination) = split_transfer_fixture();
+fn split_relocation_rejects_exhausted_inventory_revision_without_mutation() {
+    let (registries, state, source, destination) = split_relocation_fixture();
     let mut encoded =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("inventory revision exhaustion serialization failed: {error}")
@@ -87,7 +89,7 @@ fn split_transfer_rejects_exhausted_inventory_revision_without_mutation() {
     let before = loaded.clone();
 
     assert_eq!(
-        validate_material_transfer_for_test(
+        validate_material_relocation_for_test(
             &registries,
             &loaded,
             source,
@@ -95,7 +97,9 @@ fn split_transfer_rejects_exhausted_inventory_revision_without_mutation() {
             wood_log(),
             Mass::from_milligrams(3),
         ),
-        Err(MaterialTransferError::RevisionExhausted)
+        Err(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::RevisionExhausted
+        ))
     );
     assert_eq!(loaded, before);
 }
@@ -182,7 +186,7 @@ fn liquid_storage_accepts_matching_phase_but_enforces_temperature_limit() {
 }
 
 #[test]
-fn transfer_rechecks_destination_containment_for_actual_selected_lots() {
+fn relocation_rechecks_destination_containment_for_actual_selected_lots() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source_profile =
@@ -206,12 +210,12 @@ fn transfer_rechecks_destination_containment_for_actual_selected_lots() {
         Mass::from_milligrams(10),
         Temperature::from_millikelvin(1_357_770),
     ) {
-        panic!("molten transfer source fixture failed: {error}");
+        panic!("molten relocation source fixture failed: {error}");
     }
     let before = state.clone();
 
     assert_eq!(
-        validate_material_transfer_for_test(
+        validate_material_relocation_for_test(
             &registries,
             &state,
             source,
@@ -219,18 +223,18 @@ fn transfer_rechecks_destination_containment_for_actual_selected_lots() {
             CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
             Mass::from_milligrams(5),
         ),
-        Err(MaterialTransferError::Storage(
-            StockpileStorageError::PhaseNotAccepted {
+        Err(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::DestinationStorage(StockpileStorageError::PhaseNotAccepted {
                 stockpile: destination,
                 phase: MaterialPhase::Liquid,
-            }
+            })
         ))
     );
     assert_eq!(state, before);
 }
 
 #[test]
-fn failed_transfer_leaves_both_stockpiles_unchanged() {
+fn failed_relocation_leaves_both_stockpiles_unchanged() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
@@ -252,7 +256,7 @@ fn failed_transfer_leaves_both_stockpiles_unchanged() {
     }
     let before = state.clone();
 
-    let result = validate_material_transfer_for_test(
+    let result = validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -263,18 +267,20 @@ fn failed_transfer_leaves_both_stockpiles_unchanged() {
 
     assert!(matches!(
         result,
-        Err(MaterialTransferError::CapacityExceeded {
-            stockpile: _stockpile,
-            capacity: _capacity,
-            committed: _committed,
-            requested: _requested,
-        })
+        Err(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::DestinationCapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            }
+        ))
     ));
     assert_eq!(state, before);
 }
 
 #[test]
-fn same_stockpile_transfer_is_rejected_without_mutation() {
+fn same_stockpile_relocation_is_rejected_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();
     let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
@@ -293,7 +299,7 @@ fn same_stockpile_transfer_is_rejected_without_mutation() {
     let before = state.clone();
 
     assert_eq!(
-        validate_material_transfer_for_test(
+        validate_material_relocation_for_test(
             &registries,
             &state,
             stockpile,
@@ -301,13 +307,15 @@ fn same_stockpile_transfer_is_rejected_without_mutation() {
             wood_log(),
             Mass::from_milligrams(5),
         ),
-        Err(MaterialTransferError::SameStockpile { stockpile })
+        Err(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::SameStockpile { stockpile }
+        ))
     );
     assert_eq!(state, before);
 }
 
 #[test]
-fn validated_transfer_updates_cached_mass_and_contents_atomically() {
+fn validated_relocation_updates_cached_mass_and_contents_atomically() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
@@ -328,7 +336,7 @@ fn validated_transfer_updates_cached_mass_and_contents_atomically() {
         panic!("fixture deposit failed: {error}");
     }
 
-    let token = match validate_material_transfer_for_test(
+    let token = match validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -337,10 +345,10 @@ fn validated_transfer_updates_cached_mass_and_contents_atomically() {
         Mass::from_milligrams(12),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("transfer validation failed: {error}"),
+        Err(error) => panic!("relocation validation failed: {error}"),
     };
     if let Err(error) = token.commit(&mut state) {
-        panic!("transfer commit failed: {error}");
+        panic!("relocation commit failed: {error}");
     }
 
     let source_record = match state.inventory().get_stockpile(source) {
@@ -368,7 +376,7 @@ fn validated_transfer_updates_cached_mass_and_contents_atomically() {
 }
 
 #[test]
-fn partial_transfer_splits_lots_without_erasing_thermal_history() {
+fn partial_relocation_splits_lots_without_erasing_thermal_history() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
@@ -402,7 +410,7 @@ fn partial_transfer_splits_lots_without_erasing_thermal_history() {
         Err(error) => panic!("hot lot fixture failed: {error}"),
     };
 
-    let token = match validate_material_transfer_for_test(
+    let token = match validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -411,10 +419,10 @@ fn partial_transfer_splits_lots_without_erasing_thermal_history() {
         Mass::from_milligrams(15),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("split transfer validation failed: {error}"),
+        Err(error) => panic!("split relocation validation failed: {error}"),
     };
     if let Err(error) = token.commit(&mut state) {
-        panic!("split transfer commit failed: {error}");
+        panic!("split relocation commit failed: {error}");
     }
 
     let cool_lot = match state.inventory().get_lot(cool) {
@@ -461,7 +469,7 @@ fn partial_transfer_splits_lots_without_erasing_thermal_history() {
 }
 
 #[test]
-fn stale_transfer_token_is_rejected_without_mutation() {
+fn stale_relocation_token_is_rejected_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
@@ -481,7 +489,7 @@ fn stale_transfer_token_is_rejected_without_mutation() {
     ) {
         panic!("fixture deposit failed: {error}");
     }
-    let token = match validate_material_transfer_for_test(
+    let token = match validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -490,7 +498,7 @@ fn stale_transfer_token_is_rejected_without_mutation() {
         Mass::from_milligrams(10),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("transfer validation failed: {error}"),
+        Err(error) => panic!("relocation validation failed: {error}"),
     };
 
     if let Err(error) = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
@@ -501,7 +509,7 @@ fn stale_transfer_token_is_rejected_without_mutation() {
 
     assert!(matches!(
         result,
-        Err(MaterialTransferCommitError::StaleInventoryRevision {
+        Err(MaterialRelocationCommitError::StaleInventoryRevision {
             expected: _expected,
             actual: _actual,
         })
@@ -510,7 +518,7 @@ fn stale_transfer_token_is_rejected_without_mutation() {
 }
 
 #[test]
-fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
+fn repeated_partial_relocations_coalesce_new_fragments_in_destination() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
@@ -530,10 +538,10 @@ fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
     ) {
         panic!("fixture deposit failed: {error}");
     }
-    let cursor_before_transfers = state.inventory().next_lot_id();
+    let cursor_before_relocations = state.inventory().next_lot_id();
 
     for _ in 0..2 {
-        let token = match validate_material_transfer_for_test(
+        let token = match validate_material_relocation_for_test(
             &registries,
             &state,
             source,
@@ -542,10 +550,10 @@ fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
             Mass::from_milligrams(3),
         ) {
             Ok(token) => token,
-            Err(error) => panic!("fragment transfer validation failed: {error}"),
+            Err(error) => panic!("fragment relocation validation failed: {error}"),
         };
         if let Err(error) = token.commit(&mut state) {
-            panic!("fragment transfer commit failed: {error}");
+            panic!("fragment relocation commit failed: {error}");
         }
     }
 
@@ -566,7 +574,7 @@ fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
     assert_eq!(state.inventory().lots().count(), 2);
     assert_eq!(
         state.inventory().next_lot_id(),
-        cursor_before_transfers + 1,
+        cursor_before_relocations + 1,
         "only the first surviving destination fragment should consume a lot identity"
     );
     assert_eq!(
@@ -683,7 +691,7 @@ fn material_reform_reuses_compatible_destination_identity_without_advancing_curs
 }
 
 #[test]
-fn full_lot_transfer_coalesces_compatible_destination_lot() {
+fn full_lot_relocation_coalesces_compatible_destination_lot() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -707,7 +715,7 @@ fn full_lot_transfer_coalesces_compatible_destination_lot() {
     )
     .unwrap_or_else(|error| panic!("fixture destination deposit failed: {error}"));
 
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -715,9 +723,9 @@ fn full_lot_transfer_coalesces_compatible_destination_lot() {
         wood_log(),
         Mass::from_milligrams(6),
     )
-    .unwrap_or_else(|error| panic!("full-lot transfer validation failed: {error}"))
+    .unwrap_or_else(|error| panic!("full-lot relocation validation failed: {error}"))
     .commit(&mut state)
-    .unwrap_or_else(|error| panic!("full-lot transfer commit failed: {error}"));
+    .unwrap_or_else(|error| panic!("full-lot relocation commit failed: {error}"));
 
     assert_eq!(state.inventory().lot_ids(source).count(), 0);
     let destination_lots = state.inventory().lot_ids(destination).collect::<Vec<_>>();
@@ -737,7 +745,7 @@ fn full_lot_transfer_coalesces_compatible_destination_lot() {
 }
 
 #[test]
-fn full_lot_transfer_keeps_food_with_distinct_storage_exposure_separate() {
+fn full_lot_relocation_keeps_food_with_distinct_storage_exposure_separate() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -765,7 +773,7 @@ fn full_lot_transfer_keeps_food_with_distinct_storage_exposure_separate() {
     )
     .unwrap_or_else(|error| panic!("newer food fixture failed: {error}"));
 
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -773,9 +781,9 @@ fn full_lot_transfer_keeps_food_with_distinct_storage_exposure_separate() {
         food,
         Mass::from_milligrams(5),
     )
-    .unwrap_or_else(|error| panic!("food full-lot transfer validation failed: {error}"))
+    .unwrap_or_else(|error| panic!("food full-lot relocation validation failed: {error}"))
     .commit(&mut state)
-    .unwrap_or_else(|error| panic!("food full-lot transfer commit failed: {error}"));
+    .unwrap_or_else(|error| panic!("food full-lot relocation commit failed: {error}"));
 
     let destination_lots = state.inventory().lot_ids(destination).collect::<Vec<_>>();
     assert_eq!(destination_lots.len(), 2);
@@ -824,7 +832,7 @@ fn composed_lot_split_preserves_normalized_constituent_profile() {
         Err(error) => panic!("composed lot fixture failed: {error}"),
     };
 
-    let token = match validate_material_transfer_for_test(
+    let token = match validate_material_relocation_for_test(
         &registries,
         &state,
         source,

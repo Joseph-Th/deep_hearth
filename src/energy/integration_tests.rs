@@ -142,6 +142,48 @@ fn duration_ceiling_returns_first_tick_that_meets_energy_requirement() {
 }
 
 #[test]
+fn duration_ceiling_matches_exact_integration_across_fractional_boundaries() {
+    for power in [
+        Power::from_picowatts(1),
+        Power::from_picowatts(3),
+        Power::from_picowatts(999_999_937),
+        Power::from_microwatts(1),
+    ] {
+        for tick_duration in [
+            PhysicalTickDuration::from_microseconds(1),
+            PhysicalTickDuration::from_microseconds(3),
+            PhysicalTickDuration::from_microseconds(50_000),
+            PhysicalTickDuration::from_microseconds(3_600_000),
+        ] {
+            for required in [
+                Energy::from_nanojoules(1),
+                Energy::from_nanojoules(51),
+                Energy::from_nanojoules(1_000),
+            ] {
+                let duration = calculate_power_duration_ceiling(power, required, tick_duration)
+                    .unwrap_or_else(|error| panic!("duration calculation failed: {error}"));
+                assert!(!duration.is_zero());
+
+                let supplied =
+                    integrate_power(power, duration, tick_duration, PowerRemainder::ZERO)
+                        .unwrap_or_else(|error| panic!("ceiling integration failed: {error}"))
+                        .energy();
+                assert!(supplied >= required);
+
+                let previous = duration
+                    .checked_sub(TickSpan::new(1))
+                    .unwrap_or_else(|| unreachable!("nonzero duration has a previous span"));
+                let supplied_before =
+                    integrate_power(power, previous, tick_duration, PowerRemainder::ZERO)
+                        .unwrap_or_else(|error| panic!("pre-ceiling integration failed: {error}"))
+                        .energy();
+                assert!(supplied_before < required);
+            }
+        }
+    }
+}
+
+#[test]
 fn duration_ceiling_rejects_nonzero_energy_at_zero_power() {
     assert_eq!(
         calculate_power_duration_ceiling(

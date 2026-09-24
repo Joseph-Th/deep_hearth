@@ -10,7 +10,7 @@ use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::add_equipment;
 use crate::inventory::{
     MaterialLotSelection, StockpileId, add_solid_stockpile_for_test, deposit_bulk_for_test,
-    validate_material_transfer_for_test,
+    validate_material_relocation_for_test,
 };
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
@@ -155,7 +155,7 @@ fn transfer_split_then_process_lifecycle_preserves_world_matter_total() {
             panic!("split deposit fixture failed: {error}");
         }
     }
-    let token = match validate_material_transfer_for_test(
+    let token = match validate_material_relocation_for_test(
         &registries,
         &state,
         source,

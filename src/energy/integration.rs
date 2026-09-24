@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::core::arithmetic::checked_mul_div_with_remainder;
+use crate::core::arithmetic::{checked_mul_div_ceil, checked_mul_div_with_remainder};
 use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Power};
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 
@@ -141,26 +141,6 @@ impl Display for PowerDurationError {
 
 impl Error for PowerDurationError {}
 
-fn has_integrated_energy_at_least(
-    power: Power,
-    ticks: u64,
-    physical_tick_duration: PhysicalTickDuration,
-    required: Energy,
-) -> bool {
-    match integrate_power(
-        power,
-        TickSpan::new(ticks),
-        physical_tick_duration,
-        PowerRemainder::ZERO,
-    ) {
-        Ok(integration) => integration.energy() >= required,
-        Err(PowerIntegrationError::ArithmeticOverflow) => true,
-        Err(PowerIntegrationError::InvalidRemainder { remainder: _ }) => {
-            unreachable!("zero power remainder is always valid")
-        }
-    }
-}
-
 /// Returns the least whole tick span whose integrated constant power supplies at least `required`.
 pub fn calculate_power_duration_ceiling(
     power: Power,
@@ -173,21 +153,20 @@ pub fn calculate_power_duration_ceiling(
     if power.is_zero() {
         return Err(PowerDurationError::ZeroPower);
     }
-    if !has_integrated_energy_at_least(power, u64::MAX, physical_tick_duration, required) {
-        return Err(PowerDurationError::DurationOverflow);
-    }
 
-    let mut low = 1_u64;
-    let mut high = u64::MAX;
-    while low < high {
-        let midpoint = low + (high - low) / 2;
-        if has_integrated_energy_at_least(power, midpoint, physical_tick_duration, required) {
-            high = midpoint;
-        } else {
-            low = midpoint + 1;
-        }
-    }
-    Ok(TickSpan::new(low))
+    // One nanojoule is exactly one billion picowatt-microseconds. First invert constant power into
+    // the least whole microsecond count that can supply the requirement, then invert the authored
+    // tick duration. Nested ceilings are exact for positive integer divisors, and the shared
+    // full-width multiply/divide helper avoids materializing required_nJ * 1_000_000_000.
+    let elapsed_microseconds = checked_mul_div_ceil(
+        required.nanojoules(),
+        PICOWATT_MICROSECONDS_PER_NANOJOULE,
+        power.picowatts(),
+    )
+    .ok_or(PowerDurationError::DurationOverflow)?;
+    let ticks = elapsed_microseconds.div_ceil(u128::from(physical_tick_duration.microseconds()));
+    let ticks = u64::try_from(ticks).map_err(|_| PowerDurationError::DurationOverflow)?;
+    Ok(TickSpan::new(ticks))
 }
 
 /// Resolves exact work/heat energy from material mass and an authored mass-specific requirement.

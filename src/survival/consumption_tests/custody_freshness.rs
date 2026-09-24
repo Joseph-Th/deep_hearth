@@ -361,7 +361,7 @@ fn preservation_transfer_slows_future_spoilage_without_rewriting_prior_age() {
         })
     );
 
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         ambient,
@@ -428,7 +428,7 @@ fn freshness_remaining_horizon_preserves_storage_projection_phase() {
     )
     .unwrap_or_else(|error| panic!("phase-aware freshness berries failed: {error}"));
     apply_clock_advance(&mut state, SimulationTick::new(1));
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         source,
@@ -516,7 +516,7 @@ fn partial_transfer_preserves_distinct_food_storage_age_cohorts() {
     .unwrap_or_else(|error| panic!("merge-age fresh berry fixture failed: {error}"));
     apply_clock_advance(&mut state, SimulationTick::new(72_000));
 
-    validate_material_transfer_for_test(
+    validate_material_relocation_for_test(
         &registries,
         &state,
         ambient,

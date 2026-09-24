@@ -327,7 +327,7 @@ fn unrelated_inventory_transfer_cannot_spend_revision_owed_to_running_production
     let before = loaded.clone();
 
     assert_eq!(
-        validate_material_transfer_for_test(
+        validate_material_relocation_for_test(
             &registries,
             &loaded,
             unrelated_source,
@@ -336,7 +336,9 @@ fn unrelated_inventory_transfer_cannot_spend_revision_owed_to_running_production
             Mass::from_milligrams(1),
         )
         .err(),
-        Some(MaterialTransferError::RevisionExhausted)
+        Some(MaterialRelocationTestError::Relocation(
+            MaterialRelocationError::RevisionExhausted
+        ))
     );
     assert_eq!(loaded, before);
 }

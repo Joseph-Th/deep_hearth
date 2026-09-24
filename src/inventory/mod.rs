@@ -90,14 +90,16 @@ pub(crate) use transactions::{
     ValidatedMaterialReform, apply_material_egress, validate_material_egress_from_selection,
     validate_material_reform_from_selection,
 };
-#[cfg(test)]
-pub(crate) use transactions::{MaterialTransferCommitError, MaterialTransferError};
 #[cfg(feature = "test-gameplay")]
-pub(crate) use transactions::{MaterialTransferResolution, validate_material_transfer};
+pub(crate) use transactions::{
+    ValidatedMaterialRelocation, validate_material_relocation_from_selection,
+};
 
 #[cfg(test)]
 pub(crate) use test_support::{
-    MaterialFixtureError, add_solid_stockpile_for_test, deposit_bulk_for_test,
-    deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
-    validate_material_transfer_for_test,
+    MaterialFixtureError, MaterialRelocationTestError, add_solid_stockpile_for_test,
+    deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
+    deposit_lot_spec_for_test, validate_material_relocation_for_test,
 };
+#[cfg(test)]
+pub(crate) use transactions::{MaterialRelocationCommitError, MaterialRelocationError};

@@ -2,12 +2,14 @@
 
 use std::collections::BTreeMap;
 
-use crate::capability::{CapabilityValue, evaluate_capabilities};
 use crate::energy::{EnergyCarrier, EnergyStoreDefinitionId};
 use crate::equipment::EquipmentDefinitionId;
 use crate::production::ProcessId;
 
 use super::RegistryDomains;
+
+mod providers;
+mod semantics;
 
 /// Unique authored execution family that supplies physical resolution semantics for a process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -104,29 +106,11 @@ fn derive_process_topology(
     domains: &RegistryDomains,
     process: &crate::production::ProcessDefinition,
 ) -> Option<(ProcessId, ProcessTopology)> {
-    let (execution_family, energy_role) = process_execution_semantics(domains, process.id())?;
-    let equipment_role = process_equipment_role(domains, process.id(), execution_family);
-    let nominal_providers = match execution_family {
-        ProcessExecutionFamily::ManualCraft => {
-            nominal_manual_craft_providers(domains, process.id())
-        }
-        ProcessExecutionFamily::ManualComminution | ProcessExecutionFamily::ManualSeparation => {
-            nominal_manual_ore_providers(domains, process.id(), execution_family)
-        }
-        ProcessExecutionFamily::PoweredCraft
-        | ProcessExecutionFamily::Comminution
-        | ProcessExecutionFamily::Screening
-        | ProcessExecutionFamily::ConstituentSeparation
-        | ProcessExecutionFamily::SensibleHeating
-        | ProcessExecutionFamily::Melting
-        | ProcessExecutionFamily::Casting => nominal_machine_providers(domains, process),
-    };
-    let compatible_energy_stores = domains
-        .energy
-        .definitions()
-        .filter(|store| energy_store_matches_role(store, energy_role))
-        .map(|store| store.id())
-        .collect();
+    let (execution_family, energy_role) =
+        semantics::process_execution_semantics(domains, process.id())?;
+    let equipment_role = providers::process_equipment_role(domains, process.id(), execution_family);
+    let nominal_providers = providers::nominal_providers(domains, process, execution_family);
+    let compatible_energy_stores = providers::compatible_energy_stores(domains, energy_role);
     let topology = ProcessTopology {
         execution_family,
         equipment_role,
@@ -136,138 +120,6 @@ fn derive_process_topology(
     };
     assert_process_topology_has_required_edges(process.id(), &topology);
     Some((process.id(), topology))
-}
-
-fn process_equipment_role(
-    domains: &RegistryDomains,
-    process: ProcessId,
-    execution_family: ProcessExecutionFamily,
-) -> ProcessEquipmentRole {
-    match execution_family {
-        ProcessExecutionFamily::ManualCraft => domains
-            .crafting
-            .get_manual(process)
-            .unwrap_or_else(|| unreachable!("manual-craft topology has a crafting definition"))
-            .equipment_profile()
-            .map_or(ProcessEquipmentRole::None, |profile| {
-                if profile.requires_equipment() {
-                    ProcessEquipmentRole::Required
-                } else {
-                    ProcessEquipmentRole::Optional
-                }
-            }),
-        ProcessExecutionFamily::ManualComminution => domains
-            .ore_processing
-            .get_manual_comminution(process)
-            .unwrap_or_else(|| unreachable!("manual-comminution topology has a definition"))
-            .operating_profile()
-            .equipment_profile()
-            .map_or(ProcessEquipmentRole::None, |_| {
-                ProcessEquipmentRole::Optional
-            }),
-        ProcessExecutionFamily::ManualSeparation => domains
-            .ore_processing
-            .get_manual_constituent_separation(process)
-            .unwrap_or_else(|| unreachable!("manual-separation topology has a definition"))
-            .operating_profile()
-            .equipment_profile()
-            .map_or(ProcessEquipmentRole::None, |_| {
-                ProcessEquipmentRole::Optional
-            }),
-        ProcessExecutionFamily::PoweredCraft
-        | ProcessExecutionFamily::Comminution
-        | ProcessExecutionFamily::Screening
-        | ProcessExecutionFamily::ConstituentSeparation
-        | ProcessExecutionFamily::SensibleHeating
-        | ProcessExecutionFamily::Melting
-        | ProcessExecutionFamily::Casting => ProcessEquipmentRole::Required,
-    }
-}
-
-fn nominal_manual_craft_providers(
-    domains: &RegistryDomains,
-    process: ProcessId,
-) -> Vec<EquipmentDefinitionId> {
-    let Some(profile) = domains
-        .crafting
-        .get_manual(process)
-        .and_then(|definition| definition.equipment_profile())
-    else {
-        return Vec::new();
-    };
-    let capability = profile.mass_flow_capability();
-    domains
-        .equipment
-        .definitions()
-        .filter(|equipment| {
-            matches!(
-                equipment.capabilities().get_capability(capability),
-                Some(CapabilityValue::MassFlow(rate)) if !rate.is_zero()
-            )
-        })
-        .map(|equipment| equipment.id())
-        .collect()
-}
-
-fn nominal_manual_ore_providers(
-    domains: &RegistryDomains,
-    process: ProcessId,
-    execution_family: ProcessExecutionFamily,
-) -> Vec<EquipmentDefinitionId> {
-    let profile = match execution_family {
-        ProcessExecutionFamily::ManualComminution => domains
-            .ore_processing
-            .get_manual_comminution(process)
-            .map(|definition| definition.operating_profile()),
-        ProcessExecutionFamily::ManualSeparation => domains
-            .ore_processing
-            .get_manual_constituent_separation(process)
-            .map(|definition| definition.operating_profile()),
-        ProcessExecutionFamily::ManualCraft
-        | ProcessExecutionFamily::PoweredCraft
-        | ProcessExecutionFamily::Comminution
-        | ProcessExecutionFamily::Screening
-        | ProcessExecutionFamily::ConstituentSeparation
-        | ProcessExecutionFamily::SensibleHeating
-        | ProcessExecutionFamily::Melting
-        | ProcessExecutionFamily::Casting => None,
-    };
-    let Some(capability) = profile
-        .and_then(|profile| profile.equipment_profile())
-        .map(|equipment| equipment.mass_flow_capability())
-    else {
-        return Vec::new();
-    };
-    domains
-        .equipment
-        .definitions()
-        .filter(|equipment| {
-            matches!(
-                equipment.capabilities().get_capability(capability),
-                Some(CapabilityValue::MassFlow(rate)) if !rate.is_zero()
-            )
-        })
-        .map(|equipment| equipment.id())
-        .collect()
-}
-
-fn nominal_machine_providers(
-    domains: &RegistryDomains,
-    process: &crate::production::ProcessDefinition,
-) -> Vec<EquipmentDefinitionId> {
-    domains
-        .equipment
-        .definitions()
-        .filter(|equipment| {
-            evaluate_capabilities(
-                &domains.capabilities,
-                equipment.capabilities(),
-                process.capability_requirements(),
-            )
-            .is_ok()
-        })
-        .map(|equipment| equipment.id())
-        .collect()
 }
 
 fn assert_process_topology_has_required_edges(process: ProcessId, topology: &ProcessTopology) {
@@ -295,121 +147,5 @@ fn assert_process_topology_has_required_edges(process: ProcessId, topology: &Pro
             "energy-bearing process {} has no compatible energy store",
             process.value()
         ),
-    }
-}
-
-fn claim_execution_semantics(
-    claimed: &mut Option<(ProcessExecutionFamily, ProcessEnergyRole)>,
-    process: ProcessId,
-    candidate: (ProcessExecutionFamily, ProcessEnergyRole),
-) {
-    assert!(
-        claimed.replace(candidate).is_none(),
-        "process {} cannot own multiple physical resolver semantics",
-        process.value()
-    );
-}
-
-fn process_execution_semantics(
-    domains: &RegistryDomains,
-    process: ProcessId,
-) -> Option<(ProcessExecutionFamily, ProcessEnergyRole)> {
-    let candidates = [
-        domains
-            .crafting
-            .get_manual(process)
-            .map(|_| (ProcessExecutionFamily::ManualCraft, ProcessEnergyRole::None)),
-        domains.crafting.get_powered(process).map(|definition| {
-            (
-                ProcessExecutionFamily::PoweredCraft,
-                ProcessEnergyRole::Supply(definition.energy_carrier()),
-            )
-        }),
-        domains
-            .ore_processing
-            .get_manual_comminution(process)
-            .map(|_| {
-                (
-                    ProcessExecutionFamily::ManualComminution,
-                    ProcessEnergyRole::None,
-                )
-            }),
-        domains
-            .ore_processing
-            .get_manual_constituent_separation(process)
-            .map(|_| {
-                (
-                    ProcessExecutionFamily::ManualSeparation,
-                    ProcessEnergyRole::None,
-                )
-            }),
-        domains
-            .ore_processing
-            .get_comminution(process)
-            .map(|definition| {
-                (
-                    ProcessExecutionFamily::Comminution,
-                    ProcessEnergyRole::Supply(definition.energy_carrier()),
-                )
-            }),
-        domains
-            .ore_processing
-            .get_screening(process)
-            .map(|definition| {
-                (
-                    ProcessExecutionFamily::Screening,
-                    ProcessEnergyRole::Supply(definition.energy_carrier()),
-                )
-            }),
-        domains
-            .ore_processing
-            .get_constituent_separation(process)
-            .map(|definition| {
-                (
-                    ProcessExecutionFamily::ConstituentSeparation,
-                    ProcessEnergyRole::Supply(definition.energy_carrier()),
-                )
-            }),
-        domains
-            .thermal
-            .get_sensible_heating(process)
-            .map(|definition| {
-                (
-                    ProcessExecutionFamily::SensibleHeating,
-                    ProcessEnergyRole::Supply(definition.energy_carrier()),
-                )
-            }),
-        domains.thermal.get_melting(process).map(|definition| {
-            (
-                ProcessExecutionFamily::Melting,
-                ProcessEnergyRole::Supply(definition.energy_carrier()),
-            )
-        }),
-        domains.thermal.get_casting(process).map(|definition| {
-            (
-                ProcessExecutionFamily::Casting,
-                ProcessEnergyRole::Sink(definition.energy_carrier()),
-            )
-        }),
-    ];
-    let mut claimed = None;
-    for candidate in candidates.into_iter().flatten() {
-        claim_execution_semantics(&mut claimed, process, candidate);
-    }
-    claimed
-}
-
-fn energy_store_matches_role(
-    definition: &crate::energy::EnergyStoreDefinition,
-    role: ProcessEnergyRole,
-) -> bool {
-    match role {
-        ProcessEnergyRole::None => false,
-        ProcessEnergyRole::Supply(carrier) => {
-            definition.carrier() == carrier && !definition.max_output_power().is_zero()
-        }
-        ProcessEnergyRole::Sink(carrier) => {
-            definition.carrier() == carrier && !definition.max_input_power().is_zero()
-        }
     }
 }
