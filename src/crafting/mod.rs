@@ -153,7 +153,7 @@ pub fn resolve_manual_craft(
         .crafting()
         .get_manual(process)
         .ok_or(ManualCraftError::UnknownManualProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source, request.selections())
+    let inputs = validate_process_inputs(state, process, source, request.selections())
         .map_err(ManualCraftError::Input)?;
     let batch = batch::validate_manual_craft_batch(
         definition,

@@ -36,9 +36,6 @@ fn map_thermal_equipment_error(
     error: ThermalEquipmentSetupError,
 ) -> SensibleHeatingResolutionError {
     match error {
-        ThermalEquipmentSetupError::UnknownProcess { process } => {
-            SensibleHeatingResolutionError::UnknownThermalProcess { process }
-        }
         ThermalEquipmentSetupError::Equipment(error) => {
             SensibleHeatingResolutionError::Equipment(error)
         }
@@ -153,7 +150,7 @@ pub fn resolve_sensible_heating_process(
         .thermal()
         .get_sensible_heating(process)
         .ok_or(SensibleHeatingResolutionError::UnknownThermalProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(SensibleHeatingResolutionError::Input)?;
     let thermal_equipment = resolve_runtime_thermal_equipment(
         registries,

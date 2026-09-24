@@ -35,11 +35,12 @@ pub(crate) use comminution_execution::validate_loaded_comminution_job;
 pub use definitions::{
     ComminutionProcessDefinition, ConstituentRecoveryProfile,
     ConstituentSeparationProcessDefinition, ManualComminutionProcessDefinition,
-    ManualConstituentSeparationProcessDefinition, ManualOreProcessProfile,
-    PoweredOreProcessProfile, ScreeningProcessDefinition,
+    ManualConstituentSeparationProcessDefinition, ManualOreEquipmentProfile,
+    ManualOreProcessProfile, PoweredOreProcessProfile, ScreeningProcessDefinition,
 };
 pub use manual_physics::{
-    ManualOreJobValidationError, ManualOrePhysicsError, project_manual_ore_duration,
+    ManualOreEquipmentError, ManualOreJobValidationError, ManualOrePhysicsError,
+    project_manual_ore_duration,
 };
 
 pub use separation_execution::{

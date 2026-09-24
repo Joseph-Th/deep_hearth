@@ -50,6 +50,11 @@ pub const EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE: EquipmentDefinitionId =
 pub const EQUIPMENT_TIMBER_TREADLE_HAMMER: EquipmentDefinitionId = EquipmentDefinitionId::new(30);
 pub const EQUIPMENT_TIMBER_SASH_SAWMILL: EquipmentDefinitionId = EquipmentDefinitionId::new(31);
 pub const EQUIPMENT_TIMBER_HELVE_HAMMER: EquipmentDefinitionId = EquipmentDefinitionId::new(32);
+pub const EQUIPMENT_STONE_COBBING_HAMMER: EquipmentDefinitionId = EquipmentDefinitionId::new(33);
+pub const EQUIPMENT_TIMBER_DRESSING_BENCH: EquipmentDefinitionId = EquipmentDefinitionId::new(34);
+pub const EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(35);
+pub const EQUIPMENT_TIMBER_SPINDLE_DRILL: EquipmentDefinitionId = EquipmentDefinitionId::new(36);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

@@ -6,7 +6,7 @@ mod screening;
 mod separation;
 
 pub use comminution::{ComminutionProcessDefinition, ManualComminutionProcessDefinition};
-pub use operating::{ManualOreProcessProfile, PoweredOreProcessProfile};
+pub use operating::{ManualOreEquipmentProfile, ManualOreProcessProfile, PoweredOreProcessProfile};
 pub use screening::ScreeningProcessDefinition;
 pub(in crate::ore_processing) use separation::ConstituentSeparationPhysics;
 pub use separation::{

@@ -11,14 +11,16 @@ const MANUAL_NATIVE_COPPER_SORTING_RECOVERY_PPM: u32 = 650_000;
 use crate::ore_processing::{
     ComminutionProcessDefinition, ConstituentRecoveryProfile,
     ConstituentSeparationProcessDefinition, ManualComminutionProcessDefinition,
-    ManualConstituentSeparationProcessDefinition, ManualOreProcessProfile, OreProcessingRegistry,
-    PoweredOreProcessProfile, ScreeningProcessDefinition,
+    ManualConstituentSeparationProcessDefinition, ManualOreEquipmentProfile,
+    ManualOreProcessProfile, OreProcessingRegistry, PoweredOreProcessProfile,
+    ScreeningProcessDefinition,
 };
 
 use super::capabilities::{
-    CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW, CAPABILITY_GRINDER_BATCH,
-    CAPABILITY_GRINDER_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
-    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
+    CAPABILITY_COBBING_FLOW, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
+    CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_ORE_PICKING_FLOW,
+    CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
+    CAPABILITY_SEPARATOR_FLOW,
 };
 use super::materials::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_ORE,
@@ -223,7 +225,8 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     Energy::from_nanojoules(1_000_000_000_000),
                     Volume::from_microliters(250),
                 ),
-            ),
+            )
+            .with_equipment_profile(ManualOreEquipmentProfile::new(CAPABILITY_COBBING_FLOW, 750)),
         )],
         [ManualConstituentSeparationProcessDefinition::new_sorting(
             PROCESS_HAND_SORT_NATIVE_COPPER,
@@ -239,7 +242,11 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                     Energy::from_nanojoules(750_000_000_000),
                     Volume::from_microliters(180),
                 ),
-            ),
+            )
+            .with_equipment_profile(ManualOreEquipmentProfile::new(
+                CAPABILITY_ORE_PICKING_FLOW,
+                300,
+            )),
         )],
     )
 }

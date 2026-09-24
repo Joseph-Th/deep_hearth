@@ -137,9 +137,6 @@ pub enum ScreeningResolutionError {
 impl From<PoweredOreProviderError> for ScreeningResolutionError {
     fn from(error: PoweredOreProviderError) -> Self {
         match error {
-            PoweredOreProviderError::UnknownProcess { process } => {
-                Self::UnknownScreeningProcess { process }
-            }
             PoweredOreProviderError::Provider(error) => Self::Equipment(error),
             PoweredOreProviderError::Capability(error) => Self::Capability(error),
             PoweredOreProviderError::Equipment(error) => match error {

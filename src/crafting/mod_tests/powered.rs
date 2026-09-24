@@ -3,11 +3,12 @@
 use super::*;
 use crate::content::{
     ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_TIMBER_HELVE_HAMMER, EQUIPMENT_TIMBER_SASH_SAWMILL,
-    FORM_BOARD, FORM_CHIP, FORM_HANDLE, FORM_LOG, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
-    FORM_SAW_BLADE, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT, PROCESS_POWER_HAMMER_COPPER_SAW_BLADE,
-    PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT, PROCESS_POWER_SAW_WOOD_BOARDS,
-    build_registries,
+    EQUIPMENT_TIMBER_SPINDLE_DRILL, FORM_BOARD, FORM_CHIP, FORM_DRILL_BIT, FORM_FLYWHEEL,
+    FORM_HANDLE, FORM_LOG, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP,
+    FORM_SCREEN_PLATE, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE, PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
+    PROCESS_POWER_HAMMER_COPPER_SAW_BLADE, PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT,
+    PROCESS_POWER_SAW_WOOD_BOARDS, build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -29,6 +30,110 @@ const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 fn stockpile(state: &mut AppState, capacity_mg: u64) -> StockpileId {
     add_solid_stockpile_for_test(state, Mass::from_milligrams(capacity_mg))
         .unwrap_or_else(|error| panic!("powered craft stockpile fixture failed: {error}"))
+}
+
+#[test]
+fn spindle_drill_preserves_screen_plate_yield_while_spending_stored_work() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let assembly = stockpile(&mut state, 4_000_000);
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL), 900_000),
+        (CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT), 100_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 1_600_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 800_000),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            20_000,
+        ),
+    ] {
+        deposit(&registries, &mut state, assembly, commodity, mass);
+    }
+    let drill = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("spindle drill assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("spindle drill assembly commit failed: {error}"));
+
+    let source = stockpile(&mut state, 20_000);
+    let reinforcement = deposit(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        20_000,
+    );
+    let destination = stockpile(&mut state, 20_000);
+    let drive = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("spindle drill drive fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("spindle drill matter setup failed: {error}"))
+        .total();
+
+    let job = validate_start_powered_craft(
+        &registries,
+        &state,
+        PoweredCraftRequest::single(
+            PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+            source,
+            MaterialLotSelection::new(reinforcement, Mass::from_milligrams(20_000)),
+            drill,
+            drive,
+        ),
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("powered screen-plate drilling failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("powered screen-plate drilling commit failed: {error}"));
+
+    let record = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("powered screen-plate drilling job disappeared"));
+    assert_eq!(record.active_duration().value(), 4);
+    assert_eq!(
+        record.consumed_energy().map(|trace| trace.energy()),
+        Some(Energy::from_nanojoules(50_000_000_000))
+    );
+    assert_eq!(state.player_work().active(), None);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("in-flight spindle drill state failed replay: {error}"));
+
+    finish_job(&registries, &mut state, job);
+    let output = state
+        .inventory()
+        .get_stockpile(destination)
+        .unwrap_or_else(|| panic!("powered screen-plate output disappeared"));
+    assert_eq!(
+        output.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE)),
+        Mass::from_milligrams(18_000)
+    );
+    assert_eq!(
+        output.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)),
+        Mass::from_milligrams(2_000)
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(drill)
+            .map(|record| record.condition()),
+        Some(Condition::new(999_000).unwrap_or_else(|error| panic!("condition failed: {error}")))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("spindle drill matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
 }
 
 #[test]

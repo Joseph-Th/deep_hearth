@@ -109,12 +109,12 @@ fn validate_loaded_manual_separation_job(
     job: &ProductionJobRecord,
     definition: ManualConstituentSeparationProcessDefinition,
 ) -> Result<(), ConstituentSeparationJobValidationError> {
-    validate_manual_ore_job_admission(job, definition.operating_profile()).map_err(|error| {
-        ConstituentSeparationJobValidationError::Manual {
-            job: job.id(),
-            error,
-        }
-    })?;
+    let required_duration =
+        validate_manual_ore_job_admission(registries, job, definition.operating_profile())
+            .map_err(|error| ConstituentSeparationJobValidationError::Manual {
+                job: job.id(),
+                error,
+            })?;
     let target_particle_size_policy = registries
         .materials()
         .get_form(definition.target_output_form())
@@ -131,14 +131,11 @@ fn validate_loaded_manual_separation_job(
         error,
     })?;
     validate_output_streams(job, &expected.target, &expected.residue)?;
-    validate_manual_ore_job_duration(
-        registries.core().physical_tick_duration(),
-        job,
-        definition.operating_profile(),
-    )
-    .map_err(|error| ConstituentSeparationJobValidationError::Manual {
-        job: job.id(),
-        error,
+    validate_manual_ore_job_duration(job, required_duration).map_err(|error| {
+        ConstituentSeparationJobValidationError::Manual {
+            job: job.id(),
+            error,
+        }
     })
 }
 

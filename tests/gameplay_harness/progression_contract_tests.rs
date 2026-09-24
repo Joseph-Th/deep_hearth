@@ -127,7 +127,10 @@ fn primitive_recovery_and_reinforcement_routes_remain_connected() {
     assert!(!manual_sort.max_batch_mass().is_zero());
     assert!(!manual_sort.processing_rate().is_zero());
 
-    for process in [PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER] {
+    for (process, expected_provider_count) in [
+        (PROCESS_HAND_BREAK_ORE, 2),
+        (PROCESS_HAND_SORT_NATIVE_COPPER, 1),
+    ] {
         let entry = catalog
             .iter()
             .find(|entry| entry.process == process)
@@ -143,7 +146,7 @@ fn primitive_recovery_and_reinforcement_routes_remain_connected() {
                 entry.nominal_provider_count,
                 entry.compatible_energy_store_count
             ),
-            (0, 0)
+            (expected_provider_count, 0)
         );
     }
 

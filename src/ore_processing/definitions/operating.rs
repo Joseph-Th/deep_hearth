@@ -31,6 +31,42 @@ pub struct ManualOreProcessProfile {
     processing_rate: MassFlow,
     max_batch_mass: Mass,
     exertion: SurvivalExertion,
+    equipment: Option<ManualOreEquipmentProfile>,
+}
+
+/// Optional durable tool/workstation acceleration for one direct-labor ore process.
+///
+/// Equipment changes only condition-adjusted material throughput and wears while the player works.
+/// Batch limits, transformation/recovery physics, survival exertion, and player attention remain
+/// owned by the manual ore process itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManualOreEquipmentProfile {
+    mass_flow_capability: CapabilityId,
+    condition_wear_ppm_per_active_tick: u32,
+}
+
+impl ManualOreEquipmentProfile {
+    #[must_use]
+    pub fn new(
+        mass_flow_capability: CapabilityId,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        Self {
+            mass_flow_capability,
+            condition_wear_ppm_per_active_tick,
+        }
+    }
+
+    #[must_use]
+    pub const fn mass_flow_capability(self) -> CapabilityId {
+        self.mass_flow_capability
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.condition_wear_ppm_per_active_tick
+    }
 }
 
 impl ManualOreProcessProfile {
@@ -53,7 +89,19 @@ impl ManualOreProcessProfile {
             processing_rate,
             max_batch_mass,
             exertion,
+            equipment: None,
         }
+    }
+
+    /// Adds an optional equipment-assisted route while preserving the equipment-free fallback.
+    #[must_use]
+    pub fn with_equipment_profile(mut self, equipment: ManualOreEquipmentProfile) -> Self {
+        assert!(
+            self.equipment.is_none(),
+            "manual ore-processing profile cannot define more than one equipment profile"
+        );
+        self.equipment = Some(equipment);
+        self
     }
 
     #[must_use]
@@ -69,6 +117,11 @@ impl ManualOreProcessProfile {
     #[must_use]
     pub const fn exertion(self) -> SurvivalExertion {
         self.exertion
+    }
+
+    #[must_use]
+    pub const fn equipment_profile(self) -> Option<ManualOreEquipmentProfile> {
+        self.equipment
     }
 }
 

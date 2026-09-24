@@ -80,12 +80,12 @@ fn validate_loaded_manual_comminution_job(
     job: &ProductionJobRecord,
     definition: &crate::ore_processing::ManualComminutionProcessDefinition,
 ) -> Result<(), ComminutionJobValidationError> {
-    validate_manual_ore_job_admission(job, definition.operating_profile()).map_err(|error| {
-        ComminutionJobValidationError::Manual {
-            job: job.id(),
-            error,
-        }
-    })?;
+    let required_duration =
+        validate_manual_ore_job_admission(registries, job, definition.operating_profile())
+            .map_err(|error| ComminutionJobValidationError::Manual {
+                job: job.id(),
+                error,
+            })?;
     let required_outputs = resolve_manual_comminution_outputs(definition, job.consumed_inputs())
         .map_err(|error| ComminutionJobValidationError::Batch {
             job: job.id(),
@@ -97,14 +97,11 @@ fn validate_loaded_manual_comminution_job(
     if required_outputs.as_slice() != output_stream.outputs() {
         return Err(ComminutionJobValidationError::OutputMismatch { job: job.id() });
     }
-    validate_manual_ore_job_duration(
-        registries.core().physical_tick_duration(),
-        job,
-        definition.operating_profile(),
-    )
-    .map_err(|error| ComminutionJobValidationError::Manual {
-        job: job.id(),
-        error,
+    validate_manual_ore_job_duration(job, required_duration).map_err(|error| {
+        ComminutionJobValidationError::Manual {
+            job: job.id(),
+            error,
+        }
     })
 }
 

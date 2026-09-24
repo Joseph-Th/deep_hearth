@@ -122,14 +122,8 @@ impl CastingLotMassEnvelope {
     }
 }
 
-fn map_equipment_error(
-    process: ProcessId,
-    error: ThermalEquipmentEnvelopeError,
-) -> CastingResolutionError {
+fn map_equipment_error(error: ThermalEquipmentEnvelopeError) -> CastingResolutionError {
     match error {
-        ThermalEquipmentEnvelopeError::UnknownProcess => {
-            CastingResolutionError::UnknownThermalProcess { process }
-        }
         ThermalEquipmentEnvelopeError::Equipment(error) => CastingResolutionError::Equipment(error),
         ThermalEquipmentEnvelopeError::Capability(error) => {
             CastingResolutionError::Capability(error)
@@ -160,14 +154,9 @@ pub fn assess_casting_lot_mass_envelope(
             process: request.process,
         },
     )?;
-    let offer = resolve_phase_change_lot_offer(
-        registries,
-        state,
-        request.process,
-        request.source,
-        request.selection,
-    )
-    .map_err(CastingResolutionError::Input)?;
+    let offer =
+        resolve_phase_change_lot_offer(state, request.process, request.source, request.selection)
+            .map_err(CastingResolutionError::Input)?;
     let equipment = resolve_thermal_equipment_envelope(
         registries,
         state,
@@ -179,7 +168,7 @@ pub fn assess_casting_lot_mass_envelope(
             definition.max_batch_mass_capability(),
         ),
     )
-    .map_err(|error| map_equipment_error(request.process, error))?;
+    .map_err(map_equipment_error)?;
     let material = resolve_phase_change_trace_material(
         registries.materials(),
         definition.material(),

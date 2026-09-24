@@ -6,14 +6,18 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use crate::content::crafted_parts::COPPER_REINFORCEMENT_MASS;
 use crate::content::materials::{FORM_REINFORCEMENT, MATERIAL_COPPER};
 
+mod dressing;
 mod metalworking;
 mod mining;
 mod power;
+mod precision;
 mod processing;
 mod woodworking;
 
 pub(super) fn definitions() -> Vec<EquipmentDefinition> {
     vec![
+        dressing::stone_cobbing_hammer(),
+        dressing::timber_dressing_bench(),
         metalworking::timber_treadle_hammer(),
         metalworking::timber_helve_hammer(),
         mining::stone_pick(),
@@ -24,6 +28,8 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         mining::copper_reinforced_stone_quarry_pick(),
         mining::stone_geological_hammer(),
         mining::copper_reinforced_geological_hammer(),
+        precision::stone_flywheel_pump_drill(),
+        precision::timber_spindle_drill(),
         power::timber_treadle_drive(),
         power::timber_walking_wheel_drive(),
         processing::stone_crusher(),

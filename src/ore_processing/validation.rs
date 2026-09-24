@@ -155,7 +155,9 @@ fn validate_comminution_references(
 fn validate_manual_process_contract(
     operation: &str,
     process: ProcessId,
+    profile: super::ManualOreProcessProfile,
     production: &ProductionRegistry,
+    capabilities: &CapabilityRegistry,
 ) {
     let definition = production.get_process(process).unwrap_or_else(|| {
         panic!(
@@ -165,17 +167,42 @@ fn validate_manual_process_contract(
     });
     assert!(
         definition.capability_requirements().is_empty(),
-        "{operation} process {} is direct player labor and cannot require equipment capabilities",
+        "{operation} process {} is direct player labor and cannot require production-level equipment capabilities",
         process.value()
     );
+    if let Some(equipment) = profile.equipment_profile() {
+        let capability = capabilities
+            .get_capability(equipment.mass_flow_capability())
+            .unwrap_or_else(|| {
+                panic!(
+                    "{operation} process {} references missing optional equipment capability {}",
+                    process.value(),
+                    equipment.mass_flow_capability().value()
+                )
+            });
+        assert_eq!(
+            capability.kind(),
+            CapabilityValueKind::MassFlow,
+            "{operation} process {} optional equipment capability {} must be material throughput",
+            process.value(),
+            equipment.mass_flow_capability().value()
+        );
+    }
 }
 
 fn validate_manual_comminution_references(
     definition: &ManualComminutionProcessDefinition,
     production: &ProductionRegistry,
+    capabilities: &CapabilityRegistry,
     materials: &MaterialRegistry,
 ) {
-    validate_manual_process_contract("manual comminution", definition.process(), production);
+    validate_manual_process_contract(
+        "manual comminution",
+        definition.process(),
+        definition.operating_profile(),
+        production,
+        capabilities,
+    );
     validate_comminution_material_references(
         definition.process(),
         definition.input_form(),
@@ -343,12 +370,15 @@ fn validate_separation_references(
 fn validate_manual_separation_references(
     definition: ManualConstituentSeparationProcessDefinition,
     production: &ProductionRegistry,
+    capabilities: &CapabilityRegistry,
     materials: &MaterialRegistry,
 ) {
     validate_manual_process_contract(
         "manual constituent-separation",
         definition.process(),
+        definition.operating_profile(),
         production,
+        capabilities,
     );
     validate_separation_material_references(definition.process(), definition.physics(), materials);
 }
@@ -364,7 +394,7 @@ impl OreProcessingRegistry {
             validate_comminution_references(definition, production, capabilities, materials);
         }
         for definition in self.manual_comminution.values() {
-            validate_manual_comminution_references(definition, production, materials);
+            validate_manual_comminution_references(definition, production, capabilities, materials);
         }
         for definition in self.screening.values().copied() {
             validate_screening_references(definition, production, capabilities, materials);
@@ -373,7 +403,7 @@ impl OreProcessingRegistry {
             validate_separation_references(definition, production, capabilities, materials);
         }
         for definition in self.manual_separation.values().copied() {
-            validate_manual_separation_references(definition, production, materials);
+            validate_manual_separation_references(definition, production, capabilities, materials);
         }
     }
 }

@@ -6,7 +6,9 @@ use crate::crafting::{ManualCraftDefinition, ManualCraftEquipmentProfile, Manual
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
-use crate::content::capabilities::CAPABILITY_COPPER_HAMMERING_FLOW;
+use crate::content::capabilities::{
+    CAPABILITY_COPPER_HAMMERING_FLOW, CAPABILITY_COPPER_PIERCING_FLOW,
+};
 use crate::content::crafted_parts::{
     COPPER_REINFORCEMENT_MASS, COPPER_SAW_BLADE_MASS, COPPER_SCREEN_PLATE_MASS,
 };
@@ -93,6 +95,10 @@ fn pierce_copper_screen_plate() -> ManualCraftDefinition {
             ),
         ],
     )
+    .with_equipment_profile(ManualCraftEquipmentProfile::new_required(
+        CAPABILITY_COPPER_PIERCING_FLOW,
+        500,
+    ))
 }
 
 fn cold_work_copper_scrap() -> ManualCraftDefinition {

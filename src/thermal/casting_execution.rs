@@ -30,9 +30,6 @@ pub type CastingBatchError = PurePhaseChangeBatchError;
 
 fn map_thermal_equipment_error(error: ThermalEquipmentSetupError) -> CastingResolutionError {
     match error {
-        ThermalEquipmentSetupError::UnknownProcess { process } => {
-            CastingResolutionError::UnknownThermalProcess { process }
-        }
         ThermalEquipmentSetupError::Equipment(error) => CastingResolutionError::Equipment(error),
         ThermalEquipmentSetupError::Capability(error) => CastingResolutionError::Capability(error),
         ThermalEquipmentSetupError::MissingTransferPower { capability } => {
@@ -181,7 +178,7 @@ pub fn resolve_casting_process(
         .thermal()
         .get_casting(process)
         .ok_or(CastingResolutionError::UnknownThermalProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(CastingResolutionError::Input)?;
     let thermal_equipment = resolve_runtime_thermal_equipment(
         registries,

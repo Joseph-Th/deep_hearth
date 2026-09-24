@@ -6,9 +6,18 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::{PhysicalTickDuration, TickSpan};
-use crate::production::ProductionJobRecord;
 
 use super::ManualOreProcessProfile;
+
+mod equipment;
+mod job_validation;
+
+pub use equipment::ManualOreEquipmentError;
+pub(super) use equipment::resolve_manual_ore_equipment;
+pub use job_validation::ManualOreJobValidationError;
+pub(super) use job_validation::{
+    validate_manual_ore_job_admission, validate_manual_ore_job_duration,
+};
 
 /// Shared physical failure for one direct-labor ore-processing batch.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,49 +51,6 @@ impl Error for ManualOrePhysicsError {
         match self {
             Self::ThroughputDuration(error) => Some(error),
             Self::ZeroBatchMass | Self::BatchMassExceeded { .. } => None,
-        }
-    }
-}
-
-/// Persistent-state failure in the common direct-labor ore-processing envelope.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ManualOreJobValidationError {
-    UnexpectedEnergy,
-    UnexpectedEquipment,
-    Physics(ManualOrePhysicsError),
-    DurationMismatch {
-        stored: TickSpan,
-        required: TickSpan,
-    },
-}
-
-impl Display for ManualOreJobValidationError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnexpectedEnergy => {
-                formatter.write_str("job carries unauthored stored-energy resources")
-            }
-            Self::UnexpectedEquipment => {
-                formatter.write_str("job carries unauthored equipment resources")
-            }
-            Self::Physics(error) => write!(formatter, "{error}"),
-            Self::DurationMismatch { stored, required } => write!(
-                formatter,
-                "job stores {} active ticks but requires {}",
-                stored.value(),
-                required.value()
-            ),
-        }
-    }
-}
-
-impl Error for ManualOreJobValidationError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Physics(error) => Some(error),
-            Self::UnexpectedEnergy | Self::UnexpectedEquipment | Self::DurationMismatch { .. } => {
-                None
-            }
         }
     }
 }
@@ -131,40 +97,4 @@ pub fn project_manual_ore_duration(
 ) -> Result<TickSpan, ManualOrePhysicsError> {
     validate_manual_ore_batch(profile, selected)?;
     resolve_manual_ore_duration(physical_tick_duration, profile, selected)
-}
-
-/// Validates common resource absence and batch size before process-specific output replay.
-pub(super) fn validate_manual_ore_job_admission(
-    job: &ProductionJobRecord,
-    profile: ManualOreProcessProfile,
-) -> Result<(), ManualOreJobValidationError> {
-    if job.consumed_energy().is_some() || job.released_energy().is_some() {
-        return Err(ManualOreJobValidationError::UnexpectedEnergy);
-    }
-    if job.equipment_provider().is_some()
-        || job.equipment_condition_after().is_some()
-        || job.has_required_active_support()
-    {
-        return Err(ManualOreJobValidationError::UnexpectedEquipment);
-    }
-    validate_manual_ore_batch(profile, job.consumed_mass())
-        .map_err(ManualOreJobValidationError::Physics)
-}
-
-/// Replays common duration physics after process-specific outputs have been validated.
-pub(super) fn validate_manual_ore_job_duration(
-    physical_tick_duration: PhysicalTickDuration,
-    job: &ProductionJobRecord,
-    profile: ManualOreProcessProfile,
-) -> Result<(), ManualOreJobValidationError> {
-    let required =
-        resolve_manual_ore_duration(physical_tick_duration, profile, job.consumed_mass())
-            .map_err(ManualOreJobValidationError::Physics)?;
-    if job.active_duration() != required {
-        return Err(ManualOreJobValidationError::DurationMismatch {
-            stored: job.active_duration(),
-            required,
-        });
-    }
-    Ok(())
 }

@@ -6,7 +6,9 @@ use crate::crafting::{
     ManualCraftDefinition, ManualCraftEquipmentProfile, resolve_manual_craft_equipment_physics,
 };
 use crate::energy::EnergyRegistry;
-use crate::equipment::{EquipmentRegistry, resolve_equipment_capability};
+use crate::equipment::{
+    EquipmentRegistry, resolve_equipment_capability, resolve_equipment_mass_flow_schedule,
+};
 use crate::labor::{
     ManualPowerDefinition, calculate_player_work_resource_budget,
     project_manual_power_configuration,
@@ -55,6 +57,38 @@ fn assert_manual_ore_batch_fits_reserves(
     )
     .unwrap_or_else(|error| panic!("{owner} {id} maximum-batch duration failed: {error}"));
     assert_player_work_fits_reserves(physiology, profile.exertion(), duration, owner, id);
+}
+
+fn best_operable_manual_ore_equipment_duration(
+    core: &CoreDefinitions,
+    domains: &RegistryDomains,
+    profile: ManualOreProcessProfile,
+) -> Option<TickSpan> {
+    let equipment_profile = profile.equipment_profile()?;
+    domains
+        .equipment
+        .definitions()
+        .filter_map(|equipment| {
+            let schedule = resolve_equipment_mass_flow_schedule(
+                equipment,
+                Condition::PRISTINE,
+                equipment_profile.mass_flow_capability(),
+                profile.max_batch_mass(),
+                core.physical_tick_duration(),
+                equipment_profile.condition_wear_ppm_per_active_tick(),
+            )
+            .ok()?;
+            let budget = calculate_player_work_resource_budget(
+                domains.survival.physiology(),
+                profile.exertion(),
+                schedule.duration(),
+            )
+            .ok()?;
+            (budget.metabolic_energy() <= domains.survival.physiology().maximum_metabolic_energy()
+                && budget.hydration() <= domains.survival.physiology().maximum_hydration())
+            .then_some(schedule.duration())
+        })
+        .min()
 }
 
 fn best_operable_manual_craft_equipment_duration(
@@ -263,25 +297,59 @@ fn validate_manual_ore_operability(
 ) {
     for process in domains.production.definitions() {
         if let Some(definition) = domains.ore_processing.get_manual_comminution(process.id()) {
+            let profile = definition.operating_profile();
             assert_manual_ore_batch_fits_reserves(
                 core,
                 physiology,
-                definition.operating_profile(),
+                profile,
                 "manual comminution process",
                 u64::from(process.id().value()),
             );
+            if profile.equipment_profile().is_some() {
+                let hand = project_manual_ore_duration(
+                    core.physical_tick_duration(),
+                    profile,
+                    profile.max_batch_mass(),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("manual comminution hand projection failed: {error}")
+                });
+                assert!(
+                    best_operable_manual_ore_equipment_duration(core, domains, profile)
+                        .is_some_and(|assisted| assisted < hand),
+                    "manual comminution process {} has no pristine optional equipment route faster than hand work",
+                    process.id().value()
+                );
+            }
         }
         if let Some(definition) = domains
             .ore_processing
             .get_manual_constituent_separation(process.id())
         {
+            let profile = definition.operating_profile();
             assert_manual_ore_batch_fits_reserves(
                 core,
                 physiology,
-                definition.operating_profile(),
+                profile,
                 "manual constituent-separation process",
                 u64::from(process.id().value()),
             );
+            if profile.equipment_profile().is_some() {
+                let hand = project_manual_ore_duration(
+                    core.physical_tick_duration(),
+                    profile,
+                    profile.max_batch_mass(),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("manual separation hand projection failed: {error}")
+                });
+                assert!(
+                    best_operable_manual_ore_equipment_duration(core, domains, profile)
+                        .is_some_and(|assisted| assisted < hand),
+                    "manual constituent-separation process {} has no pristine optional equipment route faster than hand work",
+                    process.id().value()
+                );
+            }
         }
     }
 }

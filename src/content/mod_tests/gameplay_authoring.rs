@@ -97,6 +97,8 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_STONE_SEPARATOR,
         EQUIPMENT_STONE_ROTARY_QUERN,
         EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+        EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+        EQUIPMENT_TIMBER_SPINDLE_DRILL,
         EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
         EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
         EQUIPMENT_COPPER_REINFORCED_PICK,
@@ -115,9 +117,160 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
         EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL,
         EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
+        EQUIPMENT_STONE_COBBING_HAMMER,
+        EQUIPMENT_TIMBER_DRESSING_BENCH,
     ] {
         assert!(registries.equipment().get_equipment(equipment).is_some());
     }
+
+    let piercing = registries
+        .crafting()
+        .get_manual(PROCESS_PIERCE_COPPER_SCREEN_PLATE)
+        .unwrap_or_else(|| panic!("copper screen-plate piercing disappeared"));
+    let piercing_profile = piercing
+        .equipment_profile()
+        .unwrap_or_else(|| panic!("copper screen-plate piercing lost its physical drill"));
+    assert!(piercing_profile.requires_equipment());
+    assert_eq!(
+        piercing_profile.mass_flow_capability(),
+        capabilities::CAPABILITY_COPPER_PIERCING_FLOW
+    );
+    let drill = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL)
+        .unwrap_or_else(|| panic!("stone-flywheel pump drill disappeared"));
+    assert_eq!(
+        drill
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_COPPER_PIERCING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            MassFlow::from_milligrams_per_second(250)
+        ))
+    );
+    assert!(drill.assembly_profile().is_some_and(|assembly| {
+        let has_flywheel = assembly.inputs().iter().any(|input| {
+            input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL)
+                && input.mass() == crafted_parts::STONE_FLYWHEEL_MASS
+        });
+        let has_bit = assembly.inputs().iter().any(|input| {
+            input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT)
+                && input.mass() == crafted_parts::STONE_DRILL_BIT_MASS
+        });
+        has_flywheel && has_bit
+    }));
+    let drill_maintenance = drill
+        .maintenance_profile()
+        .unwrap_or_else(|| panic!("pump drill lost replaceable bit maintenance"));
+    assert_eq!(
+        drill_maintenance.replacement(),
+        CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT)
+    );
+    assert_eq!(
+        drill_maintenance.full_service_replacement_mass(),
+        crafted_parts::STONE_DRILL_BIT_MASS
+    );
+    let bit = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_DRILL_BIT)
+        .unwrap_or_else(|| panic!("knapped pump-drill bit recipe disappeared"));
+    assert_eq!(bit.input_mass(), Mass::from_milligrams(200_000));
+    assert!(bit.outputs().iter().any(|output| {
+        output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT)
+            && output.mass() == crafted_parts::STONE_DRILL_BIT_MASS
+    }));
+    assert!(bit.outputs().iter().any(|output| {
+        output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+            && output.mass() == Mass::from_milligrams(100_000)
+    }));
+    let recovered_bit = registries
+        .crafting()
+        .get_manual(PROCESS_DRESS_STONE_CHIP_DRILL_BIT)
+        .unwrap_or_else(|| panic!("stone-chip drill-bit recovery route disappeared"));
+    assert_eq!(
+        recovered_bit.input(),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+    );
+    assert_eq!(
+        recovered_bit.input_mass(),
+        crafted_parts::STONE_DRILL_BIT_MASS
+    );
+    assert_eq!(recovered_bit.duration(), TickSpan::new(12));
+    assert_eq!(recovered_bit.outputs().len(), 1);
+    assert_eq!(
+        recovered_bit.outputs()[0].commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT)
+    );
+    assert_eq!(
+        recovered_bit.outputs()[0].mass(),
+        crafted_parts::STONE_DRILL_BIT_MASS
+    );
+    let bit_producers = registries
+        .crafting()
+        .manual_producers(CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT))
+        .map(crate::crafting::ManualCraftDefinition::process)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        bit_producers,
+        vec![
+            PROCESS_KNAP_STONE_DRILL_BIT,
+            PROCESS_DRESS_STONE_CHIP_DRILL_BIT
+        ]
+    );
+    let one = std::num::NonZeroU64::new(1)
+        .unwrap_or_else(|| unreachable!("one screen plate is a nonzero batch"));
+    assert_eq!(
+        crate::crafting::project_manual_craft_hand_work(
+            &registries,
+            PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+            one,
+        ),
+        Err(
+            crate::crafting::ManualCraftHandProjectionError::EquipmentRequired {
+                process: PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+            }
+        )
+    );
+    let drilled = crate::crafting::project_manual_craft_equipment(
+        &registries,
+        PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+        one,
+        EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+        crate::maintenance::Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("pump-drill screen-plate projection failed: {error}"));
+    assert_eq!(drilled.duration(), TickSpan::new(23));
+    assert!(drilled.condition_after() < crate::maintenance::Condition::PRISTINE);
+    let spindle = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_SPINDLE_DRILL)
+        .unwrap_or_else(|| panic!("timber spindle drill disappeared"));
+    assert_eq!(
+        spindle.upgrade_profile().map(|upgrade| upgrade.from()),
+        Some(EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL)
+    );
+    assert_eq!(
+        spindle
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_POWERED_COPPER_PIERCING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            MassFlow::from_milligrams_per_second(1_500)
+        ))
+    );
+    assert!(spindle.assembly_profile().is_some_and(|assembly| {
+        assembly.inputs().iter().any(|input| {
+            input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL)
+                && input.mass() == crafted_parts::STONE_FLYWHEEL_MASS
+        }) && assembly.inputs().iter().any(|input| {
+            input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT)
+                && input.mass() == crafted_parts::STONE_DRILL_BIT_MASS
+        })
+    }));
+    assert_eq!(
+        spindle
+            .maintenance_profile()
+            .map(|maintenance| maintenance.replacement()),
+        Some(CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT))
+    );
     for prospecting in [
         PROSPECTING_REGIONAL_RECONNAISSANCE,
         PROSPECTING_LOCAL_TRANSECT,
@@ -142,6 +295,8 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
     }
     for process in [
         PROCESS_CRUSH_ORE,
+        PROCESS_DRESS_STONE_CHIP_DRILL_BIT,
+        PROCESS_KNAP_STONE_DRILL_BIT,
         PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
         PROCESS_ASSEMBLE_BULK_TIMBER_CRATE,
         PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
@@ -162,6 +317,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
         PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
         PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+        PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
         PROCESS_COLD_WORK_COPPER_SAW_BLADE,
         PROCESS_REWORK_WOOD_SCRAP_HANDLE,
         PROCESS_RECOVER_WOOD_SCRAP_BOARDS,
@@ -530,6 +686,20 @@ fn built_in_manual_ore_processing_is_a_complete_bounded_fallback() {
     assert_eq!(sorting.target_recovery_ppm(), 650_000);
     assert_eq!(powered_sorting.target_recovery_ppm(), 900_000);
     assert!(sorting.target_recovery_ppm() < powered_sorting.target_recovery_ppm());
+    assert_eq!(
+        breaking
+            .operating_profile()
+            .equipment_profile()
+            .map(|profile| profile.mass_flow_capability()),
+        Some(super::capabilities::CAPABILITY_COBBING_FLOW)
+    );
+    assert_eq!(
+        sorting
+            .operating_profile()
+            .equipment_profile()
+            .map(|profile| profile.mass_flow_capability()),
+        Some(super::capabilities::CAPABILITY_ORE_PICKING_FLOW)
+    );
     for process in [PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER] {
         let production = registries
             .production()

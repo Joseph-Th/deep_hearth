@@ -31,9 +31,6 @@ pub type MeltingBatchError = PurePhaseChangeBatchError;
 
 fn map_thermal_equipment_error(error: ThermalEquipmentSetupError) -> MeltingResolutionError {
     match error {
-        ThermalEquipmentSetupError::UnknownProcess { process } => {
-            MeltingResolutionError::UnknownThermalProcess { process }
-        }
         ThermalEquipmentSetupError::Equipment(error) => MeltingResolutionError::Equipment(error),
         ThermalEquipmentSetupError::Capability(error) => MeltingResolutionError::Capability(error),
         ThermalEquipmentSetupError::MissingTransferPower { capability } => {
@@ -155,7 +152,7 @@ pub fn resolve_melting_process(
         .thermal()
         .get_melting(process)
         .ok_or(MeltingResolutionError::UnknownThermalProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(MeltingResolutionError::Input)?;
     let thermal_equipment = resolve_runtime_thermal_equipment(
         registries,

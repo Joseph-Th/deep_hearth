@@ -3,16 +3,17 @@
 use super::*;
 use crate::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_SMALL_DRIVE,
-    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE,
-    FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_TAILINGS,
-    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_STONE_SEPARATOR,
+    EQUIPMENT_TIMBER_DRESSING_BENCH, FORM_BOARD, FORM_CONCENTRATE, FORM_CRUSHED,
+    FORM_EXHAUSTED_TAILINGS, FORM_HANDLE, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_TAILINGS,
+    FORM_TOOL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
     PROCESS_CONCENTRATE_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_SCAVENGE_COPPER_TAILINGS,
     PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::{Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::energy::add_energy_store_with_initial_for_fixture;
-use crate::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
+use crate::equipment::{EquipmentId, validate_assemble_equipment, validate_upgrade_equipment};
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
 };
@@ -37,9 +38,153 @@ fn liberated_particle_size() -> ParticleSizeRange {
     .unwrap_or_else(|error| panic!("separation particle-size fixture failed: {error}"))
 }
 
+fn assemble_timber_dressing_bench(fixture: &mut ManualFixture) -> EquipmentId {
+    let assembly =
+        add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(2_800_000))
+            .unwrap_or_else(|error| panic!("dressing-bench assembly stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(400_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &fixture.registries,
+            &mut fixture.state,
+            assembly,
+            commodity,
+            mass,
+            TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("dressing-bench assembly material failed: {error}"));
+    }
+    validate_assemble_equipment(
+        &fixture.registries,
+        &fixture.state,
+        EQUIPMENT_TIMBER_DRESSING_BENCH,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("dressing-bench assembly failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("dressing-bench assembly commit failed: {error}"))
+}
+
 fn scavenger_particle_size() -> ParticleSizeRange {
     ParticleSizeRange::new(Length::from_micrometers(100), Length::from_micrometers(499))
         .unwrap_or_else(|error| panic!("scavenger particle-size fixture failed: {error}"))
+}
+
+#[test]
+fn dressing_bench_accelerates_visible_picking_without_improving_recovery() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let hand = resolve_manual(&fixture, mass);
+    let bench = assemble_timber_dressing_bench(&mut fixture);
+    let assisted = resolve_manual_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ManualConstituentSeparationRequest::new(
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, mass)],
+        )
+        .with_equipment(bench),
+    )
+    .unwrap_or_else(|error| panic!("dressing-bench separation resolution failed: {error}"));
+
+    assert_eq!(
+        assisted.processing_rate(),
+        crate::core::quantity::MassFlow::from_milligrams_per_second(1_500)
+    );
+    assert_eq!(assisted.duration(), TickSpan::new(19));
+    assert!(assisted.duration() < hand.duration());
+    assert_eq!(assisted.target_mass(), hand.target_mass());
+    assert_eq!(assisted.residue_mass(), hand.residue_mass());
+    assert_eq!(
+        assisted.process_resolution().output_streams(),
+        hand.process_resolution().output_streams(),
+        "a picking bench must not manufacture a recovery advantage over the same manual sorting physics"
+    );
+    let condition_after = assisted
+        .process_resolution()
+        .equipment_condition_after()
+        .unwrap_or_else(|| panic!("dressing-bench resolution lost its wear outcome"));
+    let matter_before = calculate_matter_accounting(&fixture.state)
+        .unwrap_or_else(|error| panic!("dressing-bench initial matter audit failed: {error}"))
+        .total();
+
+    let duration = assisted.duration();
+    let job = validate_start_manual_constituent_separation(
+        &fixture.registries,
+        &fixture.state,
+        &assisted,
+        fixture.source,
+        fixture.target,
+        fixture.residue,
+    )
+    .unwrap_or_else(|error| panic!("dressing-bench separation start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("dressing-bench separation commit failed: {error}"));
+    let job_record = fixture
+        .state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("dressing-bench separation job disappeared"));
+    assert_eq!(
+        job_record
+            .equipment_provider()
+            .map(|provider| provider.equipment()),
+        Some(bench)
+    );
+    assert_eq!(
+        job_record.equipment_condition_after(),
+        Some(condition_after)
+    );
+
+    for _ in 0..duration.value() {
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
+            .unwrap_or_else(|error| panic!("dressing-bench separation tick failed: {error}"));
+    }
+    assert_eq!(
+        fixture
+            .state
+            .inventory()
+            .get_stockpile(fixture.target)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(hand.target_mass())
+    );
+    assert_eq!(
+        fixture
+            .state
+            .inventory()
+            .get_stockpile(fixture.residue)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(hand.residue_mass())
+    );
+    assert_eq!(
+        fixture
+            .state
+            .equipment()
+            .get_equipment(bench)
+            .map(|record| record.condition()),
+        Some(condition_after)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&fixture.state)
+            .unwrap_or_else(|error| panic!("dressing-bench final matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|error| panic!("dressing-bench final state audit failed: {error}"));
 }
 
 #[test]

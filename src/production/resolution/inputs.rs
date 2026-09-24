@@ -9,16 +9,11 @@ use crate::inventory::{
     ConsumedMaterialTrace, ConsumptionSelection, ExplicitConsumptionSelectionError, MaterialLotId,
     MaterialLotSelection, StockpileId, validate_explicit_consumption_selection,
 };
-use crate::registry::Registries;
-
 use crate::production::definitions::ProcessId;
 
-/// Failure while binding one authored process to the exact source matter a resolver will inspect.
+/// Failure while binding an already-resolved process to the exact source matter it will inspect.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProcessInputError {
-    UnknownProcess {
-        process: ProcessId,
-    },
     UnknownStockpile {
         stockpile: StockpileId,
     },
@@ -50,9 +45,6 @@ pub enum ProcessInputError {
 impl Display for ProcessInputError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnknownProcess { process } => {
-                write!(formatter, "unknown process id {}", process.value())
-            }
             Self::UnknownStockpile { stockpile } => {
                 write!(formatter, "unknown stockpile id {}", stockpile.value())
             }
@@ -127,17 +119,17 @@ impl ValidatedProcessInputs {
 }
 
 /// Binds an explicitly selected conserved matter batch for a process whose physical resolver owns
-/// batch eligibility and quantity.
+/// process identity, batch eligibility, and quantity.
+///
+/// Callers must resolve their operation-specific process definition before entering this inventory
+/// boundary. This layer intentionally validates only source custody and selection semantics instead
+/// of duplicating registry authority.
 pub(crate) fn validate_process_inputs(
-    registries: &Registries,
     state: &AppState,
     process: ProcessId,
     source: StockpileId,
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedProcessInputs, ProcessInputError> {
-    if registries.production().get_process(process).is_none() {
-        return Err(ProcessInputError::UnknownProcess { process });
-    }
     let selection = validate_explicit_consumption_selection(state.inventory(), source, selections)
         .map_err(|error| match error {
             ExplicitConsumptionSelectionError::UnknownStockpile { stockpile } => {

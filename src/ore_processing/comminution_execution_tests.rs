@@ -7,10 +7,10 @@ use crate::capability::{
 };
 use crate::content::{
     ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-    EQUIPMENT_STONE_CRUSHER, FORM_CONCENTRATE, FORM_CRUSHED, FORM_HANDLE, FORM_INGOT, FORM_ORE,
-    FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE, build_registries,
-    make_test_registries_with_comminution,
+    EQUIPMENT_STONE_COBBING_HAMMER, EQUIPMENT_STONE_CRUSHER, FORM_CONCENTRATE, FORM_CRUSHED,
+    FORM_HANDLE, FORM_INGOT, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
+    MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
+    build_registries, make_test_registries_with_comminution,
 };
 use crate::core::quantity::{AggregateMass, Length, Mass, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -21,14 +21,14 @@ use crate::energy::{
 };
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
-    add_equipment, validate_assemble_equipment, validate_upgrade_equipment,
+    EquipmentId, add_equipment, validate_assemble_equipment, validate_upgrade_equipment,
 };
 use crate::inventory::{
     MaterialLotId, add_solid_stockpile_for_test, deposit_composed_lot_for_test,
     deposit_lot_for_test, deposit_lot_spec_for_test,
 };
 use crate::labor::PlayerWork;
-use crate::maintenance::MaintenanceThresholds;
+use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::CompositionComponent;
 use crate::matter::calculate_matter_accounting;
 use crate::ore_processing::{
@@ -58,6 +58,40 @@ fn crushed_particle_size() -> ParticleSizeRange {
         Ok(range) => range,
         Err(error) => panic!("comminution particle-size fixture failed: {error}"),
     }
+}
+
+fn assemble_stone_cobbing_hammer(fixture: &mut ManualComminutionFixture) -> EquipmentId {
+    let assembly = add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(800_000))
+        .unwrap_or_else(|error| panic!("cobbing-hammer assembly stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(600_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &fixture.registries,
+            &mut fixture.state,
+            assembly,
+            commodity,
+            mass,
+            INPUT_TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("cobbing-hammer assembly material failed: {error}"));
+    }
+    validate_assemble_equipment(
+        &fixture.registries,
+        &fixture.state,
+        EQUIPMENT_STONE_COBBING_HAMMER,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("cobbing-hammer assembly failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("cobbing-hammer assembly commit failed: {error}"))
 }
 
 #[test]
@@ -196,6 +230,109 @@ fn copper_reinforced_stone_crusher_increases_real_throughput_and_single_batch_ca
         upgraded_full_batch.process_resolution().input_mass(),
         full_upgraded_batch
     );
+}
+
+#[test]
+fn cobbing_hammer_is_an_ordinary_wearing_attention_investment_with_exact_save_replay() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_comminution_fixture(mass);
+    let hand = resolve_manual_comminution(&fixture, mass);
+    let hammer = assemble_stone_cobbing_hammer(&mut fixture);
+    let assisted = resolve_manual_comminution_process(
+        &fixture.registries,
+        &fixture.state,
+        ManualComminutionRequest::new(
+            PROCESS_HAND_BREAK_ORE,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, mass)],
+        )
+        .with_equipment(hammer),
+    )
+    .unwrap_or_else(|error| panic!("cobbing-hammer resolution failed: {error}"));
+
+    assert_eq!(
+        assisted.processing_rate(),
+        MassFlow::from_milligrams_per_second(750)
+    );
+    assert_eq!(assisted.duration(), TickSpan::new(38));
+    assert!(assisted.duration() < hand.duration());
+    assert_eq!(
+        assisted.process_resolution().outputs(),
+        hand.process_resolution().outputs(),
+        "cobbing equipment must improve attention without changing comminution yield or sizing"
+    );
+    let condition_after = assisted
+        .process_resolution()
+        .equipment_condition_after()
+        .unwrap_or_else(|| panic!("cobbing-hammer resolution lost its wear outcome"));
+    assert!(condition_after < Condition::PRISTINE);
+
+    let matter_before = calculate_matter_accounting(&fixture.state)
+        .unwrap_or_else(|error| panic!("cobbing-hammer matter audit failed: {error}"))
+        .total();
+    let duration = assisted.duration();
+    let job = validate_start_manual_comminution(
+        &fixture.registries,
+        &fixture.state,
+        &assisted,
+        fixture.source,
+        fixture.destination,
+    )
+    .unwrap_or_else(|error| panic!("cobbing-hammer start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("cobbing-hammer start commit failed: {error}"));
+    let job_record = fixture
+        .state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("cobbing-hammer job disappeared after start"));
+    assert_eq!(
+        job_record
+            .equipment_provider()
+            .map(|provider| provider.equipment()),
+        Some(hammer)
+    );
+    assert_eq!(
+        job_record.equipment_condition_after(),
+        Some(condition_after)
+    );
+
+    for _ in 0..10 {
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
+            .unwrap_or_else(|error| panic!("cobbing-hammer pre-save tick failed: {error}"));
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("cobbing-hammer save serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("cobbing-hammer save decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&fixture.registries)
+        .unwrap_or_else(|error| panic!("cobbing-hammer save validation failed: {error}"));
+    assert_eq!(loaded, fixture.state);
+
+    for _ in 10..duration.value() {
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
+            .unwrap_or_else(|error| panic!("cobbing-hammer uninterrupted tick failed: {error}"));
+        let _ = advance_tick(&fixture.registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("cobbing-hammer resumed tick failed: {error}"));
+    }
+    assert_eq!(loaded, fixture.state);
+    assert_eq!(
+        fixture
+            .state
+            .equipment()
+            .get_equipment(hammer)
+            .map(|record| record.condition()),
+        Some(condition_after)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&fixture.state)
+            .unwrap_or_else(|error| panic!("cobbing-hammer final matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|error| panic!("cobbing-hammer final state audit failed: {error}"));
 }
 
 fn copper_bearing_tailings_composition() -> MaterialComposition {

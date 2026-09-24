@@ -5,14 +5,17 @@ use std::collections::BTreeSet;
 use crate::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
     ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
-    EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_WOODWORKING_ADZE,
-    EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-    EQUIPMENT_TIMBER_HELVE_HAMMER, EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
-    EQUIPMENT_TIMBER_SASH_SAWMILL, EQUIPMENT_TIMBER_TREADLE_HAMMER, PROCESS_CAST_PURE_COPPER,
+    EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_COBBING_HAMMER,
+    EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL, EQUIPMENT_STONE_WOODWORKING_ADZE,
+    EQUIPMENT_TIMBER_DRESSING_BENCH, EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL,
+    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_HELVE_HAMMER,
+    EQUIPMENT_TIMBER_ORE_DRESSING_TABLE, EQUIPMENT_TIMBER_SASH_SAWMILL,
+    EQUIPMENT_TIMBER_SPINDLE_DRILL, EQUIPMENT_TIMBER_TREADLE_HAMMER, PROCESS_CAST_PURE_COPPER,
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
     PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_GRIND_CRUSHED_ORE,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_MELT_PURE_COPPER,
-    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
+    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_MELT_PURE_COPPER, PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+    PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE, PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
     PROCESS_POWER_HAMMER_COPPER_SAW_BLADE, PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT,
     PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_SAW_WOOD_BOARDS, PROCESS_SCREEN_CRUSHED_ORE,
     PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
@@ -49,6 +52,42 @@ fn every_builtin_process_has_one_derived_execution_topology() {
 }
 
 #[test]
+fn manual_ore_topology_exposes_cobbing_and_picking_investments_without_requiring_them() {
+    let registries = build_registries();
+
+    let breaking = registries
+        .process_topology(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("manual ore-breaking topology disappeared"));
+    assert_eq!(
+        breaking.execution_family(),
+        ProcessExecutionFamily::ManualComminution
+    );
+    assert_eq!(breaking.equipment_role(), ProcessEquipmentRole::Optional);
+    assert_eq!(
+        breaking.nominal_providers(),
+        &[
+            EQUIPMENT_STONE_COBBING_HAMMER,
+            EQUIPMENT_TIMBER_DRESSING_BENCH
+        ]
+    );
+    assert_eq!(breaking.energy_role(), ProcessEnergyRole::None);
+
+    let sorting = registries
+        .process_topology(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("manual native-copper sorting topology disappeared"));
+    assert_eq!(
+        sorting.execution_family(),
+        ProcessExecutionFamily::ManualSeparation
+    );
+    assert_eq!(sorting.equipment_role(), ProcessEquipmentRole::Optional);
+    assert_eq!(
+        sorting.nominal_providers(),
+        &[EQUIPMENT_TIMBER_DRESSING_BENCH]
+    );
+    assert_eq!(sorting.energy_role(), ProcessEnergyRole::None);
+}
+
+#[test]
 fn settlement_powered_craft_has_distinct_machine_and_mechanical_work_topology() {
     let registries = build_registries();
     for (process, provider) in [
@@ -64,6 +103,10 @@ fn settlement_powered_craft_has_distinct_machine_and_mechanical_work_topology() 
         (
             PROCESS_POWER_HAMMER_COPPER_SAW_BLADE,
             EQUIPMENT_TIMBER_HELVE_HAMMER,
+        ),
+        (
+            PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+            EQUIPMENT_TIMBER_SPINDLE_DRILL,
         ),
     ] {
         let topology = registries
@@ -251,8 +294,15 @@ fn manual_craft_topology_exposes_optional_and_required_tool_providers() {
     let piercing = registries
         .process_topology(PROCESS_PIERCE_COPPER_SCREEN_PLATE)
         .unwrap_or_else(|| panic!("copper screen piercing topology disappeared"));
-    assert_eq!(piercing.equipment_role(), ProcessEquipmentRole::None);
-    assert!(piercing.nominal_providers().is_empty());
+    assert_eq!(piercing.equipment_role(), ProcessEquipmentRole::Required);
+    assert_eq!(
+        piercing.nominal_providers(),
+        &[
+            EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+            EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        ]
+    );
+    assert_eq!(piercing.energy_role(), ProcessEnergyRole::None);
 }
 
 #[test]
@@ -317,9 +367,12 @@ fn process_topology_preserves_manual_machine_and_energy_direction_semantics() {
         manual.execution_family(),
         ProcessExecutionFamily::ManualSeparation
     );
-    assert_eq!(manual.equipment_role(), ProcessEquipmentRole::None);
+    assert_eq!(manual.equipment_role(), ProcessEquipmentRole::Optional);
     assert_eq!(manual.energy_role(), ProcessEnergyRole::None);
-    assert!(manual.nominal_providers().is_empty());
+    assert_eq!(
+        manual.nominal_providers(),
+        &[EQUIPMENT_TIMBER_DRESSING_BENCH]
+    );
     assert!(manual.compatible_energy_stores().is_empty());
 
     let melting = registries

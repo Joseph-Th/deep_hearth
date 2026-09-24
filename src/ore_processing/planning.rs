@@ -287,10 +287,6 @@ pub fn assess_powered_ore_mass_envelope(
         .ok_or(PoweredOreMassEnvelopeError::UnknownPoweredProcess { process })?;
     let provider = resolve_available_equipment_provider(registries, state, equipment)
         .map_err(PoweredOreMassEnvelopeError::Equipment)?;
-    registries
-        .production()
-        .get_process(process)
-        .ok_or(PoweredOreMassEnvelopeError::UnknownPoweredProcess { process })?;
     validate_powered_ore_process_capabilities(
         registries,
         process,

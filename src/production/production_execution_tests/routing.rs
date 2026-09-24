@@ -349,7 +349,6 @@ fn failed_process_start_is_atomic() {
         .next()
         .unwrap_or_else(|| panic!("atomicity fixture lost its material lot"));
     let result = validate_process_inputs(
-        &registries,
         &state,
         TEST_PROCESS,
         source,
@@ -374,13 +373,7 @@ fn process_start_rejects_resolution_that_bypasses_registered_resource_topology()
     let source = add_test_stockpile(&mut state, 100);
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let inputs = bind_source_mass(
-        &registries,
-        &state,
-        TEST_PROCESS,
-        source,
-        Mass::from_milligrams(10),
-    );
+    let inputs = bind_source_mass(&state, TEST_PROCESS, source, Mass::from_milligrams(10));
     let resolution = inputs
         .resolve_without_resources(
             TickSpan::new(1),
@@ -408,13 +401,7 @@ fn resolved_process_cannot_create_or_destroy_unaccounted_matter() {
     let mut state = AppState::new();
     let source = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let inputs = bind_source_mass(
-        &registries,
-        &state,
-        TEST_PROCESS,
-        source,
-        Mass::from_milligrams(10),
-    );
+    let inputs = bind_source_mass(&state, TEST_PROCESS, source, Mass::from_milligrams(10));
     let before = state.clone();
 
     let result = inputs.resolve_without_resources(

@@ -90,6 +90,11 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_STONE_TOOL,
         ),
         (
+            CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT),
+            None,
+            OBJECT_STONE_DRILL_BIT,
+        ),
+        (
             CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
             None,
             OBJECT_STONE_CHIP,
@@ -244,6 +249,12 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             EQUIPMENT_STONE_WOODWORKING_ADZE,
             OBJECT_STONE_WOODWORKING_ADZE,
         ),
+        (EQUIPMENT_STONE_COBBING_HAMMER, OBJECT_STONE_COBBING_HAMMER),
+        (
+            EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+            OBJECT_STONE_FLYWHEEL_PUMP_DRILL,
+        ),
+        (EQUIPMENT_TIMBER_SPINDLE_DRILL, OBJECT_TIMBER_SPINDLE_DRILL),
         (
             EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
             OBJECT_COPPER_REINFORCED_WOODWORKING_ADZE,
@@ -251,6 +262,10 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (
             EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
             OBJECT_TIMBER_FRAME_SAW_BENCH,
+        ),
+        (
+            EQUIPMENT_TIMBER_DRESSING_BENCH,
+            OBJECT_TIMBER_DRESSING_BENCH,
         ),
         (
             EQUIPMENT_TIMBER_FRAME_COMMINUTION_MILL,

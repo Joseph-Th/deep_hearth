@@ -11,6 +11,7 @@ use super::*;
 fn verify_sizing_plate_continuation(
     registries: &Registries,
     state: &AppState,
+    raw: deep_hearth::inventory::StockpileId,
     native_storage: deep_hearth::inventory::StockpileId,
     shaped: deep_hearth::inventory::StockpileId,
 ) -> u64 {
@@ -30,6 +31,23 @@ fn verify_sizing_plate_continuation(
     let plate_before = output_mass_before(plate);
     let scrap_before = output_mass_before(scrap);
     let started_at = continuation.tick().value();
+    craft_for_profile(
+        registries,
+        &mut continuation,
+        raw,
+        native_storage,
+        shaped,
+        equipment_assembly_profile(registries, EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL),
+    );
+    let drill = validate_assemble_equipment(
+        registries,
+        &continuation,
+        EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+        shaped,
+    )
+    .unwrap_or_else(|error| panic!("sizing-plate pump-drill assembly failed: {error}"))
+    .commit(&mut continuation)
+    .unwrap_or_else(|error| panic!("sizing-plate pump-drill commit failed: {error}"));
     craft_batches(
         registries,
         &mut continuation,
@@ -38,13 +56,35 @@ fn verify_sizing_plate_continuation(
         shaped,
         1,
     );
-    craft_batches(
+    let piercing = select_manual_craft_request(
         registries,
-        &mut continuation,
+        &continuation,
         PROCESS_PIERCE_COPPER_SCREEN_PLATE,
         shaped,
-        native_storage,
         1,
+        "primitive progression pump-drill screen piercing",
+    )
+    .with_equipment(drill);
+    let piercing_job = validate_start_manual_craft(
+        registries,
+        &continuation,
+        ManualCraftStartRequest::new(piercing, native_storage),
+    )
+    .unwrap_or_else(|error| panic!("sizing-plate pump-drill work failed: {error}"))
+    .commit(&mut continuation)
+    .unwrap_or_else(|error| panic!("sizing-plate pump-drill work commit failed: {error}"));
+    finish_uninterrupted_production_job(
+        registries,
+        &mut continuation,
+        piercing_job,
+        "primitive progression pump-drill screen piercing",
+    );
+    assert!(
+        continuation
+            .equipment()
+            .get_equipment(drill)
+            .is_some_and(|record| record.condition() < Condition::PRISTINE),
+        "ordinary screen-plate continuation must incur pump-drill bit wear"
     );
     let definition = registries
         .crafting()
@@ -504,7 +544,7 @@ fn try_run_mature_reinvestment(
         "first mature reinvestment recovery must fund the ordinary sizing-plate continuation"
     );
     let sizing_plate_continuation_ticks =
-        verify_sizing_plate_continuation(registries, state, native_storage, shaped);
+        verify_sizing_plate_continuation(registries, state, raw, native_storage, shaped);
     craft_for_profile(
         registries,
         state,

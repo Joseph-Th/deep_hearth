@@ -6,7 +6,6 @@ use crate::core::throughput::MassFlowDurationError;
 use crate::energy::{EnergyCarrier, EnergySupplyError, PowerDurationError};
 use crate::equipment::EquipmentProviderError;
 use crate::maintenance::ActiveConditionDurationError;
-use crate::production::ProcessId;
 
 /// Failure while resolving condition-adjusted equipment limits for one powered ore batch.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,7 +18,6 @@ pub(in crate::ore_processing) enum PoweredOreEquipmentError {
 /// Shared provider-admission failure before process-specific output physics are resolved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ore_processing) enum PoweredOreProviderError {
-    UnknownProcess { process: ProcessId },
     Provider(EquipmentProviderError),
     Capability(CapabilityEvaluationError),
     Equipment(PoweredOreEquipmentError),

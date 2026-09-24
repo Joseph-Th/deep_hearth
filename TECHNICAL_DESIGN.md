@@ -209,7 +209,7 @@ then read the owning section/source for exact semantics and errors.
 | Structures | `StructuralRegistry`, profiles and geometry | `AppState::structures()`, `analyze_structure`, `StructuralAssessment` | owner-specific support/load validation plans final aggregate load | support/load commits through inventory/equipment/fluid/structural owners; general player construction remains absent |
 | Manual crafting overlay | `CraftingRegistry`, manual craft definitions, optional-or-required equipment profile | inventory, survival, authored craft definitions, optional equipment instance | `project_manual_craft_hand_work` projects authored fallback duration plus the shared physiological budget without authorizing current state; `resolve_manual_craft` binds selected matter and uses fixed authored duration when fallback is permitted, otherwise requires canonical condition-adjusted MassFlow | `validate_start_manual_craft` -> equipment-reserving production job + player work -> tick |
 | Powered crafting overlay | `CraftingRegistry`, `PoweredCraftDefinition` referencing one manual material transform, required MassFlow capability, carrier, specific energy, and wear | inventory, equipment, energy, production state; referenced manual transform remains material/yield authority | `resolve_powered_craft` binds exact selected matter, reuses the referenced transform's batch/output construction, resolves condition-adjusted machine throughput, and validates finite carrier-compatible stored work | `validate_start_powered_craft` -> ordinary production job with reserved equipment/energy and no player-work claim -> tick |
-| Ore-processing overlay | `OreProcessingRegistry`, manual/powered process profiles | inventory, equipment, energy, production state | `assess_powered_ore_mass_envelope` for one-batch current scale bounds; `project_powered_ore_order` for bounded replenished-work orders with carried wear and optional critical-band service; `resolve_comminution_process`, `resolve_screening_process`, `resolve_constituent_separation_process` for exact selected-lot legality; manual counterparts expose their own resolutions | powered resolutions enter `validate_start_process*`; manual start validators also bind player work |
+| Ore-processing overlay | `OreProcessingRegistry`, manual/powered process profiles | inventory, equipment, energy, production state | `assess_powered_ore_mass_envelope` for one-batch current scale bounds; `project_powered_ore_order` for bounded replenished-work orders with carried wear and optional critical-band service; `resolve_comminution_process`, `resolve_screening_process`, `resolve_constituent_separation_process` for exact selected-lot legality; manual counterparts preserve an equipment-free fallback and may bind one authored condition-adjusted MassFlow tool/workstation | powered resolutions enter `validate_start_process*`; manual start validators bind player work and reserve optional equipment through the same production job |
 | Thermal overlay | `ThermalRegistry`, heating/melting/casting definitions | inventory, equipment, energy, production state | `assess_melting_lot_mass_envelope` and `assess_casting_lot_mass_envelope` for current homogeneous-lot scale bounds; `resolve_sensible_heating_process`, `resolve_melting_process`, `resolve_casting_process` for exact selected-lot legality | resolved work enters `validate_start_process*`; tick applies outputs, wear, and energy consequences |
 | Conservation/accounting | authored material/fluid/energy properties | `calculate_matter_accounting`, `calculate_fluid_volume_accounting`, `calculate_explicit_energy_accounting` | read-only reconciliation only | none; accounting never mutates or authorizes custody |
 | Persistence | current save schema + registry schema | `SaveEnvelope` for output, decoded `LoadedSaveEnvelope` before trust | exact-version admission plus deterministic index rebuild/graph validation | `LoadedSaveEnvelope::into_state`; adapters own bytes/storage, not state promotion |
@@ -576,10 +576,15 @@ service count, active duration, and final condition, but does not claim feed leg
 replacement material, service labor, survival reserve, occupancy, structural support, output capacity, or
 runtime authorization. Those remain current-state owner facts and must be revalidated at action time.
 
-`project_manual_ore_duration` is the narrower direct-labor planning surface. It applies the same authored
-manual-process batch envelope and whole-tick throughput rounding used by runtime manual comminution without
-claiming that selected matter, output capacity, player attention, or survival reserve is currently available.
-This lets workload policy compare hand processing with infrastructure before either branch is executed.
+`project_manual_ore_duration` is the narrower equipment-free direct-labor planning surface. It applies the same
+authored manual-process batch envelope and whole-tick throughput rounding used by runtime manual comminution
+without claiming that selected matter, output capacity, player attention, or survival reserve is currently
+available. Manual ore profiles may additionally declare one optional MassFlow equipment capability. The
+operation-specific resolver binds a current provider through the ordinary equipment boundary, derives
+condition-adjusted duration and wear through the shared equipment throughput scheduler, and persists that
+provider/outcome in the production job. Equipment never changes the manual transformation or recovery physics;
+it only changes attention time and incurs wear. This keeps hand fallback, tool-assisted dressing, and powered
+machinery as distinct investment scales rather than recipe aliases.
 
 Implemented resolver contracts:
 

@@ -158,7 +158,7 @@ pub fn resolve_constituent_separation_process(
         .ore_processing()
         .get_constituent_separation(process)
         .ok_or(ConstituentSeparationResolutionError::UnknownProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(ConstituentSeparationResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     let profile = definition.operating_profile();

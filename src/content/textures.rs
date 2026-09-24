@@ -110,6 +110,11 @@ pub const OBJECT_TIMBER_WALKING_WHEEL_DRIVE: ObjectAppearanceId = ObjectAppearan
 pub const OBJECT_TIMBER_TREADLE_HAMMER: ObjectAppearanceId = ObjectAppearanceId::new(58);
 pub const OBJECT_TIMBER_SASH_SAWMILL: ObjectAppearanceId = ObjectAppearanceId::new(59);
 pub const OBJECT_TIMBER_HELVE_HAMMER: ObjectAppearanceId = ObjectAppearanceId::new(60);
+pub const OBJECT_STONE_COBBING_HAMMER: ObjectAppearanceId = ObjectAppearanceId::new(61);
+pub const OBJECT_TIMBER_DRESSING_BENCH: ObjectAppearanceId = ObjectAppearanceId::new(62);
+pub const OBJECT_STONE_FLYWHEEL_PUMP_DRILL: ObjectAppearanceId = ObjectAppearanceId::new(63);
+pub const OBJECT_STONE_DRILL_BIT: ObjectAppearanceId = ObjectAppearanceId::new(64);
+pub const OBJECT_TIMBER_SPINDLE_DRILL: ObjectAppearanceId = ObjectAppearanceId::new(65);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

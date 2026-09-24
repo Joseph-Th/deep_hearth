@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Mass, MassFlow};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
+use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
@@ -20,10 +21,10 @@ use crate::registry::Registries;
 
 use super::{ConstituentSeparationBatchError, resolve_separation_outputs};
 use crate::ore_processing::ManualConstituentSeparationProcessDefinition;
-use crate::ore_processing::ManualOrePhysicsError;
 use crate::ore_processing::manual_physics::{
-    resolve_manual_ore_duration, validate_manual_ore_batch,
+    resolve_manual_ore_duration, resolve_manual_ore_equipment, validate_manual_ore_batch,
 };
+use crate::ore_processing::{ManualOreEquipmentError, ManualOrePhysicsError};
 
 /// Explicit selected-batch request for direct hand sorting.
 #[derive(Clone, Copy, Debug)]
@@ -31,6 +32,7 @@ pub struct ManualConstituentSeparationRequest<'selection> {
     process: ProcessId,
     source: StockpileId,
     selections: &'selection [MaterialLotSelection],
+    equipment: Option<EquipmentId>,
 }
 
 impl<'selection> ManualConstituentSeparationRequest<'selection> {
@@ -44,7 +46,15 @@ impl<'selection> ManualConstituentSeparationRequest<'selection> {
             process,
             source,
             selections,
+            equipment: None,
         }
+    }
+
+    /// Uses a durable picking surface/workstation while preserving direct player attention.
+    #[must_use]
+    pub const fn with_equipment(mut self, equipment: EquipmentId) -> Self {
+        self.equipment = Some(equipment);
+        self
     }
 }
 
@@ -53,6 +63,7 @@ impl<'selection> ManualConstituentSeparationRequest<'selection> {
 pub enum ManualConstituentSeparationResolutionError {
     UnknownProcess { process: ProcessId },
     Input(ProcessInputError),
+    Equipment(ManualOreEquipmentError),
     Physics(ManualOrePhysicsError),
     Batch(ConstituentSeparationBatchError),
     Resolution(ProcessResolutionError),
@@ -67,6 +78,9 @@ impl Display for ManualConstituentSeparationResolutionError {
                 process.value()
             ),
             Self::Input(error) => write!(formatter, "manual separation input failed: {error}"),
+            Self::Equipment(error) => {
+                write!(formatter, "manual separation equipment failed: {error}")
+            }
             Self::Physics(error) => write!(formatter, "manual separation physics failed: {error}"),
             Self::Batch(error) => write!(formatter, "manual separation batch failed: {error}"),
             Self::Resolution(error) => {
@@ -83,6 +97,7 @@ impl Error for ManualConstituentSeparationResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Input(error) => Some(error),
+            Self::Equipment(error) => Some(error),
             Self::Physics(error) => Some(error),
             Self::Batch(error) => Some(error),
             Self::Resolution(error) => Some(error),
@@ -137,12 +152,13 @@ pub fn resolve_manual_constituent_separation_process(
         process,
         source,
         selections,
+        equipment,
     } = request;
     let definition = registries
         .ore_processing()
         .get_manual_constituent_separation(process)
         .ok_or(ManualConstituentSeparationResolutionError::UnknownProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(ManualConstituentSeparationResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     validate_manual_ore_batch(definition.operating_profile(), selected_mass)
@@ -161,30 +177,54 @@ pub fn resolve_manual_constituent_separation_process(
         inputs.consumed_inputs(),
     )
     .map_err(ManualConstituentSeparationResolutionError::Batch)?;
-    let duration = resolve_manual_ore_duration(
-        registries.core().physical_tick_duration(),
-        definition.operating_profile(),
-        selected_mass,
-    )
-    .map_err(ManualConstituentSeparationResolutionError::Physics)?;
-    let resolution = inputs
-        .resolve_without_resources_routed(
-            duration,
-            vec![
-                ProcessOutputStream::new(
-                    ManualConstituentSeparationProcessDefinition::TARGET_STREAM,
-                    outputs.target,
-                ),
-                ProcessOutputStream::new(
-                    ManualConstituentSeparationProcessDefinition::RESIDUE_STREAM,
-                    outputs.residue,
-                ),
-            ],
-        )
-        .map_err(ManualConstituentSeparationResolutionError::Resolution)?;
+    let output_streams = vec![
+        ProcessOutputStream::new(
+            ManualConstituentSeparationProcessDefinition::TARGET_STREAM,
+            outputs.target,
+        ),
+        ProcessOutputStream::new(
+            ManualConstituentSeparationProcessDefinition::RESIDUE_STREAM,
+            outputs.residue,
+        ),
+    ];
+    let (resolution, processing_rate) = match equipment {
+        None => {
+            let duration = resolve_manual_ore_duration(
+                registries.core().physical_tick_duration(),
+                definition.operating_profile(),
+                selected_mass,
+            )
+            .map_err(ManualConstituentSeparationResolutionError::Physics)?;
+            let resolution = inputs
+                .resolve_without_resources_routed(duration, output_streams)
+                .map_err(ManualConstituentSeparationResolutionError::Resolution)?;
+            (resolution, definition.processing_rate())
+        }
+        Some(equipment) => {
+            let assisted = resolve_manual_ore_equipment(
+                registries,
+                state,
+                process,
+                definition.operating_profile(),
+                selected_mass,
+                equipment,
+            )
+            .map_err(ManualConstituentSeparationResolutionError::Equipment)?;
+            let duration = assisted.duration();
+            let resolution = inputs
+                .resolve_with_equipment_routed(
+                    duration,
+                    output_streams,
+                    assisted.equipment_use(),
+                    assisted.condition_after(),
+                )
+                .map_err(ManualConstituentSeparationResolutionError::Resolution)?;
+            (resolution, assisted.processing_rate())
+        }
+    };
     Ok(ResolvedManualConstituentSeparation {
         resolution,
-        processing_rate: definition.processing_rate(),
+        processing_rate,
         target_mass: outputs.target_mass,
         residue_mass: outputs.residue_mass,
     })

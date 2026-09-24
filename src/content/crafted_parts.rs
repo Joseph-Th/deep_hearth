@@ -11,6 +11,7 @@ pub(super) const COPPER_SCREEN_PLATE_MASS: Mass = Mass::from_milligrams(18_000);
 pub(super) const COPPER_SAW_BLADE_MASS: Mass = Mass::from_milligrams(54_000);
 
 pub(super) const STONE_FLYWHEEL_MASS: Mass = Mass::from_milligrams(900_000);
+pub(super) const STONE_DRILL_BIT_MASS: Mass = Mass::from_milligrams(100_000);
 pub(super) const TIMBER_FLYWHEEL_MASS: Mass = Mass::from_milligrams(2_000_000);
 pub(super) const TIMBER_RIDDLE_PANEL_MASS: Mass = Mass::from_milligrams(1_400_000);
 

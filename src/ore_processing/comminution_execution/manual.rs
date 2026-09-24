@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::MassFlow;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
+use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
@@ -20,8 +21,10 @@ use crate::registry::Registries;
 
 use super::ComminutionBatchError;
 use super::outputs::resolve_manual_comminution_outputs;
-use crate::ore_processing::ManualOrePhysicsError;
-use crate::ore_processing::project_manual_ore_duration;
+use crate::ore_processing::manual_physics::{
+    project_manual_ore_duration, resolve_manual_ore_equipment, validate_manual_ore_batch,
+};
+use crate::ore_processing::{ManualOreEquipmentError, ManualOrePhysicsError};
 
 /// Explicit selected-batch request for direct hand breaking of coarse material.
 #[derive(Clone, Copy, Debug)]
@@ -29,6 +32,7 @@ pub struct ManualComminutionRequest<'selection> {
     process: ProcessId,
     source: StockpileId,
     selections: &'selection [MaterialLotSelection],
+    equipment: Option<EquipmentId>,
 }
 
 impl<'selection> ManualComminutionRequest<'selection> {
@@ -42,7 +46,15 @@ impl<'selection> ManualComminutionRequest<'selection> {
             process,
             source,
             selections,
+            equipment: None,
         }
+    }
+
+    /// Uses a durable hand tool or workstation while preserving direct player attention.
+    #[must_use]
+    pub const fn with_equipment(mut self, equipment: EquipmentId) -> Self {
+        self.equipment = Some(equipment);
+        self
     }
 }
 
@@ -51,6 +63,7 @@ impl<'selection> ManualComminutionRequest<'selection> {
 pub enum ManualComminutionResolutionError {
     UnknownProcess { process: ProcessId },
     Input(ProcessInputError),
+    Equipment(ManualOreEquipmentError),
     Physics(ManualOrePhysicsError),
     Batch(ComminutionBatchError),
     Resolution(ProcessResolutionError),
@@ -65,6 +78,9 @@ impl Display for ManualComminutionResolutionError {
                 process.value()
             ),
             Self::Input(error) => write!(formatter, "manual comminution input failed: {error}"),
+            Self::Equipment(error) => {
+                write!(formatter, "manual comminution equipment failed: {error}")
+            }
             Self::Physics(error) => write!(formatter, "manual comminution physics failed: {error}"),
             Self::Batch(error) => write!(formatter, "manual comminution batch failed: {error}"),
             Self::Resolution(error) => {
@@ -78,6 +94,7 @@ impl Error for ManualComminutionResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Input(error) => Some(error),
+            Self::Equipment(error) => Some(error),
             Self::Physics(error) => Some(error),
             Self::Batch(error) => Some(error),
             Self::Resolution(error) => Some(error),
@@ -120,34 +137,61 @@ pub fn resolve_manual_comminution_process(
         process,
         source,
         selections,
+        equipment,
     } = request;
     let definition = registries
         .ore_processing()
         .get_manual_comminution(process)
         .ok_or(ManualComminutionResolutionError::UnknownProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(ManualComminutionResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     let outputs = resolve_manual_comminution_outputs(definition, inputs.consumed_inputs())
         .map_err(ManualComminutionResolutionError::Batch)?;
-    let duration = project_manual_ore_duration(
-        registries.core().physical_tick_duration(),
-        definition.operating_profile(),
-        selected_mass,
-    )
-    .map_err(ManualComminutionResolutionError::Physics)?;
-    let resolution = inputs
-        .resolve_without_resources_routed(
-            duration,
-            vec![ProcessOutputStream::new(
-                ProcessOutputStreamId::PRIMARY,
-                outputs,
-            )],
-        )
-        .map_err(ManualComminutionResolutionError::Resolution)?;
+    let output_streams = vec![ProcessOutputStream::new(
+        ProcessOutputStreamId::PRIMARY,
+        outputs,
+    )];
+    let (resolution, processing_rate) = match equipment {
+        None => {
+            let duration = project_manual_ore_duration(
+                registries.core().physical_tick_duration(),
+                definition.operating_profile(),
+                selected_mass,
+            )
+            .map_err(ManualComminutionResolutionError::Physics)?;
+            let resolution = inputs
+                .resolve_without_resources_routed(duration, output_streams)
+                .map_err(ManualComminutionResolutionError::Resolution)?;
+            (resolution, definition.processing_rate())
+        }
+        Some(equipment) => {
+            validate_manual_ore_batch(definition.operating_profile(), selected_mass)
+                .map_err(ManualComminutionResolutionError::Physics)?;
+            let assisted = resolve_manual_ore_equipment(
+                registries,
+                state,
+                process,
+                definition.operating_profile(),
+                selected_mass,
+                equipment,
+            )
+            .map_err(ManualComminutionResolutionError::Equipment)?;
+            let duration = assisted.duration();
+            let resolution = inputs
+                .resolve_with_equipment_routed(
+                    duration,
+                    output_streams,
+                    assisted.equipment_use(),
+                    assisted.condition_after(),
+                )
+                .map_err(ManualComminutionResolutionError::Resolution)?;
+            (resolution, assisted.processing_rate())
+        }
+    };
     Ok(ResolvedManualComminution {
         resolution,
-        processing_rate: definition.processing_rate(),
+        processing_rate,
     })
 }
 

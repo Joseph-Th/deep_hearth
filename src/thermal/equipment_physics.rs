@@ -18,7 +18,6 @@ use crate::registry::Registries;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ThermalEquipmentSetupError {
-    UnknownProcess { process: ProcessId },
     Equipment(EquipmentProviderError),
     Capability(CapabilityEvaluationError),
     MissingTransferPower { capability: CapabilityId },
@@ -164,6 +163,10 @@ pub(super) fn validate_thermal_batch_mass(
 
 /// Resolves the shared runtime equipment contract for one thermal production operation.
 ///
+/// The thermal caller has already resolved its operation-specific definition. Registry validation
+/// guarantees the matching production definition used by the shared capability evaluator below,
+/// so this stage does not repeat public process-admission checks.
+///
 /// This deliberately uses the non-exclusive provider resolver. Production/mining/manual-power
 /// occupancy remains visible to later process admission so resolution does not become
 /// authorization; maintenance and prospecting still retain their direct-custody exclusion.
@@ -174,11 +177,6 @@ pub(super) fn resolve_runtime_thermal_equipment<'state>(
 ) -> Result<ResolvedThermalEquipment<'state>, ThermalEquipmentSetupError> {
     let provider = resolve_equipment_provider(registries, state, request.equipment)
         .map_err(ThermalEquipmentSetupError::Equipment)?;
-    registries.production().get_process(request.process).ok_or(
-        ThermalEquipmentSetupError::UnknownProcess {
-            process: request.process,
-        },
-    )?;
     validate_thermal_process_capabilities(
         registries,
         request.process,

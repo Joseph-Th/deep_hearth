@@ -10,6 +10,7 @@ mod equipment_structural_integration;
 mod fixture_execution;
 mod maintenance_execution;
 mod maintenance_resolution;
+mod mass_flow_schedule;
 mod state;
 mod upgrade_execution;
 
@@ -66,5 +67,9 @@ pub(crate) use equipment_structural_integration::{
 };
 pub(crate) use maintenance_execution::{
     apply_equipment_maintenance_tick, decide_equipment_maintenance_tick,
+};
+pub(crate) use mass_flow_schedule::{
+    EquipmentMassFlowResolutionError, EquipmentMassFlowSchedule, EquipmentMassFlowScheduleError,
+    resolve_equipment_mass_flow_schedule,
 };
 pub(crate) use state::{EquipmentOperationConditionOutcome, validate_loaded_equipment};

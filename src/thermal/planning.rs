@@ -35,13 +35,12 @@ struct PhaseChangeLotOffer {
 }
 
 fn resolve_phase_change_lot_offer(
-    registries: &Registries,
     state: &AppState,
     process: ProcessId,
     source: StockpileId,
     selection: MaterialLotSelection,
 ) -> Result<PhaseChangeLotOffer, ProcessInputError> {
-    let inputs = validate_process_inputs(registries, state, process, source, &[selection])?;
+    let inputs = validate_process_inputs(state, process, source, &[selection])?;
     let trace = inputs
         .consumed_inputs()
         .first()
@@ -84,7 +83,6 @@ struct ThermalEquipmentEnvelope {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ThermalEquipmentEnvelopeError {
-    UnknownProcess,
     Equipment(EquipmentProviderError),
     Capability(CapabilityEvaluationError),
     MissingTransferPower { capability: CapabilityId },
@@ -101,10 +99,6 @@ fn resolve_thermal_equipment_envelope(
 ) -> Result<ThermalEquipmentEnvelope, ThermalEquipmentEnvelopeError> {
     let provider = resolve_available_equipment_provider(registries, state, equipment)
         .map_err(ThermalEquipmentEnvelopeError::Equipment)?;
-    registries
-        .production()
-        .get_process(process)
-        .ok_or(ThermalEquipmentEnvelopeError::UnknownProcess)?;
     validate_thermal_process_capabilities(
         registries,
         process,

@@ -63,7 +63,6 @@ fn berry_food() -> CommodityKey {
 }
 
 fn bind_source_mass(
-    registries: &Registries,
     state: &AppState,
     process: ProcessId,
     source: StockpileId,
@@ -74,7 +73,6 @@ fn bind_source_mass(
             panic!("test process source {} has no material lot", source.value())
         });
     validate_process_inputs(
-        registries,
         state,
         process,
         source,

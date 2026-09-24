@@ -47,9 +47,6 @@ pub enum ComminutionResolutionError {
 impl From<PoweredOreProviderError> for ComminutionResolutionError {
     fn from(error: PoweredOreProviderError) -> Self {
         match error {
-            PoweredOreProviderError::UnknownProcess { process } => {
-                Self::UnknownComminutionProcess { process }
-            }
             PoweredOreProviderError::Provider(error) => Self::Equipment(error),
             PoweredOreProviderError::Capability(error) => Self::Capability(error),
             PoweredOreProviderError::Equipment(error) => match error {

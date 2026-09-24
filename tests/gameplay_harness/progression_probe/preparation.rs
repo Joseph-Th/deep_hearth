@@ -121,6 +121,7 @@ pub(super) fn primitive_material_plan(registries: &Registries) -> PrimitiveMater
         EQUIPMENT_STONE_HAND_CRANK,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
+        EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
     ] {
         let profile = registries
             .equipment()

@@ -112,6 +112,10 @@ impl ResolvedPoweredOreSupply {
 
 /// Resolves the common provider, capability, and batch-limit stage for powered ore processing.
 ///
+/// The process-specific caller has already resolved the ore definition. Registry construction
+/// guarantees its production cross-reference, so this shared stage treats that link as an
+/// invariant and evaluates the generic capability requirements exactly once.
+///
 /// Process-specific output physics deliberately run after this stage and before finite-energy
 /// admission so all three process families retain the same fail-closed error ordering.
 pub(super) fn resolve_powered_ore_provider<'state>(
@@ -124,10 +128,6 @@ pub(super) fn resolve_powered_ore_provider<'state>(
 ) -> Result<ResolvedPoweredOreProvider<'state>, PoweredOreProviderError> {
     let provider = resolve_equipment_provider(registries, state, equipment)
         .map_err(PoweredOreProviderError::Provider)?;
-    registries
-        .production()
-        .get_process(process)
-        .ok_or(PoweredOreProviderError::UnknownProcess { process })?;
     validate_powered_ore_process_capabilities(
         registries,
         process,

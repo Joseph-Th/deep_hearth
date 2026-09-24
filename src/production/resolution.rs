@@ -112,6 +112,20 @@ impl ValidatedProcessInputs {
         self.resolve_inner(duration, output_streams, ProcessResourceResolution::none())
     }
 
+    pub(crate) fn resolve_with_equipment_routed(
+        self,
+        duration: TickSpan,
+        output_streams: Vec<ProcessOutputStream>,
+        equipment_use: ValidatedEquipmentUse,
+        equipment_condition_after: Condition,
+    ) -> Result<ProcessResolution, ProcessResolutionError> {
+        self.resolve_inner(
+            duration,
+            output_streams,
+            ProcessResourceResolution::with_equipment(equipment_use, equipment_condition_after),
+        )
+    }
+
     pub(crate) fn resolve_with_energy_and_equipment(
         self,
         duration: TickSpan,

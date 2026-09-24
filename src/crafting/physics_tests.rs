@@ -1,8 +1,9 @@
 //! Shared manual-craft schedule physics regressions.
 
 use super::*;
-use crate::capability::{CapabilityProfile, CapabilityValueKind};
-use crate::equipment::EquipmentDefinitionId;
+use crate::capability::{CapabilityProfile, CapabilityValue, CapabilityValueKind};
+use crate::core::quantity::MassFlow;
+use crate::equipment::{EquipmentDefinitionId, resolve_equipment_mass_flow_schedule};
 use crate::maintenance::MaintenanceThresholds;
 
 const TEST_CAPABILITY: CapabilityId = CapabilityId::new(998_001);
@@ -30,15 +31,20 @@ fn equipment_with_capability(value: Option<CapabilityValue>) -> EquipmentDefinit
 
 #[test]
 fn equipment_schedule_binds_throughput_duration_and_wear_once() {
-    let schedule = resolve_manual_craft_equipment_schedule(
+    let provider = equipment_with_capability(Some(CapabilityValue::MassFlow(
         MassFlow::from_milligrams_per_second(10),
+    )));
+    let schedule = resolve_equipment_mass_flow_schedule(
+        &provider,
+        Condition::PRISTINE,
+        TEST_CAPABILITY,
         Mass::from_milligrams(100),
         PhysicalTickDuration::from_microseconds(1_000_000),
         100_000,
-        Condition::PRISTINE,
     )
     .unwrap_or_else(|error| panic!("bounded craft schedule failed: {error:?}"));
 
+    assert_eq!(schedule.rate(), MassFlow::from_milligrams_per_second(10));
     assert_eq!(schedule.duration(), TickSpan::new(10));
     assert_eq!(schedule.condition_after(), Condition::FAILED);
 }

@@ -28,6 +28,10 @@ pub(crate) const CAPABILITY_WALKING_WHEEL_POWER_OUTPUT: CapabilityId = Capabilit
 pub(crate) const CAPABILITY_COPPER_HAMMERING_FLOW: CapabilityId = CapabilityId::new(21);
 pub(crate) const CAPABILITY_POWERED_SAWING_FLOW: CapabilityId = CapabilityId::new(22);
 pub(crate) const CAPABILITY_POWERED_COPPER_HAMMERING_FLOW: CapabilityId = CapabilityId::new(23);
+pub(crate) const CAPABILITY_COBBING_FLOW: CapabilityId = CapabilityId::new(24);
+pub(crate) const CAPABILITY_ORE_PICKING_FLOW: CapabilityId = CapabilityId::new(25);
+pub(crate) const CAPABILITY_COPPER_PIERCING_FLOW: CapabilityId = CapabilityId::new(26);
+pub(crate) const CAPABILITY_POWERED_COPPER_PIERCING_FLOW: CapabilityId = CapabilityId::new(27);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -153,6 +157,26 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
         higher_is_better(
             CAPABILITY_POWERED_COPPER_HAMMERING_FLOW,
             "mechanically powered copper hammering throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_COBBING_FLOW,
+            "manual ore cobbing throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_ORE_PICKING_FLOW,
+            "manual visible-ore picking throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_COPPER_PIERCING_FLOW,
+            "manual copper-sheet piercing throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_POWERED_COPPER_PIERCING_FLOW,
+            "mechanically powered copper-sheet piercing throughput",
             CapabilityValueKind::MassFlow,
         ),
     ] {

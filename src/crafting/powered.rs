@@ -324,14 +324,9 @@ pub fn resolve_powered_craft(
     request: &PoweredCraftRequest,
 ) -> Result<ProcessResolution, PoweredCraftError> {
     let (definition, transform) = resolve_powered_craft_definitions(registries, request.process)?;
-    let inputs = validate_process_inputs(
-        registries,
-        state,
-        request.process,
-        request.source,
-        &request.selections,
-    )
-    .map_err(PoweredCraftError::Input)?;
+    let inputs =
+        validate_process_inputs(state, request.process, request.source, &request.selections)
+            .map_err(PoweredCraftError::Input)?;
     let batch =
         validate_manual_craft_batch(transform, inputs.input_mass(), inputs.consumed_inputs())
             .map_err(batch_error)?;

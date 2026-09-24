@@ -164,7 +164,7 @@ pub fn resolve_comminution_process(
         .ore_processing()
         .get_comminution(process)
         .ok_or(ComminutionResolutionError::UnknownComminutionProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source, selections)
+    let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(ComminutionResolutionError::Input)?;
     let selected_mass = inputs.input_mass();
     let profile = definition.operating_profile();

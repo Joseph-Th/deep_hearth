@@ -46,6 +46,8 @@ mod prospecting_timing;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
+mod settlement_drill_contract_tests;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 
@@ -55,4 +57,5 @@ fn gameplay_primitive_progression_probe() {
         "primitive-progression",
         progression_scope::run_primitive_progression_scope,
     );
+    settlement_drill_contract_tests::assert_spindle_drill_investment_contract();
 }
