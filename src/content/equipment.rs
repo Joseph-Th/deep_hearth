@@ -55,6 +55,13 @@ pub const EQUIPMENT_TIMBER_DRESSING_BENCH: EquipmentDefinitionId = EquipmentDefi
 pub const EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL: EquipmentDefinitionId =
     EquipmentDefinitionId::new(35);
 pub const EQUIPMENT_TIMBER_SPINDLE_DRILL: EquipmentDefinitionId = EquipmentDefinitionId::new(36);
+pub const EQUIPMENT_TIMBER_SPRING_POLE_LATHE: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(37);
+pub const EQUIPMENT_TIMBER_FLYWHEEL_LATHE: EquipmentDefinitionId = EquipmentDefinitionId::new(38);
+pub const EQUIPMENT_TIMBER_TREADLE_GRINDSTONE: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(39);
+pub const EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(40);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

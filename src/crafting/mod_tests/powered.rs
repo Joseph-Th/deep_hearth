@@ -2,13 +2,16 @@
 
 use super::*;
 use crate::content::{
-    ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_TIMBER_HELVE_HAMMER, EQUIPMENT_TIMBER_SASH_SAWMILL,
-    EQUIPMENT_TIMBER_SPINDLE_DRILL, FORM_BOARD, FORM_CHIP, FORM_DRILL_BIT, FORM_FLYWHEEL,
-    FORM_HANDLE, FORM_LOG, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP,
-    FORM_SCREEN_PLATE, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE, PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
-    PROCESS_POWER_HAMMER_COPPER_SAW_BLADE, PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT,
-    PROCESS_POWER_SAW_WOOD_BOARDS, build_registries,
+    ENERGY_MECHANICAL_SMALL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE,
+    EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+    EQUIPMENT_TIMBER_HELVE_HAMMER, EQUIPMENT_TIMBER_SASH_SAWMILL, EQUIPMENT_TIMBER_SPINDLE_DRILL,
+    FORM_BOARD, FORM_CHIP, FORM_DRILL_BIT, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_HANDLE,
+    FORM_LOG, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE,
+    FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE, PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+    PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT, PROCESS_POWER_HAMMER_COPPER_SAW_BLADE,
+    PROCESS_POWER_HAMMER_COPPER_SCRAP_REINFORCEMENT, PROCESS_POWER_SAW_WOOD_BOARDS,
+    PROCESS_POWER_TURN_TIMBER_FLYWHEEL, build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -490,6 +493,245 @@ fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("sash sawmill matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+}
+
+#[test]
+fn flywheel_lathe_turns_a_full_timber_rotor_from_one_primitive_work_charge() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let assembly = stockpile(&mut state, 6_000_000);
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 3_200_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 800_000),
+        (CommodityKey::new(MATERIAL_STONE, FORM_TOOL), 800_000),
+        (CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL), 900_000),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            20_000,
+        ),
+    ] {
+        deposit(&registries, &mut state, assembly, commodity, mass);
+    }
+    let lathe = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("flywheel lathe assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("flywheel lathe assembly commit failed: {error}"));
+
+    let source = stockpile(&mut state, 2_400_000);
+    let log = deposit(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        2_400_000,
+    );
+    let destination = stockpile(&mut state, 2_400_000);
+    let drive = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(500_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("lathe drive fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("lathe matter setup failed: {error}"))
+        .total();
+
+    let projection = project_powered_craft_work(
+        &registries,
+        &state,
+        PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+        Mass::from_milligrams(2_400_000),
+        lathe,
+        drive,
+    )
+    .unwrap_or_else(|error| panic!("flywheel turning projection failed: {error}"));
+    assert_eq!(
+        projection.required_energy(),
+        Energy::from_nanojoules(480_000_000_000)
+    );
+    assert_eq!(projection.duration().value(), 7);
+    let first_flywheel_capacity = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("stone flywheel store definition disappeared"))
+        .capacity();
+    assert_eq!(
+        first_flywheel_capacity,
+        Energy::from_nanojoules(500_000_000_000)
+    );
+    assert!(projection.required_energy() <= first_flywheel_capacity);
+
+    let job = validate_start_powered_craft(
+        &registries,
+        &state,
+        PoweredCraftRequest::single(
+            PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+            source,
+            MaterialLotSelection::new(log, Mass::from_milligrams(2_400_000)),
+            lathe,
+            drive,
+        ),
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("powered flywheel turning failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("powered flywheel turning commit failed: {error}"));
+
+    let record = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("powered flywheel turning job disappeared"));
+    assert_eq!(record.active_duration().value(), 7);
+    assert_eq!(
+        record.consumed_energy().map(|trace| trace.energy()),
+        Some(Energy::from_nanojoules(480_000_000_000))
+    );
+    assert_eq!(state.player_work().active(), None);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("in-flight flywheel turning failed replay: {error}"));
+
+    finish_job(&registries, &mut state, job);
+    let output = state
+        .inventory()
+        .get_stockpile(destination)
+        .unwrap_or_else(|| panic!("flywheel lathe output disappeared"));
+    assert_eq!(
+        output.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL)),
+        Mass::from_milligrams(2_000_000)
+    );
+    assert_eq!(
+        output.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
+        Mass::from_milligrams(400_000)
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("flywheel lathe matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("flywheel lathe final replay audit failed: {error}"));
+}
+
+#[test]
+fn flywheel_toolroom_grindstone_recovers_service_stock_from_finite_work() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let assembly = stockpile(&mut state, 6_400_000);
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL),
+            1_400_000,
+        ),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 3_200_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 800_000),
+        (CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL), 900_000),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            20_000,
+        ),
+    ] {
+        deposit(&registries, &mut state, assembly, commodity, mass);
+    }
+    let grindstone = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("flywheel grindstone assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("flywheel grindstone assembly commit failed: {error}"));
+
+    let source = stockpile(&mut state, 900_000);
+    let scrap = deposit(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        900_000,
+    );
+    let destination = stockpile(&mut state, 900_000);
+    let drive = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(500_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("toolroom grindstone drive fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("toolroom grindstone matter setup failed: {error}"))
+        .total();
+
+    let projection = project_powered_craft_work(
+        &registries,
+        &state,
+        PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+        Mass::from_milligrams(900_000),
+        grindstone,
+        drive,
+    )
+    .unwrap_or_else(|error| panic!("powered service-stock grinding projection failed: {error}"));
+    assert_eq!(
+        projection.required_energy(),
+        Energy::from_nanojoules(270_000_000_000)
+    );
+    assert_eq!(projection.duration().value(), 7);
+
+    let job = validate_start_powered_craft(
+        &registries,
+        &state,
+        PoweredCraftRequest::single(
+            PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+            source,
+            MaterialLotSelection::new(scrap, Mass::from_milligrams(900_000)),
+            grindstone,
+            drive,
+        ),
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("powered service-stock grinding failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("powered service-stock grinding commit failed: {error}"));
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .production()
+            .get_job(job)
+            .and_then(|record| record.consumed_energy())
+            .map(|trace| trace.energy()),
+        Some(Energy::from_nanojoules(270_000_000_000))
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("in-flight toolroom grinding failed replay: {error}"));
+
+    finish_job(&registries, &mut state, job);
+    let output = state
+        .inventory()
+        .get_stockpile(destination)
+        .unwrap_or_else(|| panic!("toolroom grindstone output disappeared"));
+    assert_eq!(
+        output.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)),
+        Mass::from_milligrams(800_000)
+    );
+    assert_eq!(
+        output.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)),
+        Mass::from_milligrams(100_000)
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("toolroom grindstone matter audit failed: {error}"))
             .total(),
         matter_before
     );

@@ -12,15 +12,17 @@ use crate::content::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_COPPER_HAMMERING_FLOW, CAPABILITY_CRUSHER_BATCH,
     CAPABILITY_CRUSHER_FLOW, CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW,
     CAPABILITY_HEATING_POWER, CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_MINING_FLOW,
-    CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS, CAPABILITY_SAWING_FLOW,
-    CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
-    CAPABILITY_SEPARATOR_FLOW, CAPABILITY_TREADLE_POWER_OUTPUT,
-    CAPABILITY_WALKING_WHEEL_POWER_OUTPUT, CAPABILITY_WOODWORKING_FLOW,
+    CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS,
+    CAPABILITY_POWERED_STONE_GRINDING_FLOW, CAPABILITY_POWERED_WOOD_TURNING_FLOW,
+    CAPABILITY_SAWING_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
+    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_STONE_GRINDING_FLOW,
+    CAPABILITY_TREADLE_POWER_OUTPUT, CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
+    CAPABILITY_WOOD_TURNING_FLOW, CAPABILITY_WOODWORKING_FLOW,
 };
 use crate::content::materials::{
-    FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT, FORM_SAW_BLADE,
-    FORM_SCRAP, FORM_SCREEN_PLATE, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT,
+    FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::Condition;
@@ -241,7 +243,7 @@ fn constructible_equipment_uses_assembly_as_its_physical_mass_authority() {
         }
     }
 
-    assert_eq!(constructible, 30);
+    assert_eq!(constructible, 34);
 }
 
 #[test]
@@ -271,6 +273,149 @@ fn saw_bench_is_a_distinct_high_throughput_woodworking_provider() {
             .get_capability(CAPABILITY_SAWING_FLOW)
             .is_none(),
         "the adze must not unlock the high-yield sawing recipe"
+    );
+}
+
+#[test]
+fn lathes_specialize_round_timber_work_and_upgrade_into_unattended_turning() {
+    let registry = build_equipment_registry();
+    let pole = registry
+        .get_equipment(EQUIPMENT_TIMBER_SPRING_POLE_LATHE)
+        .unwrap_or_else(|| panic!("timber spring-pole lathe disappeared"));
+    let powered = registry
+        .get_equipment(EQUIPMENT_TIMBER_FLYWHEEL_LATHE)
+        .unwrap_or_else(|| panic!("flywheel timber lathe disappeared"));
+    let adze = registry
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE)
+        .unwrap_or_else(|| panic!("reinforced adze disappeared"));
+    let saw = registry
+        .get_equipment(EQUIPMENT_TIMBER_SASH_SAWMILL)
+        .unwrap_or_else(|| panic!("sash sawmill disappeared"));
+
+    assert_eq!(
+        pole.capabilities()
+            .get_capability(CAPABILITY_WOOD_TURNING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            crate::core::quantity::MassFlow::from_milligrams_per_second(25_000)
+        ))
+    );
+    assert_eq!(
+        powered
+            .capabilities()
+            .get_capability(CAPABILITY_POWERED_WOOD_TURNING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            crate::core::quantity::MassFlow::from_milligrams_per_second(100_000)
+        ))
+    );
+    assert!(
+        pole.capabilities()
+            .get_capability(CAPABILITY_WOODWORKING_FLOW)
+            .is_none()
+            && pole
+                .capabilities()
+                .get_capability(CAPABILITY_SAWING_FLOW)
+                .is_none(),
+        "turning must remain distinct from general hewing and sawing"
+    );
+    assert!(
+        adze.capabilities()
+            .get_capability(CAPABILITY_WOOD_TURNING_FLOW)
+            .is_none()
+            && saw
+                .capabilities()
+                .get_capability(CAPABILITY_WOOD_TURNING_FLOW)
+                .is_none(),
+        "existing woodworking equipment must not silently acquire lathe semantics"
+    );
+
+    let upgrade = powered
+        .upgrade_profile()
+        .unwrap_or_else(|| panic!("flywheel lathe lost its spring-pole upgrade route"));
+    assert_eq!(upgrade.from(), EQUIPMENT_TIMBER_SPRING_POLE_LATHE);
+    assert_eq!(
+        upgrade.additions().input_mass(),
+        Mass::from_milligrams(2_920_000)
+    );
+    assert!(
+        upgrade
+            .additions()
+            .inputs()
+            .contains(&MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                Mass::from_milligrams(900_000),
+            ))
+    );
+    let service = powered
+        .maintenance_profile()
+        .unwrap_or_else(|| panic!("flywheel lathe lost cutter service"));
+    assert_eq!(
+        service.replacement(),
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL)
+    );
+}
+
+#[test]
+fn toolroom_grindstones_specialize_service_recovery_and_preserve_the_treadle_fallback() {
+    let registry = build_equipment_registry();
+    let treadle = registry
+        .get_equipment(EQUIPMENT_TIMBER_TREADLE_GRINDSTONE)
+        .unwrap_or_else(|| panic!("treadle grindstone disappeared"));
+    let powered = registry
+        .get_equipment(EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH)
+        .unwrap_or_else(|| panic!("flywheel toolroom grindstone disappeared"));
+    let ore_quern = registry
+        .get_equipment(EQUIPMENT_STONE_ROTARY_QUERN)
+        .unwrap_or_else(|| panic!("stone rotary quern disappeared"));
+
+    assert_eq!(
+        treadle
+            .capabilities()
+            .get_capability(CAPABILITY_STONE_GRINDING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            crate::core::quantity::MassFlow::from_milligrams_per_second(10_000)
+        ))
+    );
+    assert_eq!(
+        powered
+            .capabilities()
+            .get_capability(CAPABILITY_POWERED_STONE_GRINDING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            crate::core::quantity::MassFlow::from_milligrams_per_second(40_000)
+        ))
+    );
+    assert!(
+        ore_quern
+            .capabilities()
+            .get_capability(CAPABILITY_STONE_GRINDING_FLOW)
+            .is_none(),
+        "ore comminution must not silently become toolroom abrasion"
+    );
+    assert!(
+        treadle
+            .capabilities()
+            .get_capability(CAPABILITY_GRINDER_FLOW)
+            .is_none(),
+        "the toolroom grindstone must not impersonate an ore grinder"
+    );
+
+    let upgrade = powered
+        .upgrade_profile()
+        .unwrap_or_else(|| panic!("flywheel grindstone lost its treadle upgrade route"));
+    assert_eq!(upgrade.from(), EQUIPMENT_TIMBER_TREADLE_GRINDSTONE);
+    assert_eq!(
+        upgrade.additions().input_mass(),
+        Mass::from_milligrams(2_920_000)
+    );
+    let service = powered
+        .maintenance_profile()
+        .unwrap_or_else(|| panic!("toolroom grindstone lost wheel replacement service"));
+    assert_eq!(
+        service.replacement(),
+        CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL)
+    );
+    assert_eq!(
+        service.full_service_replacement_mass(),
+        Mass::from_milligrams(1_400_000)
     );
 }
 

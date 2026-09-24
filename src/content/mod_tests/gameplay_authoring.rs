@@ -99,6 +99,10 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
         EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
         EQUIPMENT_TIMBER_SPINDLE_DRILL,
+        EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+        EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+        EQUIPMENT_TIMBER_TREADLE_GRINDSTONE,
+        EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH,
         EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
         EQUIPMENT_COPPER_PLATE_SIZING_SCREEN,
         EQUIPMENT_COPPER_REINFORCED_PICK,
@@ -213,7 +217,8 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         bit_producers,
         vec![
             PROCESS_KNAP_STONE_DRILL_BIT,
-            PROCESS_DRESS_STONE_CHIP_DRILL_BIT
+            PROCESS_DRESS_STONE_CHIP_DRILL_BIT,
+            PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
         ]
     );
     let one = std::num::NonZeroU64::new(1)
@@ -271,6 +276,120 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
             .map(|maintenance| maintenance.replacement()),
         Some(CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT))
     );
+
+    for process in [PROCESS_SHAPE_WOOD_HANDLE, PROCESS_SHAPE_TIMBER_FLYWHEEL] {
+        let turning = registries
+            .crafting()
+            .get_manual(process)
+            .unwrap_or_else(|| panic!("manual turning transform {} disappeared", process.value()));
+        assert_eq!(
+            turning
+                .equipment_profile()
+                .map(crate::crafting::ManualCraftEquipmentProfile::mass_flow_capability),
+            Some(capabilities::CAPABILITY_WOOD_TURNING_FLOW)
+        );
+    }
+    let pole_lathe = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_SPRING_POLE_LATHE)
+        .unwrap_or_else(|| panic!("spring-pole lathe disappeared"));
+    assert_eq!(
+        pole_lathe
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_WOOD_TURNING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            MassFlow::from_milligrams_per_second(25_000)
+        ))
+    );
+    let flywheel_lathe = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_FLYWHEEL_LATHE)
+        .unwrap_or_else(|| panic!("flywheel lathe disappeared"));
+    assert_eq!(
+        flywheel_lathe
+            .upgrade_profile()
+            .map(|upgrade| upgrade.from()),
+        Some(EQUIPMENT_TIMBER_SPRING_POLE_LATHE)
+    );
+    assert_eq!(
+        flywheel_lathe
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_POWERED_WOOD_TURNING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            MassFlow::from_milligrams_per_second(100_000)
+        ))
+    );
+    assert_eq!(
+        flywheel_lathe
+            .maintenance_profile()
+            .map(|maintenance| maintenance.replacement()),
+        Some(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+    );
+    for process in [
+        PROCESS_POWER_TURN_WOOD_HANDLE,
+        PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+    ] {
+        let turning = registries
+            .crafting()
+            .get_powered(process)
+            .unwrap_or_else(|| panic!("powered turning process {} disappeared", process.value()));
+        assert_eq!(
+            turning.mass_flow_capability(),
+            capabilities::CAPABILITY_POWERED_WOOD_TURNING_FLOW
+        );
+        assert_eq!(turning.energy_carrier(), EnergyCarrier::Mechanical);
+    }
+
+    let grindstone = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_TREADLE_GRINDSTONE)
+        .unwrap_or_else(|| panic!("treadle grindstone disappeared"));
+    assert_eq!(
+        grindstone
+            .maintenance_profile()
+            .map(|maintenance| maintenance.replacement()),
+        Some(CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL))
+    );
+    let grinding_bench = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH)
+        .unwrap_or_else(|| panic!("flywheel grinding bench disappeared"));
+    assert_eq!(
+        grinding_bench
+            .upgrade_profile()
+            .map(|upgrade| upgrade.from()),
+        Some(EQUIPMENT_TIMBER_TREADLE_GRINDSTONE)
+    );
+    for process in [
+        PROCESS_GRIND_STONE_SCRAP_TOOL,
+        PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
+    ] {
+        let grinding = registries
+            .crafting()
+            .get_manual(process)
+            .unwrap_or_else(|| panic!("manual grinding process {} disappeared", process.value()));
+        assert_eq!(
+            grinding
+                .equipment_profile()
+                .map(crate::crafting::ManualCraftEquipmentProfile::mass_flow_capability),
+            Some(capabilities::CAPABILITY_STONE_GRINDING_FLOW)
+        );
+    }
+    for process in [
+        PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+        PROCESS_POWER_GRIND_STONE_SCRAP_DRILL_BIT,
+    ] {
+        let grinding = registries
+            .crafting()
+            .get_powered(process)
+            .unwrap_or_else(|| panic!("powered grinding process {} disappeared", process.value()));
+        assert_eq!(
+            grinding.mass_flow_capability(),
+            capabilities::CAPABILITY_POWERED_STONE_GRINDING_FLOW
+        );
+        assert_eq!(grinding.energy_carrier(), EnergyCarrier::Mechanical);
+    }
+
     for prospecting in [
         PROSPECTING_REGIONAL_RECONNAISSANCE,
         PROSPECTING_LOCAL_TRANSECT,
@@ -297,6 +416,9 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_CRUSH_ORE,
         PROCESS_DRESS_STONE_CHIP_DRILL_BIT,
         PROCESS_KNAP_STONE_DRILL_BIT,
+        PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL,
+        PROCESS_GRIND_STONE_SCRAP_TOOL,
+        PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
         PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
         PROCESS_ASSEMBLE_BULK_TIMBER_CRATE,
         PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
@@ -318,6 +440,10 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
         PROCESS_PIERCE_COPPER_SCREEN_PLATE,
         PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+        PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+        PROCESS_POWER_GRIND_STONE_SCRAP_DRILL_BIT,
+        PROCESS_POWER_TURN_WOOD_HANDLE,
+        PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
         PROCESS_COLD_WORK_COPPER_SAW_BLADE,
         PROCESS_REWORK_WOOD_SCRAP_HANDLE,
         PROCESS_RECOVER_WOOD_SCRAP_BOARDS,

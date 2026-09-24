@@ -6,7 +6,9 @@ use crate::crafting::{ManualCraftDefinition, ManualCraftEquipmentProfile, Manual
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
-use crate::content::capabilities::{CAPABILITY_SAWING_FLOW, CAPABILITY_WOODWORKING_FLOW};
+use crate::content::capabilities::{
+    CAPABILITY_SAWING_FLOW, CAPABILITY_WOOD_TURNING_FLOW, CAPABILITY_WOODWORKING_FLOW,
+};
 use crate::content::crafted_parts::{TIMBER_FLYWHEEL_MASS, TIMBER_RIDDLE_PANEL_MASS};
 use crate::content::materials::{
     FORM_BOARD, FORM_CHIP, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_TIMBER_RIDDLE_PANEL,
@@ -34,8 +36,8 @@ pub(super) fn definitions() -> Vec<ManualCraftDefinition> {
         .collect()
 }
 
-/// Hews a broad, single-piece timber wheel whose lighter rim trades material bulk for lower
-/// rotational energy density. Hand shaping remains possible; a woodworking tool accelerates it.
+/// Turns a broad, single-piece timber wheel whose lighter rim trades material bulk for lower
+/// rotational energy density. Hand shaping remains possible; a dedicated lathe accelerates it.
 fn shape_timber_flywheel() -> ManualCraftDefinition {
     ManualCraftDefinition::new(
         PROCESS_SHAPE_TIMBER_FLYWHEEL,
@@ -55,8 +57,8 @@ fn shape_timber_flywheel() -> ManualCraftDefinition {
         ],
     )
     .with_equipment_profile(ManualCraftEquipmentProfile::new(
-        CAPABILITY_WOODWORKING_FLOW,
-        1_000,
+        CAPABILITY_WOOD_TURNING_FLOW,
+        800,
     ))
 }
 
@@ -160,7 +162,7 @@ fn shape_wood_handle() -> ManualCraftDefinition {
         ],
     )
     .with_equipment_profile(ManualCraftEquipmentProfile::new(
-        CAPABILITY_WOODWORKING_FLOW,
-        1_000,
+        CAPABILITY_WOOD_TURNING_FLOW,
+        800,
     ))
 }

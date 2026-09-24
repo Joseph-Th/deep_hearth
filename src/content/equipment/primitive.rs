@@ -12,6 +12,7 @@ mod mining;
 mod power;
 mod precision;
 mod processing;
+mod toolroom;
 mod woodworking;
 
 pub(super) fn definitions() -> Vec<EquipmentDefinition> {
@@ -46,6 +47,10 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         woodworking::copper_reinforced_woodworking_adze(),
         woodworking::timber_frame_saw_bench(),
         woodworking::timber_sash_sawmill(),
+        woodworking::timber_spring_pole_lathe(),
+        woodworking::timber_flywheel_lathe(),
+        toolroom::timber_treadle_grindstone(),
+        toolroom::timber_flywheel_grinding_bench(),
     ]
 }
 

@@ -2,33 +2,108 @@
 
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::time::TickSpan;
-use crate::crafting::{ManualCraftDefinition, ManualCraftOutput};
+use crate::crafting::{ManualCraftDefinition, ManualCraftEquipmentProfile, ManualCraftOutput};
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
+use crate::content::capabilities::CAPABILITY_STONE_GRINDING_FLOW;
 use crate::content::crafted_parts::{
-    STONE_DRILL_BIT_MASS, STONE_FLYWHEEL_MASS, STONE_PROVISIONS_CROCK_BODY_MASS,
+    STONE_DRILL_BIT_MASS, STONE_FLYWHEEL_MASS, STONE_GRINDSTONE_WHEEL_MASS,
+    STONE_PROVISIONS_CROCK_BODY_MASS,
 };
 use crate::content::materials::{
-    FORM_CHIP, FORM_DRILL_BIT, FORM_FLYWHEEL, FORM_LUMP, FORM_SCRAP, FORM_STONE_CROCK_BODY,
-    FORM_TOOL, MATERIAL_STONE,
+    FORM_CHIP, FORM_DRILL_BIT, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_LUMP, FORM_SCRAP,
+    FORM_STONE_CROCK_BODY, FORM_TOOL, MATERIAL_STONE,
 };
 use crate::content::processes::{
-    PROCESS_DRESS_STONE_CHIP_DRILL_BIT, PROCESS_KNAP_STONE_DRILL_BIT, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_DRESS_STONE_CHIP_DRILL_BIT, PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
+    PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_KNAP_STONE_DRILL_BIT, PROCESS_KNAP_STONE_TOOL,
     PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
-    PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
+    PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL,
+    PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 7] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 10] {
     [
         knap_stone_tool(),
         knap_stone_drill_bit(),
         dress_stone_chip_drill_bit(),
         reknap_stone_scrap_tool(),
+        grind_stone_scrap_tool(),
+        grind_stone_scrap_drill_bit(),
         shape_stone_flywheel(),
+        shape_stone_grindstone_wheel(),
         shape_stone_provisions_crock(),
         salvage_stone_provisions_crock_body(),
     ]
+}
+
+fn grinding_profile() -> ManualCraftEquipmentProfile {
+    ManualCraftEquipmentProfile::new_required(CAPABILITY_STONE_GRINDING_FLOW, 1_000)
+}
+
+/// Abrasively reworks worn service stone with less mass loss than percussion reknapping.
+fn grind_stone_scrap_tool() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_GRIND_STONE_SCRAP_TOOL,
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Mass::from_milligrams(900_000),
+        TickSpan::new(60),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(100_000),
+            ),
+        ],
+    )
+    .with_equipment_profile(grinding_profile())
+}
+
+/// Recovers precision drill-bit stock from accumulated stone-service fragments.
+fn grind_stone_scrap_drill_bit() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Mass::from_milligrams(120_000),
+        TickSpan::new(20),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT),
+                STONE_DRILL_BIT_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(20_000),
+            ),
+        ],
+    )
+    .with_equipment_profile(grinding_profile())
+}
+
+fn shape_stone_grindstone_wheel() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(1_600_000),
+        TickSpan::new(100),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL),
+                STONE_GRINDSTONE_WHEEL_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(200_000),
+            ),
+        ],
+    )
 }
 
 fn dress_stone_chip_drill_bit() -> ManualCraftDefinition {

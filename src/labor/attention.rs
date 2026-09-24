@@ -43,10 +43,6 @@ pub(crate) struct ValidatedPlayerAttentionHold {
 }
 
 impl ValidatedPlayerAttention {
-    pub(crate) const fn expected_revision(&self) -> u64 {
-        self.expected_revision
-    }
-
     pub(crate) fn hold(self, work: PlayerWork) -> Option<ValidatedPlayerAttentionHold> {
         // A delayed attention hold mutates player-work once when admitted and once when the
         // interval releases. Reserve both revisions before the first mutation.

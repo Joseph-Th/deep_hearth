@@ -115,6 +115,11 @@ pub const OBJECT_TIMBER_DRESSING_BENCH: ObjectAppearanceId = ObjectAppearanceId:
 pub const OBJECT_STONE_FLYWHEEL_PUMP_DRILL: ObjectAppearanceId = ObjectAppearanceId::new(63);
 pub const OBJECT_STONE_DRILL_BIT: ObjectAppearanceId = ObjectAppearanceId::new(64);
 pub const OBJECT_TIMBER_SPINDLE_DRILL: ObjectAppearanceId = ObjectAppearanceId::new(65);
+pub const OBJECT_TIMBER_SPRING_POLE_LATHE: ObjectAppearanceId = ObjectAppearanceId::new(66);
+pub const OBJECT_TIMBER_FLYWHEEL_LATHE: ObjectAppearanceId = ObjectAppearanceId::new(67);
+pub const OBJECT_STONE_GRINDSTONE_WHEEL: ObjectAppearanceId = ObjectAppearanceId::new(68);
+pub const OBJECT_TIMBER_TREADLE_GRINDSTONE: ObjectAppearanceId = ObjectAppearanceId::new(69);
+pub const OBJECT_TIMBER_FLYWHEEL_GRINDING_BENCH: ObjectAppearanceId = ObjectAppearanceId::new(70);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

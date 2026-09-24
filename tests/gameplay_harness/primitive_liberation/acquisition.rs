@@ -374,6 +374,10 @@ pub(super) fn acquire_raw_kit<T>(
             .unwrap_or_else(|error| panic!("liberation kit adze commit failed: {error}"));
 
     for (commodity, required) in final_requirements {
+        let equipment = match (commodity.material(), commodity.form()) {
+            (MATERIAL_WOOD, FORM_BOARD) => Some(adze),
+            _ => None,
+        };
         craft_component(
             registries,
             &mut state,
@@ -382,7 +386,7 @@ pub(super) fn acquire_raw_kit<T>(
                 destination: parts,
                 commodity,
                 required,
-                equipment: Some(adze),
+                equipment,
                 context: "liberation kit component",
             },
         );

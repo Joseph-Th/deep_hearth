@@ -10,7 +10,7 @@ use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
 
 use super::{
-    PlayerAttentionError, PlayerWork, PlayerWorkResourceBudgetError,
+    PlayerAttentionError, PlayerWork, PlayerWorkResourceBudgetError, ValidatedPlayerAttentionHold,
     calculate_player_work_resource_budget, validate_player_attention,
 };
 
@@ -110,10 +110,8 @@ impl Error for PlayerWorkCommitError {}
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerWorkStart {
-    expected_revision: u64,
-    next_revision: u64,
+    attention: ValidatedPlayerAttentionHold,
     expected_survival_revision: u64,
-    work: PlayerWork,
     resource_budget: super::PlayerWorkResourceBudget,
 }
 
@@ -123,13 +121,12 @@ impl ValidatedPlayerWorkStart {
     }
 
     pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerWorkCommitError> {
-        let actual_revision = state.player_work().revision();
-        if actual_revision != self.expected_revision {
-            return Err(PlayerWorkCommitError::StaleRevision {
-                expected: self.expected_revision,
-                actual: actual_revision,
-            });
-        }
+        self.attention.precheck(state).map_err(|conflict| {
+            PlayerWorkCommitError::StaleRevision {
+                expected: conflict.expected(),
+                actual: conflict.actual(),
+            }
+        })?;
         let actual_survival_revision = state.survival().revision();
         if actual_survival_revision != self.expected_survival_revision {
             return Err(PlayerWorkCommitError::StaleSurvivalRevision {
@@ -141,11 +138,7 @@ impl ValidatedPlayerWorkStart {
     }
 
     pub(crate) fn apply(self, state: &mut AppState) {
-        state.player_work_state_mut().apply_start(
-            self.expected_revision,
-            self.next_revision,
-            self.work,
-        );
+        self.attention.apply(state);
     }
 }
 
@@ -194,21 +187,12 @@ pub(crate) fn validate_player_work_start(
     if !state.survival().can_advance_revision_by(duration.value()) {
         return Err(PlayerWorkStartError::SurvivalRevisionExhausted { duration });
     }
-    let expected_revision = attention.expected_revision();
-    // Every admitted work interval mutates this owner twice: once to claim exclusive attention
-    // and once to release it. Reserve both revisions up front so accepted work cannot strand the
-    // player at completion solely because revision space was already exhausted at admission.
-    expected_revision
-        .checked_add(2)
+    let attention = attention
+        .hold(work)
         .ok_or(PlayerWorkStartError::RevisionExhausted)?;
-    let next_revision = expected_revision
-        .checked_add(1)
-        .unwrap_or_else(|| unreachable!("two-step player-work revision budget includes admission"));
     Ok(ValidatedPlayerWorkStart {
-        expected_revision,
-        next_revision,
+        attention,
         expected_survival_revision: state.survival().revision(),
-        work,
         resource_budget: budget,
     })
 }

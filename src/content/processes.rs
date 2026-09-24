@@ -10,7 +10,8 @@ use super::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
     CAPABILITY_POWERED_COPPER_HAMMERING_FLOW, CAPABILITY_POWERED_COPPER_PIERCING_FLOW,
-    CAPABILITY_POWERED_SAWING_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
+    CAPABILITY_POWERED_SAWING_FLOW, CAPABILITY_POWERED_STONE_GRINDING_FLOW,
+    CAPABILITY_POWERED_WOOD_TURNING_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_THERMAL_BATCH,
     CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
@@ -62,6 +63,13 @@ pub const PROCESS_POWER_HAMMER_COPPER_SAW_BLADE: ProcessId = ProcessId::new(44);
 pub const PROCESS_KNAP_STONE_DRILL_BIT: ProcessId = ProcessId::new(45);
 pub const PROCESS_DRESS_STONE_CHIP_DRILL_BIT: ProcessId = ProcessId::new(46);
 pub const PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE: ProcessId = ProcessId::new(47);
+pub const PROCESS_POWER_TURN_WOOD_HANDLE: ProcessId = ProcessId::new(48);
+pub const PROCESS_POWER_TURN_TIMBER_FLYWHEEL: ProcessId = ProcessId::new(49);
+pub const PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL: ProcessId = ProcessId::new(50);
+pub const PROCESS_GRIND_STONE_SCRAP_TOOL: ProcessId = ProcessId::new(51);
+pub const PROCESS_GRIND_STONE_SCRAP_DRILL_BIT: ProcessId = ProcessId::new(52);
+pub const PROCESS_POWER_GRIND_STONE_SCRAP_TOOL: ProcessId = ProcessId::new(53);
+pub const PROCESS_POWER_GRIND_STONE_SCRAP_DRILL_BIT: ProcessId = ProcessId::new(54);
 
 fn single_mass_flow_requirement(capability: CapabilityId) -> Vec<CapabilityRequirement> {
     vec![CapabilityRequirement::new(
@@ -250,6 +258,21 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "dress stone chip into rotary drill bit",
             Vec::new(),
         ),
+        ProcessDefinition::new(
+            PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL,
+            "shape abrasive grindstone wheel",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_GRIND_STONE_SCRAP_TOOL,
+            "grind stone scrap into service tool stock",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
+            "grind stone scrap into rotary drill bit",
+            Vec::new(),
+        ),
         ProcessDefinition::new(PROCESS_SHAPE_WOOD_HANDLE, "shape wood handle", Vec::new()),
         ProcessDefinition::new(
             PROCESS_SHAPE_STONE_FLYWHEEL,
@@ -335,6 +358,26 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
             "power-drill copper sizing screen plate",
             single_mass_flow_requirement(CAPABILITY_POWERED_COPPER_PIERCING_FLOW),
+        ),
+        ProcessDefinition::new(
+            PROCESS_POWER_TURN_WOOD_HANDLE,
+            "power-turn wood handle stock",
+            single_mass_flow_requirement(CAPABILITY_POWERED_WOOD_TURNING_FLOW),
+        ),
+        ProcessDefinition::new(
+            PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+            "power-turn timber flywheel",
+            single_mass_flow_requirement(CAPABILITY_POWERED_WOOD_TURNING_FLOW),
+        ),
+        ProcessDefinition::new(
+            PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+            "power-grind stone scrap into service tool stock",
+            single_mass_flow_requirement(CAPABILITY_POWERED_STONE_GRINDING_FLOW),
+        ),
+        ProcessDefinition::new(
+            PROCESS_POWER_GRIND_STONE_SCRAP_DRILL_BIT,
+            "power-grind stone scrap into rotary drill bit",
+            single_mass_flow_requirement(CAPABILITY_POWERED_STONE_GRINDING_FLOW),
         ),
     ] {
         registry.register_process(process);

@@ -3,6 +3,11 @@
 use std::num::NonZeroU64;
 
 use super::*;
+use crate::content::{
+    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+    EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_GRINDSTONE_WHEEL, PROCESS_GRIND_STONE_SCRAP_TOOL,
+    PROCESS_SHAPE_TIMBER_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
+};
 
 #[test]
 fn woodworking_adze_reduces_board_attention_without_changing_yield_and_replays_exactly() {
@@ -333,4 +338,197 @@ fn treadle_hammer_reduces_copper_work_attention_without_changing_yield() {
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("treadle-hammer final state audit failed: {error}"));
+}
+
+#[test]
+fn spring_pole_lathe_specializes_round_timber_work_without_changing_yield() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("lathe survival setup failed: {error}"));
+
+    let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_800_000))
+        .unwrap_or_else(|error| panic!("lathe assembly stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 1_600_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 400_000),
+        (CommodityKey::new(MATERIAL_STONE, FORM_TOOL), 800_000),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            commodity,
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("lathe assembly material failed: {error}"));
+    }
+    let lathe = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("spring-pole lathe assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("spring-pole lathe assembly commit failed: {error}"));
+
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_400_000))
+        .unwrap_or_else(|error| panic!("lathe source stockpile failed: {error}"));
+    let log = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(3_400_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("lathe log fixture failed: {error}"));
+
+    for (process, input_mass, hand_ticks, lathe_ticks) in [
+        (PROCESS_SHAPE_WOOD_HANDLE, 1_000_000, 40, 12),
+        (PROCESS_SHAPE_TIMBER_FLYWHEEL, 2_400_000, 120, 27),
+    ] {
+        let selection = MaterialLotSelection::new(log, Mass::from_milligrams(input_mass));
+        let hand = resolve_manual_craft(
+            &registries,
+            &state,
+            &ManualCraftRequest::single(process, source, selection),
+        )
+        .unwrap_or_else(|error| panic!("hand turning resolution failed: {error}"));
+        let assisted = resolve_manual_craft(
+            &registries,
+            &state,
+            &ManualCraftRequest::single(process, source, selection).with_equipment(lathe),
+        )
+        .unwrap_or_else(|error| panic!("lathe turning resolution failed: {error}"));
+        assert_eq!(hand.duration(), TickSpan::new(hand_ticks));
+        assert_eq!(assisted.duration(), TickSpan::new(lathe_ticks));
+        assert_eq!(assisted.output_streams(), hand.output_streams());
+
+        let projected = project_manual_craft_equipment(
+            &registries,
+            process,
+            NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one turning batch is nonzero")),
+            EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+            Condition::PRISTINE,
+        )
+        .unwrap_or_else(|error| panic!("lathe turning projection failed: {error}"));
+        assert_eq!(projected.duration(), assisted.duration());
+        assert!(projected.condition_after() < Condition::PRISTINE);
+    }
+
+    assert!(matches!(
+        project_manual_craft_equipment(
+            &registries,
+            PROCESS_SHAPE_WOOD_HANDLE,
+            NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one handle batch is nonzero")),
+            EQUIPMENT_STONE_WOODWORKING_ADZE,
+            Condition::PRISTINE,
+        ),
+        Err(ManualCraftEquipmentProjectionError::MissingEquipmentCapability { equipment, .. })
+            if equipment == EQUIPMENT_STONE_WOODWORKING_ADZE
+    ));
+}
+
+#[test]
+fn treadle_grindstone_turns_maintenance_scrap_into_higher_yield_service_stock() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("grindstone survival setup failed: {error}"));
+
+    let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_400_000))
+        .unwrap_or_else(|error| panic!("grindstone assembly stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL),
+            1_400_000,
+        ),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), 1_600_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 400_000),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            commodity,
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("grindstone assembly material failed: {error}"));
+    }
+    let grindstone = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_TREADLE_GRINDSTONE,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("treadle grindstone assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("treadle grindstone assembly commit failed: {error}"));
+
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("grindstone scrap source failed: {error}"));
+    let scrap = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("grindstone scrap fixture failed: {error}"));
+
+    let hand = registries
+        .crafting()
+        .get_manual(PROCESS_REKNAP_STONE_SCRAP_TOOL)
+        .unwrap_or_else(|| panic!("hand scrap reknap route disappeared"));
+    let abrasive = registries
+        .crafting()
+        .get_manual(PROCESS_GRIND_STONE_SCRAP_TOOL)
+        .unwrap_or_else(|| panic!("abrasive scrap recovery route disappeared"));
+    assert_eq!(hand.input_mass(), Mass::from_milligrams(1_000_000));
+    assert_eq!(abrasive.input_mass(), Mass::from_milligrams(900_000));
+    assert_eq!(
+        abrasive
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+            .map(|output| output.mass()),
+        Some(Mass::from_milligrams(800_000))
+    );
+
+    let request = ManualCraftRequest::single(
+        PROCESS_GRIND_STONE_SCRAP_TOOL,
+        source,
+        MaterialLotSelection::new(scrap, Mass::from_milligrams(900_000)),
+    )
+    .with_equipment(grindstone);
+    let resolution = resolve_manual_craft(&registries, &state, &request)
+        .unwrap_or_else(|error| panic!("treadle scrap grinding resolution failed: {error}"));
+    assert_eq!(resolution.duration(), TickSpan::new(25));
+    assert_eq!(
+        resolution
+            .single_output_stream()
+            .unwrap_or_else(|| panic!("grindstone output stream disappeared"))
+            .outputs()
+            .iter()
+            .map(|output| output.mass().milligrams())
+            .sum::<u64>(),
+        900_000
+    );
+
+    assert!(matches!(
+        project_manual_craft_equipment(
+            &registries,
+            PROCESS_GRIND_STONE_SCRAP_TOOL,
+            NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one grinding batch is nonzero")),
+            EQUIPMENT_STONE_ROTARY_QUERN,
+            Condition::PRISTINE,
+        ),
+        Err(ManualCraftEquipmentProjectionError::MissingEquipmentCapability { equipment, .. })
+            if equipment == EQUIPMENT_STONE_ROTARY_QUERN
+    ));
 }

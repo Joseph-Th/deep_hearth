@@ -2,11 +2,16 @@
 
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-    EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_BOARD, FORM_CHIP, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG,
-    FORM_NATIVE_METAL, FORM_SAW_BLADE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_POWER_SAW_WOOD_BOARDS,
-    PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_SASH_SAWMILL,
+    EQUIPMENT_TIMBER_SPRING_POLE_LATHE, EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_BOARD, FORM_CHIP,
+    FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_HANDLE, FORM_LOG, FORM_NATIVE_METAL,
+    FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_TOOL, MANUAL_POWER_HAND_CRANK,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+    PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_POWER_TURN_TIMBER_FLYWHEEL, PROCESS_SAW_WOOD_BOARDS,
+    PROCESS_SHAPE_TIMBER_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -391,4 +396,396 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
     );
     validate_loaded_state(&registries, &powered)
         .unwrap_or_else(|error| panic!("sawmill project final state invalid: {error}"));
+}
+
+#[test]
+fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+
+    let bootstrap = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(7_920_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+            Mass::from_milligrams(3_200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(1_200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+            Mass::from_milligrams(2_700_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            Mass::from_milligrams(20_000),
+        ),
+    ] {
+        seed_material(&registries, &mut state, bootstrap, commodity, mass);
+    }
+
+    let pole_lathe = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+        bootstrap,
+    )
+    .unwrap_or_else(|error| panic!("spring-pole lathe settlement assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("spring-pole lathe settlement commit failed: {error}"));
+    let crank =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_HAND_CRANK, bootstrap)
+            .unwrap_or_else(|error| panic!("lathe settlement crank assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("lathe settlement crank commit failed: {error}"));
+    let drive =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, bootstrap)
+            .unwrap_or_else(|error| panic!("lathe settlement flywheel assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("lathe settlement flywheel commit failed: {error}"));
+
+    let source = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(2_400_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let log = seed_material(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(2_400_000),
+    );
+    let output = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(2_400_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("lathe settlement survival setup failed: {error}"));
+
+    let hand = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_SHAPE_TIMBER_FLYWHEEL,
+            source,
+            1,
+            "timber flywheel hand-turning baseline",
+        ),
+    )
+    .unwrap_or_else(|error| panic!("hand flywheel turning projection failed: {error}"));
+    let pole = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_SHAPE_TIMBER_FLYWHEEL,
+            source,
+            1,
+            "spring-pole flywheel turning",
+        )
+        .with_equipment(pole_lathe),
+    )
+    .unwrap_or_else(|error| panic!("spring-pole flywheel projection failed: {error}"));
+    assert_eq!(hand.duration().value(), 120);
+    assert_eq!(pole.duration().value(), 27);
+    assert_eq!(pole.output_streams(), hand.output_streams());
+
+    let lathe = validate_upgrade_equipment(
+        &registries,
+        &state,
+        pole_lathe,
+        EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+        bootstrap,
+    )
+    .unwrap_or_else(|error| panic!("flywheel-lathe settlement upgrade failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("flywheel-lathe settlement upgrade commit failed: {error}"));
+    assert_eq!(lathe, pole_lathe);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(bootstrap)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "lathe settlement package must consume exactly the authored upgrade, crank, and flywheel components"
+    );
+
+    let initial_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("lathe settlement matter setup failed: {error}"))
+        .total();
+
+    let work = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            drive,
+            Energy::from_nanojoules(480_000_000_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("lathe settlement charge failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("lathe settlement charge commit failed: {error}"));
+    let charge_attention =
+        finish_manual_power_work(&registries, &mut state, work, "lathe settlement charge");
+    assert!(charge_attention > 0);
+    assert!(
+        charge_attention < pole.duration().value(),
+        "stored-work turning must reduce player attention versus the spring-pole lathe"
+    );
+
+    let job = validate_start_powered_craft(
+        &registries,
+        &state,
+        PoweredCraftRequest::single(
+            PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+            source,
+            MaterialLotSelection::new(log, Mass::from_milligrams(2_400_000)),
+            lathe,
+            drive,
+        ),
+        output,
+    )
+    .unwrap_or_else(|error| panic!("lathe settlement powered turning failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("lathe settlement powered turning commit failed: {error}"));
+    assert_eq!(
+        state.player_work().active(),
+        None,
+        "flywheel lathe must release the player after the finite work charge is stored"
+    );
+    let powered_ticks = state
+        .production()
+        .get_job(job)
+        .map(|record| record.active_duration().value())
+        .unwrap_or_else(|| panic!("lathe settlement powered job disappeared"));
+    assert_eq!(powered_ticks, 7);
+    finish_uninterrupted_production_job(
+        &registries,
+        &mut state,
+        job,
+        "lathe settlement unattended turning",
+    );
+
+    let output_stockpile = state
+        .inventory()
+        .get_stockpile(output)
+        .unwrap_or_else(|| panic!("lathe settlement output disappeared"));
+    assert_eq!(
+        output_stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL)),
+        Mass::from_milligrams(2_000_000)
+    );
+    assert_eq!(
+        output_stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
+        Mass::from_milligrams(400_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("lathe settlement matter audit failed: {error}"))
+            .total(),
+        initial_matter
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("lathe settlement final state invalid: {error}"));
+}
+
+#[test]
+fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+
+    let bootstrap = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(8_520_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL),
+            Mass::from_milligrams(1_400_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+            Mass::from_milligrams(3_200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(1_200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+            Mass::from_milligrams(2_700_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            Mass::from_milligrams(20_000),
+        ),
+    ] {
+        seed_material(&registries, &mut state, bootstrap, commodity, mass);
+    }
+    let source = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(900_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let scrap = seed_material(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Mass::from_milligrams(900_000),
+    );
+    let output = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(900_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("toolroom settlement survival setup failed: {error}"));
+
+    let treadle = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_TREADLE_GRINDSTONE,
+        bootstrap,
+    )
+    .unwrap_or_else(|error| panic!("treadle grindstone settlement assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("treadle grindstone settlement commit failed: {error}"));
+    let crank =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_HAND_CRANK, bootstrap)
+            .unwrap_or_else(|error| panic!("toolroom settlement crank assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("toolroom settlement crank commit failed: {error}"));
+    let drive =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, bootstrap)
+            .unwrap_or_else(|error| panic!("toolroom settlement flywheel assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("toolroom settlement flywheel commit failed: {error}"));
+
+    let treadle_projection = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_GRIND_STONE_SCRAP_TOOL,
+            source,
+            1,
+            "toolroom treadle recovery baseline",
+        )
+        .with_equipment(treadle),
+    )
+    .unwrap_or_else(|error| panic!("treadle service-stock projection failed: {error}"));
+    assert_eq!(treadle_projection.duration().value(), 25);
+
+    let powered = validate_upgrade_equipment(
+        &registries,
+        &state,
+        treadle,
+        EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH,
+        bootstrap,
+    )
+    .unwrap_or_else(|error| panic!("toolroom flywheel upgrade failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("toolroom flywheel upgrade commit failed: {error}"));
+    assert_eq!(
+        powered, treadle,
+        "toolroom upgrade must preserve equipment identity"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(bootstrap)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "toolroom package must consume exactly its disclosed components"
+    );
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("toolroom settlement matter setup failed: {error}"))
+        .total();
+
+    let work = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            drive,
+            Energy::from_nanojoules(270_000_000_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("toolroom settlement charge failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("toolroom settlement charge commit failed: {error}"));
+    let charge_attention =
+        finish_manual_power_work(&registries, &mut state, work, "toolroom settlement charge");
+    assert!(charge_attention < treadle_projection.duration().value());
+
+    let job = validate_start_powered_craft(
+        &registries,
+        &state,
+        PoweredCraftRequest::single(
+            PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+            source,
+            MaterialLotSelection::new(scrap, Mass::from_milligrams(900_000)),
+            powered,
+            drive,
+        ),
+        output,
+    )
+    .unwrap_or_else(|error| panic!("toolroom settlement powered recovery failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("toolroom settlement powered recovery commit failed: {error}"));
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .production()
+            .get_job(job)
+            .map(|record| record.active_duration().value()),
+        Some(7)
+    );
+    finish_uninterrupted_production_job(
+        &registries,
+        &mut state,
+        job,
+        "toolroom settlement unattended recovery",
+    );
+
+    let output_stockpile = state
+        .inventory()
+        .get_stockpile(output)
+        .unwrap_or_else(|| panic!("toolroom settlement output disappeared"));
+    assert_eq!(
+        output_stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)),
+        Mass::from_milligrams(800_000)
+    );
+    assert_eq!(
+        output_stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)),
+        Mass::from_milligrams(100_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("toolroom settlement matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("toolroom settlement final state invalid: {error}"));
 }

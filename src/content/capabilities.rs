@@ -32,6 +32,10 @@ pub(crate) const CAPABILITY_COBBING_FLOW: CapabilityId = CapabilityId::new(24);
 pub(crate) const CAPABILITY_ORE_PICKING_FLOW: CapabilityId = CapabilityId::new(25);
 pub(crate) const CAPABILITY_COPPER_PIERCING_FLOW: CapabilityId = CapabilityId::new(26);
 pub(crate) const CAPABILITY_POWERED_COPPER_PIERCING_FLOW: CapabilityId = CapabilityId::new(27);
+pub(crate) const CAPABILITY_WOOD_TURNING_FLOW: CapabilityId = CapabilityId::new(28);
+pub(crate) const CAPABILITY_POWERED_WOOD_TURNING_FLOW: CapabilityId = CapabilityId::new(29);
+pub(crate) const CAPABILITY_STONE_GRINDING_FLOW: CapabilityId = CapabilityId::new(30);
+pub(crate) const CAPABILITY_POWERED_STONE_GRINDING_FLOW: CapabilityId = CapabilityId::new(31);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -177,6 +181,26 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
         higher_is_better(
             CAPABILITY_POWERED_COPPER_PIERCING_FLOW,
             "mechanically powered copper-sheet piercing throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_WOOD_TURNING_FLOW,
+            "treadle wood-turning throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_POWERED_WOOD_TURNING_FLOW,
+            "mechanically powered wood-turning throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_STONE_GRINDING_FLOW,
+            "treadle abrasive stone-dressing throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_POWERED_STONE_GRINDING_FLOW,
+            "mechanically powered abrasive stone-dressing throughput",
             CapabilityValueKind::MassFlow,
         ),
     ] {
