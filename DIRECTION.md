@@ -213,13 +213,13 @@ each slice when concrete friction is exposed, so the repository becomes easier t
 Before opening major new domains, preferentially finish ordinary authorization around already-modeled physical
 transitions and capability-only systems where a small missing edge is the blocker. High-value examples are
 player-authorized construction/deconstruction or recovery steps, ordinary acquisition paths, and production
-read surfaces that currently require controlled setup. Current copper progression already reaches usable native
-copper through hand sorting and finite-recovery concentrate cleanup. Its next high-leverage edge is ordinary
-foundry capability, but this is not a recipe-only acquisition gap. Current ordinary power is mechanical,
-copper melting requires the electrical carrier, and no mechanical-to-electrical conversion path exists. The
-electric furnace's 2 MW heating capability is a transfer ceiling rather than a minimum operating floor, so a
-future coherent vertical slice may trade lower source power for longer melt time. It still needs a real
-electrical generation/conversion route plus the required foundry equipment, stores, and support.
+read surfaces that currently require controlled setup. Copper progression now closes its first thermal loop:
+ordinary native copper can fund a dedicated treadle dynamo, finite electrical buffer, portable stone arc
+crucible, stone mold, and thermal sink; a 20 g cast ingot can return to the reinforcement loop through ordinary
+cold working. This deliberately reuses the existing labor, energy, thermal, production, inventory, survival,
+and matter owners without pretending that a portable 100 W generator supplies the installed 2 MW industrial
+furnace. The next higher-leverage missing edges are therefore world-space action/logistics and ordinary general
+construction, which are prerequisites for credible installed industrial infrastructure and later routed power.
 Chemical reduction belongs later when authored compound ores actually require a reductant/byproduct model.
 
 Completion criterion: the capability can move from controlled/capability-only evidence toward ordinary play

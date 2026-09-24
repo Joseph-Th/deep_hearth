@@ -1,17 +1,16 @@
 # Status
 
-This page is the authority for current runtime scope and reachability. Use [`README.md`](README.md) for
-project routing, [`GAME_DESIGN.md`](GAME_DESIGN.md) for intended player experience, and
-[`DIRECTION.md`](DIRECTION.md) for future integration priority. Source presence or controlled-harness execution
-does not by itself make a capability ordinarily reachable.
+This page owns runtime scope and reachability. Use [`README.md`](README.md) for routing,
+[`GAME_DESIGN.md`](GAME_DESIGN.md) for player experience, and [`DIRECTION.md`](DIRECTION.md) for future
+priority. Source presence or controlled setup does not prove ordinary reachability.
 
 ## Ordinary play
 
 Current progression:
 
-`local clues -> coarse-to-fine prospecting -> physical sampling -> evidence-gated mining -> hand/tool-assisted native-copper dressing -> primitive mechanization -> copper upgrades -> settlement mechanization -> reinforcement/recovery`
+`local clues -> coarse-to-fine prospecting -> physical sampling -> evidence-gated mining -> hand/tool-assisted native-copper dressing -> primitive mechanization -> copper upgrades -> settlement mechanization -> reinforcement/recovery -> first electrical foundry casting`
 
-Primitive grinding, sizing, concentration, scavenging, and final concentrate cleaning are ordinary. Authored ore represents liberated copper as elemental copper, so rich concentrate mechanically cleans to `FORM_NATIVE_METAL`; current copper needs no reduction step. The frontier is ordinary foundry infrastructure.
+Primitive grinding, sizing, concentration, scavenging, and concentrate cleaning are ordinary. Current ore models liberated elemental copper, so rich concentrate cleans to `FORM_NATIVE_METAL` without reduction. A treadle dynamo, finite electrical/thermal stores, stone crucible, and mold provide an ordinary 20 g melt/cast route; cast ingot cold-works back into reinforcement. Industrial foundry scale remains frontier.
 
 | Area | Reachable capability |
 | --- | --- |
@@ -20,7 +19,7 @@ Primitive grinding, sizing, concentration, scavenging, and final concentrate cle
 | Prospecting and knowledge | Reconnaissance, transects, and inspection are equipment-free. Detailed physical sampling requires an authored hammer and yields bounded abundance; definite presence also yields a conservative hardness band. A fully localized single body can additionally yield a conservative resource-mass band at authored resolution; partial or ambiguous bodies reveal no reserve estimate, and exact reserve/deposit identity remain hidden. Aggregate methods stay area-bounded, indexed evidence covers only surveyed cells, and an authored copper upgrade reduces sampling wear and unlocks an indexed multi-voxel survey. |
 | Mining | Evidence-gated hand extraction requires acquired hardness evidence; admission uses its conservative upper bound and never reveals exact hidden resistance. Authored picks trade extraction rate, batch mass, and hardness limit; copper variants extend throughput while a lighter reinforced pick covers hard rock. |
 | Crafting and equipment | Manual shaping/joinery has persistent wear and exact-component service/recovery. Boards retain a hand fallback; adzes/frame saw trade attention and recovery, while the treadle hammer speeds copper working. Dedicated lathe and grindstone branches speed round timber and improve stone-service recovery; powered upgrades delegate both from finite work. A stone-flywheel pump drill is required for copper sizing plates and wears a recoverable stone bit. Its timber spindle upgrade reuses the worn drill and can spend finite mechanical work to pierce plates without player attention; sash sawmill and helve hammer similarly upgrade earlier tools. |
-| Primitive power | Manual generation feeds lossy flywheels. Crank, treadle, and walking-wheel providers trade build mass, metabolic efficiency, wear, and output. Timber, stone, copper-banded, paired, and settlement-bank stores trade capacity, input limits, drag, and build mass. The same finite stores feed ordinary sawmill, helve, drill, lathe, and toolroom grinding directly; no shaft/belt network is implied. A 480 J rotor or 270 J service cycle fits the 500 J stone flywheel. The 5 kJ bank covers the largest authored settlement comminution batch. All remain work buffers, not batteries. |
+| Primitive power | Crank, treadle, and walking-wheel providers feed finite lossy mechanical stores; a copper-wound treadle dynamo instead charges a 15 kJ electrical buffer for the first foundry. Providers trade build mass, metabolic efficiency, wear, carrier, and output. Mechanical stores feed ordinary sawmill, helve, drill, lathe, and toolroom work; no shaft/belt/wiring network is implied. The 500 J stone flywheel covers rotor/service cycles and the 5 kJ bank covers the settlement comminution batch. |
 | Primitive processing | Bare hands remain the zero-investment dressing fallback. A stone cobbing hammer speeds breaking; a timber cobbing/picking bench speeds breaking and visible-copper sorting. Both are wearing direct-labor tools and do not change recovery. Crusher, quern, riddle/screens, and separator provide crush -> grind -> size -> regrind -> concentrate with finite mechanical work and higher sustained throughput. Copper upgrades improve batch mass and throughput while preserving service components. Settlement equipment combines crushing/grinding in a timber comminution mill and sizing/gravity separation in an ore-dressing table; heavier embodied construction buys larger batches and consolidated capability while specialist machines retain parallel-work value. The settlement flywheel bank powers the mill's full authored batch envelope. Finer tailings regrinding enables one lower-grade scavenger pass at added work, energy, and wear, producing terminal exhausted tailings. |
 
 ## Current integration frontier
@@ -30,7 +29,7 @@ player-relevant flow stops today. [`DIRECTION.md`](DIRECTION.md) owns which boun
 
 | From | Missing edge | Current consequence |
 | --- | --- | --- |
-| Ordinary native copper | ordinary foundry infrastructure and electrical supply | Native copper is valid cold-work/melting feed, but foundry hardware and electrical energy are unobtainable. Ordinary power is mechanical and no mechanical-to-electrical conversion path exists. The furnace's 2 MW heating capability is a transfer ceiling, not a minimum operating floor. |
+| First foundry casting | industrial-scale foundry acquisition, installed support, and high-power electrical supply | Ordinary play can now melt/cast 20 g copper batches and rework ingot into reinforcement, but the portable 100 W dynamo route is intentionally far below the 2 MW industrial furnace transfer ceiling and does not make industrial equipment ordinarily acquirable. |
 | Local inventory custody | world-space carrying, haulage, delivery, access, and path cost | Matter can move through explicit local owner transitions, but there is no general player/world transport authority. Controlled harness delivery does not establish ordinary logistics. |
 | Structural physics and material embodiment | ordinary player construction/deconstruction authorization | Structures can own conserved members, support, load, damage, and failure, but ordinary play cannot yet construct the general structural graph. |
 | Physical equipment maintenance | world-space access and maintenance-tool requirements | Service already occupies exclusive player work, consumes authored survival exertion and replacement matter, and recovers condition only at completion; generic spatial access/tool authorization is still absent. |
@@ -63,7 +62,7 @@ play cannot yet acquire their required infrastructure.
 | --- | --- |
 | Workshop | Installed industrial machinery under finite stored work, survival pressure, wear, maintenance, structural support, suspension/recovery, and actor policy. |
 | Ore preparation | Installed industrial crushing, grinding, screening, regrinding, and concentration with exact constituent accounting/tailings. The same physics are ordinarily reachable through slower primitive providers; this surface is the industrial throughput benchmark. |
-| Foundry | Installed pure-copper heating/melting/casting, remelting, finite energy, equipment limits, phase boundaries, latent heat, heat recovery, and sink loss. Ordinary cleanup already supplies accepted native-copper feed; capability-only because foundry infrastructure is not ordinarily obtainable. Reduction remains absent for future compound ores. |
+| Foundry | Installed industrial pure-copper heating/melting/casting, remelting, finite energy, phase boundaries, heat recovery, and sink loss remains the capability-only throughput benchmark. Ordinary play separately reaches a portable 20 g electrical foundry through the same owners. Reduction remains absent for future compound ores. |
 
 ## Absent scope
 
@@ -75,7 +74,7 @@ play cannot yet acquire their required infrastructure.
 | Advanced geology/mining | Regional generation, voxel ore topology, sampling/drilling/assays/geophysics, mechanized excavation, access, haulage, drainage, ground control, waste-rock handling, and tailings transport/impoundment. |
 | Thermal/chemical industry | Environmental heat transport beyond explicit sink loss, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, reduction/smelting, alloying, forging, machining, broader separation, broader wood/stone chip recovery, and broader non-copper/non-stone scrap recycling. |
 | Maintenance/structures | Maintenance tool requirements and world-space access, general structural construction/deconstruction, demolition/salvage physics, bending, shear, torsion, buckling, joints, and terrain support. |
-| Power networks | Generic energy transfer, shafts/belts, inertia/slip/clutches, steam, electrical generation/distribution/protection, and spatial network integration. |
+| Power networks | Generic transfer, shafts/belts, inertia/slip/clutches, steam, scalable electrical generation/distribution/protection, and spatial integration. The treadle dynamo is a direct provider, not a network. |
 | Hydrology | Generic fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, and pressure-dependent fluid behavior. |
 | Ecology and society | Agriculture, soil, ecology, genetics, creatures, hunting/combat, workers, settlements, trade, economy, and migration. |
 | Industrial acquisition | Ordinary acquisition for industrial machines, industrial energy systems, and supporting infrastructure. |

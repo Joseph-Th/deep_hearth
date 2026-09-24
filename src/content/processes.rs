@@ -62,6 +62,7 @@ pub const PROCESS_GRIND_STONE_SCRAP_TOOL: ProcessId = ProcessId::new(51);
 pub const PROCESS_GRIND_STONE_SCRAP_DRILL_BIT: ProcessId = ProcessId::new(52);
 pub const PROCESS_POWER_GRIND_STONE_SCRAP_TOOL: ProcessId = ProcessId::new(53);
 pub const PROCESS_POWER_GRIND_STONE_SCRAP_DRILL_BIT: ProcessId = ProcessId::new(54);
+pub const PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT: ProcessId = ProcessId::new(55);
 
 mod fabrication;
 mod ore;

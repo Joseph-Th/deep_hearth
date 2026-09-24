@@ -4,7 +4,6 @@ use deep_hearth::content::{
     PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
     PROSPECTING_INDEXED_CHANNEL_SURVEY, PROSPECTING_LOCAL_TRANSECT,
 };
-use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
@@ -13,7 +12,6 @@ use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelBounds;
 
 use super::super::seed::mix64;
-use super::extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
 use super::planning::project_sampling_hammer_upgrade_ticks;
 use super::preparation::upgrade_sampling_hammer;
 use super::survey::{CHANNEL_COUNT, FieldworkSurveyStrategy, horizontal_region, localize_target};
@@ -21,15 +19,12 @@ use super::survey::{CHANNEL_COUNT, FieldworkSurveyStrategy, horizontal_region, l
 #[derive(Clone, Copy)]
 pub(super) struct FieldworkCampaignSite {
     pub(super) start_x: i64,
-    pub(super) destination: StockpileId,
 }
 
 pub(super) struct FieldworkSurveyCampaignPlan<'a> {
     pub(super) raw: StockpileId,
     pub(super) parts: StockpileId,
     pub(super) hammer: EquipmentId,
-    pub(super) mining_equipment: EquipmentId,
-    pub(super) batch: Mass,
     pub(super) channel_voxels: i64,
     pub(super) sites: &'a [FieldworkCampaignSite],
     pub(super) planned_sites: u64,
@@ -37,8 +32,6 @@ pub(super) struct FieldworkSurveyCampaignPlan<'a> {
 
 struct CampaignExecutionPlan<'a> {
     hammer: EquipmentId,
-    mining_equipment: EquipmentId,
-    batch: Mass,
     channel_voxels: i64,
     sites: &'a [FieldworkCampaignSite],
 }
@@ -46,11 +39,7 @@ struct CampaignExecutionPlan<'a> {
 #[derive(Clone, Copy)]
 struct CampaignRun {
     search_ticks: u64,
-    extraction_ticks: u64,
-    extracted: Mass,
     first_search_ticks: u64,
-    first_extraction_ticks: u64,
-    first_extracted: Mass,
 }
 
 pub(super) struct FieldworkSurveyCampaignReview {
@@ -62,12 +51,8 @@ pub(super) struct FieldworkSurveyCampaignReview {
     pub(super) projected_indexed_search_ticks: Option<u64>,
     pub(super) baseline_search_ticks: u64,
     pub(super) selected_search_ticks: u64,
-    pub(super) extraction_ticks: u64,
-    pub(super) extracted: Mass,
     pub(super) realized_attention_delta: i128,
     pub(super) first_search_ticks: u64,
-    pub(super) first_extraction_ticks: u64,
-    pub(super) first_extracted: Mass,
 }
 
 #[derive(Clone, Copy)]
@@ -218,14 +203,10 @@ fn run_sites(
     plan: &CampaignExecutionPlan<'_>,
 ) -> CampaignRun {
     let mut search_ticks = 0_u64;
-    let mut extraction_ticks = 0_u64;
-    let mut extracted = Mass::ZERO;
     let mut first_search_ticks = None;
-    let mut first_extraction_ticks = None;
-    let mut first_extracted = None;
     for (index, site) in plan.sites.iter().enumerate() {
         let search_started_at = state.tick().value();
-        let localized = localize_target(
+        let _localized = localize_target(
             registries,
             state,
             plan.hammer,
@@ -237,45 +218,15 @@ fn run_sites(
         search_ticks = search_ticks
             .checked_add(site_search_ticks)
             .unwrap_or_else(|| panic!("fieldwork campaign search duration overflowed"));
-        let requested = plan.batch.min(localized.resource_mass.upper());
-        assert!(
-            !requested.is_zero(),
-            "fieldwork campaign acquired evidence must support nonzero extraction"
-        );
-        let extraction = execute_fieldwork_extraction(
-            registries,
-            state,
-            FieldworkExtractionOrder {
-                target: localized.target,
-                destination: site.destination,
-                equipment: plan.mining_equipment,
-                requested,
-                batch_limit: plan.batch,
-            },
-        );
-        extraction_ticks = extraction_ticks
-            .checked_add(extraction.ticks)
-            .unwrap_or_else(|| panic!("fieldwork campaign extraction duration overflowed"));
-        extracted = extracted
-            .checked_add(extraction.extracted)
-            .unwrap_or_else(|| panic!("fieldwork campaign extracted mass overflowed"));
         if index == 0 {
             first_search_ticks = Some(site_search_ticks);
-            first_extraction_ticks = Some(extraction.ticks);
-            first_extracted = Some(extraction.extracted);
         }
     }
     validate_loaded_state(registries, state)
         .unwrap_or_else(|error| panic!("fieldwork campaign state invalid: {error}"));
     CampaignRun {
         search_ticks,
-        extraction_ticks,
-        extracted,
         first_search_ticks: first_search_ticks
-            .unwrap_or_else(|| unreachable!("fieldwork campaign has at least one site")),
-        first_extraction_ticks: first_extraction_ticks
-            .unwrap_or_else(|| unreachable!("fieldwork campaign has at least one site")),
-        first_extracted: first_extracted
             .unwrap_or_else(|| unreachable!("fieldwork campaign has at least one site")),
     }
 }
@@ -291,8 +242,6 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
     assert!((1..=plan.sites.len()).contains(&site_count));
     let execution = CampaignExecutionPlan {
         hammer: plan.hammer,
-        mining_equipment: plan.mining_equipment,
-        batch: plan.batch,
         channel_voxels: plan.channel_voxels,
         sites: &plan.sites[..site_count],
     };
@@ -334,14 +283,6 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
     } else {
         (baseline, 0)
     };
-    assert_eq!(
-        selected.extraction_ticks, baseline.extraction_ticks,
-        "fieldwork survey strategy must not change extraction physics"
-    );
-    assert_eq!(
-        selected.extracted, baseline.extracted,
-        "fieldwork survey strategy must not change extracted matter"
-    );
     let selected_attention = selected
         .search_ticks
         .checked_add(upgrade_ticks)
@@ -355,13 +296,9 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
         projected_indexed_search_ticks: decision.projected_indexed_search_ticks,
         baseline_search_ticks: baseline.search_ticks,
         selected_search_ticks: selected.search_ticks,
-        extraction_ticks: selected.extraction_ticks,
-        extracted: selected.extracted,
         realized_attention_delta: i128::from(baseline.search_ticks)
             - i128::from(selected_attention),
         first_search_ticks: selected.first_search_ticks,
-        first_extraction_ticks: selected.first_extraction_ticks,
-        first_extracted: selected.first_extracted,
     }
 }
 

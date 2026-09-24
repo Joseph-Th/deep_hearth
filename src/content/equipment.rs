@@ -62,6 +62,10 @@ pub const EQUIPMENT_TIMBER_TREADLE_GRINDSTONE: EquipmentDefinitionId =
     EquipmentDefinitionId::new(39);
 pub const EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH: EquipmentDefinitionId =
     EquipmentDefinitionId::new(40);
+pub const EQUIPMENT_TIMBER_TREADLE_DYNAMO: EquipmentDefinitionId = EquipmentDefinitionId::new(41);
+pub const EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(42);
+pub const EQUIPMENT_STONE_INGOT_MOLD: EquipmentDefinitionId = EquipmentDefinitionId::new(43);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

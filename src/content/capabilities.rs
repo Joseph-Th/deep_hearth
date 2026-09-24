@@ -36,6 +36,7 @@ pub(crate) const CAPABILITY_WOOD_TURNING_FLOW: CapabilityId = CapabilityId::new(
 pub(crate) const CAPABILITY_POWERED_WOOD_TURNING_FLOW: CapabilityId = CapabilityId::new(29);
 pub(crate) const CAPABILITY_STONE_GRINDING_FLOW: CapabilityId = CapabilityId::new(30);
 pub(crate) const CAPABILITY_POWERED_STONE_GRINDING_FLOW: CapabilityId = CapabilityId::new(31);
+pub(crate) const CAPABILITY_TREADLE_DYNAMO_OUTPUT: CapabilityId = CapabilityId::new(32);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -202,6 +203,11 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_POWERED_STONE_GRINDING_FLOW,
             "mechanically powered abrasive stone-dressing throughput",
             CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_TREADLE_DYNAMO_OUTPUT,
+            "treadle dynamo electrical power output",
+            CapabilityValueKind::Power,
         ),
     ] {
         registry.register_capability(definition);

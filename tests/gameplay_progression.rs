@@ -8,6 +8,8 @@ mod output;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
+#[path = "gameplay_harness/first_foundry_probe.rs"]
+mod first_foundry_probe;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]

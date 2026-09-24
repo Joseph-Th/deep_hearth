@@ -7,6 +7,7 @@ use crate::content::crafted_parts::COPPER_REINFORCEMENT_MASS;
 use crate::content::materials::{FORM_REINFORCEMENT, MATERIAL_COPPER};
 
 mod dressing;
+mod foundry;
 mod metalworking;
 mod mining;
 mod power;
@@ -51,6 +52,9 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         woodworking::timber_flywheel_lathe(),
         toolroom::timber_treadle_grindstone(),
         toolroom::timber_flywheel_grinding_bench(),
+        foundry::timber_treadle_dynamo(),
+        foundry::stone_arc_crucible_furnace(),
+        foundry::stone_ingot_mold(),
     ]
 }
 

@@ -55,7 +55,7 @@ def _frontier_evidence(lines: list[str]) -> tuple[str, str]:
     )
     count = len(frontier_lines)
     readiness = (
-        "foundry-readiness=["
+        "industrial-foundry-readiness=["
         f"furnace-assembly-edge:{sum('assembly-edge=[furnace:true' in line for line in frontier_lines)}/{count} "
         f"mold-assembly-edge:{sum(re.search(r'assembly-edge=\[[^]]*\bmold:true', line) is not None for line in frontier_lines)}/{count} "
         f"electrical-buffer-assembly-edge:{sum('electrical-buffer:true' in line for line in frontier_lines)}/{count} "
@@ -68,8 +68,8 @@ def _frontier_evidence(lines: list[str]) -> tuple[str, str]:
     power_gap: list[int] = []
     for line in frontier_lines:
         scale = re.search(
-            r"energy-scale=\[manual-mechanical-max:(\d+)uW "
-            r"furnace-transfer-ceiling:(\d+)uW ceiling-ratio:(\d+)x "
+            r"energy-scale=\[manual-electrical-max:(\d+)uW "
+            r"industrial-furnace-transfer-ceiling:(\d+)uW ceiling-ratio:(\d+)x "
             r"melting-carrier:([^\s\]]+) conversion-path:([^\s\]]+)\]",
             line,
         )
@@ -79,14 +79,32 @@ def _frontier_evidence(lines: list[str]) -> tuple[str, str]:
         furnace_power.append(int(scale.group(2)))
         power_gap.append(int(scale.group(3)))
     energy_frontier = (
-        "foundry-energy-frontier=["
-        f"manual-mechanical-max:{scaled_span(manual_power, 1_000_000, 'W')} "
-        f"furnace-transfer-ceiling:{scaled_span(furnace_power, 1_000_000, 'W')} "
+        "industrial-foundry-frontier=["
+        f"manual-electrical-max:{scaled_span(manual_power, 1_000_000, 'W')} "
+        f"industrial-furnace-transfer-ceiling:{scaled_span(furnace_power, 1_000_000, 'W')} "
         f"ceiling-ratio:{_span(power_gap, 'x')} "
         f"electrical-melting:{sum('melting-carrier:Electrical' in line for line in frontier_lines)}/{count} "
-        f"conversion-path-absent:{sum('conversion-path:absent' in line for line in frontier_lines)}/{count}]"
+        f"conversion-path-present:{sum('conversion-path:present' in line for line in frontier_lines)}/{count}]"
     )
     return frontier, f"{readiness} {energy_frontier}"
+
+
+def _first_foundry(lines: list[str]) -> str:
+    witnesses = [line for line in lines if line.startswith("FIRST FOUNDRY EXPERIENCE ")]
+    fabrication = _numeric_values(witnesses, r"\bfabrication=(\d+)t/")
+    charge = _numeric_values(witnesses, r"\belectrical-charge=\[(\d+)t")
+    melt = _numeric_values(witnesses, r"\bmelt=\[(\d+)t")
+    cast = _numeric_values(witnesses, r"\bcast=\[(\d+)t")
+    cold_work = _numeric_values(witnesses, r"\bcold-work:(\d+)t")
+    total = _numeric_values(witnesses, r"\btotal=(\d+)t/")
+    closed = sum(" continuation=closed-loop" in line for line in witnesses)
+    return (
+        "first-foundry=["
+        f"executed:{len(witnesses)} closed-loop:{closed}/{len(witnesses)} "
+        f"fabrication:{_span(fabrication, 't')} charge:{_span(charge, 't')} "
+        f"melt:{_span(melt, 't')} cast:{_span(cast, 't')} "
+        f"ingot-rework:{_span(cold_work, 't')} total:{_span(total, 't')}]"
+    )
 
 
 def _kit_acquisition(lines: list[str]) -> str:
@@ -232,6 +250,44 @@ def _route_tradeoff(lines: list[str]) -> str:
     )
 
 
+def _kit_decision(lines: list[str]) -> str:
+    payback_jobs: list[int] = []
+    planned_batches: list[int] = []
+    selected_kit = 0
+    selected_manual = 0
+    for line in lines:
+        if not line.startswith("LIBERATION ROUTE TRADEOFF "):
+            continue
+        manual = re.search(r"manual=\[attention:(\d+)t", line)
+        powered = re.search(r"powered=\[elapsed:\d+t charge-attention:(\d+)t", line)
+        kit = re.search(r"base-kit=\[executed attention:(\d+)t", line)
+        campaign = re.search(r"campaign=\[planned:(\d+)batches", line)
+        if None in (manual, powered, kit, campaign):
+            continue
+        assert manual is not None
+        assert powered is not None
+        assert kit is not None
+        assert campaign is not None
+        saved = int(manual.group(1)) - int(powered.group(1))
+        if saved <= 0:
+            continue
+        payback = (int(kit.group(1)) + saved - 1) // saved
+        planned = int(campaign.group(1))
+        payback_jobs.append(payback)
+        planned_batches.append(planned)
+        if planned >= payback:
+            selected_kit += 1
+        else:
+            selected_manual += 1
+    return (
+        "kit-decision=["
+        f"attention-payback:{_span(payback_jobs, 'jobs')} "
+        f"disclosed-horizon:{_span(planned_batches, 'batches')} "
+        f"selected:kit{selected_kit}/manual{selected_manual} "
+        "policy=manual-below-payback;kit-at-or-above]"
+    )
+
+
 def liberation_summary(lines: list[str]) -> str | None:
     liberation = [
         line for line in lines if line.startswith("LIBERATION FRONTIER CAPABILITY ")
@@ -253,19 +309,19 @@ def liberation_summary(lines: list[str]) -> str | None:
     )
     marginal_attention, marginal_native = _scavenger_marginal(lines)
     frontier, foundry_readiness = _frontier_evidence(lines)
-    selected = sum(
-        "selected-by-current-player=true" in line for line in liberation
-    )
+    cleanup_executed = sum("cleanup-executed=true" in line for line in liberation)
     usable_sink = sum(
-        "reason=ordinary-concentrate-cleanup-available" in line for line in liberation
+        "reason=required-native-copper-conversion" in line for line in liberation
     )
     return (
         "ORDINARY SUMMARY probe=primitive-liberation "
-        f"samples={len(liberation)} current-player-selected={selected}/{len(liberation)} "
+        f"samples={len(liberation)} cleanup-executed={cleanup_executed}/{len(liberation)} "
         f"final-concentrate-grade={grade_span} native-copper={native_span} "
         f"scavenger-copper={scavenged_span} "
         f"scavenger-marginal=[attention:{marginal_attention} native:{marginal_native}] "
         f"{_kit_acquisition(lines)} "
+        f"{_kit_decision(lines)} "
+        f"{_first_foundry(lines)} "
         f"{_route_tradeoff(lines)} "
         f"conserved={sum('matter=conserved' in line for line in liberation)} "
         f"ordinary-loop=[concentrate-reachable:{len(liberation)}/{len(liberation)} "

@@ -13,6 +13,7 @@ class _LoopEvidenceLines:
     progression: list[str]
     progression_reviews: list[str]
     liberation: list[str]
+    first_foundry: list[str]
     woodworking: list[str]
     fieldwork: list[str]
     power: list[str]
@@ -32,6 +33,7 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
         progression=_lines_with_prefix(lines, "PROGRESSION EXPERIENCE "),
         progression_reviews=_lines_with_prefix(lines, "PROGRESSION REVIEW "),
         liberation=_lines_with_prefix(lines, "LIBERATION FRONTIER CAPABILITY "),
+        first_foundry=_lines_with_prefix(lines, "FIRST FOUNDRY EXPERIENCE "),
         woodworking=_lines_with_prefix(lines, "WOODWORKING EXPERIENCE "),
         fieldwork=_lines_with_prefix(lines, "FIELDWORK EXPERIENCE "),
         power=_lines_with_prefix(lines, "POWER PROVIDER EXPERIENCE "),
@@ -54,7 +56,8 @@ def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
         f"single-state-progression:{single_state}/{len(evidence.progression_reviews)} "
         f"domain-episodes:survival{len(evidence.survival)}/"
         f"woodworking{len(evidence.woodworking)}/fieldwork{len(evidence.fieldwork)}/"
-        f"power{len(evidence.power)}/liberation{len(evidence.liberation)}]"
+        f"power{len(evidence.power)}/liberation{len(evidence.liberation)}/"
+        f"first-foundry{len(evidence.first_foundry)}]"
     )
 
 
@@ -68,12 +71,24 @@ def _observe_infer_evidence(fieldwork: list[str], extracted: int) -> str:
 
 
 def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: int) -> str:
-    selected_liberation = sum(
-        "selected-by-current-player=true" in line for line in liberation
-    )
+    completed_liberation = sum("cleanup-executed=true" in line for line in liberation)
     return (
         f"extract=[fieldwork:{extracted}/{len(fieldwork)} "
-        f"liberation:{selected_liberation}/{len(liberation)}]"
+        f"liberation-native-copper:{completed_liberation}/{len(liberation)}]"
+    )
+
+
+def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
+    closed = sum(" continuation=closed-loop" in line for line in first_foundry)
+    returned_reinforcement = sum(
+        " downstream=[ingot:20000mg reinforcement:20000mg " in line
+        for line in first_foundry
+    )
+    return (
+        "thermal-bootstrap=["
+        f"foundry:{len(first_foundry)} "
+        f"closed:{closed}/{len(first_foundry)} "
+        f"cast-reuse:{returned_reinforcement}/{len(first_foundry)}]"
     )
 
 
@@ -304,13 +319,78 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
     indexed_shortfall = sum(
         " strategy=indexed-channel " in line for line in shortfall_recoveries
     )
+    geology_changed = sum(
+        (match := re.search(r"\bhardness-tier-changes:(\d+)", line)) is not None
+        and int(match.group(1)) > 0
+        for line in shortfall_recoveries
+    )
+    retooled = sum(
+        (match := re.search(r"\btool-builds:(\d+)", line)) is not None
+        and int(match.group(1)) > 0
+        for line in shortfall_recoveries
+    )
+    shortfall_salvaged = sum(
+        (match := re.search(r"\bsalvage-retools:(\d+)", line)) is not None
+        and int(match.group(1)) > 0
+        for line in shortfall_recoveries
+    )
+    blocked_sites = sum(
+        int(match.group(1))
+        for line in shortfall_recoveries
+        if (match := re.search(r"\bblocked-sites:(\d+)", line)) is not None
+    )
+    shortfall_ore_funded = sum(
+        (match := re.search(r"\bore-recovery-events:(\d+)", line)) is not None
+        and int(match.group(1)) > 0
+        for line in shortfall_recoveries
+    )
+    shortfall_ore_payback = sum(
+        int(match.group(1))
+        for line in shortfall_recoveries
+        if (match := re.search(r"\bore-recovery-payback:(\d+)", line)) is not None
+    )
+    shortfall_ore_required = sum(
+        int(match.group(1))
+        for line in shortfall_recoveries
+        if (match := re.search(r"\bore-recovery-required-access:(\d+)", line)) is not None
+    )
+    depletion_salvaged = sum(
+        line.startswith("FIELDWORK DEPLETION RECOVERY ") and " salvage=true " in line
+        for line in lines
+    )
+    depletion_ore_funded = sum(
+        line.startswith("FIELDWORK DEPLETION RECOVERY ")
+        and (match := re.search(r"\bore-recovery=\[reason:[^\s]+ ticks:(\d+)", line))
+        is not None
+        and int(match.group(1)) > 0
+        for line in lines
+    )
+    depletion_ore_payback = sum(
+        line.startswith("FIELDWORK DEPLETION RECOVERY ")
+        and " ore-recovery=[reason:payback " in line
+        for line in lines
+    )
+    depletion_ore_required = sum(
+        line.startswith("FIELDWORK DEPLETION RECOVERY ")
+        and " ore-recovery=[reason:required-access " in line
+        for line in lines
+    )
     return (
         "world-feedback=["
         f"initial-supply-ended:{initial_supply_ended}/{len(fieldwork)} "
         f"initial-shortfall-campaign-progressed:{initial_reroute_proved}/{initial_supply_ended} "
         f"shortfall-knowledge-upgrade:{indexed_shortfall}/{len(shortfall_recoveries)} "
+        f"relocation-geology-changed:{geology_changed}/{len(shortfall_recoveries)} "
+        f"relocation-retooled:{retooled}/{len(shortfall_recoveries)} "
+        f"relocation-salvaged:{shortfall_salvaged}/{len(shortfall_recoveries)} "
+        f"relocation-ore-funded:{shortfall_ore_funded}/{len(shortfall_recoveries)}"
+        f"(payback:{shortfall_ore_payback}/access:{shortfall_ore_required}) "
+        f"relocation-blocked-sites:{blocked_sites} "
         f"known-site-depletion:{depleted}/{len(eligible)} "
         f"depletion-reroute-proved:{reroute_proved}/{depleted} "
+        f"depletion-salvaged:{depletion_salvaged}/{depleted} "
+        f"depletion-ore-funded:{depletion_ore_funded}/{depleted}"
+        f"(payback:{depletion_ore_payback}/access:{depletion_ore_required}) "
         f"horizon-live:{sum(' terminal=horizon-live-target ' in line for line in eligible)}/{len(eligible)}]"
     )
 
@@ -322,6 +402,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         (
             evidence.progression,
             evidence.liberation,
+            evidence.first_foundry,
             evidence.woodworking,
             evidence.fieldwork,
             evidence.power,
@@ -338,6 +419,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
         f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.survey_campaigns, evidence.shortfall_recoveries)} "
         f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted)} "
+        f"{_thermal_bootstrap_evidence(evidence.first_foundry)} "
         f"{_world_feedback_evidence(lines, evidence.fieldwork)} "
         f"{_survival_adaptation_evidence(evidence.survival, evidence.power_projects)} "
         f"{_maintenance_evidence(evidence.woodworking, evidence.power_projects)} "

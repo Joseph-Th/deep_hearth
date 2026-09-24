@@ -11,8 +11,8 @@ use crate::labor::{
 use crate::survival::SurvivalExertion;
 
 use super::capabilities::{
-    CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_POWER_OUTPUT,
-    CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
+    CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_TREADLE_DYNAMO_OUTPUT,
+    CAPABILITY_TREADLE_POWER_OUTPUT, CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
 };
 use super::equipment::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
@@ -21,6 +21,7 @@ use super::equipment::{
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
+pub const MANUAL_POWER_TREADLE_DYNAMO: ManualPowerMethodId = ManualPowerMethodId::new(4);
 pub const PROSPECTING_FIELD_INSPECTION: ProspectingMethodId = ProspectingMethodId::new(1);
 pub const PROSPECTING_DETAILED_FIELD_SURVEY: ProspectingMethodId = ProspectingMethodId::new(2);
 pub const PROSPECTING_REGIONAL_RECONNAISSANCE: ProspectingMethodId = ProspectingMethodId::new(3);
@@ -39,6 +40,20 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(3_000_000_000_000),
                     Volume::from_microliters(350),
+                ),
+            ),
+            // The first ordinary electrical route stays direct player work. The equipment's
+            // capability is electrical output after generator losses; the lower metabolic
+            // efficiency captures the additional conversion penalty relative to a direct treadle.
+            ManualPowerDefinition::new(
+                MANUAL_POWER_TREADLE_DYNAMO,
+                CAPABILITY_TREADLE_DYNAMO_OUTPUT,
+                EnergyCarrier::Electrical,
+                180_000,
+                20,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(3_000_000_000_000),
+                    Volume::from_microliters(420),
                 ),
             ),
             ManualPowerDefinition::new(

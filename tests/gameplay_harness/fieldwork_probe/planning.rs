@@ -10,10 +10,10 @@ pub(super) use materials::{
     project_sampling_hammer_upgrade_ticks,
 };
 #[cfg(test)]
+pub(super) use tools::choose_fieldwork_tool;
 pub(super) use tools::{
-    FIELDWORK_TOOLS, FieldworkToolBlocker, choose_fieldwork_tool, estimate_fieldwork_tool,
-};
-pub(super) use tools::{
-    FieldworkMiningLimits, FieldworkTool, FieldworkToolEstimate,
-    choose_fieldwork_tool_with_market_phase, fieldwork_bulk_crossover, fieldwork_mining_limits,
+    FIELDWORK_ORDER_MAX_BATCHES, FIELDWORK_TOOLS, FieldworkMiningLimits, FieldworkTool,
+    FieldworkToolBlocker, FieldworkToolEstimate, choose_fieldwork_tool_quiet,
+    choose_fieldwork_tool_with_market_phase, estimate_fieldwork_tool, fieldwork_bulk_crossover,
+    fieldwork_mining_limits,
 };

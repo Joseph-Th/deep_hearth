@@ -25,12 +25,23 @@ fn craft_equipment_components(
     let mut ticks = 0_u64;
     for (commodity, required) in equipment_component_requirements(registries, equipment_definitions)
     {
+        let available = state
+            .inventory()
+            .get_stockpile(parts)
+            .unwrap_or_else(|| panic!("fieldwork parts stockpile disappeared"))
+            .get_mass(commodity);
+        if available >= required {
+            continue;
+        }
+        let missing = required
+            .checked_sub(available)
+            .unwrap_or_else(|| unreachable!("fieldwork checked existing component mass"));
         let (craft, batches, source) = manual_craft_plan_for_available_output(
             registries,
             state,
             &[raw],
             commodity,
-            required,
+            missing,
             context,
         );
         let duration = execute_manual_craft_batches(
@@ -165,12 +176,24 @@ fn craft_upgrade_additions(
         });
     let mut ticks = 0_u64;
     for input in upgrade.additions().inputs() {
+        let available = state
+            .inventory()
+            .get_stockpile(parts)
+            .unwrap_or_else(|| panic!("fieldwork parts stockpile disappeared"))
+            .get_mass(input.commodity());
+        if available >= input.mass() {
+            continue;
+        }
+        let missing = input
+            .mass()
+            .checked_sub(available)
+            .unwrap_or_else(|| unreachable!("fieldwork checked existing upgrade component mass"));
         let (craft, batches, source) = manual_craft_plan_for_available_output(
             registries,
             state,
             &[raw],
             input.commodity(),
-            input.mass(),
+            missing,
             context,
         );
         let duration = execute_manual_craft_batches(

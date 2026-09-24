@@ -76,6 +76,13 @@ mod planning_tests;
 mod preparation;
 use preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
 
+#[path = "fieldwork_probe/retooling.rs"]
+mod retooling;
+
+#[cfg(test)]
+#[path = "fieldwork_probe/retooling_tests.rs"]
+mod retooling_tests;
+
 #[path = "fieldwork_probe/survey.rs"]
 mod survey;
 use survey::{
@@ -231,12 +238,8 @@ fn run_fieldwork_with_supply(
         parts,
         destination,
         followup_destination,
-        campaign_destinations:
-            [
-                next_site_destination,
-                tertiary_site_destination,
-                quaternary_site_destination,
-            ],
+        recovery_crushed,
+        recovery_residue,
         channel_voxels,
         mining_limits,
         geology_label,
@@ -294,6 +297,7 @@ fn run_fieldwork_with_supply(
         registries,
         &state,
         raw,
+        parts,
         observed_hardness.upper(),
         requested_mine_mass,
         "full-order-before-reserve-scale",
@@ -302,6 +306,7 @@ fn run_fieldwork_with_supply(
         registries,
         &state,
         raw,
+        parts,
         observed_hardness.upper(),
         planned_local_mass,
         "acquired-evidence",
@@ -338,6 +343,7 @@ fn run_fieldwork_with_supply(
         registries,
         &state,
         raw,
+        parts,
         observed_hardness.upper(),
         mining_limits.base_quarry_batch,
     ) {
@@ -386,15 +392,12 @@ fn run_fieldwork_with_supply(
     let campaign_sites = [
         FieldworkCampaignSite {
             start_x: SECONDARY_CHANNEL_START_X,
-            destination: next_site_destination,
         },
         FieldworkCampaignSite {
             start_x: TERTIARY_CHANNEL_START_X,
-            destination: tertiary_site_destination,
         },
         FieldworkCampaignSite {
             start_x: QUATERNARY_CHANNEL_START_X,
-            destination: quaternary_site_destination,
         },
     ];
     let survey_campaign = evaluate_fieldwork_survey_campaign(
@@ -404,8 +407,6 @@ fn run_fieldwork_with_supply(
             raw,
             parts,
             hammer,
-            mining_equipment,
-            batch: estimate.batch,
             channel_voxels,
             sites: &campaign_sites,
             planned_sites: planned_future_sites(seed),
@@ -431,8 +432,10 @@ fn run_fieldwork_with_supply(
         order_horizon,
         raw,
         parts,
+        ore_source: destination,
         followup_destination,
-        reroute_destination: next_site_destination,
+        recovery_crushed,
+        recovery_residue,
         sampling_hammer: hammer,
         channel_voxels,
         mining_equipment,

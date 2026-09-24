@@ -1598,7 +1598,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 geology=quarry-soft full-order-tool=copper-reinforced-hard-pick tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
             "FIELDWORK EXPERIENCE seed=0x2 sample=coverage outcome=known-target-supply order-horizon=project field-inspections=3 geology=quarry-reinforcement full-order-tool=stone-pick tool=copper-reinforced-quarry copper-opportunity=available requested=200mg planned-local-work=80mg mining=50mg resource-knowledge-effect=changed-tool",
             "FIELDWORK EXPERIENCE seed=0x3 sample=organic outcome=completed order-horizon=project field-inspections=2 geology=hard-pick-specialist full-order-tool=stone-quarry tool=copper-reinforced-hard-pick copper-opportunity=available requested=300mg planned-local-work=300mg mining=300mg resource-knowledge-effect=same-tool",
-            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x2 initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=true survey-base-kit-reused=true strategy=indexed-channel survey-upgrade=40t projected-search=[point:234t indexed:202t] realized=[baseline-search:228t selected-search:162t upgrade:40t attention-delta:+26t] sites-visited=3 search=162t/9.7m extraction=12t/43.2s initial-extracted=50mg additional-extracted=100mg fulfilled=150mg requested=200mg fulfillment=750000ppm remaining=50mg terminal=local-search-area-exhausted",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x2 initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=false survey-base-kit-reused=true strategy=indexed-channel survey-upgrade=40t projected-search=[point:234t indexed:202t] realized=[baseline-search:228t selected-search:162t upgrade:40t attention-delta:+26t total-attention-delta:+16t] adaptation=[hardness-tier-changes:2 tool-builds:1 tool-switches:1 blocked-sites:1 tool-preparation:10t ore-recovery-events:1 ore-recovery-required-access:0 ore-recovery-payback:1 ore-recovery:8t ore-feed:30mg native-recovered:20mg baseline-fulfilled:140mg fulfillment-delta:+10mg] sites-visited=3 search=162t/9.7m extraction=12t/43.2s initial-extracted=50mg additional-extracted=100mg fulfilled=150mg requested=200mg fulfillment=750000ppm remaining=50mg terminal=local-search-area-exhausted",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn("sample-shape=[anchor:1 coverage:1 organic:1 replay:0]", summary)
@@ -1618,7 +1618,10 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("orders=[short:1 project:2 bulk:0]", summary)
         self.assertIn(
             "initial-shortfall-campaign=[cases:1 strategy:point0/indexed1 survey-upgrade:40..40t "
-            "projected-search-saving:32..32t realized=[positive:1 negative:0 flat:0 delta:+26..+26t] "
+            "realized-search=[positive:1 negative:0 flat:0 delta:+26..+26t] "
+            "realized-total=[positive:1 negative:0 flat:0 delta:+16..+16t] "
+            "adaptation=[geology-changed:1/1 retooled:1/1 salvaged:0/1 ore-funded:1/1(payback:1/access:0) "
+            "blocked-sites:1..1 fulfillment-delta:+10..+10mg] "
             "completed:0 local-area-exhausted:1 sites:3..3 "
             "fulfillment:750000..750000ppm remaining:50..50mg]",
             summary,
@@ -1656,16 +1659,17 @@ class LocalCiPlanTests(unittest.TestCase):
             "LIBERATION COST seed=0x1 scavenger-marginal=[attention:17t native:6mg]",
             "LIBERATION KIT ACQUISITION seed=0x1 scope=raw-stone+logs->adze+reusable-base-processing-kit disclosed-campaign=8batches workload-known-before-build=true raw=[stone:8000000mg wood:15400000mg total:23400000mg] built=[adze:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:404t body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
             "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
-            "LIBERATION FRONTIER CAPABILITY seed=0x1 selected-by-current-player=true reason=ordinary-concentrate-cleanup-available input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
-            "LIBERATION FRONTIER seed=0x1 remaining-frontier=foundry-infrastructure foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:false support-required=[furnace:true mold:true] energy-scale=[manual-mechanical-max:150000000uW furnace-transfer-ceiling:2000000000000uW ceiling-ratio:13333x melting-carrier:Electrical conversion-path:absent]] reachability-authority=STATUS.md",
+            "LIBERATION FRONTIER CAPABILITY seed=0x1 cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
+            "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-continuation-after-native-copper upstream=primitive-liberation-proved raw-opportunity=[stone:12000000mg wood:12000000mg native:180000mg] fabrication=800t/48.0m electrical-charge=[35t 12300000000000nJ body:100nJ/20uL] melt=[35t 2.1m] cast=[18t 1.1m heat:12300000000000nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:45t] total=898t/53.9m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=closed-loop",
+            "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
             "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg geology=quarry-soft tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
             "FIELDWORK CONTINUATION seed=0x1 available=true reused-knowledge=true reused-tool=true requested=1mg extracted=1mg extraction=2t/7.2s avoided-search=10t/36.0s avoided-kit=50t/3.0m stop=order-complete scope=matched-repeat-order destination-capacity=diagnostic-only",
             "FIELDWORK DEPLETION seed=0x1 eligible=true repeat-orders=[complete:2 partial:1 horizon:12] extracted=5mg attention=6t/21.6s supply-ended=true terminal=short-claim condition-after=990000ppm body=[energy:1000000000000nJ hydration:1000uL] scope=matched-orders-on-known-site no-search=true no-new-tool=true diagnostic-only=true",
-            "FIELDWORK DEPLETION RECOVERY seed=0x1 depletion-observed=true reroute-proved=true evidence=matched-new-site-branch post-depletion-execution=false mining-tool-reused=true survey-base-kit-reused=true strategy=indexed-channel survey-upgrade=4t search=10t/36.0s extraction=3t/10.8s extracted=1mg",
-            "FIELDWORK SITE REUSE seed=0x1 available=true kit-reused=true knowledge-reused=false search=10t/36.0s extraction=3t/10.8s requested=1mg extracted=1mg first-expedition-kit=50t/3.0m scope=new-site-first-batch upgrade-cost-reported-separately=true",
-            "FIELDWORK SURVEY CAMPAIGN seed=0x1 planned-sites=3 upgrade-available=true selected=indexed-channel policy=min-expected-search-attention-with-minimum-return minimum-return=100000ppm projected=[point:30t indexed:26t] realized=[baseline-search:34t selected-search:22t upgrade:4t attention-delta:+8t] extraction=3t extracted=1mg choice-frozen-before-branch=true",
+            "FIELDWORK DEPLETION RECOVERY seed=0x1 depletion-observed=true reroute-proved=true evidence=executed-from-depleted-state post-depletion-execution=true mining-tool-reused=false selected-tool=copper-reinforced-hard-pick retool=10t ore-recovery=[reason:payback ticks:8 feed:30mg native:20mg] survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search=10t/36.0s extraction=3t/10.8s extracted=1mg stop=order-complete",
+            "FIELDWORK SITE REUSE seed=0x1 available=true kit-reused=true knowledge-reused=false strategy=indexed-channel search=10t/36.0s first-expedition-kit=50t/3.0m scope=new-site-search-only extraction-evaluated-by-lived-reroute=true upgrade-cost-reported-separately=true",
+            "FIELDWORK SURVEY CAMPAIGN seed=0x1 planned-sites=3 upgrade-available=true selected=indexed-channel policy=min-expected-search-attention-with-minimum-return minimum-return=100000ppm projected=[point:30t indexed:26t] realized=[baseline-search:34t selected-search:22t upgrade:4t attention-delta:+8t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
             "FIELDWORK TOOL MARKET phase=acquired-evidence selected=stone-pick selected-total=24t heavy-best=stone-quarry heavy-total=37t heavy-preparation-extra=+20t heavy-order-saving=+7t heavy-total-delta=+13t heavy-investment=deferred",
             "FIELDWORK BULK CROSSOVER seed=0x1 available=true tool=stone-quarry order=16000000mg base-batches=32 current-order=1000000mg scope=diagnostic-visible-state no-hidden-reserve=true",
             "FIELDWORK PACING seed=0x1 search=10t/36.0s sampling-tool=20t/72.0s extraction-tool=30t/108.0s extraction=4t/14.4s batches=1 first-ore=64t/3.8m episode-end=64t/3.8m output=1mg outcome=completed requested=1mg scope=raw-tools-and-preowned-copper-to-first-ore repeat-extraction-excludes-discovery=true output-grade=500000ppm",
@@ -1720,7 +1724,20 @@ class LocalCiPlanTests(unittest.TestCase):
             "disclosed-order-attention=[manual:2470..2470t mechanized:429..429t saved:2041..2041t]",
             concise,
         )
-        self.assertIn("remaining-frontier=foundry-infrastructure", concise)
+        self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
+        self.assertIn("cleanup-executed=1/1", concise)
+        self.assertIn(
+            "first-foundry=[executed:1 closed-loop:1/1 fabrication:800..800t charge:35..35t melt:35..35t cast:18..18t ingot-rework:45..45t total:898..898t]",
+            concise,
+        )
+        self.assertIn(
+            "industrial-foundry-frontier=[manual-electrical-max:100..100W industrial-furnace-transfer-ceiling:2000000..2000000W ceiling-ratio:20000..20000x electrical-melting:1/1 conversion-path-present:1/1]",
+            concise,
+        )
+        self.assertIn(
+            "kit-decision=[attention-payback:8..8jobs disclosed-horizon:8..8batches selected:kit1/manual0 policy=manual-below-payback;kit-at-or-above]",
+            concise,
+        )
         self.assertIn("choice=[saw:0 adze:0 bare:1]", concise)
         self.assertIn(
             "heavy-tool-market=[selected:0 deferred:1 unavailable:0",

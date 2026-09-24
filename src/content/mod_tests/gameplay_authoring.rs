@@ -1,6 +1,7 @@
 //! Built-in gameplay authoring and ordinary progression contract tests.
 
 use super::*;
+use crate::crafting::ManualCraftOutput;
 
 #[test]
 fn phase_change_definitions_require_authored_phase_directions() {
@@ -123,6 +124,9 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_TIMBER_ORE_DRESSING_TABLE,
         EQUIPMENT_STONE_COBBING_HAMMER,
         EQUIPMENT_TIMBER_DRESSING_BENCH,
+        EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+        EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+        EQUIPMENT_STONE_INGOT_MOLD,
     ] {
         assert!(registries.equipment().get_equipment(equipment).is_some());
     }
@@ -961,6 +965,116 @@ fn retained_primitive_residue_has_one_coherent_later_concentration_route() {
     assert!(
         has_direct_fines && has_regrind_oversize,
         "ordinary grinding must create both immediately usable fines and physically necessary oversize rework"
+    );
+}
+
+#[test]
+fn first_foundry_content_forms_an_ordinary_electrical_casting_chain() {
+    let registries = build_registries();
+    let method = registries
+        .labor()
+        .get_manual_power(MANUAL_POWER_TREADLE_DYNAMO)
+        .unwrap_or_else(|| panic!("first-foundry electrical labor method disappeared"));
+    assert_eq!(method.carrier(), EnergyCarrier::Electrical);
+    assert_eq!(
+        method.power_capability(),
+        capabilities::CAPABILITY_TREADLE_DYNAMO_OUTPUT
+    );
+
+    let dynamo = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_TREADLE_DYNAMO)
+        .unwrap_or_else(|| panic!("first-foundry dynamo disappeared"));
+    assert!(!dynamo.requires_structural_support());
+    assert!(dynamo.assembly_profile().is_some());
+    assert_eq!(
+        dynamo
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_TREADLE_DYNAMO_OUTPUT),
+        Some(CapabilityValue::Power(Power::from_microwatts(100_000_000)))
+    );
+
+    for equipment in [
+        EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+        EQUIPMENT_STONE_INGOT_MOLD,
+    ] {
+        let definition = registries
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("first-foundry thermal equipment disappeared"));
+        assert!(!definition.requires_structural_support());
+        assert!(definition.assembly_profile().is_some());
+        assert_eq!(
+            definition
+                .capabilities()
+                .get_capability(capabilities::CAPABILITY_THERMAL_BATCH),
+            Some(CapabilityValue::Mass(Mass::from_milligrams(20_000)))
+        );
+        assert_eq!(
+            definition
+                .capabilities()
+                .get_capability(capabilities::CAPABILITY_THERMAL_MAX_TEMPERATURE),
+            Some(CapabilityValue::Temperature(Temperature::from_millikelvin(
+                1_450_000
+            )))
+        );
+    }
+
+    let electrical = registries
+        .energy()
+        .get_store(ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER)
+        .unwrap_or_else(|| panic!("first-foundry electrical buffer disappeared"));
+    assert_eq!(electrical.carrier(), EnergyCarrier::Electrical);
+    assert_eq!(
+        electrical.capacity(),
+        Energy::from_nanojoules(15_000_000_000_000)
+    );
+    assert_eq!(
+        electrical.max_input_power(),
+        Power::from_microwatts(100_000_000)
+    );
+    assert_eq!(
+        electrical.max_output_power(),
+        Power::from_microwatts(100_000_000)
+    );
+    assert!(electrical.assembly_profile().is_some());
+
+    let thermal = registries
+        .energy()
+        .get_store(ENERGY_STONE_THERMAL_SINK)
+        .unwrap_or_else(|| panic!("first-foundry thermal sink disappeared"));
+    assert_eq!(thermal.carrier(), EnergyCarrier::Thermal);
+    assert_eq!(
+        thermal.capacity(),
+        Energy::from_nanojoules(15_000_000_000_000)
+    );
+    assert_eq!(
+        thermal.max_input_power(),
+        Power::from_microwatts(200_000_000)
+    );
+    assert_eq!(thermal.max_output_power(), Power::ZERO);
+    assert_eq!(
+        thermal.passive_dissipation_power(),
+        Power::from_microwatts(20_000_000)
+    );
+    assert!(thermal.assembly_profile().is_some());
+
+    let rework = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("first-foundry ingot rework disappeared"));
+    assert_eq!(
+        rework.input(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
+    );
+    assert_eq!(rework.input_mass(), Mass::from_milligrams(20_000));
+    assert_eq!(rework.duration(), TickSpan::new(45));
+    assert_eq!(
+        rework.outputs(),
+        &[ManualCraftOutput::new(
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            Mass::from_milligrams(20_000),
+        )]
     );
 }
 

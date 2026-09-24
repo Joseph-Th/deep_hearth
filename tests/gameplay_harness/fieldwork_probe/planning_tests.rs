@@ -84,10 +84,15 @@ fn preparation_cost_selects_light_tools_for_short_orders() {
 fn fieldwork_planning_fixture(
     registries: &Registries,
     include_copper: bool,
-) -> (AppState, StockpileId) {
+) -> (AppState, StockpileId, StockpileId) {
     let mut state = AppState::new();
-    let (raw_opportunity, capacity) = fieldwork_raw_opportunity(registries);
-    let raw = add_solid_stockpile(&mut state, capacity);
+    let (raw_opportunity, parts_capacity) = fieldwork_raw_opportunity(registries);
+    let raw_capacity = raw_opportunity
+        .values()
+        .copied()
+        .try_fold(Mass::ZERO, |total, mass| total.checked_add(mass))
+        .unwrap_or_else(|| panic!("fieldwork planning raw capacity overflowed"));
+    let raw = add_solid_stockpile(&mut state, raw_capacity);
     for (commodity, mass) in raw_opportunity {
         if include_copper || commodity.material() != MATERIAL_COPPER {
             seed_lot(
@@ -100,33 +105,35 @@ fn fieldwork_planning_fixture(
             );
         }
     }
+    let parts = add_solid_stockpile(&mut state, parts_capacity);
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("fieldwork planning survival failed: {error}"));
-    (state, raw)
+    (state, raw, parts)
 }
 
 #[test]
 fn candidate_frame_respects_visible_hardness_and_finite_copper() {
     let registries = deep_hearth::content::build_registries();
     let limits = fieldwork_mining_limits(&registries);
-    let (state, raw) = fieldwork_planning_fixture(&registries, false);
+    let (state, raw, parts) = fieldwork_planning_fixture(&registries, false);
     let before = state.clone();
     let selected = choose_fieldwork_tool(
         &registries,
         &state,
         raw,
+        parts,
         limits.base_quarry_hardness,
         limits.base_quarry_batch,
     )
     .unwrap_or_else(|| panic!("stone route remains available"));
     assert_eq!(selected.tool.target, EQUIPMENT_STONE_PICK);
     assert!(
-        matches!(estimate_fieldwork_tool(&registries, &state, raw, FIELDWORK_TOOLS[1],
+        matches!(estimate_fieldwork_tool(&registries, &state, raw, parts, FIELDWORK_TOOLS[1],
         limits.reinforced_quarry_hardness, limits.base_quarry_batch),
         Err(FieldworkToolBlocker::RawInput { commodity, .. }) if commodity.material() == MATERIAL_COPPER)
     );
     assert!(
-        matches!(estimate_fieldwork_tool(&registries, &state, raw, FIELDWORK_TOOLS[2],
+        matches!(estimate_fieldwork_tool(&registries, &state, raw, parts, FIELDWORK_TOOLS[2],
         limits.reinforced_quarry_hardness, limits.base_quarry_batch),
         Err(FieldworkToolBlocker::AcquiredHardness { upper, maximum })
             if upper == limits.reinforced_quarry_hardness && maximum == limits.base_quarry_hardness)
@@ -136,6 +143,7 @@ fn candidate_frame_respects_visible_hardness_and_finite_copper() {
             &registries,
             &state,
             raw,
+            parts,
             limits.reinforced_quarry_hardness,
             limits.base_quarry_batch
         )
@@ -151,7 +159,7 @@ fn candidate_frame_respects_visible_hardness_and_finite_copper() {
 fn heavy_stone_quarry_pick_has_a_pre_copper_bulk_extraction_niche() {
     let registries = deep_hearth::content::build_registries();
     let limits = fieldwork_mining_limits(&registries);
-    let (state, raw) = fieldwork_planning_fixture(&registries, false);
+    let (state, raw, parts) = fieldwork_planning_fixture(&registries, false);
     let mut quarry_order = None;
 
     for batches in [1_u64, 2, 4, 8, 16, 32, 64, 128, 256] {
@@ -160,9 +168,14 @@ fn heavy_stone_quarry_pick_has_a_pre_copper_bulk_extraction_niche() {
             batches,
             "stone-quarry niche order",
         );
-        let Some(selected) =
-            choose_fieldwork_tool(&registries, &state, raw, limits.base_quarry_hardness, order)
-        else {
+        let Some(selected) = choose_fieldwork_tool(
+            &registries,
+            &state,
+            raw,
+            parts,
+            limits.base_quarry_hardness,
+            order,
+        ) else {
             continue;
         };
         if selected.tool.target == EQUIPMENT_STONE_QUARRY_PICK {
@@ -181,7 +194,7 @@ fn heavy_stone_quarry_pick_has_a_pre_copper_bulk_extraction_niche() {
 fn reinforced_quarry_pick_has_a_bulk_medium_hardness_niche() {
     let registries = deep_hearth::content::build_registries();
     let limits = fieldwork_mining_limits(&registries);
-    let (state, raw) = fieldwork_planning_fixture(&registries, true);
+    let (state, raw, parts) = fieldwork_planning_fixture(&registries, true);
     let mut selected_batches = None;
 
     for batches in [8_u64, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256] {
@@ -194,6 +207,7 @@ fn reinforced_quarry_pick_has_a_bulk_medium_hardness_niche() {
             &registries,
             &state,
             raw,
+            parts,
             limits.reinforced_quarry_hardness,
             order,
         ) else {
@@ -215,13 +229,14 @@ fn reinforced_quarry_pick_has_a_bulk_medium_hardness_niche() {
 fn long_order_band_crosses_the_reinforced_quarry_investment_boundary() {
     let registries = deep_hearth::content::build_registries();
     let limits = fieldwork_mining_limits(&registries);
-    let (state, raw) = fieldwork_planning_fixture(&registries, true);
+    let (state, raw, parts) = fieldwork_planning_fixture(&registries, true);
     let lower_bulk = multiplied_mass(limits.base_quarry_batch, 32, "lower long-order boundary");
     let upper_bulk = multiplied_mass(limits.base_quarry_batch, 96, "upper long-order boundary");
     let lower = choose_fieldwork_tool(
         &registries,
         &state,
         raw,
+        parts,
         limits.reinforced_quarry_hardness,
         lower_bulk,
     )
@@ -230,6 +245,7 @@ fn long_order_band_crosses_the_reinforced_quarry_investment_boundary() {
         &registries,
         &state,
         raw,
+        parts,
         limits.reinforced_quarry_hardness,
         upper_bulk,
     )
@@ -274,11 +290,12 @@ fn wear_adjusted_order_can_favor_the_lighter_reinforced_tool() {
     assert_eq!(stop, FieldworkStop::OrderComplete);
     assert!(mining_ticks > preparation_ticks);
     assert_eq!(mining_ticks, projected_order_ticks);
-    let (state, raw) = fieldwork_planning_fixture(&registries, true);
+    let (state, raw, parts) = fieldwork_planning_fixture(&registries, true);
     let quarry = estimate_fieldwork_tool(
         &registries,
         &state,
         raw,
+        parts,
         FIELDWORK_TOOLS[2],
         fieldwork_mining_limits(&registries).base_quarry_hardness,
         order,

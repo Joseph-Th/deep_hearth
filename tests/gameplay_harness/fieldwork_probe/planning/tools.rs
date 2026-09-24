@@ -3,13 +3,14 @@
 use super::super::*;
 use super::materials::{add_mass, equipment_component_requirements, multiplied_mass};
 
+pub(in super::super) const FIELDWORK_ORDER_MAX_BATCHES: u64 = 256;
+
 #[derive(Clone, Copy)]
 pub(in super::super) struct FieldworkMiningLimits {
     pub(in super::super) base_quarry_hardness: Pressure,
     pub(in super::super) reinforced_quarry_hardness: Pressure,
     pub(in super::super) reinforced_pick_hardness: Pressure,
     pub(in super::super) base_quarry_batch: Mass,
-    pub(in super::super) maximum_candidate_batch: Mass,
 }
 
 pub(in super::super) fn fieldwork_mining_limits(registries: &Registries) -> FieldworkMiningLimits {
@@ -38,20 +39,6 @@ pub(in super::super) fn fieldwork_mining_limits(registries: &Registries) -> Fiel
     ) else {
         panic!("fieldwork stone quarry batch capability changed physical kind")
     };
-    let maximum_candidate_batch = FIELDWORK_TOOLS
-        .iter()
-        .map(|tool| {
-            let CapabilityValue::Mass(batch) = pristine_equipment_capability(
-                registries,
-                tool.target,
-                method.max_batch_mass_capability(),
-            ) else {
-                panic!("fieldwork candidate batch capability changed physical kind")
-            };
-            batch
-        })
-        .max()
-        .unwrap_or_else(|| unreachable!("fieldwork candidate family is nonempty"));
     let CapabilityValue::Pressure(hard_pick_hardness) = pristine_equipment_capability(
         registries,
         EQUIPMENT_COPPER_REINFORCED_PICK,
@@ -72,7 +59,6 @@ pub(in super::super) fn fieldwork_mining_limits(registries: &Registries) -> Fiel
         reinforced_quarry_hardness: reinforced_hardness,
         reinforced_pick_hardness: hard_pick_hardness,
         base_quarry_batch: base_batch,
-        maximum_candidate_batch,
     }
 }
 
@@ -157,6 +143,7 @@ fn estimate_tool_preparation(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
+    parts: StockpileId,
     tool: FieldworkTool,
 ) -> Result<(u64, BTreeMap<CommodityKey, Mass>), FieldworkToolBlocker> {
     // Assembly and upgrade execute as separate crafts. Preserve their batch rounding rather
@@ -175,15 +162,33 @@ fn estimate_tool_preparation(
             requirements.push((input.commodity(), input.mass()));
         }
     }
+    let parts_record = state
+        .inventory()
+        .get_stockpile(parts)
+        .unwrap_or_else(|| panic!("fieldwork parts stockpile disappeared during tool planning"));
+    let mut remaining_parts = BTreeMap::<CommodityKey, Mass>::new();
     let mut raw_required = BTreeMap::new();
     let mut ticks = 0_u64;
     for (commodity, required) in requirements {
+        let available = remaining_parts
+            .entry(commodity)
+            .or_insert_with(|| parts_record.get_mass(commodity));
+        let reused = (*available).min(required);
+        *available = available
+            .checked_sub(reused)
+            .unwrap_or_else(|| unreachable!("fieldwork reusable component mass is bounded"));
+        let missing = required.checked_sub(reused).unwrap_or_else(|| {
+            unreachable!("fieldwork reused component mass cannot exceed demand")
+        });
+        if missing.is_zero() {
+            continue;
+        }
         // The declared raw-tool family uses its equipment-free topology route. Missing raw
         // inputs exclude this route; they do not prove that every possible salvage route fails.
         let (craft, batches) = manual_craft_topology_plan_for_output(
             registries,
             commodity,
-            required,
+            missing,
             "fieldwork pre-action components",
         );
         let consumed = multiplied_mass(craft.input_mass(), batches, "planned raw input");
@@ -231,6 +236,7 @@ pub(in super::super) fn estimate_fieldwork_tool(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
+    parts: StockpileId,
     tool: FieldworkTool,
     observed_upper: Pressure,
     order: Mass,
@@ -270,11 +276,11 @@ pub(in super::super) fn estimate_fieldwork_tool(
             observed_upper,
             order,
             batch,
-            256,
+            FIELDWORK_ORDER_MAX_BATCHES,
         ),
     )
     .map_err(FieldworkToolBlocker::Order)?;
-    let (preparation_ticks, raw) = estimate_tool_preparation(registries, state, raw, tool)?;
+    let (preparation_ticks, raw) = estimate_tool_preparation(registries, state, raw, parts, tool)?;
     Ok(FieldworkToolEstimate {
         tool,
         preparation_ticks,
@@ -289,6 +295,7 @@ pub(in super::super) fn choose_fieldwork_tool(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
+    parts: StockpileId,
     observed_upper: Pressure,
     order: Mass,
 ) -> Option<FieldworkToolEstimate> {
@@ -296,6 +303,7 @@ pub(in super::super) fn choose_fieldwork_tool(
         registries,
         state,
         raw,
+        parts,
         observed_upper,
         order,
         "unspecified",
@@ -316,6 +324,7 @@ pub(in super::super) fn fieldwork_bulk_crossover(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
+    parts: StockpileId,
     observed_upper: Pressure,
     base_batch: Mass,
 ) -> Option<FieldworkBulkCrossover> {
@@ -325,7 +334,8 @@ pub(in super::super) fn fieldwork_bulk_crossover(
         let selected = FIELDWORK_TOOLS
             .iter()
             .filter_map(|&tool| {
-                estimate_fieldwork_tool(registries, state, raw, tool, observed_upper, order).ok()
+                estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order)
+                    .ok()
             })
             .min_by_key(FieldworkToolEstimate::policy_key);
         let Some(selected) = selected else {
@@ -345,28 +355,58 @@ pub(in super::super) fn fieldwork_bulk_crossover(
     None
 }
 
-pub(in super::super) fn choose_fieldwork_tool_with_market_phase(
+fn viable_fieldwork_tools(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
+    parts: StockpileId,
     observed_upper: Pressure,
     order: Mass,
-    market_phase: &'static str,
-) -> Option<FieldworkToolEstimate> {
+    report_candidates: bool,
+) -> Vec<FieldworkToolEstimate> {
     let mut viable = Vec::new();
     for tool in FIELDWORK_TOOLS {
-        let estimate = estimate_fieldwork_tool(registries, state, raw, tool, observed_upper, order);
-        reviewln!(
-            "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=no-service,caller-supplied-visible-workload",
-            state.tick().value(),
-            tool.label,
-            observed_upper.pascals(),
-            order.milligrams()
-        );
+        let estimate =
+            estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order);
+        if report_candidates {
+            reviewln!(
+                "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=no-service,caller-supplied-visible-workload",
+                state.tick().value(),
+                tool.label,
+                observed_upper.pascals(),
+                order.milligrams()
+            );
+        }
         if let Ok(estimate) = estimate {
             viable.push(estimate);
         }
     }
+    viable
+}
+
+pub(in super::super) fn choose_fieldwork_tool_quiet(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    observed_upper: Pressure,
+    order: Mass,
+) -> Option<FieldworkToolEstimate> {
+    viable_fieldwork_tools(registries, state, raw, parts, observed_upper, order, false)
+        .into_iter()
+        .min_by_key(FieldworkToolEstimate::policy_key)
+}
+
+pub(in super::super) fn choose_fieldwork_tool_with_market_phase(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    observed_upper: Pressure,
+    order: Mass,
+    market_phase: &'static str,
+) -> Option<FieldworkToolEstimate> {
+    let viable = viable_fieldwork_tools(registries, state, raw, parts, observed_upper, order, true);
     let selected = viable
         .iter()
         .min_by_key(|estimate| estimate.policy_key())

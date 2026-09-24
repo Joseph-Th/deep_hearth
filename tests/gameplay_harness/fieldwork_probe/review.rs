@@ -24,6 +24,9 @@ use super::extraction::{
 };
 use super::planning::FieldworkToolEstimate;
 use super::recovery::execute_initial_shortfall_recovery;
+use super::retooling::{
+    FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, prepare_fieldwork_tool_for_site,
+};
 use super::survey::{
     CHANNEL_COUNT, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
 };
@@ -37,8 +40,10 @@ pub(super) struct FieldworkEpisodeReview<'a> {
     pub(super) order_horizon: &'static str,
     pub(super) raw: StockpileId,
     pub(super) parts: StockpileId,
+    pub(super) ore_source: StockpileId,
     pub(super) followup_destination: StockpileId,
-    pub(super) reroute_destination: StockpileId,
+    pub(super) recovery_crushed: StockpileId,
+    pub(super) recovery_residue: StockpileId,
     pub(super) sampling_hammer: EquipmentId,
     pub(super) channel_voxels: i64,
     pub(super) mining_equipment: EquipmentId,
@@ -192,10 +197,23 @@ fn execute_known_site_exploitation(
     })
 }
 
+struct SiteReroute {
+    search_ticks: u64,
+    tool_preparation_ticks: u64,
+    tool_reused: bool,
+    tool_label: Option<&'static str>,
+    ore_recovery_ticks: u64,
+    ore_feed_mass: Mass,
+    recovered_native: Mass,
+    ore_recovery_reason: Option<FieldworkOreRecoveryReason>,
+    salvaged: bool,
+    extraction: Option<FieldworkExtraction>,
+}
+
 fn execute_site_reroute(
     review: &FieldworkEpisodeReview<'_>,
     source_state: &AppState,
-) -> (u64, FieldworkExtraction) {
+) -> SiteReroute {
     let mut state = source_state.clone();
     let search_started_at = state.tick().value();
     let localization = localize_target(
@@ -207,23 +225,49 @@ fn execute_site_reroute(
         FieldworkSurveyStrategy::PointSearch,
     );
     let search_ticks = state.tick().value() - search_started_at;
-    let requested = review
-        .estimate
-        .batch
-        .min(localization.resource_mass.upper());
+    let requested = review.requested.min(localization.resource_mass.upper());
     assert!(
         !requested.is_zero(),
-        "fieldwork reroute must resolve a nonzero secondary-site first batch"
+        "fieldwork reroute must resolve a nonzero secondary-site opportunity"
     );
+    let Some(tool) = prepare_fieldwork_tool_for_site(
+        review.registries,
+        &mut state,
+        review.raw,
+        review.parts,
+        FieldworkOwnedOreRecovery {
+            ore_source: review.ore_source,
+            crushed_destination: review.recovery_crushed,
+            residue_destination: review.recovery_residue,
+        },
+        &[review.mining_equipment],
+        localization.hardness.upper(),
+        requested,
+    ) else {
+        validate_loaded_state(review.registries, &state)
+            .unwrap_or_else(|error| panic!("blocked fieldwork reroute state invalid: {error}"));
+        return SiteReroute {
+            search_ticks,
+            tool_preparation_ticks: 0,
+            tool_reused: false,
+            tool_label: None,
+            ore_recovery_ticks: 0,
+            ore_feed_mass: Mass::ZERO,
+            recovered_native: Mass::ZERO,
+            ore_recovery_reason: None,
+            salvaged: false,
+            extraction: None,
+        };
+    };
     let extraction = execute_fieldwork_extraction(
         review.registries,
         &mut state,
         FieldworkExtractionOrder {
             target: localization.target,
-            destination: review.reroute_destination,
-            equipment: review.mining_equipment,
+            destination: review.followup_destination,
+            equipment: tool.equipment,
             requested,
-            batch_limit: review.estimate.batch,
+            batch_limit: tool.batch,
         },
     );
     assert!(
@@ -232,7 +276,18 @@ fn execute_site_reroute(
     );
     validate_loaded_state(review.registries, &state)
         .unwrap_or_else(|error| panic!("fieldwork reroute state invalid: {error}"));
-    (search_ticks, extraction)
+    SiteReroute {
+        search_ticks,
+        tool_preparation_ticks: tool.preparation_ticks,
+        tool_reused: tool.reused_existing,
+        tool_label: Some(tool.label),
+        ore_recovery_ticks: tool.ore_recovery_ticks,
+        ore_feed_mass: tool.ore_feed_mass,
+        recovered_native: tool.recovered_native,
+        ore_recovery_reason: tool.ore_recovery_reason,
+        salvaged: tool.salvaged_equipment.is_some(),
+        extraction: Some(extraction),
+    }
 }
 
 fn survival_spend(review: &FieldworkEpisodeReview<'_>) -> (Energy, Volume) {
@@ -323,17 +378,36 @@ fn report_known_site_exploitation(
             exploitation.hydration_ul,
         );
         if exploitation.supply_ended {
-            let (search_ticks, reroute) = execute_site_reroute(review, &exploitation.final_state);
-            reviewln!(
-                "FIELDWORK DEPLETION RECOVERY seed=0x{:016X} depletion-observed=true reroute-proved=true evidence=executed-from-depleted-state post-depletion-execution=true mining-tool-reused=true survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search={}t/{} extraction={}t/{} extracted={}mg stop={}",
-                review.case.seed(),
-                search_ticks,
-                format_physical_duration(review.registries, search_ticks),
-                reroute.ticks,
-                format_physical_duration(review.registries, reroute.ticks),
-                reroute.extracted.milligrams(),
-                reroute.stop.label(),
-            );
+            let reroute = execute_site_reroute(review, &exploitation.final_state);
+            if let Some(extraction) = reroute.extraction {
+                reviewln!(
+                    "FIELDWORK DEPLETION RECOVERY seed=0x{:016X} depletion-observed=true reroute-proved=true evidence=executed-from-depleted-state post-depletion-execution=true mining-tool-reused={} selected-tool={} retool={}t salvage={} ore-recovery=[reason:{} ticks:{} feed:{}mg native:{}mg] survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search={}t/{} extraction={}t/{} extracted={}mg stop={}",
+                    review.case.seed(),
+                    reroute.tool_reused,
+                    reroute.tool_label.unwrap_or("unknown"),
+                    reroute.tool_preparation_ticks,
+                    reroute.salvaged,
+                    reroute
+                        .ore_recovery_reason
+                        .map_or("none", FieldworkOreRecoveryReason::label),
+                    reroute.ore_recovery_ticks,
+                    reroute.ore_feed_mass.milligrams(),
+                    reroute.recovered_native.milligrams(),
+                    reroute.search_ticks,
+                    format_physical_duration(review.registries, reroute.search_ticks),
+                    extraction.ticks,
+                    format_physical_duration(review.registries, extraction.ticks),
+                    extraction.extracted.milligrams(),
+                    extraction.stop.label(),
+                );
+            } else {
+                reviewln!(
+                    "FIELDWORK DEPLETION RECOVERY seed=0x{:016X} depletion-observed=true reroute-proved=false evidence=executed-search-from-depleted-state post-depletion-execution=false mining-tool-reused=false selected-tool=none retool=0t salvage=false survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search={}t/{} reason=no-feasible-extraction-tool",
+                    review.case.seed(),
+                    reroute.search_ticks,
+                    format_physical_duration(review.registries, reroute.search_ticks),
+                );
+            }
         }
     } else {
         reviewln!(
@@ -351,9 +425,15 @@ fn report_known_site_exploitation(
             .checked_mul(1_000_000)
             .unwrap_or_else(|| panic!("fieldwork recovery fulfillment ratio overflowed"))
             / review.requested.milligrams();
+        let fulfillment_delta = i128::from(recovery.fulfilled.milligrams())
+            - i128::from(recovery.baseline_fulfilled.milligrams());
+        let reroute_proved = !recovery.additional_extracted.is_zero();
         reviewln!(
-            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=true survey-base-kit-reused=true strategy={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved={} evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution={} mining-tool-reused={} survey-base-kit-reused=true strategy={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t total-attention-delta:{:+}t] adaptation=[hardness-tier-changes:{} tool-builds:{} tool-switches:{} salvage-retools:{} blocked-sites:{} tool-preparation:{}t ore-recovery-events:{} ore-recovery-required-access:{} ore-recovery-payback:{} ore-recovery:{}t ore-feed:{}mg native-recovered:{}mg baseline-fulfilled:{}mg fulfillment-delta:{:+}mg] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
             review.case.seed(),
+            reroute_proved,
+            reroute_proved,
+            recovery.tool_builds == 0,
             recovery.strategy.label(),
             recovery.upgrade_ticks,
             recovery.projected_point_search_ticks,
@@ -361,7 +441,22 @@ fn report_known_site_exploitation(
             recovery.baseline_search_ticks,
             recovery.search_ticks,
             recovery.upgrade_ticks,
-            recovery.realized_attention_delta,
+            recovery.realized_search_attention_delta,
+            recovery.realized_total_attention_delta,
+            recovery.hardness_tier_changes,
+            recovery.tool_builds,
+            recovery.tool_switches,
+            recovery.salvage_retools,
+            recovery.blocked_sites,
+            recovery.tool_preparation_ticks,
+            recovery.ore_recovery_events,
+            recovery.ore_recovery_required_access,
+            recovery.ore_recovery_payback,
+            recovery.ore_recovery_ticks,
+            recovery.ore_feed_mass.milligrams(),
+            recovery.recovered_native.milligrams(),
+            recovery.baseline_fulfilled.milligrams(),
+            fulfillment_delta,
             recovery.sites_visited,
             recovery.search_ticks,
             format_physical_duration(review.registries, recovery.search_ticks),
@@ -384,7 +479,7 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
         .projected_indexed_search_ticks
         .map_or_else(|| "unfunded".to_owned(), |ticks| format!("{ticks}t"));
     reviewln!(
-        "FIELDWORK SURVEY CAMPAIGN seed=0x{:016X} planned-sites={} upgrade-available={} selected={} policy=min-expected-search-attention-with-minimum-return minimum-return=100000ppm projected=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] extraction={}t extracted={}mg choice-frozen-before-branch=true",
+        "FIELDWORK SURVEY CAMPAIGN seed=0x{:016X} planned-sites={} upgrade-available={} selected={} policy=min-expected-search-attention-with-minimum-return minimum-return=100000ppm projected=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
         review.case.seed(),
         campaign.planned_sites,
         campaign.upgrade_available,
@@ -395,19 +490,13 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
         campaign.selected_search_ticks,
         campaign.upgrade_ticks,
         campaign.realized_attention_delta,
-        campaign.extraction_ticks,
-        campaign.extracted.milligrams(),
     );
     reviewln!(
-        "FIELDWORK SITE REUSE seed=0x{:016X} available=true kit-reused=true knowledge-reused=false strategy={} search={}t/{} extraction={}t/{} requested={}mg extracted={}mg first-expedition-kit={}t/{} scope=new-site-first-batch upgrade-cost-reported-separately=true",
+        "FIELDWORK SITE REUSE seed=0x{:016X} available=true kit-reused=true knowledge-reused=false strategy={} search={}t/{} first-expedition-kit={}t/{} scope=new-site-search-only extraction-evaluated-by-lived-reroute=true upgrade-cost-reported-separately=true",
         review.case.seed(),
         campaign.selected_strategy.label(),
         campaign.first_search_ticks,
         format_physical_duration(review.registries, campaign.first_search_ticks),
-        campaign.first_extraction_ticks,
-        format_physical_duration(review.registries, campaign.first_extraction_ticks),
-        review.estimate.batch.milligrams(),
-        campaign.first_extracted.milligrams(),
         review.sampling_setup_ticks + review.tool_prep_ticks,
         format_physical_duration(
             review.registries,

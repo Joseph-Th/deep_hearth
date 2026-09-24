@@ -243,7 +243,7 @@ fn constructible_equipment_uses_assembly_as_its_physical_mass_authority() {
         }
     }
 
-    assert_eq!(constructible, 34);
+    assert_eq!(constructible, 37);
 }
 
 #[test]

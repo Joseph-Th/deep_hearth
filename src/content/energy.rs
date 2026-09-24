@@ -9,8 +9,8 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use super::crafted_parts::{COPPER_REINFORCEMENT_MASS, STONE_FLYWHEEL_MASS, TIMBER_FLYWHEEL_MASS};
 use super::materials::{
-    FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD,
+    FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_LUMP, FORM_REINFORCEMENT, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const ENERGY_MECHANICAL_SMALL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(1);
@@ -25,6 +25,9 @@ pub const ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId =
 pub const ENERGY_TIMBER_FLYWHEEL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(8);
 pub const ENERGY_TIMBER_FRAME_FLYWHEEL_BANK: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(9);
+pub const ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER: EnergyStoreDefinitionId =
+    EnergyStoreDefinitionId::new(10);
+pub const ENERGY_STONE_THERMAL_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(11);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -203,5 +206,41 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 Mass::from_milligrams(800_000),
             ),
         ])),
+        // A small workshop capacitor/bus rather than an industrial battery. Its 15 kJ capacity is
+        // just enough for one 20 g copper melt, forcing repeated player charging for continued
+        // casting while preserving a real finite electrical carrier in the runtime model.
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
+            "copper-plate electrical buffer",
+            EnergyCarrier::Electrical,
+            Energy::from_nanojoules(15_000_000_000_000),
+            Power::from_microwatts(100_000_000),
+            Power::from_microwatts(100_000_000),
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(80_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(1_600_000),
+            ),
+        ])),
+        // Several kilograms of stone act as a deliberately finite heat reservoir. The passive
+        // rejection rate makes repeated casts wait for cooldown instead of deleting waste heat.
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_STONE_THERMAL_SINK,
+            "stone foundry heat sink",
+            EnergyCarrier::Thermal,
+            Energy::from_nanojoules(15_000_000_000_000),
+            Power::from_microwatts(200_000_000),
+            Power::ZERO,
+        )
+        .with_passive_dissipation_power(Power::from_microwatts(20_000_000))
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(4_000_000),
+        )])),
     ])
 }

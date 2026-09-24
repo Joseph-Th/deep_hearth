@@ -69,8 +69,9 @@ fn followup_sites_have_independent_reserve_opportunities() {
     assert!(supplies.iter().any(|&mass| mass >= 24_000_000));
     assert!(
         (0_u64..128).any(|seed| {
-            let [a, b, c] = super::world::fieldwork_followup_supplies(seed);
-            a != b || b != c
+            super::world::fieldwork_followup_supplies(seed)
+                .windows(2)
+                .any(|pair| pair[0] != pair[1])
         }),
         "follow-up sites must not copy one reserve value across the local search area"
     );

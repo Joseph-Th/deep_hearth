@@ -43,12 +43,14 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "primitive-liberation": (
         "samples",
-        "current-player-selected",
+        "cleanup-executed",
         "native-copper",
         "kit-acquisition",
+        "kit-decision",
+        "first-foundry",
         "ordinary-loop",
         "remaining-frontier",
-        "foundry-energy-frontier",
+        "industrial-foundry-frontier",
     ),
     "woodworking": (
         "samples",
@@ -98,6 +100,7 @@ def _digest_summary(summary: str) -> str:
             summary,
             (
                 "observe-infer",
+                "thermal-bootstrap",
                 "world-feedback",
                 "delegate",
                 "reassess-reinvest",

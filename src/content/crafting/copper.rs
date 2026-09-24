@@ -13,21 +13,38 @@ use crate::content::crafted_parts::{
     COPPER_REINFORCEMENT_MASS, COPPER_SAW_BLADE_MASS, COPPER_SCREEN_PLATE_MASS,
 };
 use crate::content::materials::{
-    FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE,
-    MATERIAL_COPPER,
+    FORM_INGOT, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP,
+    FORM_SCREEN_PLATE, MATERIAL_COPPER,
 };
 use crate::content::processes::{
-    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
-    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+    PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_COLD_WORK_COPPER_SAW_BLADE, PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+    PROCESS_PIERCE_COPPER_SCREEN_PLATE,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 4] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 5] {
     [
         cold_work_native_copper(),
+        cold_work_cast_copper(),
         cold_work_copper_scrap(),
         pierce_copper_screen_plate(),
         cold_work_copper_saw_blade(),
     ]
+}
+
+fn cold_work_cast_copper() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT,
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        COPPER_REINFORCEMENT_MASS,
+        TickSpan::new(45),
+        copper_work_exertion(),
+        vec![ManualCraftOutput::new(
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            COPPER_REINFORCEMENT_MASS,
+        )],
+    )
+    .with_equipment_profile(treadle_hammer_profile())
 }
 
 fn treadle_hammer_profile() -> ManualCraftEquipmentProfile {

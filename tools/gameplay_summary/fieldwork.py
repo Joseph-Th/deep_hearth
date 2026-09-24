@@ -167,8 +167,7 @@ def _reuse_summary(lines: list[str]) -> str:
         f"avoided-search:{_span(avoided_search)} "
         f"avoided-kit:{_span(avoided_kit)} "
         f"new-site-with-kit:{len(reusable_sites)}/{len(site_reuse)} "
-        f"new-site-search:{_span(ticks(reusable_sites, r'\bsearch=(\d+)t/'))} "
-        f"new-site-first-batch:{_span(ticks(reusable_sites, r'\bextraction=(\d+)t/'))}] "
+        f"new-site-search:{_span(ticks(reusable_sites, r'\bsearch=(\d+)t/'))}] "
         "reuse-physical=["
         f"repeat-complete:{physical_duration_span(lines, repeat_complete_ticks)} "
         f"repeat-partial:{physical_duration_span(lines, repeat_partial_ticks)} "
@@ -200,12 +199,25 @@ def _depletion_summary(lines: list[str]) -> str:
     condition = values(r"\bcondition-after=(\d+)ppm")
     energy = values(r"\bbody=\[energy:(\d+)nJ")
     hydration = values(r"\bhydration:(\d+)uL\]")
-    recovery = [
-        line
-        for line in lines
-        if line.startswith("FIELDWORK DEPLETION RECOVERY ")
-        and " reroute-proved=true " in line
+    reroutes = [
+        line for line in lines if line.startswith("FIELDWORK DEPLETION RECOVERY ")
     ]
+    recovery = [line for line in reroutes if " reroute-proved=true " in line]
+    blocked = [line for line in reroutes if " reroute-proved=false " in line]
+    retool_ticks = [
+        int(match.group(1))
+        for line in recovery
+        if (match := re.search(r"\bretool=(\d+)t", line)) is not None
+    ]
+    salvaged = sum(" salvage=true " in line for line in recovery)
+    ore_recovery_ticks = [
+        int(match.group(1))
+        for line in recovery
+        if (match := re.search(r"\bore-recovery=\[reason:[^\s]+ ticks:(\d+)", line))
+        is not None
+    ]
+    ore_payback = sum(" ore-recovery=[reason:payback " in line for line in recovery)
+    ore_required = sum(" ore-recovery=[reason:required-access " in line for line in recovery)
     supply_ended = sum(" supply-ended=true " in line for line in eligible)
     return (
         "known-site-horizon=["
@@ -213,6 +225,11 @@ def _depletion_summary(lines: list[str]) -> str:
         f"supply-ended:{supply_ended} "
         f"horizon-live:{sum(' terminal=horizon-live-target ' in line for line in eligible)} "
         f"reroute-proved:{len(recovery)}/{supply_ended} "
+        f"reroute-blocked:{len(blocked)} "
+        f"reroute-retooled:{sum(value > 0 for value in retool_ticks)} "
+        f"reroute-salvaged:{salvaged} "
+        f"reroute-ore-funded:{sum(value > 0 for value in ore_recovery_ticks)}"
+        f"(payback:{ore_payback}/access:{ore_required}) "
         f"complete-orders:{_span(completed_orders, unit='')} "
         f"partial-orders:{_span(partial_orders, unit='')} "
         f"extracted:{_span(extracted, unit='mg')} "
@@ -237,17 +254,28 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
             if (match := re.search(pattern, line)) is not None
         ]
 
-    projected_savings: list[int] = []
-    realized_deltas: list[int] = []
+    realized_search_deltas: list[int] = []
+    realized_total_deltas: list[int] = []
     for line in recoveries:
-        projected = re.search(
-            r"\bprojected-search=\[point:(\d+)t indexed:(\d+)t\]", line
-        )
-        if projected is not None:
-            projected_savings.append(int(projected.group(1)) - int(projected.group(2)))
         realized = re.search(r"\battention-delta:([+-]\d+)t", line)
         if realized is not None:
-            realized_deltas.append(int(realized.group(1)))
+            realized_search_deltas.append(int(realized.group(1)))
+        total = re.search(r"\btotal-attention-delta:([+-]\d+)t", line)
+        if total is not None:
+            realized_total_deltas.append(int(total.group(1)))
+
+    hardness_changes = values(r"\bhardness-tier-changes:(\d+)")
+    tool_builds = values(r"\btool-builds:(\d+)")
+    salvage_retools = values(r"\bsalvage-retools:(\d+)")
+    blocked_sites = values(r"\bblocked-sites:(\d+)")
+    ore_recovery_events = values(r"\bore-recovery-events:(\d+)")
+    ore_recovery_required = values(r"\bore-recovery-required-access:(\d+)")
+    ore_recovery_payback = values(r"\bore-recovery-payback:(\d+)")
+    fulfillment_delta = [
+        int(match.group(1))
+        for line in recoveries
+        if (match := re.search(r"\bfulfillment-delta:([+-]\d+)mg", line)) is not None
+    ]
 
     return (
         "initial-shortfall-campaign=["
@@ -255,11 +283,22 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
         f"strategy:point{sum(' strategy=point-search ' in line for line in recoveries)}"
         f"/indexed{sum(' strategy=indexed-channel ' in line for line in recoveries)} "
         f"survey-upgrade:{_span(values(r'\bsurvey-upgrade=(\d+)t'))} "
-        f"projected-search-saving:{_span(projected_savings)} "
-        f"realized=[positive:{sum(value > 0 for value in realized_deltas)} "
-        f"negative:{sum(value < 0 for value in realized_deltas)} "
-        f"flat:{sum(value == 0 for value in realized_deltas)} "
-        f"delta:{_signed_span(realized_deltas)}] "
+        f"realized-search=[positive:{sum(value > 0 for value in realized_search_deltas)} "
+        f"negative:{sum(value < 0 for value in realized_search_deltas)} "
+        f"flat:{sum(value == 0 for value in realized_search_deltas)} "
+        f"delta:{_signed_span(realized_search_deltas)}] "
+        f"realized-total=[positive:{sum(value > 0 for value in realized_total_deltas)} "
+        f"negative:{sum(value < 0 for value in realized_total_deltas)} "
+        f"flat:{sum(value == 0 for value in realized_total_deltas)} "
+        f"delta:{_signed_span(realized_total_deltas)}] "
+        "adaptation=["
+        f"geology-changed:{sum(value > 0 for value in hardness_changes)}/{len(recoveries)} "
+        f"retooled:{sum(value > 0 for value in tool_builds)}/{len(recoveries)} "
+        f"salvaged:{sum(value > 0 for value in salvage_retools)}/{len(recoveries)} "
+        f"ore-funded:{sum(value > 0 for value in ore_recovery_events)}/{len(recoveries)}"
+        f"(payback:{sum(ore_recovery_payback)}/access:{sum(ore_recovery_required)}) "
+        f"blocked-sites:{_span(blocked_sites, unit='')} "
+        f"fulfillment-delta:{_signed_span(fulfillment_delta).replace('t', 'mg')}] "
         f"completed:{sum(' terminal=order-complete' in line for line in recoveries)} "
         f"local-area-exhausted:{sum(' terminal=local-search-area-exhausted' in line for line in recoveries)} "
         f"sites:{_span(values(r'\bsites-visited=(\d+)'), unit='')} "

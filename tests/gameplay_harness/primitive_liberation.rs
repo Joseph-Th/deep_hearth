@@ -7,8 +7,8 @@ use deep_hearth::content::{
     EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_CRUSHER,
     EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
     EQUIPMENT_TIMBER_TREADLE_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
-    MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER, PROCESS_GRIND_CRUSHED_ORE,
-    PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+    MANUAL_POWER_TREADLE_DYNAMO, MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -411,6 +411,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         MANUAL_POWER_HAND_CRANK,
         MANUAL_POWER_FOOT_TREADLE,
         MANUAL_POWER_WALKING_WHEEL,
+        MANUAL_POWER_TREADLE_DYNAMO,
     ]
     .into_iter()
     .filter_map(|method| registries.labor().get_manual_power(method))
@@ -430,14 +431,15 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         ),
         None => panic!("foundry furnace lost its authored heating capability"),
     };
-    let maximum_manual_mechanical_power = [
+    let maximum_manual_electrical_power = [
         MANUAL_POWER_HAND_CRANK,
         MANUAL_POWER_FOOT_TREADLE,
         MANUAL_POWER_WALKING_WHEEL,
+        MANUAL_POWER_TREADLE_DYNAMO,
     ]
     .into_iter()
     .filter_map(|method| registries.labor().get_manual_power(method))
-    .filter(|method| method.carrier() == EnergyCarrier::Mechanical)
+    .filter(|method| method.carrier() == EnergyCarrier::Electrical)
     .flat_map(|method| {
         registries
             .equipment()
@@ -453,19 +455,19 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             })
     })
     .max()
-    .unwrap_or_else(|| panic!("ordinary manual mechanical power has no authored provider"));
-    let manual_microwatts = maximum_manual_mechanical_power
+    .unwrap_or_else(|| panic!("ordinary manual electrical power has no authored provider"));
+    let manual_microwatts = maximum_manual_electrical_power
         .whole_microwatts()
-        .unwrap_or_else(|| panic!("manual mechanical frontier power is not a whole microwatt"));
+        .unwrap_or_else(|| panic!("manual electrical frontier power is not a whole microwatt"));
     let furnace_microwatts = furnace_heating_power
         .whole_microwatts()
         .unwrap_or_else(|| panic!("furnace heating frontier power is not a whole microwatt"));
     let transfer_ceiling_ratio = furnace_heating_power
         .picowatts()
-        .checked_div(maximum_manual_mechanical_power.picowatts())
-        .unwrap_or_else(|| panic!("manual mechanical frontier power unexpectedly vanished"));
+        .checked_div(maximum_manual_electrical_power.picowatts())
+        .unwrap_or_else(|| panic!("manual electrical frontier power unexpectedly vanished"));
     let foundry_frontier = format!(
-        "assembly-edge=[furnace:{} mold:{} electrical-buffer:{} thermal-sink:{}] manual-electrical-generation:{} support-required=[furnace:{} mold:{}] energy-scale=[manual-mechanical-max:{}uW furnace-transfer-ceiling:{}uW ceiling-ratio:{}x melting-carrier:{:?} conversion-path:absent]",
+        "assembly-edge=[furnace:{} mold:{} electrical-buffer:{} thermal-sink:{}] manual-electrical-generation:{} support-required=[furnace:{} mold:{}] energy-scale=[manual-electrical-max:{}uW industrial-furnace-transfer-ceiling:{}uW ceiling-ratio:{}x melting-carrier:{:?} conversion-path:present]",
         furnace.assembly_profile().is_some(),
         mold.assembly_profile().is_some(),
         electrical_buffer.assembly_profile().is_some(),
@@ -479,7 +481,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         melting.energy_carrier(),
     );
     reviewln!(
-        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} selected-by-current-player=true reason=ordinary-concentrate-cleanup-available route=treadle+paired-flywheel->crusher->quern->timber-riddle->regrind->separator->tailings-regrind->scavenger->concentrate-cleanup input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] native-copper={}mg cleanup-residue={}mg exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
+        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} cleanup-executed=true reason=required-native-copper-conversion route=treadle+paired-flywheel->crusher->quern->timber-riddle->regrind->separator->tailings-regrind->scavenger->concentrate-cleanup input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] native-copper={}mg cleanup-residue={}mg exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),
         copper_ppm,
@@ -504,7 +506,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .unwrap_or(0)
         .min(1_000_000);
     reviewln!(
-        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] cleanup=[native-copper:{}mg recovery:{}ppm residue:{}mg] sink=usable-native-copper remaining-frontier=foundry-infrastructure foundry-frontier=[{}] reachability-authority=STATUS.md",
+        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] cleanup=[native-copper:{}mg recovery:{}ppm residue:{}mg] sink=usable-native-copper remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[{}] reachability-authority=STATUS.md",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),
         copper_ppm,

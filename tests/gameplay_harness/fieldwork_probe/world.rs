@@ -4,7 +4,8 @@ use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
 use deep_hearth::content::{
-    FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, PROSPECTING_LOCAL_TRANSECT,
+    FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROSPECTING_LOCAL_TRANSECT,
 };
 use deep_hearth::core::quantity::{AggregateMass, Mass, Pressure};
 use deep_hearth::core::state::AppState;
@@ -21,10 +22,7 @@ use super::super::seed::mix64;
 use super::planning::{
     FieldworkMiningLimits, fieldwork_mining_limits, fieldwork_raw_opportunity, multiplied_mass,
 };
-use super::survey::{
-    CHANNEL_COUNT, CHANNEL_START_X, QUATERNARY_CHANNEL_START_X, SECONDARY_CHANNEL_START_X,
-    TERTIARY_CHANNEL_START_X, horizontal_region,
-};
+use super::survey::{CHANNEL_COUNT, CHANNEL_START_X, FOLLOWUP_CHANNEL_STARTS, horizontal_region};
 
 pub(super) struct FieldworkWorld {
     pub(super) state: AppState,
@@ -32,7 +30,8 @@ pub(super) struct FieldworkWorld {
     pub(super) parts: StockpileId,
     pub(super) destination: StockpileId,
     pub(super) followup_destination: StockpileId,
-    pub(super) campaign_destinations: [StockpileId; 3],
+    pub(super) recovery_crushed: StockpileId,
+    pub(super) recovery_residue: StockpileId,
     pub(super) channel_voxels: i64,
     pub(super) mining_limits: FieldworkMiningLimits,
     pub(super) geology_label: &'static str,
@@ -68,12 +67,21 @@ pub(super) fn fieldwork_supply(seed: u64) -> Mass {
     Mass::from_milligrams(milligrams)
 }
 
-pub(super) fn fieldwork_followup_supplies(seed: u64) -> [Mass; 3] {
-    [
-        fieldwork_supply(mix64(seed ^ 0x4649_454C_4453_3252)),
-        fieldwork_supply(mix64(seed ^ 0x4649_454C_4453_3352)),
-        fieldwork_supply(mix64(seed ^ 0x4649_454C_4453_3452)),
-    ]
+const FOLLOWUP_SITE_SALTS: [u64; 6] = [
+    0x4649_454C_4453_3252,
+    0x4649_454C_4453_3352,
+    0x4649_454C_4453_3452,
+    0x4649_454C_4453_3552,
+    0x4649_454C_4453_3652,
+    0x4649_454C_4453_3752,
+];
+
+fn followup_site_seeds(seed: u64) -> [u64; 6] {
+    FOLLOWUP_SITE_SALTS.map(|salt| mix64(seed ^ salt))
+}
+
+pub(super) fn fieldwork_followup_supplies(seed: u64) -> [Mass; 6] {
+    followup_site_seeds(seed).map(fieldwork_supply)
 }
 
 fn hidden_location(
@@ -229,39 +237,33 @@ pub(super) fn build_fieldwork_world(
     // never on hidden geological reserve.
     let followup_capacity = multiplied_mass(
         requested_mine_mass,
-        super::FIELDWORK_KNOWN_SITE_REPEAT_HORIZON,
-        "known-site repeat landing capacity",
+        super::FIELDWORK_KNOWN_SITE_REPEAT_HORIZON
+            .checked_add(1)
+            .unwrap_or_else(|| unreachable!("bounded fieldwork repeat horizon fits u64")),
+        "known-site repeat plus reroute landing capacity",
     );
     let followup_destination = add_solid_stockpile(&mut state, followup_capacity);
-    let campaign_destinations = [
-        add_solid_stockpile(&mut state, mining_limits.maximum_candidate_batch),
-        add_solid_stockpile(&mut state, mining_limits.maximum_candidate_batch),
-        add_solid_stockpile(&mut state, mining_limits.maximum_candidate_batch),
-    ];
+    let manual_sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("fieldwork recovery lost hand-sorting definition"));
+    let recovery_buffer_capacity = manual_sorting.max_batch_mass();
+    let recovery_crushed = add_solid_stockpile(&mut state, recovery_buffer_capacity);
+    let recovery_residue = add_solid_stockpile(
+        &mut state,
+        multiplied_mass(
+            recovery_buffer_capacity,
+            u64::try_from(FOLLOWUP_CHANNEL_STARTS.len())
+                .unwrap_or_else(|_| unreachable!("bounded recovery horizon fits u64")),
+            "fieldwork recovery residue capacity",
+        ),
+    );
 
     let primary = hidden_location(
         seed,
         channel_voxels,
         0x4649_454C_4443_484E,
         0x4649_454C_4453_4C4F,
-    );
-    let secondary = hidden_location(
-        seed,
-        channel_voxels,
-        0x4649_454C_4453_4348,
-        0x4649_454C_4453_534C,
-    );
-    let tertiary = hidden_location(
-        seed,
-        channel_voxels,
-        0x4649_454C_4454_4348,
-        0x4649_454C_4454_534C,
-    );
-    let quaternary = hidden_location(
-        seed,
-        channel_voxels,
-        0x4649_454C_4451_4348,
-        0x4649_454C_4451_534C,
     );
     seed_channel_deposit(
         registries,
@@ -272,15 +274,25 @@ pub(super) fn build_fieldwork_world(
         deposit_mass,
         profile,
     );
+    let followup_seeds = followup_site_seeds(seed);
     let followup_supplies = fieldwork_followup_supplies(seed);
-    for ((start_x, hidden), supply) in [
-        (SECONDARY_CHANNEL_START_X, secondary),
-        (TERTIARY_CHANNEL_START_X, tertiary),
-        (QUATERNARY_CHANNEL_START_X, quaternary),
-    ]
-    .into_iter()
-    .zip(followup_supplies)
+    // Each new site is an independent geological opportunity. Reusing the primary profile here
+    // made depletion look like a quantity-only problem and prevented the actor from encountering
+    // a new hardness or grade after paying to search elsewhere. Six bounded follow-up sites keep
+    // the ordinary 24 kg bulk order from being mechanically doomed by a three-site fixture cap.
+    for ((start_x, site_seed), supply) in FOLLOWUP_CHANNEL_STARTS
+        .into_iter()
+        .zip(followup_seeds)
+        .zip(followup_supplies)
     {
+        let hidden = hidden_location(
+            site_seed,
+            channel_voxels,
+            0x4649_454C_4453_4348,
+            0x4649_454C_4453_534C,
+        );
+        let followup_profile =
+            geology_profile(mix64(site_seed ^ 0x5349_5445_5052_4F46), mining_limits).2;
         seed_channel_deposit(
             registries,
             &mut state,
@@ -288,7 +300,7 @@ pub(super) fn build_fieldwork_world(
             channel_voxels,
             hidden,
             supply,
-            profile,
+            followup_profile,
         );
     }
     let matter_before = calculate_matter_accounting(&state)
@@ -303,7 +315,8 @@ pub(super) fn build_fieldwork_world(
         parts,
         destination,
         followup_destination,
-        campaign_destinations,
+        recovery_crushed,
+        recovery_residue,
         channel_voxels,
         mining_limits,
         geology_label,

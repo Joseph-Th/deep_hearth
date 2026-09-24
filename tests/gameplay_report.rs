@@ -22,6 +22,8 @@ mod environment;
 mod equipment_support;
 #[path = "gameplay_harness/fieldwork_probe.rs"]
 mod fieldwork_probe;
+#[path = "gameplay_harness/first_foundry_probe.rs"]
+mod first_foundry_probe;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
