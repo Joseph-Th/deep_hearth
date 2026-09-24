@@ -23,9 +23,10 @@ pub struct PoweredOreProcessProfile {
 
 /// Direct player-labor throughput envelope for low-tech ore preparation.
 ///
-/// Manual processing deliberately carries no equipment or abstract energy input. Its cost is
-/// exclusive player attention plus exact survival expenditure, while the bounded rate and batch
-/// size keep machinery materially superior once infrastructure exists.
+/// Manual processing always consumes exclusive player attention plus exact survival expenditure
+/// and never consumes abstract stored energy. A route may add optional durable equipment that
+/// raises throughput and wears during use while preserving the equipment-free fallback. Bounded
+/// rates and batch sizes keep powered machinery materially superior once infrastructure exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ManualOreProcessProfile {
     processing_rate: MassFlow,

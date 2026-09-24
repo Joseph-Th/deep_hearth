@@ -106,7 +106,7 @@ impl Error for ManualConstituentSeparationResolutionError {
     }
 }
 
-/// Fully resolved manual sorting batch. No equipment or energy resources are present.
+/// Fully resolved manual sorting batch with optional durable equipment and no stored energy.
 #[must_use]
 #[derive(Debug)]
 pub struct ResolvedManualConstituentSeparation {

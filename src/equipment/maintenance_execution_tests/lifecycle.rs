@@ -106,6 +106,45 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
 }
 
 #[test]
+fn active_maintenance_rejects_second_service_as_equipment_occupancy() {
+    let registries = registries();
+    let mut state = AppState::new();
+    initialize_service_player(&registries, &mut state);
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+        .unwrap_or_else(|error| panic!("maintenance occupancy equipment fixture failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("maintenance occupancy source fixture failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("maintenance occupancy spent fixture failed: {error}"));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(20));
+
+    let first = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("first maintenance resolution failed: {error}"));
+    let first = validate_equipment_maintenance(&registries, &state, first)
+        .unwrap_or_else(|error| panic!("first maintenance validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("first maintenance commit failed: {error}"));
+
+    let second = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("second maintenance resolution failed: {error}"));
+    assert_eq!(
+        validate_equipment_maintenance(&registries, &state, second),
+        Err(EquipmentMaintenanceError::EquipmentUnderMaintenance {
+            equipment,
+            completes_at: first.completes_at(),
+        })
+    );
+}
+
+#[test]
 fn fatal_tick_interrupts_unfinished_maintenance_without_refunding_committed_service_material() {
     let registries = registries_with_service_duration(TickSpan::new(6));
     let mut state = AppState::new();

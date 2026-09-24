@@ -50,6 +50,10 @@ pub enum EquipmentMaintenanceError {
         equipment: EquipmentId,
         completes_at: SimulationTick,
     },
+    EquipmentUnderMaintenance {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     ConditionNotImproved {
         equipment: EquipmentId,
         before: Condition,
@@ -132,6 +136,15 @@ impl Display for EquipmentMaintenanceError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is already under maintenance until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::ConditionNotImproved {
                 equipment,
                 before,
@@ -204,6 +217,10 @@ impl Error for EquipmentMaintenanceError {
                 equipment: _equipment,
             } => None,
             Self::EquipmentBusyProspecting {
+                equipment: _equipment,
+                completes_at: _completes_at,
+            } => None,
+            Self::EquipmentUnderMaintenance {
                 equipment: _equipment,
                 completes_at: _completes_at,
             } => None,

@@ -103,7 +103,7 @@ impl Error for ManualComminutionResolutionError {
     }
 }
 
-/// Fully resolved direct-labor comminution batch with no equipment or stored-energy resource.
+/// Fully resolved direct-labor comminution batch with optional durable equipment and no stored energy.
 #[must_use]
 #[derive(Debug)]
 pub struct ResolvedManualComminution {

@@ -45,7 +45,12 @@ impl ValidatedEquipmentMaintenance {
                     completes_at,
                 });
             }
-            Some(EquipmentOccupancy::Maintenance { .. }) | None => {}
+            Some(EquipmentOccupancy::Maintenance { .. }) => {
+                unreachable!(
+                    "validated maintenance cannot race another service without changing equipment revision"
+                )
+            }
+            None => {}
         }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
             return Err(EquipmentMaintenanceCommitError::UnknownEquipment {

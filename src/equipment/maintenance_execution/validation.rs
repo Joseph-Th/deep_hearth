@@ -38,7 +38,13 @@ fn validate_equipment_availability(
                 completes_at,
             });
         }
-        Some(EquipmentOccupancy::Maintenance { .. }) | None => {}
+        Some(EquipmentOccupancy::Maintenance { completes_at }) => {
+            return Err(EquipmentMaintenanceError::EquipmentUnderMaintenance {
+                equipment,
+                completes_at,
+            });
+        }
+        None => {}
     }
     Ok(())
 }
