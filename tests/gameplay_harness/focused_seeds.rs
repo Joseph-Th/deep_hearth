@@ -6,7 +6,7 @@ use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 pub(super) const GATE_VARIATION_COUNT: usize = 1;
 pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
-pub(super) fn probe_uses_actor_behavior(name: &str) -> bool {
+pub(super) fn probe_uses_behavior_seed(name: &str) -> bool {
     matches!(name, "survival-provisioning" | "woodworking")
 }
 

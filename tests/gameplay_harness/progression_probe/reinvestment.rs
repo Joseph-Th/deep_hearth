@@ -5,6 +5,7 @@
 //! flat stat bump: crusher throughput, accumulator capacity, residual stored work, survival cost,
 //! and batch sizing constrain one another through the canonical runtime APIs.
 
+use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::*;
 
 fn verify_sizing_plate_continuation(
@@ -809,13 +810,10 @@ fn try_run_mature_reinvestment(
             let outcome = advance_tick(registries, state).unwrap_or_else(|error| {
                 panic!("primitive reinvestment residual-loss tick failed: {error}")
             });
-            assert!(
-                outcome.production_availability_changes().is_empty()
-                    && outcome.production_completions().is_empty()
-                    && outcome.ready_mining_jobs().is_empty()
-                    && outcome.manual_power().is_none()
-                    && outcome.field_prospecting().is_none(),
-                "primitive reinvestment residual-loss wait crossed unrelated observable work"
+            assert_tick_events_within(
+                &outcome,
+                TickEventAllowance::default(),
+                "primitive reinvestment residual-loss wait",
             );
             assert_eq!(state.player_work().active(), None);
         }

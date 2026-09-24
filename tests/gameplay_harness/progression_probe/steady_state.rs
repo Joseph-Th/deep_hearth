@@ -1,5 +1,6 @@
 //! Steady-state overlap, separation, and autonomous processing support for primitive progression.
 
+use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -142,29 +143,13 @@ pub(super) fn stage_pick_service_component_while_crushing(
     for elapsed in 1..=craft_ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("primitive staged maintenance tick failed: {error}"));
-        assert!(
-            outcome
-                .production_availability_changes()
-                .iter()
-                .all(|change| {
-                    let changed_job = change.job();
-                    changed_job != craft_job && changed_job != concurrent.job
-                }),
-            "staged maintenance work unexpectedly changed availability"
-        );
-        assert!(
-            outcome.production_completions().iter().all(|completion| {
-                completion.job() == craft_job || completion.job() == concurrent.job
-            }),
-            "staged maintenance work crossed an unrelated production completion"
-        );
-        assert!(
-            outcome.ready_mining_jobs().is_empty()
-                && outcome.manual_power().is_none()
-                && outcome.equipment_maintenance().is_none()
-                && outcome.storage_enclosure_dismantling().is_none()
-                && outcome.field_prospecting().is_none(),
-            "staged maintenance work crossed unrelated player work"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                production_jobs: &[craft_job, concurrent.job],
+                ..TickEventAllowance::default()
+            },
+            "staged maintenance work",
         );
         if outcome
             .production_completions()
@@ -843,23 +828,13 @@ pub(super) fn finish_autonomous_crush(
     for elapsed in 1..=player_free_ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("primitive autonomous crusher tick failed: {error}"));
-        assert!(
-            !outcome
-                .production_availability_changes()
-                .iter()
-                .any(|change| {
-                    matches!(
-                        change,
-                        deep_hearth::production::ProductionAvailabilityChange::Suspended {
-                            job: changed_job,
-                            ..
-                        } | deep_hearth::production::ProductionAvailabilityChange::Resumed {
-                            job: changed_job,
-                            ..
-                        } if *changed_job == concurrent.job
-                    )
-                }),
-            "primitive autonomous crusher unexpectedly changed availability"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                production_jobs: &[concurrent.job],
+                ..TickEventAllowance::default()
+            },
+            "primitive autonomous crusher",
         );
         if outcome
             .production_completions()

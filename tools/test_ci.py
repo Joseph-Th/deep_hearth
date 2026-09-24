@@ -1720,7 +1720,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "LIBERATION FRONTIER CAPABILITY seed=0x1 selected-by-current-player=true reason=ordinary-concentrate-cleanup-available input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=foundry-infrastructure foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:false support-required=[furnace:true mold:true] energy-scale=[manual-mechanical-max:150000000uW furnace-transfer-ceiling:2000000000000uW ceiling-ratio:13333x melting-carrier:Electrical conversion-path:absent]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
-            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
+            "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 detailed-surveys=1 observed-hardness=1..2Pa observed-resource-mass=0..1mg planned-local-work=1mg geology=quarry-soft tool=stone-quarry adaptation=preparation-plus-order copper-opportunity=absent retained-native-copper=1mg requested=1mg mining=1mg resource-knowledge-effect=changed-tool",
             "FIELDWORK CONTINUATION seed=0x1 available=true reused-knowledge=true reused-tool=true requested=1mg extracted=1mg extraction=2t/7.2s avoided-search=10t/36.0s avoided-kit=50t/3.0m stop=order-complete scope=matched-repeat-order destination-capacity=diagnostic-only",
             "FIELDWORK DEPLETION seed=0x1 eligible=true repeat-orders=[complete:2 partial:1 horizon:12] extracted=5mg attention=6t/21.6s supply-ended=true terminal=short-claim condition-after=990000ppm body=[energy:1000000000000nJ hydration:1000uL] scope=matched-orders-on-known-site no-search=true no-new-tool=true diagnostic-only=true",
@@ -1876,7 +1876,7 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         self.assertIn("choice-load=[crank:1..1kg treadle:n/a]", concise)
         self.assertIn(
-            "lifecycle-feedback=[samples:1/1 attention-model-agrees:1/1 timber-model-agrees:1/1 choice-revised:0/1]",
+            "lifecycle-feedback=[samples:1/1 setup-budget-met:0/1 realized-payback:0/1 budget-vs-payback=[conservative:0 optimistic:0] timber-model-agrees:1/1 choice-revised:0/1]",
             concise,
         )
         self.assertIn(
@@ -2087,6 +2087,21 @@ class LocalCiPlanTests(unittest.TestCase):
             {},
         )
         self.assertIn("choice=[saw:0 adze:0 bare:1]", summary)
+
+    def test_woodworking_summary_classifies_conservative_setup_budget_without_calling_it_model_error(self) -> None:
+        summary = gameplay_report_summary.concise_gameplay_report(
+            "\n".join(
+                (
+                    "WOODWORKING EXPERIENCE seed=0x1 demand-horizon=project choice=stone-adze reason=pipeline-timber-cost-not-recovered",
+                    "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:true] timber=[nominal:costlier actual:costlier] selected=stone-adze choice-revised-after-outcome=false",
+                )
+            ),
+            {},
+        )
+        self.assertIn(
+            "lifecycle-feedback=[samples:1/1 setup-budget-met:0/1 realized-payback:1/1 budget-vs-payback=[conservative:1 optimistic:0] timber-model-agrees:1/1 choice-revised:0/1]",
+            summary,
+        )
 
     def test_git_wizard_validation_levels_match_iteration_policy(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))

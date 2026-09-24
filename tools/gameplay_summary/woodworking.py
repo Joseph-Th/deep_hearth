@@ -30,17 +30,25 @@ def woodworking_summary(lines: list[str]) -> str | None:
     }
     organic_woodworking = organic_only(woodworking)
     feedback = [line for line in lines if line.startswith("WOODWORKING FEEDBACK ")]
-    attention_model_agrees = 0
+    setup_budget_met = 0
+    realized_payback = 0
+    conservative_budget_misses = 0
+    optimistic_budget_misses = 0
     timber_model_agrees = 0
     choices_revised = 0
     for line in feedback:
         attention = re.search(
-            r"attention=\[budget-met:(true|false) actual-payback:(true|false)\]",
+            r"attention=\[setup-budget-met:(true|false) actual-payback:(true|false)\]",
             line,
         )
         timber = re.search(r"timber=\[nominal:([^ ]+) actual:([^\]]+)\]", line)
-        if attention is not None and attention.group(1) == attention.group(2):
-            attention_model_agrees += 1
+        if attention is not None:
+            budget_met = attention.group(1) == "true"
+            payback = attention.group(2) == "true"
+            setup_budget_met += budget_met
+            realized_payback += payback
+            conservative_budget_misses += not budget_met and payback
+            optimistic_budget_misses += budget_met and not payback
         if timber is not None and timber.group(1) == timber.group(2):
             timber_model_agrees += 1
         choices_revised += "choice-revised-after-outcome=true" in line
@@ -74,7 +82,10 @@ def woodworking_summary(lines: list[str]) -> str | None:
         f"timber-saving={count('timber-saving:true')} "
         f"timber-neutral={count('timber-neutral:true')} "
         f"lifecycle-feedback=[samples:{len(feedback)}/{len(woodworking)} "
-        f"attention-model-agrees:{attention_model_agrees}/{len(feedback)} "
+        f"setup-budget-met:{setup_budget_met}/{len(feedback)} "
+        f"realized-payback:{realized_payback}/{len(feedback)} "
+        f"budget-vs-payback=[conservative:{conservative_budget_misses} "
+        f"optimistic:{optimistic_budget_misses}] "
         f"timber-model-agrees:{timber_model_agrees}/{len(feedback)} "
         f"choice-revised:{choices_revised}/{len(feedback)}]"
     )

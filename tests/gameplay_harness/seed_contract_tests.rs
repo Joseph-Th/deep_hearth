@@ -3,7 +3,7 @@
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeRole, FocusedProbeSeedError, FocusedProbeSeedPlan,
     GATE_VARIATION_COUNT, focused_probe_cases_from as build_focused_probe_cases,
-    probe_uses_actor_behavior,
+    probe_uses_behavior_seed,
 };
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
@@ -311,13 +311,14 @@ fn focused_behavior_root_is_validated_even_for_explicit_world_replay() {
 }
 
 #[test]
-fn focused_behavior_channel_exists_only_for_probes_with_actor_policy() {
-    assert!(probe_uses_actor_behavior("survival-provisioning"));
-    assert!(probe_uses_actor_behavior("woodworking"));
-    assert!(!probe_uses_actor_behavior("primitive-progression"));
-    assert!(!probe_uses_actor_behavior("fieldwork"));
-    assert!(!probe_uses_actor_behavior("ore-preparation"));
-    assert!(!probe_uses_actor_behavior("foundry"));
+fn focused_behavior_seed_channel_exists_only_for_preference_varied_probes() {
+    assert!(probe_uses_behavior_seed("survival-provisioning"));
+    assert!(probe_uses_behavior_seed("woodworking"));
+    assert!(!probe_uses_behavior_seed("primitive-progression"));
+    assert!(!probe_uses_behavior_seed("fieldwork"));
+    assert!(!probe_uses_behavior_seed("power-provider"));
+    assert!(!probe_uses_behavior_seed("ore-preparation"));
+    assert!(!probe_uses_behavior_seed("foundry"));
 }
 
 #[test]

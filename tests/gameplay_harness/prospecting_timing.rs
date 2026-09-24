@@ -6,6 +6,8 @@ use deep_hearth::labor::ProspectingWork;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 
+use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
+
 /// Completes one admitted prospecting action by following its authoritative work schedule.
 pub(super) fn complete_prospecting_work(
     registries: &Registries,
@@ -30,14 +32,13 @@ pub(super) fn complete_prospecting_work(
         } else {
             completion = outcome.field_prospecting();
         }
-        assert!(
-            outcome.production_availability_changes().is_empty()
-                && outcome.production_completions().is_empty()
-                && outcome.ready_mining_jobs().is_empty()
-                && outcome.manual_power().is_none()
-                && outcome.equipment_maintenance().is_none()
-                && outcome.storage_enclosure_dismantling().is_none(),
-            "gameplay harness {context} crossed unrelated observable work"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                field_prospecting: true,
+                ..TickEventAllowance::default()
+            },
+            context,
         );
     }
     completion.unwrap_or_else(|| {

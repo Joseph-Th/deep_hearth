@@ -1,14 +1,14 @@
 //! Shared condition-adjusted physics for finite-energy ore-processing batches.
 
 use crate::capability::{CapabilityEvaluationError, CapabilityId, CapabilityValue};
-use crate::core::quantity::{Energy, Mass, MassFlow, Power};
+use crate::core::quantity::{Energy, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
-use crate::core::throughput::calculate_mass_flow_duration_ceiling;
-use crate::core::time::TickSpan;
+use crate::core::throughput::{calculate_mass_flow_capacity, calculate_mass_flow_duration_ceiling};
+use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::{
     EnergyStoreId, ValidatedEnergySupply, assess_energy_supply_access,
-    calculate_mass_specific_energy, calculate_power_duration_ceiling,
-    validate_energy_supply_request,
+    calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
+    calculate_power_duration_ceiling, integrate_power_or_saturate, validate_energy_supply_request,
 };
 use crate::equipment::{
     EquipmentDefinition, EquipmentId, ResolvedEquipmentProvider, ValidatedEquipmentUse,
@@ -351,6 +351,27 @@ pub(super) fn resolve_powered_ore_equipment_limits(
         processing_rate,
         maximum_batch_mass,
     })
+}
+
+/// Greatest processable mass across throughput, available power, and an active-time budget.
+///
+/// This is the canonical powered-ore inverse used by both current-state envelopes and bounded
+/// replenished-order projection. It deliberately excludes per-batch equipment ceilings and finite
+/// stored charge so callers can compose those independent constraints explicitly.
+pub(super) fn powered_ore_mass_capacity_for_active_ticks(
+    processing_rate: MassFlow,
+    available_power: Power,
+    specific_energy: MassSpecificEnergy,
+    ticks: TickSpan,
+    physical_tick_duration: PhysicalTickDuration,
+) -> Mass {
+    let throughput_capacity =
+        calculate_mass_flow_capacity(processing_rate, ticks, physical_tick_duration);
+    let integrated = integrate_power_or_saturate(available_power, ticks, physical_tick_duration);
+    throughput_capacity.min(calculate_mass_specific_energy_capacity(
+        integrated,
+        specific_energy,
+    ))
 }
 
 /// Resolves common rate-bottleneck timing and condition wear after finite energy is validated.

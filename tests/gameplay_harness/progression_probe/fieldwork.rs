@@ -1,5 +1,6 @@
 //! Observable prospecting, mining execution, and clue interpretation for primitive progression.
 
+use super::super::prospecting_timing::complete_prospecting_work;
 use super::*;
 
 pub(in super::super) fn progression_mining_mass(registries: &Registries, seed: u64) -> Mass {
@@ -185,24 +186,8 @@ pub(super) fn acquire_copper_evidence_with_equipment(
     start
         .commit(state)
         .unwrap_or_else(|error| panic!("primitive progression prospecting commit failed: {error}"));
-    let mut completion = None;
-    for elapsed in 1..=duration {
-        let outcome = advance_tick(registries, state).unwrap_or_else(|error| {
-            panic!("primitive progression prospecting tick failed: {error}")
-        });
-        let acquired = outcome.field_prospecting();
-        if elapsed < duration {
-            assert_eq!(
-                acquired, None,
-                "primitive progression prospecting completed before its validated schedule"
-            );
-        } else {
-            completion = acquired;
-        }
-    }
-    let completion = completion.unwrap_or_else(|| {
-        panic!("primitive progression prospecting produced no completion outcome")
-    });
+    let completion =
+        complete_prospecting_work(registries, state, work, "primitive progression prospecting");
     assert_eq!(completion.method(), method);
     assert_eq!(completion.region(), region);
     assert_eq!(completion.material(), MATERIAL_COPPER);

@@ -1,5 +1,6 @@
 //! Canonical direct-consumption execution and shared provisioning arithmetic.
 
+use super::super::direct_consumption_timing::finish_direct_consumption_work;
 use super::*;
 
 pub(super) fn mass_for_target_energy(food: FoodDefinition, target: Energy) -> Mass {
@@ -204,37 +205,12 @@ pub(super) fn finish_direct_consumption(
     state: &mut AppState,
     completes_at: SimulationTick,
 ) -> u64 {
-    let active = state
-        .player_work()
-        .active()
-        .unwrap_or_else(|| panic!("survival direct consumption has no active player work"));
-    assert!(matches!(
-        active,
-        PlayerWork::Eating { .. } | PlayerWork::Drinking { .. }
-    ));
-    let ticks = completes_at
-        .value()
-        .checked_sub(state.tick().value())
-        .unwrap_or_else(|| panic!("direct-consumption completion precedes current tick"));
-    assert!(ticks > 0, "direct-consumption attention must occupy time");
-    for elapsed in 1..=ticks {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("survival direct-consumption tick failed: {error}"));
-        assert!(
-            outcome.production_availability_changes().is_empty()
-                && outcome.production_completions().is_empty()
-                && outcome.ready_mining_jobs().is_empty()
-                && outcome.manual_power().is_none()
-                && outcome.field_prospecting().is_none(),
-            "survival direct consumption crossed an unrelated observable runtime event"
-        );
-        if elapsed < ticks {
-            assert_eq!(state.player_work().active(), Some(active));
-        } else {
-            assert_eq!(state.player_work().active(), None);
-        }
-    }
-    ticks
+    finish_direct_consumption_work(
+        registries,
+        state,
+        completes_at,
+        "survival direct consumption",
+    )
 }
 
 pub(super) fn bound_meal_masses_to_direct_limit(masses: &[Mass], maximum: Mass) -> Vec<Mass> {

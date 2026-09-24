@@ -36,6 +36,8 @@ mod seed_input;
 mod structural_fixture;
 #[path = "gameplay_harness/temporal.rs"]
 mod temporal;
+#[path = "gameplay_harness/tick_observation.rs"]
+mod tick_observation;
 
 #[test]
 fn gameplay_foundry_probe() {

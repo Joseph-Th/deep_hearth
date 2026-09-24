@@ -5,6 +5,8 @@ use deep_hearth::production::ProductionJobId;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 
+use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
+
 /// Advances one already-admitted production job whose providers are intentionally stable.
 ///
 /// This is not a general actor scheduler. It verifies the runtime completion receipt and refuses to
@@ -34,27 +36,13 @@ pub(super) fn finish_uninterrupted_production_job(
     for elapsed in 1..=expected_ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"));
-        assert!(
-            !outcome
-                .production_availability_changes()
-                .iter()
-                .any(|change| change.job() == job),
-            "gameplay harness {context} job changed availability inside an uninterrupted completion helper"
-        );
-        assert!(
-            outcome
-                .production_completions()
-                .iter()
-                .all(|completion| completion.job() == job),
-            "gameplay harness {context} crossed an unrelated production completion"
-        );
-        assert!(
-            outcome.ready_mining_jobs().is_empty()
-                && outcome.manual_power().is_none()
-                && outcome.equipment_maintenance().is_none()
-                && outcome.storage_enclosure_dismantling().is_none()
-                && outcome.field_prospecting().is_none(),
-            "gameplay harness {context} crossed unrelated observable player work"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                production_jobs: &[job],
+                ..TickEventAllowance::default()
+            },
+            context,
         );
         if outcome
             .production_completions()

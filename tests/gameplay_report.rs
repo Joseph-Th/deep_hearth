@@ -14,6 +14,8 @@ mod catalog;
 mod configuration;
 #[path = "gameplay_harness/contracts.rs"]
 mod contracts;
+#[path = "gameplay_harness/direct_consumption_timing.rs"]
+mod direct_consumption_timing;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
@@ -86,6 +88,8 @@ mod structural_fixture;
 mod survival_probe;
 #[path = "gameplay_harness/temporal.rs"]
 mod temporal;
+#[path = "gameplay_harness/tick_observation.rs"]
+mod tick_observation;
 #[path = "gameplay_harness/woodworking_probe.rs"]
 mod woodworking_probe;
 #[path = "gameplay_harness/workshop.rs"]

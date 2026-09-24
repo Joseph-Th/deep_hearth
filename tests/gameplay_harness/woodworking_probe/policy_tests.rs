@@ -13,14 +13,14 @@ fn prices_observed_budget_copper_and_timber_before_execution() {
             true,
             false,
             Costlier,
-            (false, PipelineTooShortForAttentionPayback),
+            (false, SetupAttentionBudgetExceeded),
         ),
         (
             ConserveScarceCopper,
             true,
             true,
             Costlier,
-            (true, SurplusCopperAttentionPayback),
+            (true, SurplusCopperWithinSetupBudget),
         ),
         (
             ConserveScarceCopper,
@@ -41,14 +41,14 @@ fn prices_observed_budget_copper_and_timber_before_execution() {
             false,
             false,
             Neutral,
-            (false, PipelineTimberNeutralWithoutAttentionPayback),
+            (false, PipelineTimberNeutralOutsideSetupBudget),
         ),
         (
             ConserveTimber,
             false,
             true,
             Neutral,
-            (true, PipelineTimberNeutralAttentionPayback),
+            (true, PipelineTimberNeutralWithinSetupBudget),
         ),
         (
             ConserveTimber,

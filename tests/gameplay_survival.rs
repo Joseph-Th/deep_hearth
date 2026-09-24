@@ -4,6 +4,8 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
+#[path = "gameplay_harness/direct_consumption_timing.rs"]
+mod direct_consumption_timing;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/focused_runner.rs"]
@@ -20,6 +22,8 @@ mod physical_time;
 mod preservation_route;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/prospecting_timing.rs"]
+mod prospecting_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
@@ -28,6 +32,8 @@ mod seed_input;
 mod survival_probe;
 #[path = "gameplay_harness/temporal.rs"]
 mod temporal;
+#[path = "gameplay_harness/tick_observation.rs"]
+mod tick_observation;
 
 #[test]
 fn gameplay_survival_provisioning_probe() {

@@ -3,6 +3,7 @@
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
 
+use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::preservation::{
     PreservationCandidate, preservation_candidate_for_policy,
     preservation_candidates_for_opportunity, preservation_raw_material_totals,
@@ -695,6 +696,14 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
     for elapsed in 1..=dismantle_ticks {
         let outcome = advance_tick(registries, &mut state)
             .unwrap_or_else(|error| panic!("preservation dismantling tick failed: {error}"));
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                storage_enclosure_dismantling: true,
+                ..TickEventAllowance::default()
+            },
+            "preservation dismantling",
+        );
         if elapsed < dismantle_ticks {
             assert!(
                 state

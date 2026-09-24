@@ -6,12 +6,12 @@ use std::fmt::{Display, Formatter};
 use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::{Energy, Mass, MassFlow, MassSpecificEnergy, Power};
 use crate::core::state::AppState;
-use crate::core::throughput::{calculate_mass_flow_capacity, calculate_mass_flow_duration_ceiling};
+use crate::core::throughput::calculate_mass_flow_duration_ceiling;
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, assess_energy_supply_access,
     calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
-    calculate_power_duration_ceiling, integrate_power_or_saturate,
+    calculate_power_duration_ceiling,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::maintenance::{
@@ -22,8 +22,8 @@ use crate::registry::{ProcessExecutionFamily, Registries};
 
 use super::PoweredOreProcessProfile;
 use super::powered_physics::{
-    PoweredOreEquipmentError, resolve_powered_ore_equipment_limits,
-    validate_powered_ore_process_capabilities,
+    PoweredOreEquipmentError, powered_ore_mass_capacity_for_active_ticks,
+    resolve_powered_ore_equipment_limits, validate_powered_ore_process_capabilities,
 };
 
 /// First shared scale constraint that rejects a requested powered ore batch.
@@ -185,33 +185,26 @@ impl PoweredOreMassEnvelope {
             self.condition_before,
             floor,
         );
-        let throughput_capacity = calculate_mass_flow_capacity(
+        powered_ore_mass_capacity_for_active_ticks(
             self.processing_rate,
-            safe_ticks,
-            self.physical_tick_duration,
-        );
-        let power_capacity = mass_capacity_from_integrated_power(
             self.available_power,
+            self.specific_energy,
             safe_ticks,
             self.physical_tick_duration,
-            self.specific_energy,
-        );
-        std::cmp::min(throughput_capacity, power_capacity)
+        )
     }
 
     fn maximum_mass_for_active_ticks(self, ticks: TickSpan) -> Mass {
-        let throughput_capacity =
-            calculate_mass_flow_capacity(self.processing_rate, ticks, self.physical_tick_duration);
-        let power_capacity = mass_capacity_from_integrated_power(
+        let active_time_capacity = powered_ore_mass_capacity_for_active_ticks(
+            self.processing_rate,
             self.available_power,
+            self.specific_energy,
             ticks,
             self.physical_tick_duration,
-            self.specific_energy,
         );
         self.equipment_capacity
             .min(self.stored_energy_capacity)
-            .min(throughput_capacity)
-            .min(power_capacity)
+            .min(active_time_capacity)
     }
 }
 
@@ -339,19 +332,13 @@ pub fn assess_powered_ore_mass_envelope(
         provider.condition(),
     );
     let physical_tick_duration = registries.core().physical_tick_duration();
-    let throughput_lifetime_capacity = calculate_mass_flow_capacity(
+    let condition_lifetime_capacity = powered_ore_mass_capacity_for_active_ticks(
         equipment_limits.processing_rate(),
-        condition_ticks,
-        physical_tick_duration,
-    );
-    let power_lifetime_capacity = mass_capacity_from_integrated_power(
         energy.max_output_power(),
+        specific_energy,
         condition_ticks,
         physical_tick_duration,
-        specific_energy,
     );
-    let condition_lifetime_capacity =
-        std::cmp::min(throughput_lifetime_capacity, power_lifetime_capacity);
 
     Ok(PoweredOreMassEnvelope {
         equipment_capacity: equipment_limits.maximum_batch_mass(),
@@ -417,16 +404,6 @@ pub(super) fn powered_profile(
         | ProcessExecutionFamily::Melting
         | ProcessExecutionFamily::Casting => None,
     }
-}
-
-fn mass_capacity_from_integrated_power(
-    power: Power,
-    ticks: TickSpan,
-    physical_tick_duration: PhysicalTickDuration,
-    specific: MassSpecificEnergy,
-) -> Mass {
-    let integrated = integrate_power_or_saturate(power, ticks, physical_tick_duration);
-    calculate_mass_specific_energy_capacity(integrated, specific)
 }
 
 #[cfg(test)]

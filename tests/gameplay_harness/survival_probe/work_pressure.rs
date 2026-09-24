@@ -1,5 +1,6 @@
 //! Matched survival pressure from prospecting and manual power work.
 
+use super::super::prospecting_timing::complete_prospecting_work;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,22 +78,12 @@ pub(super) fn evaluate_survival_work_pressure_probe(
     prospecting_start
         .commit(&mut prospecting)
         .unwrap_or_else(|error| panic!("work-pressure prospecting commit failed: {error}"));
-    let mut prospecting_completion = None;
-    for elapsed in 1..=prospecting_ticks {
-        let outcome = advance_tick(registries, &mut prospecting)
-            .unwrap_or_else(|error| panic!("work-pressure prospecting tick failed: {error}"));
-        let completion = outcome.field_prospecting();
-        if elapsed < prospecting_ticks {
-            assert_eq!(
-                completion, None,
-                "work-pressure prospecting completed before its validated schedule"
-            );
-        } else {
-            prospecting_completion = completion;
-        }
-    }
-    let prospecting_completion = prospecting_completion
-        .unwrap_or_else(|| panic!("work-pressure prospecting produced no completion outcome"));
+    let prospecting_completion = complete_prospecting_work(
+        registries,
+        &mut prospecting,
+        prospecting_work,
+        "work-pressure prospecting",
+    );
     assert_eq!(prospecting_completion.method(), prospecting_method);
     assert_eq!(prospecting_completion.region(), region);
     assert_eq!(prospecting_completion.material(), MATERIAL_COPPER);

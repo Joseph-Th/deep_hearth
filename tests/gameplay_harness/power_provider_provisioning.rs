@@ -6,21 +6,19 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::core::state::AppState;
-use deep_hearth::core::time::SimulationTick;
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::{
     MaterialLotSelection, StockpileId, StockpileStorageProfile, validate_build_storage_enclosure,
 };
-use deep_hearth::labor::PlayerWork;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::advance_tick;
 use deep_hearth::survival::{
     DrinkHydrationProjectionError, SurvivalExertion, assess_survival,
     project_minimum_drink_to_hydration_target, project_minimum_meal_to_metabolic_target,
     project_survival_resource_budget, validate_drink, validate_eat,
 };
 
+use super::super::direct_consumption_timing::finish_direct_consumption_work;
 use super::super::environment::ROOM_TEMPERATURE;
 
 #[derive(Clone, Copy)]
@@ -156,46 +154,6 @@ impl ProvisioningOutcome {
     }
 }
 
-fn finish_direct_consumption(
-    registries: &Registries,
-    state: &mut AppState,
-    completes_at: SimulationTick,
-    context: &'static str,
-) -> u64 {
-    let active = state
-        .player_work()
-        .active()
-        .unwrap_or_else(|| panic!("power project {context} has no active direct consumption"));
-    assert!(matches!(
-        active,
-        PlayerWork::Eating { .. } | PlayerWork::Drinking { .. }
-    ));
-    let ticks = completes_at
-        .value()
-        .checked_sub(state.tick().value())
-        .unwrap_or_else(|| panic!("power project {context} completion precedes now"));
-    assert!(ticks > 0);
-    for elapsed in 1..=ticks {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("power project {context} tick failed: {error}"));
-        assert!(
-            outcome.production_availability_changes().is_empty()
-                && outcome.production_completions().is_empty()
-                && outcome.ready_mining_jobs().is_empty()
-                && outcome.manual_power().is_none()
-                && outcome.storage_enclosure_dismantling().is_none()
-                && outcome.field_prospecting().is_none(),
-            "power project {context} crossed unrelated observable work during provisioning"
-        );
-        if elapsed < ticks {
-            assert_eq!(state.player_work().active(), Some(active));
-        } else {
-            assert_eq!(state.player_work().active(), None);
-        }
-    }
-    ticks
-}
-
 fn recovery_drink_volume(registries: &Registries, state: &AppState, target: Volume) -> Volume {
     let current = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("power project lost player before drink planning"))
@@ -283,7 +241,7 @@ fn drink_to_target(
             .unwrap_or_else(|error| panic!("power project drink commit failed: {error}"));
         outcome.attention_ticks = outcome
             .attention_ticks
-            .checked_add(finish_direct_consumption(
+            .checked_add(finish_direct_consumption_work(
                 registries,
                 state,
                 drank.completes_at(),
@@ -467,7 +425,7 @@ pub(super) fn provision_for_project_leg(
         );
         outcome.attention_ticks = outcome
             .attention_ticks
-            .checked_add(finish_direct_consumption(
+            .checked_add(finish_direct_consumption_work(
                 registries,
                 state,
                 meal.completes_at(),

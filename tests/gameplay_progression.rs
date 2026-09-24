@@ -40,10 +40,14 @@ mod production_timing;
 mod progression_probe;
 #[path = "gameplay_harness/progression_scope.rs"]
 mod progression_scope;
+#[path = "gameplay_harness/prospecting_timing.rs"]
+mod prospecting_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/tick_observation.rs"]
+mod tick_observation;
 
 #[test]
 fn gameplay_primitive_progression_probe() {

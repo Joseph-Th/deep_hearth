@@ -1,5 +1,6 @@
 //! Primitive material preparation and shared early-work execution helpers.
 
+use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::*;
 
 pub(super) fn craft_batches(
@@ -46,18 +47,18 @@ pub(super) fn finish_mining_work(
         .get_job(job)
         .unwrap_or_else(|| panic!("primitive progression {context} mining job disappeared"));
     let ticks = duration(record.started_at().value(), record.completes_at().value());
+    let concurrent_production_jobs = concurrent_production.as_slice();
     for elapsed in 1..=ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("primitive progression {context} tick failed: {error}"));
-        assert!(
-            outcome.production_availability_changes().is_empty(),
-            "primitive progression {context} encountered an unexpected production availability change"
-        );
-        assert!(
-            outcome.production_completions().iter().all(|completion| {
-                concurrent_production.is_some_and(|expected| completion.job() == expected)
-            }),
-            "primitive progression {context} observed an unrelated production completion"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                production_jobs: concurrent_production_jobs,
+                mining_jobs: &[job],
+                ..TickEventAllowance::default()
+            },
+            context,
         );
         if elapsed < ticks {
             assert!(

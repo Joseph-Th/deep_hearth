@@ -6,6 +6,8 @@ use deep_hearth::labor::{EquipmentMaintenanceWork, PlayerWork};
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 
+use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
+
 /// Advances active maintenance to one boundary no later than its scheduled completion.
 pub(super) fn advance_equipment_maintenance_to(
     registries: &Registries,
@@ -30,14 +32,13 @@ pub(super) fn advance_equipment_maintenance_to(
         let outcome = advance_tick(registries, state).unwrap_or_else(|error| {
             panic!("gameplay harness {context} service tick failed: {error}")
         });
-        assert!(
-            outcome.production_availability_changes().is_empty()
-                && outcome.production_completions().is_empty()
-                && outcome.ready_mining_jobs().is_empty()
-                && outcome.manual_power().is_none()
-                && outcome.storage_enclosure_dismantling().is_none()
-                && outcome.field_prospecting().is_none(),
-            "gameplay harness {context} crossed unrelated observable work during maintenance"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                equipment_maintenance: true,
+                ..TickEventAllowance::default()
+            },
+            context,
         );
 
         if outcome.tick() < work.completes_at() {

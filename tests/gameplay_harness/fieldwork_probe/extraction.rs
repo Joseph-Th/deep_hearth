@@ -14,6 +14,8 @@ use deep_hearth::mining::{
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 
+use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FieldworkStop {
     OrderComplete,
@@ -82,11 +84,13 @@ fn complete_batch(
             elapsed == ticks,
             "fieldwork readiness diverged from its authoritative schedule"
         );
-        assert!(
-            outcome.production_completions().is_empty()
-                && outcome.manual_power().is_none()
-                && outcome.field_prospecting().is_none(),
-            "fieldwork mining crossed unrelated observable work"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                mining_jobs: &[job],
+                ..TickEventAllowance::default()
+            },
+            "fieldwork mining",
         );
     }
     let receipt = validate_claim_mining_output(registries, state, job)

@@ -545,36 +545,45 @@ fn cumulative_condition_horizon_retains_output_power_limit() {
         safe_ticks,
         fixture.registries.core().physical_tick_duration(),
     );
-    let power_capacity = mass_capacity_from_integrated_power(
+    let active_time_capacity = powered_ore_mass_capacity_for_active_ticks(
+        MassFlow::from_milligrams_per_second(config.flow_mg_per_second),
         config.output_power,
+        MassSpecificEnergy::from_nanojoules_per_milligram(config.specific_nj_per_mg),
         safe_ticks,
         fixture.registries.core().physical_tick_duration(),
-        MassSpecificEnergy::from_nanojoules_per_milligram(config.specific_nj_per_mg),
     );
     let cumulative = envelope(&fixture)
         .cumulative_mass_preserving_condition_above_with_replenished_energy(floor);
 
-    assert!(!power_capacity.is_zero());
-    assert!(power_capacity < throughput_capacity);
-    assert_eq!(cumulative, power_capacity);
+    assert!(!active_time_capacity.is_zero());
+    assert!(active_time_capacity < throughput_capacity);
+    assert_eq!(cumulative, active_time_capacity);
 }
 
 #[test]
-fn integrated_power_capacity_is_zero_when_either_power_or_time_is_zero() {
+fn powered_ore_active_time_capacity_is_zero_when_either_power_or_time_is_zero() {
     let tick_duration = build_registries().core().physical_tick_duration();
+    let flow = MassFlow::from_milligrams_per_second(1);
     let specific = MassSpecificEnergy::from_nanojoules_per_milligram(1);
 
     assert_eq!(
-        mass_capacity_from_integrated_power(
+        powered_ore_mass_capacity_for_active_ticks(
+            flow,
             Power::from_microwatts(1),
+            specific,
             TickSpan::ZERO,
             tick_duration,
-            specific,
         ),
         Mass::ZERO
     );
     assert_eq!(
-        mass_capacity_from_integrated_power(Power::ZERO, TickSpan::new(1), tick_duration, specific,),
+        powered_ore_mass_capacity_for_active_ticks(
+            flow,
+            Power::ZERO,
+            specific,
+            TickSpan::new(1),
+            tick_duration,
+        ),
         Mass::ZERO
     );
 }

@@ -30,11 +30,11 @@ pub(super) enum WoodworkingInvestmentReason {
     BareHandsAvoidsInvestmentCost,
     CopperSupplyLimited,
     CopperReserveProtected,
-    PipelineTooShortForAttentionPayback,
-    SurplusCopperAttentionPayback,
+    SetupAttentionBudgetExceeded,
+    SurplusCopperWithinSetupBudget,
     PipelineTimberCostNotRecovered,
-    PipelineTimberNeutralWithoutAttentionPayback,
-    PipelineTimberNeutralAttentionPayback,
+    PipelineTimberNeutralOutsideSetupBudget,
+    PipelineTimberNeutralWithinSetupBudget,
     PipelineNetTimberSaving,
 }
 
@@ -44,14 +44,14 @@ impl WoodworkingInvestmentReason {
             Self::BareHandsAvoidsInvestmentCost => "bare-hands-avoids-investment-cost",
             Self::CopperSupplyLimited => "copper-supply-limited",
             Self::CopperReserveProtected => "copper-reserve-protected",
-            Self::PipelineTooShortForAttentionPayback => "pipeline-too-short-for-attention-payback",
-            Self::SurplusCopperAttentionPayback => "surplus-copper-attention-payback",
+            Self::SetupAttentionBudgetExceeded => "setup-attention-budget-exceeded",
+            Self::SurplusCopperWithinSetupBudget => "surplus-copper-within-setup-budget",
             Self::PipelineTimberCostNotRecovered => "pipeline-timber-cost-not-recovered",
-            Self::PipelineTimberNeutralWithoutAttentionPayback => {
-                "pipeline-timber-neutral-without-attention-payback"
+            Self::PipelineTimberNeutralOutsideSetupBudget => {
+                "pipeline-timber-neutral-outside-setup-budget"
             }
-            Self::PipelineTimberNeutralAttentionPayback => {
-                "pipeline-timber-neutral-attention-payback"
+            Self::PipelineTimberNeutralWithinSetupBudget => {
+                "pipeline-timber-neutral-within-setup-budget"
             }
             Self::PipelineNetTimberSaving => "pipeline-net-timber-saving",
         }
@@ -92,7 +92,7 @@ pub(super) fn woodworking_timber_balance(
 pub(super) fn woodworking_investment_decision(
     preference: WoodworkingInvestmentPreference,
     reserve_safe: bool,
-    attention_budget_met: bool,
+    setup_attention_budget_met: bool,
     timber_balance: WoodworkingTimberBalance,
 ) -> (bool, WoodworkingInvestmentReason) {
     if timber_balance == WoodworkingTimberBalance::Unavailable {
@@ -100,49 +100,49 @@ pub(super) fn woodworking_investment_decision(
     }
     match preference {
         WoodworkingInvestmentPreference::ConserveScarceCopper => {
-            conserve_copper_decision(reserve_safe, attention_budget_met)
+            conserve_copper_decision(reserve_safe, setup_attention_budget_met)
         }
         WoodworkingInvestmentPreference::ConserveTimber => {
-            conserve_timber_decision(timber_balance, attention_budget_met)
+            conserve_timber_decision(timber_balance, setup_attention_budget_met)
         }
     }
 }
 
 fn conserve_copper_decision(
     reserve_safe: bool,
-    attention_budget_met: bool,
+    setup_attention_budget_met: bool,
 ) -> (bool, WoodworkingInvestmentReason) {
     if !reserve_safe {
         return (false, WoodworkingInvestmentReason::CopperReserveProtected);
     }
-    if !attention_budget_met {
+    if !setup_attention_budget_met {
         return (
             false,
-            WoodworkingInvestmentReason::PipelineTooShortForAttentionPayback,
+            WoodworkingInvestmentReason::SetupAttentionBudgetExceeded,
         );
     }
     (
         true,
-        WoodworkingInvestmentReason::SurplusCopperAttentionPayback,
+        WoodworkingInvestmentReason::SurplusCopperWithinSetupBudget,
     )
 }
 
 fn conserve_timber_decision(
     timber_balance: WoodworkingTimberBalance,
-    attention_budget_met: bool,
+    setup_attention_budget_met: bool,
 ) -> (bool, WoodworkingInvestmentReason) {
     match timber_balance {
         WoodworkingTimberBalance::Costlier => (
             false,
             WoodworkingInvestmentReason::PipelineTimberCostNotRecovered,
         ),
-        WoodworkingTimberBalance::Neutral if !attention_budget_met => (
+        WoodworkingTimberBalance::Neutral if !setup_attention_budget_met => (
             false,
-            WoodworkingInvestmentReason::PipelineTimberNeutralWithoutAttentionPayback,
+            WoodworkingInvestmentReason::PipelineTimberNeutralOutsideSetupBudget,
         ),
         WoodworkingTimberBalance::Neutral => (
             true,
-            WoodworkingInvestmentReason::PipelineTimberNeutralAttentionPayback,
+            WoodworkingInvestmentReason::PipelineTimberNeutralWithinSetupBudget,
         ),
         WoodworkingTimberBalance::Saving => {
             (true, WoodworkingInvestmentReason::PipelineNetTimberSaving)

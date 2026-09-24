@@ -102,12 +102,7 @@ pub(super) fn localize_target(
     channel_start_x: i64,
     strategy: FieldworkSurveyStrategy,
 ) -> FieldworkLocalization {
-    let transect_uncertainty = registries
-        .labor()
-        .get_prospecting(PROSPECTING_LOCAL_TRANSECT)
-        .map(|definition| definition.abundance_uncertainty_ppm())
-        .unwrap_or_else(|| panic!("fieldwork local-transect definition disappeared"));
-    let mut selected_channel = None::<(i64, u32)>;
+    let mut selected_channel = None::<(i64, u32, u32)>;
     let mut transects = 0_u64;
     for channel_index in 0..CHANNEL_COUNT {
         let channel_start = channel_start_x + channel_index * channel_voxels;
@@ -126,18 +121,19 @@ pub(super) fn localize_target(
             .get_observation(outcome.observation())
             .and_then(|record| record.finding(MATERIAL_COPPER))
             .unwrap_or_else(|| panic!("fieldwork local-transect copper finding disappeared"));
-        if selected_channel
-            .is_none_or(|(_selected_start, selected_upper)| finding.upper_ppm() > selected_upper)
-        {
-            selected_channel = Some((channel_start, finding.upper_ppm()));
+        let evidence = (finding.lower_ppm(), finding.upper_ppm());
+        if selected_channel.is_none_or(|(_selected_start, selected_lower, selected_upper)| {
+            evidence > (selected_lower, selected_upper)
+        }) {
+            selected_channel = Some((channel_start, evidence.0, evidence.1));
         }
     }
-    let (selected_channel_start, selected_channel_upper) = selected_channel
-        .unwrap_or_else(|| unreachable!("fieldwork evaluates at least one candidate channel"));
-    assert!(
-        selected_channel_upper > transect_uncertainty,
-        "fieldwork selected channel must contain a signal above transect uncertainty"
-    );
+    // Broad transects can conservatively retain a zero lower bound even over the best channel.
+    // The actor therefore ranks only the acquired bounds relative to one another instead of
+    // reverse-engineering hidden truth from the method's authored uncertainty constant.
+    let (selected_channel_start, _selected_channel_lower, _selected_channel_upper) =
+        selected_channel
+            .unwrap_or_else(|| unreachable!("fieldwork evaluates at least one candidate channel"));
     let first_point = horizontal_region(selected_channel_start, 1);
     assert!(matches!(
         resolve_mining_target(
@@ -192,11 +188,6 @@ pub(super) fn localize_target(
         panic!("fieldwork indexed search exhausted the promising channel without a target");
     }
 
-    let inspection_uncertainty = registries
-        .labor()
-        .get_prospecting(PROSPECTING_FIELD_INSPECTION)
-        .map(|definition| definition.abundance_uncertainty_ppm())
-        .unwrap_or_else(|| panic!("fieldwork inspection definition disappeared"));
     let mut detailed_surveys = 0_u64;
     for (inspection_index, offset) in (0..channel_voxels).enumerate() {
         let field_inspections = u64::try_from(inspection_index + 1)
@@ -215,7 +206,7 @@ pub(super) fn localize_target(
             .get_observation(inspection.observation())
             .and_then(|record| record.finding(MATERIAL_COPPER))
             .unwrap_or_else(|| panic!("fieldwork inspection copper finding disappeared"));
-        if inspection_finding.upper_ppm() <= inspection_uncertainty {
+        if inspection_finding.lower_ppm() == 0 {
             continue;
         }
         let detailed = run_survey(

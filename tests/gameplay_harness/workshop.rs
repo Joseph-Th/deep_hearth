@@ -31,6 +31,7 @@ use super::report::{print_content_summary, print_harness_summary};
 use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation, WORKSHOP_SUPPORT_LENGTH};
 use super::seed::mix64;
 use super::temporal::advance_idle_ticks;
+use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use deep_hearth::content::gameplay_fixture::{
     ControlledMaterialDelivery, authorize_controlled_material_delivery,
     commit_controlled_material_delivery, seed_composed_lot, seed_grounded_active_structure,
@@ -120,9 +121,13 @@ fn advance_running_production_to_tick(
     while state.tick().value() < target_tick {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"));
-        assert!(
-            outcome.production_availability_changes().is_empty(),
-            "gameplay harness {context} job availability changed before the declared world event"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                production_jobs: &[job],
+                ..TickEventAllowance::default()
+            },
+            context,
         );
         assert!(
             outcome.production_completions().is_empty(),
@@ -541,6 +546,15 @@ fn advance_job_until_completion_or_suspension(
     for _ in 0..remaining_ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness job tick failed: {error}"));
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                production_jobs: &[job],
+                production_availability_changes: true,
+                ..TickEventAllowance::default()
+            },
+            "workshop production job",
+        );
         if outcome
             .production_completions()
             .iter()
@@ -644,6 +658,19 @@ fn crush_batch(
         if assessment.stage() == StructuralStage::Failed {
             let outcome = advance_tick(registries, state)
                 .unwrap_or_else(|error| panic!("gameplay harness suspension tick failed: {error}"));
+            assert_tick_events_within(
+                &outcome,
+                TickEventAllowance {
+                    production_jobs: &[job],
+                    production_availability_changes: true,
+                    ..TickEventAllowance::default()
+                },
+                "workshop suspension tick",
+            );
+            assert!(
+                outcome.production_completions().is_empty(),
+                "gameplay harness suspension tick unexpectedly completed the suspended job"
+            );
             let suspension = outcome
                 .production_availability_changes()
                 .iter()
@@ -691,6 +718,15 @@ fn crush_batch(
 
             let outcome = advance_tick(registries, state)
                 .unwrap_or_else(|error| panic!("gameplay harness resume tick failed: {error}"));
+            assert_tick_events_within(
+                &outcome,
+                TickEventAllowance {
+                    production_jobs: &[job],
+                    production_availability_changes: true,
+                    ..TickEventAllowance::default()
+                },
+                "workshop resume tick",
+            );
             let resumed = outcome
                 .production_availability_changes()
                 .iter()
@@ -709,9 +745,19 @@ fn crush_batch(
                 resumed,
                 "relocated crusher job did not resume on the next canonical tick"
             );
-            println!(
-                "  recovery: suspended crush#{batch_index} resumes with its original work-in-process and remaining active time"
-            );
+            let completed_on_resume_tick = outcome
+                .production_completions()
+                .iter()
+                .any(|completion| completion.job() == job);
+            if completed_on_resume_tick {
+                println!(
+                    "  recovery: suspended crush#{batch_index} resumes and completes on the same canonical tick because one active tick remained"
+                );
+            } else {
+                println!(
+                    "  recovery: suspended crush#{batch_index} resumes with its original work-in-process and remaining active time"
+                );
+            }
             assert_eq!(
                 advance_job_until_completion_or_suspension(registries, state, job),
                 JobAdvanceOutcome::Completed,

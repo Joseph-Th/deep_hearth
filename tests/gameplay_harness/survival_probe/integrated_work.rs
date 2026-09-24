@@ -1,5 +1,6 @@
 //! Integrated provision, prospect, reprovision, and manual-power survival loop.
 
+use super::super::prospecting_timing::complete_prospecting_work;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -221,14 +222,12 @@ pub(super) fn evaluate_integrated_survival_work_loop(
     prospecting
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("integrated survival prospecting commit failed: {error}"));
-    let mut observation = None;
-    for _ in 0..prospecting_ticks {
-        observation = advance_tick(registries, &mut state)
-            .unwrap_or_else(|error| panic!("integrated survival prospecting tick failed: {error}"))
-            .field_prospecting();
-    }
-    let observation = observation
-        .unwrap_or_else(|| panic!("integrated survival prospecting produced no observation"));
+    let observation = complete_prospecting_work(
+        registries,
+        &mut state,
+        prospecting_work,
+        "integrated survival prospecting",
+    );
     let finding = state
         .geological_knowledge()
         .get_observation(observation.observation())

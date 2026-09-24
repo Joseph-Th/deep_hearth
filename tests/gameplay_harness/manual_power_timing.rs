@@ -5,6 +5,8 @@ use deep_hearth::labor::{ManualPowerWork, PlayerWork};
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 
+use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
+
 /// Advances one manual-power action to a tick no later than its validated completion.
 /// Returns whether the action completed at that target.
 pub(super) fn advance_manual_power_to(
@@ -21,12 +23,13 @@ pub(super) fn advance_manual_power_to(
     while state.tick().value() < target_tick {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"));
-        assert!(
-            outcome.production_availability_changes().is_empty()
-                && outcome.production_completions().is_empty()
-                && outcome.ready_mining_jobs().is_empty()
-                && outcome.field_prospecting().is_none(),
-            "gameplay harness {context} crossed unrelated observable work during manual power"
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                manual_power: true,
+                ..TickEventAllowance::default()
+            },
+            context,
         );
         if outcome.tick() < work.completes_at() {
             assert_eq!(

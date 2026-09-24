@@ -8,7 +8,7 @@ use deep_hearth::registry::Registries;
 
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
-    GATE_VARIATION_COUNT, focused_probe_cases_from, probe_uses_actor_behavior,
+    GATE_VARIATION_COUNT, focused_probe_cases_from, probe_uses_behavior_seed,
 };
 #[cfg(test)]
 use super::seed::MAINTAINED_VARIATION_ROOT;
@@ -53,7 +53,7 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             0x5355_5256_5052_4F42,
         ),
         "primitive-progression" => (0xD33F_C01D_5052, &[3, 4], 0x5052_4F47_5052_4F42),
-        // Coverage spans break-even net-timber investment, attention-payback rejection,
+        // Coverage spans break-even net-timber investment, setup-budget rejection,
         // outright copper blocking, protected-reserve refusal despite a profitable saw route,
         // a short queued job just below the saw crossover, a long saw-to-adze fallback, and a
         // copper-rich pipeline that actually replaces a worn blade.
@@ -108,15 +108,15 @@ pub(super) fn run_focused_probe_with_registries(
     default_behavior_root: u64,
 ) {
     let (maintained_seed, maintained_coverage_seeds, salt) = probe_seed_spec(name);
-    let uses_actor_behavior = probe_uses_actor_behavior(name);
-    let behavior_root = if uses_actor_behavior {
+    let uses_behavior_seed = probe_uses_behavior_seed(name);
+    let behavior_root = if uses_behavior_seed {
         Some(default_behavior_root)
     } else {
         None
     };
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let behavior_raw = uses_actor_behavior
+    let behavior_raw = uses_behavior_seed
         .then(|| env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok())
         .flatten();
     let variation_count = if explore {
@@ -147,7 +147,7 @@ pub(super) fn run_focused_probe_with_registries(
     let replay = cases
         .iter()
         .map(|case| {
-            if uses_actor_behavior {
+            if uses_behavior_seed {
                 let behavior_seed = case.behavior_seed().unwrap_or_else(|| {
                     panic!("focused actor probe {name:?} lost its behavior seed")
                 });
@@ -183,7 +183,7 @@ pub(super) fn run_focused_probe_with_registries(
             },
             |_| "explicit".to_owned(),
         ),
-        if uses_actor_behavior {
+        if uses_behavior_seed {
             behavior_raw
                 .as_deref()
                 .map_or_else(|| format!("0x{default_behavior_root:016X}"), str::to_owned)

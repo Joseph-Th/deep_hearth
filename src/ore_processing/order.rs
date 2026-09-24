@@ -1,30 +1,27 @@
 //! Read-only long-order projection for replenished powered ore processing.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
-use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::{Energy, Mass};
-use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_capacity};
 use crate::core::time::TickSpan;
 use crate::energy::{
-    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, PowerDurationError,
-    calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
-    integrate_power_or_saturate,
+    EnergyStoreDefinition, EnergyStoreDefinitionId, calculate_mass_specific_energy,
+    calculate_mass_specific_energy_capacity,
 };
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId};
-use crate::maintenance::{
-    ActiveConditionDurationError, Condition, MaintenanceBand, maximum_usable_active_ticks,
-};
+use crate::maintenance::{Condition, MaintenanceBand, maximum_usable_active_ticks};
 use crate::production::ProcessId;
 use crate::registry::Registries;
 
 use super::definitions::PoweredOreProcessProfile;
 use super::planning::powered_profile;
 use super::powered_physics::{
-    PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment_limits,
-    resolve_powered_ore_timing, validate_powered_ore_process_capabilities,
+    PoweredOreEquipmentError, PoweredOreTimingError, powered_ore_mass_capacity_for_active_ticks,
+    resolve_powered_ore_equipment_limits, resolve_powered_ore_timing,
+    validate_powered_ore_process_capabilities,
 };
+
+mod errors;
+
+pub use errors::PoweredOreOrderError;
 
 /// Optional equipment-service policy applied between projected powered-ore batches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,162 +133,6 @@ impl PoweredOreOrderResolution {
     }
 }
 
-/// Failure to project a bounded powered-ore order from immutable authored physics.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PoweredOreOrderError {
-    ZeroRequestedMass,
-    BatchLimitExceeded {
-        maximum: u64,
-    },
-    UnknownPoweredProcess {
-        process: ProcessId,
-    },
-    UnknownEquipment {
-        equipment: EquipmentDefinitionId,
-    },
-    UnknownEnergyStore {
-        store: EnergyStoreDefinitionId,
-    },
-    WrongEnergyCarrier {
-        required: EnergyCarrier,
-        provided: EnergyCarrier,
-    },
-    Capability {
-        batch: u64,
-        error: CapabilityEvaluationError,
-    },
-    MissingMassFlowCapability {
-        batch: u64,
-    },
-    MissingMaximumBatchMassCapability {
-        batch: u64,
-    },
-    NoBatchCapacity {
-        batch: u64,
-        condition: Condition,
-    },
-    MaintenanceUnavailable {
-        equipment: EquipmentDefinitionId,
-    },
-    ThroughputDuration {
-        batch: u64,
-        error: MassFlowDurationError,
-    },
-    EnergyDuration {
-        batch: u64,
-        error: PowerDurationError,
-    },
-    ConditionDuration {
-        batch: u64,
-        error: ActiveConditionDurationError,
-    },
-    DurationOverflow,
-}
-
-impl Display for PoweredOreOrderError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ZeroRequestedMass => {
-                formatter.write_str("powered ore order mass must be nonzero")
-            }
-            Self::BatchLimitExceeded { maximum } => write!(
-                formatter,
-                "powered ore order exceeds the caller's {maximum}-batch projection bound"
-            ),
-            Self::UnknownPoweredProcess { process } => write!(
-                formatter,
-                "process {} has no authored powered ore-processing profile",
-                process.value()
-            ),
-            Self::UnknownEquipment { equipment } => {
-                write!(
-                    formatter,
-                    "unknown equipment definition {}",
-                    equipment.value()
-                )
-            }
-            Self::UnknownEnergyStore { store } => {
-                write!(
-                    formatter,
-                    "unknown energy-store definition {}",
-                    store.value()
-                )
-            }
-            Self::WrongEnergyCarrier { required, provided } => write!(
-                formatter,
-                "powered ore process requires {required:?} energy but replenished store provides {provided:?}"
-            ),
-            Self::Capability { batch, error } => {
-                write!(
-                    formatter,
-                    "powered ore order batch {batch} capability failed: {error}"
-                )
-            }
-            Self::MissingMassFlowCapability { batch } => write!(
-                formatter,
-                "powered ore order batch {batch} lacks its authored mass-flow capability"
-            ),
-            Self::MissingMaximumBatchMassCapability { batch } => write!(
-                formatter,
-                "powered ore order batch {batch} lacks its authored maximum-batch capability"
-            ),
-            Self::NoBatchCapacity { batch, condition } => write!(
-                formatter,
-                "powered ore order batch {batch} has no positive capacity at {} ppm condition",
-                condition.parts_per_million()
-            ),
-            Self::MaintenanceUnavailable { equipment } => write!(
-                formatter,
-                "equipment definition {} entered its critical band without an authored maintenance profile",
-                equipment.value()
-            ),
-            Self::ThroughputDuration { batch, error } => {
-                write!(
-                    formatter,
-                    "powered ore order batch {batch} throughput duration failed: {error}"
-                )
-            }
-            Self::EnergyDuration { batch, error } => {
-                write!(
-                    formatter,
-                    "powered ore order batch {batch} energy duration failed: {error}"
-                )
-            }
-            Self::ConditionDuration { batch, error } => {
-                write!(
-                    formatter,
-                    "powered ore order batch {batch} condition failed: {error}"
-                )
-            }
-            Self::DurationOverflow => {
-                formatter.write_str("powered ore order active duration exceeds tick range")
-            }
-        }
-    }
-}
-
-impl Error for PoweredOreOrderError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Capability { error, .. } => Some(error),
-            Self::ThroughputDuration { error, .. } => Some(error),
-            Self::EnergyDuration { error, .. } => Some(error),
-            Self::ConditionDuration { error, .. } => Some(error),
-            Self::ZeroRequestedMass
-            | Self::BatchLimitExceeded { .. }
-            | Self::UnknownPoweredProcess { .. }
-            | Self::UnknownEquipment { .. }
-            | Self::UnknownEnergyStore { .. }
-            | Self::WrongEnergyCarrier { .. }
-            | Self::MissingMassFlowCapability { .. }
-            | Self::MissingMaximumBatchMassCapability { .. }
-            | Self::NoBatchCapacity { .. }
-            | Self::MaintenanceUnavailable { .. }
-            | Self::DurationOverflow => None,
-        }
-    }
-}
-
 struct PoweredOreOrderContext<'a> {
     registries: &'a Registries,
     process: ProcessId,
@@ -367,20 +208,13 @@ impl<'a> PoweredOreOrderContext<'a> {
             self.profile.condition_wear_ppm_per_active_tick(),
             condition,
         );
-        let throughput = calculate_mass_flow_capacity(
+        powered_ore_mass_capacity_for_active_ticks(
             processing_rate,
-            ticks,
-            self.registries.core().physical_tick_duration(),
-        );
-        let integrated = integrate_power_or_saturate(
             self.store_definition.max_output_power(),
+            self.profile.specific_energy(),
             ticks,
             self.registries.core().physical_tick_duration(),
-        );
-        throughput.min(calculate_mass_specific_energy_capacity(
-            integrated,
-            self.profile.specific_energy(),
-        ))
+        )
     }
 
     fn project_batch(
@@ -488,7 +322,10 @@ pub fn project_powered_ore_order(
     let mut services = 0_u64;
     let mut total_ticks = 0_u64;
     while !remaining.is_zero() {
-        if u64::try_from(batches.len()).unwrap_or(u64::MAX) >= request.max_batches {
+        let completed_batches = u64::try_from(batches.len()).unwrap_or_else(|_| {
+            unreachable!("in-memory powered-ore batch count cannot exceed u64")
+        });
+        if completed_batches >= request.max_batches {
             return Err(PoweredOreOrderError::BatchLimitExceeded {
                 maximum: request.max_batches,
             });
@@ -496,13 +333,13 @@ pub fn project_powered_ore_order(
         let (prepared_condition, serviced) = context.prepare_condition(condition)?;
         condition = prepared_condition;
         if serviced {
-            services = services
-                .checked_add(1)
-                .ok_or(PoweredOreOrderError::DurationOverflow)?;
+            services = services.checked_add(1).unwrap_or_else(|| {
+                unreachable!("bounded powered-ore service count cannot exceed completed batches")
+            });
         }
-        let batch_number = u64::try_from(batches.len())
-            .unwrap_or(u64::MAX)
-            .saturating_add(1);
+        let batch_number = completed_batches.checked_add(1).unwrap_or_else(|| {
+            unreachable!("admitted powered-ore batch count is strictly below u64::MAX")
+        });
         let batch = context.project_batch(batch_number, condition, remaining)?;
         total_ticks = total_ticks
             .checked_add(batch.duration().value())

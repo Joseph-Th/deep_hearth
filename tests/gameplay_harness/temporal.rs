@@ -2,18 +2,9 @@
 
 use deep_hearth::core::state::AppState;
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::{TickOutcome, advance_tick};
+use deep_hearth::simulation::advance_tick;
 
-fn assert_quiet_outcome(outcome: &TickOutcome, context: &str) {
-    assert!(
-        outcome.production_availability_changes().is_empty()
-            && outcome.production_completions().is_empty()
-            && outcome.ready_mining_jobs().is_empty()
-            && outcome.manual_power().is_none()
-            && outcome.field_prospecting().is_none(),
-        "gameplay harness {context} crossed an observable runtime event while treating time as idle"
-    );
-}
+use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
 /// Advances deliberate idle observation while failing closed on newly observable non-survival work.
 pub(super) fn advance_idle_ticks(
@@ -30,7 +21,7 @@ pub(super) fn advance_idle_ticks(
     for _ in 0..ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"));
-        assert_quiet_outcome(&outcome, context);
+        assert_tick_events_within(&outcome, TickEventAllowance::default(), context);
         assert_eq!(
             state.player_work().active(),
             None,

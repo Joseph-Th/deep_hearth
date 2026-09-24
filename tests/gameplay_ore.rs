@@ -36,6 +36,8 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
+#[path = "gameplay_harness/tick_observation.rs"]
+mod tick_observation;
 
 #[test]
 fn gameplay_ore_preparation_probe() {

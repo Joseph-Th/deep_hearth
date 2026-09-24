@@ -54,7 +54,7 @@ use deep_hearth::geology::{
 };
 use deep_hearth::labor::{
     ManualPowerError, ManualPowerRequest, ProspectingMethodId, project_manual_power,
-    validate_start_manual_power,
+    project_prospecting_work, validate_start_manual_power,
 };
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{

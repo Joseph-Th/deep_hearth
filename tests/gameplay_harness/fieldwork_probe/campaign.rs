@@ -8,13 +8,15 @@ use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
+use deep_hearth::labor::{ProspectingMethodId, project_prospecting_work};
 use deep_hearth::registry::Registries;
+use deep_hearth::spatial::VoxelBounds;
 
 use super::super::seed::mix64;
 use super::extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
 use super::planning::project_sampling_hammer_upgrade_ticks;
 use super::preparation::upgrade_sampling_hammer;
-use super::survey::{CHANNEL_COUNT, FieldworkSurveyStrategy, localize_target};
+use super::survey::{CHANNEL_COUNT, FieldworkSurveyStrategy, horizontal_region, localize_target};
 
 #[derive(Clone, Copy)]
 pub(super) struct FieldworkCampaignSite {
@@ -86,27 +88,35 @@ pub(super) fn planned_future_sites(seed: u64) -> u64 {
     1 + mix64(seed ^ 0x4649_454C_4443_41BE) % 3
 }
 
-fn prospecting_duration(
+fn projected_prospecting_ticks(
     registries: &Registries,
-    method: deep_hearth::labor::ProspectingMethodId,
+    method: ProspectingMethodId,
+    region: VoxelBounds,
 ) -> u64 {
-    registries
-        .labor()
-        .get_prospecting(method)
-        .map(|definition| definition.duration().value())
-        .unwrap_or_else(|| panic!("fieldwork campaign prospecting method disappeared"))
+    project_prospecting_work(registries, method, region)
+        .unwrap_or_else(|error| panic!("fieldwork campaign prospecting projection failed: {error}"))
+        .duration()
+        .value()
 }
 
 fn expected_point_search_ticks(registries: &Registries, channel_voxels: i64) -> u64 {
-    let channel_voxels = u64::try_from(channel_voxels)
+    let channel_voxel_count = u64::try_from(channel_voxels)
         .unwrap_or_else(|_| panic!("fieldwork campaign channel width must be positive"));
+    let channel_region = horizontal_region(0, channel_voxels);
+    let point_region = horizontal_region(0, 1);
     let common_transects = u64::try_from(CHANNEL_COUNT)
         .unwrap_or_else(|_| unreachable!("positive channel count fits u64"))
-        .checked_mul(prospecting_duration(registries, PROSPECTING_LOCAL_TRANSECT))
+        .checked_mul(projected_prospecting_ticks(
+            registries,
+            PROSPECTING_LOCAL_TRANSECT,
+            channel_region,
+        ))
         .unwrap_or_else(|| panic!("fieldwork campaign transect duration overflowed"));
-    let inspection = prospecting_duration(registries, PROSPECTING_FIELD_INSPECTION);
-    let detailed = prospecting_duration(registries, PROSPECTING_DETAILED_FIELD_SURVEY);
-    let doubled_variable = channel_voxels
+    let inspection =
+        projected_prospecting_ticks(registries, PROSPECTING_FIELD_INSPECTION, point_region);
+    let detailed =
+        projected_prospecting_ticks(registries, PROSPECTING_DETAILED_FIELD_SURVEY, point_region);
+    let doubled_variable = channel_voxel_count
         .checked_add(1)
         .and_then(|count| count.checked_mul(inspection))
         .and_then(|ticks| ticks.checked_add(detailed.checked_mul(2)?))
@@ -120,15 +130,21 @@ fn expected_point_search_ticks(registries: &Registries, channel_voxels: i64) -> 
         .unwrap_or_else(|| panic!("fieldwork campaign point-search duration overflowed"))
 }
 
-fn indexed_search_ticks(registries: &Registries) -> u64 {
+fn indexed_search_ticks(registries: &Registries, channel_voxels: i64) -> u64 {
+    let channel_region = horizontal_region(0, channel_voxels);
     let common_transects = u64::try_from(CHANNEL_COUNT)
         .unwrap_or_else(|_| unreachable!("positive channel count fits u64"))
-        .checked_mul(prospecting_duration(registries, PROSPECTING_LOCAL_TRANSECT))
+        .checked_mul(projected_prospecting_ticks(
+            registries,
+            PROSPECTING_LOCAL_TRANSECT,
+            channel_region,
+        ))
         .unwrap_or_else(|| panic!("fieldwork campaign transect duration overflowed"));
     common_transects
-        .checked_add(prospecting_duration(
+        .checked_add(projected_prospecting_ticks(
             registries,
             PROSPECTING_INDEXED_CHANNEL_SURVEY,
+            channel_region,
         ))
         .unwrap_or_else(|| panic!("fieldwork campaign indexed-search duration overflowed"))
 }
@@ -172,7 +188,7 @@ pub(super) fn decide_fieldwork_survey_strategy(
         "fieldwork survey plan requires at least one future site"
     );
     let point_per_site = expected_point_search_ticks(registries, channel_voxels);
-    let indexed_per_site = indexed_search_ticks(registries);
+    let indexed_per_site = indexed_search_ticks(registries, channel_voxels);
     let projected_point_search_ticks = point_per_site
         .checked_mul(planned_sites)
         .unwrap_or_else(|| panic!("fieldwork point campaign projection overflowed"));

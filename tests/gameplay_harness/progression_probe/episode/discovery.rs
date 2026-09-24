@@ -198,16 +198,28 @@ pub(super) fn discover_primitive_progression(
         );
     }
     let information_refinement_required = refinement.is_some();
+    let projected_surface_prospecting_ticks = clue_requests
+        .iter()
+        .copied()
+        .try_fold(0_u64, |total, request| {
+            let projected = project_prospecting_work(
+                registries,
+                PROSPECTING_FIELD_INSPECTION,
+                request.region(),
+            )
+            .unwrap_or_else(|error| {
+                panic!("primitive progression field-inspection projection failed: {error}")
+            })
+            .duration()
+            .value();
+            total.checked_add(projected)
+        })
+        .unwrap_or_else(|| {
+            panic!("primitive progression projected field-inspection duration overflowed")
+        });
     assert_eq!(
-        surface_prospecting_ticks,
-        registries
-            .labor()
-            .get_prospecting(PROSPECTING_FIELD_INSPECTION)
-            .map(|definition| definition.duration().value() * 4)
-            .unwrap_or_else(|| {
-                panic!("primitive progression field-inspection definition disappeared")
-            }),
-        "primitive progression must pay authored surface-inspection time for every visible clue region"
+        surface_prospecting_ticks, projected_surface_prospecting_ticks,
+        "primitive progression must pay canonical projected surface-inspection time for every visible clue region"
     );
 
     craft_for_profile(
@@ -454,14 +466,17 @@ pub(super) fn discover_primitive_progression(
         );
         assert_eq!(
             detailed_survey_ticks,
-            registries
-                .labor()
-                .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
-                .map(|definition| definition.duration().value())
-                .unwrap_or_else(|| {
-                    panic!("primitive progression detailed-survey definition disappeared")
-                }),
-            "deferred ambiguity recovery must pay the authored refinement cost"
+            project_prospecting_work(
+                registries,
+                PROSPECTING_DETAILED_FIELD_SURVEY,
+                refinement_request.region(),
+            )
+            .unwrap_or_else(|error| {
+                panic!("primitive progression detailed-survey projection failed: {error}")
+            })
+            .duration()
+            .value(),
+            "deferred ambiguity recovery must pay the canonical projected refinement cost"
         );
         let refined_clue_mining_ticks = mine_and_claim(
             registries,
