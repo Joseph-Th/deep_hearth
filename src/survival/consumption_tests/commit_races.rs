@@ -40,11 +40,15 @@ fn eating_and_drinking_reject_active_player_work_without_mutation() {
             &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
         )
         .err(),
-        Some(EatError::PlayerBusy { active })
+        Some(EatError::PlayerBusy {
+            active: Box::new(active),
+        })
     );
     assert_eq!(
         validate_drink(&registries, &state, water, drink_volume).err(),
-        Some(DrinkError::PlayerBusy { active })
+        Some(DrinkError::PlayerBusy {
+            active: Box::new(active),
+        })
     );
     assert_eq!(state, before);
 }

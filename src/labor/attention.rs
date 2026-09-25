@@ -5,11 +5,11 @@ use crate::survival::Vitality;
 
 use super::PlayerWork;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PlayerAttentionError {
     SurvivalNotInitialized,
     PlayerDead,
-    Busy { active: PlayerWork },
+    Busy { active: Box<PlayerWork> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,7 +89,9 @@ pub(crate) fn validate_player_attention(
         return Err(PlayerAttentionError::PlayerDead);
     }
     if let Some(active) = state.player_work().active() {
-        return Err(PlayerAttentionError::Busy { active });
+        return Err(PlayerAttentionError::Busy {
+            active: Box::new(active),
+        });
     }
     Ok(ValidatedPlayerAttention {
         expected_revision: state.player_work().revision(),

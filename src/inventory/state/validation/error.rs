@@ -17,6 +17,10 @@ mod display;
 /// Persistent-state validation failure for the inventory owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InventoryValidationError {
+    SupportRevisionAfterRevision {
+        support_revision: u64,
+        revision: u64,
+    },
     ZeroNextStockpileId,
     ZeroNextLotId,
     ZeroStockpileId,

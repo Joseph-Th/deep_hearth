@@ -735,15 +735,16 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
     let recovered_enclosure_mass_mg = dismantle_outcome
         .recovered_lots()
         .iter()
-        .map(|lot| {
-            state
+        .try_fold(0_u64, |total, lot| {
+            let mass = state
                 .inventory()
                 .get_lot(*lot)
                 .unwrap_or_else(|| panic!("recovered enclosure lot disappeared"))
                 .mass()
-                .milligrams()
+                .milligrams();
+            total.checked_add(mass)
         })
-        .sum::<u64>();
+        .unwrap_or_else(|| panic!("recovered enclosure mass overflowed"));
     assert_eq!(
         recovered_enclosure_mass_mg,
         definition.assembly_profile().input_mass().milligrams(),

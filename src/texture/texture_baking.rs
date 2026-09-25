@@ -125,7 +125,7 @@ impl TextureRegistry {
     /// Bakes immutable definitions into compact deterministic GPU upload arrays.
     #[must_use]
     pub fn bake_texture_array(&self) -> BakedTextureArray {
-        let mut patterns = Vec::<Vec<PackedTexel>>::new();
+        let mut patterns = Vec::<&[PackedTexel; TEXTURE_TEXEL_COUNT]>::new();
         let mut pattern_layers =
             BTreeMap::<&[PackedTexel; TEXTURE_TEXEL_COUNT], TextureLayer>::new();
         let mut palette_rows = Vec::<[u16; TEXTURE_PALETTE_SLOT_COUNT]>::new();
@@ -147,7 +147,7 @@ impl TextureRegistry {
                     let layer = TextureLayer(u16::try_from(patterns.len()).unwrap_or_else(|_| {
                         panic!("baked texture layer count exceeds lookup limit")
                     }));
-                    patterns.push(pattern.to_vec());
+                    patterns.push(pattern);
                     pattern_layers.insert(pattern, layer);
                     layer
                 }
@@ -184,17 +184,28 @@ impl TextureRegistry {
             .map(|definition| usize::from(definition.id().value()))
             .max()
             .map_or(0, |maximum_id| maximum_id + 1);
-        let mut palette_colors =
-            vec![ColorRgba8::default(); ramp_lookup_len * PALETTE_RAMP_COLOR_COUNT];
+        let palette_color_count = ramp_lookup_len
+            .checked_mul(PALETTE_RAMP_COLOR_COUNT)
+            .unwrap_or_else(|| panic!("baked palette color count exceeds addressable memory"));
+        let mut palette_color_bytes = vec![
+            0_u8;
+            palette_color_count.checked_mul(4).unwrap_or_else(|| {
+                panic!("baked palette byte count exceeds addressable memory")
+            })
+        ];
         for ramp in self.ramps_in_id_order() {
-            let start = usize::from(ramp.id().value()) * PALETTE_RAMP_COLOR_COUNT;
-            palette_colors[start..start + PALETTE_RAMP_COLOR_COUNT].copy_from_slice(ramp.colors());
+            let color_start = usize::from(ramp.id().value())
+                .checked_mul(PALETTE_RAMP_COLOR_COUNT)
+                .unwrap_or_else(|| panic!("baked palette color offset overflowed"));
+            for (offset, color) in ramp.colors().iter().enumerate() {
+                let byte_start = color_start
+                    .checked_add(offset)
+                    .and_then(|index| index.checked_mul(4))
+                    .unwrap_or_else(|| panic!("baked palette byte offset overflowed"));
+                palette_color_bytes[byte_start..byte_start + 4].copy_from_slice(&color.channels());
+            }
         }
 
-        let palette_color_bytes = palette_colors
-            .into_iter()
-            .flat_map(ColorRgba8::channels)
-            .collect();
         let blocks_by_id = appearance::bake_block_appearances(self, &descriptors_by_texture);
         let objects_by_id = appearance::bake_object_appearances(self, &descriptors_by_texture);
 

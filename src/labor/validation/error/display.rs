@@ -87,6 +87,9 @@ impl Display for PlayerWorkValidationError {
             Self::ManualPowerDurationMismatch => {
                 formatter.write_str("manual power duration disagrees with current authored physics")
             }
+            Self::ManualPowerExertionMismatch => {
+                formatter.write_str("manual power exertion disagrees with current authored physics")
+            }
             Self::ManualPowerConditionDuration(error) => write!(
                 formatter,
                 "manual power work exceeds equipment condition lifetime: {error}"

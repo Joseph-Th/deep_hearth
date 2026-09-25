@@ -1009,6 +1009,21 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
             PlayerWorkValidationError::ManualPowerDurationMismatch
         )))
     );
+    let mut tampered =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("manual power exertion tamper serialization failed: {error}")
+        });
+    tampered["state"]["systems"]["player_work"]["active"]["ManualPower"]["work"]["exertion"] =
+        serde_json::to_value(crate::survival::SurvivalExertion::REST)
+            .unwrap_or_else(|error| panic!("resting exertion serialization failed: {error}"));
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("manual power exertion tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::ManualPowerExertionMismatch
+        )))
+    );
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("active manual power serialization failed: {error}"));
     let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)

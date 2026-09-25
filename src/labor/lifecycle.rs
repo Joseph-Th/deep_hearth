@@ -21,11 +21,11 @@ pub(crate) use tick::{
     decide_player_work_tick, player_work_exertion,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerWorkStartError {
     SurvivalNotInitialized,
     PlayerDead,
-    Busy { active: PlayerWork },
+    Busy { active: Box<PlayerWork> },
     MetabolicCostOverflow { duration: TickSpan },
     InsufficientMetabolicEnergy { available: Energy, required: Energy },
     HydrationCostOverflow { duration: TickSpan },

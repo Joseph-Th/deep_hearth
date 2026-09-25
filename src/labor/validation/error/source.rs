@@ -39,6 +39,7 @@ impl Error for PlayerWorkValidationError {
             | Self::ManualPowerZeroPower
             | Self::ManualPowerScheduleInvalid
             | Self::ManualPowerDurationMismatch
+            | Self::ManualPowerExertionMismatch
             | Self::ManualPowerConditionMismatch
             | Self::ManualPowerResourceDoubleBooked
             | Self::ManualPowerEquipmentRevisionExhausted

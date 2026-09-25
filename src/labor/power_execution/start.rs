@@ -178,6 +178,7 @@ pub(in crate::labor) fn validate_start_manual_power_with_bindings(
         equipment_use.trace(),
         condition_after,
         sink.trace(),
+        schedule.exertion(),
         state.tick(),
         completes_at,
     );

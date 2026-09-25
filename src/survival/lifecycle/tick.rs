@@ -6,7 +6,7 @@ use crate::registry::Registries;
 
 use crate::survival::assessment::{SurvivalAssessment, assess_record};
 use crate::survival::state::PlayerSurvivalRecord;
-use crate::survival::{PendingDirectConsumption, SurvivalExertion, Vitality};
+use crate::survival::{SurvivalExertion, Vitality};
 
 mod physiology;
 
@@ -24,7 +24,7 @@ pub(crate) struct SurvivalTickPlan {
     expected_revision: u64,
     next_revision: u64,
     after: PlayerSurvivalRecord,
-    pending_after: Option<PendingDirectConsumption>,
+    clear_pending_consumption: bool,
     assessment: SurvivalAssessment,
 }
 
@@ -39,7 +39,7 @@ fn build_tick_plan(
     registries: &Registries,
     state: &AppState,
     after: PlayerSurvivalRecord,
-    pending_after: Option<PendingDirectConsumption>,
+    clear_pending_consumption: bool,
 ) -> Result<SurvivalTickPlan, SurvivalTickError> {
     let expected_revision = state.survival().revision();
     let next_revision = expected_revision
@@ -49,7 +49,7 @@ fn build_tick_plan(
         expected_revision,
         next_revision,
         after,
-        pending_after,
+        clear_pending_consumption,
         assessment: assess_record(registries, after),
     })
 }
@@ -63,18 +63,23 @@ pub(crate) fn decide_survival_tick(
     let Some(before) = state.survival().player().copied() else {
         return Ok(None);
     };
-    let pending_before = state.survival().pending_direct_consumption().cloned();
     if before.vitality() == Vitality::ZERO {
-        let Some(_pending) = pending_before else {
+        if state.survival().pending_direct_consumption().is_none() {
             return Ok(None);
-        };
+        }
         // Death discards the in-progress meal or drink with no physiological credit by design.
         // Its matter already crossed the terminal consumption boundary at admission, so there is
         // no refund and no duplication: the intake is wasted, matching death during a meal.
-        return build_tick_plan(registries, state, before, None).map(Some);
+        return build_tick_plan(registries, state, before, true).map(Some);
     }
     let resolved = resolve_live_player_tick(registries, state, before, exertion, next_tick)?;
-    build_tick_plan(registries, state, resolved.after, resolved.pending_after).map(Some)
+    build_tick_plan(
+        registries,
+        state,
+        resolved.after,
+        resolved.clear_pending_consumption,
+    )
+    .map(Some)
 }
 
 pub(crate) fn apply_survival_tick(
@@ -82,13 +87,11 @@ pub(crate) fn apply_survival_tick(
     plan: Option<SurvivalTickPlan>,
 ) -> Option<SurvivalAssessment> {
     let plan = plan?;
-    state
-        .survival_state_mut()
-        .apply_player_and_direct_consumption(
-            plan.expected_revision,
-            plan.next_revision,
-            plan.after,
-            plan.pending_after,
-        );
+    state.survival_state_mut().apply_player_tick(
+        plan.expected_revision,
+        plan.next_revision,
+        plan.after,
+        plan.clear_pending_consumption,
+    );
     Some(plan.assessment)
 }

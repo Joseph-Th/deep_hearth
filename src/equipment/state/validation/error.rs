@@ -16,6 +16,10 @@ mod display;
 /// Structural or cross-reference failure in decoded persistent equipment state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentValidationError {
+    SupportRevisionAfterRevision {
+        support_revision: u64,
+        revision: u64,
+    },
     ZeroNextEquipmentId,
     ZeroEquipmentId,
     KeyIdMismatch {

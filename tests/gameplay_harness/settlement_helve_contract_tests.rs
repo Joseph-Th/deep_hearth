@@ -282,7 +282,8 @@ fn helve_hammer_converts_treadle_workshop_when_repeated_copper_work_repays_atten
         .value(),
     ]
     .into_iter()
-    .sum::<u64>();
+    .try_fold(0_u64, |total, ticks| total.checked_add(ticks))
+    .unwrap_or_else(|| panic!("helve setup attention overflowed"));
     assert_eq!(executed_setup, setup_attention);
     let helve = validate_upgrade_equipment(
         &registries,

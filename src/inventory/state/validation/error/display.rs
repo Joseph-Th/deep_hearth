@@ -7,6 +7,13 @@ use super::InventoryValidationError;
 impl Display for InventoryValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SupportRevisionAfterRevision {
+                support_revision,
+                revision,
+            } => write!(
+                formatter,
+                "inventory support revision {support_revision} exceeds owner revision {revision}"
+            ),
             Self::ZeroNextStockpileId => formatter.write_str("next stockpile id must not be zero"),
             Self::ZeroNextLotId => formatter.write_str("next material lot id must not be zero"),
             Self::ZeroStockpileId => formatter.write_str("stockpile id must not be zero"),

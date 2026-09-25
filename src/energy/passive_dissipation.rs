@@ -10,35 +10,15 @@ use crate::core::time::TickSpan;
 use crate::registry::Registries;
 
 use super::definitions::{EnergyStoreDefinition, EnergyStoreDefinitionId};
-use super::integration::{PowerRemainder, integrate_power};
 use super::state::EnergyStoreId;
 
 fn passive_dissipation_per_tick(
     registries: &Registries,
     definition: &EnergyStoreDefinition,
 ) -> Energy {
-    let power = definition.passive_dissipation_power();
-    if power.is_zero() {
-        return Energy::ZERO;
-    }
-    let integration = integrate_power(
-        power,
-        TickSpan::new(1),
-        registries.core().physical_tick_duration(),
-        PowerRemainder::ZERO,
-    )
-    .unwrap_or_else(|error| {
-        panic!(
-            "validated passive dissipation for energy store definition {} failed at runtime: {error}",
-            definition.id().value()
-        )
-    });
-    assert_eq!(
-        integration.remainder(),
-        PowerRemainder::ZERO,
-        "validated passive dissipation must remain exact at runtime"
-    );
-    integration.energy()
+    registries
+        .energy()
+        .passive_dissipation_per_tick(definition.id())
 }
 
 /// Projects the greatest stored energy that can remain after an exact number of unavoidable
@@ -183,10 +163,7 @@ pub(crate) fn decide_passive_energy_dissipation(
     state: &AppState,
 ) -> PassiveEnergyDissipationPlan {
     let mut entries = Vec::new();
-    for record in state.energy().stores() {
-        if record.stored().is_zero() {
-            continue;
-        }
+    for record in state.energy().nonempty_stores() {
         let definition = registries
             .energy()
             .get_store(record.definition())

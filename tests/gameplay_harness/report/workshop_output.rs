@@ -384,12 +384,16 @@ pub(crate) fn print_harness_summary(
 
     let processed_mass_mg: u128 = reports
         .iter()
-        .map(|report| u128::from(report.progress.processed_mass.milligrams()))
-        .sum();
+        .try_fold(0_u128, |total, report| {
+            total.checked_add(u128::from(report.progress.processed_mass.milligrams()))
+        })
+        .unwrap_or_else(|| panic!("gameplay summary processed mass overflowed"));
     let target_mass_mg: u128 = reports
         .iter()
-        .map(|report| u128::from(report.progress.target_mass.milligrams()))
-        .sum();
+        .try_fold(0_u128, |total, report| {
+            total.checked_add(u128::from(report.progress.target_mass.milligrams()))
+        })
+        .unwrap_or_else(|| panic!("gameplay summary target mass overflowed"));
     let completed_operations: u32 = reports
         .iter()
         .map(|report| u32::from(report.progress.operations_completed))
@@ -576,20 +580,30 @@ pub(crate) fn print_harness_summary(
         .sum();
     let manually_generated_energy: u128 = reports
         .iter()
-        .map(|report| report.resources.manually_generated_energy.nanojoules())
-        .sum();
+        .try_fold(0_u128, |total, report| {
+            total.checked_add(report.resources.manually_generated_energy.nanojoules())
+        })
+        .unwrap_or_else(|| panic!("gameplay summary generated energy overflowed"));
     let manual_power_ticks: u128 = reports
         .iter()
-        .map(|report| u128::from(report.resources.manual_power_ticks))
-        .sum();
+        .try_fold(0_u128, |total, report| {
+            total.checked_add(u128::from(report.resources.manual_power_ticks))
+        })
+        .unwrap_or_else(|| panic!("gameplay summary manual-power attention overflowed"));
     let manual_metabolic_energy: u128 = reports
         .iter()
-        .map(|report| report.resources.manual_power_metabolic_energy.nanojoules())
-        .sum();
+        .try_fold(0_u128, |total, report| {
+            total.checked_add(report.resources.manual_power_metabolic_energy.nanojoules())
+        })
+        .unwrap_or_else(|| panic!("gameplay summary metabolic energy overflowed"));
     let manual_hydration: u128 = reports
         .iter()
-        .map(|report| u128::from(report.resources.manual_power_hydration.microliters()))
-        .sum();
+        .try_fold(0_u128, |total, report| {
+            total.checked_add(u128::from(
+                report.resources.manual_power_hydration.microliters(),
+            ))
+        })
+        .unwrap_or_else(|| panic!("gameplay summary hydration overflowed"));
     let elapsed_ticks_min = reports
         .iter()
         .map(|report| report.resources.elapsed_ticks)

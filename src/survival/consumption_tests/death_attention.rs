@@ -239,11 +239,15 @@ fn direct_consumption_claims_quantity_scaled_player_attention() {
             &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
         )
         .err(),
-        Some(EatError::PlayerBusy { active })
+        Some(EatError::PlayerBusy {
+            active: Box::new(active),
+        })
     );
     assert_eq!(
         validate_drink(&registries, &state, water, drink_volume).err(),
-        Some(DrinkError::PlayerBusy { active })
+        Some(DrinkError::PlayerBusy {
+            active: Box::new(active),
+        })
     );
     assert_eq!(state, before_rejected_actions);
 

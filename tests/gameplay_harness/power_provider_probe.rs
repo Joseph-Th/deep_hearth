@@ -558,7 +558,10 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             .walking_lifecycle_condition
             .parts_per_million(),
         settlement_charge_saving,
-        settlement_treadle_charge.metabolic_nj - walking_charge.metabolic_nj,
+        settlement_treadle_charge
+            .metabolic_nj
+            .checked_sub(walking_charge.metabolic_nj)
+            .unwrap_or_else(|| panic!("walking wheel must reduce charge metabolism")),
         settlement_break_even_charges,
         settlement_decision_crossover,
         settlement_selected.charge_events,
@@ -578,9 +581,14 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
 
     let charge_attention_reduction_ppm = u64::try_from(
-        u128::from(crank_charge.attention_ticks - treadle_charge.attention_ticks)
-            .checked_mul(1_000_000)
-            .unwrap_or_else(|| panic!("power provider attention reduction overflowed"))
+        u128::from(
+            crank_charge
+                .attention_ticks
+                .checked_sub(treadle_charge.attention_ticks)
+                .unwrap_or_else(|| panic!("treadle must reduce primitive charge attention")),
+        )
+        .checked_mul(1_000_000)
+        .unwrap_or_else(|| panic!("power provider attention reduction overflowed"))
             / u128::from(crank_charge.attention_ticks),
     )
     .unwrap_or_else(|_| panic!("power provider attention reduction exceeds u64"));
@@ -623,18 +631,24 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .decision_crossover_charges
         .map_or_else(|| "none".to_owned(), |charges| charges.to_string());
     assert_eq!(plan.declared_work_nj, primitive_project_work.nanojoules());
-    let crank_embodied = crank_build.embodied_mass_mg + crank_drive_build.embodied_mass_mg;
-    let treadle_embodied = treadle_build.embodied_mass_mg + treadle_drive_build.embodied_mass_mg;
+    let crank_package = crank_build.checked_add(crank_drive_build, "crank package");
+    let treadle_package = treadle_build.checked_add(treadle_drive_build, "treadle package");
+    let crank_embodied = crank_package.embodied_mass_mg;
+    let treadle_embodied = treadle_package.embodied_mass_mg;
     let crank_residual = crank_residual_mg;
     let treadle_residual = treadle_residual_mg;
     assert_eq!(
         crank_build_mass_mg,
-        crank_embodied + crank_residual,
+        crank_embodied
+            .checked_add(crank_residual)
+            .unwrap_or_else(|| panic!("crank material reconciliation overflowed")),
         "crank raw bill must reconcile equipment, flywheel, surplus and shaping residue"
     );
     assert_eq!(
         treadle_build_mass_mg,
-        treadle_embodied + treadle_residual,
+        treadle_embodied
+            .checked_add(treadle_residual)
+            .unwrap_or_else(|| panic!("treadle material reconciliation overflowed")),
         "treadle raw bill must reconcile equipment, flywheel, surplus and shaping residue"
     );
     assert!(

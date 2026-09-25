@@ -961,10 +961,16 @@ fn try_run_mature_reinvestment(
     assert!(!expanded_separator.target_mass.is_zero());
     let survival_after = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("primitive reinvestment player disappeared after branch"));
-    let survival_energy_spent_nj = survival_before.metabolic_energy().nanojoules()
-        - survival_after.metabolic_energy().nanojoules();
-    let survival_hydration_spent_ul =
-        survival_before.hydration().microliters() - survival_after.hydration().microliters();
+    let survival_energy_spent_nj = survival_before
+        .metabolic_energy()
+        .nanojoules()
+        .checked_sub(survival_after.metabolic_energy().nanojoules())
+        .unwrap_or_else(|| panic!("primitive reinvestment cannot create metabolic reserve"));
+    let survival_hydration_spent_ul = survival_before
+        .hydration()
+        .microliters()
+        .checked_sub(survival_after.hydration().microliters())
+        .unwrap_or_else(|| panic!("primitive reinvestment cannot create hydration reserve"));
     assert!(survival_energy_spent_nj > 0 && survival_hydration_spent_ul > 0);
     assert_eq!(
         calculate_matter_accounting(state)

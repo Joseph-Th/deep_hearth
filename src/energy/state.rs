@@ -1,6 +1,6 @@
 //! Owns persistent finite energy stores, embodied matter, identity, and revision state.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -94,6 +94,8 @@ pub struct EnergyState {
     next_store_id: u64,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     records: BTreeMap<EnergyStoreId, EnergyStoreRecord>,
+    #[serde(skip)]
+    nonempty_stores: BTreeSet<EnergyStoreId>,
 }
 
 impl EnergyState {
@@ -102,6 +104,7 @@ impl EnergyState {
             revision: 0,
             next_store_id: 1,
             records: BTreeMap::new(),
+            nonempty_stores: BTreeSet::new(),
         }
     }
 
@@ -122,6 +125,26 @@ impl EnergyState {
 
     pub fn stores(&self) -> impl Iterator<Item = &EnergyStoreRecord> {
         self.records.values()
+    }
+
+    /// Iterates stores that currently contain energy in stable persistent-ID order.
+    pub(crate) fn nonempty_stores(&self) -> impl Iterator<Item = &EnergyStoreRecord> {
+        self.nonempty_stores.iter().map(|id| {
+            self.records.get(id).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: nonempty energy-store index references missing store {}",
+                    id.value()
+                )
+            })
+        })
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        self.nonempty_stores = self
+            .records
+            .iter()
+            .filter_map(|(id, record)| (!record.stored.is_zero()).then_some(*id))
+            .collect();
     }
 
     pub(super) fn assert_allocation_available(
@@ -158,11 +181,19 @@ impl EnergyState {
         next_revision: u64,
     ) {
         self.assert_allocation_available(&record, next_store_id, next_revision);
+        let id = record.id;
+        let nonempty = !record.stored.is_zero();
         let previous = self.records.insert(record.id, record);
         assert!(
             previous.is_none(),
             "prechecked energy store insertion unexpectedly replaced a record"
         );
+        if nonempty {
+            assert!(
+                self.nonempty_stores.insert(id),
+                "new nonempty energy store unexpectedly already existed in the nonempty index"
+            );
+        }
         self.next_store_id = next_store_id;
         self.revision = next_revision;
     }
@@ -174,10 +205,17 @@ impl EnergyState {
                 store.value()
             )
         });
+        let was_empty = record.stored.is_zero();
         record.stored = record
             .stored
             .checked_add(energy)
             .unwrap_or_else(|| panic!("runtime invariant broken: energy sink overflowed"));
+        if was_empty && !record.stored.is_zero() {
+            assert!(
+                self.nonempty_stores.insert(store),
+                "runtime invariant broken: empty energy store was already indexed as nonempty"
+            );
+        }
     }
 
     pub(super) fn subtract_stored_energy(&mut self, store: EnergyStoreId, energy: Energy) {
@@ -187,10 +225,20 @@ impl EnergyState {
                 store.value()
             )
         });
+        assert!(
+            !record.stored.is_zero() && self.nonempty_stores.contains(&store),
+            "runtime invariant broken: energy subtraction source is absent from nonempty index"
+        );
         record.stored = record
             .stored
             .checked_sub(energy)
             .unwrap_or_else(|| panic!("runtime invariant broken: prevalidated energy disappeared"));
+        if record.stored.is_zero() {
+            assert!(
+                self.nonempty_stores.remove(&store),
+                "runtime invariant broken: emptied energy store was missing from nonempty index"
+            );
+        }
     }
 
     pub(super) fn assert_upgrade_available(
@@ -258,6 +306,10 @@ impl EnergyState {
         next_revision: u64,
     ) {
         self.assert_removal_available(store, expected_revision, next_revision);
+        assert!(
+            !self.nonempty_stores.contains(&store),
+            "runtime invariant broken: empty removable store remains indexed as nonempty"
+        );
         assert!(self.records.remove(&store).is_some());
         self.revision = next_revision;
     }

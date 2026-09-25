@@ -36,6 +36,7 @@ pub(crate) use storage_history::{MaterialStorageHistory, STORAGE_AGE_PARTS_PER_T
 #[serde(deny_unknown_fields)]
 pub struct InventoryState {
     revision: u64,
+    support_revision: u64,
     next_stockpile_id: u32,
     next_lot_id: u64,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -53,6 +54,7 @@ impl InventoryState {
     pub(crate) const fn new() -> Self {
         Self {
             revision: 0,
+            support_revision: 0,
             next_stockpile_id: 1,
             next_lot_id: 1,
             stockpiles: BTreeMap::new(),
@@ -64,6 +66,11 @@ impl InventoryState {
 
     pub(crate) const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Monotonic epoch for stockpile support-assignment changes only.
+    pub(crate) const fn support_revision(&self) -> u64 {
+        self.support_revision
     }
 
     #[cfg(any(test, feature = "test-gameplay"))]

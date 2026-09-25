@@ -159,9 +159,16 @@ pub(super) fn prepare_stage(
         stored_before: stored,
         stored_after,
         ticks,
-        metabolic_nj: before.metabolic_energy().nanojoules()
-            - after.metabolic_energy().nanojoules(),
-        hydration_ul: before.hydration().microliters() - after.hydration().microliters(),
+        metabolic_nj: before
+            .metabolic_energy()
+            .nanojoules()
+            .checked_sub(after.metabolic_energy().nanojoules())
+            .unwrap_or_else(|| panic!("{label} charge cannot create metabolic reserve")),
+        hydration_ul: before
+            .hydration()
+            .microliters()
+            .checked_sub(after.hydration().microliters())
+            .unwrap_or_else(|| panic!("{label} charge cannot create hydration reserve")),
     }
 }
 
@@ -214,13 +221,14 @@ pub(super) fn copper_numerator_ppm_mg(
     state
         .inventory()
         .lot_ids(stockpile)
-        .map(|lot| {
+        .try_fold(0_u128, |total, lot| {
             let record = state
                 .inventory()
                 .get_lot(lot)
                 .unwrap_or_else(|| panic!("copper-accounting lot disappeared"));
-            u128::from(record.mass().milligrams())
-                * u128::from(record.composition().parts_per_million(MATERIAL_COPPER))
+            let numerator = u128::from(record.mass().milligrams())
+                * u128::from(record.composition().parts_per_million(MATERIAL_COPPER));
+            total.checked_add(numerator)
         })
-        .sum()
+        .unwrap_or_else(|| panic!("primitive copper accounting overflowed"))
 }

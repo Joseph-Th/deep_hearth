@@ -2,7 +2,6 @@
 
 use crate::core::state::AppState;
 use crate::labor::PlayerWork;
-use crate::labor::power_physics::resolve_manual_power_exertion;
 use crate::production::{ProductionAvailabilityChange, find_availability_change};
 use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
@@ -65,30 +64,7 @@ pub(crate) fn player_work_exertion(
                 })
                 .exertion()
         }
-        PlayerWork::ManualPower { work } => {
-            let definition = registries
-                .labor()
-                .get_manual_power(work.method())
-                .copied()
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: player power work has no method definition")
-                });
-            let duration = work
-                .completes_at()
-                .checked_duration_since(work.started_at())
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: manual power completes before it starts")
-                });
-            resolve_manual_power_exertion(
-                work.output().energy(),
-                duration,
-                definition.maximum_exertion(),
-                definition.metabolic_efficiency_ppm(),
-            )
-            .unwrap_or_else(|error| {
-                panic!("runtime invariant broken: manual power exertion is invalid: {error:?}")
-            })
-        }
+        PlayerWork::ManualPower { work } => work.exertion(),
         PlayerWork::Prospecting { work } => registries
             .labor()
             .get_prospecting(work.method())

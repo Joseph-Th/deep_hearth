@@ -2,7 +2,8 @@
 
 use super::TextureLayer;
 use crate::texture::{
-    PackedTexel, PaletteSlot, ShadeIndex, TEXTURE_PALETTE_SLOT_COUNT, TEXTURE_SIDE,
+    PackedTexel, PaletteSlot, ShadeIndex, TEXTURE_MIP_LEVEL_COUNT, TEXTURE_PALETTE_SLOT_COUNT,
+    TEXTURE_SIDE, TEXTURE_TEXEL_COUNT,
 };
 
 /// One mip level with all unique pattern layers stored contiguously in layer-major order.
@@ -38,48 +39,61 @@ impl IndexedMipLevel {
     }
 }
 
-pub(super) fn build_mip_levels(mut layers: Vec<Vec<PackedTexel>>) -> Vec<IndexedMipLevel> {
-    let mut mip_levels = Vec::new();
+pub(super) fn build_mip_levels(
+    layers: Vec<&[PackedTexel; TEXTURE_TEXEL_COUNT]>,
+) -> Vec<IndexedMipLevel> {
+    let layer_count = layers.len();
+    let mut current = Vec::with_capacity(layer_count.saturating_mul(TEXTURE_TEXEL_COUNT));
+    for layer in layers {
+        current.extend_from_slice(layer);
+    }
+
+    let mut mip_levels = Vec::with_capacity(TEXTURE_MIP_LEVEL_COUNT);
     let mut side = TEXTURE_SIDE;
     loop {
+        let mut texels = Vec::with_capacity(current.len());
+        texels.extend(current.iter().map(|texel| texel.raw_value()));
         mip_levels.push(IndexedMipLevel {
             side: u8::try_from(side)
                 .unwrap_or_else(|_| panic!("texture side exceeds mip descriptor range")),
-            texels: layers
-                .iter()
-                .flatten()
-                .map(|texel| texel.raw_value())
-                .collect(),
+            texels,
         });
         if side == 1 {
             break;
         }
-        layers = layers
-            .iter()
-            .map(|layer| downsample_layer(layer, side))
-            .collect();
+        downsample_layers_in_place(&mut current, side, layer_count);
         side /= 2;
     }
     mip_levels
 }
 
-fn downsample_layer(source: &[PackedTexel], source_side: usize) -> Vec<PackedTexel> {
+fn downsample_layers_in_place(
+    source: &mut Vec<PackedTexel>,
+    source_side: usize,
+    layer_count: usize,
+) {
+    let source_stride = source_side * source_side;
     let target_side = source_side / 2;
-    let mut target = Vec::with_capacity(target_side * target_side);
-    for y in 0..target_side {
-        for x in 0..target_side {
-            let source_x = x * 2;
-            let source_y = y * 2;
-            let samples = [
-                source[source_y * source_side + source_x],
-                source[source_y * source_side + source_x + 1],
-                source[(source_y + 1) * source_side + source_x],
-                source[(source_y + 1) * source_side + source_x + 1],
-            ];
-            target.push(resolve_mip_texel(samples));
+    let target_stride = target_side * target_side;
+    for layer in 0..layer_count {
+        let source_offset = layer * source_stride;
+        let target_offset = layer * target_stride;
+        for y in 0..target_side {
+            for x in 0..target_side {
+                let source_x = x * 2;
+                let source_y = y * 2;
+                let top_left = source_offset + source_y * source_side + source_x;
+                let samples = [
+                    source[top_left],
+                    source[top_left + 1],
+                    source[top_left + source_side],
+                    source[top_left + source_side + 1],
+                ];
+                source[target_offset + y * target_side + x] = resolve_mip_texel(samples);
+            }
         }
     }
-    target
+    source.truncate(layer_count.saturating_mul(target_stride));
 }
 
 pub(super) fn resolve_mip_texel(samples: [PackedTexel; 4]) -> PackedTexel {

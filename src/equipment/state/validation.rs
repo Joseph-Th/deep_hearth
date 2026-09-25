@@ -19,6 +19,12 @@ pub(crate) fn validate_loaded_equipment(
     state: &EquipmentState,
     current_tick: SimulationTick,
 ) -> Result<(), EquipmentValidationError> {
+    if state.support_revision > state.revision {
+        return Err(EquipmentValidationError::SupportRevisionAfterRevision {
+            support_revision: state.support_revision,
+            revision: state.revision,
+        });
+    }
     validate_equipment_cursor(state)?;
     for (key, record) in &state.records {
         validate_equipment_record(definitions, materials, state, *key, record, current_tick)?;

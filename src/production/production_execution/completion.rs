@@ -12,7 +12,9 @@ use crate::material::MaterialLotSpec;
 
 use super::super::definitions::ProcessId;
 use super::super::resolution::ProcessOutputStreamId;
-use super::super::state::{ProductionJobId, ProductionSuspensionReason};
+use super::super::state::{
+    ProductionAvailabilityDependencyRevisions, ProductionJobId, ProductionSuspensionReason,
+};
 use super::start::ProcessOutputRoute;
 
 mod application;
@@ -170,6 +172,7 @@ impl ProcessCompletion {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct CompletionPlan {
     revisions: CompletionRevisionPlan,
+    availability_dependency_revisions: ProductionAvailabilityDependencyRevisions,
     inventory_deposits: ReservedDepositPlan,
     availability_changes: Vec<ProductionAvailabilityChange>,
     jobs: Vec<ProductionJobId>,
@@ -179,6 +182,15 @@ pub(crate) struct CompletionPlan {
 }
 
 impl CompletionPlan {
+    fn has_authoritative_effects(&self) -> bool {
+        !self.inventory_deposits.is_empty()
+            || !self.availability_changes.is_empty()
+            || !self.jobs.is_empty()
+            || !self.equipment_outcomes.is_empty()
+            || !self.released_energy_outcomes.is_empty()
+            || self.structural_load.is_some()
+    }
+
     pub(crate) fn availability_changes(&self) -> &[ProductionAvailabilityChange] {
         &self.availability_changes
     }

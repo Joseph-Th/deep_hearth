@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::core::quantity::Energy;
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::material::MaterialRegistry;
 
@@ -12,6 +13,7 @@ use crate::energy::integration::{PowerRemainder, integrate_power};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EnergyRegistry {
     definitions: BTreeMap<EnergyStoreDefinitionId, EnergyStoreDefinition>,
+    passive_dissipation_per_tick: BTreeMap<EnergyStoreDefinitionId, Energy>,
 }
 
 impl EnergyRegistry {
@@ -25,7 +27,10 @@ impl EnergyRegistry {
                 id.value()
             );
         }
-        Self { definitions: by_id }
+        Self {
+            definitions: by_id,
+            passive_dissipation_per_tick: BTreeMap::new(),
+        }
     }
 
     #[must_use]
@@ -36,6 +41,38 @@ impl EnergyRegistry {
     /// Iterates authored storage definitions in stable ID order.
     pub fn definitions(&self) -> impl Iterator<Item = &EnergyStoreDefinition> {
         self.definitions.values()
+    }
+
+    /// Resolves immutable tick-duration-dependent values once during root registry assembly.
+    pub(crate) fn prepare_tick_dependent_values(
+        &mut self,
+        physical_tick_duration: PhysicalTickDuration,
+    ) {
+        self.passive_dissipation_per_tick.clear();
+        for definition in self.definitions.values() {
+            let dissipation_power = definition.passive_dissipation_power();
+            if dissipation_power.is_zero() {
+                continue;
+            }
+            let per_tick = resolve_passive_dissipation_per_tick(definition, physical_tick_duration);
+            assert!(
+                self.passive_dissipation_per_tick
+                    .insert(definition.id(), per_tick)
+                    .is_none(),
+                "energy store definition {} passive-loss cache was populated twice",
+                definition.id().value()
+            );
+        }
+    }
+
+    pub(crate) fn passive_dissipation_per_tick(
+        &self,
+        definition: EnergyStoreDefinitionId,
+    ) -> Energy {
+        self.passive_dissipation_per_tick
+            .get(&definition)
+            .copied()
+            .unwrap_or(Energy::ZERO)
     }
 
     pub(crate) fn validate_references(
@@ -53,28 +90,13 @@ impl EnergyRegistry {
                     definition.id().value()
                 );
             }
-            let dissipation_power = definition.passive_dissipation_power();
-            if dissipation_power.is_zero() {
-                continue;
+            if !definition.passive_dissipation_power().is_zero()
+                && !self
+                    .passive_dissipation_per_tick
+                    .contains_key(&definition.id())
+            {
+                let _ = resolve_passive_dissipation_per_tick(definition, physical_tick_duration);
             }
-            let integration = integrate_power(
-                dissipation_power,
-                TickSpan::new(1),
-                physical_tick_duration,
-                PowerRemainder::ZERO,
-            )
-            .unwrap_or_else(|error| {
-                panic!(
-                    "energy store definition {} passive dissipation cannot be integrated for one authoritative tick: {error}",
-                    definition.id().value()
-                )
-            });
-            assert_eq!(
-                integration.remainder(),
-                PowerRemainder::ZERO,
-                "energy store definition {} passive dissipation must resolve to exact whole nanojoules per authoritative tick",
-                definition.id().value()
-            );
         }
         self.validate_upgrade_ancestry();
         for target in self.definitions.values() {
@@ -166,4 +188,29 @@ impl EnergyRegistry {
             }
         }
     }
+}
+
+fn resolve_passive_dissipation_per_tick(
+    definition: &EnergyStoreDefinition,
+    physical_tick_duration: PhysicalTickDuration,
+) -> Energy {
+    let integration = integrate_power(
+        definition.passive_dissipation_power(),
+        TickSpan::new(1),
+        physical_tick_duration,
+        PowerRemainder::ZERO,
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "energy store definition {} passive dissipation cannot be integrated for one authoritative tick: {error}",
+            definition.id().value()
+        )
+    });
+    assert_eq!(
+        integration.remainder(),
+        PowerRemainder::ZERO,
+        "energy store definition {} passive dissipation must resolve to exact whole nanojoules per authoritative tick",
+        definition.id().value()
+    );
+    integration.energy()
 }

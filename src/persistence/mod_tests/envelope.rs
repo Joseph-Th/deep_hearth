@@ -91,6 +91,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                 },
                 "equipment": {
                     "revision": 0,
+                    "support_revision": 0,
                     "next_equipment_id": 1,
                     "records": {}
                 },
@@ -108,6 +109,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                 },
                 "inventory": {
                     "revision": 0,
+                    "support_revision": 0,
                     "next_stockpile_id": 1,
                     "next_lot_id": 1,
                     "stockpiles": {},
@@ -149,6 +151,48 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
             found: 999,
             supported: CURRENT_SAVE_SCHEMA_VERSION,
         })
+    );
+}
+
+#[test]
+fn support_revision_epochs_cannot_exceed_their_owner_revisions() {
+    let registries = build_registries();
+    let state = AppState::new();
+    let base = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("support-revision fixture serialization failed: {error}"));
+
+    let mut inventory = base.clone();
+    inventory["state"]["systems"]["inventory"]["support_revision"] = serde_json::json!(1_u64);
+    let inventory: LoadedSaveEnvelope = serde_json::from_value(inventory).unwrap_or_else(|error| {
+        panic!("inventory support-revision fixture decode failed: {error}")
+    });
+    assert_eq!(
+        inventory.into_state(&registries),
+        Err(LoadError::InvalidState(
+            crate::core::state::StateValidationError::Inventory(
+                InventoryValidationError::SupportRevisionAfterRevision {
+                    support_revision: 1,
+                    revision: 0,
+                }
+            )
+        ))
+    );
+
+    let mut equipment = base;
+    equipment["state"]["systems"]["equipment"]["support_revision"] = serde_json::json!(1_u64);
+    let equipment: LoadedSaveEnvelope = serde_json::from_value(equipment).unwrap_or_else(|error| {
+        panic!("equipment support-revision fixture decode failed: {error}")
+    });
+    assert_eq!(
+        equipment.into_state(&registries),
+        Err(LoadError::InvalidState(
+            crate::core::state::StateValidationError::Equipment(
+                EquipmentValidationError::SupportRevisionAfterRevision {
+                    support_revision: 1,
+                    revision: 0,
+                }
+            )
+        ))
     );
 }
 

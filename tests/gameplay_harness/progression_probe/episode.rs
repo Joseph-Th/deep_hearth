@@ -933,10 +933,16 @@ pub(super) fn run_primitive_progression_case(
         .unwrap_or_else(|| panic!("primitive progression final pick disappeared"))
         .condition()
         .parts_per_million();
-    let metabolic_energy_spent_nj = survival_before.metabolic_energy().nanojoules()
-        - survival_after.metabolic_energy().nanojoules();
-    let hydration_spent_ul =
-        survival_before.hydration().microliters() - survival_after.hydration().microliters();
+    let metabolic_energy_spent_nj = survival_before
+        .metabolic_energy()
+        .nanojoules()
+        .checked_sub(survival_after.metabolic_energy().nanojoules())
+        .unwrap_or_else(|| panic!("primitive progression cannot create metabolic reserve"));
+    let hydration_spent_ul = survival_before
+        .hydration()
+        .microliters()
+        .checked_sub(survival_after.hydration().microliters())
+        .unwrap_or_else(|| panic!("primitive progression cannot create hydration reserve"));
     let physiology = registries.survival().physiology();
     let total_machine_work_ticks = concurrent_work
         .crush_ticks

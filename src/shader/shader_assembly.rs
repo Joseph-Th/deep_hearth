@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 use std::error::Error;
+use std::fmt::Write as _;
 use std::fmt::{Display, Formatter};
 
 use super::{ShaderId, ShaderProgramKind, ShaderRegistry};
@@ -100,7 +101,22 @@ impl ShaderRegistry {
         let mut assembled_ids = Vec::new();
         let mut visited = BTreeSet::new();
         collect_dependencies(self, id, &mut visited, &mut assembled_ids);
-        let mut source = String::new();
+        let source_capacity = assembled_ids
+            .iter()
+            .try_fold(0_usize, |total, assembled_id| {
+                let definition = self.get_shader(*assembled_id).unwrap_or_else(|| {
+                    panic!(
+                        "validated shader dependency {} disappeared during assembly sizing",
+                        assembled_id.value()
+                    )
+                });
+                total
+                    .checked_add(definition.source().len())
+                    .and_then(|value| value.checked_add(definition.name().len()))
+                    .and_then(|value| value.checked_add(48))
+            })
+            .unwrap_or_else(|| panic!("assembled shader source size exceeds addressable memory"));
+        let mut source = String::with_capacity(source_capacity);
         for assembled_id in assembled_ids {
             let definition = match self.get_shader(assembled_id) {
                 Some(definition) => definition,
@@ -109,11 +125,13 @@ impl ShaderRegistry {
                     assembled_id.value()
                 ),
             };
-            source.push_str("// deep_hearth module ");
-            source.push_str(&assembled_id.value().to_string());
-            source.push_str(": ");
-            source.push_str(definition.name());
-            source.push('\n');
+            writeln!(
+                source,
+                "// deep_hearth module {}: {}",
+                assembled_id.value(),
+                definition.name()
+            )
+            .unwrap_or_else(|_| unreachable!("writing to String cannot fail"));
             source.push_str(definition.source());
             source.push_str("\n\n");
         }

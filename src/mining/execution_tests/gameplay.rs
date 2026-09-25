@@ -529,7 +529,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     assert_eq!(
         craft_error,
         StartManualCraftError::Work(PlayerWorkStartError::Busy {
-            active: PlayerWork::Mining { job },
+            active: Box::new(PlayerWork::Mining { job }),
         })
     );
 

@@ -165,48 +165,14 @@ pub(super) fn execute_primitive_comparison(
         "power provider treadle second charge",
     );
     assert_eq!(
-        plan.crank_build.attention_ticks,
-        crank_build
-            .attention_ticks
-            .checked_add(crank_drive_build.attention_ticks)
-            .unwrap_or_else(|| panic!("crank package attention overflowed"))
+        plan.crank_build,
+        crank_build.checked_add(crank_drive_build, "crank package"),
+        "projected crank package must match executed equipment and store construction"
     );
     assert_eq!(
-        plan.crank_build.input_mass_mg,
-        crank_build
-            .input_mass_mg
-            .checked_add(crank_drive_build.input_mass_mg)
-            .unwrap_or_else(|| panic!("crank package mass overflowed"))
-    );
-    assert_eq!(
-        plan.treadle_build.attention_ticks,
-        treadle_build
-            .attention_ticks
-            .checked_add(treadle_drive_build.attention_ticks)
-            .unwrap_or_else(|| panic!("treadle package attention overflowed"))
-    );
-    assert_eq!(
-        plan.treadle_build.input_mass_mg,
-        treadle_build
-            .input_mass_mg
-            .checked_add(treadle_drive_build.input_mass_mg)
-            .unwrap_or_else(|| panic!("treadle package mass overflowed"))
-    );
-    assert_eq!(
-        plan.crank_build.metabolic_nj,
-        crank_build.metabolic_nj + crank_drive_build.metabolic_nj
-    );
-    assert_eq!(
-        plan.crank_build.hydration_ul,
-        crank_build.hydration_ul + crank_drive_build.hydration_ul
-    );
-    assert_eq!(
-        plan.treadle_build.metabolic_nj,
-        treadle_build.metabolic_nj + treadle_drive_build.metabolic_nj
-    );
-    assert_eq!(
-        plan.treadle_build.hydration_ul,
-        treadle_build.hydration_ul + treadle_drive_build.hydration_ul
+        plan.treadle_build,
+        treadle_build.checked_add(treadle_drive_build, "treadle package"),
+        "projected treadle package must match executed equipment and store construction"
     );
     assert_eq!(
         plan.crank_charge.duration().value(),
@@ -395,48 +361,15 @@ pub(super) fn execute_settlement_comparison(
         "walking-wheel second charge",
     );
     assert_eq!(
-        plan.treadle_build.attention_ticks,
+        plan.treadle_build,
         settlement_treadle_build
-            .attention_ticks
-            .checked_add(settlement_treadle_drive_build.attention_ticks)
-            .unwrap_or_else(|| panic!("settlement treadle package attention overflowed"))
+            .checked_add(settlement_treadle_drive_build, "settlement treadle package",),
+        "projected settlement treadle package must match executed construction"
     );
     assert_eq!(
-        plan.treadle_build.input_mass_mg,
-        settlement_treadle_build
-            .input_mass_mg
-            .checked_add(settlement_treadle_drive_build.input_mass_mg)
-            .unwrap_or_else(|| panic!("settlement treadle package mass overflowed"))
-    );
-    assert_eq!(
-        plan.walking_build.attention_ticks,
-        walking_build
-            .attention_ticks
-            .checked_add(walking_drive_build.attention_ticks)
-            .unwrap_or_else(|| panic!("walking-wheel package attention overflowed"))
-    );
-    assert_eq!(
-        plan.walking_build.input_mass_mg,
-        walking_build
-            .input_mass_mg
-            .checked_add(walking_drive_build.input_mass_mg)
-            .unwrap_or_else(|| panic!("walking-wheel package mass overflowed"))
-    );
-    assert_eq!(
-        plan.treadle_build.metabolic_nj,
-        settlement_treadle_build.metabolic_nj + settlement_treadle_drive_build.metabolic_nj
-    );
-    assert_eq!(
-        plan.treadle_build.hydration_ul,
-        settlement_treadle_build.hydration_ul + settlement_treadle_drive_build.hydration_ul
-    );
-    assert_eq!(
-        plan.walking_build.metabolic_nj,
-        walking_build.metabolic_nj + walking_drive_build.metabolic_nj
-    );
-    assert_eq!(
-        plan.walking_build.hydration_ul,
-        walking_build.hydration_ul + walking_drive_build.hydration_ul
+        plan.walking_build,
+        walking_build.checked_add(walking_drive_build, "walking-wheel package"),
+        "projected walking-wheel package must match executed construction"
     );
     assert_eq!(
         plan.treadle_charge.duration().value(),

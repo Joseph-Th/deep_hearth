@@ -288,7 +288,8 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         .value(),
     ]
     .into_iter()
-    .sum::<u64>();
+    .try_fold(0_u64, |total, ticks| total.checked_add(ticks))
+    .unwrap_or_else(|| panic!("sawmill setup attention overflowed"));
     assert_eq!(executed_setup, setup_attention);
     let sawmill = validate_upgrade_equipment(
         &registries,

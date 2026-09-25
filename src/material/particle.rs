@@ -255,8 +255,12 @@ impl ParticleSizeDistribution {
     pub fn total_weight(&self) -> u64 {
         self.classes
             .iter()
-            .map(|class| u64::from(class.weight()))
-            .sum()
+            .try_fold(0_u64, |total, class| {
+                total.checked_add(u64::from(class.weight()))
+            })
+            .unwrap_or_else(|| {
+                unreachable!("validated particle-size distribution weight sum cannot overflow")
+            })
     }
 }
 

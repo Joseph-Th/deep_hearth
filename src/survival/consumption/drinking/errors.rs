@@ -15,7 +15,7 @@ pub enum DrinkError {
     SurvivalNotInitialized,
     PlayerDead,
     PlayerBusy {
-        active: PlayerWork,
+        active: Box<PlayerWork>,
     },
     UnknownStore {
         store: FluidStoreId,

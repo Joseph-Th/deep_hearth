@@ -133,15 +133,17 @@ impl SurvivalState {
         self.revision = next_revision;
     }
 
-    pub(crate) fn apply_player_and_direct_consumption(
+    pub(crate) fn apply_player_tick(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
         player: PlayerSurvivalRecord,
-        pending: Option<PendingDirectConsumption>,
+        clear_pending_consumption: bool,
     ) {
         self.apply_player(expected_revision, next_revision, player);
-        self.direct_consumption.set_pending(pending);
+        if clear_pending_consumption {
+            self.direct_consumption.set_pending(None);
+        }
     }
 
     pub(crate) fn assert_direct_consumption_begin_available(

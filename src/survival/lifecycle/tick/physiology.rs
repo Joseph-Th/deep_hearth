@@ -8,15 +8,15 @@ use crate::survival::assessment::accumulate_diet_supported_vitality_recovery;
 use crate::survival::consumption::{DirectConsumptionInstallment, direct_consumption_installment};
 use crate::survival::state::{PlayerSurvivalRecord, player_record};
 use crate::survival::{
-    FoodCategory, PendingDirectConsumption, SurvivalExertion, SurvivalTickResourceCostError,
-    Vitality, resolve_survival_tick_resource_cost,
+    FoodCategory, SurvivalExertion, SurvivalTickResourceCostError, Vitality,
+    resolve_survival_tick_resource_cost,
 };
 
 use super::SurvivalTickError;
 
 pub(super) struct LivePlayerTickResolution {
     pub(super) after: PlayerSurvivalRecord,
-    pub(super) pending_after: Option<PendingDirectConsumption>,
+    pub(super) clear_pending_consumption: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,16 +87,11 @@ fn resolve_pending_installment(
     registries: &Registries,
     state: &AppState,
     next_tick: SimulationTick,
-) -> (
-    DirectConsumptionInstallment,
-    Option<PendingDirectConsumption>,
-) {
-    let Some(pending) = state.survival().pending_direct_consumption().cloned() else {
-        return (DirectConsumptionInstallment::default(), None);
+) -> DirectConsumptionInstallment {
+    let Some(pending) = state.survival().pending_direct_consumption() else {
+        return DirectConsumptionInstallment::default();
     };
-    let installment = direct_consumption_installment(registries, &pending, state.tick(), next_tick);
-    let pending_after = (!installment.completes()).then_some(pending);
-    (installment, pending_after)
+    direct_consumption_installment(registries, pending, state.tick(), next_tick)
 }
 
 fn resolve_tick_resources(
@@ -213,14 +208,10 @@ pub(super) fn resolve_live_player_tick(
     next_tick: SimulationTick,
 ) -> Result<LivePlayerTickResolution, SurvivalTickError> {
     let physiology = registries.survival().physiology();
-    let (installment, pending_after) = resolve_pending_installment(registries, state, next_tick);
+    let installment = resolve_pending_installment(registries, state, next_tick);
     let resources = resolve_tick_resources(physiology, before, exertion, installment)?;
     let (vitality_after, recovery_remainder) = resolve_vitality(physiology, before, resources);
-    let pending_after = if vitality_after == Vitality::ZERO {
-        None
-    } else {
-        pending_after
-    };
+    let clear_pending_consumption = installment.completes() || vitality_after == Vitality::ZERO;
     let nutrition_after = resources
         .after_intake
         .nutrition()
@@ -234,6 +225,6 @@ pub(super) fn resolve_live_player_tick(
     );
     Ok(LivePlayerTickResolution {
         after,
-        pending_after,
+        clear_pending_consumption,
     })
 }

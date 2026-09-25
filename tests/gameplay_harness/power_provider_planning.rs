@@ -10,11 +10,10 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreDefinitionId;
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::labor::{ManualPowerMethodId, ManualPowerProjection, project_manual_power};
+use deep_hearth::labor::ManualPowerProjection;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::ore_processing::{
-    PoweredOreOrderBatch, PoweredOreOrderMaintenancePolicy, PoweredOreOrderRequest,
-    project_powered_ore_order,
+    PoweredOreOrderMaintenancePolicy, PoweredOreOrderRequest, project_powered_ore_order,
 };
 use deep_hearth::registry::Registries;
 
@@ -26,17 +25,50 @@ use policy::{
     primitive_treadle_clears_attention_return, primitive_treadle_minimum_attention_return,
 };
 
+#[path = "power_provider_planning/lifecycle.rs"]
+mod lifecycle;
+use lifecycle::{
+    ManualPowerRoute, charge_events_for_declared_work, first_candidate_preferred_charge,
+};
+
 const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
 const MAX_PRIMITIVE_PROJECT_BATCHES: u64 = 1_024;
 const MAX_SETTLEMENT_CROSSOVER_CHARGES: u64 = 160;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ShapedBuild {
     pub(super) attention_ticks: u64,
     pub(super) input_mass_mg: u64,
     pub(super) embodied_mass_mg: u64,
     pub(super) metabolic_nj: u128,
     pub(super) hydration_ul: u64,
+}
+
+impl ShapedBuild {
+    pub(super) fn checked_add(self, other: Self, context: &'static str) -> Self {
+        Self {
+            attention_ticks: self
+                .attention_ticks
+                .checked_add(other.attention_ticks)
+                .unwrap_or_else(|| panic!("{context} attention overflowed")),
+            input_mass_mg: self
+                .input_mass_mg
+                .checked_add(other.input_mass_mg)
+                .unwrap_or_else(|| panic!("{context} input mass overflowed")),
+            embodied_mass_mg: self
+                .embodied_mass_mg
+                .checked_add(other.embodied_mass_mg)
+                .unwrap_or_else(|| panic!("{context} embodied mass overflowed")),
+            metabolic_nj: self
+                .metabolic_nj
+                .checked_add(other.metabolic_nj)
+                .unwrap_or_else(|| panic!("{context} metabolism overflowed")),
+            hydration_ul: self
+                .hydration_ul
+                .checked_add(other.hydration_ul)
+                .unwrap_or_else(|| panic!("{context} hydration overflowed")),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,276 +156,6 @@ pub(super) struct SettlementPowerPlan {
     pub(super) decision_crossover_charges: Option<u64>,
 }
 
-#[derive(Clone, Copy)]
-struct ManualPowerRoute {
-    method: ManualPowerMethodId,
-    equipment: EquipmentDefinitionId,
-    store: EnergyStoreDefinitionId,
-    requested: Energy,
-    context: &'static str,
-}
-
-#[derive(Clone, Copy)]
-struct ManualPowerLifecycleCost {
-    attention_ticks: u64,
-    metabolic_nj: u128,
-    hydration_ul: u64,
-    condition_after: Condition,
-}
-
-impl ManualPowerRoute {
-    fn project_requested(
-        self,
-        registries: &Registries,
-        condition: Condition,
-        requested: Energy,
-    ) -> ManualPowerProjection {
-        assert!(
-            !requested.is_zero() && requested <= self.requested,
-            "power-provider {} partial charge must stay within one full buffer request",
-            self.context
-        );
-        project_manual_power(
-            registries,
-            self.method,
-            self.equipment,
-            condition,
-            self.store,
-            requested,
-        )
-        .unwrap_or_else(|error| {
-            panic!(
-                "power-provider {} charge projection failed: {error}",
-                self.context
-            )
-        })
-    }
-
-    fn project(self, registries: &Registries, condition: Condition) -> ManualPowerProjection {
-        self.project_requested(registries, condition, self.requested)
-    }
-
-    fn project_lifecycle(
-        self,
-        registries: &Registries,
-        declared_work: Energy,
-    ) -> ManualPowerLifecycleCost {
-        assert!(
-            !declared_work.is_zero(),
-            "power-provider {} lifecycle requires positive declared work",
-            self.context
-        );
-        let mut remaining_nj = declared_work.nanojoules();
-        let full_request_nj = self.requested.nanojoules();
-        let mut attention_ticks = 0_u64;
-        let mut metabolic_nj = 0_u128;
-        let mut hydration_ul = 0_u64;
-        let mut condition = Condition::PRISTINE;
-
-        // Carry the canonical projected condition forward and charge only the useful work the
-        // declared project actually needs. The final event may therefore be a partial buffer
-        // charge rather than a fictitious full charge introduced by ceiling division.
-        while remaining_nj > 0 {
-            let requested_nj = remaining_nj.min(full_request_nj);
-            let charge = self.project_requested(
-                registries,
-                condition,
-                Energy::from_nanojoules(requested_nj),
-            );
-            attention_ticks = attention_ticks
-                .checked_add(charge.duration().value())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "power-provider {} lifecycle attention overflowed",
-                        self.context
-                    )
-                });
-            metabolic_nj = metabolic_nj
-                .checked_add(charge.resource_budget().metabolic_energy().nanojoules())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "power-provider {} lifecycle metabolism overflowed",
-                        self.context
-                    )
-                });
-            hydration_ul = hydration_ul
-                .checked_add(charge.resource_budget().hydration().microliters())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "power-provider {} lifecycle hydration overflowed",
-                        self.context
-                    )
-                });
-            condition = charge.condition_after();
-            remaining_nj = remaining_nj
-                .checked_sub(requested_nj)
-                .unwrap_or_else(|| unreachable!("projected charge is bounded by remaining work"));
-        }
-
-        ManualPowerLifecycleCost {
-            attention_ticks,
-            metabolic_nj,
-            hydration_ul,
-            condition_after: condition,
-        }
-    }
-
-    fn project_lifecycle_batches(
-        self,
-        registries: &Registries,
-        batches: &[PoweredOreOrderBatch],
-    ) -> ManualPowerLifecycleCost {
-        assert!(
-            !batches.is_empty(),
-            "power-provider {} lifecycle requires at least one consumer batch",
-            self.context
-        );
-        let mut attention_ticks = 0_u64;
-        let mut metabolic_nj = 0_u128;
-        let mut hydration_ul = 0_u64;
-        let mut condition = Condition::PRISTINE;
-        for batch in batches {
-            let charge = self.project_requested(registries, condition, batch.required_energy());
-            attention_ticks = attention_ticks
-                .checked_add(charge.duration().value())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "power-provider {} consumer-aware lifecycle attention overflowed",
-                        self.context
-                    )
-                });
-            metabolic_nj = metabolic_nj
-                .checked_add(charge.resource_budget().metabolic_energy().nanojoules())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "power-provider {} consumer-aware lifecycle metabolism overflowed",
-                        self.context
-                    )
-                });
-            hydration_ul = hydration_ul
-                .checked_add(charge.resource_budget().hydration().microliters())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "power-provider {} consumer-aware lifecycle hydration overflowed",
-                        self.context
-                    )
-                });
-            condition = charge.condition_after();
-        }
-        ManualPowerLifecycleCost {
-            attention_ticks,
-            metabolic_nj,
-            hydration_ul,
-            condition_after: condition,
-        }
-    }
-}
-
-fn first_candidate_preferred_charge(
-    registries: &Registries,
-    baseline_route: ManualPowerRoute,
-    baseline_build: ShapedBuild,
-    candidate_route: ManualPowerRoute,
-    candidate_build: ShapedBuild,
-    maximum_charges: u64,
-    minimum_attention_return_ticks: u64,
-) -> Option<u64> {
-    let mut baseline_attention = baseline_build.attention_ticks;
-    let mut baseline_metabolic = 0_u128;
-    let mut baseline_hydration = 0_u64;
-    let mut baseline_condition = Condition::PRISTINE;
-    let mut candidate_attention = candidate_build.attention_ticks;
-    let mut candidate_metabolic = 0_u128;
-    let mut candidate_hydration = 0_u64;
-    let mut candidate_condition = Condition::PRISTINE;
-
-    for charges in 1..=maximum_charges {
-        let baseline_charge = baseline_route.project(registries, baseline_condition);
-        baseline_attention = baseline_attention
-            .checked_add(baseline_charge.duration().value())
-            .unwrap_or_else(|| panic!("power-provider baseline crossover attention overflowed"));
-        baseline_metabolic = baseline_metabolic
-            .checked_add(
-                baseline_charge
-                    .resource_budget()
-                    .metabolic_energy()
-                    .nanojoules(),
-            )
-            .unwrap_or_else(|| panic!("power-provider baseline crossover metabolism overflowed"));
-        baseline_hydration = baseline_hydration
-            .checked_add(baseline_charge.resource_budget().hydration().microliters())
-            .unwrap_or_else(|| panic!("power-provider baseline crossover hydration overflowed"));
-        baseline_condition = baseline_charge.condition_after();
-
-        let candidate_charge = candidate_route.project(registries, candidate_condition);
-        candidate_attention = candidate_attention
-            .checked_add(candidate_charge.duration().value())
-            .unwrap_or_else(|| panic!("power-provider candidate crossover attention overflowed"));
-        candidate_metabolic = candidate_metabolic
-            .checked_add(
-                candidate_charge
-                    .resource_budget()
-                    .metabolic_energy()
-                    .nanojoules(),
-            )
-            .unwrap_or_else(|| panic!("power-provider candidate crossover metabolism overflowed"));
-        candidate_hydration = candidate_hydration
-            .checked_add(candidate_charge.resource_budget().hydration().microliters())
-            .unwrap_or_else(|| panic!("power-provider candidate crossover hydration overflowed"));
-        candidate_condition = candidate_charge.condition_after();
-
-        let baseline_key = (
-            baseline_attention,
-            baseline_build
-                .metabolic_nj
-                .checked_add(baseline_metabolic)
-                .unwrap_or_else(|| panic!("power-provider baseline total metabolism overflowed")),
-            baseline_build
-                .hydration_ul
-                .checked_add(baseline_hydration)
-                .unwrap_or_else(|| panic!("power-provider baseline total hydration overflowed")),
-            baseline_build.input_mass_mg,
-            0_u8,
-        );
-        let candidate_key = (
-            candidate_attention,
-            candidate_build
-                .metabolic_nj
-                .checked_add(candidate_metabolic)
-                .unwrap_or_else(|| panic!("power-provider candidate total metabolism overflowed")),
-            candidate_build
-                .hydration_ul
-                .checked_add(candidate_hydration)
-                .unwrap_or_else(|| panic!("power-provider candidate total hydration overflowed")),
-            candidate_build.input_mass_mg,
-            1_u8,
-        );
-        let attention_saving = baseline_attention.saturating_sub(candidate_attention);
-        if minimum_attention_return_ticks > 0 {
-            if attention_saving >= minimum_attention_return_ticks {
-                return Some(charges);
-            }
-        } else if candidate_key < baseline_key {
-            return Some(charges);
-        }
-    }
-    None
-}
-
-fn charge_events_for_declared_work(
-    declared_work_nj: u128,
-    capacity_nj: u128,
-    context: &'static str,
-) -> u64 {
-    assert!(
-        declared_work_nj > 0 && capacity_nj > 0,
-        "power-provider {context} requires positive project work and buffer capacity"
-    );
-    let charges = declared_work_nj.div_ceil(capacity_nj);
-    u64::try_from(charges)
-        .unwrap_or_else(|_| panic!("power-provider {context} charge horizon exceeds u64"))
-}
-
 pub(super) fn settlement_power_plan(
     registries: &Registries,
     state: &AppState,
@@ -421,20 +183,20 @@ pub(super) fn settlement_power_plan(
         "walking-wheel pre-action build",
     );
     let requested = Energy::from_nanojoules(capacity_nj);
-    let treadle_route = ManualPowerRoute {
-        method: MANUAL_POWER_FOOT_TREADLE,
-        equipment: EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        store: ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+    let treadle_route = ManualPowerRoute::new(
+        MANUAL_POWER_FOOT_TREADLE,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
         requested,
-        context: "settlement treadle",
-    };
-    let walking_route = ManualPowerRoute {
-        method: MANUAL_POWER_WALKING_WHEEL,
-        equipment: EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-        store: ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        "settlement treadle",
+    );
+    let walking_route = ManualPowerRoute::new(
+        MANUAL_POWER_WALKING_WHEEL,
+        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
         requested,
-        context: "settlement walking wheel",
-    };
+        "settlement walking wheel",
+    );
     let decision_crossover_charges = first_candidate_preferred_charge(
         registries,
         treadle_route,
@@ -586,20 +348,20 @@ pub(super) fn primitive_power_plan(
         "power provider treadle pre-action build",
     );
     let requested = Energy::from_nanojoules(project.capacity_nj);
-    let crank_route = ManualPowerRoute {
-        method: MANUAL_POWER_HAND_CRANK,
-        equipment: EQUIPMENT_STONE_HAND_CRANK,
-        store: project.store_definition,
+    let crank_route = ManualPowerRoute::new(
+        MANUAL_POWER_HAND_CRANK,
+        EQUIPMENT_STONE_HAND_CRANK,
+        project.store_definition,
         requested,
-        context: "primitive crank",
-    };
-    let treadle_route = ManualPowerRoute {
-        method: MANUAL_POWER_FOOT_TREADLE,
-        equipment: EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        store: project.store_definition,
+        "primitive crank",
+    );
+    let treadle_route = ManualPowerRoute::new(
+        MANUAL_POWER_FOOT_TREADLE,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        project.store_definition,
         requested,
-        context: "primitive treadle",
-    };
+        "primitive treadle",
+    );
     let crank_charge = crank_route.project(registries, Condition::PRISTINE);
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     // The project owns a fixed amount of useful mechanical work. Buffer choice only determines
@@ -637,8 +399,10 @@ pub(super) fn primitive_power_plan(
     let projected_work_nj = consumer_order
         .batches()
         .iter()
-        .map(|batch| batch.required_energy().nanojoules())
-        .sum::<u128>();
+        .try_fold(0_u128, |total, batch| {
+            total.checked_add(batch.required_energy().nanojoules())
+        })
+        .unwrap_or_else(|| panic!("power-provider projected consumer work overflowed"));
     assert_eq!(
         projected_work_nj, project.declared_work_nj,
         "consumer-aware batch projection must preserve the declared useful work"

@@ -1,5 +1,7 @@
 //! Canonical per-tick survival resource costs shared by execution and work admission.
 
+use serde::{Deserialize, Serialize};
+
 use crate::core::quantity::{Energy, Volume};
 use crate::core::time::TickSpan;
 
@@ -10,7 +12,8 @@ use super::definitions::PhysiologyDefinition;
 /// Basal metabolism remains authored by `PhysiologyDefinition`; work owners contribute only the
 /// incremental cost above rest so simulation can combine them without creating a second metabolism
 /// path.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SurvivalExertion {
     energy_cost_per_tick: Energy,
     hydration_loss_per_tick: Volume,

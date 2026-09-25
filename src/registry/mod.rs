@@ -123,8 +123,11 @@ impl Registries {
     pub(crate) fn new(
         schema_version: RegistrySchemaVersion,
         core: CoreDefinitions,
-        domains: RegistryDomains,
+        mut domains: RegistryDomains,
     ) -> Self {
+        domains
+            .energy
+            .prepare_tick_dependent_values(core.physical_tick_duration());
         validate_registry_domains(&core, &domains);
         let process_topology = build_process_topology(&domains);
         Self {

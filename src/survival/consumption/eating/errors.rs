@@ -16,7 +16,7 @@ pub enum EatError {
     SurvivalNotInitialized,
     PlayerDead,
     PlayerBusy {
-        active: PlayerWork,
+        active: Box<PlayerWork>,
     },
     EmptySelection,
     DuplicateLot {

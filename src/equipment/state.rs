@@ -21,6 +21,7 @@ pub(crate) use record::{EquipmentMaintenanceAdmission, EquipmentOperationConditi
 #[serde(deny_unknown_fields)]
 pub struct EquipmentState {
     revision: u64,
+    support_revision: u64,
     next_equipment_id: u32,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     records: BTreeMap<EquipmentId, EquipmentRecord>,
@@ -33,6 +34,7 @@ impl EquipmentState {
     pub(crate) const fn new() -> Self {
         Self {
             revision: 0,
+            support_revision: 0,
             next_equipment_id: 1,
             records: BTreeMap::new(),
             equipment_by_support: BTreeMap::new(),
@@ -42,6 +44,12 @@ impl EquipmentState {
     #[must_use]
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Monotonic epoch for equipment support-assignment changes only.
+    #[must_use]
+    pub(crate) const fn support_revision(&self) -> u64 {
+        self.support_revision
     }
 
     #[must_use]
@@ -258,6 +266,7 @@ impl EquipmentState {
             None => unreachable!("equipment support record was prechecked before index mutation"),
         };
         record.supported_by = after;
+        self.support_revision = next_revision;
         self.revision = next_revision;
     }
 

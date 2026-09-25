@@ -73,8 +73,12 @@ impl MaterialAbundanceEstimate {
 pub(in crate::geology) fn total_lower_bound_ppm(findings: &[MaterialAbundanceEstimate]) -> u64 {
     findings
         .iter()
-        .map(|finding| u64::from(finding.lower_ppm()))
-        .sum()
+        .try_fold(0_u64, |total, finding| {
+            total.checked_add(u64::from(finding.lower_ppm()))
+        })
+        // Any u64 overflow is already far beyond a physically valid normalized total. Preserve
+        // deterministic rejection without allowing hostile aggregate size to wrap or panic.
+        .unwrap_or(u64::MAX)
 }
 
 #[derive(Deserialize)]

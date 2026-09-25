@@ -6,15 +6,16 @@ fn represented_copper_ppm_mg(state: &AppState, stockpiles: &[StockpileId]) -> u1
     stockpiles
         .iter()
         .flat_map(|stockpile| state.inventory().lot_ids(*stockpile))
-        .map(|lot| {
+        .try_fold(0_u128, |total, lot| {
             let record = state
                 .inventory()
                 .get_lot(lot)
                 .unwrap_or_else(|| panic!("ore preparation accounting lot disappeared"));
-            u128::from(record.mass().milligrams())
-                * u128::from(record.composition().parts_per_million(MATERIAL_COPPER))
+            let numerator = u128::from(record.mass().milligrams())
+                * u128::from(record.composition().parts_per_million(MATERIAL_COPPER));
+            total.checked_add(numerator)
         })
-        .sum()
+        .unwrap_or_else(|| panic!("ore preparation copper accounting overflowed"))
 }
 
 pub(super) struct OreCompletionEvidence {

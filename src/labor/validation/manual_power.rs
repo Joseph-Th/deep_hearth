@@ -222,6 +222,9 @@ fn validate_manual_power_schedule(
     if stored_duration != required_duration {
         return Err(PlayerWorkValidationError::ManualPowerDurationMismatch);
     }
+    if work.exertion() != required.exertion() {
+        return Err(PlayerWorkValidationError::ManualPowerExertionMismatch);
+    }
     Ok((required_duration, schedule.remaining, required.exertion()))
 }
 

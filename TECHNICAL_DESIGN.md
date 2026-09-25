@@ -544,11 +544,14 @@ different temperatures because no thermal-mixing owner exists. Wood scrap and st
 represented terminal matter; ore, crushed ore, and concentrate require a separate reduction/smelting owner.
 
 Loss of required equipment or output support may suspend a job. Suspension preserves work-in-process,
-reservations, and exact remaining active time. Production schedules also persist completed wall-clock suspension
-time so trusted load can replay `completes_at = started_at + active_duration + completed_suspension_time` instead
-of trusting an arbitrary due tick; the currently open suspension is excluded until resume. Suspended manual
-production releases `PlayerWorkState`; resumption must reacquire labor and pass the remaining survival-budget
-admission.
+reservations, and exact remaining active time. Production availability tracks persisted support-assignment epochs
+from inventory and equipment plus the structural owner revision, so unrelated lot mutations, equipment wear, and
+other owner changes do not force a full physical-availability reconsideration. The derived production dependency
+snapshot itself is not persisted; trusted load therefore performs a conservative first availability pass after
+rebuilding indexes. Production schedules also persist completed wall-clock suspension time so trusted load can
+replay `completes_at = started_at + active_duration + completed_suspension_time` instead of trusting an arbitrary
+due tick; the currently open suspension is excluded until resume. Suspended manual production releases
+`PlayerWorkState`; resumption must reacquire labor and pass the remaining survival-budget admission.
 
 ### Physical resolvers
 
@@ -660,8 +663,10 @@ resumption must reacquire it and revalidate the exact remaining budget.
 Direct manual power requires portable unmounted equipment and a compatible finite energy destination. Duration
 is limited by provider capability, destination input power, sustainable metabolic output, and requested work.
 Energy creation, physiological cost, and equipment wear share one validated operation. Generated work remains
-in player-work custody until completion. Sink-capacity admission credits only passive dissipation guaranteed
-before the release tick. Trusted load reprojects the same rule from current stored energy and remaining work.
+in player-work custody until completion, with the resolved per-tick exertion persisted as part of that durable
+schedule so tick execution does not rederive admitted physics. Sink-capacity admission credits only passive
+dissipation guaranteed before the release tick. Trusted load reprojects the same rule from current stored energy
+and remaining work and rejects a persisted exertion value that disagrees with the canonical schedule.
 `project_manual_power` is the read-only future-configuration surface for comparing authored provider/store
 investments before those instances exist. It shares provider capability, destination input-power, schedule,
 physiology, and wear physics with runtime admission, but deliberately assumes an empty or sufficiently free

@@ -7,7 +7,9 @@ use crate::labor::{PlayerWorkTickError, decide_manual_production_player_work_sta
 use crate::registry::Registries;
 use crate::structural::StructuralLifecycle;
 
-use super::super::super::state::{ProductionJobRecord, ProductionSuspensionReason};
+use super::super::super::state::{
+    ProductionAvailabilityDependencyRevisions, ProductionJobRecord, ProductionSuspensionReason,
+};
 use super::{CompletionPlanError, PlayerLaborRevisionDependencies, ProductionAvailabilityChange};
 
 fn has_required_active_equipment_support(state: &AppState, job: &ProductionJobRecord) -> bool {
@@ -203,18 +205,51 @@ pub(super) fn decide_availability_changes(
     (
         Vec<ProductionAvailabilityChange>,
         Option<PlayerLaborRevisionDependencies>,
+        ProductionAvailabilityDependencyRevisions,
     ),
     CompletionPlanError,
 > {
     let current = state.tick();
+    let dependency_revisions = ProductionAvailabilityDependencyRevisions::new(
+        state.inventory().support_revision(),
+        state.equipment().support_revision(),
+        state.structures().revision(),
+    );
     let mut changes = Vec::new();
     let mut player_labor = PlayerLaborAvailabilityState::new(state);
-    for job in state.production().jobs() {
-        let unavailable = decide_job_unavailability(registries, state, job, &mut player_labor)?;
-        if let Some(change) = plan_availability_change(current, job, unavailable)? {
-            changes.push(change);
+    if state
+        .production()
+        .physical_availability_dependencies_changed(dependency_revisions)
+    {
+        for job_id in state
+            .production()
+            .physical_availability_candidate_jobs(state.inventory())
+        {
+            let job = state.production().get_job(job_id).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: availability candidate index references missing production job {}",
+                    job_id.value()
+                )
+            });
+            let unavailable = decide_job_unavailability(registries, state, job, &mut player_labor)?;
+            if let Some(change) = plan_availability_change(current, job, unavailable)? {
+                changes.push(change);
+            }
+        }
+    } else if !player_labor.claimed {
+        for job_id in state.production().player_labor_suspended_jobs() {
+            let job = state.production().get_job(job_id).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: player-labor suspension index references missing production job {}",
+                    job_id.value()
+                )
+            });
+            let unavailable = decide_job_unavailability(registries, state, job, &mut player_labor)?;
+            if let Some(change) = plan_availability_change(current, job, unavailable)? {
+                changes.push(change);
+            }
         }
     }
     let player_labor_dependencies = player_labor.revision_dependencies(state);
-    Ok((changes, player_labor_dependencies))
+    Ok((changes, player_labor_dependencies, dependency_revisions))
 }

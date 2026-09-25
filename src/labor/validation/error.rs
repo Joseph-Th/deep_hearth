@@ -40,6 +40,7 @@ pub enum PlayerWorkValidationError {
     ManualPowerZeroPower,
     ManualPowerScheduleInvalid,
     ManualPowerDurationMismatch,
+    ManualPowerExertionMismatch,
     ManualPowerConditionDuration(ActiveConditionDurationError),
     ManualPowerConditionMismatch,
     ManualPowerResourceDoubleBooked,

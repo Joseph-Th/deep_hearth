@@ -10,15 +10,21 @@ use super::cleanup::CleanupOutcome;
 use super::{PrimitiveLiberationScenario, scavenging::ScavengingOutcome};
 
 fn charge_ticks(scenario: &PrimitiveLiberationScenario) -> u64 {
-    scenario.charges.iter().map(|charge| charge.ticks).sum()
+    scenario
+        .charges
+        .iter()
+        .try_fold(0_u64, |total, charge| total.checked_add(charge.ticks))
+        .unwrap_or_else(|| panic!("primitive liberation charge attention overflowed"))
 }
 
 fn generated_nj(scenario: &PrimitiveLiberationScenario) -> u128 {
     scenario
         .charges
         .iter()
-        .map(|charge| charge.requested.nanojoules())
-        .sum()
+        .try_fold(0_u128, |total, charge| {
+            total.checked_add(charge.requested.nanojoules())
+        })
+        .unwrap_or_else(|| panic!("primitive liberation generated energy overflowed"))
 }
 
 pub(super) struct LiberationComparison<'a> {
@@ -62,18 +68,16 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
             .total(),
     );
     let body_cost = |scenario: &PrimitiveLiberationScenario| -> (u128, u64) {
-        (
-            scenario
-                .charges
-                .iter()
-                .map(|charge| charge.metabolic_nj)
-                .sum(),
-            scenario
-                .charges
-                .iter()
-                .map(|charge| charge.hydration_ul)
-                .sum(),
-        )
+        scenario
+            .charges
+            .iter()
+            .try_fold((0_u128, 0_u64), |(metabolic, hydration), charge| {
+                Some((
+                    metabolic.checked_add(charge.metabolic_nj)?,
+                    hydration.checked_add(charge.hydration_ul)?,
+                ))
+            })
+            .unwrap_or_else(|| panic!("primitive liberation charge body cost overflowed"))
     };
     let demand_body = body_cost(demand);
     let full_body = body_cost(full);

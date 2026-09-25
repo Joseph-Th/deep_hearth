@@ -224,6 +224,7 @@ impl AppState {
         // Trusted load calls this on decoded state before semantic validation. Rebuilders must
         // therefore derive index identity from persisted collection keys, never from unchecked
         // record-internal IDs; owner validation rejects any key/record mismatch afterward.
+        self.systems.energy.rebuild_derived_indexes();
         self.systems.inventory.rebuild_derived_indexes();
         self.systems.equipment.rebuild_derived_indexes();
         self.systems.fluid.rebuild_derived_indexes();
@@ -231,8 +232,8 @@ impl AppState {
         self.systems.geological_knowledge.rebuild_derived_indexes();
         self.systems.production.rebuild_derived_indexes();
         self.systems.mining.rebuild_derived_indexes();
-        // Energy, survival, player work, and geology hold no derived indexes: their persisted
-        // records are the complete continuation state, so there is nothing to rebuild.
+        // Survival, player work, and geology hold no derived indexes: their persisted records are
+        // the complete continuation state, so there is nothing to rebuild.
     }
 
     /// Returns read-only authoritative production scheduling state.

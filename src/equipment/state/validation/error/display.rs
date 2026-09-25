@@ -7,6 +7,13 @@ use super::EquipmentValidationError;
 impl Display for EquipmentValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SupportRevisionAfterRevision {
+                support_revision,
+                revision,
+            } => write!(
+                formatter,
+                "equipment support revision {support_revision} exceeds owner revision {revision}"
+            ),
             Self::ZeroNextEquipmentId => {
                 formatter.write_str("equipment next-id cursor must be nonzero")
             }

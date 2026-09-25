@@ -16,6 +16,40 @@ impl ProductionIndexes {
             .unwrap_or_else(|_| unreachable!("production due-bucket count fits memory"))
     }
 
+    pub(in crate::production::state) fn scheduled_energy_revision_bucket_count(&self) -> u64 {
+        u64::try_from(self.energy_revision_jobs_by_due.len())
+            .unwrap_or_else(|_| unreachable!("production energy revision buckets fit memory"))
+    }
+
+    pub(in crate::production::state) fn scheduled_equipment_revision_bucket_count(&self) -> u64 {
+        u64::try_from(self.equipment_revision_jobs_by_due.len())
+            .unwrap_or_else(|_| unreachable!("production equipment revision buckets fit memory"))
+    }
+
+    pub(in crate::production::state) fn scheduled_energy_revision_bucket_count_with_tick(
+        &self,
+        additional_tick: SimulationTick,
+    ) -> u64 {
+        self.scheduled_energy_revision_bucket_count()
+            + u64::from(
+                !self
+                    .energy_revision_jobs_by_due
+                    .contains_key(&additional_tick),
+            )
+    }
+
+    pub(in crate::production::state) fn scheduled_equipment_revision_bucket_count_with_tick(
+        &self,
+        additional_tick: SimulationTick,
+    ) -> u64 {
+        self.scheduled_equipment_revision_bucket_count()
+            + u64::from(
+                !self
+                    .equipment_revision_jobs_by_due
+                    .contains_key(&additional_tick),
+            )
+    }
+
     pub(in crate::production::state) fn scheduled_bucket_count_where(
         &self,
         mut job_matches: impl FnMut(ProductionJobId) -> bool,
@@ -75,6 +109,22 @@ impl ProductionIndexes {
         );
     }
 
+    pub(in crate::production::state) fn insert_due_job_with_requirements(
+        &mut self,
+        id: ProductionJobId,
+        due: SimulationTick,
+        requires_energy_revision: bool,
+        requires_equipment_revision: bool,
+    ) {
+        self.insert_due_job(id, due);
+        if requires_energy_revision {
+            increment_requirement_bucket(&mut self.energy_revision_jobs_by_due, due);
+        }
+        if requires_equipment_revision {
+            increment_requirement_bucket(&mut self.equipment_revision_jobs_by_due, due);
+        }
+    }
+
     pub(in crate::production::state) fn assert_due_job_absent(&self, id: ProductionJobId) {
         assert!(
             self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
@@ -119,5 +169,49 @@ impl ProductionIndexes {
         if remove_bucket {
             self.due_jobs.remove(&due);
         }
+    }
+
+    pub(in crate::production::state) fn remove_due_job_with_requirements(
+        &mut self,
+        id: ProductionJobId,
+        due: SimulationTick,
+        requires_energy_revision: bool,
+        requires_equipment_revision: bool,
+    ) {
+        self.remove_due_job(id, due);
+        if requires_energy_revision {
+            decrement_requirement_bucket(&mut self.energy_revision_jobs_by_due, due);
+        }
+        if requires_equipment_revision {
+            decrement_requirement_bucket(&mut self.equipment_revision_jobs_by_due, due);
+        }
+    }
+}
+
+fn increment_requirement_bucket(
+    buckets: &mut std::collections::BTreeMap<SimulationTick, u64>,
+    due: SimulationTick,
+) {
+    let count = buckets.entry(due).or_default();
+    *count = count
+        .checked_add(1)
+        .unwrap_or_else(|| unreachable!("resident production job count fits u64"));
+}
+
+fn decrement_requirement_bucket(
+    buckets: &mut std::collections::BTreeMap<SimulationTick, u64>,
+    due: SimulationTick,
+) {
+    let remove = {
+        let count = buckets.get_mut(&due).unwrap_or_else(|| {
+            panic!("runtime invariant broken: missing revision-requirement bucket")
+        });
+        *count = count.checked_sub(1).unwrap_or_else(|| {
+            panic!("runtime invariant broken: empty revision-requirement bucket")
+        });
+        *count == 0
+    };
+    if remove {
+        buckets.remove(&due);
     }
 }

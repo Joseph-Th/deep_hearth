@@ -14,6 +14,7 @@ mod job;
 mod lifecycle;
 mod validation;
 
+pub(in crate::production) use indexes::ProductionAvailabilityDependencyRevisions;
 use indexes::ProductionIndexes;
 pub(in crate::production) use job::{
     ProductionJobEquipment, ProductionJobIdentity, ProductionJobResources, ProductionJobSchedule,
@@ -71,6 +72,36 @@ impl ProductionState {
         self.indexes.rebuild(self.jobs.iter());
     }
 
+    pub(in crate::production) fn physical_availability_dependencies_changed(
+        &self,
+        current: ProductionAvailabilityDependencyRevisions,
+    ) -> bool {
+        self.indexes
+            .physical_availability_dependencies_changed(current)
+    }
+
+    pub(in crate::production) fn record_physical_availability_dependencies(
+        &mut self,
+        current: ProductionAvailabilityDependencyRevisions,
+    ) {
+        self.indexes
+            .record_physical_availability_dependencies(current);
+    }
+
+    pub(in crate::production) fn player_labor_suspended_jobs(
+        &self,
+    ) -> impl Iterator<Item = ProductionJobId> + '_ {
+        self.indexes.player_labor_suspended_jobs()
+    }
+
+    pub(in crate::production) fn physical_availability_candidate_jobs(
+        &self,
+        inventory: &InventoryState,
+    ) -> BTreeSet<ProductionJobId> {
+        self.indexes
+            .physical_availability_candidate_jobs(inventory.all_supported_stockpiles())
+    }
+
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
         self.indexes.earliest_due_tick()
     }
@@ -113,9 +144,7 @@ impl ProductionState {
     }
 
     pub(crate) fn scheduled_equipment_revision_bucket_count(&self) -> u64 {
-        self.scheduled_completion_bucket_count_where(
-            ProductionJobRecord::requires_equipment_revision_at_completion,
-        )
+        self.indexes.scheduled_equipment_revision_bucket_count()
     }
 
     pub(in crate::production) fn has_scheduled_equipment_revision_capacity_with_tick_from(
@@ -124,10 +153,10 @@ impl ProductionState {
         completes_at: SimulationTick,
     ) -> bool {
         revision
-            .checked_add(self.scheduled_completion_bucket_count_with_tick_where(
-                completes_at,
-                ProductionJobRecord::requires_equipment_revision_at_completion,
-            ))
+            .checked_add(
+                self.indexes
+                    .scheduled_equipment_revision_bucket_count_with_tick(completes_at),
+            )
             .is_some()
     }
 
@@ -141,9 +170,7 @@ impl ProductionState {
     }
 
     pub(crate) fn scheduled_released_energy_revision_bucket_count(&self) -> u64 {
-        self.scheduled_completion_bucket_count_where(
-            ProductionJobRecord::requires_energy_revision_at_completion,
-        )
+        self.indexes.scheduled_energy_revision_bucket_count()
     }
 
     pub(in crate::production) fn has_scheduled_released_energy_revision_capacity_with_tick_from(
@@ -152,10 +179,10 @@ impl ProductionState {
         completes_at: SimulationTick,
     ) -> bool {
         revision
-            .checked_add(self.scheduled_completion_bucket_count_with_tick_where(
-                completes_at,
-                ProductionJobRecord::requires_energy_revision_at_completion,
-            ))
+            .checked_add(
+                self.indexes
+                    .scheduled_energy_revision_bucket_count_with_tick(completes_at),
+            )
             .is_some()
     }
 

@@ -107,7 +107,7 @@ pub(crate) fn decide_due_completions(
     state: &AppState,
     tick: SimulationTick,
 ) -> Result<CompletionPlan, CompletionPlanError> {
-    let (availability_changes, player_labor_dependencies) =
+    let (availability_changes, player_labor_dependencies, availability_dependency_revisions) =
         decide_availability_changes(registries, state)?;
     debug_assert!(
         availability_changes
@@ -149,6 +149,7 @@ pub(crate) fn decide_due_completions(
     let structural_load = plan_completion_structural_load(registries, state, &inventory_deposits)?;
     let plan = CompletionPlan {
         revisions,
+        availability_dependency_revisions,
         inventory_deposits,
         availability_changes,
         jobs: planning.jobs,

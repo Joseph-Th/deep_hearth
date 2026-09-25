@@ -53,6 +53,12 @@ pub(crate) fn validate_loaded_inventory(
     state: &InventoryState,
     current_tick: SimulationTick,
 ) -> Result<(), InventoryValidationError> {
+    if state.support_revision > state.revision {
+        return Err(InventoryValidationError::SupportRevisionAfterRevision {
+            support_revision: state.support_revision,
+            revision: state.revision,
+        });
+    }
     validate_inventory_cursors(state)?;
 
     let mut expected_lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();

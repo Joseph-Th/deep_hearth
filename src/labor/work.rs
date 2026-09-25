@@ -14,6 +14,7 @@ use crate::inventory::{StockpileId, StorageDefinitionId};
 use crate::maintenance::Condition;
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
+use crate::survival::SurvivalExertion;
 
 use super::{ManualPowerMethodId, ProspectingMethodId};
 
@@ -25,6 +26,7 @@ pub struct ManualPowerWork {
     equipment: EquipmentOperationTrace,
     condition_after: Condition,
     output: ReleasedEnergyTrace,
+    exertion: SurvivalExertion,
     started_at: SimulationTick,
     completes_at: SimulationTick,
 }
@@ -35,6 +37,7 @@ impl ManualPowerWork {
         equipment: EquipmentOperationTrace,
         condition_after: Condition,
         output: ReleasedEnergyTrace,
+        exertion: SurvivalExertion,
         started_at: SimulationTick,
         completes_at: SimulationTick,
     ) -> Self {
@@ -43,6 +46,7 @@ impl ManualPowerWork {
             equipment,
             condition_after,
             output,
+            exertion,
             started_at,
             completes_at,
         }
@@ -76,6 +80,11 @@ impl ManualPowerWork {
     #[must_use]
     pub const fn output(self) -> ReleasedEnergyTrace {
         self.output
+    }
+
+    #[must_use]
+    pub const fn exertion(self) -> SurvivalExertion {
+        self.exertion
     }
 
     #[must_use]
