@@ -2,8 +2,8 @@
 
 use super::TextureLayer;
 use crate::texture::{
-    PackedTexel, PaletteSlot, ShadeIndex, TEXTURE_MIP_LEVEL_COUNT, TEXTURE_PALETTE_SLOT_COUNT,
-    TEXTURE_SIDE, TEXTURE_TEXEL_COUNT,
+    PackedTexel, PaletteSlot, ShadeIndex, TEXTURE_MIP_LEVEL_COUNT, TEXTURE_SIDE,
+    TEXTURE_TEXEL_COUNT,
 };
 
 /// One mip level with all unique pattern layers stored contiguously in layer-major order.
@@ -97,31 +97,33 @@ fn downsample_layers_in_place(
 }
 
 pub(super) fn resolve_mip_texel(samples: [PackedTexel; 4]) -> PackedTexel {
-    let mut slot_counts = [0_u8; TEXTURE_PALETTE_SLOT_COUNT];
-    for sample in samples {
-        slot_counts[usize::from(sample.palette_slot().value())] += 1;
-    }
-    let mut selected_slot = 0_usize;
-    for slot in 1..TEXTURE_PALETTE_SLOT_COUNT {
-        if slot_counts[slot] > slot_counts[selected_slot] {
+    // A 2x2 mip footprint has only four candidates. Counting those candidates directly avoids
+    // zeroing and scanning the full 16-slot palette histogram for every output texel.
+    let mut selected_slot = samples[0].palette_slot().value();
+    let mut selected_count = 0_u8;
+    for candidate in samples {
+        let slot = candidate.palette_slot().value();
+        let count = samples
+            .iter()
+            .filter(|sample| sample.palette_slot().value() == slot)
+            .count() as u8;
+        if count > selected_count || (count == selected_count && slot < selected_slot) {
             selected_slot = slot;
+            selected_count = count;
         }
     }
 
     let mut shade_sum = 0_u16;
     let mut shade_count = 0_u16;
     for sample in samples {
-        if usize::from(sample.palette_slot().value()) == selected_slot {
+        if sample.palette_slot().value() == selected_slot {
             shade_sum += u16::from(sample.shade().value());
             shade_count += 1;
         }
     }
     let rounded_shade = (shade_sum + shade_count / 2) / shade_count;
     PackedTexel::new(
-        PaletteSlot::new(
-            u8::try_from(selected_slot)
-                .unwrap_or_else(|_| panic!("palette slot exceeds texel range")),
-        ),
+        PaletteSlot::new(selected_slot),
         ShadeIndex::new(
             u8::try_from(rounded_shade).unwrap_or_else(|_| panic!("shade exceeds texel range")),
         ),

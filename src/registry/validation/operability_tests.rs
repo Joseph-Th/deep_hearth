@@ -2,10 +2,15 @@
 
 use super::*;
 
+use crate::capability::CapabilityValue;
 use crate::content::{MANUAL_POWER_HAND_CRANK, MINING_METHOD_HAND_PICK, build_registries};
 use crate::core::quantity::{Energy, Mass, MassFlow, Volume};
 use crate::core::time::TickSpan;
-use crate::labor::{ManualPowerDefinition, ManualPowerMethodId};
+use crate::equipment::resolve_equipment_capability;
+use crate::labor::{
+    ManualPowerDefinition, ManualPowerMethodId, project_manual_power_configuration,
+};
+use crate::maintenance::Condition;
 use crate::mining::{MiningMethodDefinition, MiningMethodId};
 use crate::ore_processing::ManualOreProcessProfile;
 

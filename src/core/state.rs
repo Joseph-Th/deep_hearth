@@ -93,8 +93,10 @@ where
     })
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(any(test, feature = "test-gameplay"), derive(PartialEq, Eq))]
+// Keep the private owner bundle on the same cloning boundary as `AppState`; otherwise internal
+// production code could bypass the root-level whole-world clone restriction through `systems`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "test-gameplay"), derive(Clone, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
 struct SystemState {
     energy: EnergyState,
@@ -111,7 +113,9 @@ struct SystemState {
     survival: SurvivalState,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+// Clock cloning/equality is likewise only needed by test snapshots of the complete runtime root.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "test-gameplay"), derive(Clone, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
 struct ClockState {
     tick: SimulationTick,

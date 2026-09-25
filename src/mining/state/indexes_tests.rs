@@ -54,8 +54,8 @@ fn scheduled_equipment_revision_demand_tracks_only_active_wear_buckets() {
 
     assert_eq!(state.scheduled_equipment_revision_bucket_count(), 1);
     assert_eq!(
-        state.mark_due_jobs_ready(1, 2, completion_tick),
-        [MiningJobId::new(1)]
+        state.mark_due_job_ready(1, 2, completion_tick),
+        MiningJobId::new(1)
     );
     assert_eq!(state.jobs().count(), 1, "ready job remains durable history");
     assert_eq!(state.scheduled_equipment_revision_bucket_count(), 0);

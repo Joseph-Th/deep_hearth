@@ -94,10 +94,14 @@ impl ProductionState {
         self.indexes.player_labor_suspended_jobs()
     }
 
+    pub(in crate::production) fn is_empty(&self) -> bool {
+        self.jobs.is_empty()
+    }
+
     pub(in crate::production) fn physical_availability_candidate_jobs(
         &self,
         inventory: &InventoryState,
-    ) -> BTreeSet<ProductionJobId> {
+    ) -> Vec<ProductionJobId> {
         self.indexes
             .physical_availability_candidate_jobs(inventory.all_supported_stockpiles())
     }

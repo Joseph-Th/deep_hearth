@@ -51,10 +51,11 @@ impl EnergyRegistry {
         self.passive_dissipation_per_tick.clear();
         for definition in self.definitions.values() {
             let dissipation_power = definition.passive_dissipation_power();
-            if dissipation_power.is_zero() {
-                continue;
-            }
-            let per_tick = resolve_passive_dissipation_per_tick(definition, physical_tick_duration);
+            let per_tick = if dissipation_power.is_zero() {
+                Energy::ZERO
+            } else {
+                resolve_passive_dissipation_per_tick(definition, physical_tick_duration)
+            };
             assert!(
                 self.passive_dissipation_per_tick
                     .insert(definition.id(), per_tick)
@@ -73,6 +74,15 @@ impl EnergyRegistry {
             .get(&definition)
             .copied()
             .unwrap_or(Energy::ZERO)
+    }
+
+    /// Returns the preintegrated per-tick passive loss for one definition after root registry
+    /// preparation. Presence also proves that the runtime definition ID belongs to this registry.
+    pub(crate) fn prepared_passive_dissipation_per_tick(
+        &self,
+        definition: EnergyStoreDefinitionId,
+    ) -> Option<Energy> {
+        self.passive_dissipation_per_tick.get(&definition).copied()
     }
 
     pub(crate) fn validate_references(

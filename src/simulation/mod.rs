@@ -42,7 +42,7 @@ pub struct TickOutcome {
     tick: SimulationTick,
     production_availability_changes: Vec<ProductionAvailabilityChange>,
     production_completions: Vec<ProcessCompletion>,
-    ready_mining_jobs: Vec<MiningJobId>,
+    ready_mining_job: Option<MiningJobId>,
     manual_power: Option<ManualPowerOutcome>,
     equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
     storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
@@ -73,7 +73,10 @@ impl TickOutcome {
     /// Returns mining jobs whose labor phase finished this tick and can now be claimed.
     #[must_use]
     pub fn ready_mining_jobs(&self) -> &[MiningJobId] {
-        &self.ready_mining_jobs
+        match &self.ready_mining_job {
+            Some(job) => std::slice::from_ref(job),
+            None => &[],
+        }
     }
 
     /// Returns direct player-powered energy generation that completed during this tick.
@@ -264,7 +267,7 @@ pub fn advance_tick(
         completions: production_completions,
         availability_changes: production_availability_changes,
     } = apply_completion_plan(state, completion_plan)?;
-    let ready_mining_jobs = apply_mining_tick(state, mining_plan);
+    let ready_mining_job = apply_mining_tick(state, mining_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
     let equipment_maintenance = apply_equipment_maintenance_tick(state, equipment_maintenance_plan);
     apply_passive_energy_dissipation(state, passive_energy_plan);
@@ -282,7 +285,7 @@ pub fn advance_tick(
         tick: next_tick,
         production_availability_changes,
         production_completions,
-        ready_mining_jobs,
+        ready_mining_job,
         manual_power,
         equipment_maintenance,
         storage_enclosure_dismantling,

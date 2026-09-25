@@ -95,7 +95,7 @@ pub struct EnergyState {
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     records: BTreeMap<EnergyStoreId, EnergyStoreRecord>,
     #[serde(skip)]
-    nonempty_stores: BTreeSet<EnergyStoreId>,
+    nonempty_stores_by_definition: BTreeMap<EnergyStoreDefinitionId, BTreeSet<EnergyStoreId>>,
 }
 
 impl EnergyState {
@@ -104,7 +104,7 @@ impl EnergyState {
             revision: 0,
             next_store_id: 1,
             records: BTreeMap::new(),
-            nonempty_stores: BTreeSet::new(),
+            nonempty_stores_by_definition: BTreeMap::new(),
         }
     }
 
@@ -127,24 +127,26 @@ impl EnergyState {
         self.records.values()
     }
 
-    /// Iterates stores that currently contain energy in stable persistent-ID order.
-    pub(crate) fn nonempty_stores(&self) -> impl Iterator<Item = &EnergyStoreRecord> {
-        self.nonempty_stores.iter().map(|id| {
-            self.records.get(id).unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: nonempty energy-store index references missing store {}",
-                    id.value()
-                )
-            })
-        })
+    /// Iterates nonempty store IDs grouped by immutable definition in stable authored-ID order.
+    pub(crate) fn nonempty_store_groups(
+        &self,
+    ) -> impl Iterator<Item = (EnergyStoreDefinitionId, &BTreeSet<EnergyStoreId>)> {
+        self.nonempty_stores_by_definition
+            .iter()
+            .map(|(definition, stores)| (*definition, stores))
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
-        self.nonempty_stores = self
-            .records
-            .iter()
-            .filter_map(|(id, record)| (!record.stored.is_zero()).then_some(*id))
-            .collect();
+        let mut by_definition = BTreeMap::<EnergyStoreDefinitionId, BTreeSet<EnergyStoreId>>::new();
+        for (id, record) in &self.records {
+            if !record.stored.is_zero() {
+                by_definition
+                    .entry(record.definition)
+                    .or_default()
+                    .insert(*id);
+            }
+        }
+        self.nonempty_stores_by_definition = by_definition;
     }
 
     pub(super) fn assert_allocation_available(
@@ -182,6 +184,7 @@ impl EnergyState {
     ) {
         self.assert_allocation_available(&record, next_store_id, next_revision);
         let id = record.id;
+        let definition = record.definition;
         let nonempty = !record.stored.is_zero();
         let previous = self.records.insert(record.id, record);
         assert!(
@@ -190,7 +193,10 @@ impl EnergyState {
         );
         if nonempty {
             assert!(
-                self.nonempty_stores.insert(id),
+                self.nonempty_stores_by_definition
+                    .entry(definition)
+                    .or_default()
+                    .insert(id),
                 "new nonempty energy store unexpectedly already existed in the nonempty index"
             );
         }
@@ -206,38 +212,64 @@ impl EnergyState {
             )
         });
         let was_empty = record.stored.is_zero();
+        let definition = record.definition;
         record.stored = record
             .stored
             .checked_add(energy)
             .unwrap_or_else(|| panic!("runtime invariant broken: energy sink overflowed"));
         if was_empty && !record.stored.is_zero() {
             assert!(
-                self.nonempty_stores.insert(store),
+                self.nonempty_stores_by_definition
+                    .entry(definition)
+                    .or_default()
+                    .insert(store),
                 "runtime invariant broken: empty energy store was already indexed as nonempty"
             );
         }
     }
 
     pub(super) fn subtract_stored_energy(&mut self, store: EnergyStoreId, energy: Energy) {
+        let definition = self
+            .records
+            .get(&store)
+            .unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: energy source {} disappeared before commit",
+                    store.value()
+                )
+            })
+            .definition;
+        assert!(
+            self.nonempty_stores_by_definition
+                .get(&definition)
+                .is_some_and(|stores| stores.contains(&store)),
+            "runtime invariant broken: energy subtraction source is absent from nonempty index"
+        );
         let record = self.records.get_mut(&store).unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: energy source {} disappeared before commit",
                 store.value()
             )
         });
-        assert!(
-            !record.stored.is_zero() && self.nonempty_stores.contains(&store),
-            "runtime invariant broken: energy subtraction source is absent from nonempty index"
-        );
+        assert!(!record.stored.is_zero());
         record.stored = record
             .stored
             .checked_sub(energy)
             .unwrap_or_else(|| panic!("runtime invariant broken: prevalidated energy disappeared"));
         if record.stored.is_zero() {
+            let stores = self
+                .nonempty_stores_by_definition
+                .get_mut(&definition)
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: nonempty definition index disappeared")
+                });
             assert!(
-                self.nonempty_stores.remove(&store),
+                stores.remove(&store),
                 "runtime invariant broken: emptied energy store was missing from nonempty index"
             );
+            if stores.is_empty() {
+                self.nonempty_stores_by_definition.remove(&definition);
+            }
         }
     }
 
@@ -306,8 +338,15 @@ impl EnergyState {
         next_revision: u64,
     ) {
         self.assert_removal_available(store, expected_revision, next_revision);
+        let definition = self
+            .records
+            .get(&store)
+            .unwrap_or_else(|| unreachable!("removable energy store was prechecked"))
+            .definition;
         assert!(
-            !self.nonempty_stores.contains(&store),
+            self.nonempty_stores_by_definition
+                .get(&definition)
+                .is_none_or(|stores| !stores.contains(&store)),
             "runtime invariant broken: empty removable store remains indexed as nonempty"
         );
         assert!(self.records.remove(&store).is_some());

@@ -148,12 +148,35 @@ struct PassiveEnergyDissipationEntry {
 /// Pre-tick passive-loss decisions for every finite store with authored dissipation.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct PassiveEnergyDissipationPlan {
-    entries: Vec<PassiveEnergyDissipationEntry>,
+    first: Option<PassiveEnergyDissipationEntry>,
+    second: Option<PassiveEnergyDissipationEntry>,
+    additional: Vec<PassiveEnergyDissipationEntry>,
 }
 
 impl PassiveEnergyDissipationPlan {
+    fn push(&mut self, entry: PassiveEnergyDissipationEntry) {
+        if self.first.is_none() {
+            self.first = Some(entry);
+        } else if self.second.is_none() {
+            self.second = Some(entry);
+        } else {
+            self.additional.push(entry);
+        }
+    }
+
+    fn entries(&self) -> impl Iterator<Item = &PassiveEnergyDissipationEntry> {
+        self.first
+            .iter()
+            .chain(self.second.iter())
+            .chain(&self.additional)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.first.is_none()
+    }
+
     pub(crate) fn energy_revision_steps(&self) -> u64 {
-        u64::from(!self.entries.is_empty())
+        u64::from(!self.is_empty())
     }
 }
 
@@ -162,35 +185,39 @@ pub(crate) fn decide_passive_energy_dissipation(
     registries: &Registries,
     state: &AppState,
 ) -> PassiveEnergyDissipationPlan {
-    let mut entries = Vec::new();
-    for record in state.energy().nonempty_stores() {
-        let definition = registries
+    let mut plan = PassiveEnergyDissipationPlan::default();
+    for (definition, stores) in state.energy().nonempty_store_groups() {
+        let per_tick = registries
             .energy()
-            .get_store(record.definition())
+            .prepared_passive_dissipation_per_tick(definition)
             .unwrap_or_else(|| {
                 panic!(
-                    "runtime invariant broken: energy store {} references missing definition {}",
-                    record.id().value(),
-                    record.definition().value()
+                    "runtime invariant broken: nonempty energy stores reference missing definition {}",
+                    definition.value()
                 )
             });
-        if definition.passive_dissipation_power().is_zero() {
+        if per_tick.is_zero() {
             continue;
         }
-        let dissipated = min(
-            record.stored(),
-            passive_dissipation_per_tick(registries, definition),
-        );
-        if dissipated.is_zero() {
-            continue;
+        for store in stores {
+            let record = state.energy().get_store(*store).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: nonempty energy-store index references missing store {}",
+                    store.value()
+                )
+            });
+            let dissipated = min(record.stored(), per_tick);
+            if dissipated.is_zero() {
+                continue;
+            }
+            plan.push(PassiveEnergyDissipationEntry {
+                store: record.id(),
+                stored_before: record.stored(),
+                dissipated,
+            });
         }
-        entries.push(PassiveEnergyDissipationEntry {
-            store: record.id(),
-            stored_before: record.stored(),
-            dissipated,
-        });
     }
-    PassiveEnergyDissipationPlan { entries }
+    plan
 }
 
 /// Applies pre-tick passive losses after other same-tick energy ingress has committed.
@@ -201,10 +228,10 @@ pub(crate) fn apply_passive_energy_dissipation(
     state: &mut AppState,
     plan: PassiveEnergyDissipationPlan,
 ) {
-    if plan.entries.is_empty() {
+    if plan.is_empty() {
         return;
     }
-    for entry in &plan.entries {
+    for entry in plan.entries() {
         let stored = state
             .energy()
             .get_store(entry.store)
@@ -225,8 +252,19 @@ pub(crate) fn apply_passive_energy_dissipation(
     let next_revision = current_revision
         .checked_add(1)
         .unwrap_or_else(|| panic!("prevalidated passive energy revision exhausted"));
+    let PassiveEnergyDissipationPlan {
+        first,
+        second,
+        additional,
+    } = plan;
     let energy = state.energy_state_mut();
-    for entry in plan.entries {
+    if let Some(entry) = first {
+        energy.subtract_stored_energy(entry.store, entry.dissipated);
+    }
+    if let Some(entry) = second {
+        energy.subtract_stored_energy(entry.store, entry.dissipated);
+    }
+    for entry in additional {
         energy.subtract_stored_energy(entry.store, entry.dissipated);
     }
     energy.apply_revision(next_revision);

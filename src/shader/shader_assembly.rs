@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fmt::Write as _;
 use std::fmt::{Display, Formatter};
 
-use super::{ShaderId, ShaderProgramKind, ShaderRegistry};
+use super::{ShaderDefinition, ShaderId, ShaderProgramKind, ShaderRegistry};
 
 /// Fully assembled executable WGSL program ready for adapter compilation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +42,7 @@ impl BakedShaderProgram {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BakedShaderSet {
     programs_by_id: Vec<Option<BakedShaderProgram>>,
+    program_count: usize,
 }
 
 impl BakedShaderSet {
@@ -53,11 +54,8 @@ impl BakedShaderSet {
     }
 
     #[must_use]
-    pub fn program_count(&self) -> usize {
-        self.programs_by_id
-            .iter()
-            .filter(|program| program.is_some())
-            .count()
+    pub const fn program_count(&self) -> usize {
+        self.program_count
     }
 }
 
@@ -98,18 +96,12 @@ impl ShaderRegistry {
             return Err(ShaderAssemblyError::LibraryIsNotExecutable { shader: id });
         }
 
-        let mut assembled_ids = Vec::new();
+        let mut assembled = Vec::new();
         let mut visited = BTreeSet::new();
-        collect_dependencies(self, id, &mut visited, &mut assembled_ids);
-        let source_capacity = assembled_ids
+        collect_dependencies(self, id, &mut visited, &mut assembled);
+        let source_capacity = assembled
             .iter()
-            .try_fold(0_usize, |total, assembled_id| {
-                let definition = self.get_shader(*assembled_id).unwrap_or_else(|| {
-                    panic!(
-                        "validated shader dependency {} disappeared during assembly sizing",
-                        assembled_id.value()
-                    )
-                });
+            .try_fold(0_usize, |total, definition| {
                 total
                     .checked_add(definition.source().len())
                     .and_then(|value| value.checked_add(definition.name().len()))
@@ -117,18 +109,11 @@ impl ShaderRegistry {
             })
             .unwrap_or_else(|| panic!("assembled shader source size exceeds addressable memory"));
         let mut source = String::with_capacity(source_capacity);
-        for assembled_id in assembled_ids {
-            let definition = match self.get_shader(assembled_id) {
-                Some(definition) => definition,
-                None => panic!(
-                    "validated shader dependency {} disappeared during assembly",
-                    assembled_id.value()
-                ),
-            };
+        for definition in assembled {
             writeln!(
                 source,
                 "// deep_hearth module {}: {}",
-                assembled_id.value(),
+                definition.id().value(),
                 definition.name()
             )
             .unwrap_or_else(|_| unreachable!("writing to String cannot fail"));
@@ -147,28 +132,31 @@ impl ShaderRegistry {
     /// Preassembles every executable program into one bounded dense lookup.
     #[must_use]
     pub fn bake_shader_set(&self) -> BakedShaderSet {
-        let lookup_len = self
-            .program_ids()
-            .map(|id| usize::from(id.value()))
-            .max()
-            .map_or(0, |maximum_id| maximum_id + 1);
+        let program_ids = self.program_ids().collect::<Vec<_>>();
+        let lookup_len = program_ids
+            .last()
+            .map_or(0, |id| usize::from(id.value()) + 1);
         let mut programs_by_id = vec![None; lookup_len];
-        for id in self.program_ids() {
+        for id in &program_ids {
+            let id = *id;
             let program = match self.assemble_program(id) {
                 Ok(program) => program,
                 Err(error) => panic!("validated shader program failed assembly: {error}"),
             };
             programs_by_id[usize::from(id.value())] = Some(program);
         }
-        BakedShaderSet { programs_by_id }
+        BakedShaderSet {
+            programs_by_id,
+            program_count: program_ids.len(),
+        }
     }
 }
 
-fn collect_dependencies(
-    registry: &ShaderRegistry,
+fn collect_dependencies<'registry>(
+    registry: &'registry ShaderRegistry,
     id: ShaderId,
     visited: &mut BTreeSet<ShaderId>,
-    assembled: &mut Vec<ShaderId>,
+    assembled: &mut Vec<&'registry ShaderDefinition>,
 ) {
     if !visited.insert(id) {
         return;
@@ -183,7 +171,7 @@ fn collect_dependencies(
     for dependency in definition.dependencies() {
         collect_dependencies(registry, *dependency, visited, assembled);
     }
-    assembled.push(id);
+    assembled.push(definition);
 }
 
 #[cfg(test)]

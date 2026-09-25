@@ -69,8 +69,8 @@ fn mining_claim_returns_merge_aware_inventory_landing_identity() {
     state.mining_state_mut().insert_job(record, 2, 1);
     let ready = state
         .mining_state_mut()
-        .mark_due_jobs_ready(1, 2, completion_tick);
-    assert_eq!(ready, [job]);
+        .mark_due_job_ready(1, 2, completion_tick);
+    assert_eq!(ready, job);
 
     let outcome = validate_claim_mining_output(&registries, &state, job)
         .unwrap_or_else(|error| panic!("claim receipt validation failed: {error}"))

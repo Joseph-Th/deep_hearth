@@ -215,6 +215,9 @@ pub(super) fn decide_availability_changes(
         state.equipment().support_revision(),
         state.structures().revision(),
     );
+    if state.production().is_empty() {
+        return Ok((Vec::new(), None, dependency_revisions));
+    }
     let mut changes = Vec::new();
     let mut player_labor = PlayerLaborAvailabilityState::new(state);
     if state
@@ -246,7 +249,14 @@ pub(super) fn decide_availability_changes(
             });
             let unavailable = decide_job_unavailability(registries, state, job, &mut player_labor)?;
             if let Some(change) = plan_availability_change(current, job, unavailable)? {
+                let resumed = matches!(change, ProductionAvailabilityChange::Resumed { .. });
                 changes.push(change);
+                if resumed {
+                    // Player attention is exclusive. Once the lowest-ID feasible suspended job
+                    // claims it, every later player-labor-suspended job necessarily remains
+                    // blocked until a later tick.
+                    break;
+                }
             }
         }
     }

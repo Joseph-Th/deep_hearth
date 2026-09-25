@@ -1,6 +1,6 @@
 //! Bakes immutable texture definitions into compact deterministic GPU upload data.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use super::{
     BLOCK_FACE_COUNT, BlockAppearanceId, ColorRgba8, CubeFace, ObjectAppearanceId,
@@ -125,12 +125,17 @@ impl TextureRegistry {
     /// Bakes immutable definitions into compact deterministic GPU upload arrays.
     #[must_use]
     pub fn bake_texture_array(&self) -> BakedTextureArray {
+        let texture_count = self.textures_in_id_order().len();
         let mut patterns = Vec::<&[PackedTexel; TEXTURE_TEXEL_COUNT]>::new();
         let mut pattern_layers =
-            BTreeMap::<&[PackedTexel; TEXTURE_TEXEL_COUNT], TextureLayer>::new();
+            HashMap::<&[PackedTexel; TEXTURE_TEXEL_COUNT], TextureLayer>::with_capacity(
+                texture_count,
+            );
         let mut palette_rows = Vec::<[u16; TEXTURE_PALETTE_SLOT_COUNT]>::new();
         let mut palette_row_ids =
-            BTreeMap::<[u16; TEXTURE_PALETTE_SLOT_COUNT], TexturePaletteRow>::new();
+            HashMap::<[u16; TEXTURE_PALETTE_SLOT_COUNT], TexturePaletteRow>::with_capacity(
+                texture_count,
+            );
 
         let texture_lookup_len = self
             .textures_in_id_order()

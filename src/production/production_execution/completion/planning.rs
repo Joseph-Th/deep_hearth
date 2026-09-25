@@ -117,6 +117,28 @@ pub(crate) fn decide_due_completions(
     );
     let mut due_ids = state.production().jobs_due_at(tick);
     adjust_due_ids_for_availability(&mut due_ids, &availability_changes, tick);
+    if due_ids.is_empty() && availability_changes.is_empty() {
+        let revisions =
+            build_completion_revision_plan(state, false, false, false, player_labor_dependencies)?;
+        let inventory_deposits =
+            decide_reserved_deposits(registries, state.inventory(), tick, tick, Vec::new())
+                .map_err(|error| match error {
+                    ReservedDepositPlanError::LotIdExhausted => CompletionPlanError::MaterialLotIds,
+                    ReservedDepositPlanError::RevisionExhausted => {
+                        CompletionPlanError::InventoryRevision
+                    }
+                })?;
+        return Ok(CompletionPlan {
+            revisions,
+            availability_dependency_revisions,
+            inventory_deposits,
+            availability_changes,
+            jobs: Vec::new(),
+            equipment_outcomes: Vec::new(),
+            released_energy_outcomes: Vec::new(),
+            structural_load: None,
+        });
+    }
     let mut planning = DueCompletionPlanning::new(due_ids.len());
     for job_id in &due_ids {
         let job = match state.production().get_job(*job_id) {
@@ -265,6 +287,9 @@ fn plan_completion_structural_load(
     state: &AppState,
     deposits: &ReservedDepositPlan,
 ) -> Result<Option<ValidatedStockpileStructuralLoad>, CompletionPlanError> {
+    if deposits.is_empty() {
+        return Ok(None);
+    }
     let mass_changes = deposits
         .stored_mass_after_by_destination(state.inventory())
         .into_iter()

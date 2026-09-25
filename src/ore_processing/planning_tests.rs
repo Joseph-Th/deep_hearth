@@ -19,11 +19,15 @@ use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergySupplyError,
     add_energy_store_with_initial_for_fixture,
 };
-use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
+use crate::equipment::{
+    EquipmentDefinition, EquipmentDefinitionId, EquipmentProviderError, add_equipment,
+};
 use crate::inventory::{
     MaterialLotSelection, StockpileId, add_solid_stockpile_for_test, deposit_composed_lot_for_test,
 };
-use crate::maintenance::{Condition, MaintenanceThresholds};
+use crate::maintenance::{
+    Condition, MaintenanceThresholds, maximum_active_ticks_above_condition_floor,
+};
 use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
 use crate::ore_processing::{
     ComminutionProcessDefinition, ComminutionRequest, ComminutionResolutionError,

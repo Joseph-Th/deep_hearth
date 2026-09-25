@@ -195,14 +195,18 @@ impl ProductionIndexes {
     pub(super) fn physical_availability_candidate_jobs(
         &self,
         supported_stockpiles: impl IntoIterator<Item = StockpileId>,
-    ) -> BTreeSet<ProductionJobId> {
-        let mut candidates = self.suspended_jobs.clone();
+    ) -> Vec<ProductionJobId> {
+        let mut candidates =
+            Vec::with_capacity(self.suspended_jobs.len() + self.required_active_support_jobs.len());
+        candidates.extend(self.suspended_jobs.iter().copied());
         candidates.extend(self.required_active_support_jobs.iter().copied());
         for stockpile in supported_stockpiles {
             if let Some(jobs) = self.output_stockpile_occupancy.get(&stockpile) {
                 candidates.extend(jobs.iter().copied());
             }
         }
+        candidates.sort_unstable();
+        candidates.dedup();
         candidates
     }
 

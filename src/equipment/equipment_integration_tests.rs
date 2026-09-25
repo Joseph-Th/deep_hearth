@@ -9,13 +9,16 @@ use crate::capability::{
 use crate::content::make_test_registries_with_equipment;
 use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
 use crate::core::quantity::{Area, Force, Mass};
+use crate::core::state::AppState;
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
     add_equipment, validate_mount_equipment,
 };
+use crate::maintenance::{Condition, MaintenanceBand, MaintenanceThresholds};
+use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructuralElementId, StructuralLoadKind, add_structural_element,
+    StructuralElementId, StructuralLifecycle, StructuralLoadKind, add_structural_element,
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_set_structural_load,
 };
