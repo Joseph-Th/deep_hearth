@@ -25,6 +25,7 @@ pub enum SurvivalValidationError {
     PendingConsumptionScheduleInvalid,
     PendingEatingEmpty,
     PendingEatingMassOverflow,
+    PendingEatingMassBelowIntakeMinimum,
     PendingEatingMassExceedsIntakeLimit,
     PendingEatingTraceInvalid,
     PendingEatingFreshnessInvalid,
@@ -97,6 +98,9 @@ impl Display for SurvivalValidationError {
             }
             Self::PendingEatingMassOverflow => {
                 formatter.write_str("pending eating consumed mass overflowed")
+            }
+            Self::PendingEatingMassBelowIntakeMinimum => {
+                formatter.write_str("pending eating mass is below the authored direct meal minimum")
             }
             Self::PendingEatingMassExceedsIntakeLimit => {
                 formatter.write_str("pending eating mass exceeds the authored direct meal limit")

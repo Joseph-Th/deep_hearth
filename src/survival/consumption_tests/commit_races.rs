@@ -60,6 +60,7 @@ fn eating_with_any_reserve_room_consumes_the_exact_selected_portion() {
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("partial-reserve survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();
+    let meal_mass = minimum_meal_mass(&registries);
     let energy_before = physiology
         .maximum_metabolic_energy()
         .checked_sub(Energy::from_nanojoules(1))
@@ -80,14 +81,14 @@ fn eating_with_any_reserve_room_consumes_the_exact_selected_portion() {
             0,
         ),
     );
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+    let stockpile = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("partial-reserve food stockpile failed: {error}"));
     let lot = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(1),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("partial-reserve food lot failed: {error}"));
@@ -96,19 +97,25 @@ fn eating_with_any_reserve_room_consumes_the_exact_selected_portion() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+        &[MaterialLotSelection::new(lot, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("partial-reserve eating validation failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("partial-reserve eating commit failed: {error}"));
 
-    assert_eq!(outcome.total_mass(), Mass::from_milligrams(1));
+    assert_eq!(outcome.total_mass(), meal_mass);
     assert_eq!(
         outcome.energy_offered(),
-        Energy::from_nanojoules(14_000_000_000)
+        registries
+            .survival()
+            .get_food(CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD))
+            .unwrap_or_else(|| panic!("grain food definition disappeared"))
+            .dietary_energy_for_mass(meal_mass)
     );
     assert_eq!(outcome.hydration_offered(), AggregateVolume::ZERO);
-    assert_eq!(outcome.nutrition_offered().total_ppm(), 0);
+    assert!(outcome.nutrition_offered().get(FoodCategory::Grain) > 0);
+    assert_eq!(outcome.nutrition_offered().get(FoodCategory::Fruit), 0);
+    assert_eq!(outcome.nutrition_offered().get(FoodCategory::Protein), 0);
     assert_eq!(state.inventory().get_lot(lot), None);
     assert_eq!(
         assess_survival(&registries, &state)
@@ -125,6 +132,7 @@ fn eating_with_any_reserve_room_consumes_the_exact_selected_portion() {
             .checked_sub(physiology.basal_energy_cost_per_tick())
             .and_then(|value| value.checked_add(outcome.energy_offered()))
             .unwrap_or_else(|| panic!("partial-reserve expected energy underflowed"))
+            .min(physiology.maximum_metabolic_energy())
     );
 }
 
@@ -135,6 +143,7 @@ fn meal_energy_first_covers_same_tick_metabolic_shortfall() {
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("meal-shortfall survival setup failed: {error}"));
     let physiology = registries.survival().physiology();
+    let meal_mass = minimum_meal_mass(&registries);
     let energy_before = Energy::from_nanojoules(320_000_000_000);
     let expected_revision = state.survival().revision();
     state.survival_state_mut().apply_player(
@@ -152,14 +161,14 @@ fn meal_energy_first_covers_same_tick_metabolic_shortfall() {
             0,
         ),
     );
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+    let stockpile = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("meal-shortfall stockpile failed: {error}"));
     let lot = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(1),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("meal-shortfall food lot failed: {error}"));
@@ -167,14 +176,18 @@ fn meal_energy_first_covers_same_tick_metabolic_shortfall() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+        &[MaterialLotSelection::new(lot, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("meal-shortfall validation failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("meal-shortfall commit failed: {error}"));
     assert_eq!(
         outcome.energy_offered(),
-        Energy::from_nanojoules(14_000_000_000)
+        registries
+            .survival()
+            .get_food(CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD))
+            .unwrap_or_else(|| panic!("grain food definition disappeared"))
+            .dietary_energy_for_mass(meal_mass)
     );
     assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
     let shortfall = physiology
@@ -278,14 +291,15 @@ fn validated_eat_rejects_survival_change_before_commit_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+    let meal_mass = minimum_meal_mass(&registries);
+    let stockpile = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("stale-survival meal stockpile failed: {error}"));
     let food = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(10),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("stale-survival meal fixture failed: {error}"));
@@ -293,7 +307,7 @@ fn validated_eat_rejects_survival_change_before_commit_without_mutation() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+        &[MaterialLotSelection::new(food, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("stale-survival meal validation failed: {error}"));
     let expected = state.survival().revision();
@@ -315,14 +329,15 @@ fn validated_eat_rejects_inventory_change_before_commit_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+    let meal_mass = minimum_meal_mass(&registries);
+    let stockpile = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("stale-inventory meal stockpile failed: {error}"));
     let food = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(10),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("stale-inventory meal fixture failed: {error}"));
@@ -330,7 +345,7 @@ fn validated_eat_rejects_inventory_change_before_commit_without_mutation() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+        &[MaterialLotSelection::new(food, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("stale-inventory meal validation failed: {error}"));
     let expected = state.inventory().revision();

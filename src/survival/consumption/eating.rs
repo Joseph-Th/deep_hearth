@@ -269,15 +269,22 @@ pub fn validate_eat(
         return Err(EatError::HydrationOverflow);
     }
     let total_mass = exact_selection.total_consumed();
-    let maximum_meal_mass = physiology.direct_consumption().maximum_meal_mass();
+    let direct_consumption = physiology.direct_consumption();
+    let minimum_meal_mass = direct_consumption.minimum_meal_mass();
+    if total_mass < minimum_meal_mass {
+        return Err(EatError::MealMassBelowIntakeMinimum {
+            mass: total_mass,
+            minimum: minimum_meal_mass,
+        });
+    }
+    let maximum_meal_mass = direct_consumption.maximum_meal_mass();
     if total_mass > maximum_meal_mass {
         return Err(EatError::MealMassExceedsIntakeLimit {
             mass: total_mass,
             maximum: maximum_meal_mass,
         });
     }
-    let duration = physiology
-        .direct_consumption()
+    let duration = direct_consumption
         .meal_duration(total_mass)
         .unwrap_or_else(|| unreachable!("validated nonzero bounded meal must have a duration"));
     let completes_at = state

@@ -7,14 +7,18 @@ fn eating_moves_exact_food_mass_into_consumption_boundary_and_round_trips() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
+    let meal_mass = minimum_meal_mass(&registries);
+    let lot_mass = meal_mass
+        .checked_add(meal_mass)
+        .unwrap_or_else(|| panic!("food lot fixture mass overflowed"));
+    let stockpile = add_solid_stockpile_for_test(&mut state, lot_mass)
         .unwrap_or_else(|error| panic!("food stockpile fixture failed: {error}"));
     let lot = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(200),
+        lot_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("food lot fixture failed: {error}"));
@@ -27,7 +31,7 @@ fn eating_moves_exact_food_mass_into_consumption_boundary_and_round_trips() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(lot, Mass::from_milligrams(100))],
+        &[MaterialLotSelection::new(lot, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("food validation failed: {error}"));
     let outcome = token
@@ -39,21 +43,30 @@ fn eating_moves_exact_food_mass_into_consumption_boundary_and_round_trips() {
     let survival_at_admission = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("food admission survival state is missing"));
     assert_eq!(matter_before.total(), matter_after.total());
-    assert_eq!(matter_after.consumed(), AggregateMass::from_milligrams(100));
+    assert_eq!(matter_after.consumed(), AggregateMass::from_mass(meal_mass));
     assert_eq!(
         state.inventory().get_lot(lot).map(|record| record.mass()),
-        Some(Mass::from_milligrams(100))
+        Some(meal_mass)
     );
-    assert_eq!(outcome.total_mass(), Mass::from_milligrams(100));
+    assert_eq!(outcome.total_mass(), meal_mass);
     assert_eq!(outcome.portions().len(), 1);
     assert_eq!(outcome.portions()[0].lot(), lot);
-    assert_eq!(outcome.portions()[0].mass(), Mass::from_milligrams(100));
+    assert_eq!(outcome.portions()[0].mass(), meal_mass);
     assert_eq!(outcome.portions()[0].category(), FoodCategory::Grain);
     assert!(outcome.nutrition_offered().total_ppm() > 0);
     assert_eq!(survival_at_admission, survival_before);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("food in-progress audit failed: {error}"));
-    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    assert_eq!(
+        finish_direct_consumption(&registries, &mut state),
+        registries
+            .survival()
+            .physiology()
+            .direct_consumption()
+            .meal_duration(meal_mass)
+            .unwrap_or_else(|| panic!("minimum meal duration disappeared"))
+            .value()
+    );
     let survival_after = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("food completed survival state is missing"));
     assert!(survival_after.metabolic_energy() > survival_before.metabolic_energy());
@@ -110,14 +123,21 @@ fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
+    let portion_mass = minimum_meal_mass(&registries);
+    let total_mass = Mass::from_milligrams(
+        portion_mass
+            .milligrams()
+            .checked_mul(3)
+            .unwrap_or_else(|| panic!("varied meal mass overflowed")),
+    );
+    let stockpile = add_solid_stockpile_for_test(&mut state, total_mass)
         .unwrap_or_else(|error| panic!("varied meal stockpile fixture failed: {error}"));
     let grain = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(100),
+        portion_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("varied meal grain fixture failed: {error}"));
@@ -126,7 +146,7 @@ fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-        Mass::from_milligrams(100),
+        portion_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("varied meal berry fixture failed: {error}"));
@@ -135,7 +155,7 @@ fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
-        Mass::from_milligrams(100),
+        portion_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("varied meal meat fixture failed: {error}"));
@@ -144,9 +164,9 @@ fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("varied meal initial accounting failed: {error}"));
     let selections = [
-        MaterialLotSelection::new(meat, Mass::from_milligrams(10)),
-        MaterialLotSelection::new(grain, Mass::from_milligrams(10)),
-        MaterialLotSelection::new(berries, Mass::from_milligrams(10)),
+        MaterialLotSelection::new(meat, portion_mass),
+        MaterialLotSelection::new(grain, portion_mass),
+        MaterialLotSelection::new(berries, portion_mass),
     ];
 
     let outcome = validate_eat(&registries, &state, stockpile, &selections)
@@ -154,7 +174,7 @@ fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("varied meal commit failed: {error}"));
 
-    assert_eq!(outcome.total_mass(), Mass::from_milligrams(30));
+    assert_eq!(outcome.total_mass(), total_mass);
     assert_eq!(outcome.portions().len(), 3);
     for category in [
         FoodCategory::Grain,
@@ -168,7 +188,16 @@ fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
             .unwrap_or_else(|| panic!("varied meal admission survival state disappeared")),
         before
     );
-    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    assert_eq!(
+        finish_direct_consumption(&registries, &mut state),
+        registries
+            .survival()
+            .physiology()
+            .direct_consumption()
+            .meal_duration(total_mass)
+            .unwrap_or_else(|| panic!("varied meal duration disappeared"))
+            .value()
+    );
     let after = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("varied meal survival state disappeared"));
     let decay = registries
@@ -195,7 +224,7 @@ fn varied_meal_consumes_multiple_foods_atomically_and_credits_each_category() {
     assert_eq!(
         matter_before
             .consumed()
-            .checked_add(AggregateMass::from_milligrams(30)),
+            .checked_add(AggregateMass::from_mass(total_mass)),
         Some(matter_after.consumed())
     );
     validate_loaded_state(&registries, &state)
@@ -207,14 +236,21 @@ fn meal_result_is_independent_of_selection_order() {
     let registries = build_registries();
     let mut base = AppState::new();
     initialize_and_spend_reserves(&registries, &mut base);
-    let stockpile = add_solid_stockpile_for_test(&mut base, Mass::from_milligrams(1_000))
+    let portion_mass = minimum_meal_mass(&registries);
+    let stockpile_capacity = Mass::from_milligrams(
+        portion_mass
+            .milligrams()
+            .checked_mul(3)
+            .unwrap_or_else(|| panic!("meal-order stockpile mass overflowed")),
+    );
+    let stockpile = add_solid_stockpile_for_test(&mut base, stockpile_capacity)
         .unwrap_or_else(|error| panic!("meal-order stockpile fixture failed: {error}"));
     let grain = deposit_lot_for_test(
         &registries,
         &mut base,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(100),
+        portion_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("meal-order grain fixture failed: {error}"));
@@ -223,7 +259,7 @@ fn meal_result_is_independent_of_selection_order() {
         &mut base,
         stockpile,
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-        Mass::from_milligrams(100),
+        portion_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("meal-order berry fixture failed: {error}"));
@@ -232,21 +268,21 @@ fn meal_result_is_independent_of_selection_order() {
         &mut base,
         stockpile,
         CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
-        Mass::from_milligrams(100),
+        portion_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("meal-order meat fixture failed: {error}"));
     let mut forward = base.clone();
     let mut reverse = base;
     let forward_selection = [
-        MaterialLotSelection::new(grain, Mass::from_milligrams(7)),
-        MaterialLotSelection::new(berries, Mass::from_milligrams(11)),
-        MaterialLotSelection::new(meat, Mass::from_milligrams(13)),
+        MaterialLotSelection::new(grain, portion_mass),
+        MaterialLotSelection::new(berries, portion_mass),
+        MaterialLotSelection::new(meat, portion_mass),
     ];
     let reverse_selection = [
-        MaterialLotSelection::new(meat, Mass::from_milligrams(13)),
-        MaterialLotSelection::new(berries, Mass::from_milligrams(11)),
-        MaterialLotSelection::new(grain, Mass::from_milligrams(7)),
+        MaterialLotSelection::new(meat, portion_mass),
+        MaterialLotSelection::new(berries, portion_mass),
+        MaterialLotSelection::new(grain, portion_mass),
     ];
 
     let forward_outcome = validate_eat(&registries, &forward, stockpile, &forward_selection)

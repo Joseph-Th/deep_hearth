@@ -61,6 +61,10 @@ pub enum EatError {
     MetabolicEnergyOverflow,
     HydrationOverflow,
     NutritionOverflow,
+    MealMassBelowIntakeMinimum {
+        mass: Mass,
+        minimum: Mass,
+    },
     MealMassExceedsIntakeLimit {
         mass: Mass,
         maximum: Mass,
@@ -168,6 +172,12 @@ impl Display for EatError {
             }
             Self::HydrationOverflow => formatter.write_str("food hydration calculation overflowed"),
             Self::NutritionOverflow => formatter.write_str("food nutrition calculation overflowed"),
+            Self::MealMassBelowIntakeMinimum { mass, minimum } => write!(
+                formatter,
+                "meal mass {} mg is below the direct-consumption minimum of {} mg",
+                mass.milligrams(),
+                minimum.milligrams()
+            ),
             Self::MealMassExceedsIntakeLimit { mass, maximum } => write!(
                 formatter,
                 "meal mass {} mg exceeds the direct-consumption limit of {} mg",
@@ -228,6 +238,7 @@ impl Error for EatError {
             | Self::MetabolicEnergyOverflow
             | Self::HydrationOverflow
             | Self::NutritionOverflow
+            | Self::MealMassBelowIntakeMinimum { .. }
             | Self::MealMassExceedsIntakeLimit { .. }
             | Self::UnsupportedComposition { .. }
             | Self::ConsumedMatterOverflow { .. }

@@ -36,7 +36,7 @@ fn eating_state(registries: &Registries, mass: Mass) -> AppState {
 #[test]
 fn trusted_load_rejects_pending_meal_with_forged_spoiled_storage_history() {
     let registries = build_registries();
-    let state = eating_state(&registries, Mass::from_milligrams(2));
+    let state = eating_state(&registries, minimum_meal_mass(&registries));
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending freshness serialization failed: {error}"));
@@ -59,11 +59,32 @@ fn trusted_load_rejects_pending_meal_with_forged_spoiled_storage_history() {
 }
 
 #[test]
+fn trusted_load_rejects_pending_meal_below_authored_intake_minimum() {
+    let registries = build_registries();
+    let minimum = minimum_meal_mass(&registries);
+    let state = eating_state(&registries, minimum);
+    let below_minimum = minimum
+        .checked_sub(Mass::from_milligrams(1))
+        .unwrap_or_else(|| panic!("pending meal minimum fixture underflowed"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("pending meal minimum serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Eating"]["consumed"]
+        [0]["trace"]["mass"] = serde_json::json!(below_minimum.milligrams());
+
+    assert_eq!(
+        decode_tampered(encoded, "pending-meal-below-minimum").into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::PendingEatingMassBelowIntakeMinimum
+        )))
+    );
+}
+
+#[test]
 fn pending_meal_replay_keeps_admission_freshness_after_source_storage_improves() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
-    let meal_mass = Mass::from_milligrams(2);
+    let meal_mass = minimum_meal_mass(&registries);
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000_000))
         .unwrap_or_else(|error| panic!("pending-meal source stockpile failed: {error}"));
     let food = deposit_lot_for_test(
@@ -141,7 +162,7 @@ fn aged_fresh_pending_meal_round_trips_with_admission_history_intact() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
-    let mass = Mass::from_milligrams(2);
+    let mass = minimum_meal_mass(&registries);
     let stockpile = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("aged pending-meal stockpile failed: {error}"));
     let food = deposit_lot_for_test(
@@ -308,14 +329,15 @@ fn trusted_load_rejects_pending_consumption_larger_than_terminal_accounting() {
 
     let mut eating = AppState::new();
     initialize_and_spend_reserves(&registries, &mut eating);
-    let stockpile = add_solid_stockpile_for_test(&mut eating, Mass::from_milligrams(2))
+    let meal_mass = minimum_meal_mass(&registries);
+    let stockpile = add_solid_stockpile_for_test(&mut eating, meal_mass)
         .unwrap_or_else(|error| panic!("pending-meal accounting stockpile failed: {error}"));
     let food = deposit_lot_for_test(
         &registries,
         &mut eating,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(2),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("pending-meal accounting food failed: {error}"));
@@ -323,7 +345,7 @@ fn trusted_load_rejects_pending_consumption_larger_than_terminal_accounting() {
         &registries,
         &eating,
         stockpile,
-        &[MaterialLotSelection::new(food, Mass::from_milligrams(2))],
+        &[MaterialLotSelection::new(food, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("pending-meal accounting validation failed: {error}"))
     .commit(&mut eating)
@@ -372,14 +394,18 @@ fn trusted_load_rejects_noncanonical_pending_eating_baseline_order() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2))
+    let portion_mass = minimum_meal_mass(&registries);
+    let stockpile_mass = portion_mass
+        .checked_add(portion_mass)
+        .unwrap_or_else(|| panic!("pending-baseline-order stockpile mass overflowed"));
+    let stockpile = add_solid_stockpile_for_test(&mut state, stockpile_mass)
         .unwrap_or_else(|error| panic!("pending-baseline-order stockpile failed: {error}"));
     let grain = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(1),
+        portion_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("pending-baseline-order grain failed: {error}"));
@@ -388,7 +414,7 @@ fn trusted_load_rejects_noncanonical_pending_eating_baseline_order() {
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-        Mass::from_milligrams(1),
+        portion_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("pending-baseline-order berries failed: {error}"));
@@ -397,8 +423,8 @@ fn trusted_load_rejects_noncanonical_pending_eating_baseline_order() {
         &state,
         stockpile,
         &[
-            MaterialLotSelection::new(grain, Mass::from_milligrams(1)),
-            MaterialLotSelection::new(berries, Mass::from_milligrams(1)),
+            MaterialLotSelection::new(grain, portion_mass),
+            MaterialLotSelection::new(berries, portion_mass),
         ],
     )
     .unwrap_or_else(|error| panic!("pending-baseline-order validation failed: {error}"))

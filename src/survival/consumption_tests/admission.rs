@@ -13,7 +13,10 @@ fn direct_consumption_reserves_attention_release_revision_before_admission() {
             &registries,
             &state,
             stockpile,
-            &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+            &[MaterialLotSelection::new(
+                food,
+                minimum_meal_mass(&registries)
+            )],
         )
         .err(),
         Some(EatError::PlayerWorkRevisionExhausted)
@@ -31,7 +34,10 @@ fn direct_consumption_reserves_survival_revisions_through_completion() {
             &registries,
             &state,
             stockpile,
-            &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+            &[MaterialLotSelection::new(
+                food,
+                minimum_meal_mass(&registries)
+            )],
         )
         .err(),
         Some(EatError::SurvivalRevisionExhausted)

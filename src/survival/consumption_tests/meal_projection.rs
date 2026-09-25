@@ -19,11 +19,14 @@ fn minimum_meal_prices_the_eating_tick_instead_of_repeating_tiny_snacks() {
         .unwrap_or_else(|error| panic!("meal projection failed: {error}"))
         .unwrap_or_else(|| panic!("depleted fixture should require a meal"));
 
-    assert_eq!(projection.mass(), Mass::from_milligrams(48));
+    assert_eq!(
+        projection.mass(),
+        physiology.direct_consumption().minimum_meal_mass()
+    );
     assert_eq!(projection.duration(), TickSpan::new(1));
     assert_eq!(
         projection.energy_offered(),
-        Energy::from_nanojoules(672_000_000_000)
+        grain.dietary_energy_for_mass(physiology.direct_consumption().minimum_meal_mass())
     );
     assert!(projection.metabolic_energy_after() >= target);
 }

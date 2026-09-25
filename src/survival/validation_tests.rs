@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::{FLUID_WATER, FORM_FOOD, MATERIAL_GRAIN, build_registries};
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::Temperature;
 use crate::core::state::{AppState, StateValidationError};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
@@ -89,14 +89,22 @@ fn load_rejects_pending_eating_reusing_historical_terminal_accounting() {
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("pending-eating baseline survival setup failed: {error}"));
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2))
+    let meal_mass = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_meal_mass();
+    let stored_mass = meal_mass
+        .checked_add(meal_mass)
+        .unwrap_or_else(|| panic!("pending-eating baseline stockpile mass overflowed"));
+    let stockpile = add_solid_stockpile_for_test(&mut state, stored_mass)
         .unwrap_or_else(|error| panic!("pending-eating baseline stockpile failed: {error}"));
     let food = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(2),
+        stored_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("pending-eating baseline food failed: {error}"));
@@ -105,7 +113,7 @@ fn load_rejects_pending_eating_reusing_historical_terminal_accounting() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+        &[MaterialLotSelection::new(food, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("historical eating validation failed: {error}"))
     .commit(&mut state)
@@ -116,7 +124,7 @@ fn load_rejects_pending_eating_reusing_historical_terminal_accounting() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+        &[MaterialLotSelection::new(food, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("pending eating validation failed: {error}"))
     .commit(&mut state)
@@ -125,7 +133,7 @@ fn load_rejects_pending_eating_reusing_historical_terminal_accounting() {
         .unwrap_or_else(|error| panic!("pending-eating baseline serialization failed: {error}"));
     let baseline = &mut encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Eating"]
         ["consumed_before"][0]["total_before"];
-    assert_eq!(baseline.as_u64(), Some(1));
+    assert_eq!(baseline.as_u64(), Some(meal_mass.milligrams()));
     *baseline = serde_json::json!(0_u64);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("pending-eating baseline tamper decode failed: {error}"));

@@ -114,6 +114,7 @@ impl HydrationDefinition {
 /// Authored quantity and attention-time envelope for direct consumption.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DirectConsumptionDefinition {
+    minimum_meal_mass: Mass,
     maximum_meal_mass: Mass,
     maximum_meal_duration: TickSpan,
     minimum_drink_volume: Volume,
@@ -124,6 +125,7 @@ pub struct DirectConsumptionDefinition {
 impl DirectConsumptionDefinition {
     #[must_use]
     pub fn new(
+        minimum_meal_mass: Mass,
         maximum_meal_mass: Mass,
         maximum_meal_duration: TickSpan,
         minimum_drink_volume: Volume,
@@ -131,8 +133,16 @@ impl DirectConsumptionDefinition {
         maximum_drink_duration: TickSpan,
     ) -> Self {
         assert!(
+            !minimum_meal_mass.is_zero(),
+            "minimum direct meal mass must be nonzero"
+        );
+        assert!(
             !maximum_meal_mass.is_zero(),
             "maximum direct meal mass must be nonzero"
+        );
+        assert!(
+            minimum_meal_mass <= maximum_meal_mass,
+            "minimum direct meal mass cannot exceed maximum direct meal mass"
         );
         assert!(
             !maximum_meal_duration.is_zero(),
@@ -155,12 +165,18 @@ impl DirectConsumptionDefinition {
             "maximum direct drink duration must be nonzero"
         );
         Self {
+            minimum_meal_mass,
             maximum_meal_mass,
             maximum_meal_duration,
             minimum_drink_volume,
             maximum_drink_volume,
             maximum_drink_duration,
         }
+    }
+
+    #[must_use]
+    pub const fn minimum_meal_mass(self) -> Mass {
+        self.minimum_meal_mass
     }
 
     #[must_use]
@@ -190,7 +206,7 @@ impl DirectConsumptionDefinition {
 
     #[must_use]
     pub fn meal_duration(self, mass: Mass) -> Option<TickSpan> {
-        if mass.is_zero() || mass > self.maximum_meal_mass {
+        if mass < self.minimum_meal_mass || mass > self.maximum_meal_mass {
             return None;
         }
         Some(Self::scaled_duration(

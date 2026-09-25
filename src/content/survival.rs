@@ -17,6 +17,7 @@ use super::{
 
 const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
 const MAXIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 333_150;
+const MINIMUM_MEAL_MASS_MG: u64 = 10_000;
 
 fn direct_consumption_temperature() -> ConsumptionTemperatureRange {
     ConsumptionTemperatureRange::new(
@@ -39,6 +40,7 @@ fn physiology() -> PhysiologyDefinition {
         ),
         NutritionDefinition::new(5, 10),
         DirectConsumptionDefinition::new(
+            Mass::from_milligrams(MINIMUM_MEAL_MASS_MG),
             Mass::from_milligrams(1_000_000),
             TickSpan::new(100),
             Volume::from_microliters(10_000),

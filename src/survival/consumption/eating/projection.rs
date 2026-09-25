@@ -109,16 +109,20 @@ pub fn project_minimum_meal_to_metabolic_target(
     }
 
     let direct = physiology.direct_consumption();
+    let minimum_meal_mass = direct.minimum_meal_mass();
     let maximum_meal_mass = direct.maximum_meal_mass();
     let reserve_gap = target
         .checked_sub(current)
         .unwrap_or_else(|| unreachable!("target above current energy has a positive gap"));
-    let mut mass = food.minimum_mass_for_dietary_energy(reserve_gap).ok_or(
-        MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
-    )?;
+    let mut mass = std::cmp::max(
+        food.minimum_mass_for_dietary_energy(reserve_gap).ok_or(
+            MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
+        )?,
+        minimum_meal_mass,
+    );
 
     loop {
-        if mass.is_zero() || mass > maximum_meal_mass {
+        if mass > maximum_meal_mass {
             return Err(
                 MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit {
                     maximum_meal_mass,
@@ -140,9 +144,14 @@ pub fn project_minimum_meal_to_metabolic_target(
         let required_offer = reserve_gap.checked_add(meal_cost).ok_or(
             MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
         )?;
-        let next = food.minimum_mass_for_dietary_energy(required_offer).ok_or(
-            MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
-        )?;
+        let next = std::cmp::max(
+            food.minimum_mass_for_dietary_energy(required_offer).ok_or(
+                MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit {
+                    maximum_meal_mass,
+                },
+            )?,
+            minimum_meal_mass,
+        );
         if next > maximum_meal_mass {
             return Err(
                 MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit {

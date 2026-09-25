@@ -121,14 +121,15 @@ fn direct_consumption_rejects_unsafe_food_and_water_temperatures_without_mutatio
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
     let hot_temperature = Temperature::from_millikelvin(333_151);
-    let food_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+    let meal_mass = minimum_meal_mass(&registries);
+    let food_source = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("hot food stockpile failed: {error}"));
     let food = deposit_lot_for_test(
         &registries,
         &mut state,
         food_source,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(10),
+        meal_mass,
         hot_temperature,
     )
     .unwrap_or_else(|error| panic!("hot food fixture failed: {error}"));
@@ -149,7 +150,7 @@ fn direct_consumption_rejects_unsafe_food_and_water_temperatures_without_mutatio
             &registries,
             &state,
             food_source,
-            &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+            &[MaterialLotSelection::new(food, meal_mass)],
         )
         .err(),
         Some(EatError::TemperatureOutsideConsumptionRange {

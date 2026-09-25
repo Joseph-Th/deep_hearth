@@ -8,14 +8,15 @@ fn trusted_load_replays_direct_consumption_attention_durations() {
 
     let mut eating = AppState::new();
     initialize_and_spend_reserves(&registries, &mut eating);
-    let stockpile = add_solid_stockpile_for_test(&mut eating, Mass::from_milligrams(10))
+    let meal_mass = minimum_meal_mass(&registries);
+    let stockpile = add_solid_stockpile_for_test(&mut eating, meal_mass)
         .unwrap_or_else(|error| panic!("eating-duration stockpile failed: {error}"));
     let food = deposit_lot_for_test(
         &registries,
         &mut eating,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(10),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("eating-duration food fixture failed: {error}"));
@@ -23,7 +24,7 @@ fn trusted_load_replays_direct_consumption_attention_durations() {
         &registries,
         &eating,
         stockpile,
-        &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+        &[MaterialLotSelection::new(food, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("eating-duration validation failed: {error}"))
     .commit(&mut eating)
@@ -409,14 +410,15 @@ fn eating_at_full_reserves_absorbs_as_basal_cost_creates_capacity() {
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("full-reserve survival initialization failed: {error}"));
     let physiology = registries.survival().physiology();
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+    let meal_mass = minimum_meal_mass(&registries);
+    let stockpile = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("full-reserve food stockpile failed: {error}"));
     let lot = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(1),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("full-reserve food lot failed: {error}"));
@@ -424,7 +426,7 @@ fn eating_at_full_reserves_absorbs_as_basal_cost_creates_capacity() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+        &[MaterialLotSelection::new(lot, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("full-reserve eating should remain useful over time: {error}"))
     .commit(&mut state)
@@ -465,14 +467,15 @@ fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
             0,
         ),
     );
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+    let meal_mass = minimum_meal_mass(&registries);
+    let stockpile = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("nutrition-clamp stockpile failed: {error}"));
     let lot = deposit_lot_for_test(
         &registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(100),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("nutrition-clamp food lot failed: {error}"));
@@ -481,7 +484,7 @@ fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
         &registries,
         &state,
         stockpile,
-        &[MaterialLotSelection::new(lot, Mass::from_milligrams(100))],
+        &[MaterialLotSelection::new(lot, meal_mass)],
     )
     .unwrap_or_else(|error| panic!("nutrition-clamp eating validation failed: {error}"))
     .commit(&mut state)
@@ -489,9 +492,13 @@ fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
 
     assert_eq!(
         outcome.energy_offered(),
-        Energy::from_nanojoules(1_400_000_000_000)
+        registries
+            .survival()
+            .get_food(CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD))
+            .unwrap_or_else(|| panic!("grain food definition disappeared"))
+            .dietary_energy_for_mass(meal_mass)
     );
-    assert_eq!(outcome.nutrition_offered().get(FoodCategory::Grain), 70);
+    assert!(outcome.nutrition_offered().get(FoodCategory::Grain) > 0);
     assert_eq!(
         assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("nutrition-clamp survival state disappeared at admission"))
@@ -500,13 +507,56 @@ fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
         0
     );
     assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    let expected_nutrition = outcome
+        .nutrition_offered()
+        .get(FoodCategory::Grain)
+        .min(NUTRITION_PARTS_PER_MILLION)
+        .saturating_sub(physiology.nutrition().decay_ppm_per_tick());
     assert_eq!(
         assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("nutrition-clamp survival state disappeared"))
             .nutrition()
             .get(FoodCategory::Grain),
-        65
+        expected_nutrition
     );
+}
+
+#[test]
+fn meal_below_authored_intake_minimum_is_rejected_without_consumption() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_and_spend_reserves(&registries, &mut state);
+    let minimum = minimum_meal_mass(&registries);
+    let requested = minimum
+        .checked_sub(Mass::from_milligrams(1))
+        .unwrap_or_else(|| panic!("meal minimum fixture underflowed"));
+    let stockpile = add_solid_stockpile_for_test(&mut state, minimum)
+        .unwrap_or_else(|error| panic!("meal-minimum stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        minimum,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("meal-minimum food lot failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(lot, requested)],
+        )
+        .err(),
+        Some(EatError::MealMassBelowIntakeMinimum {
+            mass: requested,
+            minimum,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

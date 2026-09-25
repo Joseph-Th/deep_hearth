@@ -22,6 +22,7 @@ fn budget_includes_basal_and_incremental_work_costs() {
         NutritionDefinition::new(1, 1),
         DirectConsumptionDefinition::new(
             Mass::from_milligrams(1),
+            Mass::from_milligrams(1),
             TickSpan::new(1),
             Volume::from_microliters(1),
             Volume::from_microliters(1),

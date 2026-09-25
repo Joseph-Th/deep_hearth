@@ -45,6 +45,14 @@ fn minimum_drink_volume(registries: &Registries) -> Volume {
         .minimum_drink_volume()
 }
 
+fn minimum_meal_mass(registries: &Registries) -> Mass {
+    registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_meal_mass()
+}
+
 fn load_with_owner_revisions(
     registries: &Registries,
     state: &AppState,
@@ -76,14 +84,15 @@ fn direct_consumption_fixture(
 ) {
     let mut state = AppState::new();
     initialize_and_spend_reserves(registries, &mut state);
-    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+    let meal_mass = minimum_meal_mass(registries);
+    let stockpile = add_solid_stockpile_for_test(&mut state, meal_mass)
         .unwrap_or_else(|error| panic!("direct-consumption revision stockpile failed: {error}"));
     let food = deposit_lot_for_test(
         registries,
         &mut state,
         stockpile,
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        Mass::from_milligrams(10),
+        meal_mass,
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("direct-consumption revision food failed: {error}"));
