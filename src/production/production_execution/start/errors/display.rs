@@ -1,0 +1,257 @@
+//! Human-readable diagnostics for process-start admission failures.
+
+use std::fmt::{Display, Formatter};
+
+use super::StartProcessError;
+
+impl Display for StartProcessError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownProcess { process } => {
+                write!(formatter, "unknown process id {}", process.value())
+            }
+            Self::ManualProcessRequiresPlayerWork { process } => write!(
+                formatter,
+                "manual process {} must start through the player-work boundary",
+                process.value()
+            ),
+            Self::ResolutionEquipmentTopologyMismatch { process } => write!(
+                formatter,
+                "resolved process {} equipment resources do not match registered execution topology",
+                process.value()
+            ),
+            Self::ResolutionEnergyTopologyMismatch { process } => write!(
+                formatter,
+                "resolved process {} energy resources do not match registered execution topology",
+                process.value()
+            ),
+            Self::UnknownOutputMaterial { material } => write!(
+                formatter,
+                "resolved output references unknown material {}",
+                material.value()
+            ),
+            Self::UnknownOutputForm { form } => write!(
+                formatter,
+                "resolved output references unknown form {}",
+                form.value()
+            ),
+            Self::UnknownOutputCompositionMaterial { material } => write!(
+                formatter,
+                "resolved output composition references unknown material {}",
+                material.value()
+            ),
+            Self::UnknownStockpile { stockpile } => {
+                write!(formatter, "unknown stockpile id {}", stockpile.value())
+            }
+            Self::OutputDestinationBusyStorageDismantling { stockpile } => write!(
+                formatter,
+                "stockpile {} is being dismantled and cannot accept a new in-flight production output",
+                stockpile.value()
+            ),
+            Self::OutputRouteCountMismatch { streams, routes } => write!(
+                formatter,
+                "resolved process has {streams} output streams but start supplied {routes} routes"
+            ),
+            Self::DuplicateOutputRoute { stream } => write!(
+                formatter,
+                "process start supplies output stream {} more than once",
+                stream.value()
+            ),
+            Self::UnknownOutputRoute { stream } => write!(
+                formatter,
+                "process start routes unknown output stream {}",
+                stream.value()
+            ),
+            Self::MissingOutputRoute { stream } => write!(
+                formatter,
+                "process start does not route output stream {}",
+                stream.value()
+            ),
+            Self::DestinationStorage(error) => write!(
+                formatter,
+                "process destination rejects resolved output: {error}"
+            ),
+            Self::CapacityExceeded {
+                stockpile,
+                capacity,
+                committed_after_consumption,
+                requested_inbound,
+            } => write!(
+                formatter,
+                "stockpile {} capacity {} mg cannot reserve {} mg with {} mg already committed",
+                stockpile.value(),
+                capacity.milligrams(),
+                requested_inbound.milligrams(),
+                committed_after_consumption.milligrams()
+            ),
+            Self::MassOverflow { stockpile } => write!(
+                formatter,
+                "mass accounting overflow while scheduling against stockpile {}",
+                stockpile.value()
+            ),
+            Self::CompletionTickOverflow {
+                current,
+                duration_ticks,
+            } => write!(
+                formatter,
+                "process duration {duration_ticks} cannot be added to simulation tick {}",
+                current.value()
+            ),
+            Self::JobIdExhausted => {
+                formatter.write_str("production job identifier space is exhausted")
+            }
+            Self::MaterialLotIdExhausted => formatter
+                .write_str("material lot identifier space cannot reserve production output"),
+            Self::InventoryRevisionExhausted => {
+                formatter.write_str("inventory revision space is exhausted")
+            }
+            Self::ProductionRevisionExhausted => {
+                formatter.write_str("production revision space is exhausted")
+            }
+            Self::EnergyRevisionExhausted => {
+                formatter.write_str("energy state revision space is exhausted")
+            }
+            Self::EquipmentRevisionExhausted => {
+                formatter.write_str("equipment revision space is exhausted")
+            }
+            Self::StructureRevisionExhausted => {
+                formatter.write_str("structural revision space is exhausted")
+            }
+            Self::ResolutionSourceMismatch { bound, requested } => write!(
+                formatter,
+                "resolved process is bound to source stockpile {} but start requested stockpile {}",
+                bound.value(),
+                requested.value()
+            ),
+            Self::StaleResolvedInputs {
+                expected_inventory_revision,
+                actual_inventory_revision,
+            } => write!(
+                formatter,
+                "resolved process inputs expected inventory revision {expected_inventory_revision} but current revision is {actual_inventory_revision}"
+            ),
+            Self::StaleResolvedEnergy {
+                expected_energy_revision,
+                actual_energy_revision,
+            } => write!(
+                formatter,
+                "resolved process energy expected revision {expected_energy_revision} but current energy revision is {actual_energy_revision}"
+            ),
+            Self::StaleResolvedEquipment {
+                expected_equipment_revision,
+                actual_equipment_revision,
+            } => write!(
+                formatter,
+                "resolved process equipment expected revision {expected_equipment_revision} but current equipment revision is {actual_equipment_revision}"
+            ),
+            Self::StaleResolvedStructure {
+                expected_structure_revision,
+                actual_structure_revision,
+            } => write!(
+                formatter,
+                "resolved process equipment support expected structural revision {expected_structure_revision} but current structural revision is {actual_structure_revision}"
+            ),
+            Self::ResolvedEnergyStoreMissing => {
+                formatter.write_str("resolved process energy store no longer exists")
+            }
+            Self::ResolvedEnergyInsufficient => {
+                formatter.write_str("resolved process energy amount is no longer available")
+            }
+            Self::ResolvedEnergySinkMissing => {
+                formatter.write_str("resolved process energy sink no longer exists")
+            }
+            Self::ResolvedEnergySinkCapacity => {
+                formatter.write_str("resolved process energy sink no longer has required capacity")
+            }
+            Self::EnergyStoreBusy {
+                store,
+                job,
+                release,
+            } => write!(
+                formatter,
+                "energy store {} is occupied by production job {} {release}",
+                store.value(),
+                job.value()
+            ),
+            Self::EnergyStoreBusyManualPower { store } => write!(
+                formatter,
+                "energy store {} is occupied by direct player-powered generation",
+                store.value()
+            ),
+            Self::ResolvedEquipmentMissing { equipment } => write!(
+                formatter,
+                "resolved process equipment {} no longer exists",
+                equipment.value()
+            ),
+            Self::ResolvedEquipmentDefinitionChanged { equipment } => write!(
+                formatter,
+                "resolved process equipment {} changed definition after resolution",
+                equipment.value()
+            ),
+            Self::ResolvedEquipmentConditionChanged { equipment } => write!(
+                formatter,
+                "resolved process equipment {} changed condition after resolution",
+                equipment.value()
+            ),
+            Self::ResolvedEquipmentSupportChanged {
+                equipment,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "resolved process equipment {} support changed from {expected:?} to {actual:?} after resolution",
+                equipment.value()
+            ),
+            Self::ResolvedEquipmentSupportMissing { equipment, element } => write!(
+                formatter,
+                "resolved process equipment {} references missing structural support {}",
+                equipment.value(),
+                element.value()
+            ),
+            Self::ResolvedEquipmentSupportNotActive {
+                equipment,
+                element,
+                lifecycle,
+            } => write!(
+                formatter,
+                "resolved process equipment {} structural support {} is {lifecycle:?} and cannot authorize process start",
+                equipment.value(),
+                element.value()
+            ),
+            Self::EquipmentBusy {
+                equipment,
+                job,
+                release,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by production job {} {release}",
+                equipment.value(),
+                job.value()
+            ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "equipment {} is occupied by mining job {}",
+                equipment.value(),
+                job.value()
+            ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "equipment {} is occupied by direct player-powered generation",
+                equipment.value()
+            ),
+            Self::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by geological sampling until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
+            Self::StructuralLoad(error) => write!(
+                formatter,
+                "process start cannot update stored-matter load: {error}"
+            ),
+        }
+    }
+}
