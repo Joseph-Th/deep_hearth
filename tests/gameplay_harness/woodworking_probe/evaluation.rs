@@ -1068,18 +1068,15 @@ fn evaluate_woodworking_probe(
 #[test]
 fn woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper() {
     let registries = deep_hearth::content::build_registries();
-    // A finite intermediate order with sufficient copper: the conservative actor will
-    // not spend its construction budget even though the completed saw route is cheaper.
-    // Reject the saw when pre-action intent cannot fund it.
-    let witness = (80..=120).find(|&seed| {
-        let (choice, selected_attention, saw_attention) = evaluate_woodworking_probe(
-            &registries,
-            FocusedProbeCase::new(seed, Some(2), FocusedProbeRole::OrganicVariation),
-        );
-        choice == "stone-adze" && saw_attention.is_some_and(|ticks| ticks < selected_attention)
-    });
+    // Fixed replay witness: a finite intermediate order with sufficient copper where the
+    // conservative actor declines setup even though the completed saw route proves cheaper.
+    let (choice, selected_attention, saw_attention) = evaluate_woodworking_probe(
+        &registries,
+        FocusedProbeCase::new(86, Some(2), FocusedProbeRole::OrganicVariation),
+    );
+    assert_eq!(choice, "stone-adze");
     assert!(
-        witness.is_some(),
-        "bounded organic workloads must retain an adze choice that later saw outcomes cannot rewrite"
+        saw_attention.is_some_and(|ticks| ticks < selected_attention),
+        "replay witness must keep the pre-action adze choice even when the realized saw route is cheaper"
     );
 }

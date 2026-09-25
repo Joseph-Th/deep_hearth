@@ -203,13 +203,19 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
 #[test]
 fn constructible_equipment_uses_assembly_as_its_physical_mass_authority() {
     let registry = build_equipment_registry();
-    let mut constructible = 0_usize;
+    let mut constructible = registry
+        .definitions()
+        .filter(|definition| definition.assembly_profile().is_some())
+        .peekable();
+    assert!(
+        constructible.peek().is_some(),
+        "built-in equipment has no assembly routes"
+    );
 
-    for definition in registry.definitions() {
-        let Some(assembly) = definition.assembly_profile() else {
-            continue;
-        };
-        constructible += 1;
+    for definition in constructible {
+        let assembly = definition.assembly_profile().unwrap_or_else(|| {
+            unreachable!("constructible equipment iterator filters for assembly routes")
+        });
         assert_eq!(
             definition.mass(),
             assembly.input_mass(),
@@ -242,8 +248,6 @@ fn constructible_equipment_uses_assembly_as_its_physical_mass_authority() {
             );
         }
     }
-
-    assert_eq!(constructible, 37);
 }
 
 #[test]

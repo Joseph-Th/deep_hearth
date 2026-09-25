@@ -86,6 +86,68 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
 }
 
+_EXPECTED_ORDINARY_BY_PROBE = {
+    "primitive-progression": {"primitive-progression", "primitive-liberation"},
+    "woodworking": {"woodworking"},
+    "fieldwork": {"fieldwork"},
+    "power-provider": {"power-provider"},
+    "survival-provisioning": {"survival"},
+}
+_EXPECTED_CONTROLLED_BY_PROBE = {
+    "ore-preparation": {"ore"},
+    "foundry": {"foundry"},
+}
+
+
+def _controlled_summary_probe(summary: str) -> str | None:
+    if summary.startswith("CONTROLLED SUMMARY "):
+        return field(summary, "probe")
+    if summary.startswith("ORE CAPABILITY SUMMARY "):
+        return "ore"
+    if summary.startswith("FOUNDRY CAPABILITY SUMMARY "):
+        return "foundry"
+    return None
+
+
+def _require_summary_coverage(
+    lines: list[str], ordinary: list[str], controlled: list[str]
+) -> None:
+    """Fail if an executed probe disappeared from the concise parser contract."""
+
+    expected_ordinary: set[str] = set()
+    expected_controlled: set[str] = set()
+    for line in lines:
+        if line.startswith("PROBE INPUT "):
+            name = field(line, "name")
+            if name is not None:
+                expected_ordinary.update(_EXPECTED_ORDINARY_BY_PROBE.get(name, ()))
+                expected_controlled.update(_EXPECTED_CONTROLLED_BY_PROBE.get(name, ()))
+        elif line.startswith("HARNESS INPUT "):
+            expected_controlled.add("workshop")
+        elif line.startswith("AGENCY INPUT "):
+            expected_controlled.add("agency")
+
+    actual_ordinary = {
+        probe
+        for summary in ordinary
+        if (probe := field(summary, "probe")) is not None
+    }
+    actual_controlled = {
+        probe
+        for summary in controlled
+        if (probe := _controlled_summary_probe(summary)) is not None
+    }
+    missing_ordinary = sorted(expected_ordinary - actual_ordinary)
+    missing_controlled = sorted(expected_controlled - actual_controlled)
+    if missing_ordinary or missing_controlled:
+        missing = [
+            *(f"ordinary:{probe}" for probe in missing_ordinary),
+            *(f"controlled:{probe}" for probe in missing_controlled),
+        ]
+        raise ValueError(
+            "concise gameplay summary lost executed probe evidence: " + ", ".join(missing)
+        )
+
 
 def _digest_summary(summary: str) -> str:
     if summary.startswith("ORDINARY SUMMARY "):
@@ -145,11 +207,16 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         return stdout.rstrip()
     lines = stdout.splitlines()
     selected = [line for line in lines if line.startswith("SIMULATION TIME ")]
-    selected.extend(_digest_summary(summary) for summary in ordinary_gameplay_summary(lines))
-    loop_evidence = player_loop_evidence(lines)
-    if loop_evidence is not None:
-        selected.append(_digest_summary(loop_evidence))
-    selected.extend(
-        _digest_summary(summary) for summary in controlled_gameplay_summary(lines)
-    )
+    ordinary = ordinary_gameplay_summary(lines)
+    controlled = controlled_gameplay_summary(lines)
+    _require_summary_coverage(lines, ordinary, controlled)
+    selected.extend(_digest_summary(summary) for summary in ordinary)
+    # The player-loop digest is cross-system evidence. A scoped report intentionally omits
+    # unrelated probe families, so synthesizing the loop from partial evidence would fill it with
+    # misleading zero/n/a sections. Emit it only when every ordinary probe family is present.
+    if len(ordinary) == len(_ORDINARY_DIGEST_FIELDS):
+        loop_evidence = player_loop_evidence(lines)
+        if loop_evidence is not None:
+            selected.append(_digest_summary(loop_evidence))
+    selected.extend(_digest_summary(summary) for summary in controlled)
     return "\n".join(selected)

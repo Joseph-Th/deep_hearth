@@ -30,6 +30,36 @@ pub(super) struct FieldworkOwnedOreRecovery {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(super) struct FieldworkSiteToolRequest<'a> {
+    pub(super) raw: StockpileId,
+    pub(super) parts: StockpileId,
+    pub(super) recovery: FieldworkOwnedOreRecovery,
+    pub(super) owned_equipment: &'a [EquipmentId],
+    pub(super) observed_hardness_upper: Pressure,
+    pub(super) order: Mass,
+}
+
+impl<'a> FieldworkSiteToolRequest<'a> {
+    pub(super) const fn new(
+        raw: StockpileId,
+        parts: StockpileId,
+        recovery: FieldworkOwnedOreRecovery,
+        owned_equipment: &'a [EquipmentId],
+        observed_hardness_upper: Pressure,
+        order: Mass,
+    ) -> Self {
+        Self {
+            raw,
+            parts,
+            recovery,
+            owned_equipment,
+            observed_hardness_upper,
+            order,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 struct ExistingToolProjection {
     batch: Mass,
     order_ticks: u64,
@@ -406,13 +436,16 @@ fn recover_native_copper_from_owned_ore(
 pub(super) fn prepare_fieldwork_tool_for_site(
     registries: &Registries,
     state: &mut AppState,
-    raw: StockpileId,
-    parts: StockpileId,
-    recovery: FieldworkOwnedOreRecovery,
-    owned_equipment: &[EquipmentId],
-    observed_hardness_upper: Pressure,
-    order: Mass,
+    request: FieldworkSiteToolRequest<'_>,
 ) -> Option<FieldworkSiteToolChoice> {
+    let FieldworkSiteToolRequest {
+        raw,
+        parts,
+        recovery,
+        owned_equipment,
+        observed_hardness_upper,
+        order,
+    } = request;
     let current_attention = projected_current_material_attention(
         registries,
         state,

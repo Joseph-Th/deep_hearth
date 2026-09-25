@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
@@ -14,6 +15,7 @@ import sys
 import time
 
 from tools.gameplay_report_summary import concise_gameplay_report
+from tools.replay_seed import parse_replay_seed
 
 
 ROOT = Path(__file__).resolve().parent
@@ -21,38 +23,101 @@ ROOT = Path(__file__).resolve().parent
 GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_REPORT_EXAMPLE = "gameplay-report"
-GAMEPLAY_TARGETS = {
-    "workshop": "gameplay_workshop",
-    "survival": "gameplay_survival",
-    "progression": "gameplay_progression",
-    "ore": "gameplay_ore",
-    "foundry": "gameplay_foundry",
+
+
+@dataclass(frozen=True)
+class GameplayScopeSpec:
+    target: str
+    test: str
+    report_test: str | None
+    uses_behavior_seed: bool = False
+
+
+GAMEPLAY_SCOPE_SPECS = {
+    "workshop": GameplayScopeSpec(
+        "gameplay_workshop", "gameplay_harness_gate", None, True
+    ),
+    "survival": GameplayScopeSpec(
+        "gameplay_survival",
+        "gameplay_survival_provisioning_probe",
+        "gameplay_survival_provisioning_report",
+        True,
+    ),
+    "progression": GameplayScopeSpec(
+        "gameplay_progression",
+        "gameplay_primitive_progression_probe",
+        "gameplay_primitive_progression_report",
+    ),
+    "woodworking": GameplayScopeSpec(
+        "gameplay_woodworking",
+        "gameplay_woodworking_probe",
+        "gameplay_woodworking_report",
+        True,
+    ),
+    "fieldwork": GameplayScopeSpec(
+        "gameplay_fieldwork", "gameplay_fieldwork_probe", "gameplay_fieldwork_report"
+    ),
+    "power-provider": GameplayScopeSpec(
+        "gameplay_power", "gameplay_power_provider_probe", "gameplay_power_provider_report"
+    ),
+    "ore": GameplayScopeSpec(
+        "gameplay_ore", "gameplay_ore_preparation_probe", "gameplay_ore_preparation_report"
+    ),
+    "foundry": GameplayScopeSpec(
+        "gameplay_foundry", "gameplay_foundry_probe", "gameplay_foundry_report"
+    ),
 }
+GAMEPLAY_TARGETS = {scope: spec.target for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
+GAMEPLAY_TESTS = {scope: spec.test for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
+FOCUSED_REPORT_TESTS = {
+    scope: spec.report_test
+    for scope, spec in GAMEPLAY_SCOPE_SPECS.items()
+    if spec.report_test is not None
+}
+FOCUSED_REPORT_EXAMPLES = {"workshop": "gameplay-workshop-report", "agency": "gameplay-workshop-report"}
+FOCUSED_REPORT_ARGUMENTS = {"agency": ("agency",)}
 GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_AUDIT_TARGET,)
-GAMEPLAY_TESTS = {
-    "workshop": "gameplay_harness_gate",
-    "survival": "gameplay_survival_provisioning_probe",
-    "progression": "gameplay_primitive_progression_probe",
-    "ore": "gameplay_ore_preparation_probe",
-    "foundry": "gameplay_foundry_probe",
+REPORT_BEHAVIOR_SCOPES = {
+    "all",
+    *(scope for scope, spec in GAMEPLAY_SCOPE_SPECS.items() if spec.uses_behavior_seed),
 }
 
 
-def configure_gameplay_replay_environment(
+def configure_report_replay_environment(
+    args: argparse.Namespace,
     environ,
     *,
     randbits=secrets.randbits,
 ) -> tuple[str, str]:
-    """Give bounded gameplay variation fresh replay roots unless the caller supplied them."""
+    """Apply/validate report replay roots before any Cargo process is started."""
 
     variation_key = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
     behavior_key = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
-    if variation_key not in environ:
-        environ[variation_key] = f"0x{randbits(64):016X}"
-    if behavior_key not in environ:
-        environ[behavior_key] = f"0x{randbits(64):016X}"
-    variation = environ[variation_key]
-    behavior = environ[behavior_key]
+
+    if args.variation_seed is not None:
+        variation = args.variation_seed
+    elif variation_key in environ:
+        try:
+            variation = parse_replay_seed(environ[variation_key])
+        except argparse.ArgumentTypeError as error:
+            raise ValueError(f"{variation_key}: {error}") from error
+    else:
+        variation = f"0x{randbits(64):016X}"
+    environ[variation_key] = variation
+
+    if args.scope not in REPORT_BEHAVIOR_SCOPES:
+        return variation, "unused"
+
+    if args.behavior_seed is not None:
+        behavior = args.behavior_seed
+    elif behavior_key in environ:
+        try:
+            behavior = parse_replay_seed(environ[behavior_key])
+        except argparse.ArgumentTypeError as error:
+            raise ValueError(f"{behavior_key}: {error}") from error
+    else:
+        behavior = f"0x{randbits(64):016X}"
+    environ[behavior_key] = behavior
     return variation, behavior
 
 
@@ -63,6 +128,7 @@ def uses_fresh_gameplay_variation(args: argparse.Namespace) -> bool:
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TESTS)
+REPORT_SCOPES = ("all", *GAMEPLAY_TESTS, "agency")
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
 RUST_TEST_RESULT = re.compile(
@@ -140,6 +206,20 @@ def gameplay_replay_summary(stdout: str) -> str | None:
     return None
 
 
+def report_repair_hint(label: str, output: str) -> str | None:
+    """Return one replayable report command for a failed exploratory stage."""
+
+    if not label.startswith("gameplay report"):
+        return None
+    scope = label.removeprefix("gameplay report").strip() or "all"
+    command = ["python", "ci.py", "report"]
+    if scope != "all":
+        command.extend(("--scope", scope))
+    if replay_flags := gameplay_replay_flags(output):
+        command.extend(replay_flags.split())
+    return " ".join(command)
+
+
 def gameplay_environment_summary(label: str, environ) -> str | None:
     """Return replay roots for a gameplay stage whose successful test output stayed captured."""
 
@@ -158,7 +238,7 @@ def quick_plan() -> list[tuple[str, list[str]]]:
     """Run the build-free edit-loop checks that are safe after every coherent text edit."""
 
     return [
-        ("format", ["cargo", "fmt", "--check"]),
+        ("format changed Rust", [sys.executable, "tools/check_format.py"]),
         (
             "complexity ratchet",
             [sys.executable, "tools/check_bca.py", "check"],
@@ -221,7 +301,7 @@ def gameplay_replay_flags(output: str) -> str | None:
                 continue
             flags = ["--variation-seed", match.group("world")]
             behavior = match.group("behavior")
-            if behavior not in ("n/a", "none", "None"):
+            if behavior not in ("n/a", "none", "None", "unused"):
                 flags.extend(("--behavior-seed", behavior))
             return " ".join(flags)
     return None
@@ -267,6 +347,7 @@ def gameplay_targets_command(
     *,
     test_filter: str | None = None,
     nocapture: bool = False,
+    ignored: bool = False,
 ) -> list[str]:
     command = [
         "cargo",
@@ -282,6 +363,8 @@ def gameplay_targets_command(
     if test_filter is not None:
         command.append(test_filter)
         test_args.append("--exact")
+    if ignored:
+        test_args.append("--ignored")
     if nocapture:
         test_args.append("--nocapture")
     if test_args:
@@ -309,24 +392,51 @@ def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
     return [(label, gameplay_command(scope))]
 
 
-def report_plan() -> list[tuple[str, list[str]]]:
-    return [
-        (
-            "gameplay report",
-            [
-                "cargo",
-                "run",
-                "--quiet",
-                "--locked",
-                "--profile",
-                "test",
-                "--example",
-                GAMEPLAY_REPORT_EXAMPLE,
-                "--features",
-                "test-gameplay",
-            ],
-        )
+def gameplay_report_example_command(
+    example: str, arguments: tuple[str, ...] = ()
+) -> list[str]:
+    """Build one explicit report-example command without exposing argument positions to callers."""
+
+    command = [
+        "cargo",
+        "run",
+        "--quiet",
+        "--locked",
+        "--profile",
+        "test",
+        "--example",
+        example,
+        "--features",
+        "test-gameplay",
     ]
+    if arguments:
+        command.extend(("--", *arguments))
+    return command
+
+
+def report_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
+    """Run one focused exploratory test or the explicit cross-system report binary."""
+
+    if scope not in REPORT_SCOPES:
+        raise ValueError(f"unknown gameplay report scope: {scope}")
+    report_test = FOCUSED_REPORT_TESTS.get(scope)
+    if report_test is not None:
+        command = gameplay_targets_command(
+            (GAMEPLAY_TARGETS[scope],),
+            test_filter=report_test,
+            nocapture=True,
+            ignored=True,
+        )
+    else:
+        example = FOCUSED_REPORT_EXAMPLES.get(scope, GAMEPLAY_REPORT_EXAMPLE)
+        arguments = FOCUSED_REPORT_ARGUMENTS.get(scope, ())
+        if scope != "all" and example == GAMEPLAY_REPORT_EXAMPLE:
+            arguments = (scope,)
+        command = gameplay_report_example_command(example, arguments)
+    label = "gameplay report"
+    if scope != "all":
+        label = f"gameplay report {scope}"
+    return [(label, command)]
 
 
 def bca_review_plan(
@@ -408,7 +518,7 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if args.preset == "audit":
         return audit_plan_for_args(args)
     if args.preset == "report":
-        return report_plan()
+        return report_plan(args.scope)
     if args.preset == "bca":
         return bca_review_plan(
             args.since,
@@ -456,7 +566,25 @@ def report_stage(
         return None
     assert result is not None
     if result.returncode == 0:
-        detail = rust_test_summary(result.stdout)
+        output = ""
+        if echo_success and result.stdout.strip():
+            try:
+                output = (
+                    concise_gameplay_report(result.stdout)
+                    if label.startswith("gameplay report")
+                    else result.stdout.rstrip()
+                )
+            except ValueError as error:
+                print(f"FAIL ({elapsed:.1f}s)")
+                repair = report_repair_hint(label, result.stdout)
+                if repair is None:
+                    print(f"reproduce: {' '.join(command)}", file=sys.stderr)
+                else:
+                    print(f"repair: {repair}", file=sys.stderr)
+                print(f"report summary: {error}", file=sys.stderr)
+                print(bounded_failure_output(result.stdout), file=sys.stderr)
+                return None
+        detail = None if label.startswith("gameplay report") else rust_test_summary(result.stdout)
         details = [detail] if detail is not None else []
         replay = gameplay_replay_summary(result.stdout)
         if replay is None:
@@ -465,26 +593,24 @@ def report_stage(
             details.append(replay)
         suffix = f"; {'; '.join(details)}" if details else ""
         print(f"PASS ({elapsed:.1f}s{suffix})")
-        if echo_success and result.stdout.strip():
-            output = (
-                concise_gameplay_report(result.stdout)
-                if label == "gameplay report"
-                else result.stdout.rstrip()
-            )
-            if output:
-                # Successful reports are evidence: keep all selected output, including replay inputs.
-                # Transcript bounds belong only to the failure diagnostics below.
-                print(output)
+        if output:
+            # Successful reports are evidence: keep all selected output, including replay inputs.
+            # Transcript bounds belong only to the failure diagnostics below.
+            print(output)
         return elapsed
 
     print(f"FAIL ({elapsed:.1f}s)")
-    print(f"reproduce: {' '.join(command)}", file=sys.stderr)
+    hint = report_repair_hint(label, result.stdout) or repair_hint(
+        command, result.stdout, result.stderr
+    )
+    if hint is None:
+        print(f"reproduce: {' '.join(command)}", file=sys.stderr)
+    else:
+        print(f"repair: {hint}", file=sys.stderr)
     if result.stdout.strip():
         print(bounded_failure_output(result.stdout), file=sys.stderr)
     if result.stderr.strip():
         print(bounded_failure_output(result.stderr), file=sys.stderr)
-    if hint := repair_hint(command, result.stdout, result.stderr):
-        print(f"repair: {hint}", file=sys.stderr)
     return None
 
 
@@ -496,7 +622,8 @@ def run_stage(
     *,
     echo_success: bool = False,
 ) -> float | None:
-    print(f"[{index}/{total}] {label} ... ", end="", flush=True)
+    prefix = f"[{index}/{total}] {label}" if total > 1 else label
+    print(f"{prefix} ... ", end="", flush=True)
     return report_stage(
         index,
         total,
@@ -616,6 +743,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="with report, print the complete replayable gameplay transcript",
     )
+    parser.add_argument(
+        "--scope",
+        choices=REPORT_SCOPES,
+        default="all",
+        help="with report, run only one exploratory gameplay probe family",
+    )
+    parser.add_argument(
+        "--variation-seed",
+        type=parse_replay_seed,
+        help="with report, replay one physical-world variation root (decimal or 0x hex u64)",
+    )
+    parser.add_argument(
+        "--behavior-seed",
+        type=parse_replay_seed,
+        help="with report, replay one actor-policy root where the selected scope uses it",
+    )
     return parser
 
 
@@ -662,7 +805,12 @@ def validate_gate_options(parser: argparse.ArgumentParser, args: argparse.Namesp
 
 def validate_report_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if has_build_lane_option(args):
-        parser.error("report is a fixed exploratory lane and does not accept gate flags")
+        parser.error("report does not accept gate flags; use --scope for focused exploration")
+    if args.behavior_seed is not None and args.scope not in REPORT_BEHAVIOR_SCOPES:
+        parser.error(
+            f"report scope {args.scope!r} does not consume actor-policy variation; "
+            "omit --behavior-seed"
+        )
 
 
 def validate_bca_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -683,6 +831,10 @@ def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Name
     validators[args.preset](parser, args)
     if args.preset != "bca" and (args.since != "HEAD" or args.path or args.hotspots):
         parser.error("--since, --path, and --hotspots are valid only with the bca preset")
+    if args.preset != "report" and args.scope != "all":
+        parser.error("--scope is valid only with the report preset")
+    if args.preset != "report" and (args.variation_seed is not None or args.behavior_seed is not None):
+        parser.error("--variation-seed and --behavior-seed are valid only with the report preset")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -703,11 +855,16 @@ def main() -> int:
             print(f"{label}: {' '.join(command)}")
         return 0
     if uses_fresh_gameplay_variation(args):
-        configure_gameplay_replay_environment(os.environ)
+        try:
+            configure_report_replay_environment(args, os.environ)
+        except ValueError as error:
+            print(f"report replay: {error}", file=sys.stderr)
+            return 2
 
     started = time.perf_counter()
     timings: list[tuple[str, float]] = []
-    print(f"local-ci {args.preset}: {len(plan)} stage(s)")
+    if len(plan) > 1:
+        print(f"local-ci {args.preset}: {len(plan)} stage(s)")
     try:
         quick = quick_plan()
         quick_count = len(quick) if plan[: len(quick)] == quick else 0
@@ -736,9 +893,7 @@ def main() -> int:
         print("\nINTERRUPTED", file=sys.stderr)
         return 130
     total_elapsed = time.perf_counter() - started
-    if len(timings) == 1:
-        print(f"PASS total ({total_elapsed:.1f}s)")
-    else:
+    if len(timings) > 1:
         slowest_label, slowest_elapsed = max(timings, key=lambda item: item[1])
         print(
             f"PASS total ({total_elapsed:.1f}s; slowest={slowest_label} {slowest_elapsed:.1f}s)"

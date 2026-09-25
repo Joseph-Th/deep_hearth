@@ -3,19 +3,6 @@
 use super::super::prospecting_timing::complete_prospecting_work;
 use super::*;
 
-pub(in super::super) fn progression_mining_mass(registries: &Registries, seed: u64) -> Mass {
-    let maximum = stone_pick_mining_batch_limit(registries).milligrams();
-    assert!(
-        maximum > 0,
-        "primitive progression mining batch must be nonzero"
-    );
-    let minimum = maximum
-        .checked_mul(3)
-        .map(|scaled| scaled.div_ceil(4))
-        .unwrap_or_else(|| panic!("primitive progression mining-range scaling overflowed"));
-    Mass::from_milligrams(minimum + mix64(seed ^ 0x5052_4F47_4D49_4E45) % (maximum - minimum + 1))
-}
-
 pub(super) fn mine_and_claim(
     registries: &Registries,
     state: &mut AppState,

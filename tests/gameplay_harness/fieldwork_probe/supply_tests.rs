@@ -95,7 +95,10 @@ fn maintained_bulk_order_replays_quarry_investment_from_seed_alone() {
     let episode = run_fieldwork_order(&registries, case, requested);
     assert_eq!(episode.full_order_tool, Some(EQUIPMENT_STONE_QUARRY_PICK));
     assert_eq!(episode.tool, EQUIPMENT_STONE_QUARRY_PICK);
-    assert_eq!(episode.resource_knowledge_effect, "same-tool");
+    assert_eq!(
+        episode.resource_knowledge_effect,
+        FieldworkResourceKnowledgeEffect::SameTool
+    );
     assert_eq!(episode.planned_local_mass, requested);
     assert_eq!(episode.extraction.stop, FieldworkStop::OrderComplete);
 }
@@ -121,7 +124,10 @@ fn maintained_reinforcement_bulk_order_selects_reinforced_quarry_from_visible_sc
         Some(EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK)
     );
     assert_eq!(episode.tool, EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK);
-    assert_eq!(episode.resource_knowledge_effect, "same-tool");
+    assert_eq!(
+        episode.resource_knowledge_effect,
+        FieldworkResourceKnowledgeEffect::SameTool
+    );
     assert_eq!(episode.planned_local_mass, requested);
     assert_eq!(episode.extraction.stop, FieldworkStop::OrderComplete);
 }
@@ -269,7 +275,6 @@ fn world_seeded_shallow_opportunity_reports_partial_order() {
     );
     assert_eq!(episode.extraction.extracted, reserve);
     assert_eq!(episode.extraction.stop, FieldworkStop::ShortClaim);
-    assert_eq!(episode.extraction.stop.outcome(), "known-target-supply");
 }
 
 #[test]
@@ -318,6 +323,9 @@ fn maintained_reserve_scale_case_replays_overinvestment_avoidance_from_seed_alon
         Some(EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK)
     );
     assert_eq!(episode.tool, EQUIPMENT_COPPER_REINFORCED_PICK);
-    assert_eq!(episode.resource_knowledge_effect, "changed-tool");
+    assert_eq!(
+        episode.resource_knowledge_effect,
+        FieldworkResourceKnowledgeEffect::ChangedTool
+    );
     assert!(episode.planned_local_mass < requested);
 }

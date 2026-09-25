@@ -6,7 +6,7 @@ use deep_hearth::survival::initialize_player_survival;
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::focused_seeds::FocusedProbeRole;
 use super::super::inventory_support::add_solid_stockpile;
-use super::extraction::FieldworkStop;
+use super::extraction::{FieldworkOrderAdaptation, FieldworkStop};
 use super::*;
 
 /// Preserves the executed follow-up order when the selected tool's known batch cap applies.
@@ -40,7 +40,7 @@ fn batch_capped_mining_finishes_the_requested_order() {
             batches > 1,
             "the requested order must outlive its first claim"
         );
-        assert_eq!(adaptation, "preparation-plus-order+batch-limit");
+        assert_eq!(adaptation, FieldworkOrderAdaptation::BatchLimitedOrder);
         assert_eq!(
             actual_ticks, projected_ticks,
             "wear-adjusted effort must match execution"

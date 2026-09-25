@@ -11,16 +11,18 @@ Use the smallest lane that completely proves the changed contract.
 | --- | --- |
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
+| Full fmt | `python tools/check_format.py --all` |
 | Production compile | `cargo check-fast` |
-| Production build gate | `python ci.py gate` |
+| Production gate | `python ci.py gate` |
 | Fast lib-only Clippy | `cargo lint-fast` |
+| Lint one focused test target | `python tools/run_test.py --lint <test-or-suite-selector>` |
 | List tests without building | `python tools/run_test.py --list [substring]` |
-| Type-check an integration target without linking | `python tools/run_test.py --check --target <integration-target>` |
+| Test-owner type check, no link | `python tools/run_test.py --check <test-or-suite-selector>` |
 | Run one exact unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | Show one selected test's captured stdout | `python tools/run_test.py --verbose <qualified-name-or-unique-substring>` |
 | Run one owner/subsystem test group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Gameplay harness contracts | `python ci.py gate --gameplay contracts` |
-| Focused gameplay | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
+| Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Core audit | `python ci.py audit --core` |
 | Gameplay audit | `python ci.py audit --gameplay` |
 | Core + gameplay audit | `python ci.py audit --all` |
@@ -28,26 +30,25 @@ Use the smallest lane that completely proves the changed contract.
 | Shader validation | `python ci.py gate --shaders` |
 | Rustdoc | `python ci.py gate --rustdoc` |
 | Long-horizon soak | `python ci.py gate --soak` |
-| Gameplay exploration report | `python ci.py report` |
+| Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 | Current BCA hotspot review | `python ci.py bca --hotspots [--path <scope>] [--since <revision>]` |
 | Agent Rust diagnostics | `python tools/rust_diagnostics.py --help` |
 
-`quick` is build-free. `gate` runs one build lane and does not repeat `quick`; specialized flags replace its
-default compile. `audit` runs only the requested broad runtime surface and does not repeat `quick`.
+`quick` is build-free and checks changed Rust formatting; `check_format.py --all` is the full-format checkpoint.
+`gate` runs one build lane; `audit` is explicit broad runtime coverage. Neither repeats `quick`.
 
-During edits, use `cargo check-fast`, `cargo lint-fast`, or `run_test.py --check`, then the smallest exact,
-owner-suite, or focused proof. Reuse warm artifacts. Gameplay gates and audits use stable replay roots;
-`report` alone adds fresh bounded variation. Printed roots reproduce exploratory failures.
+Gameplay gates/audits use stable roots; `report` adds fresh variation. Scope it while tuning one family; unscoped is
+the cross-system checkpoint. Replay with `--variation-seed <u64>` and, for policy-varying scopes,
+`--behavior-seed <u64>`; decimal and `0x` hex are validated before Cargo starts.
 
-Without `--target`, `run_test.py` resolves source names without Cargo and chooses the smallest complete target.
-Library exact tests and suites deliberately reuse the same feature-minimal test artifact as `audit --core`, so
-switching owners does not create another Cargo feature variant. Pin `--target` only to reuse a warm failed binary
-or force an integration boundary. `--check` requires an explicit integration target. Exact tests are quiet;
-`--verbose` implies `--nocapture`.
+`run_test.py` resolves selectors build-free to the smallest target for execution, `--check`, and `--lint`. Prefer
+`cargo check-fast` while production code is unstable and `--check <unit-test-selector>` for test-only type checking
+without relinking. Pin `--target` only for a warm failed binary or explicit integration boundary; `--verbose`
+implies `--nocapture`.
 
-Full core tests stay feature-minimal; gameplay targets alone enable `test-gameplay`. `audit --all` runs those
-two cached surfaces separately instead of recompiling core tests under the gameplay feature graph.
+Core tests stay feature-minimal; gameplay alone enables `test-gameplay`. `audit --all` runs both cache shapes
+separately.
 
 ## Evidence ladder
 
@@ -140,9 +141,10 @@ persistence, conservation, or numerical accumulation adds evidence that focused 
 Automated-player boundaries/evidence semantics live in [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md); read
 it only for gameplay-harness behavior or interpretation.
 
-Focused gameplay targets are compile surfaces, not contract collections. Each exposes one gate/probe and only its
-support. CI gates and audits use fixed bounded variation for reproducible repair loops and checkpoints; `report`
-alone adds fresh bounded exploration. Explicit roots replay cases. Cheap cross-cutting contracts belong in
+Focused gameplay targets are compile surfaces, not contract collections. Most reuse one artifact for gate/probe
+and an ignored report. Workshop/agency keep a separate report artifact so catalog/fresh-seed/counterfactual code
+stays out of the routine gate. Gates/audits use fixed bounded variation; `report` alone adds fresh variation.
+Explicit roots replay cases. Cheap cross-cutting contracts belong in
 `gameplay_contracts`; broad contracts use the consolidated
 `gameplay_audit` target. The default report emits compact measured summaries without a second CI-owned
 interpretation layer; use `python ci.py report --verbose` for replayable preservation, woodworking, fieldwork,

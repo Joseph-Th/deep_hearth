@@ -45,7 +45,7 @@ pub(super) fn setup_progression_world(
         ore_opportunity_batch_budget >= SHALLOW_OPPORTUNITY_MIN_BATCHES,
         "primitive progression opportunity budget must leave room for discovery, convergence, and at least one repeated-work cycle"
     );
-    let mined_mass = progression_mining_mass(registries, seed);
+    let mined_mass = primitive_mining_cycle_mass(registries, seed);
     let crushed_storage_capacity = multiply_mass(
         mined_mass,
         MAX_STEADY_STATE_CRUSH_CYCLES + 2,

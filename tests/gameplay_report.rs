@@ -1,4 +1,7 @@
 //! Explicit exploratory gameplay report. Routine verification uses the focused test binaries.
+#![cfg(not(test))]
+
+use std::process::ExitCode;
 
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
@@ -66,6 +69,8 @@ mod power_provider_probe;
 mod preservation_route;
 #[path = "gameplay_harness/primitive_liberation.rs"]
 mod primitive_liberation;
+#[path = "gameplay_harness/primitive_workload.rs"]
+mod primitive_workload;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
 #[path = "gameplay_harness/production_timing.rs"]
@@ -97,7 +102,52 @@ mod woodworking_probe;
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
 
-fn main() {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReportScope {
+    All,
+    Workshop,
+    Survival,
+    Progression,
+    Woodworking,
+    Fieldwork,
+    PowerProvider,
+    Agency,
+    Ore,
+    Foundry,
+}
+
+impl ReportScope {
+    fn from_args() -> Result<Self, String> {
+        let mut arguments = std::env::args().skip(1);
+        let scope = match arguments.next().as_deref() {
+            None | Some("all") => Self::All,
+            Some("workshop") => Self::Workshop,
+            Some("survival") => Self::Survival,
+            Some("progression") => Self::Progression,
+            Some("woodworking") => Self::Woodworking,
+            Some("fieldwork") => Self::Fieldwork,
+            Some("power-provider") => Self::PowerProvider,
+            Some("agency") => Self::Agency,
+            Some("ore") => Self::Ore,
+            Some("foundry") => Self::Foundry,
+            Some(scope) => {
+                return Err(format!(
+                    "unknown scope {scope:?}; expected all, workshop, survival, progression, woodworking, fieldwork, power-provider, agency, ore, or foundry"
+                ));
+            }
+        };
+        if let Some(argument) = arguments.next() {
+            return Err(format!("unexpected extra argument {argument:?}"));
+        }
+        Ok(scope)
+    }
+
+    fn includes(self, scope: Self) -> bool {
+        self == Self::All || self == scope
+    }
+}
+
+fn main() -> ExitCode {
     use deep_hearth::content::build_registries;
 
     use configuration::ScenarioPlanMode;
@@ -105,6 +155,13 @@ fn main() {
     use fresh_seed::fresh_root;
     use seed::MAINTAINED_VARIATION_ROOT;
 
+    let scope = match ReportScope::from_args() {
+        Ok(scope) => scope,
+        Err(error) => {
+            eprintln!("gameplay-report: {error}");
+            return ExitCode::from(2);
+        }
+    };
     let registries = build_registries();
     std::println!(
         "SIMULATION TIME physical-tick-us={}",
@@ -112,71 +169,95 @@ fn main() {
     );
     let fallback_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
     let fallback_behavior_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245);
-    std::println!(
-        "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
-    );
-    std::println!(
-        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap integrated-anchors=[primitive-progression:single-state-all-samples primitive-liberation:raw-kit-to-native-copper-maintained-anchor] focused-episodes=[survival-provisioning,woodworking,fieldwork,power-provider] reachability-authority=STATUS.md"
-    );
-    run_focused_probe_with_registries(
-        &registries,
-        "survival-provisioning",
-        survival_probe::run_survival_provisioning_probe,
-        true,
-        fallback_variation_root,
-        fallback_behavior_root,
-    );
-    run_focused_probe_with_registries(
-        &registries,
-        "woodworking",
-        woodworking_probe::run_woodworking_probe,
-        true,
-        fallback_variation_root,
-        fallback_behavior_root,
-    );
-    run_focused_probe_with_registries(
-        &registries,
-        "fieldwork",
-        fieldwork_probe::run_fieldwork_probe,
-        true,
-        fallback_variation_root,
-        fallback_behavior_root,
-    );
-    run_focused_probe_with_registries(
-        &registries,
-        "power-provider",
-        power_provider_probe::run_power_provider_probe,
-        true,
-        fallback_variation_root,
-        fallback_behavior_root,
-    );
-    run_focused_probe_with_registries(
-        &registries,
-        "primitive-progression",
-        progression_scope::run_primitive_progression_scope,
-        true,
-        fallback_variation_root,
-        fallback_behavior_root,
-    );
-    std::println!(
-        "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior probes=[industrial-workshop,agency,ore-preparation,foundry] ordinary-reachability=false reachability-authority=STATUS.md"
-    );
-    workshop::run_gameplay_harness(ScenarioPlanMode::Explore);
-    agency::run_exploratory_agency_counterfactuals();
-    run_focused_probe_with_registries(
-        &registries,
-        "ore-preparation",
-        ore_probe::run_ore_preparation_capability_probe,
-        true,
-        fallback_variation_root,
-        fallback_behavior_root,
-    );
-    run_focused_probe_with_registries(
-        &registries,
-        "foundry",
-        foundry_probe::run_foundry_capability_probe,
-        true,
-        fallback_variation_root,
-        fallback_behavior_root,
-    );
+    if scope == ReportScope::All {
+        std::println!(
+            "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
+        );
+        std::println!(
+            "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap integrated-anchors=[primitive-progression:single-state-all-samples primitive-liberation:raw-kit-to-native-copper-maintained-anchor] focused-episodes=[survival-provisioning,woodworking,fieldwork,power-provider] reachability-authority=STATUS.md"
+        );
+    }
+    if scope.includes(ReportScope::Survival) {
+        run_focused_probe_with_registries(
+            &registries,
+            "survival-provisioning",
+            survival_probe::run_survival_provisioning_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    if scope.includes(ReportScope::Woodworking) {
+        run_focused_probe_with_registries(
+            &registries,
+            "woodworking",
+            woodworking_probe::run_woodworking_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    if scope.includes(ReportScope::Fieldwork) {
+        run_focused_probe_with_registries(
+            &registries,
+            "fieldwork",
+            fieldwork_probe::run_fieldwork_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    if scope.includes(ReportScope::PowerProvider) {
+        run_focused_probe_with_registries(
+            &registries,
+            "power-provider",
+            power_provider_probe::run_power_provider_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    if scope.includes(ReportScope::Progression) {
+        run_focused_probe_with_registries(
+            &registries,
+            "primitive-progression",
+            progression_scope::run_primitive_progression_scope,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    if scope == ReportScope::All {
+        std::println!(
+            "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior probes=[industrial-workshop,agency,ore-preparation,foundry] ordinary-reachability=false reachability-authority=STATUS.md"
+        );
+    }
+    if scope.includes(ReportScope::Workshop) {
+        workshop::run_gameplay_harness(ScenarioPlanMode::Explore);
+    }
+    #[cfg(not(test))]
+    if scope.includes(ReportScope::Agency) {
+        agency::run_exploratory_agency_counterfactuals();
+    }
+    if scope.includes(ReportScope::Ore) {
+        run_focused_probe_with_registries(
+            &registries,
+            "ore-preparation",
+            ore_probe::run_ore_preparation_capability_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    if scope.includes(ReportScope::Foundry) {
+        run_focused_probe_with_registries(
+            &registries,
+            "foundry",
+            foundry_probe::run_foundry_capability_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    ExitCode::SUCCESS
 }

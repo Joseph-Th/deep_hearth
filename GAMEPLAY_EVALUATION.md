@@ -193,11 +193,11 @@ exhaustive check establishes that conclusion.
 
 All focused targets use the `test-gameplay` feature contract. Broad gameplay verification uses one consolidated
 `gameplay_audit` target so the shared harness module graph is compiled and linked once; the small focused targets
-remain the repair-loop surfaces. `python ci.py report` is a separate explicit Cargo example so exploratory output
-does not participate in routine test builds.
+remain the repair-loop surfaces. Scoped reports reuse ignored report tests in those focused binaries where
+available; cross-system reporting and workshop/agency exploration remain explicit examples.
 
-Each focused target contains exactly one executable gate/probe. Generator, topology, counterfactual, and other
-cross-cutting contracts stay in the broad contract/audit targets.
+Each focused target contains one routine gate/probe; report-capable roots add one ignored exploratory entry.
+Generator, topology, counterfactual, and other cross-cutting contracts stay in the broad contract/audit targets.
 
 | Scope | Contract |
 | --- | --- |
@@ -246,7 +246,9 @@ aggregate observable contract rather than incidental internal identity.
 `DEEP_HEARTH_GAMEPLAY_SEEDS` selects explicit focused worlds for deliberate replay. Supported CI gameplay
 commands generate fresh variation/behavior roots when none are supplied, while maintained anchors stay fixed and
 the organic sample remains bounded. Direct Cargo execution uses the maintained fallback roots. Failure and success
-summaries must retain replay input.
+summaries must retain replay input. `python ci.py report --variation-seed <u64>` replays a printed physical-world
+root directly; report scopes that consume actor-policy variation also accept `--behavior-seed <u64>`. These flags
+are the validated CLI equivalents of the environment variables and take precedence over ambient values.
 
 `python ci.py report` is the bounded exploration surface. Its default concise view keeps the current player
 fantasy, one measured summary per ordinary probe, current ordinary integration frontiers exposed by those probes,

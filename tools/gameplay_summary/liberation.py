@@ -111,6 +111,11 @@ def _kit_acquisition(lines: list[str]) -> str:
     witnesses = [
         line for line in lines if line.startswith("LIBERATION KIT ACQUISITION ")
     ]
+    routes = [line for line in lines if line.startswith("LIBERATION ROUTE TRADEOFF ")]
+    live_kit_routes = sum(" continuity=live-kit-used" in line for line in routes)
+    preassembled_routes = sum(
+        " continuity=controlled-preassembled-kit" in line for line in routes
+    )
     stone: list[int] = []
     wood: list[int] = []
     total: list[int] = []
@@ -133,7 +138,7 @@ def _kit_acquisition(lines: list[str]) -> str:
             hydration.append(int(body.group(3)))
     return (
         "kit-acquisition=["
-        f"executed:{len(witnesses)} "
+        f"executed:{len(witnesses)} live-routes:{live_kit_routes} preassembled:{preassembled_routes} "
         f"raw:stone-{scaled_span(stone, 1_000_000, 'kg')}"
         f"/wood-{scaled_span(wood, 1_000_000, 'kg')}"
         f"/total-{scaled_span(total, 1_000_000, 'kg')} "
@@ -235,8 +240,9 @@ def _route_tradeoff(lines: list[str]) -> str:
         f"attention-saved:{_span(attention_saved, 't')}/batch "
         f"powered-elapsed:{_span(powered_elapsed, 't')} "
         f"native-gain:{_span(native_gain, 'mg')} "
-        f"evidence-mode=[raw-kit-continuity:{live_kit_routes}/{acquisition_witnesses} "
-        f"exploratory-preassembled:{preassembled_routes}/{preassembled_routes}] "
+        f"evidence-mode=[raw-kit-continuity:{live_kit_routes} "
+        f"acquisition-witnesses:{acquisition_witnesses} "
+        f"controlled-preassembled:{preassembled_routes}] "
         f"disclosed-campaign:{_span(planned_campaigns, 'batches')} "
         f"live-kit-justified:{live_kit_justified}/{live_kit_routes} "
         f"campaign-attention=[manual:{_span(campaign_manual_attention, 't')} "
@@ -251,13 +257,12 @@ def _route_tradeoff(lines: list[str]) -> str:
 
 
 def _kit_decision(lines: list[str]) -> str:
+    routes = [line for line in lines if line.startswith("LIBERATION ROUTE TRADEOFF ")]
     payback_jobs: list[int] = []
     planned_batches: list[int] = []
     selected_kit = 0
     selected_manual = 0
-    for line in lines:
-        if not line.startswith("LIBERATION ROUTE TRADEOFF "):
-            continue
+    for line in routes:
         manual = re.search(r"manual=\[attention:(\d+)t", line)
         powered = re.search(r"powered=\[elapsed:\d+t charge-attention:(\d+)t", line)
         kit = re.search(r"base-kit=\[executed attention:(\d+)t", line)
@@ -284,7 +289,9 @@ def _kit_decision(lines: list[str]) -> str:
         f"attention-payback:{_span(payback_jobs, 'jobs')} "
         f"disclosed-horizon:{_span(planned_batches, 'batches')} "
         f"selected:kit{selected_kit}/manual{selected_manual} "
-        "policy=manual-below-payback;kit-at-or-above]"
+        "policy=manual-below-payback;kit-at-or-above "
+        f"evaluated:{len(payback_jobs)}/{len(routes)} "
+        f"preassembled:{sum(' continuity=controlled-preassembled-kit' in line for line in routes)}]"
     )
 
 

@@ -693,7 +693,7 @@ fn settlement_flywheel_bank_closes_full_batch_comminution_energy_envelope() {
         .energy()
         .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
         .unwrap_or_else(|| panic!("settlement flywheel bank disappeared"));
-    let old_bulk = registries
+    let primitive_bulk_drive = registries
         .energy()
         .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
         .unwrap_or_else(|| panic!("paired primitive flywheel disappeared"));
@@ -759,8 +759,8 @@ fn settlement_flywheel_bank_closes_full_batch_comminution_energy_envelope() {
         crate::energy::calculate_mass_specific_energy(regrind_batch, regrind.specific_energy());
     assert_eq!(worst_case, bank.capacity());
     assert!(
-        old_bulk.capacity() < worst_case,
-        "the settlement bank must close a real ordinary-play capacity gap rather than duplicate the old flywheel"
+        primitive_bulk_drive.capacity() < worst_case,
+        "the settlement bank must close a real ordinary-play capacity gap beyond the primitive paired flywheel"
     );
 }
 

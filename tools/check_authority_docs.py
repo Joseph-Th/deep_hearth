@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 from pathlib import Path
 import re
 import shlex
@@ -388,13 +389,20 @@ def check_source_orientation_maps(documents: dict[str, str]) -> list[str]:
 def documentation_files() -> tuple[str, ...]:
     """Return maintained Markdown documents, excluding generated/build metadata trees."""
 
-    return tuple(
-        sorted(
-            project_relative(path)
-            for path in ROOT.rglob("*.md")
-            if not any(part in IGNORED_DOCUMENTATION_ROOTS for part in path.relative_to(ROOT).parts)
+    documents: list[str] = []
+    for directory, child_directories, files in os.walk(ROOT):
+        child_directories[:] = sorted(
+            child
+            for child in child_directories
+            if child not in IGNORED_DOCUMENTATION_ROOTS
         )
-    )
+        root = Path(directory)
+        documents.extend(
+            project_relative(root / filename)
+            for filename in files
+            if filename.endswith(".md")
+        )
+    return tuple(sorted(documents))
 
 
 def load_aliases() -> set[str]:

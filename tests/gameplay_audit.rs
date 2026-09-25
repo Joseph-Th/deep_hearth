@@ -58,8 +58,8 @@ mod ore_fixture;
 mod ore_setup;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
-#[path = "gameplay_harness/power_provider_policy.rs"]
-mod power_provider_policy;
+#[path = "gameplay_harness/power_provider_probe.rs"]
+mod power_provider_probe;
 #[path = "gameplay_harness/preservation_route.rs"]
 mod preservation_route;
 #[path = "gameplay_harness/primitive_liberation.rs"]
@@ -99,6 +99,8 @@ mod ore_contract_tests;
 mod ore_probe;
 #[path = "gameplay_harness/primitive_liberation_contract_tests.rs"]
 mod primitive_liberation_contract_tests;
+#[path = "gameplay_harness/primitive_workload.rs"]
+mod primitive_workload;
 #[path = "gameplay_harness/process_catalog_contract_tests.rs"]
 mod process_catalog_contract_tests;
 #[path = "gameplay_harness/progression_contract_tests.rs"]
@@ -169,4 +171,17 @@ fn gameplay_foundry_probe() {
 #[test]
 fn gameplay_woodworking_probe() {
     focused_runner::run_focused_probe("woodworking", woodworking_probe::run_woodworking_probe);
+}
+
+#[test]
+fn gameplay_fieldwork_probe() {
+    focused_runner::run_focused_probe("fieldwork", fieldwork_probe::run_fieldwork_probe);
+}
+
+#[test]
+fn gameplay_power_provider_probe() {
+    focused_runner::run_focused_probe(
+        "power-provider",
+        power_provider_probe::run_power_provider_probe,
+    );
 }

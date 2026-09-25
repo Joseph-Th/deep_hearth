@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 import re
 
@@ -56,6 +57,13 @@ def logical_source_lines(source: str) -> list[str]:
             raise ValueError("unterminated Rust attribute in source catalog")
         logical.append(indent + " ".join(parts))
     return logical
+
+
+@lru_cache(maxsize=None)
+def cached_logical_source_lines(path: Path) -> tuple[str, ...]:
+    """Parse one source file once for the lifetime of a discovery process."""
+
+    return tuple(logical_source_lines(cached_file_text(path)))
 
 
 def split_cfg_arguments(expression: str) -> list[str]:
@@ -120,14 +128,19 @@ def attributes_enabled(attributes: list[str], features: set[str]) -> bool:
     return True
 
 
-def file_test_names(path: Path, prefix: tuple[str, ...], features: set[str]) -> list[str]:
+@lru_cache(maxsize=None)
+def _file_test_names(
+    path: Path,
+    prefix: tuple[str, ...],
+    features: frozenset[str],
+) -> tuple[str, ...]:
     """Read direct #[test] declarations from one rustfmt-formatted source module."""
 
     names: list[str] = []
     pending_attributes: list[str] = []
     inline_test_module: str | None = None
 
-    for line in logical_source_lines(cached_file_text(path)):
+    for line in cached_logical_source_lines(path):
         stripped = line.strip()
         if ATTRIBUTE.match(line):
             pending_attributes.append(stripped)
@@ -158,7 +171,13 @@ def file_test_names(path: Path, prefix: tuple[str, ...], features: set[str]) -> 
         if stripped:
             pending_attributes.clear()
 
-    return names
+    return tuple(names)
+
+
+def file_test_names(path: Path, prefix: tuple[str, ...], features: set[str]) -> list[str]:
+    """Return cached direct test declarations for one source module."""
+
+    return list(_file_test_names(path, prefix, frozenset(features)))
 
 
 def explicit_module_source(attributes: list[str]) -> str | None:
@@ -195,15 +214,16 @@ def resolve_external_module_path(
     return candidate
 
 
-def external_modules(
+@lru_cache(maxsize=None)
+def _external_modules(
     project_root: Path,
     path: Path,
-    features: set[str],
-) -> list[tuple[str, Path]]:
+    features: frozenset[str],
+) -> tuple[tuple[str, Path], ...]:
     modules: list[tuple[str, Path]] = []
     pending_attributes: list[str] = []
 
-    for line in logical_source_lines(cached_file_text(path)):
+    for line in cached_logical_source_lines(path):
         stripped = line.strip()
         if line == stripped and ATTRIBUTE.match(line):
             pending_attributes.append(stripped)
@@ -225,14 +245,25 @@ def external_modules(
         if stripped:
             pending_attributes.clear()
 
-    return modules
+    return tuple(modules)
 
 
-def reachable_modules(
+def external_modules(
+    project_root: Path,
+    path: Path,
+    features: set[str],
+) -> list[tuple[str, Path]]:
+    """Return enabled external modules, reusing parsed source across target catalogs."""
+
+    return list(_external_modules(project_root, path, frozenset(features)))
+
+
+@lru_cache(maxsize=None)
+def _reachable_modules(
     project_root: Path,
     root: Path,
-    features: set[str],
-) -> list[tuple[Path, tuple[str, ...]]]:
+    features: frozenset[str],
+) -> tuple[tuple[Path, tuple[str, ...]], ...]:
     """Return one Rust crate's external module closure with stable module prefixes."""
 
     modules: list[tuple[Path, tuple[str, ...]]] = []
@@ -240,14 +271,24 @@ def reachable_modules(
     visited: set[tuple[Path, tuple[str, ...]]] = set()
     while pending:
         path, prefix = pending.pop()
-        key = (path.resolve(), prefix)
+        key = (path, prefix)
         if key in visited:
             continue
         visited.add(key)
         modules.append((path, prefix))
-        for module, module_path in external_modules(project_root, path, features):
+        for module, module_path in _external_modules(project_root, path, features):
             pending.append((module_path, (*prefix, module)))
-    return modules
+    return tuple(modules)
+
+
+def reachable_modules(
+    project_root: Path,
+    root: Path,
+    features: set[str],
+) -> list[tuple[Path, tuple[str, ...]]]:
+    """Return a cached Rust crate/module closure with stable module prefixes."""
+
+    return list(_reachable_modules(project_root, root, frozenset(features)))
 
 
 def root_sibling_imports(
@@ -308,6 +349,15 @@ def root_sibling_imports(
     return required
 
 
+@lru_cache(maxsize=None)
+def _root_sibling_imports_for_file(
+    path: Path,
+    module_depth: int,
+    features: frozenset[str],
+) -> frozenset[str]:
+    return frozenset(root_sibling_imports(cached_file_text(path), module_depth, set(features)))
+
+
 def missing_root_modules(
     project_root: Path,
     crate_root: Path,
@@ -323,7 +373,7 @@ def missing_root_modules(
         if not prefix:
             continue
         required.update(
-            root_sibling_imports(cached_file_text(path), len(prefix), features) & available
+            _root_sibling_imports_for_file(path, len(prefix), frozenset(features)) & available
         )
     return sorted(required - declared)
 

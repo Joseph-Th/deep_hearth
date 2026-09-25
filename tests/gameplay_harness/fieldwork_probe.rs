@@ -27,7 +27,7 @@ use super::manual_craft_planning::{
 use super::manual_craft_selection::{
     first_sufficient_pure_temperature, select_manual_craft_request,
 };
-use super::progression_probe::{STOCKPILE_WORK_ORDER_CYCLES, progression_mining_mass};
+use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
 
 const FIELDWORK_KNOWN_SITE_REPEAT_HORIZON: u64 = 12;
@@ -109,10 +109,27 @@ fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
             "settlement-scale bulk fieldwork project",
         ),
         _ => multiplied_mass(
-            progression_mining_mass(registries, seed),
+            primitive_mining_cycle_mass(registries, seed),
             STOCKPILE_WORK_ORDER_CYCLES,
             "current primitive processing project",
         ),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FieldworkResourceKnowledgeEffect {
+    SameTool,
+    ChangedTool,
+    ChangedFeasibility,
+}
+
+impl FieldworkResourceKnowledgeEffect {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::SameTool => "same-tool",
+            Self::ChangedTool => "changed-tool",
+            Self::ChangedFeasibility => "changed-feasibility",
+        }
     }
 }
 
@@ -175,7 +192,6 @@ fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
     )
 }
 
-#[cfg(not(test))]
 pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCase) {
     let episode = run_fieldwork_order(registries, case, fieldwork_order_for_case(registries, case));
     reviewln!(
@@ -185,7 +201,7 @@ pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCas
         episode
             .full_order_tool
             .map_or_else(|| "none".to_owned(), |tool| tool.value().to_string()),
-        episode.resource_knowledge_effect,
+        episode.resource_knowledge_effect.label(),
         episode.observed_hardness.lower().pascals(),
         episode.observed_hardness.upper().pascals(),
         episode.observed_resource_mass.lower().milligrams(),
@@ -207,7 +223,7 @@ struct FieldworkEpisode {
     observed_resource_mass: ResourceMassEstimate,
     planned_local_mass: Mass,
     full_order_tool: Option<EquipmentDefinitionId>,
-    resource_knowledge_effect: &'static str,
+    resource_knowledge_effect: FieldworkResourceKnowledgeEffect,
     extraction: extraction::FieldworkExtraction,
 }
 
@@ -321,9 +337,11 @@ fn run_fieldwork_with_supply(
         .as_ref()
         .map(|candidate| candidate.tool.target);
     let resource_knowledge_effect = match full_order_estimate.as_ref() {
-        Some(candidate) if candidate.tool.target == estimate.tool.target => "same-tool",
-        Some(_) => "changed-tool",
-        None => "changed-feasibility",
+        Some(candidate) if candidate.tool.target == estimate.tool.target => {
+            FieldworkResourceKnowledgeEffect::SameTool
+        }
+        Some(_) => FieldworkResourceKnowledgeEffect::ChangedTool,
+        None => FieldworkResourceKnowledgeEffect::ChangedFeasibility,
     };
     reviewln!(
         "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-wear-adjusted-local-opportunity,then-native-copper,then-raw-mass,ties-light-first requested={}mg observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} preparation={}t projected-order={}t total={}t authorization=not-yet",
@@ -334,7 +352,7 @@ fn run_fieldwork_with_supply(
         observed_resource_mass.upper().milligrams(),
         planned_local_mass.milligrams(),
         full_order_tool_label,
-        resource_knowledge_effect,
+        resource_knowledge_effect.label(),
         estimate.preparation_ticks,
         estimate.order_ticks,
         estimate.total_ticks()

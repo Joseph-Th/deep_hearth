@@ -23,6 +23,21 @@ pub(super) enum FieldworkStop {
     TargetNoLongerResolved,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FieldworkOrderAdaptation {
+    DirectOrder,
+    BatchLimitedOrder,
+}
+
+impl FieldworkOrderAdaptation {
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::DirectOrder => "preparation-plus-order",
+            Self::BatchLimitedOrder => "preparation-plus-order+batch-limit",
+        }
+    }
+}
+
 impl FieldworkStop {
     pub(super) fn outcome(self) -> &'static str {
         match self {
@@ -50,7 +65,7 @@ pub(super) struct FieldworkExtraction {
     pub(super) condition_before: Condition,
     pub(super) condition_after: Condition,
     pub(super) stop: FieldworkStop,
-    pub(super) adaptation: &'static str,
+    pub(super) adaptation: FieldworkOrderAdaptation,
 }
 
 struct BatchClaim {
@@ -147,9 +162,9 @@ pub(super) fn execute_fieldwork_extraction(
     } = order;
     let first_batch = requested.min(batch_limit);
     let adaptation = if first_batch < requested {
-        "preparation-plus-order+batch-limit"
+        FieldworkOrderAdaptation::BatchLimitedOrder
     } else {
-        "preparation-plus-order"
+        FieldworkOrderAdaptation::DirectOrder
     };
     let start = validate_start_mining(
         registries,

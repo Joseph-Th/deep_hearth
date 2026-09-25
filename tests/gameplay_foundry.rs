@@ -39,7 +39,14 @@ mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 
+#[cfg(test)]
 #[test]
 fn gameplay_foundry_probe() {
     focused_runner::run_focused_probe("foundry", foundry_probe::run_foundry_capability_probe);
+}
+
+#[test]
+#[ignore = "exploratory report; run via python ci.py report --scope foundry"]
+fn gameplay_foundry_report() {
+    focused_runner::run_focused_report("foundry", foundry_probe::run_foundry_capability_probe);
 }

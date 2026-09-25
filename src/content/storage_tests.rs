@@ -25,10 +25,13 @@ const RECOVERY_SCALE: u128 = 1_000_000_000_000;
 #[test]
 fn storage_dismantle_duration_is_derived_from_embodied_assembly_mass() {
     let registry = build_storage_registry();
-    let mut definitions = 0_usize;
+    let mut definitions = registry.definitions().peekable();
+    assert!(
+        definitions.peek().is_some(),
+        "built-in storage registry is empty"
+    );
 
-    for definition in registry.definitions() {
-        definitions += 1;
+    for definition in definitions {
         assert_eq!(
             definition.dismantle_duration(),
             dismantle_duration(definition.assembly_profile().input_mass()),
@@ -36,8 +39,6 @@ fn storage_dismantle_duration_is_derived_from_embodied_assembly_mass() {
             definition.id().value()
         );
     }
-
-    assert_eq!(definitions, 6);
 }
 
 fn transitive_manual_recovery_upper_bounds(

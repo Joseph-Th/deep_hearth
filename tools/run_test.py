@@ -15,8 +15,9 @@ import time
 import tomllib
 
 if __package__:
-    from . import test_catalog
+    from . import replay_seed, test_catalog
 else:
+    import replay_seed
     import test_catalog
 
 
@@ -84,6 +85,17 @@ def cargo_feature_set(target: str, raw: str | None) -> set[str]:
     return expand_local_features(
         declared, requested_target_features(target, raw), include_default=True
     )
+
+
+def enabled_integration_test_targets(raw_features: str | None) -> list[str]:
+    """Return integration tests Cargo would enable under the library feature set."""
+
+    enabled = cargo_feature_set("lib", raw_features)
+    return [
+        definition["name"]
+        for definition in cargo_manifest().get("test", [])
+        if set(definition.get("required-features", [])) <= enabled
+    ]
 
 
 def cargo_test_target_path(target: str) -> Path:
@@ -281,30 +293,55 @@ def executed_test_counts(stdout: str) -> tuple[int, int] | None:
 
 
 def cargo_check_command(args: argparse.Namespace) -> list[str]:
-    """Type-check one integration-test target without code generation or linking."""
+    """Type-check one test crate without code generation or linking."""
 
     if args.list:
         raise ValueError("source catalog listing does not invoke Cargo")
     if args.target is None:
-        raise ValueError("--check requires an explicit integration test target")
+        raise ValueError("--check requires an explicit test target")
+    # Keep check-only test work on the same profile as `cargo test`/gameplay reports. Using
+    # Cargo's default dev profile here creates a second feature/profile cache for the same target.
+    command = ["cargo", "check", "--quiet", "--locked", "--profile", "test"]
     if args.target == "lib":
-        raise ValueError(
-            "lib --check is intentionally unsupported because Cargo's test check selects every "
-            "integration target; run the exact unit test instead"
-        )
-    command = ["cargo", "check", "--quiet", "--locked"]
-    command.extend(("--test", args.target))
+        enabled_targets = enabled_integration_test_targets(args.features)
+        if enabled_targets:
+            raise ValueError(
+                "lib --check would also enable integration targets: "
+                + ", ".join(enabled_targets)
+            )
+        command.extend(("--lib", "--tests"))
+    else:
+        command.extend(("--test", args.target))
     requested_features = requested_target_features(args.target, args.features)
     if requested_features:
         command.extend(("--features", ",".join(sorted(requested_features))))
     return command
 
 
+def cargo_lint_command(args: argparse.Namespace) -> list[str]:
+    """Clippy one integration-test target without widening to all targets."""
+
+    if args.list:
+        raise ValueError("source catalog listing does not invoke Cargo")
+    if args.target is None:
+        raise ValueError("--lint requires an explicit test target")
+    if args.target == "lib":
+        raise ValueError("library lint belongs to `cargo lint-fast`; unit-test Clippy is not a fast lane")
+    command = ["cargo", "clippy", "--quiet", "--locked", "--profile", "test"]
+    command.extend(("--test", args.target))
+    requested_features = requested_target_features(args.target, args.features)
+    if requested_features:
+        command.extend(("--features", ",".join(sorted(requested_features))))
+    command.append("--no-deps")
+    command.extend(("--", "-D", "warnings"))
+    return command
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run one exact cached Rust test or one bounded source-catalog suite, type-check one "
-            "integration target without linking, or inspect the build-free source catalog."
+            "Run one exact cached Rust test or bounded suite, type-check or lint one test crate, "
+            "or inspect the build-free source catalog."
         )
     )
     parser.add_argument(
@@ -320,7 +357,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="type-check one integration test target without linking; lib unit tests execute exactly",
+        help="type-check the library test crate or one integration test target without linking",
+    )
+    parser.add_argument(
+        "--lint",
+        action="store_true",
+        help="Clippy one integration test target without widening to all targets",
     )
     parser.add_argument(
         "--suite",
@@ -350,33 +392,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--variation-seed",
+        type=replay_seed.parse_replay_seed,
         help="replay DEEP_HEARTH_GAMEPLAY_VARIATION_SEED for this test execution",
     )
     parser.add_argument(
         "--behavior-seed",
+        type=replay_seed.parse_replay_seed,
         help="replay DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED for this test execution",
     )
     args = parser.parse_args(argv)
-    if not args.list and not args.check and not args.name:
+    if not args.list and not args.check and not args.lint and not args.name:
         parser.error("a test selector is required for test execution")
-    if args.list and args.check:
-        parser.error("--list and --check are mutually exclusive")
-    if args.suite and (args.list or args.check):
-        parser.error("--suite is an execution mode and cannot be combined with --list or --check")
-    if args.check and args.target is None:
-        parser.error("--check requires an explicit integration test --target")
-    if args.check and args.target == "lib":
-        parser.error(
-            "--check cannot target lib without checking every integration target; run the exact "
-            "unit test instead"
-        )
-    if args.check and args.name:
-        parser.error("--check validates the whole integration target; omit the test selector")
+    if sum((args.list, args.check, args.lint)) > 1:
+        parser.error("--list, --check, and --lint are mutually exclusive")
+    if args.suite and (args.list or args.check or args.lint):
+        parser.error("--suite is an execution mode and cannot be combined with --list/--check/--lint")
+    if (args.check or args.lint) and args.target is None and not args.name:
+        parser.error("--check/--lint require either a source selector or explicit --target")
+    if (args.check or args.lint) and args.target is not None and args.name:
+        parser.error("with explicit --target, --check/--lint validate the whole target; omit NAME")
     if args.suite and args.ignored:
         parser.error("--ignored requires exact execution; use an exact ignored-test selector")
-    if (args.list or args.check) and (args.ignored or args.nocapture or args.verbose):
+    if (args.list or args.check or args.lint) and (args.ignored or args.nocapture or args.verbose):
         parser.error("--ignored, --nocapture, and --verbose apply only to execution modes")
-    if (args.list or args.check) and (args.variation_seed or args.behavior_seed):
+    if (args.list or args.check or args.lint) and (args.variation_seed or args.behavior_seed):
         parser.error("gameplay replay seeds are execution-only options")
     return args
 
@@ -440,6 +479,19 @@ def resolve_automatic_selection(args: argparse.Namespace) -> tuple[str, list[str
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
         report_selection_error(selector, all_source_test_names(args.features), error)
         return None
+
+
+def resolve_automatic_validation_target(args: argparse.Namespace) -> bool:
+    """Resolve check/lint to the smallest target containing the complete selected source suite."""
+
+    selector = args.name
+    assert selector is not None
+    try:
+        args.target = resolve_automatic_suite_target(selector, args.features)
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
+        report_selection_error(selector, all_source_test_names(args.features), error)
+        return False
+    return True
 
 
 def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
@@ -512,6 +564,34 @@ def suite_result_detail(stdout: str) -> str:
     return detail
 
 
+def execution_error(args: argparse.Namespace, stdout: str) -> tuple[str, str] | None:
+    """Return one precise failure and repair command when selected tests did not execute."""
+
+    counts = executed_test_counts(stdout)
+    if counts is not None:
+        passed, ignored = counts
+        if passed > 0:
+            return None
+        if not args.suite and ignored > 0 and not args.ignored:
+            command = ["python", "tools/run_test.py", "--ignored", "--target", args.target]
+            if args.variation_seed:
+                command.extend(("--variation-seed", args.variation_seed))
+            if args.behavior_seed:
+                command.extend(("--behavior-seed", args.behavior_seed))
+            command.append(args.name)
+            return (
+                f"cataloged exact test is ignored: {args.name}",
+                " ".join(command),
+            )
+    if ZERO_TESTS.search(stdout) or counts is not None:
+        mode = "suite" if args.suite else "exact test"
+        return (
+            f"Cargo did not execute cataloged {mode}: {args.name}",
+            f"python tools/run_test.py --list {args.name}",
+        )
+    return None
+
+
 def report_cargo_success(
     args: argparse.Namespace,
     selector: str | None,
@@ -520,6 +600,9 @@ def report_cargo_success(
 ) -> None:
     if args.check:
         print(f"PASS check {args.target} ({elapsed:.1f}s)")
+        return
+    if getattr(args, "lint", False):
+        print(f"PASS lint {args.target} ({elapsed:.1f}s)")
         return
     if not args.check and (args.nocapture or getattr(args, "verbose", False)) and result.stdout.strip():
         print(result.stdout.rstrip())
@@ -534,8 +617,28 @@ def report_cargo_success(
 
 def main() -> int:
     args = parse_args()
+    if (args.check or args.lint) and args.target is None:
+        if not resolve_automatic_validation_target(args):
+            return 2
     if args.check:
-        command = cargo_check_command(args)
+        try:
+            command = cargo_check_command(args)
+        except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
+            print(f"FAIL check selection: {error}", file=sys.stderr)
+            return 2
+        result, elapsed = execute_cargo_command(command)
+        if result.returncode != 0:
+            report_cargo_failure(command, result, elapsed)
+            return result.returncode
+        report_cargo_success(args, None, result, elapsed)
+        return 0
+
+    if args.lint:
+        try:
+            command = cargo_lint_command(args)
+        except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
+            print(f"FAIL lint selection: {error}", file=sys.stderr)
+            return 2
         result, elapsed = execute_cargo_command(command)
         if result.returncode != 0:
             report_cargo_failure(command, result, elapsed)
@@ -576,10 +679,10 @@ def main() -> int:
         report_cargo_failure(command, result, elapsed)
         return result.returncode
 
-    if not args.check and ZERO_TESTS.search(result.stdout):
-        mode = "suite" if args.suite else "exact test"
-        print(f"FAIL Cargo did not execute cataloged {mode}: {args.name}", file=sys.stderr)
-        print(f"catalog: python tools/run_test.py --list {args.name}", file=sys.stderr)
+    if mismatch := execution_error(args, result.stdout):
+        failure, repair = mismatch
+        print(f"FAIL {failure}", file=sys.stderr)
+        print(f"repair: {repair}", file=sys.stderr)
         return 2
 
     report_cargo_success(args, selector, result, elapsed)

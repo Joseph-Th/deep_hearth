@@ -9,7 +9,8 @@ use super::extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
 use super::planning::fieldwork_mining_limits;
 use super::preparation::upgrade_sampling_hammer;
 use super::retooling::{
-    FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, prepare_fieldwork_tool_for_site,
+    FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, FieldworkSiteToolRequest,
+    prepare_fieldwork_tool_for_site,
 };
 use super::review::FieldworkEpisodeReview;
 use super::survey::{FOLLOWUP_CHANNEL_STARTS, FieldworkSurveyStrategy, localize_target};
@@ -85,7 +86,6 @@ struct RecoveryProgress {
     recovered_native: Mass,
     additional_extracted: Mass,
     owned_equipment: Vec<EquipmentId>,
-    current_equipment: EquipmentId,
     current_tool_label: &'static str,
     previous_hardness_tier: u8,
 }
@@ -121,7 +121,6 @@ impl RecoveryProgress {
             recovered_native: Mass::ZERO,
             additional_extracted: Mass::ZERO,
             owned_equipment: vec![review.mining_equipment],
-            current_equipment: review.mining_equipment,
             current_tool_label: review.estimate.tool.label,
             previous_hardness_tier: hardness_tier(
                 review.registries,
@@ -168,10 +167,9 @@ impl RecoveryProgress {
                 .checked_add(tool.preparation_ticks)
                 .unwrap_or_else(|| panic!("fieldwork recovery tool preparation overflowed"));
         }
-        if tool.equipment != self.current_equipment && tool.label != self.current_tool_label {
+        if tool.label != self.current_tool_label {
             self.tool_switches += 1;
         }
-        self.current_equipment = tool.equipment;
         self.current_tool_label = tool.label;
     }
 
@@ -257,16 +255,18 @@ fn recover_site(
     let Some(tool) = prepare_fieldwork_tool_for_site(
         review.registries,
         state,
-        review.raw,
-        review.parts,
-        FieldworkOwnedOreRecovery {
-            ore_source: review.ore_source,
-            crushed_destination: review.recovery_crushed,
-            residue_destination: review.recovery_residue,
-        },
-        &progress.owned_equipment,
-        localization.hardness.upper(),
-        requested,
+        FieldworkSiteToolRequest::new(
+            review.raw,
+            review.parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: review.ore_source,
+                crushed_destination: review.recovery_crushed,
+                residue_destination: review.recovery_residue,
+            },
+            &progress.owned_equipment,
+            localization.hardness.upper(),
+            requested,
+        ),
     ) else {
         progress.blocked_sites += 1;
         return;

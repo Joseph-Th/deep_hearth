@@ -14,7 +14,8 @@ use super::preparation::{
     assemble_fieldwork_tool, assemble_sampling_hammer, upgrade_sampling_hammer,
 };
 use super::retooling::{
-    FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, prepare_fieldwork_tool_for_site,
+    FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, FieldworkSiteToolRequest,
+    prepare_fieldwork_tool_for_site,
 };
 use super::survey::{
     CHANNEL_START_X, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
@@ -55,12 +56,14 @@ fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
     let soft = prepare_fieldwork_tool_for_site(
         &registries,
         &mut world.state,
-        world.raw,
-        world.parts,
-        recovery,
-        &owned,
-        limits.base_quarry_hardness,
-        requested,
+        FieldworkSiteToolRequest::new(
+            world.raw,
+            world.parts,
+            recovery,
+            &owned,
+            limits.base_quarry_hardness,
+            requested,
+        ),
     )
     .unwrap_or_else(|| panic!("owned soft-rock portfolio lost a feasible tool"));
     assert_eq!(soft.equipment, quarry);
@@ -78,12 +81,14 @@ fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
     let hard = prepare_fieldwork_tool_for_site(
         &registries,
         &mut world.state,
-        world.raw,
-        world.parts,
-        recovery,
-        &owned,
-        hard_upper,
-        limits.base_quarry_batch,
+        FieldworkSiteToolRequest::new(
+            world.raw,
+            world.parts,
+            recovery,
+            &owned,
+            hard_upper,
+            limits.base_quarry_batch,
+        ),
     )
     .unwrap_or_else(|| panic!("owned hard-rock portfolio lost its reinforced pick"));
     assert_eq!(hard.equipment, hard_pick);
@@ -128,16 +133,18 @@ fn obsolete_specialization_can_be_salvaged_into_the_new_geology_tool() {
     let choice = prepare_fieldwork_tool_for_site(
         &registries,
         &mut world.state,
-        world.raw,
-        world.parts,
-        FieldworkOwnedOreRecovery {
-            ore_source: world.recovery_residue,
-            crushed_destination: world.recovery_crushed,
-            residue_destination: world.recovery_residue,
-        },
-        &[quarry],
-        hard_upper,
-        requested,
+        FieldworkSiteToolRequest::new(
+            world.raw,
+            world.parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: world.recovery_residue,
+                crushed_destination: world.recovery_crushed,
+                residue_destination: world.recovery_residue,
+            },
+            &[quarry],
+            hard_upper,
+            requested,
+        ),
     )
     .unwrap_or_else(|| panic!("obsolete quarry specialization should fund a hard-rock rebuild"));
 
@@ -224,16 +231,18 @@ fn owned_ore_specialization_can_pay_back_before_the_current_tool_is_blocked() {
     let no_ore_choice = prepare_fieldwork_tool_for_site(
         &registries,
         &mut no_ore_state,
-        world.raw,
-        world.parts,
-        FieldworkOwnedOreRecovery {
-            ore_source: world.recovery_residue,
-            crushed_destination: world.recovery_crushed,
-            residue_destination: world.recovery_residue,
-        },
-        &[hard_pick],
-        medium_hardness,
-        project_order,
+        FieldworkSiteToolRequest::new(
+            world.raw,
+            world.parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: world.recovery_residue,
+                crushed_destination: world.recovery_crushed,
+                residue_destination: world.recovery_residue,
+            },
+            &[hard_pick],
+            medium_hardness,
+            project_order,
+        ),
     )
     .unwrap_or_else(|| {
         panic!("existing reinforced pick must remain a viable medium-hardness route")
@@ -248,16 +257,18 @@ fn owned_ore_specialization_can_pay_back_before_the_current_tool_is_blocked() {
     let choice = prepare_fieldwork_tool_for_site(
         &registries,
         &mut world.state,
-        world.raw,
-        world.parts,
-        FieldworkOwnedOreRecovery {
-            ore_source: world.destination,
-            crushed_destination: world.recovery_crushed,
-            residue_destination: world.recovery_residue,
-        },
-        &[hard_pick],
-        medium_hardness,
-        project_order,
+        FieldworkSiteToolRequest::new(
+            world.raw,
+            world.parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: world.destination,
+                crushed_destination: world.recovery_crushed,
+                residue_destination: world.recovery_residue,
+            },
+            &[hard_pick],
+            medium_hardness,
+            project_order,
+        ),
     )
     .unwrap_or_else(|| panic!("owned ore should fund the faster medium-hardness specialization"));
 
@@ -363,16 +374,18 @@ fn owned_ore_can_fund_a_harder_site_tool_after_relocation() {
     let choice = prepare_fieldwork_tool_for_site(
         &registries,
         &mut world.state,
-        world.raw,
-        world.parts,
-        FieldworkOwnedOreRecovery {
-            ore_source: world.destination,
-            crushed_destination: world.recovery_crushed,
-            residue_destination: world.recovery_residue,
-        },
-        &[initial_tool],
-        secondary.hardness.upper(),
-        secondary_order,
+        FieldworkSiteToolRequest::new(
+            world.raw,
+            world.parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: world.destination,
+                crushed_destination: world.recovery_crushed,
+                residue_destination: world.recovery_residue,
+            },
+            &[initial_tool],
+            secondary.hardness.upper(),
+            secondary_order,
+        ),
     )
     .unwrap_or_else(|| panic!("owned primary ore failed to fund harder-site adaptation"));
 

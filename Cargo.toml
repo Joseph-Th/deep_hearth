@@ -22,6 +22,13 @@ required-features = ["test-shader-validation"]
 name = "gameplay-report"
 path = "tests/gameplay_report.rs"
 required-features = ["test-gameplay"]
+test = false
+
+[[example]]
+name = "gameplay-workshop-report"
+path = "tests/gameplay_workshop_report.rs"
+required-features = ["test-gameplay"]
+test = false
 
 [[test]]
 name = "gameplay_contracts"
@@ -46,6 +53,21 @@ required-features = ["test-gameplay"]
 [[test]]
 name = "gameplay_progression"
 path = "tests/gameplay_progression.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_woodworking"
+path = "tests/gameplay_woodworking.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_fieldwork"
+path = "tests/gameplay_fieldwork.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_power"
+path = "tests/gameplay_power.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
@@ -85,8 +107,8 @@ wildcard_enum_match_arm = "deny"
 
 [profile.test]
 # Test failures already carry source locations and typed assertion context; omitting debug symbols
-# keeps local test-binary codegen/linking out of the ordinary feedback bottleneck. Maximum
-# codegen units and incremental compilation keep small-edit rebuilds on the fast path.
+# keeps local test-binary codegen/linking out of the ordinary feedback bottleneck. High codegen
+# parallelism and incremental compilation keep small-edit rebuilds on the fast path.
 debug = 0
 codegen-units = 256
 incremental = true

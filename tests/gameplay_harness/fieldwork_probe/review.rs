@@ -17,7 +17,6 @@ use deep_hearth::spatial::VoxelBounds;
 use super::super::focused_runner::focused_probe_role_label;
 use super::super::focused_seeds::FocusedProbeCase;
 use super::super::physical_time::format_physical_duration;
-use super::FieldworkEpisode;
 use super::campaign::FieldworkSurveyCampaignReview;
 use super::extraction::{
     FieldworkExtraction, FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction,
@@ -25,11 +24,13 @@ use super::extraction::{
 use super::planning::FieldworkToolEstimate;
 use super::recovery::execute_initial_shortfall_recovery;
 use super::retooling::{
-    FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, prepare_fieldwork_tool_for_site,
+    FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, FieldworkSiteToolRequest,
+    prepare_fieldwork_tool_for_site,
 };
 use super::survey::{
     CHANNEL_COUNT, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
 };
+use super::{FieldworkEpisode, FieldworkResourceKnowledgeEffect};
 
 pub(super) struct FieldworkEpisodeReview<'a> {
     pub(super) registries: &'a Registries,
@@ -63,7 +64,7 @@ pub(super) struct FieldworkEpisodeReview<'a> {
     pub(super) planned_local_mass: Mass,
     pub(super) full_order_tool: Option<EquipmentDefinitionId>,
     pub(super) full_order_tool_label: &'static str,
-    pub(super) resource_knowledge_effect: &'static str,
+    pub(super) resource_knowledge_effect: FieldworkResourceKnowledgeEffect,
     pub(super) geology_label: &'static str,
     pub(super) copper_rich: bool,
     pub(super) starting_native_copper: Mass,
@@ -233,16 +234,18 @@ fn execute_site_reroute(
     let Some(tool) = prepare_fieldwork_tool_for_site(
         review.registries,
         &mut state,
-        review.raw,
-        review.parts,
-        FieldworkOwnedOreRecovery {
-            ore_source: review.ore_source,
-            crushed_destination: review.recovery_crushed,
-            residue_destination: review.recovery_residue,
-        },
-        &[review.mining_equipment],
-        localization.hardness.upper(),
-        requested,
+        FieldworkSiteToolRequest::new(
+            review.raw,
+            review.parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: review.ore_source,
+                crushed_destination: review.recovery_crushed,
+                residue_destination: review.recovery_residue,
+            },
+            &[review.mining_equipment],
+            localization.hardness.upper(),
+            requested,
+        ),
     ) else {
         validate_loaded_state(review.registries, &state)
             .unwrap_or_else(|error| panic!("blocked fieldwork reroute state invalid: {error}"));
@@ -624,10 +627,10 @@ pub(super) fn finalize_fieldwork_episode(review: FieldworkEpisodeReview<'_>) -> 
         review.observed_resource_mass.upper().milligrams(),
         review.planned_local_mass.milligrams(),
         review.full_order_tool_label,
-        review.resource_knowledge_effect,
+        review.resource_knowledge_effect.label(),
         review.geology_label,
         review.estimate.tool.label,
-        extraction.adaptation,
+        extraction.adaptation.label(),
         review.sampling_setup_ticks,
         format_physical_duration(review.registries, review.sampling_setup_ticks),
         review.tool_prep_ticks,

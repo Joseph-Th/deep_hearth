@@ -39,9 +39,19 @@ mod structural_fixture;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 
+#[cfg(test)]
 #[test]
 fn gameplay_ore_preparation_probe() {
     focused_runner::run_focused_probe(
+        "ore-preparation",
+        ore_probe::run_ore_preparation_capability_probe,
+    );
+}
+
+#[test]
+#[ignore = "exploratory report; run via python ci.py report --scope ore"]
+fn gameplay_ore_preparation_report() {
+    focused_runner::run_focused_report(
         "ore-preparation",
         ore_probe::run_ore_preparation_capability_probe,
     );

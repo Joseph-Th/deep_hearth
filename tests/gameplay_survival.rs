@@ -35,9 +35,19 @@ mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 
+#[cfg(test)]
 #[test]
 fn gameplay_survival_provisioning_probe() {
     focused_runner::run_focused_probe(
+        "survival-provisioning",
+        survival_probe::run_survival_provisioning_probe,
+    );
+}
+
+#[test]
+#[ignore = "exploratory report; run via python ci.py report --scope survival"]
+fn gameplay_survival_provisioning_report() {
+    focused_runner::run_focused_report(
         "survival-provisioning",
         survival_probe::run_survival_provisioning_probe,
     );

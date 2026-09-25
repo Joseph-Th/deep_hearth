@@ -16,7 +16,7 @@ pub(super) const PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED: u64 = 4;
 pub(super) const ORE_FINITE_ENERGY_COVERAGE_SEED: u64 = 2;
 pub(super) const FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED: u64 = 2;
 #[cfg(test)]
-use super::seed::MAINTAINED_VARIATION_ROOT;
+use super::seed::{MAINTAINED_VARIATION_ROOT, mix64};
 
 pub(super) const fn focused_probe_role_label(role: FocusedProbeRole) -> &'static str {
     match role {
@@ -117,6 +117,33 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeC
         variation_root,
         behavior_root,
     );
+}
+
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "broad gameplay audit shares runner but focused report tests live in owner targets"
+)]
+pub(super) fn run_focused_report(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
+    crate::output::set_review_output(true);
+    let registries = build_registries();
+    std::println!(
+        "SIMULATION TIME physical-tick-us={}",
+        registries.core().physical_tick_duration().microseconds()
+    );
+    let (_maintained_seed, _coverage, salt) = probe_seed_spec(name);
+    let variation_root = mix64(MAINTAINED_VARIATION_ROOT ^ salt ^ 0x5245_504F_5254_5F57);
+    let behavior_root =
+        mix64(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x5245_504F_5254_5F42);
+    run_focused_probe_with_registries(
+        &registries,
+        name,
+        probe,
+        true,
+        variation_root,
+        behavior_root,
+    );
+    crate::output::set_review_output(false);
 }
 
 pub(super) fn run_focused_probe_with_registries(

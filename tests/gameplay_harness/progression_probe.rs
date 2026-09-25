@@ -18,6 +18,7 @@ use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
+use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
@@ -80,8 +81,6 @@ use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 24;
-// A finite stockpiling work order, independent of measured overlap or hidden reserve.
-pub(super) const STOCKPILE_WORK_ORDER_CYCLES: u64 = 12;
 const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
 pub(super) const SHALLOW_OPPORTUNITY_MIN_BATCHES: u64 = 6;
 pub(super) const SHALLOW_OPPORTUNITY_MAX_BATCHES: u64 = 40;
@@ -415,7 +414,6 @@ use preparation::*;
 
 #[path = "progression_probe/fieldwork.rs"]
 mod fieldwork;
-pub(super) use fieldwork::progression_mining_mass;
 use fieldwork::*;
 
 #[path = "progression_probe/mechanization.rs"]

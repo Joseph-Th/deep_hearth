@@ -9,6 +9,7 @@ import io
 from pathlib import Path
 import re
 import sys
+import tempfile
 import tomllib
 import unittest
 from unittest import mock
@@ -21,6 +22,7 @@ import ci  # noqa: E402
 from tools import (  # noqa: E402
     check_authority_docs,
     check_bca,
+    check_format,
     gameplay_report_summary,
     run_test,
     rust_diagnostics,
@@ -170,7 +172,7 @@ def deserialized_named_structs(
             continue
 
         fields, next_index = named_struct_fields(lines, index)
-        if re.search(r"Deserialize", attributes):
+        if re.search(r"\bDeserialize\b", attributes):
             structures.append((index + 1, match.group(1), attributes, fields))
         index = next_index
 
@@ -196,6 +198,37 @@ class LocalCiPlanTests(unittest.TestCase):
                 "crate::survival",
             ],
         )
+
+    def test_targeted_lint_infers_required_features_without_widening_targets(self) -> None:
+        args = run_test.parse_args(
+            ["--lint", "--target", ci.GAMEPLAY_TARGETS["fieldwork"]]
+        )
+        self.assertEqual(
+            run_test.cargo_lint_command(args),
+            [
+                "cargo",
+                "clippy",
+                "--quiet",
+                "--locked",
+                "--profile",
+                "test",
+                "--test",
+                ci.GAMEPLAY_TARGETS["fieldwork"],
+                "--features",
+                "test-gameplay",
+                "--no-deps",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            run_test.parse_args(["--lint"])
+
+    def test_targeted_lint_rejects_the_slow_library_test_graph(self) -> None:
+        args = run_test.parse_args(["--lint", "--target", "lib"])
+        with self.assertRaisesRegex(ValueError, "cargo lint-fast"):
+            run_test.cargo_lint_command(args)
 
     def test_rust_diagnostics_orphans_include_test_linkage_only_when_requested(self) -> None:
         args = rust_diagnostics.parse_args(["modules", "orphans", "--tests"])
@@ -334,6 +367,31 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_quick_lane_is_build_free(self) -> None:
         self.assertEqual(cargo_build_commands(ci.quick_plan()), [])
+
+    def test_quick_lane_formats_only_changed_rust(self) -> None:
+        self.assertIn(
+            ("format changed Rust", [sys.executable, "tools/check_format.py"]),
+            ci.quick_plan(),
+        )
+        self.assertNotIn(("format", ["cargo", "fmt", "--check"]), ci.quick_plan())
+
+    def test_changed_format_command_is_explicit_and_does_not_walk_child_modules(self) -> None:
+        paths = [ROOT / "src" / "lib.rs", ROOT / "tests" / "gameplay_survival.rs"]
+        command = check_format.changed_format_command(paths)
+        self.assertEqual(command[:4], ["rustfmt", "--edition", "2024", "--check"])
+        self.assertIn(["--color", "never"], [command[index:index + 2] for index in range(len(command) - 1)])
+        self.assertIn("skip_children=true", command)
+        self.assertEqual(
+            command[-2:],
+            [str(Path("src/lib.rs")), str(Path("tests/gameplay_survival.rs"))],
+        )
+
+    def test_formatter_policy_change_escalates_to_full_format_validation(self) -> None:
+        self.assertTrue(check_format.formatting_policy_changed(["rustfmt.toml"]))
+        self.assertTrue(check_format.formatting_policy_changed([".rustfmt.toml"]))
+        self.assertFalse(
+            check_format.formatting_policy_changed(["Cargo.toml", "src/lib.rs"])
+        )
 
     def test_quick_lane_runs_python_contracts_as_an_importable_module(self) -> None:
         self.assertIn(
@@ -764,14 +822,14 @@ class LocalCiPlanTests(unittest.TestCase):
         # Fresh organic sampling is report-only and prints its root before
         # execution, so it stays replayable; routine gates never compile it.
         allowed = {
-            (ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs").resolve(),
+            ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs",
         }
         offenders = [
             path.relative_to(ROOT).as_posix()
             for path in maintained_rust_files(
                 ROOT / "src", ROOT / "tests" / "gameplay_harness"
             )
-            if path.resolve() not in allowed
+            if path not in allowed
             if forbidden.search(read_maintained_text(path))
         ]
         self.assertEqual(offenders, [])
@@ -885,10 +943,19 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_deserialized_structs_deny_unknown_fields(self) -> None:
-        offenders = [
-            f"{path.relative_to(ROOT).as_posix()}:{line}:{name}"
+        structures = [
+            (path, line, name, attributes)
             for path in maintained_rust_files(ROOT / "src")
             for line, name, attributes, _fields in deserialized_named_structs(path)
+        ]
+        self.assertGreater(
+            len(structures),
+            0,
+            "Deserialize scanner must find maintained state before enforcing serde policy",
+        )
+        offenders = [
+            f"{path.relative_to(ROOT).as_posix()}:{line}:{name}"
+            for path, line, name, attributes in structures
             if "serde(deny_unknown_fields)" not in attributes
         ]
         self.assertEqual(offenders, [])
@@ -986,6 +1053,31 @@ class LocalCiPlanTests(unittest.TestCase):
             [("compile", ["cargo", "check-fast"])],
         )
 
+    def test_local_test_profile_keeps_fast_relink_settings_explicit(self) -> None:
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        profile = manifest["profile"]["test"]
+        self.assertEqual(profile.get("debug"), 0)
+        self.assertGreaterEqual(profile.get("codegen-units", 0), 128)
+        self.assertIs(profile.get("incremental"), True)
+
+        cargo_config = tomllib.loads(
+            (ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            cargo_config["target"]["x86_64-pc-windows-msvc"].get("linker"),
+            "lld-link.exe",
+        )
+
+    def test_gameplay_report_examples_are_executable_only(self) -> None:
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        examples = {
+            definition["name"]: definition for definition in manifest.get("example", [])
+        }
+        report_examples = {ci.GAMEPLAY_REPORT_EXAMPLE, *ci.FOCUSED_REPORT_EXAMPLES.values()}
+        self.assertTrue(report_examples)
+        for name in report_examples:
+            self.assertIs(examples[name].get("test"), False)
+
     def test_gate_does_not_repeat_build_free_quick_checks(self) -> None:
         for args in (
             gate_args(),
@@ -1062,6 +1154,9 @@ class LocalCiPlanTests(unittest.TestCase):
             "workshop": "workshop",
             "survival": "survival_probe",
             "progression": "progression_probe",
+            "woodworking": "woodworking_probe",
+            "fieldwork": "fieldwork_probe",
+            "power-provider": "power_provider_probe",
             "ore": "ore_probe",
             "foundry": "foundry_probe",
         }
@@ -1086,27 +1181,52 @@ class LocalCiPlanTests(unittest.TestCase):
                 )
 
     def test_routine_gameplay_targets_do_not_compile_fresh_seed_generation(self) -> None:
-        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
-        target_paths = {
-            definition["name"]: ROOT / definition["path"]
-            for definition in manifest.get("test", [])
-        }
+        fresh_seed = (ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs").resolve()
         for target in (*ci.GAMEPLAY_TARGETS.values(), ci.GAMEPLAY_AUDIT_TARGET):
-            source = target_paths[target].read_text(encoding="utf-8")
+            root = run_test.cargo_test_target_path(target)
+            features = run_test.cargo_feature_set(target, None)
+            reachable = {
+                path.resolve()
+                for path, _prefix in run_test.test_catalog.reachable_modules(
+                    ROOT, root, features
+                )
+            }
             self.assertNotIn(
-                "gameplay_harness/fresh_seed.rs",
-                source,
+                fresh_seed,
+                reachable,
                 f"routine gameplay target {target} must leave fresh organic sampling to the report",
             )
         report = ROOT / "tests" / "gameplay_report.rs"
         self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
 
-    def test_each_focused_gameplay_target_compiles_only_its_gate(self) -> None:
+    def test_each_focused_gameplay_target_compiles_only_owner_local_tests(self) -> None:
+        probe_modules = {
+            "workshop": "workshop",
+            "survival": "survival_probe",
+            "progression": "progression_probe",
+            "woodworking": "woodworking_probe",
+            "fieldwork": "fieldwork_probe",
+            "power-provider": "power_provider_probe",
+            "ore": "ore_probe",
+            "foundry": "foundry_probe",
+        }
         for scope, target in ci.GAMEPLAY_TARGETS.items():
+            tests = run_test.source_test_catalog(target, None)
+            gate = ci.GAMEPLAY_TESTS[scope]
+            self.assertIn(gate, tests)
+            allowed_root_tests = {gate}
+            if report_test := ci.FOCUSED_REPORT_TESTS.get(scope):
+                allowed_root_tests.add(report_test)
+            unrelated = [
+                name
+                for name in tests
+                if name not in allowed_root_tests
+                and not name.startswith(f"{probe_modules[scope]}::")
+            ]
             self.assertEqual(
-                run_test.source_test_catalog(target, None),
-                [ci.GAMEPLAY_TESTS[scope]],
-                f"focused gameplay target {scope} must not code-generate unrelated tests",
+                unrelated,
+                [],
+                f"focused gameplay target {scope} must not compile unrelated tests",
             )
 
     def test_gameplay_replay_summary_is_compact_for_focused_and_workshop_runs(self) -> None:
@@ -1245,6 +1365,32 @@ class LocalCiPlanTests(unittest.TestCase):
             "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
         )
 
+    def test_failed_stage_prints_one_narrow_action_when_repair_is_known(self) -> None:
+        command = ci.gameplay_command("ore")
+        output = "failures:\n    gameplay_ore_preparation_probe\n"
+        error = "error: test failed, to rerun pass `--test gameplay_ore`"
+        result = ci.subprocess.CompletedProcess(command, 1, output, error)
+        with (
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.assertIsNone(
+                ci.report_stage(
+                    1,
+                    1,
+                    "gameplay ore",
+                    command,
+                    (result, 0.25, None),
+                    announced=True,
+                )
+            )
+        self.assertEqual(stdout.getvalue(), "FAIL (0.2s)\n")
+        self.assertIn(
+            "repair: python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe\n",
+            stderr.getvalue(),
+        )
+        self.assertNotIn("reproduce:", stderr.getvalue())
+
     def test_broad_focused_failure_stays_on_the_warm_audit_target(self) -> None:
         output = (
             "PROBE INPUT name=ore-preparation mode=gate samples=3 organic=1 "
@@ -1319,8 +1465,8 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(
             run_test.gameplay_replay_environment(args),
             {
-                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
-                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
             },
         )
 
@@ -1358,14 +1504,28 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", command)
         self.assertIn(ci.GAMEPLAY_TARGETS["ore"], command)
 
-    def test_library_check_refuses_cargos_broad_all_test_graph(self) -> None:
-        args = argparse.Namespace(
-            target="lib",
-            features=None,
-            list=False,
-            suite=False,
+    def test_library_check_type_checks_unit_test_code_without_linking(self) -> None:
+        args = run_test.parse_args(["--check", "--target", "lib"])
+        self.assertEqual(run_test.enabled_integration_test_targets(None), [])
+        self.assertEqual(
+            run_test.cargo_check_command(args),
+            [
+                "cargo",
+                "check",
+                "--quiet",
+                "--locked",
+                "--profile",
+                "test",
+                "--lib",
+                "--tests",
+            ],
         )
-        with self.assertRaisesRegex(ValueError, "every integration target"):
+
+    def test_library_check_fails_closed_if_features_enable_integration_tests(self) -> None:
+        args = run_test.parse_args(
+            ["--check", "--target", "lib", "--features", "test-gameplay"]
+        )
+        with self.assertRaisesRegex(ValueError, ci.GAMEPLAY_CONTRACTS_TARGET):
             run_test.cargo_check_command(args)
 
     def test_integration_check_command_infers_required_features_without_linking(self) -> None:
@@ -1382,12 +1542,80 @@ class LocalCiPlanTests(unittest.TestCase):
                 "check",
                 "--quiet",
                 "--locked",
+                "--profile",
+                "test",
                 "--test",
                 ci.GAMEPLAY_CONTRACTS_TARGET,
                 "--features",
                 "test-gameplay",
             ],
         )
+
+    def test_focused_report_uses_the_smallest_declared_report_target(self) -> None:
+        for scope in (*ci.GAMEPLAY_TESTS, "agency"):
+            with self.subTest(scope=scope):
+                plan = ci.report_plan(scope)
+                self.assertEqual(plan[0][0], f"gameplay report {scope}")
+                report_test = ci.FOCUSED_REPORT_TESTS.get(scope)
+                if report_test is not None:
+                    target = ci.GAMEPLAY_TARGETS[scope]
+                    self.assertIn(report_test, run_test.source_test_catalog(target, None))
+                    self.assertEqual(
+                        plan[0][1],
+                        ci.gameplay_targets_command(
+                            (target,),
+                            test_filter=report_test,
+                            nocapture=True,
+                            ignored=True,
+                        ),
+                    )
+                else:
+                    dedicated = ci.FOCUSED_REPORT_EXAMPLES.get(scope)
+                    self.assertIsNotNone(dedicated)
+                    self.assertEqual(
+                        plan[0][1],
+                        ci.gameplay_report_example_command(
+                            dedicated,
+                            ci.FOCUSED_REPORT_ARGUMENTS.get(scope, ()),
+                        ),
+                    )
+
+        args = ci.parse_args(["report", "--scope", "fieldwork"])
+        self.assertEqual(args.scope, "fieldwork")
+        self.assertEqual(ci.plan_for(args), ci.report_plan("fieldwork"))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            ci.parse_args(["quick", "--scope", "fieldwork"])
+
+    def test_report_replay_seed_cli_validates_and_normalizes_before_building(self) -> None:
+        args = ci.parse_args(
+            [
+                "report",
+                "--scope",
+                "woodworking",
+                "--variation-seed",
+                "42",
+                "--behavior-seed",
+                "0x2a",
+            ]
+        )
+        self.assertEqual(args.variation_seed, "0x000000000000002A")
+        self.assertEqual(args.behavior_seed, "0x000000000000002A")
+
+        invalid = ("-1", "0x", "0xGG", "1_000", "18446744073709551616")
+        for seed in invalid:
+            with self.subTest(seed=seed):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    ci.parse_args(["report", "--variation-seed", seed])
+
+    def test_report_rejects_behavior_seed_for_scope_that_does_not_use_policy_variation(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            ci.parse_args(
+                ["report", "--scope", "fieldwork", "--behavior-seed", "0x1234"]
+            )
+
+    def test_report_seed_flags_are_report_only(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            ci.parse_args(["quick", "--variation-seed", "0x1234"])
 
     def test_check_mode_is_target_only_and_needs_no_test_selector(self) -> None:
         args = run_test.parse_args(["--check", "--target", ci.GAMEPLAY_AUDIT_TARGET])
@@ -1406,6 +1634,20 @@ class LocalCiPlanTests(unittest.TestCase):
                         "gameplay_ore_preparation_probe",
                     ]
                 )
+
+    def test_check_mode_accepts_selector_for_build_free_target_resolution(self) -> None:
+        args = run_test.parse_args(["--check", "gameplay_fieldwork_probe"])
+        self.assertTrue(args.check)
+        self.assertIsNone(args.target)
+        self.assertTrue(run_test.resolve_automatic_validation_target(args))
+        self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
+
+    def test_lint_mode_accepts_selector_for_build_free_target_resolution(self) -> None:
+        args = run_test.parse_args(["--lint", "gameplay_fieldwork_probe"])
+        self.assertTrue(args.lint)
+        self.assertIsNone(args.target)
+        self.assertTrue(run_test.resolve_automatic_validation_target(args))
+        self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
 
     def test_run_test_failure_output_is_bounded(self) -> None:
         lines = [f"line-{index}" for index in range(100)]
@@ -1445,26 +1687,90 @@ class LocalCiPlanTests(unittest.TestCase):
             ],
         )
 
-    def test_gameplay_replay_environment_is_fresh_by_default_and_preserves_explicit_roots(self) -> None:
+    def test_report_replay_environment_prefers_cli_roots_and_only_fills_missing_values(self) -> None:
+        fresh = ci.parse_args(["report", "--scope", "woodworking"])
         generated: dict[str, str] = {}
-        rolls = iter((0x1234, 0x5678))
-        variation, behavior = ci.configure_gameplay_replay_environment(
-            generated, randbits=lambda _bits: next(rolls)
+        fresh_rolls = iter((0x1234, 0x5678))
+        self.assertEqual(
+            ci.configure_report_replay_environment(
+                fresh, generated, randbits=lambda _bits: next(fresh_rolls)
+            ),
+            ("0x0000000000001234", "0x0000000000005678"),
         )
-        self.assertEqual(variation, "0x0000000000001234")
-        self.assertEqual(behavior, "0x0000000000005678")
-        self.assertEqual(generated["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"], variation)
-        self.assertEqual(generated["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"], behavior)
 
-        explicit = {
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAA",
-            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBB",
+        args = ci.parse_args(
+            ["report", "--scope", "woodworking", "--variation-seed", "0x2A"]
+        )
+        environment = {
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xOLD",
+        }
+        rolls = iter((0x55,))
+        self.assertEqual(
+            ci.configure_report_replay_environment(
+                args, environment, randbits=lambda _bits: next(rolls)
+            ),
+            ("0x000000000000002A", "0x0000000000000055"),
+        )
+        self.assertEqual(
+            environment["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"],
+            "0x000000000000002A",
+        )
+
+        explicit = ci.parse_args(
+            [
+                "report",
+                "--scope",
+                "woodworking",
+                "--variation-seed",
+                "1",
+                "--behavior-seed",
+                "2",
+            ]
+        )
+        explicit_environment = {
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
         }
         self.assertEqual(
-            ci.configure_gameplay_replay_environment(
-                explicit, randbits=lambda _bits: self.fail("explicit replay roots must not consume entropy")
+            ci.configure_report_replay_environment(
+                explicit,
+                explicit_environment,
+                randbits=lambda _bits: self.fail("explicit CLI roots must not consume entropy"),
             ),
-            ("0xAA", "0xBB"),
+            ("0x0000000000000001", "0x0000000000000002"),
+        )
+
+        ambient = ci.parse_args(["report", "--scope", "woodworking"])
+        ambient_environment = {
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "42",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2a",
+        }
+        self.assertEqual(
+            ci.configure_report_replay_environment(
+                ambient,
+                ambient_environment,
+                randbits=lambda _bits: self.fail("valid ambient roots must not consume entropy"),
+            ),
+            ("0x000000000000002A", "0x000000000000002A"),
+        )
+
+        invalid_environment = {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "not-a-seed"}
+        with self.assertRaisesRegex(ValueError, "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"):
+            ci.configure_report_replay_environment(
+                ambient,
+                invalid_environment,
+                randbits=lambda _bits: self.fail("invalid ambient input must fail before entropy"),
+            )
+
+        fieldwork = ci.parse_args(["report", "--scope", "fieldwork"])
+        fieldwork_environment = {"DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ignored-garbage"}
+        self.assertEqual(
+            ci.configure_report_replay_environment(
+                fieldwork,
+                fieldwork_environment,
+                randbits=lambda _bits: 0x99,
+            ),
+            ("0x0000000000000099", "unused"),
         )
 
     def test_fresh_gameplay_variation_is_report_only(self) -> None:
@@ -1504,7 +1810,7 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_report_cli_preserves_large_success_evidence_but_bounds_failures(self) -> None:
         opening = "PLAYER FANTASY scope=current-ordinary fixture=opening"
         replay = (
-            "PROBE INPUT name=survival-provisioning mode=explore samples=2 organic=1 "
+            "PROBE INPUT name=transport-fixture mode=explore samples=2 organic=1 "
             "world_root=0x111 behavior_root=0x222 replay=anchor:0xA@0x1,organic:0xB@0x2"
         )
         ending = "EVIDENCE CONTRACT fixture=report-end"
@@ -1545,14 +1851,15 @@ class LocalCiPlanTests(unittest.TestCase):
                         self.assertEqual(stderr.getvalue(), "")
                         self.assertIn("roots=0x111/0x222", stdout.getvalue())
                         # Compare the entire body, not only markers that a head/tail limiter keeps.
-                        body = "\n".join(stdout.getvalue().splitlines()[2:-1]) + "\n"
+                        body = "\n".join(stdout.getvalue().splitlines()[1:]) + "\n"
                         if mode is not None:
                             self.assertEqual(body, transcript)
                         else:
                             self.assertEqual(body, "\n")
                             self.assertNotIn(opening, stdout.getvalue())
                             self.assertNotIn(ending, stdout.getvalue())
-                        self.assertIn("PASS total", stdout.getvalue())
+                        self.assertNotIn("local-ci report:", stdout.getvalue())
+                        self.assertNotIn("PASS total", stdout.getvalue())
                     else:
                         self.assertNotIn(opening, stdout.getvalue())
                         bounded = "\n".join([
@@ -1562,7 +1869,8 @@ class LocalCiPlanTests(unittest.TestCase):
                         ])
                         self.assertEqual(
                             stderr.getvalue(),
-                            f"reproduce: {' '.join(command)}\n{bounded}\n{bounded}\n",
+                            "repair: python ci.py report --variation-seed 0x111 "
+                            f"--behavior-seed 0x222\n{bounded}\n{bounded}\n",
                         )
                         self.assertNotIn("PASS total", stdout.getvalue())
 
@@ -1689,7 +1997,11 @@ class LocalCiPlanTests(unittest.TestCase):
         output = "\n".join(lines)
         concise = gameplay_report_summary.concise_gameplay_report(output, {})
         concise_lines = concise.splitlines()
-        self.assertEqual(len(concise_lines), 12)
+        self.assertLessEqual(
+            len(concise_lines),
+            16,
+            "default gameplay digest must stay reviewable without pinning its exact section count",
+        )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
         self.assertLess(len(concise.encode()), 6_000)
         for prefix in (
@@ -1735,7 +2047,11 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "kit-decision=[attention-payback:8..8jobs disclosed-horizon:8..8batches selected:kit1/manual0 policy=manual-below-payback;kit-at-or-above]",
+            "kit-decision=[attention-payback:8..8jobs disclosed-horizon:8..8batches selected:kit1/manual0 policy=manual-below-payback;kit-at-or-above evaluated:1/1 preassembled:0]",
+            concise,
+        )
+        self.assertIn(
+            "kit-acquisition=[executed:1 live-routes:1 preassembled:0",
             concise,
         )
         self.assertIn("choice=[saw:0 adze:0 bare:1]", concise)
@@ -1764,6 +2080,82 @@ class LocalCiPlanTests(unittest.TestCase):
                 output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}
             ),
             output,
+        )
+
+    def test_scoped_gameplay_report_omits_cross_system_loop_digest(self) -> None:
+        with (
+            mock.patch.object(
+                gameplay_report_summary,
+                "ordinary_gameplay_summary",
+                return_value=["ORDINARY SUMMARY probe=fieldwork samples=1"],
+            ),
+            mock.patch.object(
+                gameplay_report_summary,
+                "player_loop_evidence",
+                return_value="PLAYER LOOP EVIDENCE observe-infer=[partial:true]",
+            ) as loop_evidence,
+        ):
+            concise = gameplay_report_summary.concise_gameplay_report(
+                "SIMULATION TIME physical-tick-us=3600000",
+                {},
+            )
+
+        self.assertIn("GAMEPLAY probe=fieldwork samples=1", concise)
+        self.assertNotIn("GAMEPLAY loop ", concise)
+        loop_evidence.assert_not_called()
+
+    def test_concise_report_rejects_missing_executed_probe_summary(self) -> None:
+        transcript = (
+            "PROBE INPUT name=fieldwork mode=explore samples=1 organic=1 "
+            "world_root=0x1 behavior_root=unused replay=organic:0x2\n"
+        )
+        with self.assertRaisesRegex(ValueError, "ordinary:fieldwork"):
+            gameplay_report_summary.concise_gameplay_report(transcript, {})
+
+    def test_report_summary_contract_failure_is_a_clean_ci_failure(self) -> None:
+        command = ci.report_plan("fieldwork")[0][1]
+        transcript = (
+            "PROBE INPUT name=fieldwork mode=explore samples=1 organic=1 "
+            "world_root=0x1 behavior_root=unused replay=organic:0x2\n"
+        )
+        result = ci.subprocess.CompletedProcess(command, 0, transcript, "")
+        with (
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.assertIsNone(
+                ci.report_stage(
+                    1,
+                    1,
+                    "gameplay report fieldwork",
+                    command,
+                    (result, 0.25, None),
+                    echo_success=True,
+                    announced=True,
+                )
+            )
+        self.assertEqual(stdout.getvalue(), "FAIL (0.2s)\n")
+        self.assertIn(
+            "repair: python ci.py report --scope fieldwork --variation-seed 0x1\n",
+            stderr.getvalue(),
+        )
+        self.assertIn("report summary: concise gameplay summary lost executed probe evidence", stderr.getvalue())
+        self.assertNotIn("PASS", stdout.getvalue())
+
+    def test_liberation_summary_marks_preassembled_routes_as_controlled_evidence(self) -> None:
+        lines = [
+            "LIBERATION ROUTE TRADEOFF seed=0x2 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches kit-payback:not-applicable economics:not-applicable justified:not-applicable] base-kit=[not-executed-this-sample] continuity=controlled-preassembled-kit",
+            "LIBERATION FRONTIER CAPABILITY seed=0x2 cleanup-executed=true reason=required-native-copper-conversion concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
+            "LIBERATION FRONTIER seed=0x2 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]]",
+        ]
+        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
+        self.assertIn(
+            "kit-acquisition=[executed:0 live-routes:0 preassembled:1",
+            summary,
+        )
+        self.assertIn(
+            "kit-decision=[attention-payback:n/a disclosed-horizon:n/a selected:kit0/manual0 policy=manual-below-payback;kit-at-or-above evaluated:0/1 preassembled:1]",
+            summary,
         )
 
     def test_progression_summary_preserves_stockpiling_delay_and_supply_blocking(self) -> None:
@@ -1856,7 +2248,31 @@ class LocalCiPlanTests(unittest.TestCase):
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
         self.assertEqual(binaries, {"validate-shaders"})
         examples = {definition["name"] for definition in manifest.get("example", [])}
-        self.assertEqual(examples, {ci.GAMEPLAY_REPORT_EXAMPLE})
+        self.assertEqual(
+            examples,
+            {ci.GAMEPLAY_REPORT_EXAMPLE, *ci.FOCUSED_REPORT_EXAMPLES.values()},
+        )
+        self.assertTrue(
+            all(definition.get("test") is False for definition in manifest.get("example", [])),
+            "gameplay reports are executable tools, not cargo-test targets",
+        )
+        tests_by_name = {
+            definition["name"]: definition for definition in manifest.get("test", [])
+        }
+        examples_by_name = {
+            definition["name"]: definition for definition in manifest.get("example", [])
+        }
+        for scope, example in ci.FOCUSED_REPORT_EXAMPLES.items():
+            owner_scope = "workshop" if scope == "agency" else scope
+            focused = tests_by_name[ci.GAMEPLAY_TARGETS[owner_scope]]
+            report = examples_by_name[example]
+            self.assertEqual(report.get("required-features"), focused.get("required-features"))
+            report_root = ROOT / report["path"]
+            focused_name = Path(focused["path"]).name
+            self.assertIn(
+                f'#[path = "{focused_name}"]',
+                report_root.read_text(encoding="utf-8"),
+            )
 
     def test_shader_validation_reuses_existing_test_profile(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -1905,10 +2321,25 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("invalid local CI command", error or "")
 
     def test_documentation_checker_covers_specialized_docs_not_generated_output(self) -> None:
-        documents = set(check_authority_docs.documentation_files())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative in check_authority_docs.AUTHORITY_FILES:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# maintained\n", encoding="utf-8")
+            specialized = root / "assets" / "shaders" / "README.md"
+            specialized.parent.mkdir(parents=True, exist_ok=True)
+            specialized.write_text("# shader notes\n", encoding="utf-8")
+            generated = root / "target" / "generated.md"
+            generated.parent.mkdir(parents=True, exist_ok=True)
+            generated.write_text("# generated\n", encoding="utf-8")
+
+            with mock.patch.object(check_authority_docs, "ROOT", root):
+                documents = set(check_authority_docs.documentation_files())
+
         self.assertTrue(set(check_authority_docs.AUTHORITY_FILES).issubset(documents))
         self.assertIn("assets/shaders/README.md", documents)
-        self.assertFalse(any(path.startswith("target/") for path in documents))
+        self.assertNotIn("target/generated.md", documents)
 
     def test_agent_orientation_maps_track_live_module_and_owner_topology(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -2065,12 +2496,24 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertTrue(any("BCA policy" in error for error in errors))
 
     def test_module_doc_checker_covers_production_and_integration_rust(self) -> None:
-        errors, checked = check_authority_docs.check_source_module_docs()
-        expected = sum(1 for root in (ROOT / "src", ROOT / "tests") for _ in root.rglob("*.rs"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "src" / "owner.rs"
+            integration = root / "tests" / "boundary.rs"
+            source.parent.mkdir(parents=True)
+            integration.parent.mkdir(parents=True)
+            source.write_text("//! production owner\n", encoding="utf-8")
+            integration.write_text("//! integration boundary\n", encoding="utf-8")
+
+            with mock.patch.object(check_authority_docs, "ROOT", root):
+                errors, checked = check_authority_docs.check_source_module_docs()
+                integration.write_text("fn missing_module_doc() {}\n", encoding="utf-8")
+                broken, broken_checked = check_authority_docs.check_source_module_docs()
 
         self.assertEqual(errors, [])
-        self.assertEqual(checked, expected)
-        self.assertGreater(sum(1 for _ in (ROOT / "tests").rglob("*.rs")), 0)
+        self.assertEqual(checked, 2)
+        self.assertEqual(broken_checked, 2)
+        self.assertTrue(any("tests/boundary.rs" in error for error in broken))
 
     def test_documentation_routes_resolve_from_nested_document_location(self) -> None:
         nested = ROOT / "assets" / "shaders" / "README.md"
@@ -2128,6 +2571,20 @@ class ExactTestCommandTests(unittest.TestCase):
             run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None),
         )
 
+    def test_automatic_selection_prefers_owner_focused_gameplay_targets(self) -> None:
+        cases = {
+            "batch_capped_mining_finishes_the_requested_order": "fieldwork",
+            "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": "woodworking",
+            "primitive_treadle_requires_meaningful_attention_return": "power-provider",
+        }
+        for selector, scope in cases.items():
+            target, _name = run_test.resolve_automatic_exact_selection(selector, None)
+            self.assertEqual(target, ci.GAMEPLAY_TARGETS[scope])
+            self.assertLess(
+                run_test.target_source_weight(target, None),
+                run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None),
+            )
+
     def test_automatic_selection_keeps_unit_tests_on_the_library_target(self) -> None:
         target, name = run_test.resolve_automatic_exact_selection(
             "absolute_tick_and_relative_span_add_without_wraparound",
@@ -2151,10 +2608,12 @@ class ExactTestCommandTests(unittest.TestCase):
             "lib",
         )
 
-    def test_check_mode_requires_an_explicit_target(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                run_test.parse_args(["--check"])
+    def test_check_and_lint_modes_require_a_selector_or_explicit_target(self) -> None:
+        for mode in ("--check", "--lint"):
+            with self.subTest(mode=mode):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        run_test.parse_args([mode])
 
     def test_source_cfg_evaluation_treats_test_as_enabled_and_expands_local_features(self) -> None:
         declared = {
@@ -2338,6 +2797,64 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_suite_result_counts_come_from_cargo_execution_not_source_matches(self) -> None:
         output = "test result: ok. 19 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out"
         self.assertEqual(run_test.executed_test_counts(output), (19, 2))
+
+    def test_exact_ignored_test_requires_explicit_ignored_execution(self) -> None:
+        args = argparse.Namespace(
+            target="gameplay_fieldwork",
+            name="gameplay_fieldwork_report",
+            suite=False,
+            ignored=False,
+            variation_seed="0x1234",
+            behavior_seed=None,
+        )
+        output = (
+            "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; "
+            "27 filtered out; finished in 0.00s"
+        )
+        self.assertEqual(
+            run_test.execution_error(args, output),
+            (
+                "cataloged exact test is ignored: gameplay_fieldwork_report",
+                "python tools/run_test.py --ignored --target gameplay_fieldwork "
+                "--variation-seed 0x1234 gameplay_fieldwork_report",
+            ),
+        )
+
+    def test_exact_execution_requires_a_passed_test(self) -> None:
+        args = argparse.Namespace(
+            target="lib",
+            name="missing::test",
+            suite=False,
+            ignored=False,
+            variation_seed=None,
+            behavior_seed=None,
+        )
+        output = "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out"
+        self.assertEqual(
+            run_test.execution_error(args, output),
+            (
+                "Cargo did not execute cataloged exact test: missing::test",
+                "python tools/run_test.py --list missing::test",
+            ),
+        )
+
+    def test_suite_execution_requires_at_least_one_passed_test(self) -> None:
+        args = argparse.Namespace(
+            target="lib",
+            name="owner::tests::",
+            suite=True,
+            ignored=False,
+            variation_seed=None,
+            behavior_seed=None,
+        )
+        output = "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out"
+        self.assertEqual(
+            run_test.execution_error(args, output),
+            (
+                "Cargo did not execute cataloged suite: owner::tests::",
+                "python tools/run_test.py --list owner::tests::",
+            ),
+        )
 
 
 if __name__ == "__main__":
