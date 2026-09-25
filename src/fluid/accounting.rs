@@ -62,27 +62,16 @@ pub fn calculate_fluid_volume_accounting(
 ) -> Result<FluidVolumeAccounting, FluidVolumeAccountingError> {
     let mut by_fluid = BTreeMap::<FluidDefinitionId, AggregateVolume>::new();
     let mut total = AggregateVolume::ZERO;
-    for store in state.fluid().stores() {
-        let Some(contents) = store.contents() else {
-            continue;
-        };
-        let volume = AggregateVolume::from_volume(contents.volume());
-        let current = by_fluid
-            .get(&contents.fluid())
-            .copied()
-            .unwrap_or(AggregateVolume::ZERO);
-        let next =
-            current
-                .checked_add(volume)
-                .ok_or(FluidVolumeAccountingError::FluidVolumeOverflow {
-                    fluid: contents.fluid(),
-                })?;
-        by_fluid.insert(contents.fluid(), next);
-        total = total
-            .checked_add(volume)
-            .ok_or(FluidVolumeAccountingError::TotalVolumeOverflow)?;
-    }
-    for (fluid, volume) in state.survival().consumed_fluids() {
+    let stored = state.fluid().stores().filter_map(|store| {
+        store.contents().map(|contents| {
+            (
+                contents.fluid(),
+                AggregateVolume::from_volume(contents.volume()),
+            )
+        })
+    });
+    let consumed = state.survival().consumed_fluids();
+    for (fluid, volume) in stored.chain(consumed) {
         let current = by_fluid
             .get(&fluid)
             .copied()

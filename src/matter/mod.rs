@@ -132,108 +132,111 @@ impl Display for MatterAccountingError {
     }
 }
 
+impl Error for MatterAccountingError {}
+
+fn sum_masses(
+    masses: impl IntoIterator<Item = AggregateMass>,
+    overflow: MatterAccountingError,
+) -> Result<AggregateMass, MatterAccountingError> {
+    masses
+        .into_iter()
+        .try_fold(AggregateMass::ZERO, |total, mass| {
+            total.checked_add(mass).ok_or(overflow)
+        })
+}
+
 fn calculate_storage_infrastructure_mass(
     state: &AppState,
 ) -> Result<AggregateMass, MatterAccountingError> {
-    let mut total = AggregateMass::ZERO;
-    for stockpile in state.inventory().stockpiles() {
-        total = total
-            .checked_add(AggregateMass::from_mass(stockpile.embodied_mass()))
-            .ok_or(MatterAccountingError::StorageInfrastructureMassOverflow)?;
-    }
-    Ok(total)
+    sum_masses(
+        state
+            .inventory()
+            .stockpiles()
+            .map(|stockpile| AggregateMass::from_mass(stockpile.embodied_mass())),
+        MatterAccountingError::StorageInfrastructureMassOverflow,
+    )
 }
 
-impl Error for MatterAccountingError {}
-
 fn calculate_geological_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
-    let mut total = AggregateMass::ZERO;
-    for deposit in state.geology().deposits() {
-        total = total
-            .checked_add(AggregateMass::from_mass(deposit.remaining_mass()))
-            .ok_or(MatterAccountingError::GeologicalMassOverflow)?;
-    }
-    Ok(total)
+    sum_masses(
+        state
+            .geology()
+            .deposits()
+            .map(|deposit| AggregateMass::from_mass(deposit.remaining_mass())),
+        MatterAccountingError::GeologicalMassOverflow,
+    )
 }
 
 fn calculate_structural_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
-    let mut total = AggregateMass::ZERO;
-    for element in state.structures().elements() {
-        total = total
-            .checked_add(AggregateMass::from_mass(element.embodied_mass()))
-            .ok_or(MatterAccountingError::StructuralMassOverflow)?;
-    }
-    Ok(total)
+    sum_masses(
+        state
+            .structures()
+            .elements()
+            .map(|element| AggregateMass::from_mass(element.embodied_mass())),
+        MatterAccountingError::StructuralMassOverflow,
+    )
 }
 
 fn calculate_equipment_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
-    let mut total = AggregateMass::ZERO;
-    for record in state.equipment().equipment() {
-        total = total
-            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
-            .ok_or(MatterAccountingError::EquipmentMassOverflow)?;
-    }
-    Ok(total)
+    sum_masses(
+        state
+            .equipment()
+            .equipment()
+            .map(|record| AggregateMass::from_mass(record.embodied_mass())),
+        MatterAccountingError::EquipmentMassOverflow,
+    )
 }
 
 fn calculate_energy_storage_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
-    let mut total = AggregateMass::ZERO;
-    for record in state.energy().stores() {
-        total = total
-            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
-            .ok_or(MatterAccountingError::EnergyStorageMassOverflow)?;
-    }
-    Ok(total)
+    sum_masses(
+        state
+            .energy()
+            .stores()
+            .map(|record| AggregateMass::from_mass(record.embodied_mass())),
+        MatterAccountingError::EnergyStorageMassOverflow,
+    )
 }
 
 fn calculate_stored_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
-    let mut total = AggregateMass::ZERO;
-    for lot in state.inventory().lots() {
-        total = total
-            .checked_add(AggregateMass::from_mass(lot.mass()))
-            .ok_or(MatterAccountingError::StoredMassOverflow)?;
-    }
-    Ok(total)
+    sum_masses(
+        state
+            .inventory()
+            .lots()
+            .map(|lot| AggregateMass::from_mass(lot.mass())),
+        MatterAccountingError::StoredMassOverflow,
+    )
 }
 
 fn calculate_in_process_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
-    let mut total = AggregateMass::ZERO;
-    for job in state.production().jobs() {
-        for stream in job.output_streams() {
-            for output in stream.outputs() {
-                total = total
-                    .checked_add(AggregateMass::from_mass(output.mass()))
-                    .ok_or(MatterAccountingError::InProcessMassOverflow)?;
-            }
-        }
-    }
-    for job in state.mining().jobs().filter(|job| job.is_ready_to_claim()) {
-        total = total
-            .checked_add(AggregateMass::from_mass(job.output().mass()))
-            .ok_or(MatterAccountingError::InProcessMassOverflow)?;
-    }
-    Ok(total)
+    let production = state.production().jobs().flat_map(|job| {
+        job.output_streams()
+            .iter()
+            .flat_map(|stream| stream.outputs())
+            .map(|output| AggregateMass::from_mass(output.mass()))
+    });
+    let mining = state
+        .mining()
+        .jobs()
+        .filter(|job| job.is_ready_to_claim())
+        .map(|job| AggregateMass::from_mass(job.output().mass()));
+    sum_masses(
+        production.chain(mining),
+        MatterAccountingError::InProcessMassOverflow,
+    )
 }
 
 fn calculate_consumed_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
-    let mut total = AggregateMass::ZERO;
-    for (_, mass) in state.survival().consumed_matter() {
-        total = total
-            .checked_add(mass)
-            .ok_or(MatterAccountingError::ConsumedMassOverflow)?;
-    }
-    Ok(total)
+    sum_masses(
+        state.survival().consumed_matter().map(|(_, mass)| mass),
+        MatterAccountingError::ConsumedMassOverflow,
+    )
 }
 
 fn calculate_total_mass(parts: &[AggregateMass]) -> Result<AggregateMass, MatterAccountingError> {
-    parts
-        .iter()
-        .copied()
-        .try_fold(AggregateMass::ZERO, |total, part| {
-            total
-                .checked_add(part)
-                .ok_or(MatterAccountingError::TotalMassOverflow)
-        })
+    sum_masses(
+        parts.iter().copied(),
+        MatterAccountingError::TotalMassOverflow,
+    )
 }
 
 /// Recomputes diagnostic matter ownership from authoritative records without trusting stockpile
