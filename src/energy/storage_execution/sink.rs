@@ -20,7 +20,7 @@ mod reservation;
 pub(crate) use capacity::project_energy_sink_stored_at_release;
 pub(crate) use capacity::{
     EnergySinkCapacityError, available_energy_sink_capacity_at_release,
-    validate_energy_sink_capacity_at_release,
+    project_energy_sink_stored_after_elapsed, validate_energy_sink_capacity_at_release,
 };
 pub(crate) use completion::{
     apply_released_energy_outcomes, assert_released_energy_outcomes_available,
@@ -64,6 +64,11 @@ impl ValidatedEnergySinkAccess {
             self.stored,
             release_after,
         )
+    }
+
+    /// Exact preexisting stored energy that remains after `elapsed` canonical passive-loss ticks.
+    pub(crate) fn stored_after_elapsed(self, registries: &Registries, elapsed: TickSpan) -> Energy {
+        project_energy_sink_stored_after_elapsed(registries, self.definition, self.stored, elapsed)
     }
 }
 

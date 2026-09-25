@@ -17,7 +17,7 @@ pub use order::{
 };
 pub use planning::{
     PoweredOreMassConstraint, PoweredOreMassEnvelope, PoweredOreMassEnvelopeError,
-    assess_powered_ore_mass_envelope,
+    PoweredOreReplenishmentConstraint, assess_powered_ore_mass_envelope,
 };
 pub use powered_physics::{PoweredOreBottleneck, PoweredOreJobValidationError};
 pub use registry::OreProcessingRegistry;

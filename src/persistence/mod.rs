@@ -132,5 +132,5 @@ impl Error for LoadError {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "mod_tests.rs"]
 mod tests;

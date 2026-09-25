@@ -5,13 +5,37 @@ use crate::core::arithmetic::{
 };
 use crate::core::quantity::{Energy, Power, Volume};
 use crate::core::time::{PhysicalTickDuration, TickSpan};
-use crate::energy::{PowerDurationError, calculate_power_duration_ceiling};
+use crate::energy::{
+    PowerDurationError, calculate_power_duration_ceiling, integrate_power_or_saturate,
+};
 use crate::survival::SurvivalExertion;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ManualPowerMetabolicDurationError {
     ZeroOutput,
     DurationOverflow,
+}
+
+/// Greatest mechanical output that the authored transfer and metabolic limits can supply within
+/// one exact active duration.
+#[must_use]
+pub(crate) fn maximum_manual_power_output_for_duration(
+    transfer_power: Power,
+    physical_tick_duration: PhysicalTickDuration,
+    maximum_exertion: SurvivalExertion,
+    efficiency_ppm: u32,
+    duration: TickSpan,
+) -> Energy {
+    let transfer_capacity =
+        integrate_power_or_saturate(transfer_power, duration, physical_tick_duration);
+    let metabolic_per_tick =
+        metabolic_output_per_tick(maximum_exertion.energy_cost_per_tick(), efficiency_ppm);
+    let metabolic_capacity = Energy::from_nanojoules(
+        metabolic_per_tick
+            .nanojoules()
+            .saturating_mul(u128::from(duration.value())),
+    );
+    std::cmp::min(transfer_capacity, metabolic_capacity)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

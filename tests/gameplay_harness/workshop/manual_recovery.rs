@@ -39,7 +39,45 @@ pub(super) struct ManualRecoveryOption {
     name: &'static str,
     store: EnergyStoreId,
     energy: Energy,
+    expected_stored_after: Energy,
     start: ValidatedManualPowerStart,
+}
+
+fn manual_power_constraint(error: ManualPowerError) -> ManualRecoveryConstraint {
+    match error {
+        ManualPowerError::Work(
+            PlayerWorkStartError::MetabolicCostOverflow { .. }
+            | PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
+            | PlayerWorkStartError::HydrationCostOverflow { .. }
+            | PlayerWorkStartError::InsufficientHydration { .. },
+        ) => ManualRecoveryConstraint::SurvivalReserve,
+        ManualPowerError::EnergySink(
+            EnergySinkError::CapacityOverflow { .. } | EnergySinkError::InsufficientCapacity { .. },
+        ) => ManualRecoveryConstraint::StorageCapacity,
+        ManualPowerError::ZeroEquipmentPower { .. } | ManualPowerError::ConditionDuration(_) => {
+            ManualRecoveryConstraint::EquipmentCondition
+        }
+        error @ (ManualPowerError::UnknownMethod { .. }
+        | ManualPowerError::Work(_)
+        | ManualPowerError::Equipment(_)
+        | ManualPowerError::EquipmentMounted { .. }
+        | ManualPowerError::EquipmentBusyProduction { .. }
+        | ManualPowerError::EquipmentBusyMining { .. }
+        | ManualPowerError::MissingPowerCapability { .. }
+        | ManualPowerError::PowerCapabilityKindMismatch { .. }
+        | ManualPowerError::EnergySink(_)
+        | ManualPowerError::WrongCarrier { .. }
+        | ManualPowerError::ZeroTransferPower { .. }
+        | ManualPowerError::PowerDuration { .. }
+        | ManualPowerError::MetabolicConversionTooSmall { .. }
+        | ManualPowerError::MetabolicDurationOverflow { .. }
+        | ManualPowerError::ExertionResolution { .. }
+        | ManualPowerError::EquipmentRevisionExhausted
+        | ManualPowerError::EnergyRevisionExhausted
+        | ManualPowerError::CompletionTickOverflow { .. }) => {
+            panic!("workshop manual-power recovery projection failed: {error}")
+        }
+    }
 }
 
 fn manual_recovery_option(
@@ -50,26 +88,52 @@ fn manual_recovery_option(
     name: &'static str,
     store: EnergyStoreId,
     envelope: PoweredOreMassEnvelope,
-) -> Result<Option<ManualRecoveryOption>, ManualPowerError> {
-    let Some(energy) = envelope.additional_energy_required_for(mass) else {
-        return Ok(None);
+) -> Result<Option<ManualRecoveryOption>, ManualRecoveryConstraint> {
+    let target = envelope
+        .required_energy_for(mass)
+        .ok_or(ManualRecoveryConstraint::EquipmentCondition)?;
+    let projection = assess_manual_power_destination_target(
+        registries,
+        state,
+        ManualPowerDestinationTargetRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            ids.hand_crank,
+            store,
+            target,
+        ),
+    )
+    .map_err(manual_power_constraint)?;
+    let projection = match projection {
+        ManualPowerDestinationTargetAssessment::AlreadySatisfied { .. } => return Ok(None),
+        ManualPowerDestinationTargetAssessment::Feasible(projection) => projection,
+        ManualPowerDestinationTargetAssessment::Blocked(blocker) => {
+            return Err(match blocker {
+                ManualPowerDestinationTargetBlocker::GenerationCapacity => {
+                    ManualRecoveryConstraint::EquipmentCondition
+                }
+                ManualPowerDestinationTargetBlocker::DestinationCapacity => {
+                    ManualRecoveryConstraint::StorageCapacity
+                }
+                ManualPowerDestinationTargetBlocker::SurvivalReserve => {
+                    ManualRecoveryConstraint::SurvivalReserve
+                }
+            });
+        }
     };
-    if energy.is_zero() {
-        return Ok(None);
-    }
-    validate_start_manual_power(
+    let energy = projection.generated_energy();
+    let start = validate_start_manual_power(
         registries,
         state,
         ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, ids.hand_crank, store, energy),
     )
-    .map(|start| {
-        Some(ManualRecoveryOption {
-            name,
-            store,
-            energy,
-            start,
-        })
-    })
+    .map_err(manual_power_constraint)?;
+    Ok(Some(ManualRecoveryOption {
+        name,
+        store,
+        energy,
+        expected_stored_after: projection.destination_energy_after(),
+        start,
+    }))
 }
 
 pub(super) fn execute_manual_recovery(
@@ -89,11 +153,6 @@ pub(super) fn execute_manual_recovery(
         .checked_duration_since(work.started_at())
         .unwrap_or_else(|| panic!("manual-recovery completion precedes its start"))
         .value();
-    let stored_before = state
-        .energy()
-        .get_store(option.store)
-        .map(|record| record.stored())
-        .unwrap_or_else(|| panic!("manual-recovery {} drive disappeared", option.name));
     let survival_before = assess_survival(registries, state)
         .unwrap_or_else(|| panic!("workshop survival state disappeared before manual recovery"));
     println!(
@@ -151,11 +210,8 @@ pub(super) fn execute_manual_recovery(
         .map(|record| record.stored())
         .unwrap_or_else(|| panic!("manual-recovery {} drive disappeared", option.name));
     assert_eq!(
-        stored_after,
-        stored_before
-            .checked_add(option.energy)
-            .unwrap_or_else(|| panic!("manual-recovery energy accounting overflowed")),
-        "manual power must add exactly its validated generated work"
+        stored_after, option.expected_stored_after,
+        "manual-power recovery must match the projected post-tick store level after passive loss"
     );
     actor.report.choices.manual_recharges = actor
         .report
@@ -235,44 +291,18 @@ fn probe_manual_recovery_destination(
             .unwrap_or_else(|error| {
                 panic!("workshop {name} drive replenishment projection failed: {error}")
             });
-    if mass > envelope.maximum_mass_with_replenished_energy() {
-        return Err(ManualRecoveryConstraint::EquipmentCondition);
-    }
-    manual_recovery_option(registries, state, ids, mass, name, store, envelope).map_err(|error| {
-        match error {
-            ManualPowerError::Work(
-                PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
-                | PlayerWorkStartError::InsufficientHydration { .. },
-            ) => ManualRecoveryConstraint::SurvivalReserve,
-            ManualPowerError::EnergySink(EnergySinkError::InsufficientCapacity { .. }) => {
+    if let Some(constraint) = envelope.replenishment_constraint_for(mass) {
+        return Err(match constraint {
+            PoweredOreReplenishmentConstraint::StoreCapacity => {
                 ManualRecoveryConstraint::StorageCapacity
             }
-            ManualPowerError::ZeroEquipmentPower { .. }
-            | ManualPowerError::ConditionDuration(_) => {
+            PoweredOreReplenishmentConstraint::EquipmentCapacity
+            | PoweredOreReplenishmentConstraint::ConditionLifetime => {
                 ManualRecoveryConstraint::EquipmentCondition
             }
-            error @ (ManualPowerError::UnknownMethod { .. }
-            | ManualPowerError::Work(_)
-            | ManualPowerError::Equipment(_)
-            | ManualPowerError::EquipmentMounted { .. }
-            | ManualPowerError::EquipmentBusyProduction { .. }
-            | ManualPowerError::EquipmentBusyMining { .. }
-            | ManualPowerError::MissingPowerCapability { .. }
-            | ManualPowerError::PowerCapabilityKindMismatch { .. }
-            | ManualPowerError::EnergySink(_)
-            | ManualPowerError::WrongCarrier { .. }
-            | ManualPowerError::ZeroTransferPower { .. }
-            | ManualPowerError::PowerDuration { .. }
-            | ManualPowerError::MetabolicConversionTooSmall { .. }
-            | ManualPowerError::MetabolicDurationOverflow { .. }
-            | ManualPowerError::ExertionResolution { .. }
-            | ManualPowerError::EquipmentRevisionExhausted
-            | ManualPowerError::EnergyRevisionExhausted
-            | ManualPowerError::CompletionTickOverflow { .. }) => {
-                panic!("workshop manual-power recovery projection failed: {error}")
-            }
-        }
-    })
+        });
+    }
+    manual_recovery_option(registries, state, ids, mass, name, store, envelope)
 }
 
 fn retain_survival_safe_recovery_options(
@@ -371,6 +401,47 @@ fn manual_recovery_failure(
     }
 }
 
+fn maximum_recoverable_mass_for_destination(
+    registries: &Registries,
+    state: &AppState,
+    ids: WorkshopIds,
+    desired: Mass,
+    preference: EnergyRecoveryPreference,
+    name: &'static str,
+    store: EnergyStoreId,
+) -> Option<Mass> {
+    let ore =
+        assess_powered_ore_mass_envelope(registries, state, PROCESS_CRUSH_ORE, ids.crusher, store)
+            .unwrap_or_else(|error| {
+                panic!("workshop {name} drive recovery envelope failed: {error}")
+            });
+    let upper_mass = desired.min(ore.maximum_mass_with_replenished_energy());
+    let energy_limit = ore.required_energy_for(upper_mass)?;
+    if ore.additional_energy_required_for(upper_mass)?.is_zero() {
+        return None;
+    }
+    let mut request = ManualPowerEnergyEnvelopeRequest::new(
+        MANUAL_POWER_HAND_CRANK,
+        ids.hand_crank,
+        store,
+        energy_limit,
+    );
+    if preference == EnergyRecoveryPreference::ProtectSurvival {
+        let physiology = registries.survival().physiology();
+        request =
+            request.with_minimum_reserves(physiology.hungry_below(), physiology.thirsty_below());
+    }
+    let recoverable = assess_manual_power_energy_envelope(registries, state, request)
+        .unwrap_or_else(|error| {
+            panic!("workshop {name} drive manual-power envelope failed: {error}")
+        });
+    let mass = ore
+        .maximum_mass_with_available_energy(recoverable.maximum_destination_energy())
+        .min(upper_mass);
+    let additional = ore.additional_energy_required_for(mass)?;
+    (!additional.is_zero()).then_some(mass)
+}
+
 pub(super) fn largest_manual_recovery(
     registries: &Registries,
     state: &AppState,
@@ -392,22 +463,21 @@ pub(super) fn largest_manual_recovery(
     }
 
     let adaptive_constraint = desired_probe.primary_constraint();
-
-    let mut low = MINIMUM_SELECTABLE_MASS.milligrams();
-    let mut high = desired.milligrams().saturating_sub(1);
-    let mut best = None;
-    while low <= high {
-        let midpoint = low + (high - low) / 2;
-        let mass = Mass::from_milligrams(midpoint);
+    let best_mass = [("small", ids.small_drive), ("large", ids.large_drive)]
+        .into_iter()
+        .filter_map(|(name, store)| {
+            maximum_recoverable_mass_for_destination(
+                registries, state, ids, desired, preference, name, store,
+            )
+        })
+        .max();
+    if let Some(mass) = best_mass.filter(|mass| *mass >= MINIMUM_SELECTABLE_MASS) {
         let probe = probe_manual_recovery_option(registries, state, ids, mass, preference);
-        if let Some(option) = probe.option {
-            best = Some((mass, option));
-            low = midpoint + 1;
-        } else {
-            high = midpoint.saturating_sub(1);
-        }
-    }
-    if let Some((mass, option)) = best {
+        let option = probe.option.unwrap_or_else(|| {
+            panic!(
+                "manual-power envelope reported {mass:?} recoverable but canonical recovery admission found no option"
+            )
+        });
         return ManualRecoverySearch::Available {
             mass,
             option: Box::new(option),

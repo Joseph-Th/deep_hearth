@@ -37,6 +37,14 @@ pub enum PoweredOreMassConstraint {
     ConditionLifetime,
 }
 
+/// First physical scale constraint that still applies after this same energy store is replenished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PoweredOreReplenishmentConstraint {
+    EquipmentCapacity,
+    StoreCapacity,
+    ConditionLifetime,
+}
+
 /// Current physical mass envelope for one powered ore process/provider/supply combination.
 ///
 /// The envelope intentionally excludes process-specific feed and output rules. A mass inside this
@@ -48,6 +56,7 @@ pub enum PoweredOreMassConstraint {
 pub struct PoweredOreMassEnvelope {
     equipment_capacity: Mass,
     stored_energy_capacity: Mass,
+    replenished_energy_capacity: Mass,
     condition_lifetime_capacity: Mass,
     available_energy: Energy,
     processing_rate: MassFlow,
@@ -92,20 +101,58 @@ impl PoweredOreMassEnvelope {
 
     /// Greatest mass that could be run if this same currently available supply were replenished.
     ///
-    /// This keeps equipment capacity, output power, and condition lifetime authoritative while
-    /// excluding only the store's current finite charge. It does not prove destination capacity for
-    /// replenishment and does not reserve any resource.
+    /// This keeps equipment capacity, total store capacity, output power, and condition lifetime
+    /// authoritative while excluding only the store's current finite charge. It does not prove how
+    /// replenishment is acquired and does not reserve any resource.
     #[must_use]
     pub fn maximum_mass_with_replenished_energy(self) -> Mass {
-        std::cmp::min(self.equipment_capacity, self.condition_lifetime_capacity)
+        self.equipment_capacity
+            .min(self.replenished_energy_capacity)
+            .min(self.condition_lifetime_capacity)
+    }
+
+    /// Returns the first physical scale constraint that rejects `requested` after replenishment.
+    #[must_use]
+    pub fn replenishment_constraint_for(
+        self,
+        requested: Mass,
+    ) -> Option<PoweredOreReplenishmentConstraint> {
+        if requested > self.equipment_capacity {
+            Some(PoweredOreReplenishmentConstraint::EquipmentCapacity)
+        } else if requested > self.replenished_energy_capacity {
+            Some(PoweredOreReplenishmentConstraint::StoreCapacity)
+        } else if requested > self.condition_lifetime_capacity {
+            Some(PoweredOreReplenishmentConstraint::ConditionLifetime)
+        } else {
+            None
+        }
+    }
+
+    /// Greatest mass possible with an exact amount of energy currently available in this supply.
+    ///
+    /// The caller owns how that available-energy state could be reached. This projection only
+    /// combines it with the already-resolved store, equipment, and condition limits.
+    #[must_use]
+    pub fn maximum_mass_with_available_energy(self, available: Energy) -> Mass {
+        let energy_capacity =
+            calculate_mass_specific_energy_capacity(available, self.specific_energy);
+        self.maximum_mass_with_replenished_energy()
+            .min(energy_capacity)
+    }
+
+    /// Exact stored energy required to process `requested` within this replenished envelope.
+    #[must_use]
+    pub fn required_energy_for(self, requested: Mass) -> Option<Energy> {
+        (requested <= self.maximum_mass_with_replenished_energy())
+            .then(|| calculate_mass_specific_energy(requested, self.specific_energy))
     }
 
     /// Additional stored work needed to make `requested` physically possible on this same provider
     /// and supply, ignoring only the store's current finite charge.
     ///
     /// `None` means replenishing this store cannot make the requested mass fit because equipment,
-    /// output-power, or condition lifetime is already the limiting constraint. Exact process input
-    /// and output legality still belongs to the process-specific resolver.
+    /// total store capacity, output-power, or condition lifetime is already limiting. Exact process
+    /// input and output legality still belongs to the process-specific resolver.
     #[must_use]
     pub fn additional_energy_required_for(self, requested: Mass) -> Option<Energy> {
         if requested > self.maximum_mass_with_replenished_energy() {
@@ -323,6 +370,8 @@ pub fn assess_powered_ore_mass_envelope(
     let specific_energy = profile.specific_energy();
     let stored_energy_capacity =
         calculate_mass_specific_energy_capacity(energy.available(), specific_energy);
+    let replenished_energy_capacity =
+        calculate_mass_specific_energy_capacity(energy.capacity(), specific_energy);
     let condition_ticks = maximum_usable_active_ticks(
         profile.condition_wear_ppm_per_active_tick(),
         provider.condition(),
@@ -339,6 +388,7 @@ pub fn assess_powered_ore_mass_envelope(
     Ok(PoweredOreMassEnvelope {
         equipment_capacity: equipment_limits.maximum_batch_mass(),
         stored_energy_capacity,
+        replenished_energy_capacity,
         condition_lifetime_capacity,
         available_energy: energy.available(),
         processing_rate: equipment_limits.processing_rate(),

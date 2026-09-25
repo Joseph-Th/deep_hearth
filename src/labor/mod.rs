@@ -22,7 +22,11 @@ pub use power_execution::{
     ValidatedManualPowerStart, validate_start_manual_power,
 };
 pub use power_projection::{
-    ManualPowerProjection, ManualPowerProjectionError, project_manual_power,
+    ManualPowerDestinationTargetAssessment, ManualPowerDestinationTargetBlocker,
+    ManualPowerDestinationTargetProjection, ManualPowerDestinationTargetRequest,
+    ManualPowerEnergyEnvelope, ManualPowerEnergyEnvelopeRequest, ManualPowerProjection,
+    ManualPowerProjectionError, assess_manual_power_destination_target,
+    assess_manual_power_energy_envelope, project_manual_power,
 };
 pub use prospecting_projection::{
     ProspectingWorkProjection, ProspectingWorkProjectionError, project_prospecting_work,

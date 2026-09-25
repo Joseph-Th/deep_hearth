@@ -202,7 +202,7 @@ then read the owning section/source for exact semantics and errors.
 | Mining | `MiningRegistry` methods and physical hardness/tool constraints | `AppState::mining()` plus acquired geological knowledge; hidden `GeologyState` is not public | `resolve_mining_target` binds localized evidence and the best acquired physical hardness band when present | `validate_start_mining` requires acquired hardness evidence and uses its conservative upper bound -> tick -> `validate_claim_mining_output` |
 | Production | `ProductionRegistry`, `ProcessDefinition` | `AppState::production()`, job records, reservations/occupancy | operation-specific resolvers produce `ProcessResolution` / `Resolved*` | `validate_start_process` / `validate_start_process_routed` -> tick completion |
 | Equipment | `EquipmentRegistry`, capability/maintenance/upgrade profiles | `AppState::equipment()`, equipment records | `resolve_equipment_provider`, `resolve_equipment_maintenance` | assembly, upgrade, maintenance, disassembly, mount/unmount/relocate validators |
-| Player labor | `LaborRegistry`, manual-power/prospecting definitions | `AppState::player_work()` | `project_manual_power` projects immutable future provider/store physics without authorizing current state; runtime owner commands bind current equipment/store, attention, survival budget, and revisions | manual power/prospecting/manual production commands -> tick; attention lifecycle is crate-owned |
+| Player labor | `LaborRegistry`, manual-power/prospecting definitions | `AppState::player_work()` | `project_manual_power` projects immutable future provider/store physics; `assess_manual_power_energy_envelope` and `assess_manual_power_destination_target` bind current provider/store state for exact read-only generation and post-work stored-energy planning; runtime owner commands still own authorization, attention, survival budget, and revisions | manual power/prospecting/manual production commands -> tick; attention lifecycle is crate-owned |
 | Survival | `SurvivalRegistry`, physiology, food/drink definitions | `AppState::survival()`, `assess_survival`, `assess_food_freshness` | consumption validators derive bounded direct intake and physiological schedule | `validate_eat` / `validate_drink` -> tick; `initialize_player_survival` is the ordinary initialization boundary |
 | Energy | `EnergyRegistry`, store definitions, carrier/power contracts | `AppState::energy()`, store records, explicit energy accounting | process/manual-power resolvers use `validate_energy_supply` / `validate_energy_sink` as part of their plan | assembly/upgrade/disassembly validators; reserved consumption/release and passive loss apply through canonical owners/tick |
 | Fluids | `FluidRegistry`, fluid definitions | `AppState::fluid()`, store records, fluid accounting | consumers validate exact egress internally; no generic routing planner exists | support validators and canonical consumers; generic transfer/pumping/mixing absent |
@@ -563,9 +563,13 @@ energy-supply access, stored work, transfer power, and condition lifetime. Its `
 equipment capacity, finite-work capacity, and the mass whose throughput/energy duration still fits usable
 condition life. `constraint_for` reports the first shared scale constraint in canonical powered-resolution
 order. A caller-selected condition floor can further reduce the mass while remaining policy rather than
-physical authoring. The envelope is disposable guidance, not authorization: a later owner mutation invalidates
-its assumptions, and the exact process-specific resolver must still validate the selected matter before any
-production start can be authorized.
+physical authoring. Replenishment projections keep the same currently bound store and therefore remain capped by
+its authored total energy capacity as well as equipment capacity and condition lifetime; they never treat
+"replenished" as an unlimited external source. The envelope can report that replenished constraint, the exact
+stored work required by a requested mass, and the mass supported by a caller-supplied currently available energy
+level without reconstructing mass-specific-energy arithmetic. The envelope is disposable guidance, not
+authorization: a later owner mutation invalidates its assumptions, and the exact process-specific resolver must
+still validate the selected matter before any production start can be authorized.
 
 `project_powered_ore_order` is the bounded immutable-definition companion for workload decisions that span many
 replenished powered batches. It sequentially reuses the same condition-adjusted capabilities, batch ceiling,
@@ -662,6 +666,15 @@ before the release tick. Trusted load reprojects the same rule from current stor
 investments before those instances exist. It shares provider capability, destination input-power, schedule,
 physiology, and wear physics with runtime admission, but deliberately assumes an empty or sufficiently free
 future store and does not authorize current ownership, occupancy, stored energy, survival reserve, or revisions.
+For existing instances, `assess_manual_power_energy_envelope` reuses the same current provider/store bindings and
+canonical start semantics to find exact feasible generation below a caller limit while respecting optional
+survival reserve floors. Because passive sink loss can make adjacent generated-energy requests non-monotonic, the
+labor owner searches exact duration buckets rather than requiring callers to probe admission. It separately
+reports the greatest generated work and the greatest post-work destination-store energy, since those need not be
+the same request. `assess_manual_power_destination_target` finds the least exact generated work that reaches a
+requested post-work store level, explicitly accounting for passive loss of preexisting stored energy during the
+work interval and for completion-before-passive-loss ordering on the release tick. Both current-state projections
+are disposable planning evidence; execution still requires a fresh `validate_start_manual_power` token.
 
 `SurvivalState` owns metabolic energy, hydration, vitality, recent nutrition, terminal consumed matter/fluid
 totals, and exact pending direct-consumption custody. Eating and drinking transfer selected physical quantities

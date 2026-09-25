@@ -39,6 +39,29 @@ pub(crate) fn project_energy_sink_stored_at_release(
     project_stored_energy_after_passive_dissipation(registries, definition, stored, passive_ticks)
 }
 
+/// Projects the preexisting sink contents after an exact elapsed tick span.
+///
+/// Deferred ingress committed on the final tick is not included here. Canonical tick ordering keeps
+/// newly released energy out of that tick's passive-loss decision, so callers may add the released
+/// amount afterward to obtain the observable post-tick store contents.
+pub(crate) fn project_energy_sink_stored_after_elapsed(
+    registries: &Registries,
+    definition: EnergyStoreDefinitionId,
+    stored: Energy,
+    elapsed: TickSpan,
+) -> Energy {
+    let definition = registries
+        .energy()
+        .get_store(definition)
+        .unwrap_or_else(|| {
+            panic!(
+                "validated deferred energy sink references missing immutable definition {}",
+                definition.value()
+            )
+        });
+    project_stored_energy_after_passive_dissipation(registries, definition, stored, elapsed)
+}
+
 /// Returns exact free capacity immediately before a deferred completion releases energy.
 ///
 /// This shares the completion-before-passive-loss timing used by exact sink admission. The caller

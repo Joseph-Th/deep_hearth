@@ -53,6 +53,42 @@ struct PlanningConfig {
 }
 
 #[test]
+fn replenishment_projection_never_exceeds_total_store_capacity() {
+    let fixture = make_fixture(PlanningConfig {
+        max_batch_mg: 200_000,
+        stored_nj: 100,
+        ..PlanningConfig::default()
+    });
+    let envelope = envelope(&fixture);
+    let capacity_mass = Mass::from_milligrams(100_000);
+
+    assert_eq!(
+        envelope.maximum_mass_with_replenished_energy(),
+        capacity_mass
+    );
+    assert_eq!(
+        envelope.replenishment_constraint_for(Mass::from_milligrams(100_001)),
+        Some(PoweredOreReplenishmentConstraint::StoreCapacity)
+    );
+    assert_eq!(
+        envelope.additional_energy_required_for(capacity_mass),
+        Some(Energy::from_nanojoules(9_999_900))
+    );
+    assert_eq!(
+        envelope.additional_energy_required_for(Mass::from_milligrams(100_001)),
+        None
+    );
+    assert_eq!(
+        envelope.maximum_mass_with_available_energy(Energy::from_nanojoules(u128::MAX)),
+        capacity_mass
+    );
+    assert_eq!(
+        envelope.required_energy_for(capacity_mass),
+        Some(Energy::from_nanojoules(10_000_000))
+    );
+}
+
+#[test]
 fn powered_ore_order_honors_the_callers_batch_bound() {
     let registries = build_registries();
     assert_eq!(

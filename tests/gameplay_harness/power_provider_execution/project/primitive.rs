@@ -221,17 +221,7 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         )
         .unwrap_or_else(|error| panic!("selected primitive batch planning failed: {error}"));
         let remaining_mass = stockpile_mass(&selected_state, consumer.source());
-        let store_limited_mass = deep_hearth::energy::calculate_mass_specific_energy_capacity(
-            Energy::from_nanojoules(plan.capacity_nj),
-            registries
-                .ore_processing()
-                .get_comminution(PROCESS_CRUSH_ORE)
-                .unwrap_or_else(|| panic!("selected primitive crusher process disappeared"))
-                .specific_energy(),
-        );
-        let upper_batch_mass = remaining_mass
-            .min(envelope.maximum_mass_with_replenished_energy())
-            .min(store_limited_mass);
+        let upper_batch_mass = remaining_mass.min(envelope.maximum_mass_with_replenished_energy());
         assert!(
             !upper_batch_mass.is_zero(),
             "selected primitive crusher has remaining feed but no positive feasible batch"

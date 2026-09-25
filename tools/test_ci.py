@@ -728,7 +728,7 @@ class LocalCiPlanTests(unittest.TestCase):
             path.relative_to(ROOT).as_posix()
             for path in maintained_support
             if not path.name.endswith("_tests.rs")
-            and path.name not in {"tests.rs", "mod_tests.rs"}
+            and path.name != "mod_tests.rs"
             if inline_module.search(read_maintained_text(path))
         ]
         self.assertEqual(offenders, [])

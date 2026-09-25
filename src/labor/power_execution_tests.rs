@@ -281,6 +281,9 @@ fn active_manual_power_load_requires_completion_owner_revisions() {
 #[path = "power_execution_tests/treadle_package.rs"]
 mod treadle_package;
 
+#[path = "power_execution_tests/current_projection.rs"]
+mod current_projection;
+
 fn assemble_crank_fixture(
     registries: &Registries,
     state: &mut AppState,

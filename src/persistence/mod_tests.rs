@@ -65,7 +65,7 @@ fn make_test_energy_registries() -> Registries {
     ))
 }
 
-#[path = "tests/history.rs"]
+#[path = "mod_tests/history.rs"]
 mod history;
 
 fn make_test_heating_registries() -> Registries {
@@ -257,7 +257,7 @@ fn duplicate_first_object_entry(encoded: &str, field: &str, object: &serde_json:
     encoded.replacen(&needle, &format!("\"{field}\":{duplicate}"), 1)
 }
 
-#[path = "tests/decode.rs"]
+#[path = "mod_tests/decode.rs"]
 mod decode;
 
 fn condition(parts_per_million: u32) -> Condition {
@@ -363,17 +363,17 @@ fn link_test_structural_support(
     let _ = commit_test_structural_mutation(token, state);
 }
 
-#[path = "tests/envelope.rs"]
+#[path = "mod_tests/envelope.rs"]
 mod envelope;
 
-#[path = "tests/structural.rs"]
+#[path = "mod_tests/structural.rs"]
 mod structural;
 
-#[path = "tests/equipment_energy.rs"]
+#[path = "mod_tests/equipment_energy.rs"]
 mod equipment_energy;
 
-#[path = "tests/inflight.rs"]
+#[path = "mod_tests/inflight.rs"]
 mod inflight;
 
-#[path = "tests/material.rs"]
+#[path = "mod_tests/material.rs"]
 mod material;

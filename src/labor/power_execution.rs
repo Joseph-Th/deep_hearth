@@ -35,6 +35,8 @@ mod errors;
 
 pub use errors::{ManualPowerCommitError, ManualPowerError};
 
+mod bindings;
+
 /// Observable completion of one direct player-powered generation work order.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,7 +69,11 @@ impl ManualPowerOutcome {
 mod start;
 mod tick;
 
+pub(super) use bindings::{ResolvedManualPowerBindings, resolve_manual_power_bindings};
 pub use start::{ValidatedManualPowerStart, validate_start_manual_power};
+pub(super) use start::{
+    map_manual_power_schedule_error, validate_start_manual_power_with_bindings,
+};
 pub(crate) use tick::{apply_manual_power_tick, decide_manual_power_tick};
 
 #[cfg(test)]

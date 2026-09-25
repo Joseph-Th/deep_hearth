@@ -1,7 +1,14 @@
 //! Read-only physical projection for authored manual-power configurations.
 
+mod current;
 mod errors;
 
+pub use current::{
+    ManualPowerDestinationTargetAssessment, ManualPowerDestinationTargetBlocker,
+    ManualPowerDestinationTargetProjection, ManualPowerDestinationTargetRequest,
+    ManualPowerEnergyEnvelope, ManualPowerEnergyEnvelopeRequest,
+    assess_manual_power_destination_target, assess_manual_power_energy_envelope,
+};
 pub use errors::ManualPowerProjectionError;
 
 use crate::capability::CapabilityValue;

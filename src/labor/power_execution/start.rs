@@ -1,16 +1,9 @@
 //! Admission and commit for direct player-powered generation.
 
-use crate::capability::{CapabilityId, CapabilityValue};
 use crate::core::quantity::Power;
 use crate::core::state::AppState;
-use crate::energy::{
-    EnergySinkError, EnergyStoreOccupancy, energy_store_occupancy, validate_energy_sink_access,
-    validate_energy_sink_release,
-};
-use crate::equipment::{
-    EquipmentId, EquipmentOccupancy, ResolvedEquipmentProvider, equipment_occupancy,
-    resolve_equipment_provider_with_occupancy,
-};
+use crate::energy::{EnergyStoreOccupancy, energy_store_occupancy, validate_energy_sink_release};
+use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::registry::Registries;
 
@@ -21,7 +14,10 @@ use super::super::{
     ManualPowerWork, PlayerWork, PlayerWorkResourceBudget, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
-use super::{ManualPowerCommitError, ManualPowerError, ManualPowerRequest};
+use super::{
+    ManualPowerCommitError, ManualPowerError, ManualPowerRequest, ResolvedManualPowerBindings,
+    resolve_manual_power_bindings,
+};
 
 /// Revision-bound admission token for direct player-powered generation.
 #[must_use]
@@ -89,59 +85,7 @@ impl ValidatedManualPowerStart {
     }
 }
 
-fn validate_manual_power_equipment_occupancy(
-    occupancy: Option<EquipmentOccupancy>,
-    equipment: EquipmentId,
-) -> Result<(), ManualPowerError> {
-    match occupancy {
-        Some(EquipmentOccupancy::Production { job, release }) => {
-            Err(ManualPowerError::EquipmentBusyProduction {
-                equipment,
-                job,
-                release,
-            })
-        }
-        Some(EquipmentOccupancy::Mining { job }) => {
-            Err(ManualPowerError::EquipmentBusyMining { equipment, job })
-        }
-        Some(
-            EquipmentOccupancy::ManualPower { .. }
-            | EquipmentOccupancy::Prospecting { .. }
-            | EquipmentOccupancy::Maintenance { .. },
-        )
-        | None => Ok(()),
-    }
-}
-
-fn resolve_manual_power_equipment_power(
-    provider: ResolvedEquipmentProvider<'_>,
-    equipment: EquipmentId,
-    capability: CapabilityId,
-) -> Result<Power, ManualPowerError> {
-    let value =
-        provider
-            .get_capability(capability)
-            .ok_or(ManualPowerError::MissingPowerCapability {
-                equipment,
-                capability,
-            })?;
-    let CapabilityValue::Power(power) = value else {
-        return Err(ManualPowerError::PowerCapabilityKindMismatch {
-            equipment,
-            capability,
-            found: value.kind(),
-        });
-    };
-    if power.is_zero() {
-        return Err(ManualPowerError::ZeroEquipmentPower {
-            equipment,
-            capability,
-        });
-    }
-    Ok(power)
-}
-
-fn map_manual_power_schedule_error(
+pub(in crate::labor) fn map_manual_power_schedule_error(
     request: ManualPowerRequest,
     transfer_power: Power,
     error: ManualPowerScheduleError,
@@ -176,49 +120,30 @@ pub fn validate_start_manual_power(
     state: &AppState,
     request: ManualPowerRequest,
 ) -> Result<ValidatedManualPowerStart, ManualPowerError> {
-    let definition = registries
-        .labor()
-        .get_manual_power(request.method)
-        .copied()
-        .ok_or(ManualPowerError::UnknownMethod {
-            method: request.method,
-        })?;
-    if state
-        .equipment()
-        .get_equipment(request.equipment)
-        .is_some_and(|equipment| equipment.supported_by().is_some())
-    {
-        return Err(ManualPowerError::EquipmentMounted {
-            equipment: request.equipment,
-        });
-    }
-    let (provider, occupancy) =
-        resolve_equipment_provider_with_occupancy(registries, state, request.equipment)
-            .map_err(ManualPowerError::Equipment)?;
-    validate_manual_power_equipment_occupancy(occupancy, request.equipment)?;
-    let equipment_power = resolve_manual_power_equipment_power(
-        provider,
+    let bindings = resolve_manual_power_bindings(
+        registries,
+        state,
+        request.method,
         request.equipment,
-        definition.power_capability(),
+        request.destination,
     )?;
+    validate_start_manual_power_with_bindings(registries, state, request, bindings)
+}
+
+pub(in crate::labor) fn validate_start_manual_power_with_bindings(
+    registries: &Registries,
+    state: &AppState,
+    request: ManualPowerRequest,
+    bindings: ResolvedManualPowerBindings<'_>,
+) -> Result<ValidatedManualPowerStart, ManualPowerError> {
+    let definition = bindings.definition();
+    let provider = bindings.provider();
     if request.energy.is_zero() {
-        return Err(ManualPowerError::EnergySink(EnergySinkError::ZeroEnergy));
+        return Err(ManualPowerError::EnergySink(
+            crate::energy::EnergySinkError::ZeroEnergy,
+        ));
     }
-    let sink_access = validate_energy_sink_access(registries, state, request.destination)
-        .map_err(ManualPowerError::EnergySink)?;
-    if sink_access.carrier() != definition.carrier() {
-        return Err(ManualPowerError::WrongCarrier {
-            required: definition.carrier(),
-            provided: sink_access.carrier(),
-        });
-    }
-    let transfer_power = std::cmp::min(equipment_power, sink_access.max_input_power());
-    if transfer_power.is_zero() {
-        return Err(ManualPowerError::ZeroTransferPower {
-            equipment: request.equipment,
-            destination: request.destination,
-        });
-    }
+    let transfer_power = bindings.transfer_power();
     let schedule = resolve_manual_power_schedule(
         request.energy,
         transfer_power,
@@ -228,7 +153,7 @@ pub fn validate_start_manual_power(
     )
     .map_err(|error| map_manual_power_schedule_error(request, transfer_power, error))?;
     let duration = schedule.duration();
-    let sink = validate_energy_sink_release(registries, sink_access, request.energy, duration)
+    let sink = validate_energy_sink_release(registries, bindings.sink(), request.energy, duration)
         .map_err(ManualPowerError::EnergySink)?;
     let completes_at = state.tick().checked_add_span(duration).ok_or(
         ManualPowerError::CompletionTickOverflow {

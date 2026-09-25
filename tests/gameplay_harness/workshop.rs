@@ -57,7 +57,10 @@ use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, validate_mount_stockpile,
 };
 use deep_hearth::labor::{
-    ManualPowerError, ManualPowerRequest, PlayerWork, ValidatedManualPowerStart,
+    ManualPowerDestinationTargetAssessment, ManualPowerDestinationTargetBlocker,
+    ManualPowerDestinationTargetRequest, ManualPowerEnergyEnvelopeRequest, ManualPowerError,
+    ManualPowerRequest, PlayerWork, ValidatedManualPowerStart,
+    assess_manual_power_destination_target, assess_manual_power_energy_envelope,
     validate_start_manual_power,
 };
 use deep_hearth::maintenance::{Condition, MaintenanceBand};
@@ -65,8 +68,8 @@ use deep_hearth::material::{COMPOSITION_PARTS_PER_MILLION, CommodityKey};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
     ComminutionRequest, ComminutionResolutionError, PoweredOreBottleneck, PoweredOreMassConstraint,
-    PoweredOreMassEnvelope, ResolvedComminution, assess_powered_ore_mass_envelope,
-    resolve_comminution_process,
+    PoweredOreMassEnvelope, PoweredOreReplenishmentConstraint, ResolvedComminution,
+    assess_powered_ore_mass_envelope, resolve_comminution_process,
 };
 use deep_hearth::production::{
     ProductionAvailabilityChange, ProductionJobId, ProductionSuspensionReason,
