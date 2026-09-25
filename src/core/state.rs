@@ -290,7 +290,8 @@ impl Default for AppState {
 mod headroom;
 mod validation;
 
-pub use validation::{StateValidationError, validate_invariants, validate_loaded_state};
+pub(crate) use validation::debug_assert_runtime_invariants;
+pub use validation::{StateValidationError, validate_loaded_state};
 
 pub(crate) fn apply_clock_advance(state: &mut AppState, next_tick: SimulationTick) {
     state.clock.tick = next_tick;

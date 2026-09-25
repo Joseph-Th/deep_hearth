@@ -30,7 +30,7 @@ pub(super) fn resolve_region_excavation_hardness(
     let (minimum, maximum) = (minimum?, maximum?);
     let resolution_pa = resolution.pascals();
     // Under-approximate the lower edge of the conservative hardness band.
-    let lower_pa = minimum
+    let mut lower_pa = minimum
         .pascals()
         .saturating_sub(1)
         .checked_div(resolution_pa)
@@ -41,11 +41,20 @@ pub(super) fn resolve_region_excavation_hardness(
     let upper_pa = if maximum_pa.is_multiple_of(resolution_pa) {
         maximum_pa
     } else {
-        maximum_pa
+        let aligned_upper = maximum_pa
             .checked_div(resolution_pa)
             .and_then(|bucket| bucket.checked_add(1))
-            .and_then(|bucket| bucket.checked_mul(resolution_pa))
-            .unwrap_or(u64::MAX)
+            .and_then(|bucket| bucket.checked_mul(resolution_pa));
+        match aligned_upper {
+            Some(upper_pa) => upper_pa,
+            None => {
+                let ceiling_lower = u64::MAX.checked_sub(resolution_pa).unwrap_or_else(|| {
+                    unreachable!("represented pressure range contains one sampling resolution")
+                });
+                lower_pa = lower_pa.min(ceiling_lower);
+                u64::MAX
+            }
+        }
     };
     // Zero-hardness deposits carry no measurable excavation resistance; trusted load must not panic.
     let estimate = match ExcavationHardnessEstimate::new(
@@ -56,6 +65,29 @@ pub(super) fn resolve_region_excavation_hardness(
         Err(_) => return None,
     };
     Some(estimate)
+}
+
+pub(in crate::geology) fn excavation_hardness_band_matches_resolution(
+    hardness: ExcavationHardnessEstimate,
+    resolution: Pressure,
+) -> bool {
+    let resolution_pa = resolution.pascals();
+    if resolution_pa == 0 {
+        return false;
+    }
+    let lower_pa = hardness.lower().pascals();
+    let upper_pa = hardness.upper().pascals();
+    if upper_pa <= lower_pa {
+        return false;
+    }
+    if upper_pa == u64::MAX {
+        let ceiling_lower = u64::MAX.checked_sub(resolution_pa).unwrap_or_else(|| {
+            unreachable!("represented pressure range contains one sampling resolution")
+        });
+        return lower_pa == ceiling_lower
+            || (lower_pa.is_multiple_of(resolution_pa) && lower_pa <= ceiling_lower);
+    }
+    lower_pa.is_multiple_of(resolution_pa) && upper_pa.is_multiple_of(resolution_pa)
 }
 
 #[cfg(test)]

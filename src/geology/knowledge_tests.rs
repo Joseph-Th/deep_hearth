@@ -3,7 +3,9 @@
 use std::collections::BTreeSet;
 
 use super::*;
-use crate::content::{FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
+use crate::content::{
+    FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, PROSPECTING_DETAILED_FIELD_SURVEY, build_registries,
+};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
@@ -361,6 +363,63 @@ fn depleted_body_can_still_support_historical_hardness_evidence() {
 }
 
 #[test]
+fn loaded_state_rejects_representationally_clipped_hardness_precision() {
+    let registries = build_registries();
+    let detailed = registries
+        .labor()
+        .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
+        .copied()
+        .unwrap_or_else(|| panic!("detailed prospecting definition disappeared"));
+    let resolution = detailed
+        .excavation_hardness_resolution()
+        .unwrap_or_else(|| panic!("detailed prospecting hardness resolution disappeared"));
+    let actual_pa = u64::MAX - 100;
+    let old_clipped_lower =
+        (actual_pa.saturating_sub(1) / resolution.pascals()) * resolution.pascals();
+    assert!(u64::MAX - old_clipped_lower < resolution.pascals());
+    let narrow = ExcavationHardnessEstimate::new(
+        Pressure::from_pascals(old_clipped_lower),
+        Pressure::from_pascals(u64::MAX),
+    )
+    .unwrap_or_else(|error| panic!("clipped hardness fixture failed: {error}"));
+    let mut app = AppState::new();
+    let _ = insert_generated_deposit(
+        &registries,
+        &mut app,
+        GeneratedDepositSpec::new(
+            physical_bounds(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(1_000_000),
+            Temperature::from_millikelvin(293_150),
+            Pressure::from_pascals(actual_pa),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap_or_else(|error| panic!("ceiling hardness deposit fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("ceiling hardness deposit insertion failed: {error}"));
+    let (mut knowledge, observation) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+    );
+    knowledge
+        .observations
+        .get_mut(&observation)
+        .unwrap_or_else(|| panic!("ceiling hardness observation disappeared"))
+        .excavation_hardness = Some(narrow);
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
+                observation,
+                evidence: GeologicalEvidenceKind::ExcavationSample,
+            }
+        ))
+    );
+}
+
+#[test]
 fn loaded_state_rejects_resource_mass_without_exact_historical_body() {
     let registries = build_registries();
     let mut app = AppState::new();
@@ -454,6 +513,41 @@ fn depleted_body_can_still_support_historical_resource_mass_evidence() {
     );
 
     assert_eq!(validate_loaded_state(&registries, &app), Ok(()));
+}
+
+#[test]
+fn loaded_state_rejects_representationally_clipped_resource_mass_precision() {
+    let registries = build_registries();
+    let detailed = registries
+        .labor()
+        .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
+        .copied()
+        .unwrap_or_else(|| panic!("detailed prospecting definition disappeared"));
+    let resolution = detailed
+        .resource_mass_resolution()
+        .unwrap_or_else(|| panic!("detailed prospecting resource resolution disappeared"));
+    let actual_mg = u64::MAX - 100;
+    let old_clipped_lower = (actual_mg / resolution.milligrams()) * resolution.milligrams();
+    assert!(u64::MAX - old_clipped_lower < resolution.milligrams());
+    let narrow = ResourceMassEstimate::new(
+        Mass::from_milligrams(old_clipped_lower),
+        Mass::from_milligrams(u64::MAX),
+    )
+    .unwrap_or_else(|error| panic!("clipped resource-mass fixture failed: {error}"));
+    let mut app = AppState::new();
+    let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(actual_mg));
+    let (knowledge, observation) = knowledge_with_resource_mass(narrow);
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
+                observation,
+                evidence: GeologicalEvidenceKind::ExcavationSample,
+            }
+        ))
+    );
 }
 
 #[test]

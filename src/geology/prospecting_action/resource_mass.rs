@@ -14,28 +14,46 @@ fn resource_mass_bucket(actual: Mass, resolution: Mass) -> ResourceMassEstimate 
         "validated resource-mass sampling resolution must be nonzero"
     );
     let actual_mg = actual.milligrams();
-    let mut lower_mg = (actual_mg / resolution_mg)
+    let aligned_lower_mg = (actual_mg / resolution_mg)
         .checked_mul(resolution_mg)
         .unwrap_or_else(|| unreachable!("resource-mass lower bucket cannot exceed input"));
-    let upper_mg = (actual_mg / resolution_mg)
+    let aligned_upper_mg = (actual_mg / resolution_mg)
         .checked_add(1)
-        .and_then(|bucket| bucket.checked_mul(resolution_mg))
-        .unwrap_or(u64::MAX);
-
-    // At the representational ceiling there may be no larger upper bucket. Move the lower bound
-    // down by one instrument resolution instead of collapsing the observation to exact hidden
-    // reserve state.
-    if lower_mg == upper_mg {
-        lower_mg = lower_mg.checked_sub(resolution_mg).unwrap_or_else(|| {
-            unreachable!("equal nonzero resource-mass bounds contain one full resolution")
-        });
-    }
+        .and_then(|bucket| bucket.checked_mul(resolution_mg));
+    let (lower_mg, upper_mg) = match aligned_upper_mg {
+        Some(upper_mg) => (aligned_lower_mg, upper_mg),
+        None => (
+            u64::MAX.checked_sub(resolution_mg).unwrap_or_else(|| {
+                unreachable!("represented mass range contains one sampling resolution")
+            }),
+            u64::MAX,
+        ),
+    };
 
     ResourceMassEstimate::new(
         Mass::from_milligrams(lower_mg),
         Mass::from_milligrams(upper_mg),
     )
     .unwrap_or_else(|error| panic!("validated resource-mass bucket is invalid: {error}"))
+}
+
+pub(in crate::geology) fn resource_mass_band_matches_resolution(
+    resource_mass: ResourceMassEstimate,
+    resolution: Mass,
+) -> bool {
+    let resolution_mg = resolution.milligrams();
+    if resolution_mg == 0 {
+        return false;
+    }
+    let lower_mg = resource_mass.lower().milligrams();
+    let upper_mg = resource_mass.upper().milligrams();
+    if upper_mg == u64::MAX {
+        let ceiling_lower = u64::MAX.checked_sub(resolution_mg).unwrap_or_else(|| {
+            unreachable!("represented mass range contains one sampling resolution")
+        });
+        return lower_mg == ceiling_lower;
+    }
+    lower_mg.is_multiple_of(resolution_mg) && upper_mg.checked_sub(lower_mg) == Some(resolution_mg)
 }
 
 pub(super) fn resolve_region_resource_mass(

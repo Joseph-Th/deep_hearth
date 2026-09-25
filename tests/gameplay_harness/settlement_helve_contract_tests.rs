@@ -9,7 +9,7 @@ use deep_hearth::content::{
     PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT, PROCESS_SHAPE_WOOD_BOARDS,
     PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
     PoweredCraftRequest, resolve_manual_craft, validate_start_powered_craft,
@@ -26,11 +26,11 @@ use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
+use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
 
 const SHORT_COPPER_ORDER: u64 = 8;
 const PROJECT_COPPER_ORDER: u64 = 14;
-const HELVE_WORK_PER_REINFORCEMENT: Energy = Energy::from_nanojoules(100_000_000_000);
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,
@@ -52,6 +52,11 @@ fn seed_material(
 #[test]
 fn helve_hammer_converts_treadle_workshop_when_repeated_copper_work_repays_attention() {
     let registries = build_registries();
+    let helve_batch = authored_batch(
+        &registries,
+        PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
+        "helve-hammer investment",
+    );
     let mut state = AppState::new();
 
     let bootstrap = seed_stockpile(
@@ -103,7 +108,11 @@ fn helve_hammer_converts_treadle_workshop_when_repeated_copper_work_repays_atten
         Mass::from_milligrams(3_020_000),
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    let order_mass = Mass::from_milligrams(PROJECT_COPPER_ORDER * 20_000);
+    let order_mass = Mass::from_milligrams(
+        PROJECT_COPPER_ORDER
+            .checked_mul(helve_batch.input_mass.milligrams())
+            .unwrap_or_else(|| panic!("helve project input mass overflowed")),
+    );
     let work_source = seed_stockpile(
         &mut state,
         order_mass,
@@ -222,12 +231,7 @@ fn helve_hammer_converts_treadle_workshop_when_repeated_copper_work_repays_atten
     let charge = validate_start_manual_power(
         &registries,
         &state,
-        ManualPowerRequest::new(
-            MANUAL_POWER_HAND_CRANK,
-            crank,
-            drive,
-            HELVE_WORK_PER_REINFORCEMENT,
-        ),
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, helve_batch.work),
     )
     .unwrap_or_else(|error| panic!("helve charge projection failed: {error}"));
     let charge_ticks = charge.work().completes_at().value() - state.tick().value();
@@ -302,12 +306,7 @@ fn helve_hammer_converts_treadle_workshop_when_repeated_copper_work_repays_atten
         let work = validate_start_manual_power(
             &registries,
             &powered,
-            ManualPowerRequest::new(
-                MANUAL_POWER_HAND_CRANK,
-                crank,
-                drive,
-                HELVE_WORK_PER_REINFORCEMENT,
-            ),
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, helve_batch.work),
         )
         .unwrap_or_else(|error| panic!("helve project charge failed: {error}"))
         .commit(&mut powered)
@@ -320,7 +319,7 @@ fn helve_hammer_converts_treadle_workshop_when_repeated_copper_work_repays_atten
             PoweredCraftRequest::single(
                 PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
                 work_source,
-                MaterialLotSelection::new(work_lot, Mass::from_milligrams(20_000)),
+                MaterialLotSelection::new(work_lot, helve_batch.input_mass),
                 helve,
                 drive,
             ),

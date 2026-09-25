@@ -13,7 +13,7 @@ use deep_hearth::content::{
     PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_POWER_TURN_TIMBER_FLYWHEEL, PROCESS_SAW_WOOD_BOARDS,
     PROCESS_SHAPE_TIMBER_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
     PoweredCraftRequest, resolve_manual_craft, validate_start_powered_craft,
@@ -30,11 +30,11 @@ use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
+use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
 
 const SHORT_LUMBER_ORDER: u64 = 20;
 const PROJECT_LUMBER_ORDER: u64 = 40;
-const SAWMILL_WORK_PER_LOG: Energy = Energy::from_nanojoules(250_000_000_000);
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,
@@ -56,6 +56,11 @@ fn seed_material(
 #[test]
 fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_repays_attention() {
     let registries = build_registries();
+    let sawmill_batch = authored_batch(
+        &registries,
+        PROCESS_POWER_SAW_WOOD_BOARDS,
+        "sawmill investment",
+    );
     let mut state = AppState::new();
 
     // Disclosed bootstrap: the settlement already owns the earlier frame-saw and mechanical-work
@@ -110,9 +115,14 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         Mass::from_milligrams(7_000_000),
         StockpileStorageProfile::unbounded_solid_only(),
     );
+    let project_input_mass = Mass::from_milligrams(
+        PROJECT_LUMBER_ORDER
+            .checked_mul(sawmill_batch.input_mass.milligrams())
+            .unwrap_or_else(|| panic!("sawmill project input mass overflowed")),
+    );
     let work_source = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(PROJECT_LUMBER_ORDER * 1_000_000),
+        project_input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let work_lot = seed_material(
@@ -120,16 +130,16 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         &mut state,
         work_source,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(PROJECT_LUMBER_ORDER * 1_000_000),
+        project_input_mass,
     );
     let baseline_output = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(PROJECT_LUMBER_ORDER * 1_000_000),
+        project_input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let powered_output = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(PROJECT_LUMBER_ORDER * 1_000_000),
+        project_input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
 
@@ -230,7 +240,7 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
     let charge = validate_start_manual_power(
         &registries,
         &state,
-        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, SAWMILL_WORK_PER_LOG),
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, sawmill_batch.work),
     )
     .unwrap_or_else(|error| panic!("sawmill charge projection failed: {error}"));
     let charge_ticks = charge.work().completes_at().value() - state.tick().value();
@@ -312,7 +322,7 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         let work = validate_start_manual_power(
             &registries,
             &powered,
-            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, SAWMILL_WORK_PER_LOG),
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, sawmill_batch.work),
         )
         .unwrap_or_else(|error| panic!("sawmill project charging failed: {error}"))
         .commit(&mut powered)
@@ -327,7 +337,7 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
             PoweredCraftRequest::single(
                 PROCESS_POWER_SAW_WOOD_BOARDS,
                 work_source,
-                MaterialLotSelection::new(work_lot, Mass::from_milligrams(1_000_000)),
+                MaterialLotSelection::new(work_lot, sawmill_batch.input_mass),
                 sawmill,
                 drive,
             ),
@@ -402,6 +412,11 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
 #[test]
 fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
     let registries = build_registries();
+    let lathe_batch = authored_batch(
+        &registries,
+        PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+        "flywheel-lathe settlement",
+    );
     let mut state = AppState::new();
 
     let bootstrap = seed_stockpile(
@@ -456,7 +471,7 @@ fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
 
     let source = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(2_400_000),
+        lathe_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let log = seed_material(
@@ -464,11 +479,11 @@ fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
         &mut state,
         source,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(2_400_000),
+        lathe_batch.input_mass,
     );
     let output = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(2_400_000),
+        lathe_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
 
@@ -533,12 +548,7 @@ fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
     let work = validate_start_manual_power(
         &registries,
         &state,
-        ManualPowerRequest::new(
-            MANUAL_POWER_HAND_CRANK,
-            crank,
-            drive,
-            Energy::from_nanojoules(480_000_000_000),
-        ),
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, lathe_batch.work),
     )
     .unwrap_or_else(|error| panic!("lathe settlement charge failed: {error}"))
     .commit(&mut state)
@@ -557,7 +567,7 @@ fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
         PoweredCraftRequest::single(
             PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
             source,
-            MaterialLotSelection::new(log, Mass::from_milligrams(2_400_000)),
+            MaterialLotSelection::new(log, lathe_batch.input_mass),
             lathe,
             drive,
         ),
@@ -609,6 +619,11 @@ fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
 #[test]
 fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
     let registries = build_registries();
+    let toolroom_batch = authored_batch(
+        &registries,
+        PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+        "toolroom settlement",
+    );
     let mut state = AppState::new();
 
     let bootstrap = seed_stockpile(
@@ -642,7 +657,7 @@ fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
     }
     let source = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(900_000),
+        toolroom_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let scrap = seed_material(
@@ -650,11 +665,11 @@ fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
         &mut state,
         source,
         CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
-        Mass::from_milligrams(900_000),
+        toolroom_batch.input_mass,
     );
     let output = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(900_000),
+        toolroom_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     initialize_player_survival(&registries, &mut state)
@@ -725,12 +740,7 @@ fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
     let work = validate_start_manual_power(
         &registries,
         &state,
-        ManualPowerRequest::new(
-            MANUAL_POWER_HAND_CRANK,
-            crank,
-            drive,
-            Energy::from_nanojoules(270_000_000_000),
-        ),
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, toolroom_batch.work),
     )
     .unwrap_or_else(|error| panic!("toolroom settlement charge failed: {error}"))
     .commit(&mut state)
@@ -745,7 +755,7 @@ fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
         PoweredCraftRequest::single(
             PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
             source,
-            MaterialLotSelection::new(scrap, Mass::from_milligrams(900_000)),
+            MaterialLotSelection::new(scrap, toolroom_batch.input_mass),
             powered,
             drive,
         ),

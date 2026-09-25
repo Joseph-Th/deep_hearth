@@ -188,8 +188,8 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
     Ok(())
 }
 
-/// Asserts every cheap runtime invariant in debug builds.
-pub fn validate_invariants(registries: &Registries, state: &AppState) {
+/// Debug-asserts every cheap runtime invariant after an authoritative simulation mutation.
+pub(crate) fn debug_assert_runtime_invariants(registries: &Registries, state: &AppState) {
     debug_assert!(
         state.systems.mining.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain above every allocated job"

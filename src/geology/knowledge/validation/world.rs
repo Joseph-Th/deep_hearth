@@ -1,7 +1,6 @@
 //! Cross-owner trusted-load replay for acquired geological evidence.
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
-use crate::core::quantity::{Mass, Pressure};
 use crate::geology::state::GeologicalDepositRecord;
 use crate::geology::{GeologicalDepositLifecycle, GeologyState};
 use crate::labor::{LaborRegistry, ProspectingDefinition};
@@ -13,6 +12,9 @@ use super::super::{
     GeologicalObservationRecord, MaterialAbundanceEstimate, ResourceMassEstimate,
 };
 use super::GeologicalKnowledgeValidationError;
+use crate::geology::prospecting_action::{
+    excavation_hardness_band_matches_resolution, resource_mass_band_matches_resolution,
+};
 
 /// Validates persisted acquired evidence against authored methods and geological bodies that
 /// could have existed when each observation was acquired.
@@ -90,7 +92,7 @@ fn authored_method_can_emit_observation(
         method.excavation_hardness_resolution(),
     ) {
         (Some(hardness), Some(resolution)) => {
-            if !hardness_band_matches_resolution(hardness, resolution) {
+            if !excavation_hardness_band_matches_resolution(hardness, resolution) {
                 return false;
             }
         }
@@ -177,35 +179,6 @@ fn region_could_have_been_fully_covered(
         }
     }
     true
-}
-
-fn hardness_band_matches_resolution(
-    hardness: ExcavationHardnessEstimate,
-    resolution: Pressure,
-) -> bool {
-    let resolution = resolution.pascals();
-    let lower = hardness.lower().pascals();
-    let upper = hardness.upper().pascals();
-    upper > lower
-        && lower.is_multiple_of(resolution)
-        && (upper == u64::MAX || upper.is_multiple_of(resolution))
-}
-
-fn resource_mass_band_matches_resolution(
-    resource_mass: ResourceMassEstimate,
-    resolution: Mass,
-) -> bool {
-    let resolution = resolution.milligrams();
-    let lower = resource_mass.lower().milligrams();
-    let upper = resource_mass.upper().milligrams();
-    if !lower.is_multiple_of(resolution) {
-        return false;
-    }
-    let width = upper - lower;
-    if upper == u64::MAX {
-        return width <= resolution;
-    }
-    width == resolution
 }
 
 fn validate_live_abundance_against_geology(

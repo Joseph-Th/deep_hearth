@@ -34,6 +34,8 @@ mod material_selection;
 mod ore_fixture;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
+#[path = "gameplay_harness/powered_craft_planning.rs"]
+mod powered_craft_planning;
 #[path = "gameplay_harness/primitive_liberation.rs"]
 mod primitive_liberation;
 #[path = "gameplay_harness/primitive_workload.rs"]

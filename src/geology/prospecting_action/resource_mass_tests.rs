@@ -7,7 +7,10 @@ use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
-use super::{resolve_region_resource_mass, resource_mass_bucket};
+use super::{
+    resolve_region_resource_mass, resource_mass_band_matches_resolution, resource_mass_bucket,
+};
+use crate::geology::ResourceMassEstimate;
 
 fn voxel(x: i64) -> VoxelBounds {
     VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1))
@@ -158,6 +161,30 @@ fn representational_ceiling_does_not_collapse_resource_mass_uncertainty() {
     assert_eq!(estimate.upper(), actual);
     assert_eq!(estimate.lower(), Mass::from_milligrams(u64::MAX - 1));
     assert_eq!(estimate.width(), Mass::from_milligrams(1));
+}
+
+#[test]
+fn representational_ceiling_retains_full_authored_resource_mass_resolution() {
+    let resolution = Mass::from_milligrams(1_000_000);
+    let actual = Mass::from_milligrams(u64::MAX - 100);
+    let estimate = resource_mass_bucket(actual, resolution);
+
+    assert_eq!(estimate.upper(), Mass::from_milligrams(u64::MAX));
+    assert_eq!(estimate.width(), resolution);
+    assert!(estimate.lower() <= actual && actual <= estimate.upper());
+    assert!(resource_mass_band_matches_resolution(estimate, resolution));
+}
+
+#[test]
+fn resource_mass_resolution_shape_rejects_narrow_ceiling_band() {
+    let resolution = Mass::from_milligrams(1_000_000);
+    let narrow = ResourceMassEstimate::new(
+        Mass::from_milligrams((u64::MAX / 1_000_000) * 1_000_000),
+        Mass::from_milligrams(u64::MAX),
+    )
+    .unwrap_or_else(|error| panic!("narrow ceiling estimate fixture failed: {error}"));
+
+    assert!(!resource_mass_band_matches_resolution(narrow, resolution));
 }
 
 #[test]

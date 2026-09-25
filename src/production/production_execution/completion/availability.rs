@@ -2,19 +2,24 @@
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
 use crate::labor::{PlayerWorkTickError, decide_manual_production_player_work_start};
 use crate::registry::Registries;
 use crate::structural::StructuralLifecycle;
 
 use super::super::super::state::{
-    ProductionAvailabilityDependencyRevisions, ProductionJobRecord, ProductionSuspensionReason,
+    ProductionAvailabilityDependencyRevisions, ProductionJobId, ProductionJobRecord,
+    ProductionSuspensionReason,
 };
 use super::{CompletionPlanError, PlayerLaborRevisionDependencies, ProductionAvailabilityChange};
 
-fn has_required_active_equipment_support(state: &AppState, job: &ProductionJobRecord) -> bool {
+fn unavailable_equipment_support(
+    state: &AppState,
+    job: &ProductionJobRecord,
+) -> Option<EquipmentId> {
     if !job.has_required_active_support() {
-        return true;
+        return None;
     }
     let provider = match job.equipment_provider() {
         Some(provider) => provider,
@@ -31,12 +36,13 @@ fn has_required_active_equipment_support(state: &AppState, job: &ProductionJobRe
             provider.equipment().value()
         ),
     };
-    equipment.supported_by().is_some_and(|element| {
+    let support_available = equipment.supported_by().is_some_and(|element| {
         state
             .structures()
             .get_element(element)
             .is_some_and(|support| support.lifecycle() == StructuralLifecycle::Active)
-    })
+    });
+    (!support_available).then_some(provider.equipment())
 }
 
 fn unavailable_output_support(state: &AppState, job: &ProductionJobRecord) -> Option<StockpileId> {
@@ -67,16 +73,8 @@ fn current_physical_suspension_reason(
     state: &AppState,
     job: &ProductionJobRecord,
 ) -> Option<ProductionSuspensionReason> {
-    if !has_required_active_equipment_support(state, job) {
-        let provider = job.equipment_provider().unwrap_or_else(|| {
-            panic!(
-                "runtime invariant broken: support-dependent production job {} has no equipment provider",
-                job.id().value()
-            )
-        });
-        return Some(ProductionSuspensionReason::EquipmentSupportUnavailable {
-            equipment: provider.equipment(),
-        });
+    if let Some(equipment) = unavailable_equipment_support(state, job) {
+        return Some(ProductionSuspensionReason::EquipmentSupportUnavailable { equipment });
     }
     unavailable_output_support(state, job)
         .map(|stockpile| ProductionSuspensionReason::OutputSupportUnavailable { stockpile })
@@ -116,9 +114,12 @@ fn decide_job_unavailability(
     player_labor: &mut PlayerLaborAvailabilityState,
 ) -> Result<Option<ProductionSuspensionReason>, CompletionPlanError> {
     let physical_unavailable = current_physical_suspension_reason(state, job);
-    if physical_unavailable.is_some() || job.suspension().is_none() {
+    if physical_unavailable.is_some() {
         return Ok(physical_unavailable);
     }
+    let Some(suspension) = job.suspension() else {
+        return Ok(None);
+    };
     if registries.manual_process_exertion(job.process()).is_none() {
         return Ok(None);
     }
@@ -128,12 +129,7 @@ fn decide_job_unavailability(
         return Ok(Some(ProductionSuspensionReason::PlayerLaborUnavailable));
     }
     player_labor.survival_consulted = true;
-    let remaining = job
-        .suspension()
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: manual resume candidate is not suspended")
-        })
-        .remaining_active_time();
+    let remaining = suspension.remaining_active_time();
     match decide_manual_production_player_work_start(registries, state, job.id(), remaining) {
         Ok(Some(_start)) => {
             player_labor.claimed = true;
@@ -142,6 +138,45 @@ fn decide_job_unavailability(
         Ok(None) => Ok(Some(ProductionSuspensionReason::PlayerLaborUnavailable)),
         Err(PlayerWorkTickError::RevisionExhausted) => Err(CompletionPlanError::PlayerWorkRevision),
     }
+}
+
+fn indexed_job<'state>(
+    state: &'state AppState,
+    job_id: ProductionJobId,
+    index_name: &str,
+) -> &'state ProductionJobRecord {
+    state.production().get_job(job_id).unwrap_or_else(|| {
+        panic!(
+            "runtime invariant broken: {index_name} references missing production job {}",
+            job_id.value()
+        )
+    })
+}
+
+fn evaluate_availability_candidates(
+    registries: &Registries,
+    state: &AppState,
+    candidates: impl IntoIterator<Item = ProductionJobId>,
+    index_name: &str,
+    stop_after_resume: bool,
+    player_labor: &mut PlayerLaborAvailabilityState,
+    changes: &mut Vec<ProductionAvailabilityChange>,
+) -> Result<(), CompletionPlanError> {
+    let current = state.tick();
+    for job_id in candidates {
+        let job = indexed_job(state, job_id, index_name);
+        let unavailable = decide_job_unavailability(registries, state, job, player_labor)?;
+        if let Some(change) = plan_availability_change(current, job, unavailable)? {
+            let resumed = matches!(change, ProductionAvailabilityChange::Resumed { .. });
+            changes.push(change);
+            if stop_after_resume && resumed {
+                // Player attention is exclusive. Once the lowest-ID feasible suspended job claims
+                // it, every later player-labor-suspended job remains blocked until a later tick.
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn plan_availability_change(
@@ -209,7 +244,6 @@ pub(super) fn decide_availability_changes(
     ),
     CompletionPlanError,
 > {
-    let current = state.tick();
     let dependency_revisions = ProductionAvailabilityDependencyRevisions::new(
         state.inventory().support_revision(),
         state.equipment().support_revision(),
@@ -224,41 +258,27 @@ pub(super) fn decide_availability_changes(
         .production()
         .physical_availability_dependencies_changed(dependency_revisions)
     {
-        for job_id in state
-            .production()
-            .physical_availability_candidate_jobs(state.inventory())
-        {
-            let job = state.production().get_job(job_id).unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: availability candidate index references missing production job {}",
-                    job_id.value()
-                )
-            });
-            let unavailable = decide_job_unavailability(registries, state, job, &mut player_labor)?;
-            if let Some(change) = plan_availability_change(current, job, unavailable)? {
-                changes.push(change);
-            }
-        }
+        evaluate_availability_candidates(
+            registries,
+            state,
+            state
+                .production()
+                .physical_availability_candidate_jobs(state.inventory()),
+            "availability candidate index",
+            false,
+            &mut player_labor,
+            &mut changes,
+        )?;
     } else if !player_labor.claimed {
-        for job_id in state.production().player_labor_suspended_jobs() {
-            let job = state.production().get_job(job_id).unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: player-labor suspension index references missing production job {}",
-                    job_id.value()
-                )
-            });
-            let unavailable = decide_job_unavailability(registries, state, job, &mut player_labor)?;
-            if let Some(change) = plan_availability_change(current, job, unavailable)? {
-                let resumed = matches!(change, ProductionAvailabilityChange::Resumed { .. });
-                changes.push(change);
-                if resumed {
-                    // Player attention is exclusive. Once the lowest-ID feasible suspended job
-                    // claims it, every later player-labor-suspended job necessarily remains
-                    // blocked until a later tick.
-                    break;
-                }
-            }
-        }
+        evaluate_availability_candidates(
+            registries,
+            state,
+            state.production().player_labor_suspended_jobs(),
+            "player-labor suspension index",
+            true,
+            &mut player_labor,
+            &mut changes,
+        )?;
     }
     let player_labor_dependencies = player_labor.revision_dependencies(state);
     Ok((changes, player_labor_dependencies, dependency_revisions))

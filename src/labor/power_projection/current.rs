@@ -49,6 +49,10 @@ impl CurrentManualPowerContext<'_> {
             })
     }
 
+    pub(super) const fn destination_capacity(&self) -> Energy {
+        self.bindings.sink().capacity()
+    }
+
     pub(super) fn destination_energy_after(&self, duration: TickSpan, generated: Energy) -> Energy {
         self.bindings
             .sink()

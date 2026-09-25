@@ -173,6 +173,33 @@ fn destination_target_reports_capacity_ordering_that_prevents_a_full_post_tick_s
 }
 
 #[test]
+fn destination_target_rejects_above_capacity_before_irrelevant_generation_arithmetic() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("manual-power target survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+
+    assert_eq!(
+        assess_manual_power_destination_target(
+            &registries,
+            &state,
+            ManualPowerDestinationTargetRequest::new(
+                MANUAL_POWER_HAND_CRANK,
+                crank,
+                drive,
+                Energy::from_nanojoules(u128::MAX),
+            ),
+        )
+        .unwrap_or_else(|error| panic!("above-capacity target should classify cleanly: {error}")),
+        ManualPowerDestinationTargetAssessment::Blocked(
+            ManualPowerDestinationTargetBlocker::DestinationCapacity
+        )
+    );
+}
+
+#[test]
 fn envelope_respects_requested_survival_floor_without_mutating_state() {
     let registries = build_registries();
     let mut state = AppState::new();

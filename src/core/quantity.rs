@@ -368,8 +368,10 @@ impl PreciseEnergy {
             .checked_add(carry)?;
         Some(Self {
             nanojoules,
-            femtojoule_remainder: (remainder_sum % u64::from(Self::FEMTOJOULES_PER_NANOJOULE))
-                as u32,
+            femtojoule_remainder: u32::try_from(
+                remainder_sum % u64::from(Self::FEMTOJOULES_PER_NANOJOULE),
+            )
+            .unwrap_or_else(|_| unreachable!("normalized femtojoule remainder always fits u32")),
         })
     }
 

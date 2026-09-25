@@ -60,6 +60,8 @@ mod ore_setup;
 mod physical_time;
 #[path = "gameplay_harness/power_provider_probe.rs"]
 mod power_provider_probe;
+#[path = "gameplay_harness/powered_craft_planning.rs"]
+mod powered_craft_planning;
 #[path = "gameplay_harness/preservation_route.rs"]
 mod preservation_route;
 #[path = "gameplay_harness/primitive_liberation.rs"]

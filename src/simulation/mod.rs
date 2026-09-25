@@ -5,7 +5,7 @@ mod player_death;
 
 pub use error::TickError;
 
-use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
+use crate::core::state::{AppState, apply_clock_advance, debug_assert_runtime_invariants};
 use crate::core::time::SimulationTick;
 use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
 use crate::equipment::{
@@ -280,7 +280,7 @@ pub fn advance_tick(
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
     apply_clock_advance(state, next_tick);
 
-    validate_invariants(registries, state);
+    debug_assert_runtime_invariants(registries, state);
     Ok(TickOutcome {
         tick: next_tick,
         production_availability_changes,

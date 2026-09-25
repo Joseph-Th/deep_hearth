@@ -88,8 +88,12 @@ enum CandidateAdmission {
 
 enum TargetSearchStart {
     AlreadySatisfied(Energy),
-    SearchFrom(TickSpan),
+    Search {
+        first_duration: TickSpan,
+        last_duration: TickSpan,
+    },
     GenerationBlocked,
+    DestinationBlocked,
 }
 
 #[derive(Default)]
@@ -185,34 +189,71 @@ fn admit_candidate(
     }
 }
 
+fn minimum_duration_for_output(
+    context: &CurrentManualPowerContext<'_>,
+    required: Energy,
+    maximum_duration: TickSpan,
+) -> Option<TickSpan> {
+    if required.is_zero() {
+        return Some(TickSpan::ZERO);
+    }
+    if maximum_duration.is_zero() || context.output_capacity(maximum_duration) < required {
+        return None;
+    }
+
+    let mut low = 1_u64;
+    let mut high = maximum_duration.value();
+    while low < high {
+        let midpoint = low + (high - low) / 2;
+        if context.output_capacity(TickSpan::new(midpoint)) >= required {
+            high = midpoint;
+        } else {
+            low = midpoint + 1;
+        }
+    }
+    Some(TickSpan::new(low))
+}
+
 fn target_search_start(
     context: &CurrentManualPowerContext<'_>,
     target: Energy,
     condition_ticks: TickSpan,
-) -> Result<TargetSearchStart, ManualPowerError> {
+) -> TargetSearchStart {
     let current = context.current_stored();
     if current >= target {
-        return Ok(TargetSearchStart::AlreadySatisfied(current));
+        return TargetSearchStart::AlreadySatisfied(current);
+    }
+    if target > context.destination_capacity() {
+        return TargetSearchStart::DestinationBlocked;
     }
     let initial_gap = target
         .checked_sub(current)
         .unwrap_or_else(|| unreachable!("target above current store has a positive gap"));
-    let first_duration = context.schedule_duration(initial_gap)?;
-    Ok(if first_duration > condition_ticks {
-        TargetSearchStart::GenerationBlocked
-    } else {
-        TargetSearchStart::SearchFrom(first_duration)
-    })
+    let Some(first_duration) = minimum_duration_for_output(context, initial_gap, condition_ticks)
+    else {
+        return TargetSearchStart::GenerationBlocked;
+    };
+
+    // A least-energy solution cannot occur after the first duration bucket capable of generating
+    // the entire target from empty. Beyond that bucket, generated energy must exceed the target
+    // while retained preexisting energy can only stay equal or decrease. If condition life ends
+    // first, it is already the tighter physical bound.
+    let last_duration =
+        minimum_duration_for_output(context, target, condition_ticks).unwrap_or(condition_ticks);
+    TargetSearchStart::Search {
+        first_duration,
+        last_duration,
+    }
 }
 
-fn search_target_from_duration(
+fn search_target_duration_range(
     context: &CurrentManualPowerContext<'_>,
     target: Energy,
     first_duration: TickSpan,
-    condition_ticks: TickSpan,
+    last_duration: TickSpan,
 ) -> Result<ManualPowerDestinationTargetAssessment, ManualPowerError> {
     let mut search = TargetSearchState::default();
-    for ticks in first_duration.value()..=condition_ticks.value() {
+    for ticks in first_duration.value()..=last_duration.value() {
         let duration = TickSpan::new(ticks);
         let candidate = match duration_candidate(context, target, duration) {
             DurationCandidate::GenerationInsufficient => continue,
@@ -243,7 +284,7 @@ fn assess_target(
     target: Energy,
     condition_ticks: TickSpan,
 ) -> Result<ManualPowerDestinationTargetAssessment, ManualPowerError> {
-    match target_search_start(context, target, condition_ticks)? {
+    match target_search_start(context, target, condition_ticks) {
         TargetSearchStart::AlreadySatisfied(stored) => {
             Ok(ManualPowerDestinationTargetAssessment::AlreadySatisfied { stored })
         }
@@ -252,9 +293,15 @@ fn assess_target(
                 ManualPowerDestinationTargetBlocker::GenerationCapacity,
             ))
         }
-        TargetSearchStart::SearchFrom(first_duration) => {
-            search_target_from_duration(context, target, first_duration, condition_ticks)
+        TargetSearchStart::DestinationBlocked => {
+            Ok(ManualPowerDestinationTargetAssessment::Blocked(
+                ManualPowerDestinationTargetBlocker::DestinationCapacity,
+            ))
         }
+        TargetSearchStart::Search {
+            first_duration,
+            last_duration,
+        } => search_target_duration_range(context, target, first_duration, last_duration),
     }
 }
 

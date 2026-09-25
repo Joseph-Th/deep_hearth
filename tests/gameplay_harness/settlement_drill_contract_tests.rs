@@ -9,7 +9,7 @@ use deep_hearth::content::{
     PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
     PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
     PoweredCraftRequest, resolve_manual_craft, validate_start_powered_craft,
@@ -27,12 +27,11 @@ use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
+use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
 
 const SHORT_PLATE_ORDER: u64 = 8;
 const PROJECT_PLATE_ORDER: u64 = 12;
-const PLATE_INPUT_MASS: Mass = Mass::from_milligrams(20_000);
-const SPINDLE_WORK_PER_PLATE: Energy = Energy::from_nanojoules(50_000_000_000);
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,
@@ -53,6 +52,11 @@ fn seed_material(
 
 pub(super) fn assert_spindle_drill_investment_contract() {
     let registries = build_registries();
+    let spindle_batch = authored_batch(
+        &registries,
+        PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+        "spindle-drill investment",
+    );
     let mut state = AppState::new();
 
     // This stock is the already-shaped primitive workshop package. The later upgrade additions are
@@ -110,7 +114,7 @@ pub(super) fn assert_spindle_drill_investment_contract() {
     // not merely a pristine definition identity.
     let calibration_source = seed_stockpile(
         &mut state,
-        PLATE_INPUT_MASS,
+        spindle_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     seed_material(
@@ -118,11 +122,11 @@ pub(super) fn assert_spindle_drill_investment_contract() {
         &mut state,
         calibration_source,
         CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-        PLATE_INPUT_MASS,
+        spindle_batch.input_mass,
     );
     let calibration_output = seed_stockpile(
         &mut state,
-        PLATE_INPUT_MASS,
+        spindle_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let upgrade_raw = seed_stockpile(
@@ -149,7 +153,11 @@ pub(super) fn assert_spindle_drill_investment_contract() {
         Mass::from_milligrams(4_020_000),
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    let work_mass = Mass::from_milligrams(PROJECT_PLATE_ORDER * PLATE_INPUT_MASS.milligrams());
+    let work_mass = Mass::from_milligrams(
+        PROJECT_PLATE_ORDER
+            .checked_mul(spindle_batch.input_mass.milligrams())
+            .unwrap_or_else(|| panic!("spindle project input mass overflowed")),
+    );
     let work_source = seed_stockpile(
         &mut state,
         work_mass,
@@ -263,12 +271,7 @@ pub(super) fn assert_spindle_drill_investment_contract() {
     let charge = validate_start_manual_power(
         &registries,
         &state,
-        ManualPowerRequest::new(
-            MANUAL_POWER_HAND_CRANK,
-            crank,
-            drive,
-            SPINDLE_WORK_PER_PLATE,
-        ),
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, spindle_batch.work),
     )
     .unwrap_or_else(|error| panic!("spindle charge projection failed: {error}"));
     let charge_ticks = charge.work().completes_at().value() - state.tick().value();
@@ -344,12 +347,7 @@ pub(super) fn assert_spindle_drill_investment_contract() {
         let charge = validate_start_manual_power(
             &registries,
             &powered,
-            ManualPowerRequest::new(
-                MANUAL_POWER_HAND_CRANK,
-                crank,
-                drive,
-                SPINDLE_WORK_PER_PLATE,
-            ),
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, spindle_batch.work),
         )
         .unwrap_or_else(|error| panic!("spindle project charge failed: {error}"))
         .commit(&mut powered)
@@ -359,7 +357,7 @@ pub(super) fn assert_spindle_drill_investment_contract() {
         let selections = select_stockpile_mass(
             &powered,
             work_source,
-            PLATE_INPUT_MASS,
+            spindle_batch.input_mass,
             "spindle powered plate input",
         );
         let job = validate_start_powered_craft(

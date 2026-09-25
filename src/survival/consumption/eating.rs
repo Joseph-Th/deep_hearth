@@ -25,6 +25,7 @@ use crate::registry::Registries;
 
 use super::super::FoodCategory;
 use super::super::state::{PendingConsumedFoodTrace, PendingConsumedMatterBaseline, PendingEating};
+use super::direct_consumption_survival_revisions;
 pub use errors::{EatCommitError, EatError};
 pub use projection::{
     MealMetabolicProjectionError, MinimumMealMetabolicProjection,
@@ -318,20 +319,9 @@ pub fn validate_eat(
     .map_err(EatError::StructuralLoad)?;
     validate_unreserved_stockpile_structural_load_headroom(state, structural.as_ref())
         .map_err(EatError::StructuralLoad)?;
-    let expected_survival_revision = state.survival().revision();
-    let required_survival_revisions = duration
-        .value()
-        .checked_add(1)
-        .ok_or(EatError::SurvivalRevisionExhausted)?;
-    if !state
-        .survival()
-        .can_advance_revision_by(required_survival_revisions)
-    {
-        return Err(EatError::SurvivalRevisionExhausted);
-    }
-    let next_survival_revision = expected_survival_revision
-        .checked_add(1)
-        .unwrap_or_else(|| unreachable!("direct-consumption survival budget includes admission"));
+    let (expected_survival_revision, next_survival_revision) =
+        direct_consumption_survival_revisions(state, duration)
+            .ok_or(EatError::SurvivalRevisionExhausted)?;
     let absorption_offer = meal_absorption_offer(&offer, physiology.maximum_metabolic_energy())?;
     let consumed_accounting = resolve_consumed_mass_accounting(state, offer.consumed_additions)?;
     let pending = PendingEating::new(

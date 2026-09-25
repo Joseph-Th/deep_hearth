@@ -23,6 +23,7 @@ use crate::labor::{
 use crate::registry::Registries;
 
 use super::super::state::PendingDrinking;
+use super::direct_consumption_survival_revisions;
 
 pub(super) fn pending_drink_hydration_offer(
     registries: &Registries,
@@ -172,20 +173,9 @@ pub fn validate_drink(
         return Err(DrinkError::NoHydrationGain { volume });
     }
     let egress_volume = egress.volume();
-    let expected_survival_revision = state.survival().revision();
-    let required_survival_revisions = duration
-        .value()
-        .checked_add(1)
-        .ok_or(DrinkError::SurvivalRevisionExhausted)?;
-    if !state
-        .survival()
-        .can_advance_revision_by(required_survival_revisions)
-    {
-        return Err(DrinkError::SurvivalRevisionExhausted);
-    }
-    let next_survival_revision = expected_survival_revision
-        .checked_add(1)
-        .unwrap_or_else(|| unreachable!("direct-consumption survival budget includes admission"));
+    let (expected_survival_revision, next_survival_revision) =
+        direct_consumption_survival_revisions(state, duration)
+            .ok_or(DrinkError::SurvivalRevisionExhausted)?;
     let consumed_before = state.survival().consumed_fluid_volume(contents.fluid());
     let next_consumed_volume = consumed_before
         .checked_add(AggregateVolume::from_volume(egress_volume))

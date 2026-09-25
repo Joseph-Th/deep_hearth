@@ -39,6 +39,7 @@ pub(crate) struct ValidatedEnergySinkAccess {
     store: EnergyStoreId,
     definition: EnergyStoreDefinitionId,
     carrier: EnergyCarrier,
+    capacity: Energy,
     stored: Energy,
     max_input_power: Power,
 }
@@ -50,6 +51,10 @@ impl ValidatedEnergySinkAccess {
 
     pub(crate) const fn max_input_power(self) -> Power {
         self.max_input_power
+    }
+
+    pub(crate) const fn capacity(self) -> Energy {
+        self.capacity
     }
 
     /// Exact capacity guaranteed to remain free when a deferred release becomes authoritative.
@@ -174,6 +179,7 @@ pub(crate) fn validate_energy_sink_access(
         store,
         definition: record.definition(),
         carrier: definition.carrier(),
+        capacity: definition.capacity(),
         stored: record.stored(),
         max_input_power: definition.max_input_power(),
     })

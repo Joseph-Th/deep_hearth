@@ -171,7 +171,11 @@ pub(crate) fn calculate_condition_after_active_ticks(
     duration: TickSpan,
 ) -> Condition {
     let total_wear = u128::from(wear_ppm_per_active_tick) * u128::from(duration.value());
-    let bounded_wear = std::cmp::min(total_wear, u128::from(CONDITION_PARTS_PER_MILLION)) as u32;
+    let bounded_wear = u32::try_from(std::cmp::min(
+        total_wear,
+        u128::from(CONDITION_PARTS_PER_MILLION),
+    ))
+    .unwrap_or_else(|_| unreachable!("normalized condition wear always fits u32"));
     Condition(before.0.saturating_sub(bounded_wear))
 }
 
