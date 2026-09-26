@@ -4,6 +4,7 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::labor::EquipmentMaintenanceWork;
+use crate::logistics::validate_player_equipment_access;
 use crate::registry::Registries;
 
 use super::{
@@ -35,6 +36,8 @@ pub(super) fn validate_equipment_maintenance_work(
     if record.condition() != work.condition_before() {
         return Err(PlayerWorkValidationError::EquipmentMaintenanceConditionMismatch);
     }
+    validate_player_equipment_access(state, work.equipment())
+        .map_err(PlayerWorkValidationError::EquipmentMaintenanceAccess)?;
     let profile = registries
         .equipment()
         .get_equipment(record.definition())

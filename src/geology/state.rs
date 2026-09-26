@@ -175,6 +175,7 @@ pub struct GeologicalDepositRecord {
     pub(super) composition: MaterialComposition,
     pub(super) lifecycle: GeologicalDepositLifecycle,
     pub(super) generated_at: SimulationTick,
+    pub(super) depleted_at: Option<SimulationTick>,
 }
 
 impl GeologicalDepositRecord {
@@ -235,6 +236,20 @@ impl GeologicalDepositRecord {
     #[must_use]
     pub(crate) const fn generated_at(&self) -> SimulationTick {
         self.generated_at
+    }
+
+    /// Returns whether this body was physically available to an observation decided on `tick`.
+    ///
+    /// Depletion is applied at the end of its completion tick, while observations for that tick are
+    /// decided from the pre-tick snapshot. A body depleted on `tick` therefore still counts as
+    /// available to evidence acquired on the same tick.
+    #[must_use]
+    pub(crate) fn was_available_at(&self, tick: SimulationTick) -> bool {
+        self.generated_at <= tick
+            && match self.depleted_at {
+                Some(depleted_at) => tick <= depleted_at,
+                None => true,
+            }
     }
 }
 
@@ -318,6 +333,7 @@ impl GeologyState {
         &mut self,
         deposit: GeologicalDepositId,
         extracted: Mass,
+        extracted_at: SimulationTick,
         next_revision: u64,
     ) {
         assert_eq!(
@@ -332,6 +348,14 @@ impl GeologyState {
             record.lifecycle,
             GeologicalDepositLifecycle::Available,
             "geological extraction cannot mutate an already depleted deposit"
+        );
+        assert!(
+            extracted_at >= record.generated_at,
+            "geological extraction cannot precede deposit generation"
+        );
+        assert!(
+            record.depleted_at.is_none(),
+            "available geological deposit cannot already carry a depletion tick"
         );
         assert!(
             !extracted.is_zero(),
@@ -351,6 +375,7 @@ impl GeologyState {
         record.remaining_mass = remaining_after;
         if remaining_after.is_zero() {
             record.lifecycle = GeologicalDepositLifecycle::Depleted;
+            record.depleted_at = Some(extracted_at);
         }
         self.revision = next_revision;
     }

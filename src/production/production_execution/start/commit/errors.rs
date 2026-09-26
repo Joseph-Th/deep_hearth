@@ -12,6 +12,10 @@ use crate::structural::StructuralCommitError;
 /// Failure when a validated process start is committed after an owning state has changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartProcessCommitError {
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleProductionRevision {
         expected: u64,
         actual: u64,
@@ -56,6 +60,10 @@ pub enum StartProcessCommitError {
 impl Display for StartProcessCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "validated process start expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleProductionRevision { expected, actual } => write!(
                 formatter,
                 "validated process start expected production revision {expected} but current revision is {actual}"
@@ -122,7 +130,8 @@ impl Error for StartProcessCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleProductionRevision { .. }
+            Self::StaleLogisticsRevision { .. }
+            | Self::StaleProductionRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleEnergyRevision { .. }
             | Self::StaleEquipmentRevision { .. }

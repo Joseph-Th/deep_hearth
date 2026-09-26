@@ -254,22 +254,18 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
             AutonomousWorkStop::FeedBufferCapacity
         }
         MiningStartError::TargetNoLongerResolved => AutonomousWorkStop::TargetSupply,
-        // Acquired hardness evidence gates extraction: losing that evidence mid-window
-        // means the known supply opportunity ended, so report `TargetSupply` rather
-        // than failing the harness. A seam harder than the owned tool is a tooling
-        // limit, matching the existing condition/throughput stop family.
-        MiningStartError::MissingExcavationHardnessEvidence { .. } => {
-            AutonomousWorkStop::TargetSupply
-        }
-        MiningStartError::ExcavationHardnessEvidenceExceedsCapability { .. } => {
-            AutonomousWorkStop::ToolCondition
-        }
+        // A seam that resists the owned tool is a tooling limit whether the player learned
+        // that limit through prior sampling or by directly trying a visible target.
+        MiningStartError::ExcavationHardnessEvidenceExceedsCapability { .. }
+        | MiningStartError::TargetResistsEquipment { .. } => AutonomousWorkStop::ToolCondition,
         MiningStartError::ConditionDuration(_) | MiningStartError::ZeroThroughput => {
             AutonomousWorkStop::ToolCondition
         }
         unexpected @ MiningStartError::UnknownMethod { .. }
+        | unexpected @ MiningStartError::PlayerOutsideDeposit { .. }
         | unexpected @ MiningStartError::ZeroMass
         | unexpected @ MiningStartError::Equipment(_)
+        | unexpected @ MiningStartError::EquipmentAccess(_)
         | unexpected @ MiningStartError::EquipmentMounted { .. }
         | unexpected @ MiningStartError::EquipmentBusyProduction { .. }
         | unexpected @ MiningStartError::EquipmentBusyMining { .. }
@@ -281,6 +277,7 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
         | unexpected @ MiningStartError::CompletionTickOverflow
         | unexpected @ MiningStartError::InvalidOutput(_)
         | unexpected @ MiningStartError::UnknownDestination { .. }
+        | unexpected @ MiningStartError::DestinationAccess(_)
         | unexpected @ MiningStartError::DestinationBusyStorageDismantling { .. }
         | unexpected @ MiningStartError::DestinationStorage(_)
         | unexpected @ MiningStartError::DestinationMassOverflow { .. }

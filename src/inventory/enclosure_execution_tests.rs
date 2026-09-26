@@ -1,23 +1,32 @@
 //! Construction, conservation, structural-load, and persistence contracts for storage enclosures.
 
+use std::num::NonZeroU64;
+
 use super::*;
 
 use crate::content::{
-    FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_FOOD, FORM_INSULATED_PANTRY_BODY, FORM_LOG,
-    FORM_LUMP, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_CHIP, FORM_FOOD,
+    FORM_INSULATED_PANTRY_BODY, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES,
+    MATERIAL_GRAIN, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
     PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS,
     STORAGE_BULK_TIMBER_PROVISIONS_CRATE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
-    STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_TIMBER_PROVISIONS_CHEST,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    STORAGE_TIMBER_PROVISIONS_CHEST, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{AggregateMass, Area, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::TickSpan;
-use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
+use crate::crafting::{
+    ManualCraftStartRequest, plan_manual_craft_from_stockpile, validate_start_manual_craft,
+};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileStorageError, StorageEnclosureValidationError,
     add_solid_stockpile_for_test, deposit_lot_for_test, validate_mount_stockpile,
+};
+use crate::logistics::{
+    validate_allocate_ground_stockpile, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -69,6 +78,325 @@ fn construction_fixture(
     )
     .unwrap_or_else(|error| panic!("preservation chest-body fixture failed: {error}"));
     (registries, state, target, source, food)
+}
+
+#[test]
+fn located_storage_target_rejects_remote_carried_construction_material() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player_position = VoxelCoord::new(0, 0, 0);
+    let carried = validate_initialize_player_logistics(
+        &state,
+        player_position,
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("remote storage logistics setup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote storage logistics commit failed: {error}"))
+    .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+        CHEST_MASS,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("remote storage chest body failed: {error}"));
+    let target_position = VoxelCoord::new(1, 0, 0);
+    let target = validate_allocate_ground_stockpile(
+        &state,
+        target_position,
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("remote storage target allocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote storage target allocation commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            target,
+            carried,
+        )
+        .err(),
+        Some(
+            StorageEnclosureConstructionError::LocatedTargetSourceRemote {
+                target,
+                target_position,
+                source: carried,
+                source_position: player_position,
+            }
+        )
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn located_storage_target_accepts_carried_material_at_same_voxel() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(3, 0, -2);
+    let carried =
+        validate_initialize_player_logistics(&state, position, Mass::from_milligrams(5_000_000))
+            .unwrap_or_else(|error| panic!("local storage logistics setup failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("local storage logistics commit failed: {error}"))
+            .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+        CHEST_MASS,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("local storage chest body failed: {error}"));
+    let target =
+        validate_allocate_ground_stockpile(&state, position, Mass::from_milligrams(5_000_000))
+            .unwrap_or_else(|error| panic!("local storage target allocation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("local storage target allocation commit failed: {error}")
+            });
+
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        carried,
+    )
+    .unwrap_or_else(|error| panic!("same-voxel storage construction failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("same-voxel storage construction commit failed: {error}"));
+
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .and_then(|record| record.enclosure())
+            .map(|enclosure| enclosure.definition()),
+        Some(STORAGE_TIMBER_PROVISIONS_CHEST)
+    );
+    assert_eq!(
+        state.logistics().ground_stockpile_position(target),
+        Some(position)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.stored_mass()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn storage_construction_token_rejects_world_location_change_before_commit() {
+    let (registries, mut state, target, source, _) =
+        construction_fixture(Mass::from_milligrams(5_000_000));
+    let validated = validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        source,
+    )
+    .unwrap_or_else(|error| panic!("stale-location storage validation failed: {error}"));
+    validate_place_ground_stockpile(&state, target, VoxelCoord::new(4, 0, 0))
+        .unwrap_or_else(|error| panic!("stale-location target placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale-location target placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(StorageEnclosureCommitError::StaleLogisticsRevision {
+            expected: 0,
+            actual: 1,
+        })
+    );
+    assert_eq!(state, before);
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .is_some_and(|record| record.enclosure().is_none())
+    );
+}
+
+#[test]
+fn raw_timber_in_carried_custody_becomes_a_placed_field_box_at_player_voxel() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("field-box survival setup failed: {error}"));
+    let position = VoxelCoord::new(2, 0, 3);
+    let carried =
+        validate_initialize_player_logistics(&state, position, Mass::from_milligrams(4_000_000))
+            .unwrap_or_else(|error| panic!("field-box logistics setup failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("field-box logistics commit failed: {error}"))
+            .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(2_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("field-box raw timber fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("field-box matter-before audit failed: {error}"))
+        .total();
+
+    let boards = plan_manual_craft_from_stockpile(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        carried,
+        NonZeroU64::new(2).unwrap_or_else(|| unreachable!()),
+    )
+    .unwrap_or_else(|error| panic!("field-box board planning failed: {error}"));
+    let board_job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::in_place(boards),
+    )
+    .unwrap_or_else(|error| panic!("field-box board start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("field-box board commit failed: {error}"));
+    while state.production().get_job(board_job).is_some() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("field-box board work failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))),
+        Some(Mass::from_milligrams(1_600_000))
+    );
+
+    let body = plan_manual_craft_from_stockpile(
+        &registries,
+        &state,
+        PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+        carried,
+        NonZeroU64::new(1).unwrap_or_else(|| unreachable!()),
+    )
+    .unwrap_or_else(|error| panic!("field-box body planning failed: {error}"));
+    let body_job =
+        validate_start_manual_craft(&registries, &state, ManualCraftStartRequest::in_place(body))
+            .unwrap_or_else(|error| panic!("field-box body start failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("field-box body commit failed: {error}"));
+    while state.production().get_job(body_job).is_some() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("field-box body work failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY))),
+        Some(Mass::from_milligrams(1_600_000))
+    );
+
+    let target =
+        validate_allocate_ground_stockpile(&state, position, Mass::from_milligrams(10_000_000))
+            .unwrap_or_else(|error| panic!("field-box ground target allocation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("field-box ground target commit failed: {error}"));
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        target,
+        carried,
+    )
+    .unwrap_or_else(|error| panic!("field-box enclosure validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("field-box enclosure commit failed: {error}"));
+
+    let target_record = state
+        .inventory()
+        .get_stockpile(target)
+        .unwrap_or_else(|| panic!("field-box target disappeared"));
+    assert_eq!(
+        target_record
+            .enclosure()
+            .map(|enclosure| enclosure.definition()),
+        Some(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+    );
+    assert_eq!(
+        state.logistics().ground_stockpile_position(target),
+        Some(position)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))),
+        Some(Mass::from_milligrams(400_000))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("field-box matter-after audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn player_carried_stockpile_cannot_be_upgraded_into_stationary_storage() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let target = validate_initialize_player_logistics(
+        &state,
+        VoxelCoord::new(0, 0, 0),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("carried-storage logistics setup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("carried-storage logistics commit failed: {error}"))
+    .carried_stockpile();
+    let source = add_solid_stockpile_for_test(&mut state, CHEST_MASS)
+        .unwrap_or_else(|error| panic!("carried-storage source failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+        CHEST_MASS,
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("carried-storage chest body failed: {error}"));
+
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            target,
+            source,
+        )
+        .err(),
+        Some(StorageEnclosureConstructionError::PlayerCarriedTarget { stockpile: target })
+    );
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .is_some_and(|record| record.enclosure().is_none())
+    );
 }
 
 #[test]

@@ -11,6 +11,8 @@ use crate::inventory::{
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
+use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
+use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -19,6 +21,7 @@ use super::{EnergyStoreDefinitionId, EnergyStoreId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreAssemblyError {
+    Access(PlayerStockpileAccessError),
     UnknownDefinition {
         definition: EnergyStoreDefinitionId,
     },
@@ -30,6 +33,7 @@ pub enum EnergyStoreAssemblyError {
     },
     InsufficientMaterial {
         stockpile: StockpileId,
+        commodity: CommodityKey,
         available: Mass,
         required: Mass,
     },
@@ -43,12 +47,16 @@ pub enum EnergyStoreAssemblyError {
     InventoryRevisionExhausted,
     StoreIdExhausted,
     EnergyRevisionExhausted,
+    LogisticsRevisionExhausted,
     StructuralLoad(StockpileStructuralLoadError),
 }
 
 impl Display for EnergyStoreAssemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Access(error) => {
+                write!(formatter, "energy-store assembly access failed: {error}")
+            }
             Self::UnknownDefinition { definition } => write!(
                 formatter,
                 "unknown energy store definition {}",
@@ -66,13 +74,15 @@ impl Display for EnergyStoreAssemblyError {
             ),
             Self::InsufficientMaterial {
                 stockpile,
+                commodity,
                 available,
                 required,
             } => write!(
                 formatter,
-                "stockpile {} contains {} mg of construction material but {} mg is required",
+                "energy-store construction stockpile {} contains {} mg of commodity {} but {} mg is required",
                 stockpile.value(),
                 available.milligrams(),
+                commodity.value(),
                 required.milligrams()
             ),
             Self::SourceMassOverflow { stockpile } => write!(
@@ -93,6 +103,9 @@ impl Display for EnergyStoreAssemblyError {
             Self::EnergyRevisionExhausted => {
                 formatter.write_str("energy state revision space is exhausted")
             }
+            Self::LogisticsRevisionExhausted => {
+                formatter.write_str("logistics revision space is exhausted")
+            }
             Self::StructuralLoad(error) => write!(
                 formatter,
                 "energy-store construction source load failed: {error}"
@@ -104,6 +117,7 @@ impl Display for EnergyStoreAssemblyError {
 impl Error for EnergyStoreAssemblyError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownDefinition { .. }
             | Self::NoAssemblyProfile { .. }
@@ -113,13 +127,15 @@ impl Error for EnergyStoreAssemblyError {
             | Self::StaleInventorySelection { .. }
             | Self::InventoryRevisionExhausted
             | Self::StoreIdExhausted
-            | Self::EnergyRevisionExhausted => None,
+            | Self::EnergyRevisionExhausted
+            | Self::LogisticsRevisionExhausted => None,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreAssemblyCommitError {
+    StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
     StaleEnergy { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
@@ -128,6 +144,10 @@ pub enum EnergyStoreAssemblyCommitError {
 impl Display for EnergyStoreAssemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "energy-store construction expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
                 "energy-store construction expected inventory revision {expected} but current revision is {actual}"
@@ -148,7 +168,9 @@ impl Error for EnergyStoreAssemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventory { .. } | Self::StaleEnergy { .. } => None,
+            Self::StaleLogistics { .. }
+            | Self::StaleInventory { .. }
+            | Self::StaleEnergy { .. } => None,
         }
     }
 }
@@ -158,6 +180,9 @@ pub struct ValidatedEnergyStoreAssembly {
     record: EnergyStoreRecord,
     next_store_id: u64,
     expected_energy_revision: u64,
+    expected_logistics_revision: u64,
+    next_logistics_revision: Option<u64>,
+    detached_position: Option<crate::spatial::VoxelCoord>,
     next_energy_revision: u64,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
@@ -168,6 +193,12 @@ impl ValidatedEnergyStoreAssembly {
         self,
         state: &mut AppState,
     ) -> Result<EnergyStoreId, EnergyStoreAssemblyCommitError> {
+        if state.logistics().revision() != self.expected_logistics_revision {
+            return Err(EnergyStoreAssemblyCommitError::StaleLogistics {
+                expected: self.expected_logistics_revision,
+                actual: state.logistics().revision(),
+            });
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EnergyStoreAssemblyCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -197,6 +228,16 @@ impl ValidatedEnergyStoreAssembly {
             self.next_store_id,
             self.next_energy_revision,
         );
+        if let (Some(next_revision), Some(position)) =
+            (self.next_logistics_revision, self.detached_position)
+        {
+            state.logistics_state_mut().apply_energy_store_placement(
+                self.expected_logistics_revision,
+                next_revision,
+                id,
+                position,
+            );
+        }
         Ok(id)
     }
 }
@@ -215,6 +256,7 @@ pub fn validate_assemble_energy_store(
     let assembly = definition_record
         .assembly_profile()
         .ok_or(EnergyStoreAssemblyError::NoAssemblyProfile { definition })?;
+    validate_player_stockpile_access(state, source).map_err(EnergyStoreAssemblyError::Access)?;
     let selection = validate_consumption_selection(state.inventory(), source, assembly.inputs())
         .map_err(|error| match error {
             crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile } => {
@@ -222,11 +264,12 @@ pub fn validate_assemble_energy_store(
             }
             crate::inventory::ConsumptionSelectionError::InsufficientMass {
                 stockpile,
+                commodity,
                 available,
                 requested,
-                ..
             } => EnergyStoreAssemblyError::InsufficientMaterial {
                 stockpile,
+                commodity,
                 available,
                 required: requested,
             },
@@ -271,6 +314,16 @@ pub fn validate_assemble_energy_store(
     let next_energy_revision = expected_energy_revision
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("energy headroom check includes store assembly revision"));
+    let expected_logistics_revision = state.logistics().revision();
+    let detached_position = state.logistics().player().map(|player| player.position());
+    let next_logistics_revision = match detached_position {
+        Some(_) => Some(
+            expected_logistics_revision
+                .checked_add(1)
+                .ok_or(EnergyStoreAssemblyError::LogisticsRevisionExhausted)?,
+        ),
+        None => None,
+    };
     Ok(ValidatedEnergyStoreAssembly {
         record: EnergyStoreRecord {
             id,
@@ -281,6 +334,9 @@ pub fn validate_assemble_energy_store(
         },
         next_store_id,
         expected_energy_revision,
+        expected_logistics_revision,
+        next_logistics_revision,
+        detached_position,
         next_energy_revision,
         egress,
         structural_load,

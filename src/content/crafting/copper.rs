@@ -13,7 +13,7 @@ use crate::content::crafted_parts::{
     COPPER_REINFORCEMENT_MASS, COPPER_SAW_BLADE_MASS, COPPER_SCREEN_PLATE_MASS,
 };
 use crate::content::materials::{
-    FORM_INGOT, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP,
+    FORM_CHIP, FORM_INGOT, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP,
     FORM_SCREEN_PLATE, MATERIAL_COPPER,
 };
 use crate::content::processes::{
@@ -125,10 +125,20 @@ fn cold_work_copper_scrap() -> ManualCraftDefinition {
         COPPER_REINFORCEMENT_MASS,
         TickSpan::new(50),
         copper_work_exertion(),
-        vec![ManualCraftOutput::new(
-            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-            COPPER_REINFORCEMENT_MASS,
-        )],
+        // Cold consolidation can recover the large, workable pieces, but fine offcuts are no
+        // longer workable as coarse scrap. Keeping ten percent as copper chips gives remelting a
+        // material-recovery purpose without destroying matter, while players who value time over
+        // recovery can still take the direct route.
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(18_000),
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_CHIP),
+                Mass::from_milligrams(2_000),
+            ),
+        ],
     )
     .with_equipment_profile(treadle_hammer_profile())
 }

@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Force;
 use crate::inventory::StockpileId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
+use crate::spatial::VoxelCoord;
 use crate::structural::{
     StructuralCommitError, StructuralElementId, StructuralLifecycle, StructuralMutationError,
 };
@@ -116,6 +117,13 @@ pub enum StockpileSupportError {
     NotMounted {
         stockpile: StockpileId,
     },
+    PlayerCarried {
+        stockpile: StockpileId,
+    },
+    GroundLocated {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
     TargetNotActive {
         element: StructuralElementId,
         lifecycle: StructuralLifecycle,
@@ -148,6 +156,22 @@ impl Display for StockpileSupportError {
                 formatter,
                 "stockpile {} has no structural support assignment to remove",
                 stockpile.value()
+            ),
+            Self::PlayerCarried { stockpile } => write!(
+                formatter,
+                "stockpile {} is player-carried custody and cannot also be structurally mounted",
+                stockpile.value()
+            ),
+            Self::GroundLocated {
+                stockpile,
+                position,
+            } => write!(
+                formatter,
+                "stockpile {} is a loose ground stockpile at voxel ({},{},{}) and requires an explicit placement transition before structural mounting",
+                stockpile.value(),
+                position.x(),
+                position.y(),
+                position.z()
             ),
             Self::TargetNotActive { element, lifecycle } => write!(
                 formatter,
@@ -184,6 +208,8 @@ impl Error for StockpileSupportError {
             Self::UnknownStockpile { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
+            | Self::PlayerCarried { .. }
+            | Self::GroundLocated { .. }
             | Self::TargetNotActive { .. }
             | Self::StockpileBusy { .. }
             | Self::StockpileBusyStorageDismantling { .. }
@@ -198,6 +224,10 @@ pub enum StockpileSupportCommitError {
     StaleInventoryRevision {
         expected: u64,
         actual: u64,
+    },
+    GroundLocated {
+        stockpile: StockpileId,
+        position: VoxelCoord,
     },
     UnknownStockpile {
         stockpile: StockpileId,
@@ -229,6 +259,17 @@ impl Display for StockpileSupportCommitError {
                 formatter,
                 "stockpile {} disappeared before support commit",
                 stockpile.value()
+            ),
+            Self::GroundLocated {
+                stockpile,
+                position,
+            } => write!(
+                formatter,
+                "stockpile {} became ground-located at voxel ({},{},{}) before support commit",
+                stockpile.value(),
+                position.x(),
+                position.y(),
+                position.z()
             ),
             Self::SupportChanged {
                 stockpile,
@@ -269,6 +310,7 @@ impl Error for StockpileSupportCommitError {
             Self::StaleInventoryRevision { .. }
             | Self::UnknownStockpile { .. }
             | Self::SupportChanged { .. }
+            | Self::GroundLocated { .. }
             | Self::StockpileBusy { .. }
             | Self::StockpileBusyStorageDismantling { .. } => None,
         }

@@ -11,7 +11,7 @@ use super::super::super::storage_validation::StockpileStorageError;
 use super::super::super::structural_integration::StockpileStructuralLoadError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MaterialRelocationError {
+pub enum MaterialRelocationError {
     StaleSelection {
         expected: u64,
         actual: u64,
@@ -106,7 +106,7 @@ impl Error for MaterialRelocationError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MaterialRelocationCommitError {
+pub enum MaterialRelocationCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
 }

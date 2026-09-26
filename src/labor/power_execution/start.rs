@@ -27,6 +27,7 @@ pub struct ValidatedManualPowerStart {
     resource_budget: PlayerWorkResourceBudget,
     expected_equipment_revision: u64,
     expected_energy_revision: u64,
+    expected_logistics_revision: u64,
 }
 
 impl ValidatedManualPowerStart {
@@ -45,6 +46,13 @@ impl ValidatedManualPowerStart {
         self.work_start
             .precheck(state)
             .map_err(ManualPowerCommitError::Work)?;
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(ManualPowerCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         if state.equipment().revision() != self.expected_equipment_revision {
             return Err(ManualPowerCommitError::StaleEquipmentRevision {
                 expected: self.expected_equipment_revision,
@@ -197,5 +205,6 @@ pub(in crate::labor) fn validate_start_manual_power_with_bindings(
         resource_budget,
         expected_equipment_revision: equipment_use.expected_equipment_revision(),
         expected_energy_revision: state.energy().revision(),
+        expected_logistics_revision: state.logistics().revision(),
     })
 }

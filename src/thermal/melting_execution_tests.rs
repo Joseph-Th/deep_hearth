@@ -6,8 +6,8 @@ use crate::capability::{
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_CONCENTRATE, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
-    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, make_test_registries_with_melting,
+    FORM_CHIP, FORM_CONCENTRATE, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
+    FORM_SCRAP, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, make_test_registries_with_melting,
 };
 use crate::core::quantity::{Length, Mass};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -166,6 +166,7 @@ fn make_registries(maximum_temperature: Temperature, carrier: EnergyCarrier) -> 
             MATERIAL_COPPER,
             vec![
                 FORM_INGOT,
+                FORM_CHIP,
                 FORM_REINFORCEMENT,
                 FORM_NATIVE_METAL,
                 FORM_SCRAP,
@@ -261,11 +262,21 @@ fn melting_accepts_mixed_recoverable_pure_copper_forms_and_replays() {
         INPUT_TEMPERATURE,
     )
     .unwrap_or_else(|error| panic!("copper scrap melting fixture failed: {error}"));
+    let chips = deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.ids.source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_CHIP),
+        Mass::from_milligrams(1),
+        INPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("copper chip melting fixture failed: {error}"));
     let selections = [
         MaterialLotSelection::new(fixture.ids.source_lot, Mass::from_milligrams(1)),
         MaterialLotSelection::new(reinforcement, Mass::from_milligrams(1)),
         MaterialLotSelection::new(native, Mass::from_milligrams(1)),
         MaterialLotSelection::new(scrap, Mass::from_milligrams(1)),
+        MaterialLotSelection::new(chips, Mass::from_milligrams(1)),
     ];
     let matter_before = matter_total(&fixture.state);
 
@@ -288,7 +299,7 @@ fn melting_accepts_mixed_recoverable_pure_copper_forms_and_replays() {
         output.commodity(),
         CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN)
     );
-    assert_eq!(output.mass(), Mass::from_milligrams(4));
+    assert_eq!(output.mass(), Mass::from_milligrams(5));
 
     let duration = resolved.process_resolution().duration();
     let job = validate_start_process(
@@ -320,7 +331,7 @@ fn melting_accepts_mixed_recoverable_pure_copper_forms_and_replays() {
             .inventory()
             .get_stockpile(fixture.ids.destination)
             .map(|stockpile| stockpile.stored_mass()),
-        Some(Mass::from_milligrams(4))
+        Some(Mass::from_milligrams(5))
     );
     assert_eq!(
         loaded

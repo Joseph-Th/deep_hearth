@@ -4,87 +4,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Energy, Mass};
-use crate::core::time::SimulationTick;
-use crate::inventory::{ConsumedMaterialTrace, checked_consumed_material_mass};
+use crate::core::quantity::Energy;
 
 use super::definitions::EnergyStoreDefinitionId;
 
-/// Persistent identity of one runtime energy store.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct EnergyStoreId(u64);
+mod record;
 
-impl EnergyStoreId {
-    #[must_use]
-    pub const fn new(value: u64) -> Self {
-        assert!(value != 0, "energy store id must be nonzero");
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn value(self) -> u64 {
-        self.0
-    }
-}
-
-/// Authoritative changing state for one finite energy store.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EnergyStoreRecord {
-    pub(super) id: EnergyStoreId,
-    pub(super) definition: EnergyStoreDefinitionId,
-    pub(super) stored: Energy,
-    pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
-    pub(super) created_at: SimulationTick,
-}
-
-impl EnergyStoreRecord {
-    #[must_use]
-    pub const fn id(&self) -> EnergyStoreId {
-        self.id
-    }
-
-    #[must_use]
-    pub const fn definition(&self) -> EnergyStoreDefinitionId {
-        self.definition
-    }
-
-    #[must_use]
-    pub const fn stored(&self) -> Energy {
-        self.stored
-    }
-
-    /// Conserved matter physically embodied in this storage instance.
-    #[must_use]
-    pub fn embodied_mass(&self) -> Mass {
-        checked_consumed_material_mass(&self.embodied_material).unwrap_or_else(|| {
-            panic!(
-                "validated energy store {} embodied trace mass overflowed",
-                self.id.value()
-            )
-        })
-    }
-
-    /// Exact material/provenance traces transferred into this store at construction.
-    #[must_use]
-    pub fn embodied_material(&self) -> &[ConsumedMaterialTrace] {
-        &self.embodied_material
-    }
-
-    #[must_use]
-    pub const fn created_at(&self) -> SimulationTick {
-        self.created_at
-    }
-}
-
-/// Complete owner-local payload for one prevalidated additive energy-store upgrade.
-pub(super) struct EnergyStoreUpgradeMutation {
-    pub(super) store: EnergyStoreId,
-    pub(super) expected_definition: EnergyStoreDefinitionId,
-    pub(super) target_definition: EnergyStoreDefinitionId,
-    pub(super) expected_embodied_mass: Mass,
-    pub(super) additions: Vec<ConsumedMaterialTrace>,
-}
+pub(super) use record::EnergyStoreUpgradeMutation;
+pub use record::{EnergyStoreId, EnergyStoreRecord};
 
 /// Persistent owner for finite energy stores and their monotonic identity/revision cursors.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,28 +156,19 @@ impl EnergyState {
     }
 
     pub(super) fn subtract_stored_energy(&mut self, store: EnergyStoreId, energy: Energy) {
-        let definition = self
-            .records
-            .get(&store)
-            .unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: energy source {} disappeared before commit",
-                    store.value()
-                )
-            })
-            .definition;
-        assert!(
-            self.nonempty_stores_by_definition
-                .get(&definition)
-                .is_some_and(|stores| stores.contains(&store)),
-            "runtime invariant broken: energy subtraction source is absent from nonempty index"
-        );
         let record = self.records.get_mut(&store).unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: energy source {} disappeared before commit",
                 store.value()
             )
         });
+        let definition = record.definition;
+        assert!(
+            self.nonempty_stores_by_definition
+                .get(&definition)
+                .is_some_and(|stores| stores.contains(&store)),
+            "runtime invariant broken: energy subtraction source is absent from nonempty index"
+        );
         assert!(!record.stored.is_zero());
         record.stored = record
             .stored

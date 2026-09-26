@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
+use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::Condition;
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
@@ -15,6 +16,8 @@ use super::super::EquipmentId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentDisassemblyError {
+    EquipmentAccess(PlayerEquipmentAccessError),
+    DestinationAccess(PlayerStockpileAccessError),
     UnknownEquipment {
         equipment: EquipmentId,
     },
@@ -68,12 +71,20 @@ pub enum EquipmentDisassemblyError {
     LotIdExhausted,
     InventoryRevisionExhausted,
     EquipmentRevisionExhausted,
+    LogisticsRevisionExhausted,
     StoredMatterLoad(StockpileStructuralLoadError),
 }
 
 impl Display for EquipmentDisassemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::EquipmentAccess(error) => write!(formatter, "equipment access failed: {error}"),
+            Self::DestinationAccess(error) => {
+                write!(
+                    formatter,
+                    "equipment disassembly destination access failed: {error}"
+                )
+            }
             Self::UnknownEquipment { equipment } => {
                 write!(formatter, "unknown equipment id {}", equipment.value())
             }
@@ -177,6 +188,9 @@ impl Display for EquipmentDisassemblyError {
             Self::EquipmentRevisionExhausted => {
                 formatter.write_str("equipment revision space is exhausted during disassembly")
             }
+            Self::LogisticsRevisionExhausted => {
+                formatter.write_str("logistics revision space is exhausted during disassembly")
+            }
             Self::StoredMatterLoad(error) => write!(
                 formatter,
                 "equipment disassembly cannot update destination stored-matter load: {error}"
@@ -188,6 +202,8 @@ impl Display for EquipmentDisassemblyError {
 impl Error for EquipmentDisassemblyError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::EquipmentAccess(error) => Some(error),
+            Self::DestinationAccess(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
             Self::UnknownEquipment { .. }
@@ -205,13 +221,18 @@ impl Error for EquipmentDisassemblyError {
             | Self::DestinationCapacityExceeded { .. }
             | Self::LotIdExhausted
             | Self::InventoryRevisionExhausted
-            | Self::EquipmentRevisionExhausted => None,
+            | Self::EquipmentRevisionExhausted
+            | Self::LogisticsRevisionExhausted => None,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentDisassemblyCommitError {
+    StaleLogistics {
+        expected: u64,
+        actual: u64,
+    },
     StaleInventory {
         expected: u64,
         actual: u64,
@@ -255,6 +276,10 @@ pub enum EquipmentDisassemblyCommitError {
 impl Display for EquipmentDisassemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "equipment disassembly expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
                 "equipment disassembly expected inventory revision {expected} but current revision is {actual}"
@@ -325,7 +350,8 @@ impl Error for EquipmentDisassemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventory { .. }
+            Self::StaleLogistics { .. }
+            | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::UnknownEquipment { .. }
             | Self::EquipmentChanged { .. }

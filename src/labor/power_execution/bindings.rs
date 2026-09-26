@@ -8,6 +8,7 @@ use crate::equipment::{
     EquipmentId, EquipmentOccupancy, ResolvedEquipmentProvider,
     resolve_equipment_provider_with_occupancy,
 };
+use crate::logistics::{validate_player_energy_store_access, validate_player_equipment_access};
 use crate::registry::Registries;
 
 use super::super::{ManualPowerDefinition, ManualPowerMethodId};
@@ -111,6 +112,8 @@ pub(in crate::labor) fn resolve_manual_power_bindings<'state>(
     {
         return Err(ManualPowerError::EquipmentMounted { equipment });
     }
+    validate_player_equipment_access(state, equipment)
+        .map_err(ManualPowerError::EquipmentAccess)?;
     let (provider, occupancy) =
         resolve_equipment_provider_with_occupancy(registries, state, equipment)
             .map_err(ManualPowerError::Equipment)?;
@@ -119,6 +122,8 @@ pub(in crate::labor) fn resolve_manual_power_bindings<'state>(
         resolve_equipment_power(provider, equipment, definition.power_capability())?;
     let sink = validate_energy_sink_access(registries, state, destination)
         .map_err(ManualPowerError::EnergySink)?;
+    validate_player_energy_store_access(state, destination)
+        .map_err(ManualPowerError::DestinationAccess)?;
     if sink.carrier() != definition.carrier() {
         return Err(ManualPowerError::WrongCarrier {
             required: definition.carrier(),

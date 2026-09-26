@@ -7,6 +7,7 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::TickSpan;
 use crate::inventory::{MaterialLotId, StockpileId, StockpileStructuralLoadError};
 use crate::labor::PlayerWork;
+use crate::logistics::PlayerStockpileAccessError;
 use crate::material::{CommodityKey, MaterialId};
 use crate::structural::StructuralCommitError;
 
@@ -15,6 +16,7 @@ use crate::structural::StructuralCommitError;
 pub enum EatError {
     SurvivalNotInitialized,
     PlayerDead,
+    Access(PlayerStockpileAccessError),
     PlayerBusy {
         active: Box<PlayerWork>,
     },
@@ -92,6 +94,7 @@ impl Display for EatError {
                 formatter.write_str("player survival is not initialized")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot eat"),
+            Self::Access(error) => write!(formatter, "food stockpile access failed: {error}"),
             Self::PlayerBusy { active } => {
                 write!(formatter, "player cannot eat while occupied by {active:?}")
             }
@@ -219,6 +222,7 @@ impl Display for EatError {
 impl Error for EatError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::SurvivalNotInitialized
             | Self::PlayerDead
@@ -253,6 +257,7 @@ impl Error for EatError {
 /// Failure when a validated eating action is committed against changed owners.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EatCommitError {
+    StaleLogisticsRevision { expected: u64, actual: u64 },
     StalePlayerWorkRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
@@ -262,6 +267,10 @@ pub enum EatCommitError {
 impl Display for EatCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "validated eating expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StalePlayerWorkRevision { expected, actual } => write!(
                 formatter,
                 "validated eating expected player-work revision {expected} but current revision is {actual}"
@@ -286,7 +295,8 @@ impl Error for EatCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StalePlayerWorkRevision { .. }
+            Self::StaleLogisticsRevision { .. }
+            | Self::StalePlayerWorkRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleInventoryRevision { .. } => None,
         }

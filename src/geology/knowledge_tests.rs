@@ -12,7 +12,7 @@ use crate::core::state::{
 };
 use crate::core::time::SimulationTick;
 use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
-use crate::material::{CommodityKey, MaterialComposition, MaterialId};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
@@ -278,7 +278,7 @@ fn loaded_state_rejects_hardness_band_that_excludes_live_matching_deposit() {
     assert_eq!(
         validate_loaded_state(&registries, &app),
         Err(StateValidationError::GeologicalKnowledge(
-            GeologicalKnowledgeValidationError::ExcavationHardnessContradictsLiveDeposit {
+            GeologicalKnowledgeValidationError::ExcavationHardnessContradictsHistoricalDeposit {
                 observation,
                 deposit,
                 lower: Pressure::from_pascals(300_000_000),
@@ -356,10 +356,119 @@ fn depleted_body_can_still_support_historical_hardness_evidence() {
     app.geology_state_mut().apply_extraction(
         deposit,
         Mass::from_milligrams(1_000_000),
+        SimulationTick::new(1),
         next_revision,
     );
 
     assert_eq!(validate_loaded_state(&registries, &app), Ok(()));
+}
+
+#[test]
+fn loaded_state_rejects_hardness_that_ignored_body_available_at_acquisition() {
+    let registries = build_registries();
+    let mut app = AppState::new();
+    let _matching = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
+    let conflicting = insert_generated_deposit(
+        &registries,
+        &mut app,
+        GeneratedDepositSpec::new(
+            physical_bounds(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(1_000_000),
+            Temperature::from_millikelvin(293_150),
+            Pressure::from_pascals(500_000_000),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        )
+        .unwrap_or_else(|error| panic!("historical conflicting hardness fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("historical conflicting hardness insertion failed: {error}"));
+    let (knowledge, observation) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    apply_clock_advance(&mut app, SimulationTick::new(1));
+    let next_revision = app
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("historical conflicting hardness revision overflowed"));
+    app.geology_state_mut().apply_extraction(
+        conflicting,
+        Mass::from_milligrams(1_000_000),
+        SimulationTick::new(1),
+        next_revision,
+    );
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ExcavationHardnessContradictsHistoricalDeposit {
+                observation,
+                deposit: conflicting,
+                lower: Pressure::from_pascals(300_000_000),
+                upper: Pressure::from_pascals(350_000_000),
+                actual: Pressure::from_pascals(500_000_000),
+            }
+        )),
+        "later depletion must not erase contradictory hardness present when evidence was acquired"
+    );
+}
+
+#[test]
+fn loaded_state_rejects_abundance_that_ignored_body_available_at_acquisition() {
+    let registries = build_registries();
+    let mut app = AppState::new();
+    let _matching = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
+    let conflicting_composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 500_000),
+        CompositionComponent::new(MATERIAL_SLAG, 500_000),
+    ])
+    .unwrap_or_else(|error| panic!("historical conflicting abundance composition failed: {error}"));
+    let conflicting = insert_generated_deposit(
+        &registries,
+        &mut app,
+        GeneratedDepositSpec::new(
+            physical_bounds(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(1_000_000),
+            Temperature::from_millikelvin(293_150),
+            Pressure::from_pascals(350_000_000),
+            conflicting_composition,
+        )
+        .unwrap_or_else(|error| panic!("historical conflicting abundance fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("historical conflicting abundance insertion failed: {error}"));
+    let (knowledge, observation) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    apply_clock_advance(&mut app, SimulationTick::new(1));
+    let next_revision = app
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("historical conflicting abundance revision overflowed"));
+    app.geology_state_mut().apply_extraction(
+        conflicting,
+        Mass::from_milligrams(1_000_000),
+        SimulationTick::new(1),
+        next_revision,
+    );
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
+                observation,
+                evidence: GeologicalEvidenceKind::ExcavationSample,
+            }
+        )),
+        "later depletion must not erase contradictory abundance present when evidence was acquired"
+    );
 }
 
 #[test]
@@ -509,8 +618,87 @@ fn depleted_body_can_still_support_historical_resource_mass_evidence() {
     app.geology_state_mut().apply_extraction(
         deposit,
         Mass::from_milligrams(4_500_000),
+        SimulationTick::new(1),
         next_revision,
     );
+
+    assert_eq!(validate_loaded_state(&registries, &app), Ok(()));
+}
+
+#[test]
+fn loaded_state_rejects_resource_mass_that_was_ambiguous_at_acquisition() {
+    let registries = build_registries();
+    let mut app = AppState::new();
+    let _surviving = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(4_500_000));
+    let depleted = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(2_000_000));
+    let resource_mass = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("ambiguous historical resource fixture failed: {error}"));
+    let (knowledge, observation) = knowledge_with_resource_mass(resource_mass);
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    apply_clock_advance(&mut app, SimulationTick::new(1));
+    let next_revision = app
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("ambiguous historical resource revision overflowed"));
+    app.geology_state_mut().apply_extraction(
+        depleted,
+        Mass::from_milligrams(2_000_000),
+        SimulationTick::new(1),
+        next_revision,
+    );
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ResourceMassCannotMatchHistoricalDeposit {
+                observation,
+                material: MATERIAL_COPPER,
+                lower: resource_mass.lower(),
+                upper: resource_mass.upper(),
+            }
+        )),
+        "later depletion must not make a historically ambiguous reserve observation valid"
+    );
+}
+
+#[test]
+fn loaded_state_accepts_resource_mass_acquired_after_older_body_depleted() {
+    let registries = build_registries();
+    let mut app = AppState::new();
+    let old = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(2_000_000));
+    apply_clock_advance(&mut app, SimulationTick::new(1));
+    let next_revision = app
+        .geology()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("pre-observation depletion revision overflowed"));
+    app.geology_state_mut().apply_extraction(
+        old,
+        Mass::from_milligrams(2_000_000),
+        SimulationTick::new(1),
+        next_revision,
+    );
+    apply_clock_advance(&mut app, SimulationTick::new(2));
+    let _replacement =
+        insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(4_500_000));
+
+    let resource_mass = ResourceMassEstimate::new(
+        Mass::from_milligrams(4_000_000),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap_or_else(|error| panic!("post-depletion resource fixture failed: {error}"));
+    let (mut knowledge, observation) = knowledge_with_resource_mass(resource_mass);
+    knowledge
+        .observations
+        .get_mut(&observation)
+        .unwrap_or_else(|| panic!("post-depletion resource observation disappeared"))
+        .observed_at = SimulationTick::new(2);
+    *app.geological_knowledge_state_mut() = knowledge;
 
     assert_eq!(validate_loaded_state(&registries, &app), Ok(()));
 }

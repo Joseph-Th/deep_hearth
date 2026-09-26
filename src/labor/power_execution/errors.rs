@@ -7,6 +7,7 @@ use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Energy, Power};
 use crate::energy::{EnergyCarrier, EnergySinkError, EnergyStoreId};
 use crate::equipment::{EquipmentId, EquipmentProviderError};
+use crate::logistics::{PlayerEnergyStoreAccessError, PlayerEquipmentAccessError};
 use crate::maintenance::ActiveConditionDurationError;
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
@@ -21,6 +22,7 @@ pub enum ManualPowerError {
     },
     Work(PlayerWorkStartError),
     Equipment(EquipmentProviderError),
+    EquipmentAccess(PlayerEquipmentAccessError),
     EquipmentMounted {
         equipment: EquipmentId,
     },
@@ -47,6 +49,7 @@ pub enum ManualPowerError {
         capability: CapabilityId,
     },
     EnergySink(EnergySinkError),
+    DestinationAccess(PlayerEnergyStoreAccessError),
     WrongCarrier {
         required: EnergyCarrier,
         provided: EnergyCarrier,
@@ -85,6 +88,9 @@ impl Display for ManualPowerError {
             }
             Self::Work(error) => write!(formatter, "manual power labor admission failed: {error}"),
             Self::Equipment(error) => write!(formatter, "manual power equipment failed: {error}"),
+            Self::EquipmentAccess(error) => {
+                write!(formatter, "manual power equipment access failed: {error}")
+            }
             Self::EquipmentMounted { equipment } => write!(
                 formatter,
                 "manual power equipment {} is mounted and cannot be used for direct player-powered generation",
@@ -136,6 +142,9 @@ impl Display for ManualPowerError {
             ),
             Self::EnergySink(error) => {
                 write!(formatter, "manual power destination failed: {error}")
+            }
+            Self::DestinationAccess(error) => {
+                write!(formatter, "manual power destination access failed: {error}")
             }
             Self::WrongCarrier { required, provided } => write!(
                 formatter,
@@ -196,7 +205,9 @@ impl Error for ManualPowerError {
         match self {
             Self::Work(error) => Some(error),
             Self::Equipment(error) => Some(error),
+            Self::EquipmentAccess(error) => Some(error),
             Self::EnergySink(error) => Some(error),
+            Self::DestinationAccess(error) => Some(error),
             Self::ConditionDuration(error) => Some(error),
             Self::UnknownMethod { .. }
             | Self::EquipmentMounted { .. }
@@ -222,6 +233,10 @@ impl Error for ManualPowerError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualPowerCommitError {
     Work(PlayerWorkCommitError),
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleEquipmentRevision {
         expected: u64,
         actual: u64,
@@ -250,6 +265,10 @@ impl Display for ManualPowerCommitError {
             Self::Work(error) => write!(
                 formatter,
                 "manual power labor changed after validation: {error}"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "manual power expected logistics revision {expected} but current revision is {actual}"
             ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
@@ -285,7 +304,8 @@ impl Error for ManualPowerCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Work(error) => Some(error),
-            Self::StaleEquipmentRevision { .. }
+            Self::StaleLogisticsRevision { .. }
+            | Self::StaleEquipmentRevision { .. }
             | Self::StaleEnergyRevision { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }

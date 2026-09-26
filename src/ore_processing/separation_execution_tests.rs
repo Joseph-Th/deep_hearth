@@ -18,6 +18,10 @@ use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
 };
 use crate::labor::PlayerWork;
+use crate::logistics::{
+    PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
 };
@@ -26,6 +30,7 @@ use crate::ore_processing::{ManualConstituentSeparationProcessDefinition, Manual
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessOutputRoute, StartProcessError, validate_start_process_routed};
 use crate::simulation::advance_tick;
+use crate::spatial::VoxelCoord;
 use crate::survival::{assess_survival, initialize_player_survival};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
@@ -688,6 +693,80 @@ fn resolve_manual(fixture: &ManualFixture, mass: Mass) -> ResolvedManualConstitu
         ),
     )
     .unwrap_or_else(|error| panic!("manual separation resolution failed: {error}"))
+}
+
+#[test]
+fn manual_separation_rejects_known_remote_output_destination() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&fixture.state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote separation logistics setup failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| panic!("remote separation logistics commit failed: {error}"));
+    let target_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&fixture.state, fixture.target, target_position)
+        .unwrap_or_else(|error| panic!("remote separation target placement failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("remote separation target placement commit failed: {error}")
+        });
+    let resolved = resolve_manual(&fixture, mass);
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        validate_start_manual_constituent_separation(
+            &fixture.registries,
+            &fixture.state,
+            &resolved,
+            fixture.source,
+            fixture.target,
+            fixture.residue,
+        )
+        .err(),
+        Some(StartManualConstituentSeparationError::Access(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: fixture.target,
+                stockpile_position: target_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn manual_separation_token_rejects_location_added_after_validation() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let resolved = resolve_manual(&fixture, mass);
+    let validated = validate_start_manual_constituent_separation(
+        &fixture.registries,
+        &fixture.state,
+        &resolved,
+        fixture.source,
+        fixture.target,
+        fixture.residue,
+    )
+    .unwrap_or_else(|error| panic!("stale-location separation validation failed: {error}"));
+    validate_place_ground_stockpile(&fixture.state, fixture.residue, VoxelCoord::new(6, 0, 0))
+        .unwrap_or_else(|error| panic!("stale-location separation placement failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("stale-location separation placement commit failed: {error}")
+        });
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        validated.commit(&mut fixture.state),
+        Err(
+            ManualConstituentSeparationCommitError::StaleLogisticsRevision {
+                expected: 0,
+                actual: 1,
+            }
+        )
+    );
+    assert_eq!(fixture.state, before);
 }
 
 #[test]

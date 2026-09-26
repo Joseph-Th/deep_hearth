@@ -67,6 +67,21 @@ impl Display for StartProcessError {
                 "process start does not route output stream {}",
                 stream.value()
             ),
+            Self::SpatialEndpointMismatch {
+                first,
+                first_position,
+                second,
+                second_position,
+            } => write!(
+                formatter,
+                "production endpoints are at different known voxels: {first} at ({},{},{}) and {second} at ({},{},{})",
+                first_position.x(),
+                first_position.y(),
+                first_position.z(),
+                second_position.x(),
+                second_position.y(),
+                second_position.z()
+            ),
             Self::DestinationStorage(error) => write!(
                 formatter,
                 "process destination rejects resolved output: {error}"

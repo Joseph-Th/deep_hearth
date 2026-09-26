@@ -7,6 +7,7 @@ use crate::core::quantity::Force;
 use crate::core::time::SimulationTick;
 use crate::mining::MiningJobId;
 use crate::production::ProductionJobId;
+use crate::spatial::VoxelCoord;
 use crate::structural::{
     StructuralCommitError, StructuralElementId, StructuralLifecycle, StructuralMutationError,
 };
@@ -62,6 +63,17 @@ pub enum EquipmentSupportError {
         expected: Force,
     },
     EquipmentRevisionExhausted,
+    LogisticsRevisionExhausted,
+    DetachedEquipmentNotOnTarget {
+        equipment: EquipmentId,
+        position: VoxelCoord,
+        element: StructuralElementId,
+    },
+    PlayerNotOnMountedEquipmentSupport {
+        equipment: EquipmentId,
+        player_position: VoxelCoord,
+        element: StructuralElementId,
+    },
     Structure(StructuralMutationError),
 }
 
@@ -74,6 +86,19 @@ impl Display for EquipmentSupportError {
             Self::AlreadyMounted { equipment, element } => write!(
                 formatter,
                 "equipment {} is already supported by structural element {}",
+                equipment.value(),
+                element.value()
+            ),
+            Self::PlayerNotOnMountedEquipmentSupport {
+                equipment,
+                player_position,
+                element,
+            } => write!(
+                formatter,
+                "player at voxel ({},{},{}) cannot unmount equipment {} from remote structural element {}",
+                player_position.x(),
+                player_position.y(),
+                player_position.z(),
                 equipment.value(),
                 element.value()
             ),
@@ -151,6 +176,22 @@ impl Display for EquipmentSupportError {
             Self::EquipmentRevisionExhausted => {
                 formatter.write_str("equipment revision space is exhausted")
             }
+            Self::LogisticsRevisionExhausted => {
+                formatter.write_str("logistics revision space is exhausted")
+            }
+            Self::DetachedEquipmentNotOnTarget {
+                equipment,
+                position,
+                element,
+            } => write!(
+                formatter,
+                "detached equipment {} is at voxel ({},{},{}) outside structural element {}",
+                equipment.value(),
+                position.x(),
+                position.y(),
+                position.z(),
+                element.value()
+            ),
             Self::Structure(error) => {
                 write!(formatter, "structural support change failed: {error}")
             }
@@ -174,7 +215,10 @@ impl Error for EquipmentSupportError {
             | Self::AggregateMassOverflow { .. }
             | Self::WeightForceOverflow { .. }
             | Self::ExistingEquipmentLoadMismatch { .. }
-            | Self::EquipmentRevisionExhausted => None,
+            | Self::EquipmentRevisionExhausted
+            | Self::LogisticsRevisionExhausted
+            | Self::DetachedEquipmentNotOnTarget { .. }
+            | Self::PlayerNotOnMountedEquipmentSupport { .. } => None,
         }
     }
 }
@@ -182,6 +226,10 @@ impl Error for EquipmentSupportError {
 /// Failure to commit a revision-bound equipment/support transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentSupportCommitError {
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleEquipmentRevision {
         expected: u64,
         actual: u64,
@@ -220,6 +268,10 @@ pub enum EquipmentSupportCommitError {
 impl Display for EquipmentSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "validated equipment support change expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment support change expected equipment revision {expected} but current revision is {actual}"
@@ -289,7 +341,8 @@ impl Error for EquipmentSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleEquipmentRevision { .. }
+            Self::StaleLogisticsRevision { .. }
+            | Self::StaleEquipmentRevision { .. }
             | Self::UnknownEquipment { .. }
             | Self::SupportChanged { .. }
             | Self::EquipmentBusy { .. }

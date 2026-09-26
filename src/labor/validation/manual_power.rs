@@ -10,6 +10,7 @@ use crate::equipment::{
     EquipmentDefinition, EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy,
     resolve_equipment_capability,
 };
+use crate::logistics::{validate_player_energy_store_access, validate_player_equipment_access};
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::registry::Registries;
 
@@ -71,6 +72,10 @@ fn validate_manual_power_bindings(
     work: ManualPowerWork,
     method: ManualPowerDefinition,
 ) -> Result<Power, PlayerWorkValidationError> {
+    validate_player_equipment_access(state, work.equipment())
+        .map_err(PlayerWorkValidationError::ManualPowerEquipmentAccess)?;
+    validate_player_energy_store_access(state, work.destination())
+        .map_err(PlayerWorkValidationError::ManualPowerDestinationAccess)?;
     let equipment_definition =
         validate_manual_power_equipment_record(registries, state, work.equipment_trace())?;
     validate_manual_power_resource_availability(state, work)?;

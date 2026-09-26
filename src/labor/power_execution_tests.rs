@@ -25,6 +25,10 @@ use crate::equipment::{
 };
 use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError};
+use crate::logistics::{
+    PlayerEnergyStoreAccessError, validate_allocate_ground_stockpile,
+    validate_initialize_player_logistics,
+};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
@@ -41,6 +45,141 @@ fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
         let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("manual power setup tick failed: {error}"));
     }
+}
+
+#[test]
+fn manual_power_rejects_known_remote_destination_store() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote power survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote power logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote power logistics commit failed: {error}"));
+    let store_position = VoxelCoord::new(1, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        drive,
+        store_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_manual_power(
+            &registries,
+            &state,
+            ManualPowerRequest::new(
+                MANUAL_POWER_HAND_CRANK,
+                crank,
+                drive,
+                Energy::from_nanojoules(100_000_000_000),
+            ),
+        )
+        .err(),
+        Some(ManualPowerError::DestinationAccess(
+            PlayerEnergyStoreAccessError::RemoteKnownEnergyStore {
+                store: drive,
+                store_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn manual_power_token_rejects_logistics_change_before_commit() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stale power survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale power logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale power logistics commit failed: {error}"));
+    let validated = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            drive,
+            Energy::from_nanojoules(100_000_000_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("stale power validation failed: {error}"));
+    let expected = state.logistics().revision();
+    validate_allocate_ground_stockpile(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale power allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale power allocation commit failed: {error}"));
+    let actual = state.logistics().revision();
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(ManualPowerCommitError::StaleLogisticsRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_active_manual_power_with_remote_destination() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote-load power survival setup failed: {error}"));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-load power logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-load power logistics commit failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let _ = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            drive,
+            Energy::from_nanojoules(100_000_000_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("remote-load power validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote-load power commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let store_position = VoxelCoord::new(1, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("remote-load power serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["detached_energy_stores"][drive.value().to_string()] =
+        serde_json::json!({"x": 1, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("remote-load power decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::ManualPowerDestinationAccess(
+                PlayerEnergyStoreAccessError::RemoteKnownEnergyStore {
+                    store: drive,
+                    store_position,
+                    player_position,
+                }
+            )
+        )))
+    );
 }
 
 fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {

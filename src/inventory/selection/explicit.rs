@@ -11,7 +11,7 @@ use super::super::state::{
 use super::{ConsumptionSelection, MaterialLotSelection};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ExplicitConsumptionSelectionError {
+pub enum ExplicitConsumptionSelectionError {
     UnknownStockpile {
         stockpile: StockpileId,
     },

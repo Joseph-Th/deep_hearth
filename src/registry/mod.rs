@@ -23,6 +23,7 @@ use crate::survival::{SurvivalExertion, SurvivalRegistry};
 use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
 
+mod commodity_handbook;
 mod process_topology;
 mod validation;
 
@@ -30,6 +31,7 @@ mod validation;
 #[path = "process_topology_tests.rs"]
 mod process_topology_tests;
 
+pub use commodity_handbook::{CommodityHandbookEntry, CommoditySource, CommodityUse};
 use process_topology::build_process_topology;
 pub use process_topology::{
     ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily, ProcessTopology,

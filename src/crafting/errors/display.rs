@@ -195,6 +195,9 @@ impl Display for ManualCraftError {
 impl Display for StartManualCraftError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Access(error) => {
+                write!(formatter, "manual craft stockpile access failed: {error}")
+            }
             Self::Resolution(error) => write!(formatter, "manual craft resolution failed: {error}"),
             Self::Process(error) => write!(formatter, "manual craft start failed: {error}"),
             Self::Work(error) => write!(formatter, "manual craft labor is unavailable: {error}"),
@@ -205,6 +208,10 @@ impl Display for StartManualCraftError {
 impl Display for ManualCraftCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "manual craft expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::Process(error) => {
                 write!(formatter, "manual craft process commit failed: {error}")
             }

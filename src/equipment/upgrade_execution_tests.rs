@@ -18,10 +18,15 @@ use crate::equipment::{
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
+use crate::logistics::{
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::material::{CommodityKey, MaterialPhaseStateError};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
+use crate::spatial::VoxelCoord;
 use crate::survival::initialize_player_survival;
 
 fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -51,6 +56,85 @@ fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> Equipme
         .unwrap_or_else(|error| panic!("upgrade pick assembly validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("upgrade pick assembly commit failed: {error}"))
+}
+
+#[test]
+fn equipment_upgrade_rejects_known_remote_equipment() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let equipment = assemble_stone_pick(&registries, &mut state);
+    let reinforcement = reinforcement_source(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote upgrade logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote upgrade logistics commit failed: {error}"));
+    let equipment_position = VoxelCoord::new(1, 0, 0);
+    let logistics_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        logistics_revision,
+        logistics_revision + 1,
+        equipment,
+        equipment_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            equipment,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            reinforcement,
+        )
+        .err(),
+        Some(EquipmentUpgradeError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment,
+                equipment_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn equipment_upgrade_rejects_known_remote_material_source() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let equipment = assemble_stone_pick(&registries, &mut state);
+    let reinforcement = reinforcement_source(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote upgrade source logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote upgrade source logistics commit failed: {error}"));
+    let source_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, reinforcement, source_position)
+        .unwrap_or_else(|error| panic!("remote upgrade source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote upgrade source placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            equipment,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            reinforcement,
+        )
+        .err(),
+        Some(EquipmentUpgradeError::SourceAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: reinforcement,
+                stockpile_position: source_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
@@ -138,6 +222,32 @@ fn reinforcement_source(registries: &Registries, state: &mut AppState) -> Stockp
     )
     .unwrap_or_else(|error| panic!("upgrade reinforcement material failed: {error}"));
     source
+}
+
+#[test]
+fn equipment_upgrade_reports_the_exact_missing_addition() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let equipment = assemble_stone_pick(&registries, &mut state);
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("missing-upgrade-component stockpile failed: {error}"));
+
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            equipment,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            source,
+        )
+        .err(),
+        Some(EquipmentUpgradeError::InsufficientMaterial {
+            stockpile: source,
+            commodity: CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            available: Mass::ZERO,
+            required: Mass::from_milligrams(20_000),
+        })
+    );
 }
 
 #[test]

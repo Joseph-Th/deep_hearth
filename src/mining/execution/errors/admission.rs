@@ -9,10 +9,11 @@ use crate::core::throughput::MassFlowDurationError;
 use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
 use crate::labor::PlayerWorkStartError;
+use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::ActiveConditionDurationError;
-use crate::material::{MaterialId, MaterialLotSpecError};
+use crate::material::MaterialLotSpecError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
-use crate::spatial::VoxelBounds;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
 use super::super::super::physics::MiningPhysicsError;
 use super::super::super::{MiningJobId, MiningMethodId};
@@ -23,12 +24,14 @@ pub enum MiningStartError {
         method: MiningMethodId,
     },
     TargetNoLongerResolved,
-    MissingExcavationHardnessEvidence {
-        material: MaterialId,
-        region: VoxelBounds,
+    PlayerOutsideDeposit {
+        player_position: VoxelCoord,
+        deposit: crate::geology::GeologicalDepositId,
+        bounds: VoxelBounds,
     },
     ZeroMass,
     Equipment(EquipmentProviderError),
+    EquipmentAccess(PlayerEquipmentAccessError),
     EquipmentMounted {
         equipment: EquipmentId,
     },
@@ -60,6 +63,9 @@ pub enum MiningStartError {
         observed_upper: Pressure,
         maximum: Pressure,
     },
+    TargetResistsEquipment {
+        maximum: Pressure,
+    },
     ZeroThroughput,
     Duration(MassFlowDurationError),
     ConditionDuration(ActiveConditionDurationError),
@@ -68,6 +74,7 @@ pub enum MiningStartError {
     UnknownDestination {
         stockpile: StockpileId,
     },
+    DestinationAccess(PlayerStockpileAccessError),
     DestinationBusyStorageDismantling {
         stockpile: StockpileId,
     },
@@ -101,13 +108,27 @@ impl Display for MiningStartError {
             Self::TargetNoLongerResolved => formatter.write_str(
                 "resolved mining target is no longer uniquely supported by current local evidence and geology",
             ),
-            Self::MissingExcavationHardnessEvidence { material, .. } => write!(
-                formatter,
-                "mining target for material {} lacks acquired excavation-hardness evidence; perform physical sampling before extraction",
-                material.value()
-            ),
+            Self::PlayerOutsideDeposit {
+                player_position,
+                deposit,
+                bounds,
+            } => {
+                let min = bounds.min();
+                let max = bounds.max_exclusive();
+                write!(
+                    formatter,
+                    "player at voxel ({},{},{}) is outside mining deposit {} bounds [({},{},{}),({},{},{}))",
+                    player_position.x(),
+                    player_position.y(),
+                    player_position.z(),
+                    deposit.value(),
+                    min.x(), min.y(), min.z(),
+                    max.x(), max.y(), max.z()
+                )
+            }
             Self::ZeroMass => formatter.write_str("mining request mass must be nonzero"),
             Self::Equipment(error) => write!(formatter, "mining equipment failed: {error}"),
+            Self::EquipmentAccess(error) => write!(formatter, "mining equipment access failed: {error}"),
             Self::EquipmentMounted { equipment } => write!(
                 formatter,
                 "mining equipment {} is mounted and cannot be used for extraction",
@@ -163,6 +184,11 @@ impl Display for MiningStartError {
                 observed_upper.pascals(),
                 maximum.pascals()
             ),
+            Self::TargetResistsEquipment { maximum } => write!(
+                formatter,
+                "mining target resists this equipment beyond its {} Pa hardness capability; physical sampling can identify the required capability before another attempt",
+                maximum.pascals()
+            ),
             Self::ZeroThroughput => formatter.write_str("resolved mining throughput is zero"),
             Self::Duration(error) => write!(formatter, "mining duration resolution failed: {error}"),
             Self::ConditionDuration(error) => write!(
@@ -178,6 +204,9 @@ impl Display for MiningStartError {
                 "unknown mining destination stockpile {}",
                 stockpile.value()
             ),
+            Self::DestinationAccess(error) => {
+                write!(formatter, "mining destination access failed: {error}")
+            }
             Self::DestinationBusyStorageDismantling { stockpile } => write!(
                 formatter,
                 "stockpile {} is being dismantled and cannot reserve mining output",
@@ -236,6 +265,8 @@ impl Error for MiningStartError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Equipment(error) => Some(error),
+            Self::EquipmentAccess(error) => Some(error),
+            Self::DestinationAccess(error) => Some(error),
             Self::Duration(error) => Some(error),
             Self::ConditionDuration(error) => Some(error),
             Self::InvalidOutput(error) => Some(error),
@@ -244,7 +275,7 @@ impl Error for MiningStartError {
             Self::Work(error) => Some(error),
             Self::UnknownMethod { .. }
             | Self::TargetNoLongerResolved
-            | Self::MissingExcavationHardnessEvidence { .. }
+            | Self::PlayerOutsideDeposit { .. }
             | Self::ZeroMass
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
@@ -254,6 +285,7 @@ impl Error for MiningStartError {
             | Self::CapabilityKindMismatch { .. }
             | Self::BatchTooLarge { .. }
             | Self::ExcavationHardnessEvidenceExceedsCapability { .. }
+            | Self::TargetResistsEquipment { .. }
             | Self::ZeroThroughput
             | Self::CompletionTickOverflow
             | Self::UnknownDestination { .. }

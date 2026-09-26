@@ -5,6 +5,7 @@ use crate::equipment::{
     EquipmentOccupancy, EquipmentOperationTrace, EquipmentRecord, equipment_occupancy,
 };
 use crate::labor::{EquipmentMaintenanceWork, PlayerWork, validate_player_work_start};
+use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::registry::Registries;
 
 use super::super::state::EquipmentMaintenanceAdmission;
@@ -115,6 +116,12 @@ pub fn validate_equipment_maintenance(
     let condition_before = resolution.condition_before;
     let condition_after = resolution.condition_after;
     validate_resolved_outcome(&resolution)?;
+    validate_player_equipment_access(state, equipment)
+        .map_err(EquipmentMaintenanceError::EquipmentAccess)?;
+    validate_player_stockpile_access(state, resolution.material_source())
+        .map_err(EquipmentMaintenanceError::MaterialSourceAccess)?;
+    validate_player_stockpile_access(state, resolution.spent_destination())
+        .map_err(EquipmentMaintenanceError::SpentDestinationAccess)?;
     let expected_equipment_revision = state.equipment().revision();
     // Maintenance mutates equipment twice: admission exchanges the service component and
     // completion applies the deferred condition recovery. Reserve both owner revisions before
@@ -164,6 +171,7 @@ pub fn validate_equipment_maintenance(
         condition_after,
         expected_equipment_revision,
         next_equipment_revision,
+        expected_logistics_revision: state.logistics().revision(),
         admission,
         material,
         work,

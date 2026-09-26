@@ -151,4 +151,35 @@ impl OreProcessingRegistry {
     ) -> Option<ManualConstituentSeparationProcessDefinition> {
         self.manual_separation.get(&process).copied()
     }
+
+    /// Iterates powered comminution definitions in stable process-ID order.
+    pub fn comminution_definitions(&self) -> impl Iterator<Item = &ComminutionProcessDefinition> {
+        self.comminution.values()
+    }
+
+    /// Iterates direct-labor comminution definitions in stable process-ID order.
+    pub fn manual_comminution_definitions(
+        &self,
+    ) -> impl Iterator<Item = &ManualComminutionProcessDefinition> {
+        self.manual_comminution.values()
+    }
+
+    /// Iterates powered screening definitions in stable process-ID order.
+    pub fn screening_definitions(&self) -> impl Iterator<Item = ScreeningProcessDefinition> + '_ {
+        self.screening.values().copied()
+    }
+
+    /// Iterates powered constituent-separation definitions in stable process-ID order.
+    pub fn constituent_separation_definitions(
+        &self,
+    ) -> impl Iterator<Item = ConstituentSeparationProcessDefinition> + '_ {
+        self.separation.values().copied()
+    }
+
+    /// Iterates direct-labor constituent-separation definitions in stable process-ID order.
+    pub fn manual_constituent_separation_definitions(
+        &self,
+    ) -> impl Iterator<Item = ManualConstituentSeparationProcessDefinition> + '_ {
+        self.manual_separation.values().copied()
+    }
 }

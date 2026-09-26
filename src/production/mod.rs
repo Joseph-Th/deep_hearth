@@ -4,6 +4,7 @@ mod definitions;
 mod production_execution;
 mod resolution;
 mod resource_contract;
+mod site;
 mod state;
 #[cfg(test)]
 mod test_support;
@@ -18,6 +19,8 @@ pub use resolution::{
     ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError,
 };
+pub use site::ProductionSiteEndpoint;
+pub(crate) use site::{validate_process_start_site, validate_running_job_site};
 pub use state::{
     ProductionJobId, ProductionJobRecord, ProductionOccupancyRelease, ProductionOutputStream,
     ProductionState, ProductionSuspension, ProductionSuspensionReason, ProductionValidationError,

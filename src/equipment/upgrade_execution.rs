@@ -8,6 +8,7 @@ use crate::inventory::{
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
+use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::registry::Registries;
 
 use super::state::EquipmentUpgradeMutation;
@@ -89,12 +90,20 @@ pub struct ValidatedEquipmentUpgrade {
     additions: Vec<ConsumedMaterialTrace>,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
+    expected_logistics_revision: u64,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
 impl ValidatedEquipmentUpgrade {
     pub fn commit(self, state: &mut AppState) -> Result<EquipmentId, EquipmentUpgradeCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(EquipmentUpgradeCommitError::StaleLogistics {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EquipmentUpgradeCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -188,6 +197,9 @@ pub fn validate_upgrade_equipment(
     if let Some(error) = validation_occupancy_error(state, equipment) {
         return Err(error);
     }
+    validate_player_equipment_access(state, equipment)
+        .map_err(EquipmentUpgradeError::EquipmentAccess)?;
+    validate_player_stockpile_access(state, source).map_err(EquipmentUpgradeError::SourceAccess)?;
 
     let selection =
         validate_consumption_selection(state.inventory(), source, upgrade.additions().inputs())
@@ -197,11 +209,12 @@ pub fn validate_upgrade_equipment(
                 }
                 crate::inventory::ConsumptionSelectionError::InsufficientMass {
                     stockpile,
+                    commodity,
                     available,
                     requested,
-                    ..
                 } => EquipmentUpgradeError::InsufficientMaterial {
                     stockpile,
+                    commodity,
                     available,
                     required: requested,
                 },
@@ -250,6 +263,7 @@ pub fn validate_upgrade_equipment(
         additions,
         expected_equipment_revision,
         next_equipment_revision,
+        expected_logistics_revision: state.logistics().revision(),
         egress,
         structural_load,
     })

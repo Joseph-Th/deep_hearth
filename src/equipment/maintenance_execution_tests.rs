@@ -33,6 +33,10 @@ use crate::inventory::{
     deposit_lot_for_test, validate_explicit_consumption_selection, validate_mount_stockpile,
 };
 use crate::labor::PlayerWorkValidationError;
+use crate::logistics::{
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
@@ -64,6 +68,157 @@ fn condition(parts_per_million: u32) -> Condition {
         Ok(condition) => condition,
         Err(error) => panic!("maintenance condition fixture failed: {error}"),
     }
+}
+
+#[test]
+fn maintenance_rejects_known_remote_equipment() {
+    let registries = registries();
+    let mut state = AppState::new();
+    initialize_service_player(&registries, &mut state);
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+        .unwrap_or_else(|error| panic!("remote maintenance equipment failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("remote maintenance source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("remote maintenance spent failed: {error}"));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote maintenance logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote maintenance logistics commit failed: {error}"));
+    let equipment_position = VoxelCoord::new(1, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        equipment,
+        equipment_position,
+    );
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("remote maintenance resolution failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_equipment_maintenance(&registries, &state, resolution),
+        Err(EquipmentMaintenanceError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment,
+                equipment_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
+    let registries = registries_with_service_duration(TickSpan::new(4));
+    let mut state = AppState::new();
+    initialize_service_player(&registries, &mut state);
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+        .unwrap_or_else(|error| panic!("remote-load maintenance equipment failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("remote-load maintenance source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("remote-load maintenance spent failed: {error}"));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-load maintenance logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-load maintenance logistics commit failed: {error}"));
+    let logistics_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        logistics_revision,
+        logistics_revision + 1,
+        equipment,
+        player_position,
+    );
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("remote-load maintenance resolution failed: {error}"));
+    let _ = validate_equipment_maintenance(&registries, &state, resolution)
+        .unwrap_or_else(|error| panic!("remote-load maintenance validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-load maintenance commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let equipment_position = VoxelCoord::new(1, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("remote-load maintenance serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["detached_equipment"][equipment.value().to_string()] =
+        serde_json::json!({"x": 1, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("remote-load maintenance decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::EquipmentMaintenanceAccess(
+                PlayerEquipmentAccessError::RemoteKnownEquipment {
+                    equipment,
+                    equipment_position,
+                    player_position,
+                }
+            )
+        )))
+    );
+}
+
+#[test]
+fn maintenance_rejects_known_remote_replacement_source() {
+    let registries = registries();
+    let mut state = AppState::new();
+    initialize_service_player(&registries, &mut state);
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+        .unwrap_or_else(|error| panic!("remote-source maintenance equipment failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("remote-source maintenance source failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("remote-source maintenance spent failed: {error}"));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-source maintenance logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-source maintenance logistics commit failed: {error}")
+        });
+    let source_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, source, source_position)
+        .unwrap_or_else(|error| panic!("remote-source maintenance placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-source maintenance placement commit failed: {error}")
+        });
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| panic!("remote-source maintenance resolution failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_equipment_maintenance(&registries, &state, resolution),
+        Err(EquipmentMaintenanceError::MaterialSourceAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: source,
+                stockpile_position: source_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
 }
 
 fn active_test_exertion() -> SurvivalExertion {

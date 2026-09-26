@@ -8,6 +8,7 @@ use crate::inventory::{
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
+use crate::logistics::{validate_player_energy_store_access, validate_player_stockpile_access};
 use crate::registry::Registries;
 
 use super::state::EnergyStoreUpgradeMutation;
@@ -26,6 +27,7 @@ pub struct ValidatedEnergyStoreUpgrade {
     additions: Vec<ConsumedMaterialTrace>,
     expected_energy_revision: u64,
     next_energy_revision: u64,
+    expected_logistics_revision: u64,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
@@ -35,6 +37,13 @@ impl ValidatedEnergyStoreUpgrade {
         self,
         state: &mut AppState,
     ) -> Result<EnergyStoreId, EnergyStoreUpgradeCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(EnergyStoreUpgradeCommitError::StaleLogistics {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EnergyStoreUpgradeCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -143,6 +152,10 @@ pub fn validate_upgrade_energy_store(
         }
         None => {}
     }
+    validate_player_energy_store_access(state, store)
+        .map_err(EnergyStoreUpgradeError::StoreAccess)?;
+    validate_player_stockpile_access(state, source)
+        .map_err(EnergyStoreUpgradeError::SourceAccess)?;
     let selection =
         validate_consumption_selection(state.inventory(), source, upgrade.additions().inputs())
             .map_err(|error| match error {
@@ -151,11 +164,12 @@ pub fn validate_upgrade_energy_store(
                 }
                 crate::inventory::ConsumptionSelectionError::InsufficientMass {
                     stockpile,
+                    commodity,
                     available,
                     requested,
-                    ..
                 } => EnergyStoreUpgradeError::InsufficientMaterial {
                     stockpile,
+                    commodity,
                     available,
                     required: requested,
                 },
@@ -202,6 +216,7 @@ pub fn validate_upgrade_energy_store(
         additions,
         expected_energy_revision,
         next_energy_revision,
+        expected_logistics_revision: state.logistics().revision(),
         egress,
         structural_load,
     })

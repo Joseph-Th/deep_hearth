@@ -7,7 +7,10 @@ use deep_hearth::registry::Registries;
 use super::super::manual_ore_recovery::ManualOreRecoveryReview;
 use super::acquisition::RawKitAcquisitionReview;
 use super::cleanup::CleanupOutcome;
-use super::{PrimitiveLiberationScenario, scavenging::ScavengingOutcome};
+use super::{
+    PrimitiveLiberationCampaignLifecycle, PrimitiveLiberationScenario,
+    scavenging::ScavengingOutcome,
+};
 
 fn charge_ticks(scenario: &PrimitiveLiberationScenario) -> u64 {
     scenario
@@ -39,6 +42,7 @@ pub(super) struct LiberationComparison<'a> {
     pub(super) direct_cleaned: &'a CleanupOutcome,
     pub(super) manual_recovery: &'a ManualOreRecoveryReview,
     pub(super) kit_acquisition: Option<&'a RawKitAcquisitionReview>,
+    pub(super) campaign_lifecycle: Option<&'a PrimitiveLiberationCampaignLifecycle>,
     pub(super) planned_batches: u64,
 }
 
@@ -55,6 +59,7 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
         direct_cleaned,
         manual_recovery,
         kit_acquisition,
+        campaign_lifecycle,
         planned_batches,
     } = comparison;
     validate_loaded_state(registries, &full.state)
@@ -164,48 +169,54 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
             "planned:{planned_batches}batches kit-payback:not-applicable economics:not-applicable justified:not-applicable"
         ),
         |review| {
-            let planned_batches_u128 = u128::from(planned_batches);
-            let attention_saved = manual_recovery
-                .attention_ticks
-                .checked_sub(demand_ticks)
-                .unwrap_or_else(|| panic!("powered route did not save player attention"));
-            assert!(
-                attention_saved > 0,
-                "powered route must save player attention before kit payback can be justified"
-            );
-            let payback = review.attention_ticks.div_ceil(attention_saved);
-            assert!(
-                payback <= planned_batches,
-                "primitive processing kit pays back in {payback} batches but only {planned_batches} were disclosed before build"
+            let lifecycle = campaign_lifecycle.unwrap_or_else(|| {
+                panic!("executed primitive kit requires an executed campaign lifecycle")
+            });
+            assert_eq!(
+                lifecycle.batch_charge_ticks.len() as u64,
+                planned_batches,
+                "executed liberation campaign must cover its complete disclosed horizon"
             );
             let manual_campaign_attention = manual_recovery
                 .attention_ticks
                 .checked_mul(planned_batches)
                 .unwrap_or_else(|| panic!("manual liberation campaign attention overflowed"));
-            let powered_campaign_attention = review
-                .attention_ticks
-                .checked_add(
-                    demand_ticks
-                        .checked_mul(planned_batches)
-                        .unwrap_or_else(|| panic!("powered liberation campaign charge attention overflowed")),
-                )
-                .unwrap_or_else(|| panic!("powered liberation campaign attention overflowed"));
+            let mut cumulative_powered_attention = review.attention_ticks;
+            let mut payback = None;
+            for (index, charge_ticks) in lifecycle.batch_charge_ticks.iter().copied().enumerate() {
+                cumulative_powered_attention = cumulative_powered_attention
+                    .checked_add(charge_ticks)
+                    .unwrap_or_else(|| panic!("powered liberation campaign attention overflowed"));
+                let batches = u64::try_from(index + 1)
+                    .unwrap_or_else(|_| panic!("liberation campaign batch index overflowed"));
+                let manual_attention = manual_recovery
+                    .attention_ticks
+                    .checked_mul(batches)
+                    .unwrap_or_else(|| panic!("manual liberation payback attention overflowed"));
+                if payback.is_none() && cumulative_powered_attention <= manual_attention {
+                    payback = Some(batches);
+                }
+            }
+            let payback = payback.unwrap_or_else(|| {
+                panic!("primitive processing kit did not repay within the disclosed campaign")
+            });
+            assert!(
+                payback <= planned_batches,
+                "primitive processing kit pays back in {payback} batches but only {planned_batches} were disclosed before build"
+            );
+            let powered_campaign_attention = cumulative_powered_attention;
             assert!(
                 powered_campaign_attention <= manual_campaign_attention,
                 "disclosed primitive campaign must not spend more player attention after its claimed payback"
             );
+            let planned_batches_u128 = u128::from(planned_batches);
             let manual_campaign_metabolic = manual_recovery
                 .metabolic_cost_nj
                 .checked_mul(planned_batches_u128)
                 .unwrap_or_else(|| panic!("manual liberation campaign metabolism overflowed"));
             let powered_campaign_metabolic = review
                 .metabolic_cost_nj
-                .checked_add(
-                    demand_body
-                        .0
-                        .checked_mul(planned_batches_u128)
-                        .unwrap_or_else(|| panic!("powered liberation campaign charge metabolism overflowed")),
-                )
+                .checked_add(lifecycle.metabolic_cost_nj)
                 .unwrap_or_else(|| panic!("powered liberation campaign metabolism overflowed"));
             let manual_campaign_hydration = manual_recovery
                 .hydration_cost_ul
@@ -213,21 +224,18 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
                 .unwrap_or_else(|| panic!("manual liberation campaign hydration overflowed"));
             let powered_campaign_hydration = review
                 .hydration_cost_ul
-                .checked_add(
-                    demand_body
-                        .1
-                        .checked_mul(planned_batches)
-                        .unwrap_or_else(|| panic!("powered liberation campaign charge hydration overflowed")),
-                )
+                .checked_add(lifecycle.hydration_cost_ul)
                 .unwrap_or_else(|| panic!("powered liberation campaign hydration overflowed"));
             format!(
                 concat!(
-                    "planned:{planned_batches}batches kit-payback:{payback}batches ",
+                    "planned:{planned_batches}batches executed:{executed_batches} kit-payback:{payback}batches ",
                     "attention:manual:{manual_campaign_attention}t/powered:{powered_campaign_attention}t ",
                     "body:manual:{manual_campaign_metabolic}nJ/{manual_campaign_hydration}uL ",
-                    "powered:{powered_campaign_metabolic}nJ/{powered_campaign_hydration}uL justified:true"
+                    "powered:{powered_campaign_metabolic}nJ/{powered_campaign_hydration}uL ",
+                    "elapsed:{elapsed_ticks}t final-condition=[crusher:{crusher} quern:{quern} screen:{screen} separator:{separator} treadle:{treadle}] justified:true"
                 ),
                 planned_batches = planned_batches,
+                executed_batches = lifecycle.batch_charge_ticks.len(),
                 payback = payback,
                 manual_campaign_attention = manual_campaign_attention,
                 powered_campaign_attention = powered_campaign_attention,
@@ -235,6 +243,12 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
                 manual_campaign_hydration = manual_campaign_hydration,
                 powered_campaign_metabolic = powered_campaign_metabolic,
                 powered_campaign_hydration = powered_campaign_hydration,
+                elapsed_ticks = lifecycle.elapsed_ticks,
+                crusher = lifecycle.crusher_condition_ppm,
+                quern = lifecycle.quern_condition_ppm,
+                screen = lifecycle.screen_condition_ppm,
+                separator = lifecycle.separator_condition_ppm,
+                treadle = lifecycle.treadle_condition_ppm,
             )
         },
     );

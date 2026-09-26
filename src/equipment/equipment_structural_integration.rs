@@ -49,7 +49,22 @@ pub struct ValidatedEquipmentSupportChange {
     after: Option<StructuralElementId>,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
+    expected_logistics_revision: u64,
+    logistics: EquipmentLogisticsTransition,
     structural: ValidatedStructuralLoadChange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EquipmentLogisticsTransition {
+    None,
+    RemoveDetached {
+        position: crate::spatial::VoxelCoord,
+        next_revision: u64,
+    },
+    PlaceDetached {
+        position: crate::spatial::VoxelCoord,
+        next_revision: u64,
+    },
 }
 
 fn validate_equipment_structural_change(
@@ -88,6 +103,13 @@ impl ValidatedEquipmentSupportChange {
         self,
         state: &mut AppState,
     ) -> Result<EquipmentSupportOutcome, EquipmentSupportCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(EquipmentSupportCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         let actual_revision = state.equipment().revision();
         if actual_revision != self.expected_equipment_revision {
             return Err(EquipmentSupportCommitError::StaleEquipmentRevision {
@@ -128,6 +150,29 @@ impl ValidatedEquipmentSupportChange {
             self.after,
             self.next_equipment_revision,
         );
+        match self.logistics {
+            EquipmentLogisticsTransition::None => {}
+            EquipmentLogisticsTransition::RemoveDetached {
+                position,
+                next_revision,
+            } => state
+                .logistics_state_mut()
+                .apply_equipment_location_removal(
+                    self.expected_logistics_revision,
+                    next_revision,
+                    self.equipment,
+                    position,
+                ),
+            EquipmentLogisticsTransition::PlaceDetached {
+                position,
+                next_revision,
+            } => state.logistics_state_mut().apply_equipment_placement(
+                self.expected_logistics_revision,
+                next_revision,
+                self.equipment,
+                position,
+            ),
+        }
         Ok(EquipmentSupportOutcome { structural })
     }
 }
@@ -183,6 +228,26 @@ pub fn validate_mount_equipment(
             lifecycle: target.lifecycle(),
         });
     }
+    let expected_logistics_revision = state.logistics().revision();
+    let detached_position = state.logistics().equipment_position(equipment);
+    if let Some(position) = detached_position
+        && !target.bounds().has_voxel(position)
+    {
+        return Err(EquipmentSupportError::DetachedEquipmentNotOnTarget {
+            equipment,
+            position,
+            element,
+        });
+    }
+    let logistics = match detached_position {
+        Some(position) => EquipmentLogisticsTransition::RemoveDetached {
+            position,
+            next_revision: expected_logistics_revision
+                .checked_add(1)
+                .ok_or(EquipmentSupportError::LogisticsRevisionExhausted)?,
+        },
+        None => EquipmentLogisticsTransition::None,
+    };
 
     let current_mass = validate_existing_load(registries, state, element)?;
     let next_mass = current_mass
@@ -203,6 +268,8 @@ pub fn validate_mount_equipment(
         after: Some(element),
         expected_equipment_revision,
         next_equipment_revision,
+        expected_logistics_revision,
+        logistics,
         structural,
     })
 }
@@ -222,11 +289,33 @@ pub fn validate_unmount_equipment(
         .supported_by()
         .ok_or(EquipmentSupportError::NotMounted { equipment })?;
     validate_not_busy(state, equipment)?;
-    if state.structures().get_element(element).is_none() {
-        return Err(EquipmentSupportError::Structure(
-            StructuralMutationError::UnknownElement { element },
-        ));
-    }
+    let source =
+        state
+            .structures()
+            .get_element(element)
+            .ok_or(EquipmentSupportError::Structure(
+                StructuralMutationError::UnknownElement { element },
+            ))?;
+    let expected_logistics_revision = state.logistics().revision();
+    let logistics = match state.logistics().player().copied() {
+        Some(player) => {
+            let position = player.position();
+            if !source.bounds().has_voxel(position) {
+                return Err(EquipmentSupportError::PlayerNotOnMountedEquipmentSupport {
+                    equipment,
+                    player_position: position,
+                    element,
+                });
+            }
+            EquipmentLogisticsTransition::PlaceDetached {
+                position,
+                next_revision: expected_logistics_revision
+                    .checked_add(1)
+                    .ok_or(EquipmentSupportError::LogisticsRevisionExhausted)?,
+            }
+        }
+        None => EquipmentLogisticsTransition::None,
+    };
 
     validate_existing_load(registries, state, element)?;
     let remaining_mass = supported_mass(state, element, Some(equipment))?;
@@ -245,6 +334,8 @@ pub fn validate_unmount_equipment(
         after: None,
         expected_equipment_revision,
         next_equipment_revision,
+        expected_logistics_revision,
+        logistics,
         structural,
     })
 }
@@ -311,6 +402,8 @@ pub fn validate_relocate_equipment(
         after: Some(target),
         expected_equipment_revision,
         next_equipment_revision,
+        expected_logistics_revision: state.logistics().revision(),
+        logistics: EquipmentLogisticsTransition::None,
         structural,
     })
 }

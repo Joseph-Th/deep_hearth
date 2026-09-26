@@ -7,10 +7,12 @@ use crate::core::quantity::Mass;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::{MaterialLotId, StockpileId, StockpileStorageError, StorageDefinitionId};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
+use crate::logistics::PlayerStockpileAccessError;
 use crate::structural::StructuralElementId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureDismantlingError {
+    Access(PlayerStockpileAccessError),
     UnknownTarget {
         stockpile: StockpileId,
     },
@@ -64,6 +66,7 @@ pub enum StorageEnclosureDismantlingError {
 impl Display for StorageEnclosureDismantlingError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Access(error) => write!(formatter, "storage dismantling access failed: {error}"),
             Self::UnknownTarget { stockpile } => write!(
                 formatter,
                 "unknown storage enclosure target stockpile {}",
@@ -158,6 +161,7 @@ impl Display for StorageEnclosureDismantlingError {
 impl Error for StorageEnclosureDismantlingError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Access(error) => Some(error),
             Self::RecoveryDestinationStorage(error)
             | Self::TargetContentsIncompatible { error, .. } => Some(error),
             Self::PlayerWork(error) => Some(error),
@@ -180,6 +184,7 @@ impl Error for StorageEnclosureDismantlingError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureDismantlingCommitError {
+    StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     UnknownTarget { stockpile: StockpileId },
     TargetProfileChanged { stockpile: StockpileId },
@@ -190,6 +195,10 @@ pub enum StorageEnclosureDismantlingCommitError {
 impl Display for StorageEnclosureDismantlingCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "storage dismantling admission expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "storage dismantling admission expected inventory revision {expected} but current revision is {actual}"
@@ -221,7 +230,8 @@ impl Error for StorageEnclosureDismantlingCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::PlayerWork(error) => Some(error),
-            Self::StaleInventoryRevision { .. }
+            Self::StaleLogisticsRevision { .. }
+            | Self::StaleInventoryRevision { .. }
             | Self::UnknownTarget { .. }
             | Self::TargetProfileChanged { .. }
             | Self::TargetEnclosureChanged { .. } => None,

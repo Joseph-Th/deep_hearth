@@ -22,6 +22,7 @@ pub use errors::{StorageEnclosureCommitError, StorageEnclosureConstructionError}
 pub struct ValidatedStorageEnclosureConstruction {
     target: StockpileId,
     expected_inventory_revision: u64,
+    expected_logistics_revision: u64,
     next_inventory_revision: u64,
     expected_profile: StockpileStorageProfile,
     next_profile: StockpileStorageProfile,
@@ -44,6 +45,13 @@ impl ValidatedStorageEnclosureConstruction {
             return Err(StorageEnclosureCommitError::StaleInventoryRevision {
                 expected: self.expected_inventory_revision,
                 actual: actual_revision,
+            });
+        }
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(StorageEnclosureCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
             });
         }
         let target = state.inventory().get_stockpile(self.target).ok_or(
@@ -102,6 +110,13 @@ pub fn validate_build_storage_enclosure(
         .get_stockpile(target)
         .ok_or(StorageEnclosureConstructionError::UnknownTarget { stockpile: target })?;
     if state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.carried_stockpile() == target)
+    {
+        return Err(StorageEnclosureConstructionError::PlayerCarriedTarget { stockpile: target });
+    }
+    if state
         .player_work()
         .get_storage_dismantling_stockpile_occupant(target)
         .is_some()
@@ -112,6 +127,7 @@ pub fn validate_build_storage_enclosure(
     }
     let required_profile = StockpileStorageProfile::unbounded_solid_only();
     validate_enclosure_target(definition_record, target_record, target, required_profile)?;
+    validate_world_location(state, target, source)?;
     let selection = select_enclosure_material(state, definition_record, source)?;
     let next_profile = definition_record.storage_profile();
     validate_enclosure_contents(registries, state, target_record, &selection, next_profile)?;
@@ -133,6 +149,7 @@ pub fn validate_build_storage_enclosure(
     Ok(ValidatedStorageEnclosureConstruction {
         target,
         expected_inventory_revision,
+        expected_logistics_revision: state.logistics().revision(),
         next_inventory_revision,
         expected_profile: required_profile,
         next_profile,
@@ -144,6 +161,48 @@ pub fn validate_build_storage_enclosure(
         egress: material_plan.egress,
         structural_load: material_plan.structural_load,
     })
+}
+
+fn logistics_stockpile_position(
+    state: &AppState,
+    stockpile: StockpileId,
+) -> Option<crate::spatial::VoxelCoord> {
+    if let Some(player) = state.logistics().player()
+        && player.carried_stockpile() == stockpile
+    {
+        return Some(player.position());
+    }
+    state.logistics().ground_stockpile_position(stockpile)
+}
+
+fn validate_world_location(
+    state: &AppState,
+    target: StockpileId,
+    source: StockpileId,
+) -> Result<(), StorageEnclosureConstructionError> {
+    let Some(target_position) = state.logistics().ground_stockpile_position(target) else {
+        return Ok(());
+    };
+    let Some(source_position) = logistics_stockpile_position(state, source) else {
+        return Err(
+            StorageEnclosureConstructionError::LocatedTargetSourceUnlocated {
+                target,
+                target_position,
+                source,
+            },
+        );
+    };
+    if source_position != target_position {
+        return Err(
+            StorageEnclosureConstructionError::LocatedTargetSourceRemote {
+                target,
+                target_position,
+                source,
+                source_position,
+            },
+        );
+    }
+    Ok(())
 }
 
 fn validate_enclosure_target(

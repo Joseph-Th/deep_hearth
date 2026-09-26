@@ -6,15 +6,17 @@ use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER, ENERGY_STONE_THERMAL_SINK,
     EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
-    EQUIPMENT_TIMBER_TREADLE_DYNAMO, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
-    FORM_REINFORCEMENT, MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER, PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO, FORM_CHIP, FORM_INGOT,
+    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
+    MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_CAST_PURE_COPPER, PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
     PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::validate_assemble_energy_store;
-use deep_hearth::equipment::validate_assemble_equipment;
+use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId, StockpileStorageProfile};
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::{CommodityKey, MaterialComposition};
@@ -188,7 +190,11 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         ),
         (
             CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-            Mass::from_milligrams(180_000),
+            Mass::from_milligrams(160_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+            FIRST_CAST_MASS,
         ),
     ] {
         let _ = seed_lot(
@@ -209,6 +215,31 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .total();
     let started_at = state.tick().value();
 
+    // Freeze the actual current-order decision before constructing foundry infrastructure. The
+    // disclosed native copper is already a legal 20 g reinforcement source, so a player solving
+    // only this order should use it rather than paying the foundry setup cost. Foundry execution
+    // below remains ordinary acquisition/execution coverage and quantifies its distinct recovery
+    // value once installed.
+    let mut direct_native_state = state.clone();
+    let direct_native_ticks = execute_manual_craft_batches(
+        registries,
+        &mut direct_native_state,
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        raw,
+        parts,
+        1,
+        "first foundry pre-investment native-copper alternative",
+    )
+    .value();
+    let direct_native_reinforcement = direct_native_state
+        .inventory()
+        .get_stockpile(parts)
+        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)))
+        .unwrap_or(Mass::ZERO);
+    assert_eq!(direct_native_reinforcement, FIRST_CAST_MASS);
+    validate_loaded_state(registries, &direct_native_state)
+        .unwrap_or_else(|error| panic!("first foundry direct-native branch invalid: {error}"));
+
     let fabrication_ticks = craft_foundry_components(registries, &mut state, raw, parts);
     let assemble_equipment = |state: &mut AppState, definition| {
         validate_assemble_equipment(registries, state, definition, parts)
@@ -216,7 +247,17 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             .commit(state)
             .unwrap_or_else(|error| panic!("first foundry equipment commit failed: {error}"))
     };
-    let dynamo = assemble_equipment(&mut state, EQUIPMENT_TIMBER_TREADLE_DYNAMO);
+    let treadle = assemble_equipment(&mut state, EQUIPMENT_TIMBER_TREADLE_DRIVE);
+    let dynamo = validate_upgrade_equipment(
+        registries,
+        &state,
+        treadle,
+        EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+        parts,
+    )
+    .unwrap_or_else(|error| panic!("first foundry treadle-dynamo upgrade failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("first foundry treadle-dynamo upgrade commit failed: {error}"));
     let furnace = assemble_equipment(&mut state, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE);
     let mold = assemble_equipment(&mut state, EQUIPMENT_STONE_INGOT_MOLD);
     let electrical = validate_assemble_energy_store(
@@ -233,6 +274,42 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             .unwrap_or_else(|error| panic!("first foundry thermal-sink assembly failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("first foundry thermal-sink commit failed: {error}"));
+
+    // Compare the two legitimate scrap-recovery choices from the same post-setup observable state.
+    // Cold rework is faster but leaves fine copper chips that cannot be cold-consolidated again;
+    // remelting spends more active attention to recover the whole batch into standardized stock.
+    let mut direct_rework_state = state.clone();
+    let direct_rework_ticks = execute_manual_craft_batches(
+        registries,
+        &mut direct_rework_state,
+        PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+        raw,
+        parts,
+        1,
+        "first foundry direct scrap-rework counterfactual",
+    )
+    .value();
+    let direct_reinforcement = direct_rework_state
+        .inventory()
+        .get_stockpile(parts)
+        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)))
+        .unwrap_or(Mass::ZERO);
+    let direct_residual = direct_rework_state
+        .inventory()
+        .get_stockpile(parts)
+        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP)))
+        .unwrap_or(Mass::ZERO);
+    assert_eq!(direct_reinforcement, Mass::from_milligrams(18_000));
+    assert_eq!(direct_residual, Mass::from_milligrams(2_000));
+    assert!(
+        direct_reinforcement < FIRST_CAST_MASS,
+        "direct scrap rework must remain short of the declared 20 g reinforcement order"
+    );
+    let direct_fulfillment_ppm = direct_reinforcement
+        .milligrams()
+        .checked_mul(1_000_000)
+        .unwrap_or_else(|| panic!("first foundry direct fulfillment overflowed"))
+        / FIRST_CAST_MASS.milligrams();
 
     let composition = MaterialComposition::pure(MATERIAL_COPPER);
     let sensible = calculate_sensible_heat(
@@ -273,12 +350,12 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         "first foundry electrical charging",
     );
 
-    let native_selection = select_commodity_mass(
+    let scrap_selection = select_commodity_mass(
         &state,
         raw,
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
         FIRST_CAST_MASS,
-        "native copper feed",
+        "recoverable copper scrap feed",
     );
     let melting = resolve_melting_process(
         registries,
@@ -286,7 +363,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         MeltingRequest::new(
             PROCESS_MELT_PURE_COPPER,
             raw,
-            native_selection.as_slice(),
+            scrap_selection.as_slice(),
             furnace,
             electrical,
         ),
@@ -348,15 +425,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         "first foundry cast-output reinforcement",
     )
     .value();
-    assert!(
-        state
-            .inventory()
-            .get_stockpile(parts)
-            .is_some_and(|stockpile| {
-                stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
-                    >= FIRST_CAST_MASS
-            }),
-        "first foundry cast ingot must return to the ordinary copper reinforcement loop"
+    let foundry_reinforcement = state
+        .inventory()
+        .get_stockpile(parts)
+        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)))
+        .unwrap_or(Mass::ZERO);
+    assert_eq!(
+        foundry_reinforcement, FIRST_CAST_MASS,
+        "first foundry recovery must complete the declared 20 g reinforcement order"
     );
     assert_eq!(
         state
@@ -376,10 +452,17 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let survival_after = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("first foundry player survival disappeared after execution"));
     let elapsed = state.tick().value() - started_at;
+    let foundry_recovery_attention = charge_ticks
+        .checked_add(downstream_ticks)
+        .unwrap_or_else(|| panic!("first foundry recovery attention overflowed"));
+    let recovery_attention_delta =
+        i128::from(foundry_recovery_attention) - i128::from(direct_rework_ticks);
     reviewln!(
-        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-continuation-after-native-copper upstream=primitive-liberation-proved raw-opportunity=[stone:12000000mg wood:12000000mg native:180000mg] fabrication={}t/{} electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {}] cast=[{}t {} heat:{}nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:{}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=closed-loop",
+        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:12000000mg wood:12000000mg native:160000mg scrap:20000mg] build-choice=[order:20000mg direct-native:{}t reinforcement:{}mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] fabrication={}t/{} dynamo-path=treadle-additive-upgrade electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {} feed:scrap] cast=[{}t {} heat:{}nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:{}t] installed-recovery=[cold-rework:{}t reinforcement:{}mg chips:{}mg fulfillment:{}ppm foundry-active:{}t reinforcement:20000mg chips:0mg fulfillment:1000000ppm useful-gain:+{}mg attention-delta:{:+}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=full-scrap-recovery",
         case.seed(),
         focused_probe_role_label(case.role()),
+        direct_native_ticks,
+        direct_native_reinforcement.milligrams(),
         fabrication_ticks,
         format_physical_duration(registries, fabrication_ticks),
         charge_ticks,
@@ -392,6 +475,16 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         format_physical_duration(registries, cast_ticks),
         released_heat.nanojoules(),
         downstream_ticks,
+        direct_rework_ticks,
+        direct_reinforcement.milligrams(),
+        direct_residual.milligrams(),
+        direct_fulfillment_ppm,
+        foundry_recovery_attention,
+        FIRST_CAST_MASS
+            .checked_sub(direct_reinforcement)
+            .unwrap_or_else(|| panic!("direct scrap rework exceeded foundry recovery"))
+            .milligrams(),
+        recovery_attention_delta,
         elapsed,
         format_physical_duration(registries, elapsed),
         survival_before

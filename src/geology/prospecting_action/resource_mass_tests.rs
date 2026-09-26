@@ -3,6 +3,7 @@
 use crate::content::{FORM_LUMP, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE, build_registries};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -104,6 +105,7 @@ fn resource_mass_resolution_tracks_owner_depletion_and_disappears_at_zero() {
     state.geology_state_mut().apply_extraction(
         deposit,
         Mass::from_milligrams(2_000_000),
+        SimulationTick::ZERO,
         next_revision,
     );
     assert_eq!(
@@ -125,6 +127,7 @@ fn resource_mass_resolution_tracks_owner_depletion_and_disappears_at_zero() {
     state.geology_state_mut().apply_extraction(
         deposit,
         Mass::from_milligrams(2_300_000),
+        SimulationTick::ZERO,
         next_revision,
     );
     assert_eq!(

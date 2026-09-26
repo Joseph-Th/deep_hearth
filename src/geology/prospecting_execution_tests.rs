@@ -193,6 +193,7 @@ fn authored_resource_mass_recency_round_trips() {
     state.geology_state_mut().apply_extraction(
         deposit,
         Mass::from_milligrams(2_000_000),
+        SimulationTick::new(1),
         next_geology_revision,
     );
     record(

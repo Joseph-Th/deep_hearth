@@ -220,7 +220,14 @@ fn helve_hammer_executes_scrap_rework_and_saw_blade_routes() {
             .map(|stockpile| {
                 stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
             }),
-        Some(Mass::from_milligrams(20_000))
+        Some(Mass::from_milligrams(18_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(reinforcement_output)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP))),
+        Some(Mass::from_milligrams(2_000))
     );
 
     let blade_job = validate_start_powered_craft(

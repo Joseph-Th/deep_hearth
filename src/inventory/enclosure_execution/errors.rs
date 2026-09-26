@@ -9,6 +9,7 @@ use crate::inventory::{
     StockpileStructuralLoadError, StorageDefinitionId,
 };
 use crate::material::CommodityKey;
+use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralCommitError, StructuralElementId};
 
 /// Failure while validating construction of one authored storage enclosure.
@@ -30,6 +31,20 @@ pub enum StorageEnclosureConstructionError {
     TargetMounted {
         stockpile: StockpileId,
         element: StructuralElementId,
+    },
+    PlayerCarriedTarget {
+        stockpile: StockpileId,
+    },
+    LocatedTargetSourceUnlocated {
+        target: StockpileId,
+        target_position: VoxelCoord,
+        source: StockpileId,
+    },
+    LocatedTargetSourceRemote {
+        target: StockpileId,
+        target_position: VoxelCoord,
+        source: StockpileId,
+        source_position: VoxelCoord,
     },
     TargetBusyStorageDismantling {
         stockpile: StockpileId,
@@ -97,6 +112,41 @@ impl Display for StorageEnclosureConstructionError {
                 "stockpile {} must be unmounted before constructing an enclosure around it; current support is {}",
                 stockpile.value(),
                 element.value()
+            ),
+            Self::PlayerCarriedTarget { stockpile } => write!(
+                formatter,
+                "stockpile {} is player-carried custody and cannot become a stationary storage enclosure",
+                stockpile.value()
+            ),
+            Self::LocatedTargetSourceUnlocated {
+                target,
+                target_position,
+                source,
+            } => write!(
+                formatter,
+                "storage target {} is at voxel ({},{},{}) but construction source {} has no logistics-owned location",
+                target.value(),
+                target_position.x(),
+                target_position.y(),
+                target_position.z(),
+                source.value()
+            ),
+            Self::LocatedTargetSourceRemote {
+                target,
+                target_position,
+                source,
+                source_position,
+            } => write!(
+                formatter,
+                "storage target {} is at voxel ({},{},{}) but construction source {} is at ({},{},{})",
+                target.value(),
+                target_position.x(),
+                target_position.y(),
+                target_position.z(),
+                source.value(),
+                source_position.x(),
+                source_position.y(),
+                source_position.z()
             ),
             Self::TargetBusyStorageDismantling { stockpile } => write!(
                 formatter,
@@ -172,6 +222,9 @@ impl Error for StorageEnclosureConstructionError {
             | Self::UnknownSource { .. }
             | Self::AlreadyEnclosed { .. }
             | Self::TargetMounted { .. }
+            | Self::PlayerCarriedTarget { .. }
+            | Self::LocatedTargetSourceUnlocated { .. }
+            | Self::LocatedTargetSourceRemote { .. }
             | Self::TargetBusyStorageDismantling { .. }
             | Self::TargetCapacityTooLarge { .. }
             | Self::TargetStorageProfileMismatch { .. }
@@ -187,6 +240,7 @@ impl Error for StorageEnclosureConstructionError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleLogisticsRevision { expected: u64, actual: u64 },
     UnknownTarget { stockpile: StockpileId },
     TargetProfileChanged { stockpile: StockpileId },
     TargetEnclosureChanged { stockpile: StockpileId },
@@ -199,6 +253,10 @@ impl Display for StorageEnclosureCommitError {
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "storage construction expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "storage construction expected logistics revision {expected} but current revision is {actual}"
             ),
             Self::UnknownTarget { stockpile } => write!(
                 formatter,
@@ -228,6 +286,7 @@ impl Error for StorageEnclosureCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::StaleInventoryRevision { .. }
+            | Self::StaleLogisticsRevision { .. }
             | Self::UnknownTarget { .. }
             | Self::TargetProfileChanged { .. }
             | Self::TargetEnclosureChanged { .. } => None,

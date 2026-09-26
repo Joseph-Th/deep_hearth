@@ -196,7 +196,7 @@ pub fn resolve_equipment_provider<'state>(
 /// work that is physically blocked by any in-flight canonical equipment owner. Exact operation
 /// admission remains responsible for its domain-specific occupancy errors and commit-time race
 /// checks.
-pub(crate) fn resolve_available_equipment_provider<'state>(
+pub fn resolve_available_equipment_provider<'state>(
     registries: &'state Registries,
     state: &'state AppState,
     equipment: EquipmentId,

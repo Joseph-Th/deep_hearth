@@ -1,11 +1,11 @@
 //! Cross-owner trusted-load replay for acquired geological evidence.
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
+use crate::geology::GeologyState;
+use crate::geology::coverage::VoxelCoverage;
 use crate::geology::state::GeologicalDepositRecord;
-use crate::geology::{GeologicalDepositLifecycle, GeologyState};
 use crate::labor::{LaborRegistry, ProspectingDefinition};
 use crate::material::MaterialId;
-use crate::spatial::VoxelCoord;
 
 use super::super::{
     ExcavationHardnessEstimate, GeologicalKnowledgeState, GeologicalObservationId,
@@ -20,7 +20,7 @@ use crate::geology::prospecting_action::{
 /// could have existed when each observation was acquired.
 ///
 /// Authored method replay prevents persistence from inventing a footprint or precision that no
-/// current method can produce. Live bodies that already existed at the observation tick constrain
+/// current method can produce. Bodies that were available at the observation tick constrain
 /// abundance and hardness conservatively. Historical resource mass is time-varying, so its replay
 /// accepts only an exact-footprint body whose observation-time remaining mass could have fallen
 /// between immutable initial mass and current remaining mass.
@@ -51,7 +51,6 @@ pub(crate) fn validate_loaded_geological_evidence_against_world(
             );
         }
         let material = finding.material();
-        validate_live_abundance_against_geology(geology, *observation, record, *finding)?;
         if let Some(hardness) = record.excavation_hardness {
             validate_loaded_hardness_against_geology(
                 geology,
@@ -135,11 +134,10 @@ fn abundance_band_is_conservative_for_world(
 ) -> bool {
     let uncertainty = method.abundance_uncertainty_ppm();
     let material = finding.material();
-    let live_bounds_are_contained = geology
+    let historical_bounds_are_contained = geology
         .deposits()
         .filter(|deposit| {
-            deposit.generated_at() <= record.observed_at
-                && deposit.lifecycle() == GeologicalDepositLifecycle::Available
+            deposit.was_available_at(record.observed_at)
                 && deposit.bounds().has_intersection(record.region)
         })
         .all(|deposit| {
@@ -150,7 +148,7 @@ fn abundance_band_is_conservative_for_world(
                         .saturating_add(uncertainty)
                         .min(NORMALIZED_PARTS_PER_MILLION)
         });
-    if !live_bounds_are_contained {
+    if !historical_bounds_are_contained {
         return false;
     }
     finding.lower_ppm() == 0
@@ -163,51 +161,17 @@ fn region_could_have_been_fully_covered(
     geology: &GeologyState,
     record: &GeologicalObservationRecord,
 ) -> bool {
-    let min = record.region.min();
-    let max = record.region.max_exclusive();
-    for x in min.x()..max.x() {
-        for y in min.y()..max.y() {
-            for z in min.z()..max.z() {
-                let voxel = VoxelCoord::new(x, y, z);
-                if !geology.deposits().any(|deposit| {
-                    deposit.generated_at() <= record.observed_at
-                        && deposit.bounds().has_voxel(voxel)
-                }) {
-                    return false;
-                }
-            }
-        }
-    }
-    true
-}
-
-fn validate_live_abundance_against_geology(
-    geology: &GeologyState,
-    observation: GeologicalObservationId,
-    record: &GeologicalObservationRecord,
-    finding: MaterialAbundanceEstimate,
-) -> Result<(), GeologicalKnowledgeValidationError> {
-    let material = finding.material();
+    let mut coverage = VoxelCoverage::new(record.region);
     for deposit in geology.deposits().filter(|deposit| {
-        deposit.generated_at() <= record.observed_at
-            && deposit.lifecycle() == GeologicalDepositLifecycle::Available
+        deposit.was_available_at(record.observed_at)
             && deposit.bounds().has_intersection(record.region)
     }) {
-        let actual_ppm = deposit.composition().parts_per_million(material);
-        if actual_ppm < finding.lower_ppm() || actual_ppm > finding.upper_ppm() {
-            return Err(
-                GeologicalKnowledgeValidationError::AbundanceContradictsLiveDeposit {
-                    observation,
-                    deposit: deposit.id(),
-                    material,
-                    lower_ppm: finding.lower_ppm(),
-                    upper_ppm: finding.upper_ppm(),
-                    actual_ppm,
-                },
-            );
+        coverage.cover(deposit.bounds());
+        if coverage.is_complete() {
+            return true;
         }
     }
-    Ok(())
+    coverage.is_complete()
 }
 
 fn validate_loaded_hardness_against_geology(
@@ -219,15 +183,15 @@ fn validate_loaded_hardness_against_geology(
 ) -> Result<(), GeologicalKnowledgeValidationError> {
     let mut plausible_historical_match = false;
     for deposit in geology.deposits().filter(|deposit| {
-        deposit.generated_at() <= record.observed_at
+        deposit.was_available_at(record.observed_at)
             && deposit.bounds().has_intersection(record.region)
             && deposit.composition().parts_per_million(material) > 0
     }) {
         let actual = deposit.excavation_hardness();
         let inside_band = actual >= hardness.lower() && actual <= hardness.upper();
-        if deposit.lifecycle() == GeologicalDepositLifecycle::Available && !inside_band {
+        if !inside_band {
             return Err(
-                GeologicalKnowledgeValidationError::ExcavationHardnessContradictsLiveDeposit {
+                GeologicalKnowledgeValidationError::ExcavationHardnessContradictsHistoricalDeposit {
                     observation,
                     deposit: deposit.id(),
                     lower: hardness.lower(),
@@ -265,37 +229,19 @@ fn validate_loaded_resource_mass_against_geology(
                 || (candidate.milligrams() == u64::MAX
                     && resource_mass.upper().milligrams() == u64::MAX))
     };
-    let existed_at_observation = |deposit: &GeologicalDepositRecord| {
-        deposit.generated_at() <= record.observed_at
+    let available_at_observation = |deposit: &GeologicalDepositRecord| {
+        deposit.was_available_at(record.observed_at)
             && deposit.composition().parts_per_million(material) > 0
     };
 
-    let mut live_matches = geology.deposits().filter(|deposit| {
-        existed_at_observation(deposit)
-            && deposit.lifecycle() == GeologicalDepositLifecycle::Available
-            && deposit.bounds().has_intersection(record.region)
+    let mut historical_matches = geology.deposits().filter(|deposit| {
+        available_at_observation(deposit) && deposit.bounds().has_intersection(record.region)
     });
-    if let Some(live) = live_matches.next() {
-        let unique = live_matches.next().is_none();
-        if unique && live.bounds() == record.region && can_match_mass(live) {
+    if let Some(historical) = historical_matches.next() {
+        let unique = historical_matches.next().is_none();
+        if unique && historical.bounds() == record.region && can_match_mass(historical) {
             return Ok(());
         }
-        return Err(
-            GeologicalKnowledgeValidationError::ResourceMassCannotMatchHistoricalDeposit {
-                observation,
-                material,
-                lower: resource_mass.lower(),
-                upper: resource_mass.upper(),
-            },
-        );
-    }
-
-    if geology.deposits().any(|deposit| {
-        existed_at_observation(deposit)
-            && deposit.bounds() == record.region
-            && can_match_mass(deposit)
-    }) {
-        return Ok(());
     }
 
     Err(

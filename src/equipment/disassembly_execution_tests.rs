@@ -18,9 +18,11 @@ use crate::equipment::{
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
+use crate::logistics::validate_initialize_player_logistics;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
 use crate::survival::initialize_player_survival;
 
 fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -50,6 +52,33 @@ fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId 
         .unwrap_or_else(|error| panic!("disassembly pick assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("disassembly pick assembly commit failed: {error}"))
+}
+
+#[test]
+fn disassembly_removes_detached_equipment_location() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(2, 0, -1);
+    let destination =
+        validate_initialize_player_logistics(&state, position, Mass::from_milligrams(2_000_000))
+            .unwrap_or_else(|error| panic!("located disassembly logistics setup failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("located disassembly logistics commit failed: {error}"))
+            .carried_stockpile();
+    let equipment = assembled_pick(&registries, &mut state);
+    assert_eq!(
+        state.logistics().equipment_position(equipment),
+        Some(position)
+    );
+
+    let _ = validate_disassemble_equipment(&registries, &state, equipment, destination)
+        .unwrap_or_else(|error| panic!("located equipment disassembly failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("located equipment disassembly commit failed: {error}"));
+
+    assert_eq!(state.logistics().equipment_position(equipment), None);
+    assert!(state.equipment().get_equipment(equipment).is_none());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn assembled_authored_equipment(

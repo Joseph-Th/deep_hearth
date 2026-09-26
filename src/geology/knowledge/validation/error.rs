@@ -51,7 +51,7 @@ pub enum GeologicalKnowledgeValidationError {
         observation: GeologicalObservationId,
         material: MaterialId,
     },
-    ExcavationHardnessContradictsLiveDeposit {
+    ExcavationHardnessContradictsHistoricalDeposit {
         observation: GeologicalObservationId,
         deposit: GeologicalDepositId,
         lower: Pressure,
@@ -67,14 +67,6 @@ pub enum GeologicalKnowledgeValidationError {
     ObservationCannotMatchAuthoredMethod {
         observation: GeologicalObservationId,
         evidence: GeologicalEvidenceKind,
-    },
-    AbundanceContradictsLiveDeposit {
-        observation: GeologicalObservationId,
-        deposit: GeologicalDepositId,
-        material: MaterialId,
-        lower_ppm: u32,
-        upper_ppm: u32,
-        actual_ppm: u32,
     },
     ResourceMassUnsupportedEvidence {
         observation: GeologicalObservationId,
@@ -194,7 +186,7 @@ impl Display for GeologicalKnowledgeValidationError {
                 observation.value(),
                 material.value()
             ),
-            Self::ExcavationHardnessContradictsLiveDeposit {
+            Self::ExcavationHardnessContradictsHistoricalDeposit {
                 observation,
                 deposit,
                 lower,
@@ -202,7 +194,7 @@ impl Display for GeologicalKnowledgeValidationError {
                 actual,
             } => write!(
                 formatter,
-                "geological observation {} records excavation hardness {}..{} Pa but live matching deposit {} has {} Pa",
+                "geological observation {} records excavation hardness {}..{} Pa but deposit {} that was available at acquisition has {} Pa",
                 observation.value(),
                 lower.pascals(),
                 upper.pascals(),
@@ -230,23 +222,6 @@ impl Display for GeologicalKnowledgeValidationError {
                 "geological observation {} carries {:?} evidence whose footprint, uncertainty, or physical metadata cannot be produced by any authored prospecting method",
                 observation.value(),
                 evidence
-            ),
-            Self::AbundanceContradictsLiveDeposit {
-                observation,
-                deposit,
-                material,
-                lower_ppm,
-                upper_ppm,
-                actual_ppm,
-            } => write!(
-                formatter,
-                "geological observation {} records material {} abundance {}..{} ppm but live matching deposit {} has {} ppm",
-                observation.value(),
-                material.value(),
-                lower_ppm,
-                upper_ppm,
-                deposit.value(),
-                actual_ppm
             ),
             Self::ResourceMassUnsupportedEvidence {
                 observation,

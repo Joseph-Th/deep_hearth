@@ -11,7 +11,9 @@ use crate::inventory::{
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
+use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::maintenance::Condition;
+use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -20,6 +22,7 @@ use super::state::{EquipmentId, EquipmentRecord};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyError {
+    Access(PlayerStockpileAccessError),
     UnknownDefinition {
         definition: EquipmentDefinitionId,
     },
@@ -31,6 +34,7 @@ pub enum EquipmentAssemblyError {
     },
     InsufficientMaterial {
         stockpile: StockpileId,
+        commodity: CommodityKey,
         available: Mass,
         required: Mass,
     },
@@ -44,12 +48,14 @@ pub enum EquipmentAssemblyError {
     InventoryRevisionExhausted,
     EquipmentIdExhausted,
     EquipmentRevisionExhausted,
+    LogisticsRevisionExhausted,
     StructuralLoad(StockpileStructuralLoadError),
 }
 
 impl Display for EquipmentAssemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Access(error) => write!(formatter, "equipment assembly access failed: {error}"),
             Self::UnknownDefinition { definition } => write!(
                 formatter,
                 "unknown equipment definition {}",
@@ -67,13 +73,15 @@ impl Display for EquipmentAssemblyError {
             ),
             Self::InsufficientMaterial {
                 stockpile,
+                commodity,
                 available,
                 required,
             } => write!(
                 formatter,
-                "stockpile {} contains {} mg of assembly material but {} mg is required",
+                "assembly stockpile {} contains {} mg of commodity {} but {} mg is required",
                 stockpile.value(),
                 available.milligrams(),
+                commodity.value(),
                 required.milligrams()
             ),
             Self::SourceMassOverflow { stockpile } => write!(
@@ -94,6 +102,9 @@ impl Display for EquipmentAssemblyError {
             Self::EquipmentRevisionExhausted => {
                 formatter.write_str("equipment revision space is exhausted")
             }
+            Self::LogisticsRevisionExhausted => {
+                formatter.write_str("logistics revision space is exhausted")
+            }
             Self::StructuralLoad(error) => {
                 write!(formatter, "assembly source load failed: {error}")
             }
@@ -104,12 +115,14 @@ impl Display for EquipmentAssemblyError {
 impl Error for EquipmentAssemblyError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Access(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownDefinition { definition: _ }
             | Self::NoAssemblyProfile { definition: _ }
             | Self::UnknownSource { stockpile: _ }
             | Self::InsufficientMaterial {
                 stockpile: _,
+                commodity: _,
                 available: _,
                 required: _,
             }
@@ -120,13 +133,15 @@ impl Error for EquipmentAssemblyError {
             }
             | Self::InventoryRevisionExhausted
             | Self::EquipmentIdExhausted
-            | Self::EquipmentRevisionExhausted => None,
+            | Self::EquipmentRevisionExhausted
+            | Self::LogisticsRevisionExhausted => None,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyCommitError {
+    StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
     StaleEquipment { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
@@ -135,6 +150,10 @@ pub enum EquipmentAssemblyCommitError {
 impl Display for EquipmentAssemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "equipment assembly expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
                 "equipment assembly expected inventory revision {expected} but current revision is {actual}"
@@ -154,7 +173,8 @@ impl Error for EquipmentAssemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventory {
+            Self::StaleLogistics { .. }
+            | Self::StaleInventory {
                 expected: _,
                 actual: _,
             }
@@ -171,6 +191,9 @@ pub struct ValidatedEquipmentAssembly {
     record: EquipmentRecord,
     next_equipment_id: u32,
     expected_equipment_revision: u64,
+    expected_logistics_revision: u64,
+    next_logistics_revision: Option<u64>,
+    detached_position: Option<crate::spatial::VoxelCoord>,
     next_equipment_revision: u64,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
@@ -178,6 +201,12 @@ pub struct ValidatedEquipmentAssembly {
 
 impl ValidatedEquipmentAssembly {
     pub fn commit(self, state: &mut AppState) -> Result<EquipmentId, EquipmentAssemblyCommitError> {
+        if state.logistics().revision() != self.expected_logistics_revision {
+            return Err(EquipmentAssemblyCommitError::StaleLogistics {
+                expected: self.expected_logistics_revision,
+                actual: state.logistics().revision(),
+            });
+        }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EquipmentAssemblyCommitError::StaleInventory {
                 expected: self.egress.expected_revision(),
@@ -207,6 +236,16 @@ impl ValidatedEquipmentAssembly {
             self.next_equipment_id,
             self.next_equipment_revision,
         );
+        if let (Some(next_revision), Some(position)) =
+            (self.next_logistics_revision, self.detached_position)
+        {
+            state.logistics_state_mut().apply_equipment_placement(
+                self.expected_logistics_revision,
+                next_revision,
+                id,
+                position,
+            );
+        }
         Ok(id)
     }
 }
@@ -225,6 +264,7 @@ pub fn validate_assemble_equipment(
     let assembly = definition_record
         .assembly_profile()
         .ok_or(EquipmentAssemblyError::NoAssemblyProfile { definition })?;
+    validate_player_stockpile_access(state, source).map_err(EquipmentAssemblyError::Access)?;
     let selection = validate_consumption_selection(state.inventory(), source, assembly.inputs())
         .map_err(|error| match error {
             crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile } => {
@@ -232,11 +272,12 @@ pub fn validate_assemble_equipment(
             }
             crate::inventory::ConsumptionSelectionError::InsufficientMass {
                 stockpile,
+                commodity,
                 available,
                 requested,
-                ..
             } => EquipmentAssemblyError::InsufficientMaterial {
                 stockpile,
+                commodity,
                 available,
                 required: requested,
             },
@@ -281,6 +322,16 @@ pub fn validate_assemble_equipment(
     let next_equipment_revision = expected_equipment_revision
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("equipment headroom check includes assembly revision"));
+    let expected_logistics_revision = state.logistics().revision();
+    let detached_position = state.logistics().player().map(|player| player.position());
+    let next_logistics_revision = match detached_position {
+        Some(_) => Some(
+            expected_logistics_revision
+                .checked_add(1)
+                .ok_or(EquipmentAssemblyError::LogisticsRevisionExhausted)?,
+        ),
+        None => None,
+    };
     Ok(ValidatedEquipmentAssembly {
         record: EquipmentRecord {
             id,
@@ -294,6 +345,9 @@ pub fn validate_assemble_equipment(
         },
         next_equipment_id,
         expected_equipment_revision,
+        expected_logistics_revision,
+        next_logistics_revision,
+        detached_position,
         next_equipment_revision,
         egress,
         structural_load,

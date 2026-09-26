@@ -4,9 +4,16 @@ use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 
 mod absorption;
+mod direct_use;
 mod drinking;
 mod eating;
 mod freshness;
+
+pub use direct_use::{
+    DrinkStoreToTargetError, EatLotToTargetError, validate_drink_store_to_full,
+    validate_drink_store_to_hydration_target, validate_eat_lot_to_full,
+    validate_eat_lot_to_metabolic_target,
+};
 
 pub use drinking::{
     DrinkCommitError, DrinkError, DrinkHydrationProjectionError, DrinkOutcome,
@@ -47,3 +54,7 @@ pub(crate) fn direct_consumption_survival_revisions(
 #[cfg(test)]
 #[path = "consumption_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "direct_use_tests.rs"]
+mod direct_use_tests;

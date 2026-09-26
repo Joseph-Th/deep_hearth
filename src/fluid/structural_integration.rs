@@ -51,6 +51,7 @@ pub struct ValidatedFluidSupportChange {
     after: Option<StructuralElementId>,
     expected_fluid_revision: u64,
     next_fluid_revision: u64,
+    expected_logistics_revision: u64,
     structural: ValidatedFluidStructuralLoad,
 }
 
@@ -65,6 +66,13 @@ impl ValidatedFluidSupportChange {
         self,
         state: &mut AppState,
     ) -> Result<FluidSupportOutcome, FluidSupportCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(FluidSupportCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         let actual_revision = state.fluid().revision();
         if actual_revision != self.expected_fluid_revision {
             return Err(FluidSupportCommitError::StaleFluidRevision {
@@ -141,6 +149,15 @@ pub fn validate_mount_fluid_store(
             lifecycle: target.lifecycle(),
         });
     }
+    if let Some(position) = state.logistics().fluid_store_position(store)
+        && !target.bounds().has_voxel(position)
+    {
+        return Err(FluidSupportError::KnownStoreOutsideTarget {
+            store,
+            position,
+            element,
+        });
+    }
     let current =
         validate_existing_load(registries, state, element).map_err(FluidSupportError::Load)?;
     let added = contents_mass_micrograms(registries, store, record.contents())
@@ -161,6 +178,7 @@ pub fn validate_mount_fluid_store(
         after: Some(element),
         expected_fluid_revision,
         next_fluid_revision,
+        expected_logistics_revision: state.logistics().revision(),
         structural,
     })
 }
@@ -200,6 +218,7 @@ pub fn validate_unmount_fluid_store(
         after: None,
         expected_fluid_revision,
         next_fluid_revision,
+        expected_logistics_revision: state.logistics().revision(),
         structural,
     })
 }

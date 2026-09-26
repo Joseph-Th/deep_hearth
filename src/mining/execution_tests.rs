@@ -36,6 +36,10 @@ use crate::labor::{
     PlayerWork, PlayerWorkStartError, PlayerWorkValidationError,
     calculate_player_work_resource_budget,
 };
+use crate::logistics::{
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_allocate_ground_stockpile,
+    validate_initialize_player_logistics, validate_place_ground_stockpile,
+};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
 use crate::matter::calculate_matter_accounting;
@@ -805,6 +809,222 @@ fn unstarted_mining_fixture() -> (
     let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining exhaustion deposit failed: {error}"));
     (registries, state, deposit, destination, pick)
+}
+
+#[test]
+fn mining_rejects_player_outside_resolved_deposit() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let bounds = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds())
+        .unwrap_or_else(|| panic!("remote-player mining deposit disappeared"));
+    let player_position = VoxelCoord::new(10, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-player mining logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-player mining logistics commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::PlayerOutsideDeposit {
+            player_position,
+            deposit,
+            bounds,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn mining_rejects_known_remote_equipment() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let player_position = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds().min())
+        .unwrap_or_else(|| panic!("remote-tool mining deposit disappeared"));
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-tool mining logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-tool mining logistics commit failed: {error}"));
+    let equipment_position = VoxelCoord::new(
+        player_position.x() + 1,
+        player_position.y(),
+        player_position.z(),
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        pick,
+        equipment_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment: pick,
+                equipment_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn mining_rejects_known_remote_output_destination() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let player_position = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds().min())
+        .unwrap_or_else(|| panic!("remote-output mining deposit disappeared"));
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-output mining logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-output mining logistics commit failed: {error}"));
+    let destination_position = VoxelCoord::new(
+        player_position.x() + 1,
+        player_position.y(),
+        player_position.z(),
+    );
+    validate_place_ground_stockpile(&state, destination, destination_position)
+        .unwrap_or_else(|error| {
+            panic!("remote-output mining destination placement failed: {error}")
+        })
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-output mining destination placement commit failed: {error}")
+        });
+    let before = state.clone();
+
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::DestinationAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: destination,
+                stockpile_position: destination_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn mining_token_rejects_logistics_change_before_commit() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let player_position = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds().min())
+        .unwrap_or_else(|| panic!("stale-logistics mining deposit disappeared"));
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale-logistics mining setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale-logistics mining commit failed: {error}"));
+    let validated = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("stale-logistics mining validation failed: {error}"));
+    let expected = state.logistics().revision();
+    validate_allocate_ground_stockpile(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale-logistics mining allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale-logistics mining allocation commit failed: {error}"));
+    let actual = state.logistics().revision();
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(MiningStartCommitError::StaleLogistics { expected, actual })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let bounds = state
+        .geology()
+        .get_deposit(deposit)
+        .map(|record| record.bounds())
+        .unwrap_or_else(|| panic!("remote-load mining deposit disappeared"));
+    let player_position = bounds.min();
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-load mining logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-load mining logistics commit failed: {error}"));
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("remote-load mining validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote-load mining commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let remote_position = VoxelCoord::new(10, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("remote-load mining serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["player"]["position"] =
+        serde_json::json!({"x": 10, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("remote-load mining decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::MiningJob(
+            MiningJobValidationError::WorkingPlayerOutsideDeposit {
+                job,
+                player_position: remote_position,
+                bounds,
+            }
+        )))
+    );
 }
 
 #[path = "execution_tests/claim_contracts.rs"]

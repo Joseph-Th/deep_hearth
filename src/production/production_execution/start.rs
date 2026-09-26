@@ -65,6 +65,7 @@ pub struct ValidatedStartProcess {
     next_job_id: u64,
     expected_production_revision: u64,
     next_production_revision: u64,
+    expected_logistics_revision: u64,
     reservation: ConsumptionReservation,
     energy_reservation: Option<EnergyConsumptionReservation>,
     energy_ingress_reservation: Option<EnergyIngressReservation>,
@@ -208,6 +209,18 @@ fn validate_start_process_routed_internal(
         inbound_by_destination,
         destination_structure_revision,
     } = validate_output_routing(registries, state, resolution, routes)?;
+    crate::production::validate_process_start_site(
+        state,
+        resolution,
+        source,
+        output_streams.iter().map(|stream| stream.destination()),
+    )
+    .map_err(|mismatch| StartProcessError::SpatialEndpointMismatch {
+        first: mismatch.first,
+        first_position: mismatch.first_position,
+        second: mismatch.second,
+        second_position: mismatch.second_position,
+    })?;
     let ValidatedJobAllocation {
         current,
         completes_at,
@@ -270,6 +283,7 @@ fn validate_start_process_routed_internal(
         next_job_id,
         expected_production_revision,
         next_production_revision,
+        expected_logistics_revision: state.logistics().revision(),
         reservation,
         energy_reservation,
         energy_ingress_reservation,

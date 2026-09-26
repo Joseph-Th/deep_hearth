@@ -58,17 +58,66 @@ fn stone_pick_refuses_acquired_hardness_above_authored_capability() {
 }
 
 #[test]
-fn mining_requires_acquired_hardness_without_revealing_hidden_resistance() {
+fn visible_localized_target_can_be_tried_without_sampling_hardness_first() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("hardness-evidence survival setup failed: {error}"));
+        .unwrap_or_else(|error| panic!("direct-attempt survival setup failed: {error}"));
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
-        .unwrap_or_else(|error| panic!("hardness-evidence destination failed: {error}"));
+        .unwrap_or_else(|error| panic!("direct-attempt destination failed: {error}"));
     let bounds = VoxelBounds::new(VoxelCoord::new(8, -8, 0), VoxelCoord::new(9, -7, 1))
-        .unwrap_or_else(|error| panic!("hardness-evidence bounds failed: {error}"));
-    let deposit = insert_surface_known_deposit(
+        .unwrap_or_else(|error| panic!("direct-attempt bounds failed: {error}"));
+    let _deposit = insert_surface_known_deposit(
+        &registries,
+        &mut state,
+        GeneratedDepositSpec::new(
+            bounds,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(100_000),
+            Temperature::from_millikelvin(300_000),
+            Pressure::from_pascals(400_000_000),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap_or_else(|error| panic!("direct-attempt deposit fixture failed: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("direct-attempt deposit insertion failed: {error}"));
+    let target = resolve_mining_target(&state, MiningTargetRequest::new(bounds, MATERIAL_STONE))
+        .unwrap_or_else(|error| panic!("direct-attempt target failed: {error}"));
+    assert_eq!(target.excavation_hardness(), None);
+    let before = state.clone();
+
+    let _validated = super::validate_start_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| {
+        panic!("visible target should permit a direct mining attempt: {error}")
+    });
+    assert_eq!(
+        state, before,
+        "read-only direct-attempt admission must not mutate state"
+    );
+}
+
+#[test]
+fn unsampled_hard_target_reports_failed_tool_without_revealing_hidden_resistance() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("resistant-target survival setup failed: {error}"));
+    let stone_pick = assemble_pick_for_test(&registries, &mut state);
+    let reinforced_pick = assemble_reinforced_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("resistant-target destination failed: {error}"));
+    let bounds = VoxelBounds::new(VoxelCoord::new(8, -8, 0), VoxelCoord::new(9, -7, 1))
+        .unwrap_or_else(|error| panic!("resistant-target bounds failed: {error}"));
+    let _deposit = insert_surface_known_deposit(
         &registries,
         &mut state,
         GeneratedDepositSpec::new(
@@ -79,39 +128,49 @@ fn mining_requires_acquired_hardness_without_revealing_hidden_resistance() {
             Pressure::from_pascals(700_000_000),
             MaterialComposition::pure(MATERIAL_STONE),
         )
-        .unwrap_or_else(|error| panic!("hardness-evidence deposit fixture failed: {error}")),
+        .unwrap_or_else(|error| panic!("resistant-target deposit fixture failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("hardness-evidence deposit insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("resistant-target deposit insertion failed: {error}"));
     let target = resolve_mining_target(&state, MiningTargetRequest::new(bounds, MATERIAL_STONE))
-        .unwrap_or_else(|error| panic!("surface-known mining target failed: {error}"));
+        .unwrap_or_else(|error| panic!("resistant-target resolution failed: {error}"));
     assert_eq!(target.excavation_hardness(), None);
     let before = state.clone();
 
+    let error = super::validate_start_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        stone_pick,
+        Mass::from_milligrams(100_000),
+    )
+    .err()
+    .unwrap_or_else(|| panic!("stone pick unexpectedly mined unsampled hard target"));
     assert_eq!(
-        super::validate_start_mining(
-            &registries,
-            &state,
-            MINING_METHOD_HAND_PICK,
-            target,
-            destination,
-            pick,
-            Mass::from_milligrams(100_000),
-        )
-        .err(),
-        Some(MiningStartError::MissingExcavationHardnessEvidence {
-            material: MATERIAL_STONE,
-            region: bounds,
-        }),
-        "read-only mining admission must request physical sampling instead of revealing hidden hardness"
+        error,
+        MiningStartError::TargetResistsEquipment {
+            maximum: Pressure::from_pascals(500_000_000),
+        }
+    );
+    assert!(
+        !error.to_string().contains("700000000"),
+        "failed direct attempt must not reveal exact hidden target hardness"
     );
     assert_eq!(state, before);
-    assert_eq!(
-        state
-            .geology()
-            .get_deposit(deposit)
-            .map(|record| record.remaining_mass()),
-        Some(Mass::from_milligrams(100_000))
-    );
+
+    let _validated = super::validate_start_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        reinforced_pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| {
+        panic!("strong enough tool should mine the same visible target: {error}")
+    });
 }
 
 #[test]

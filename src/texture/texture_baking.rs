@@ -1,14 +1,13 @@
 //! Bakes immutable texture definitions into compact deterministic GPU upload data.
 
-use std::collections::HashMap;
-
 use super::{
     BLOCK_FACE_COUNT, BlockAppearanceId, ColorRgba8, CubeFace, ObjectAppearanceId,
     ObjectTextureSlot, PALETTE_RAMP_COLOR_COUNT, PackedTexel, TEXTURE_PALETTE_SLOT_COUNT,
-    TEXTURE_TEXEL_COUNT, TextureAlphaMode, TextureId, TextureRegistry,
+    TextureAlphaMode, TextureId, TextureRegistry,
 };
 
 mod appearance;
+mod layout;
 mod mip;
 
 pub use mip::IndexedMipLevel;
@@ -125,91 +124,17 @@ impl TextureRegistry {
     /// Bakes immutable definitions into compact deterministic GPU upload arrays.
     #[must_use]
     pub fn bake_texture_array(&self) -> BakedTextureArray {
-        let texture_count = self.textures_in_id_order().len();
-        let mut patterns = Vec::<&[PackedTexel; TEXTURE_TEXEL_COUNT]>::new();
-        let mut pattern_layers =
-            HashMap::<&[PackedTexel; TEXTURE_TEXEL_COUNT], TextureLayer>::with_capacity(
-                texture_count,
-            );
-        let mut palette_rows = Vec::<[u16; TEXTURE_PALETTE_SLOT_COUNT]>::new();
-        let mut palette_row_ids =
-            HashMap::<[u16; TEXTURE_PALETTE_SLOT_COUNT], TexturePaletteRow>::with_capacity(
-                texture_count,
-            );
-
-        let texture_lookup_len = self
-            .textures_in_id_order()
-            .map(|definition| usize::from(definition.id().value()))
-            .max()
-            .map_or(0, |maximum_id| maximum_id + 1);
-        let mut descriptors_by_texture = vec![None; texture_lookup_len];
-
-        for definition in self.textures_in_id_order() {
-            let pattern = definition.texels();
-            let layer = match pattern_layers.get(pattern) {
-                Some(layer) => *layer,
-                None => {
-                    let layer = TextureLayer(u16::try_from(patterns.len()).unwrap_or_else(|_| {
-                        panic!("baked texture layer count exceeds lookup limit")
-                    }));
-                    patterns.push(pattern);
-                    pattern_layers.insert(pattern, layer);
-                    layer
-                }
-            };
-
-            let mut palette_row = [0_u16; TEXTURE_PALETTE_SLOT_COUNT];
-            for (slot, ramp) in definition.palette().ramps().iter().enumerate() {
-                palette_row[slot] = ramp.value();
-            }
-            let palette_row_id = match palette_row_ids.get(&palette_row) {
-                Some(row) => *row,
-                None => {
-                    let row =
-                        TexturePaletteRow(u16::try_from(palette_rows.len()).unwrap_or_else(|_| {
-                            panic!("baked palette row count exceeds lookup limit")
-                        }));
-                    palette_rows.push(palette_row);
-                    palette_row_ids.insert(palette_row, row);
-                    row
-                }
-            };
-
-            descriptors_by_texture[usize::from(definition.id().value())] =
-                Some(BakedTextureDescriptor {
-                    layer,
-                    palette_row: palette_row_id,
-                    alpha_mode: definition.alpha_mode(),
-                });
-        }
-
+        let layout::BakedTextureLayout {
+            descriptors_by_texture,
+            patterns,
+            palette_rows,
+        } = layout::bake_texture_layout(self);
+        let pattern_layer_count = u16::try_from(patterns.len())
+            .unwrap_or_else(|_| panic!("baked texture layer count exceeds lookup limit"));
+        let palette_row_count = u16::try_from(palette_rows.len())
+            .unwrap_or_else(|_| panic!("baked palette row count exceeds lookup limit"));
         let mip_levels = mip::build_mip_levels(patterns);
-        let ramp_lookup_len = self
-            .ramps_in_id_order()
-            .map(|definition| usize::from(definition.id().value()))
-            .max()
-            .map_or(0, |maximum_id| maximum_id + 1);
-        let palette_color_count = ramp_lookup_len
-            .checked_mul(PALETTE_RAMP_COLOR_COUNT)
-            .unwrap_or_else(|| panic!("baked palette color count exceeds addressable memory"));
-        let mut palette_color_bytes = vec![
-            0_u8;
-            palette_color_count.checked_mul(4).unwrap_or_else(|| {
-                panic!("baked palette byte count exceeds addressable memory")
-            })
-        ];
-        for ramp in self.ramps_in_id_order() {
-            let color_start = usize::from(ramp.id().value())
-                .checked_mul(PALETTE_RAMP_COLOR_COUNT)
-                .unwrap_or_else(|| panic!("baked palette color offset overflowed"));
-            for (offset, color) in ramp.colors().iter().enumerate() {
-                let byte_start = color_start
-                    .checked_add(offset)
-                    .and_then(|index| index.checked_mul(4))
-                    .unwrap_or_else(|| panic!("baked palette byte offset overflowed"));
-                palette_color_bytes[byte_start..byte_start + 4].copy_from_slice(&color.channels());
-            }
-        }
+        let palette_color_bytes = layout::bake_palette_color_bytes(self);
 
         let blocks_by_id = appearance::bake_block_appearances(self, &descriptors_by_texture);
         let objects_by_id = appearance::bake_object_appearances(self, &descriptors_by_texture);
@@ -221,10 +146,8 @@ impl TextureRegistry {
             mip_levels,
             palette_rows: palette_rows.into_iter().flatten().collect(),
             palette_color_bytes,
-            pattern_layer_count: u16::try_from(pattern_layers.len())
-                .unwrap_or_else(|_| panic!("baked texture layer count exceeds lookup limit")),
-            palette_row_count: u16::try_from(palette_row_ids.len())
-                .unwrap_or_else(|_| panic!("baked palette row count exceeds lookup limit")),
+            pattern_layer_count,
+            palette_row_count,
         }
     }
 }

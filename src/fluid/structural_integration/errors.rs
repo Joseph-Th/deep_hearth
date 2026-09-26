@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Force;
+use crate::spatial::VoxelCoord;
 use crate::structural::{
     StructuralCommitError, StructuralElementId, StructuralLifecycle, StructuralMutationError,
 };
@@ -123,6 +124,11 @@ pub enum FluidSupportError {
         element: StructuralElementId,
         lifecycle: StructuralLifecycle,
     },
+    KnownStoreOutsideTarget {
+        store: FluidStoreId,
+        position: VoxelCoord,
+        element: StructuralElementId,
+    },
     FluidRevisionExhausted,
     Load(FluidStructuralLoadError),
 }
@@ -137,6 +143,19 @@ impl Display for FluidSupportError {
                 formatter,
                 "fluid store {} is already supported by structural element {}",
                 store.value(),
+                element.value()
+            ),
+            Self::KnownStoreOutsideTarget {
+                store,
+                position,
+                element,
+            } => write!(
+                formatter,
+                "fluid store {} at voxel ({},{},{}) is outside target structural element {} bounds",
+                store.value(),
+                position.x(),
+                position.y(),
+                position.z(),
                 element.value()
             ),
             Self::NotMounted { store } => write!(
@@ -165,6 +184,7 @@ impl Error for FluidSupportError {
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
             | Self::TargetNotActive { .. }
+            | Self::KnownStoreOutsideTarget { .. }
             | Self::FluidRevisionExhausted => None,
         }
     }
@@ -173,6 +193,10 @@ impl Error for FluidSupportError {
 /// Failure to commit a revision-bound fluid-store support transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidSupportCommitError {
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleFluidRevision {
         expected: u64,
         actual: u64,
@@ -191,6 +215,10 @@ pub enum FluidSupportCommitError {
 impl Display for FluidSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "validated fluid support change expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleFluidRevision { expected, actual } => write!(
                 formatter,
                 "validated fluid support change expected fluid revision {expected} but current revision is {actual}"
@@ -221,7 +249,8 @@ impl Error for FluidSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleFluidRevision { .. }
+            Self::StaleLogisticsRevision { .. }
+            | Self::StaleFluidRevision { .. }
             | Self::UnknownStore { .. }
             | Self::SupportChanged { .. } => None,
         }

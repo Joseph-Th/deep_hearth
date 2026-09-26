@@ -231,22 +231,64 @@ Matter currently has strong local custody but limited general movement authority
 substrate that can own placement, carrying/haulage, delivery, access, path cost, and transport time/energy/labor
 without turning inventory into a universal movement authority.
 
+The first foundation is now in place: player position and finite carried custody persist, while loose stockpiles,
+detached unmounted equipment, finite energy stores, and finite fluid stores can own voxel locations. Exact same-
+voxel pickup/drop composes canonical inventory relocation, while player actions share stockpile/equipment/energy/
+fluid access checks instead of inventing proximity rules. Prospecting and mining bind labor to their authored
+survey/deposit spaces, manual power binds provider and destination to local custody, drinking rejects known-remote
+fluid stores, and trusted load replays the spatial obligations that remain live. Continue from that owner rather
+than reopening inventory: movement/path authorization, transport cost, ordinary source acquisition, mounted-
+production site/contact geometry, fluid transport/pumping, and explicit transport semantics for mounted-to-
+mounted equipment relocation are the remaining high-leverage edges. Powered production already rejects
+disagreement among ground/detached endpoints whose logistics locations are known and replays continuing endpoint
+coherence on trusted load; what remains is physical placement and transport for mounted/networked infrastructure
+rather than another generic proximity check.
+
+Its direct-player surface should deliberately use familiar block-survival grammar: an active hotbar item,
+primary break/use-tool action, secondary place/interact/consume action, ordinary pickup/drop, and slot/container
+transfer semantics. The logistics owner may still charge exact mass, volume, encumbrance, path, time, exertion,
+temperature, spoilage, and preservation consequences underneath those interactions. Internal lot selection,
+reservations, claims, and commit boundaries should be composed behind the familiar action unless an intermediate
+choice is itself meaningful gameplay.
+
 This layer should connect geology, stockpiles, structures, production, maintenance, and later settlement labor.
-It should reuse persistent spatial identity/bounds rather than introducing a parallel coordinate model.
+It should reuse persistent spatial identity/bounds rather than introducing a parallel coordinate model. Carried
+inventory should be a real custody/location state with explicit capacity rather than an unbounded alias for every
+nearby stockpile; world containers should reuse the same underlying material/storage facts while presenting
+familiar inventory slots and quick-transfer operations.
 
 Completion criterion: important material transitions can state not only what moves between owners, but how the
-world authorizes and pays for that movement.
+world authorizes and pays for that movement, while ordinary direct manipulation still feels like a conventional
+block-survival inventory and interaction loop.
 
-### 3. Add explicit physical networks
+### 3. Close the familiar wilderness shell
 
-Once world-space movement and infrastructure placement have a coherent substrate, extend the same graph to
-carrier networks: mechanical transmission, electrical distribution, and fluid transport. Network state should
-own topology and losses; endpoint stores remain the authority for stored quantities.
+Once direct world interaction and carrying exist, prioritize the ordinary first-session survival loop before
+adding more industrial-network depth. A fresh player should be able to acquire visibly available wood/stone and
+forage, carry them through the hotbar/inventory shell, make the first primitive tools, place and open basic
+storage, establish simple shelter/light/fire, eat/drink, and recover from ordinary early mistakes without
+controlled delivery or hidden-state tooling.
+
+This slice should reuse the existing material, crafting, equipment, storage, survival, fluid, thermal, and
+structural owners. Familiar direct actions should be the entry point; deeper properties such as exact mass,
+spoilage, temperature, hydration, tool wear, structure load, and fuel/heat should become consequences of those
+actions rather than prerequisites for learning a special interaction language.
+
+Completion criterion: from a fresh ordinary world and empty carried inventory, the player can complete a
+recognizable block-survival first-day loop through canonical world actions, including basic acquisition, tool
+crafting, storage, food/water, and shelter/fire, without harness-only material injection.
+
+### 4. Add explicit physical networks
+
+Once world-space movement, the familiar wilderness shell, and infrastructure placement have a coherent
+substrate, extend the same graph to carrier networks: mechanical transmission, electrical distribution, and
+fluid transport. Network state should own topology and losses; endpoint stores remain the authority for stored
+quantities.
 
 Completion criterion: energy/fluid transfer is a physical routed operation with capacity, loss, occupancy,
 failure, inspection, and recovery rather than generic store-to-store mutation.
 
-### 4. Delegate through the same action model
+### 5. Delegate through the same action model
 
 Workers, animals, schedules, and automation should consume the same observable tasks, production legality, world
 movement, and physical costs as direct player action. Delegation should change who supplies attention and how
@@ -255,7 +297,7 @@ work is organized, not create a second simulation path.
 Completion criterion: a solved manual loop can be assigned, observed, interrupted, recovered, and audited while
 preserving the same owner transitions as direct execution.
 
-### 5. Deepen environmental feedback
+### 6. Deepen environmental feedback
 
 Climate, hydrology, environmental heat, sanitation, ecology, and agriculture should enter after they have
 owners and control surfaces capable of affecting existing survival, storage, structures, logistics, energy, and
@@ -265,7 +307,7 @@ ambient complexity with no practical lever.
 Completion criterion: environmental variation changes decisions through explicit signals, flows, and recovery
 actions rather than opaque periodic penalties.
 
-### 6. Expand industrial transformation depth
+### 7. Expand industrial transformation depth
 
 After current progression gaps have ordinary physical routes, add alloying, forging, machining, broader
 separation, combustion/thermal plant depth, chemistry, and advanced power as extensions of the existing

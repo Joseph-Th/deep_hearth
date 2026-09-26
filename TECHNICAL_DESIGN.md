@@ -253,6 +253,7 @@ synchronized indexes.
 | `GeologyState` | `AppState::geology()` | core-only hidden truth | Finite hidden geological deposits and depletion; actor code must not enumerate this owner |
 | `GeologicalKnowledgeState` | `AppState::geological_knowledge()` | public actor-safe evidence | Acquired bounded observations only |
 | `InventoryState` | `AppState::inventory()` | public read | Stockpiles, material lots, reservations, routing, preservation, material-backed storage enclosures, stockpile support |
+| `LogisticsState` | `AppState::logistics()` | public read | Player voxel, finite carried-stockpile identity, loose ground-stockpile locations, detached unmounted equipment locations, detached finite-energy-store locations, finite-fluid-store locations, and world-space custody revision |
 | `ProductionState` | `AppState::production()` | public read | Active jobs, schedules, routing, exclusive resource occupancy |
 | `MiningState` | `AppState::mining()` | public read without hidden deposit identity | Mining work-in-process, output-claim custody, and schedules |
 | `PlayerWorkState` | `AppState::player_work()` | public read | At most one active player-attention operation |
@@ -276,6 +277,10 @@ Several high-value chains are intentionally explicit because they connect much o
 geology -> working mining job -> ready mining output -> inventory lot
 inventory lots -> production job custody -> routed output lots
 inventory traces -> equipment / energy store / storage enclosure / structural embodiment
+ground inventory lot <-> same-voxel player-carried inventory lot
+inventory traces -> detached equipment @ player voxel -> structurally mounted equipment
+inventory traces -> detached finite energy store @ player voxel
+finite fluid store @ world voxel -> local drinking / structurally supported vessel
 embodiment -> authored maintenance, disassembly, dismantling, or salvage -> inventory traces
 finite energy store -> reserved/consumed process energy -> modeled work/heat or explicit loss sink
 hidden geology -> bounded prospecting observation -> geological knowledge -> mining authorization
@@ -298,18 +303,19 @@ semantic entry point; inspect its implementation and adjacent tests before readi
 | --- | --- | --- |
 | Hidden geology -> acquired knowledge | `validate_start_field_prospecting` -> simulation tick | `PlayerWorkState` holds exclusive prospecting labor; completion records one aggregate `GeologicalObservationRecord` or one bounded, spatially ordered per-voxel batch in `GeologicalKnowledgeState`, according to the authored method. All methods record bounded abundance. Authored physical-sampling methods may additionally record a conservative excavation-hardness band and, only when the acquired observation footprint exactly localizes one unambiguous body, a coarse observation-time resource-mass interval. Both require a positive lower abundance bound, neither carries deposit identity, and partial/ambiguous regions emit no resource-scale claim. Hardness is immutable for a live deposit and aggregate reads prefer precision. Remaining resource mass changes with extraction, so aggregate reads prefer the latest acquired resource-mass observation and use precision only to break same-tick ties. The assessment exposes that selected resource observation's own tick separately from the latest observation of any kind, and contradictory abundance evidence withholds resource scale rather than presenting an older positive reserve estimate as current. `TickOutcome::field_prospecting()` exposes the actor-safe first observation identity, count, and scope without deposit identity. |
 | Acquired knowledge -> extraction authorization | `resolve_mining_target` | Read-only `MiningTargetResolution` proves that legitimate evidence currently resolves one extractable owner while keeping the geological deposit identity crate-private. A candidate body must already have existed when every observation contributing to the authorization was acquired, so older evidence cannot retroactively bind a later-generated body. No custody changes yet. |
-| Geology + equipment + labor -> mining work | `validate_start_mining` -> simulation tick | Start binds the requested excavation effort, tool, destination, player attention, and a durable `MiningJobRecord`. Pre-admission batch/capacity/labor/wear feasibility is derived from the requested mass, not hidden remaining reserve, so read-only validation cannot be used to measure a deposit. The hidden output slice is `min(requested, remaining)` and is bound internally; after commit its reservation and eventual claim may legitimately reveal a short recovery. Geology keeps that output matter during labor; completion removes it from `GeologyState`, applies wear for the requested effort, releases attention, and places the physical output in mining-owned claim custody. |
+| Geology + equipment + labor -> mining work | `validate_start_mining` -> simulation tick | Start binds the requested excavation effort, tool, destination, player attention, and a durable `MiningJobRecord`. When logistics locations are known, the player must be inside the resolved deposit bounds and the detached tool/output stockpile must be at the player voxel; the start token binds logistics revision and trusted load replays those conditions while the job is working. Pre-admission batch/capacity/labor/wear feasibility is derived from the requested mass, not hidden remaining reserve, so read-only validation cannot be used to measure a deposit. The hidden output slice is `min(requested, remaining)` and is bound internally; after commit its reservation and eventual claim may legitimately reveal a short recovery. Geology keeps that output matter during labor; completion removes it from `GeologyState`, applies wear for the requested effort, releases attention, and places the physical output in mining-owned claim custody. |
 | Mining claim custody -> inventory | `validate_claim_mining_output` | A ready job retains its reserved destination capacity until claim. Claim moves the exact output into `InventoryState`, retires mining custody without a second extraction decision, and returns `MiningClaimReceipt` with the exact contribution plus its merge-aware surviving lot identity. |
-| Inventory + providers -> production work | resolver-specific `Resolved*` / `ProcessResolution` -> `validate_start_process` or `validate_start_process_routed` | Start consumes exact selected input into `ProductionState` work-in-process, reserves routed output capacity, binds provider occupancy, and records modeled finite-energy consequences needed for replay. |
+| Ground inventory <-> player-carried inventory | `validate_pickup_from_ground` / `validate_drop_to_ground` | `LogisticsState` proves the player and loose stockpile occupy the same voxel, then delegates exact selected-lot movement to inventory relocation. Inventory remains authoritative for capacity, containment, temperature, provenance, storage history, lot identity, and structural-load consequences. Ground/carried custody cannot simultaneously be structurally mounted. Movement, path cost, haulage, and world-source creation remain separate absent authorities. |
+| Inventory + providers -> production work | resolver-specific `Resolved*` / `ProcessResolution` -> `validate_start_process` or `validate_start_process_routed` | Start consumes exact selected input into `ProductionState` work-in-process, reserves routed output capacity, binds provider occupancy, and records modeled finite-energy consequences needed for replay. Every endpoint with an explicit logistics-owned voxel—source, routed destinations, detached equipment, consumed-energy store, or released-energy sink—must agree on one production site; the start token binds logistics revision so location assignment or relocation cannot race admission. |
 | Production work -> inventory / equipment / energy | `advance_tick` completion planning and apply | Due completion routes exact material streams to reserved inventory destinations, applies condition consequences, releases/consumes modeled energy as resolved, clears occupancy/reservations, and emits `ProcessCompletion` through `TickOutcome`; each stream has merge-aware inventory landing identities. |
 | Fatal survival -> active player-work disposition | `advance_tick` fatal-work planning | A work item due on the fatal tick completes normally before labor is released. Otherwise direct manual production is suspended with its work-in-process and output reservations intact; working mining is canceled without extraction or completion wear and returns its exact output reservation; storage-enclosure dismantling is canceled without removing the enclosure and returns its exact recovery reservation. Unfinished manual power and prospecting are pure `PlayerWorkState` continuations, so fatal interruption releases them without generated energy, acquired evidence, or completion wear. Maintenance has already committed its exact material/component exchange at admission, so interrupted service keeps that represented matter transition but receives no deferred condition recovery. The resulting idle/dead player state must pass the same trusted-load reconciliation as persisted continuation. |
-| Inventory -> equipment embodiment | `validate_assemble_equipment` / `validate_upgrade_equipment` | Exact material traces leave inventory custody and become `EquipmentState` embodiment. Upgrade preserves equipment identity and prior embodiment/condition while adding only the authored trace; inherited capabilities cannot regress at the preserved condition according to each capability definition's explicit improvement direction. |
-| Equipment embodiment -> inventory recovery | `validate_disassemble_equipment` / `validate_equipment_maintenance` | Disassembly returns authored recoverable traces as inventory lots. Maintenance admission commits the exact replacement/component exchange and represented spent matter immediately while `PlayerWorkState` owns the timed service interval; equipment condition recovery occurs only at completion. If labor terminates before that completion, the committed material exchange remains and no condition gain is granted. |
-| Inventory -> finite energy-store embodiment | `validate_assemble_energy_store` / `validate_upgrade_energy_store` | Exact material traces become `EnergyState` embodiment; upgrade preserves store identity and carrier/transfer semantics while changing the authored store definition. `validate_disassemble_energy_store` is the exact reverse custody route for empty idle stores. |
+| Inventory -> equipment embodiment | `validate_assemble_equipment` / `validate_upgrade_equipment` | Exact material traces leave inventory custody and become `EquipmentState` embodiment. With initialized player logistics, assembly also creates detached equipment custody at the player voxel. Upgrade preserves equipment identity, detached location, prior embodiment/condition, and adds only the authored trace; known equipment and material-source locations must be locally accessible. Inherited capabilities cannot regress at the preserved condition according to each capability definition's explicit improvement direction. |
+| Equipment embodiment -> inventory recovery | `validate_disassemble_equipment` / `validate_equipment_maintenance` | Disassembly returns authored recoverable traces as inventory lots and removes any detached logistics location. Maintenance admission requires known-local detached equipment, replacement source, and spent-material destination, commits the exact replacement/component exchange and represented spent matter immediately, then `PlayerWorkState` owns the timed service interval; trusted load replays active-service equipment access. Equipment condition recovery occurs only at completion. If labor terminates before that completion, the committed material exchange remains and no condition gain is granted. |
+| Inventory -> finite energy-store embodiment | `validate_assemble_energy_store` / `validate_upgrade_energy_store` | Exact material traces become `EnergyState` embodiment. With initialized player logistics, assembly also creates detached energy-store custody at the player voxel; upgrade requires known-local store/material access and preserves store identity, location, and carrier/transfer semantics while changing the authored store definition. `validate_disassemble_energy_store` requires known-local store/recovery access, removes any detached location, and is the exact reverse custody route for empty idle stores. |
 | Inventory enclosure matter <-> inventory storage profile | `validate_build_storage_enclosure` / `validate_start_storage_enclosure_dismantling` -> simulation tick | Inventory remains the material owner while `PlayerWorkState` owns the timed dismantling interval. Start reserves the recovery destination and binds survival/labor; the enclosure and its preservation profile remain authoritative until completion, when exposure is checkpointed, ambient storage is restored, and exact enclosure matter enters the recovery stockpile. |
-| Inventory / equipment / fluid -> structural load | owner-specific mount/unmount validators | The mounted owner retains object custody while `StructureState` owns its source-separated load. Final aggregate load is validated before support assignment changes, and returned support outcomes expose the structural consequence when the represented load actually changes; force-rounded load no-ops remain revision-bound without synthesizing an analysis. |
-| Player physiology + equipment -> stored mechanical work | `validate_start_manual_power` -> simulation tick | `PlayerWorkState` owns pending generation during direct labor; admission binds survival budget, equipment wear, and energy-store capacity. Completion deposits exact work into `EnergyState`, applies wear/physiological expenditure, releases attention, and exposes `ManualPowerOutcome`. |
-| Inventory / fluid -> terminal survival consumption | `validate_eat` / `validate_drink` -> simulation tick | Admission transfers selected matter/fluid into `SurvivalState` pending-consumption custody, reserves exclusive attention, and returns the exact completion tick with the accepted intake outcome. Tick installments release only earned physiological benefit; terminal consumed totals retain represented custody after the explicit food/fluid simulation boundary. |
+| Inventory / equipment / fluid -> structural load | owner-specific mount/unmount validators | The mounted owner retains object custody while `StructureState` owns its source-separated load. Final aggregate load is validated before support assignment changes, and returned support outcomes expose the structural consequence when the represented load actually changes; force-rounded load no-ops remain revision-bound without synthesizing an analysis. A fluid store with an explicit logistics voxel may mount only to a structural element whose bounds contain that voxel, and the support token binds logistics revision. |
+| Player physiology + equipment -> stored mechanical work | `validate_start_manual_power` -> simulation tick | `PlayerWorkState` owns pending generation during direct labor; admission binds survival budget, equipment wear, energy-store capacity, and logistics revision. Any known detached provider equipment and destination store must be at the player voxel; trusted load replays both access conditions while work is active. Completion deposits exact work into `EnergyState`, applies wear/physiological expenditure, releases attention, and exposes `ManualPowerOutcome`. |
+| Inventory / fluid -> terminal survival consumption | `validate_eat` / `validate_drink` -> simulation tick | Admission transfers selected matter/fluid into `SurvivalState` pending-consumption custody, reserves exclusive attention, and returns the exact completion tick with the accepted intake outcome. Eating requires any known source stockpile locally; drinking requires any known fluid-store location locally, and both tokens bind logistics revision. Tick installments release only earned physiological benefit; terminal consumed totals retain represented custody after the explicit food/fluid simulation boundary. |
 | Authoritative owners -> whole-system accounting | `calculate_matter_accounting`, `calculate_explicit_energy_accounting`, `calculate_fluid_volume_accounting` | Read-only accounting recomputes from owners and never becomes another custody store. Use it to prove conservation/reconciliation, not to drive mutation. |
 
 If a new feature creates a materially new row, first decide whether it is a new owner edge or merely another
@@ -390,8 +396,71 @@ coalescing, and the monotonic lot cursor advances only when a distinct lot will 
 Stockpiles own capacity, containment, preservation, optional enclosure identity, inbound reservations, and
 derived routing/mass indexes. Inventory owns custody, not general movement authorization. Runtime movement
 requires a canonical owner that binds exact ingress, egress, reform, relocation, or reserved-output effects.
-General stockpile transport is not implemented. The gameplay harness may authorize controlled conserved
-transfers only as setup or controlled-event infrastructure.
+`LogisticsState` supplies that authorization for exact selected-lot pickup/drop when the player and a loose
+ground stockpile share one voxel. `validate_player_stockpile_access`, `validate_player_equipment_access`,
+`validate_player_energy_store_access`, and `validate_player_fluid_store_access` are the shared admission rules for
+player actions whose relevant physical endpoint already has stockpile, detached-equipment, detached-energy-store,
+or fluid-store world custody. The carried
+inventory is itself one finite `InventoryState` stockpile; logistics owns its carried role/location rather than
+duplicating material state. General stockpile/equipment/energy/fluid-store transport, player movement,
+haulage/path cost, and world-source acquisition are not implemented. The gameplay harness may
+still authorize other controlled conserved transfers only as setup or controlled-event infrastructure.
+
+### Logistics
+
+`LogisticsState` persists the local player's `VoxelCoord`, the identity of one inventory-owned carried
+stockpile, loose ground-stockpile voxel locations, detached unmounted equipment voxel locations, detached finite-
+energy-store voxel locations, finite-fluid-store voxel locations, and a monotonic revision. Initialization allocates carried capacity through
+inventory's revision-bound empty-stockpile allocator; logistics never stores duplicate lot, equipment condition,
+stored energy, fluid contents, or capacity totals. `assess_player_carrying` joins the location record to inventory's current
+capacity and mass.
+
+`validate_place_ground_stockpile` is the low-level world/bootstrap location boundary for an existing unsupported
+stockpile; `validate_allocate_ground_stockpile` composes the same owner with inventory's empty-stockpile
+allocator without creating matter. Placement rejects carried or structurally mounted custody, active storage
+dismantling occupancy, and stockpiles with reserved inbound work, so a delayed output target cannot be moved
+after admission. Placement tokens recheck those facts at commit as well as logistics/support revisions.
+Same-voxel `validate_pickup_from_ground` / `validate_drop_to_ground` compose explicit lot selection with canonical
+inventory relocation; relocation preserves temperature, composition, particle state, provenance, storage
+exposure, finite capacity, merge-aware identity, and structural-load accounting.
+
+`validate_place_fluid_store` is the bootstrap location boundary for an existing finite fluid store. It binds one
+previously unlocated store to a voxel without moving fluid, changing support, or implying a transport/pumping
+mechanism. If the store is already structurally supported, that voxel must lie inside the support bounds; trusted
+load replays the same relation. Structural mount admission applies the inverse check for already located stores and
+binds logistics revision so a late placement cannot race support assignment.
+
+`validate_player_stockpile_access`, `validate_player_equipment_access`,
+`validate_player_energy_store_access`, and `validate_player_fluid_store_access` deliberately reject only positively
+known remote custody. Carried custody is
+co-located with the player, same-voxel ground/detached custody is accepted, and still-unlocated legacy fixtures
+remain admissible. Manual crafting and manual ore processing check their stockpile endpoints; eating checks its
+food source; drinking checks its fluid-store source; storage construction/dismantling checks its material, target, and recovery endpoints;
+equipment/energy-store lifecycle operations check the endpoints they actually touch. Player-context equipment and
+energy-store assembly create detached custody at the player voxel. A co-located equipment mount consumes its
+detached location into structural support, a local unmount recreates detached custody at the player, and
+equipment/energy-store disassembly removes its detached location. Trusted load rejects equipment that is
+simultaneously detached and mounted, rejects detached energy-store locations whose `EnergyState` identity is
+absent, rejects fluid-store locations whose `FluidState` identity is absent, and rejects located supported fluid
+stores whose voxel falls outside the support bounds.
+
+Prospecting additionally requires a known player to stand inside the requested survey region and any required
+detached sampling instrument to be at that player voxel. Mining requires a known player to stand inside the
+resolved deposit's actual bounds and checks any known detached tool/output-stockpile locations against that
+voxel. Their validate/commit tokens bind logistics revision, and trusted-load validation replays the same spatial
+requirements for active prospecting, working mining, active equipment maintenance, and active manual power.
+Manual power additionally requires any known detached provider equipment and destination energy store at the
+player voxel. Production uses a different, actor-independent rule: start admission requires every explicitly
+located source, destination, equipment, and energy endpoint to share one voxel. Consumed source matter and
+consumed energy then leave those owners at admission, so trusted load does not freeze their historical locations;
+while a job remains unsuspended it replays co-location only for continuing equipment, released-energy sinks, and
+reserved output destinations. Suspended production deliberately skips that running-site check so recovery or
+relocation can be resolved by its own continuation path. Stockpile mounting rejects
+both player-carried and loose ground-located custody, including the race where a ground location is added after
+mount validation. No player movement, terrain/path legality, haulage duration/exertion, automatic proximity
+search, mounted-production site/contact geometry, or physical rule for direct mounted-to-
+mounted equipment relocation is implied by this slice. No generic fluid-store relocation, pumping, mixing, or
+pressure network is implied by fluid world custody.
 
 Same-material reform may change form without changing material phase. It preserves temperature, composition,
 and particle state; phase transitions remain owned by thermal processing. Within inventory custody, storage
@@ -421,14 +490,16 @@ raw material constrain feasibility before actor preference. Construction delay p
 so the prospective freshness projection lets callers inspect that tradeoff without duplicating storage-aging rules.
 
 Enclosure dismantling is the inverse custody transition for that exact embodied matter, not generic demolition.
-The target and recovery stockpiles must be unmounted; the target must have no reserved inbound work and remain
-valid under the ambient storage profile. Admission reserves exact recovery capacity and starts exclusive timed
-player work with authored survival exertion. The enclosure remains installed throughout the interval, so retained
-lots continue aging under its current preservation multiplier. Completion checkpoints that exposure, restores
-ambient storage, and returns the enclosure traces to the distinct recovery stockpile with their exact temperature,
-composition, particle state, and provenance. Recovery capacity, lot-ID space, inventory revisions, and competing
-delayed-output ownership are validated before admission/completion mutation. General world-space demolition,
-access, and dismantling tools remain outside this transition.
+The target and recovery stockpiles must be unmounted; when either has logistics-owned world custody it must be at
+the player's voxel. The target must have no reserved inbound work and remain valid under the ambient storage
+profile. Admission reserves exact recovery capacity and starts exclusive timed player work with authored survival
+exertion. The enclosure remains installed throughout the interval, so retained lots continue aging under its
+current preservation multiplier. Completion checkpoints that exposure, restores ambient storage, and returns the
+enclosure traces to the distinct recovery stockpile with their exact temperature, composition, particle state,
+and provenance. Recovery capacity, lot-ID space, inventory revisions, logistics revision, and competing delayed-
+output ownership are validated before admission/completion mutation; trusted load rejects active dismantling whose
+persisted known locations no longer match player access. General pathing, demolition, and dismantling tools remain
+outside this transition.
 
 Detached enclosure bodies may then be reused intact or entered into explicit manual salvage. Timber salvage
 conserves the full body mass as boards plus represented chips; the stone crock converts its exact body into
@@ -471,23 +542,27 @@ authorization. Resolution rejects absent, contradictory, spatially incomparable,
 ambiguous evidence. Querying a smaller region cannot create precision that was not acquired. Hidden geology is
 never a public tie-breaker.
 
-Physical sampling is also the information boundary for extraction resistance. A resolved target carries the best
-acquired excavation-hardness band that covers its localized evidence region. Mining start rejects a target with
-no acquired hardness band rather than probing hidden geological resistance, and compares the selected tool only
-against the conservative acquired upper bound. The exact hidden hardness remains authoritative physical truth for
-geology ownership and trusted continuation validation, but it is not a read-only planning oracle. Trusted load
+Physical sampling is also the planning boundary for extraction resistance. A resolved target carries the best
+acquired excavation-hardness band that covers its localized evidence region. With such evidence, mining compares
+the selected tool against the conservative acquired upper bound before commitment. Without a hardness band, a
+localized target may still be attempted; admission uses hidden hardness only to determine whether the physical
+attempt is possible and reports the tool's hardness ceiling rather than revealing the hidden value. The exact
+hidden hardness remains authoritative physical truth for geology ownership and trusted continuation validation,
+but it is not a read-only planning oracle. Trusted load
 first requires every persisted observation to be compatible with at least one currently authored prospecting
 method: evidence kind, observation footprint, abundance uncertainty, and any physical hardness/resource metadata
-must not claim precision the method could not produce. Persisted abundance must also remain conservative for every
-still-live body that already existed at the observation tick; a positive nonphysical abundance claim additionally
-requires that the region could have been fully covered by bodies already generated at that time. Physical evidence
-is then replayed against historical bodies: later-generated bodies do not retroactively validate older samples, a
-hardness band must match at least one historical body and every still-live matching body from that time must remain
-inside it, and a resource-mass interval must have an exact-footprint historical body with a physically possible
-observation-time remaining mass between current remaining mass and immutable initial mass. Depleted bodies remain
-persisted, so legitimate pre-depletion physical observations continue to validate without pretending their measured
-reserve scale is current. Mining target resolution separately refuses to bind a live body generated after any
-evidence used to localize that authorization.
+must not claim precision the method could not produce. Persisted abundance must remain conservative for every body
+that was physically available at the observation tick; a positive nonphysical abundance claim additionally requires
+that the region could have been fully covered by bodies available then. Geological deposits persist generation and
+depletion ticks, with same-tick depletion still observable under pre-tick snapshot semantics, so trusted load can
+reconstruct historical availability instead of substituting current lifecycle. Later-generated bodies do not
+retroactively validate older samples, and bodies depleted before acquisition do not constrain later samples. A
+hardness band must include every matching body available at acquisition and at least one such body must exist. A
+resource-mass interval requires exactly one matching acquisition-time body intersecting the observation, with exact
+footprint and a physically possible observation-time remaining mass between current remaining mass and immutable
+initial mass. Depleted bodies remain persisted, so legitimate pre-depletion physical observations continue to
+validate without pretending their measured reserve scale is current. Mining target resolution separately refuses
+to bind a live body generated after any evidence used to localize that authorization.
 
 `resolve_mining_order` is a bounded read-only effort projection over authored method/equipment definitions,
 initial condition, an acquired hardness upper bound, requested mass, caller-selected batch mass, and a maximum
@@ -496,8 +571,11 @@ and checked total duration. It rejects invalid inputs, exceeded search bounds, a
 It neither reads hidden reserves nor promises supply, survival, destination capacity, or authorization; callers
 must refresh inputs after changes and admit each actual batch normally.
 
-Mining start validates authorization, acquired hardness, tool, labor, capability, wear, destination, and
-reservation constraints.
+Mining start validates authorization, available hardness evidence or opaque resistance failure, player location
+inside the resolved deposit bounds when logistics is initialized, tool/destination access when those endpoints
+are located, labor, capability, wear, destination storage, and reservation constraints. Its token binds logistics
+revision alongside inventory/equipment/mining/support owners so a later location change cannot authorize stale
+work; trusted-load mining-job validation replays spatial access while the job remains working.
 Geology retains ownership of the selected batch during labor. Completion removes the batch from geology,
 applies wear, releases player work, and creates an explicit durable claim boundary. Completed output remains
 mining-owned with its destination capacity reserved until claim succeeds, so unrelated simulation time and work

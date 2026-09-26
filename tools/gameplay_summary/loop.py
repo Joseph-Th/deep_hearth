@@ -79,15 +79,26 @@ def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: in
 
 
 def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
-    closed = sum(" continuation=closed-loop" in line for line in first_foundry)
+    full_recovery = sum(
+        " continuation=full-scrap-recovery" in line for line in first_foundry
+    )
+    separate_state = sum(
+        " state-continuity=separate-disclosed-opportunity " in line
+        for line in first_foundry
+    )
+    foundry_deferred = sum(" foundry-deferred:true " in line for line in first_foundry)
+    treadle_upgrade = sum(
+        " dynamo-path=treadle-additive-upgrade " in line for line in first_foundry
+    )
     returned_reinforcement = sum(
         " downstream=[ingot:20000mg reinforcement:20000mg " in line
         for line in first_foundry
     )
     return (
         "thermal-bootstrap=["
-        f"foundry:{len(first_foundry)} "
-        f"closed:{closed}/{len(first_foundry)} "
+        f"coverage:{len(first_foundry)} separate:{separate_state}/{len(first_foundry)} "
+        f"full:{full_recovery}/{len(first_foundry)} deferred:{foundry_deferred}/{len(first_foundry)} "
+        f"treadle-upgrade:{treadle_upgrade}/{len(first_foundry)} "
         f"cast-reuse:{returned_reinforcement}/{len(first_foundry)}]"
     )
 
@@ -354,6 +365,11 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
         for line in shortfall_recoveries
         if (match := re.search(r"\bore-recovery-required-access:(\d+)", line)) is not None
     )
+    depletion_retooled = sum(
+        line.startswith("FIELDWORK DEPLETION RECOVERY ")
+        and " mining-tool-reused=false " in line
+        for line in lines
+    )
     depletion_salvaged = sum(
         line.startswith("FIELDWORK DEPLETION RECOVERY ") and " salvage=true " in line
         for line in lines
@@ -377,19 +393,20 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
     )
     return (
         "world-feedback=["
-        f"initial-supply-ended:{initial_supply_ended}/{len(fieldwork)} "
-        f"initial-shortfall-campaign-progressed:{initial_reroute_proved}/{initial_supply_ended} "
-        f"shortfall-knowledge-upgrade:{indexed_shortfall}/{len(shortfall_recoveries)} "
-        f"relocation-geology-changed:{geology_changed}/{len(shortfall_recoveries)} "
-        f"relocation-retooled:{retooled}/{len(shortfall_recoveries)} "
-        f"relocation-salvaged:{shortfall_salvaged}/{len(shortfall_recoveries)} "
-        f"relocation-ore-funded:{shortfall_ore_funded}/{len(shortfall_recoveries)}"
+        f"initial-short:{initial_supply_ended}/{len(fieldwork)} "
+        f"shortfall-rerouted:{initial_reroute_proved}/{initial_supply_ended} "
+        f"knowledge-upgraded:{indexed_shortfall}/{len(shortfall_recoveries)} "
+        f"geology-changed:{geology_changed}/{len(shortfall_recoveries)} "
+        f"retooled:{retooled}/{len(shortfall_recoveries)} "
+        f"salvaged:{shortfall_salvaged}/{len(shortfall_recoveries)} "
+        f"ore-funded:{shortfall_ore_funded}/{len(shortfall_recoveries)}"
         f"(payback:{shortfall_ore_payback}/access:{shortfall_ore_required}) "
-        f"relocation-blocked-sites:{blocked_sites} "
-        f"known-site-depletion:{depleted}/{len(eligible)} "
-        f"depletion-reroute-proved:{reroute_proved}/{depleted} "
-        f"depletion-salvaged:{depletion_salvaged}/{depleted} "
-        f"depletion-ore-funded:{depletion_ore_funded}/{depleted}"
+        f"blocked-sites:{blocked_sites} "
+        f"depleted:{depleted}/{len(eligible)} "
+        f"dep-rerouted:{reroute_proved}/{depleted} "
+        f"dep-retooled:{depletion_retooled}/{depleted} "
+        f"dep-salvaged:{depletion_salvaged}/{depleted} "
+        f"dep-ore-funded:{depletion_ore_funded}/{depleted}"
         f"(payback:{depletion_ore_payback}/access:{depletion_ore_required}) "
         f"horizon-live:{sum(' terminal=horizon-live-target ' in line for line in eligible)}/{len(eligible)}]"
     )

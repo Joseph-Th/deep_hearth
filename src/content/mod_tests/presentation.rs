@@ -351,6 +351,55 @@ fn every_builtin_equipment_definition_has_a_complete_object_appearance() {
 }
 
 #[test]
+fn ordinary_first_foundry_equipment_has_distinct_physical_appearances() {
+    let registries = build_registries();
+    let textures = registries.textures();
+
+    for (equipment, expected, unrelated) in [
+        (
+            EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+            OBJECT_TIMBER_TREADLE_DYNAMO,
+            OBJECT_TIMBER_TREADLE_DRIVE,
+        ),
+        (
+            EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+            OBJECT_STONE_ARC_CRUCIBLE_FURNACE,
+            OBJECT_ELECTRIC_FURNACE,
+        ),
+        (
+            EQUIPMENT_STONE_INGOT_MOLD,
+            OBJECT_STONE_INGOT_MOLD,
+            OBJECT_CASTING_MOLD,
+        ),
+    ] {
+        let binding = textures
+            .get_equipment_appearance(equipment)
+            .unwrap_or_else(|| {
+                panic!(
+                    "first-foundry equipment {} lost its appearance",
+                    equipment.value()
+                )
+            });
+        assert_eq!(binding.object(), expected);
+        assert_ne!(expected, unrelated);
+
+        let appearance = textures
+            .get_object(expected)
+            .unwrap_or_else(|| panic!("first-foundry object {} disappeared", expected.value()));
+        let unrelated_appearance = textures
+            .get_object(unrelated)
+            .unwrap_or_else(|| panic!("comparison object {} disappeared", unrelated.value()));
+        assert_ne!(
+            appearance.textures(),
+            unrelated_appearance.textures(),
+            "first-foundry equipment {} must remain visually distinguishable from object {}",
+            equipment.value(),
+            unrelated.value()
+        );
+    }
+}
+
+#[test]
 fn every_supported_separation_residue_host_has_legible_crushed_and_tailings_appearances() {
     let registries = build_registries();
     let textures = registries.textures();

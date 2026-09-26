@@ -4,6 +4,7 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy};
+use crate::logistics::validate_player_equipment_access;
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::registry::Registries;
 
@@ -43,6 +44,8 @@ fn validate_equipment_trace(
     if record.supported_by().is_some() {
         return Err(PlayerWorkValidationError::ProspectingEquipmentMounted { equipment });
     }
+    validate_player_equipment_access(state, equipment)
+        .map_err(PlayerWorkValidationError::ProspectingEquipmentAccess)?;
     if matches!(
         equipment_occupancy(state, equipment),
         Some(EquipmentOccupancy::Production { .. } | EquipmentOccupancy::Mining { .. })
@@ -147,6 +150,14 @@ pub(super) fn validate_prospecting_work(
         .get_prospecting(work.method())
         .copied()
         .ok_or(PlayerWorkValidationError::ProspectingMethodMissing)?;
+    if let Some(player) = state.logistics().player().copied()
+        && !work.region().has_voxel(player.position())
+    {
+        return Err(PlayerWorkValidationError::ProspectingPlayerOutsideRegion {
+            player_position: player.position(),
+            region: work.region(),
+        });
+    }
     let observations = validate_target_replay(registries, method, work)?;
     if state
         .geological_knowledge()

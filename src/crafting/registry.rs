@@ -90,6 +90,19 @@ impl CraftingRegistry {
         self.powered.values().copied()
     }
 
+    /// Iterates powered execution variants of one manual material transform in stable powered
+    /// process-ID order. Presentation can therefore group hand/tool/machine execution under one
+    /// familiar recipe identity instead of teaching duplicate transformation recipes.
+    pub fn powered_variants(
+        &self,
+        transform: ProcessId,
+    ) -> impl Iterator<Item = PoweredCraftDefinition> + '_ {
+        self.powered
+            .values()
+            .copied()
+            .filter(move |definition| definition.transform() == transform)
+    }
+
     /// Iterates manual processes that directly produce the requested commodity in stable process-ID
     /// order. This is a direct authored edge, not a transitive reachability claim.
     pub fn manual_producers(

@@ -60,12 +60,14 @@ fn manual_power_constraint(error: ManualPowerError) -> ManualRecoveryConstraint 
         error @ (ManualPowerError::UnknownMethod { .. }
         | ManualPowerError::Work(_)
         | ManualPowerError::Equipment(_)
+        | ManualPowerError::EquipmentAccess(_)
         | ManualPowerError::EquipmentMounted { .. }
         | ManualPowerError::EquipmentBusyProduction { .. }
         | ManualPowerError::EquipmentBusyMining { .. }
         | ManualPowerError::MissingPowerCapability { .. }
         | ManualPowerError::PowerCapabilityKindMismatch { .. }
         | ManualPowerError::EnergySink(_)
+        | ManualPowerError::DestinationAccess(_)
         | ManualPowerError::WrongCarrier { .. }
         | ManualPowerError::ZeroTransferPower { .. }
         | ManualPowerError::PowerDuration { .. }

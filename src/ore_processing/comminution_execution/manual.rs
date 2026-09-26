@@ -12,6 +12,7 @@ use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
+use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, ProductionJobId, StartProcessCommitError, StartProcessError,
@@ -198,6 +199,7 @@ pub fn resolve_manual_comminution_process(
 /// Failure while reserving a resolved hand-breaking job and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualComminutionError {
+    Access(PlayerStockpileAccessError),
     Process(StartProcessError),
     Work(PlayerWorkStartError),
 }
@@ -205,6 +207,7 @@ pub enum StartManualComminutionError {
 impl Display for StartManualComminutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Access(error) => write!(formatter, "manual comminution access failed: {error}"),
             Self::Process(error) => write!(formatter, "manual comminution start failed: {error}"),
             Self::Work(error) => write!(
                 formatter,
@@ -217,6 +220,7 @@ impl Display for StartManualComminutionError {
 impl Error for StartManualComminutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Access(error) => Some(error),
             Self::Process(error) => Some(error),
             Self::Work(error) => Some(error),
         }
@@ -226,6 +230,7 @@ impl Error for StartManualComminutionError {
 /// Failure while committing a validated hand-breaking start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualComminutionCommitError {
+    StaleLogisticsRevision { expected: u64, actual: u64 },
     Process(StartProcessCommitError),
     Work(PlayerWorkCommitError),
 }
@@ -233,6 +238,10 @@ pub enum ManualComminutionCommitError {
 impl Display for ManualComminutionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "manual comminution expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::Process(error) => write!(formatter, "manual comminution commit failed: {error}"),
             Self::Work(error) => {
                 write!(formatter, "manual comminution labor commit failed: {error}")
@@ -244,6 +253,7 @@ impl Display for ManualComminutionCommitError {
 impl Error for ManualComminutionCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::StaleLogisticsRevision { .. } => None,
             Self::Process(error) => Some(error),
             Self::Work(error) => Some(error),
         }
@@ -255,6 +265,7 @@ impl Error for ManualComminutionCommitError {
 pub struct ValidatedManualComminutionStart {
     process: ValidatedStartProcess,
     work: ValidatedPlayerWorkStart,
+    expected_logistics_revision: u64,
 }
 
 impl ValidatedManualComminutionStart {
@@ -262,6 +273,13 @@ impl ValidatedManualComminutionStart {
         self,
         state: &mut AppState,
     ) -> Result<ProductionJobId, ManualComminutionCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(ManualComminutionCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         self.work
             .precheck(state)
             .map_err(ManualComminutionCommitError::Work)?;
@@ -291,6 +309,9 @@ pub fn validate_start_manual_comminution(
                 process: process_id,
             },
         ))?;
+    validate_player_stockpile_access(state, source).map_err(StartManualComminutionError::Access)?;
+    validate_player_stockpile_access(state, destination)
+        .map_err(StartManualComminutionError::Access)?;
     let process = validate_start_manual_process(
         registries,
         state,
@@ -309,5 +330,9 @@ pub fn validate_start_manual_comminution(
         definition.exertion(),
     )
     .map_err(StartManualComminutionError::Work)?;
-    Ok(ValidatedManualComminutionStart { process, work })
+    Ok(ValidatedManualComminutionStart {
+        process,
+        work,
+        expected_logistics_revision: state.logistics().revision(),
+    })
 }

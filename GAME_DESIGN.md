@@ -8,7 +8,7 @@ This page owns intended player experience and progression. It is not implementat
 | Design question | Read |
 | --- | --- |
 | What is the core experience and what laws govern it? | [Core experience](#core-experience); [Design laws](#design-laws) |
-| How should systems remain understandable and controllable across scale? | [Control-oriented legibility](#control-oriented-legibility) |
+| How should the game stay immediately familiar while deeper systems remain learnable? | [Familiar interaction shell](#familiar-interaction-shell); [Control-oriented legibility](#control-oriented-legibility) |
 | What does the player repeatedly do and which economies interact? | [Player loop](#player-loop) |
 | What experience should each major system eventually create? | [System direction](#system-direction) |
 | How should capability and industrial scale progress? | [Progression](#progression) |
@@ -42,6 +42,47 @@ Depth comes from interacting causes and constraints, not recipe nesting or repet
 - **Systems interlock.** Major systems exchange matter, energy, labor, information, risk, or environmental consequences.
 - **Failure is readable and recoverable.** Important failures have understandable causes, useful warning signs where plausible, and a repair, adaptation, or replacement path.
 - **Fallbacks remain physical.** Earlier methods may remain usable, but later infrastructure should make them relatively expensive in attention, throughput, safety, or survival reserve.
+
+## Familiar interaction shell
+
+Deep Hearth should feel like a block-survival game before the player understands any of its deeper simulation.
+Use established Minecraft/Vintage Story interaction grammar wherever the physical model does not require a
+different action:
+
+- the active hotbar item is the default tool/item context;
+- primary action attacks, breaks, harvests, or uses the held tool on the pointed world target;
+- secondary/use action places, opens, consumes, or interacts contextually;
+- one ordinary inventory view presents carried items, hotbar, personal crafting, and opened-container slots;
+- familiar stack manipulation and quick-transfer gestures move items without exposing lot IDs, reservation tokens,
+  custody revisions, or other simulation bookkeeping;
+- ordinary fixed-input crafting asks for a recipe and amount; exact lot slicing is automatic unless freshness,
+  temperature, provenance, or another physical distinction creates a meaningful stack-level choice;
+- using held food or a drink source derives a sensible physical portion from the requested reserve rather than
+  asking the player to type grams or milliliters;
+- contextual help/handbook views answer "what is this?", "what can I do with it?", and "how do I make it?"
+  from the same authoritative process, assembly, upgrade, maintenance, recovery, and capability data used by simulation;
+- obvious direct actions remain attemptable. Better knowledge should improve prediction, route choice, recovery,
+  safety, or efficiency rather than require a separate ritual before the player may try an action whose target is
+  already visibly identified.
+
+The familiar shell is a presentation and action-composition contract, not a simplification of physics. A slot or
+stack may represent material that still has exact mass, temperature, composition, provenance, spoilage state,
+and storage history. Slots/stacks are the manipulation grammar, not the sole capacity model: carried mass,
+volume, and encumbrance may independently limit what fits, and physically incompatible lots may remain distinct
+stacks even when they share a visible item identity. Amounts should use familiar counts where a form has a real
+unit identity and physical mass/volume where matter is naturally bulk; do not invent universal item counts.
+Containers can still alter preservation and tools can still
+wear. The player should encounter those consequences as readable limits, tooltips, overlays, and feedback on
+familiar interactions rather than as new manipulation verbs.
+
+Ordinary harvested/mined drops should transfer into carried inventory automatically when slot and physical
+capacity permit; otherwise they remain as world matter the player can pick up later. This lets an internal output
+claim remain a transaction boundary without turning it into a second player command after every successful
+break/harvest action.
+
+Implementation transactions are not automatically player actions. Validation/commit tokens, output claims,
+lot selection, reservations, and owner revisions may be necessary atomic boundaries internally; the ordinary UI
+should compose them behind one expected action when no meaningful player decision exists between the steps.
 
 ## Control-oriented legibility
 
@@ -189,7 +230,7 @@ matter and better information should open further physical capability.
 ### Pacing constraints
 
 - Critical resources have legible clues and reliable first uses. Richer or deeper resources require better information, access, or infrastructure rather than search randomness.
-- Geological search moves coarse-to-fine. Broad evidence guides attention; local evidence resolves actionable targets without revealing hidden owners.
+- Geological search moves coarse-to-fine. Broad evidence guides attention; local evidence resolves actionable targets without revealing hidden owners. A visibly localized target can still be tried directly; sampling buys advance knowledge of hardness/resource scale rather than permission to swing a tool.
 - Repeated manual input becomes delegable before it dominates play.
 - Manual processing may remain as a physical fallback, but mechanization should improve throughput, recovery, durability, safety, or returned attention.
 - Stable supply, preservation, and storage should replace repeated survival emergencies with preparation decisions and finite reserves.

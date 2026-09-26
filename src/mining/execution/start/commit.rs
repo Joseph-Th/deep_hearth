@@ -57,6 +57,12 @@ impl ValidatedMiningStart {
     }
 
     fn precheck_owner_revisions(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
+        if state.logistics().revision() != self.revisions.logistics {
+            return Err(MiningStartCommitError::StaleLogistics {
+                expected: self.revisions.logistics,
+                actual: state.logistics().revision(),
+            });
+        }
         if state.inventory().revision() != self.reservation.expected_revision() {
             return Err(MiningStartCommitError::StaleInventory {
                 expected: self.reservation.expected_revision(),

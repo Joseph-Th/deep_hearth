@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass};
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
+use crate::logistics::{PlayerEnergyStoreAccessError, PlayerStockpileAccessError};
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::structural::StructuralCommitError;
 
@@ -12,6 +13,8 @@ use super::super::EnergyStoreId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreDisassemblyError {
+    StoreAccess(PlayerEnergyStoreAccessError),
+    DestinationAccess(PlayerStockpileAccessError),
     UnknownStore {
         store: EnergyStoreId,
     },
@@ -49,12 +52,18 @@ pub enum EnergyStoreDisassemblyError {
     LotIdExhausted,
     InventoryRevisionExhausted,
     EnergyRevisionExhausted,
+    LogisticsRevisionExhausted,
     StoredMatterLoad(StockpileStructuralLoadError),
 }
 
 impl Display for EnergyStoreDisassemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StoreAccess(error) => write!(formatter, "energy-store access failed: {error}"),
+            Self::DestinationAccess(error) => write!(
+                formatter,
+                "energy-store disassembly destination access failed: {error}"
+            ),
             Self::UnknownStore { store } => {
                 write!(formatter, "unknown energy store {}", store.value())
             }
@@ -123,6 +132,8 @@ impl Display for EnergyStoreDisassemblyError {
             Self::EnergyRevisionExhausted => {
                 formatter.write_str("energy revision space is exhausted during store disassembly")
             }
+            Self::LogisticsRevisionExhausted => formatter
+                .write_str("logistics revision space is exhausted during store disassembly"),
             Self::StoredMatterLoad(error) => write!(
                 formatter,
                 "energy-store disassembly cannot update destination stored-matter load: {error}"
@@ -134,6 +145,8 @@ impl Display for EnergyStoreDisassemblyError {
 impl Error for EnergyStoreDisassemblyError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::StoreAccess(error) => Some(error),
+            Self::DestinationAccess(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
             Self::UnknownStore { .. }
@@ -147,13 +160,18 @@ impl Error for EnergyStoreDisassemblyError {
             | Self::DestinationCapacityExceeded { .. }
             | Self::LotIdExhausted
             | Self::InventoryRevisionExhausted
-            | Self::EnergyRevisionExhausted => None,
+            | Self::EnergyRevisionExhausted
+            | Self::LogisticsRevisionExhausted => None,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreDisassemblyCommitError {
+    StaleLogistics {
+        expected: u64,
+        actual: u64,
+    },
     StaleInventory {
         expected: u64,
         actual: u64,
@@ -181,6 +199,10 @@ pub enum EnergyStoreDisassemblyCommitError {
 impl Display for EnergyStoreDisassemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "energy-store disassembly expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
                 "energy-store disassembly expected inventory revision {expected} but current revision is {actual}"
@@ -222,7 +244,8 @@ impl Error for EnergyStoreDisassemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventory { .. }
+            Self::StaleLogistics { .. }
+            | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. }
             | Self::UnknownStore { .. }
             | Self::StoreChanged { .. }

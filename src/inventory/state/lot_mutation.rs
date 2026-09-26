@@ -11,10 +11,8 @@ use super::{
     StockpileId, StockpileRecord,
 };
 
-#[cfg(any(test, feature = "test-gameplay"))]
 mod relocation;
 
-#[cfg(any(test, feature = "test-gameplay"))]
 pub(in crate::inventory) use relocation::{
     LotStorageTransition, apply_move_full_lot, apply_split_lot,
 };

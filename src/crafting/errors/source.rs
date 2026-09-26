@@ -54,6 +54,7 @@ impl Error for ManualCraftError {
 impl Error for StartManualCraftError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Access(error) => Some(error),
             Self::Resolution(error) => Some(error),
             Self::Process(error) => Some(error),
             Self::Work(error) => Some(error),
@@ -64,6 +65,7 @@ impl Error for StartManualCraftError {
 impl Error for ManualCraftCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::StaleLogisticsRevision { .. } => None,
             Self::Process(error) => Some(error),
             Self::Work(error) => Some(error),
         }

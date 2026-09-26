@@ -150,6 +150,7 @@ impl ManualCraftError {
 /// Failure while admitting manual shaping into production and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualCraftError {
+    Access(crate::logistics::PlayerStockpileAccessError),
     Resolution(ManualCraftError),
     Process(StartProcessError),
     Work(PlayerWorkStartError),
@@ -157,6 +158,7 @@ pub enum StartManualCraftError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualCraftCommitError {
+    StaleLogisticsRevision { expected: u64, actual: u64 },
     Process(StartProcessCommitError),
     Work(PlayerWorkCommitError),
 }

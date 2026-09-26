@@ -11,6 +11,14 @@ def _span(values: list[int], unit: str) -> str:
     return f"{min(values)}..{max(values)}{unit}" if values else "n/a"
 
 
+def _signed_span(values: list[int], unit: str) -> str:
+    return (
+        f"{min(values):+d}..{max(values):+d}{unit}"
+        if values
+        else "n/a"
+    )
+
+
 def _numeric_values(lines: list[str], pattern: str) -> list[int]:
     return [
         int(match.group(1))
@@ -92,18 +100,42 @@ def _frontier_evidence(lines: list[str]) -> tuple[str, str]:
 def _first_foundry(lines: list[str]) -> str:
     witnesses = [line for line in lines if line.startswith("FIRST FOUNDRY EXPERIENCE ")]
     fabrication = _numeric_values(witnesses, r"\bfabrication=(\d+)t/")
-    charge = _numeric_values(witnesses, r"\belectrical-charge=\[(\d+)t")
-    melt = _numeric_values(witnesses, r"\bmelt=\[(\d+)t")
-    cast = _numeric_values(witnesses, r"\bcast=\[(\d+)t")
-    cold_work = _numeric_values(witnesses, r"\bcold-work:(\d+)t")
-    total = _numeric_values(witnesses, r"\btotal=(\d+)t/")
-    closed = sum(" continuation=closed-loop" in line for line in witnesses)
+    direct_native = _numeric_values(witnesses, r"\bdirect-native:(\d+)t")
+    native_fulfillment = _numeric_values(
+        witnesses,
+        r"\bdirect-native:\d+t reinforcement:\d+mg fulfillment:(\d+)ppm",
+    )
+    cold_rework = _numeric_values(witnesses, r"\bcold-rework:(\d+)t")
+    cold_fulfillment = _numeric_values(
+        witnesses,
+        r"\bcold-rework:\d+t reinforcement:\d+mg chips:\d+mg fulfillment:(\d+)ppm",
+    )
+    foundry_fulfillment = _numeric_values(
+        witnesses,
+        r"\bfoundry-active:\d+t reinforcement:\d+mg chips:\d+mg fulfillment:(\d+)ppm",
+    )
+    foundry_active = _numeric_values(witnesses, r"\bfoundry-active:(\d+)t")
+    attention_delta = [
+        int(match.group(1))
+        for line in witnesses
+        if (
+            match := re.search(r"\battention-delta:([+-]\d+)t", line)
+        )
+        is not None
+    ]
+    useful_gain = _numeric_values(witnesses, r"\buseful-gain:\+(\d+)mg")
+    foundry_deferred = sum(" foundry-deferred:true " in line for line in witnesses)
+    treadle_upgrade = sum(
+        " dynamo-path=treadle-additive-upgrade " in line for line in witnesses
+    )
     return (
         "first-foundry=["
-        f"executed:{len(witnesses)} closed-loop:{closed}/{len(witnesses)} "
-        f"fabrication:{_span(fabrication, 't')} charge:{_span(charge, 't')} "
-        f"melt:{_span(melt, 't')} cast:{_span(cast, 't')} "
-        f"ingot-rework:{_span(cold_work, 't')} total:{_span(total, 't')}]"
+        f"defer:{foundry_deferred}/{len(witnesses)} native:{_span(direct_native, 't')}/"
+        f"{scaled_span(native_fulfillment, 10_000, '%')} setup:{_span(fabrication, 't')} "
+        f"upgrade:{treadle_upgrade}/{len(witnesses)} recovery:{_span(cold_rework, 't')}/"
+        f"{scaled_span(cold_fulfillment, 10_000, '%')}->{_span(foundry_active, 't')}/"
+        f"{scaled_span(foundry_fulfillment, 10_000, '%')} "
+        f"gain:{scaled_span(useful_gain, 1_000, 'g')}/{_signed_span(attention_delta, 't')}]"
     )
 
 
@@ -159,6 +191,7 @@ def _route_tradeoff(lines: list[str]) -> str:
     attention_payback_jobs: list[int] = []
     attention_saved: list[int] = []
     planned_campaigns: list[int] = []
+    executed_campaigns: list[int] = []
     live_kit_justified = 0
     live_kit_routes = 0
     campaign_manual_attention: list[int] = []
@@ -188,38 +221,37 @@ def _route_tradeoff(lines: list[str]) -> str:
         powered_elapsed.append(elapsed_ticks)
         powered_charge_attention.append(charge_ticks)
         powered_native.append(powered_mass)
-        kit = re.search(r"base-kit=\[executed attention:(\d+)t", line)
         saved = manual_ticks - charge_ticks
         if saved > 0:
             attention_saved.append(saved)
         if " continuity=live-kit-used" in line:
             live_kit_routes += 1
-        campaign = re.search(
-            r"campaign=\[planned:(\d+)batches .*?"
-            r"(?:attention:manual:(\d+)t/powered:(\d+)t "
-            r"body:manual:(\d+)nJ/(\d+)uL powered:(\d+)nJ/(\d+)uL )?"
-            r"justified:([^\]]+)\]",
+        planned = re.search(r"campaign=\[planned:(\d+)batches", line)
+        executed = re.search(r"\bexecuted:(\d+)\b", line)
+        payback = re.search(r"\bkit-payback:(\d+)batches\b", line)
+        campaign_attention = re.search(
+            r"\battention:manual:(\d+)t/powered:(\d+)t\b", line
+        )
+        campaign_body = re.search(
+            r"\bbody:manual:(\d+)nJ/(\d+)uL powered:(\d+)nJ/(\d+)uL\b",
             line,
         )
-        if campaign is not None:
-            planned_campaigns.append(int(campaign.group(1)))
-            if campaign.group(2) is not None:
-                campaign_manual_attention.append(int(campaign.group(2)))
-                campaign_powered_attention.append(int(campaign.group(3)))
-                campaign_manual_energy.append(int(campaign.group(4)))
-                campaign_manual_hydration.append(int(campaign.group(5)))
-                campaign_powered_energy.append(int(campaign.group(6)))
-                campaign_powered_hydration.append(int(campaign.group(7)))
-            if (
-                " continuity=live-kit-used" in line
-                and campaign.group(8) == "true"
-            ):
-                live_kit_justified += 1
-        if kit is not None and saved > 0:
-            kit_ticks = int(kit.group(1))
-            attention_payback_jobs.append(
-                (kit_ticks + saved - 1) // saved
-            )
+        if planned is not None:
+            planned_campaigns.append(int(planned.group(1)))
+        if executed is not None and " continuity=live-kit-used" in line:
+            executed_campaigns.append(int(executed.group(1)))
+        if payback is not None and " continuity=live-kit-used" in line:
+            attention_payback_jobs.append(int(payback.group(1)))
+        if campaign_attention is not None:
+            campaign_manual_attention.append(int(campaign_attention.group(1)))
+            campaign_powered_attention.append(int(campaign_attention.group(2)))
+        if campaign_body is not None:
+            campaign_manual_energy.append(int(campaign_body.group(1)))
+            campaign_manual_hydration.append(int(campaign_body.group(2)))
+            campaign_powered_energy.append(int(campaign_body.group(3)))
+            campaign_powered_hydration.append(int(campaign_body.group(4)))
+        if " continuity=live-kit-used" in line and " justified:true" in line:
+            live_kit_justified += 1
     native_gain = [
         powered - manual
         for powered, manual in zip(powered_native, manual_native, strict=True)
@@ -244,6 +276,7 @@ def _route_tradeoff(lines: list[str]) -> str:
         f"acquisition-witnesses:{acquisition_witnesses} "
         f"controlled-preassembled:{preassembled_routes}] "
         f"disclosed-campaign:{_span(planned_campaigns, 'batches')} "
+        f"executed-campaign:{_span(executed_campaigns, 'batches')} "
         f"live-kit-justified:{live_kit_justified}/{live_kit_routes} "
         f"campaign-attention=[manual:{_span(campaign_manual_attention, 't')} "
         f"powered:{_span(campaign_powered_attention, 't')} "
@@ -263,24 +296,16 @@ def _kit_decision(lines: list[str]) -> str:
     selected_kit = 0
     selected_manual = 0
     for line in routes:
-        manual = re.search(r"manual=\[attention:(\d+)t", line)
-        powered = re.search(r"powered=\[elapsed:\d+t charge-attention:(\d+)t", line)
-        kit = re.search(r"base-kit=\[executed attention:(\d+)t", line)
         campaign = re.search(r"campaign=\[planned:(\d+)batches", line)
-        if None in (manual, powered, kit, campaign):
+        payback = re.search(r"\bkit-payback:(\d+)batches\b", line)
+        executed = re.search(r"\bexecuted:(\d+)\b", line)
+        if campaign is None or payback is None or executed is None:
             continue
-        assert manual is not None
-        assert powered is not None
-        assert kit is not None
-        assert campaign is not None
-        saved = int(manual.group(1)) - int(powered.group(1))
-        if saved <= 0:
-            continue
-        payback = (int(kit.group(1)) + saved - 1) // saved
         planned = int(campaign.group(1))
-        payback_jobs.append(payback)
+        actual_payback = int(payback.group(1))
+        payback_jobs.append(actual_payback)
         planned_batches.append(planned)
-        if planned >= payback:
+        if planned >= actual_payback and int(executed.group(1)) == planned:
             selected_kit += 1
         else:
             selected_manual += 1

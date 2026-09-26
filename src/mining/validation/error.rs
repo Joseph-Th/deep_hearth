@@ -5,7 +5,9 @@ use crate::core::quantity::{Mass, Pressure};
 use crate::core::throughput::MassFlowDurationError;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::equipment::EquipmentDefinitionId;
+use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
 use super::super::MiningJobId;
 
@@ -40,6 +42,19 @@ pub enum MiningJobValidationError {
     },
     WorkingEquipmentMounted {
         job: MiningJobId,
+    },
+    WorkingPlayerOutsideDeposit {
+        job: MiningJobId,
+        player_position: VoxelCoord,
+        bounds: VoxelBounds,
+    },
+    WorkingEquipmentAccess {
+        job: MiningJobId,
+        error: PlayerEquipmentAccessError,
+    },
+    WorkingDestinationAccess {
+        job: MiningJobId,
+        error: PlayerStockpileAccessError,
     },
     EquipmentConditionMismatch {
         job: MiningJobId,

@@ -273,21 +273,29 @@ fn copper_scrap_rework_is_slower_than_native_work_and_replays_exactly() {
         assert_eq!(actual, expected);
     }
     assert_eq!(loaded, state);
-    let output_lot = state
-        .inventory()
-        .lot_ids(destination)
-        .next()
-        .unwrap_or_else(|| panic!("scrap recovery reinforcement lot disappeared"));
-    let output = state
-        .inventory()
-        .get_lot(output_lot)
-        .unwrap_or_else(|| panic!("scrap recovery reinforcement record disappeared"));
     assert_eq!(
-        output.commodity(),
-        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| {
+                stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
+            }),
+        Some(Mass::from_milligrams(18_000))
     );
-    assert_eq!(output.mass(), Mass::from_milligrams(20_000));
-    assert_eq!(output.temperature(), temperature);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP))),
+        Some(Mass::from_milligrams(2_000))
+    );
+    for lot in state.inventory().lot_ids(destination) {
+        let record = state
+            .inventory()
+            .get_lot(lot)
+            .unwrap_or_else(|| panic!("scrap recovery output record disappeared"));
+        assert_eq!(record.temperature(), temperature);
+    }
     assert_eq!(
         state
             .inventory()
@@ -563,6 +571,48 @@ fn manual_craft_selection_is_not_poisoned_by_unselected_different_temperature_ma
         ManualCraftStartRequest::new(request, destination),
     )
     .unwrap_or_else(|error| panic!("selected homogeneous craft admission failed: {error}"));
+}
+
+#[test]
+fn copper_chip_residue_requires_melting_instead_of_recursive_cold_rework() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("copper chip survival setup failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("copper chip source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("copper chip destination failed: {error}"));
+    let chips = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_CHIP),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("copper chip fixture failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::single(
+                PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+                source,
+                MaterialLotSelection::new(chips, Mass::from_milligrams(20_000)),
+                destination,
+            ),
+        )
+        .err(),
+        Some(StartManualCraftError::Resolution(
+            ManualCraftError::InputCommodityMismatch {
+                expected: CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+            }
+        ))
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

@@ -9,6 +9,8 @@ impl Error for MiningJobValidationError {
         match self {
             Self::Duration { error, .. } => Some(error),
             Self::ConditionDuration { error, .. } => Some(error),
+            Self::WorkingEquipmentAccess { error, .. } => Some(error),
+            Self::WorkingDestinationAccess { error, .. } => Some(error),
             Self::UnknownMethod { .. }
             | Self::UnknownDeposit { .. }
             | Self::UnknownDestination { .. }
@@ -17,6 +19,7 @@ impl Error for MiningJobValidationError {
             | Self::WorkingEquipmentDefinitionMismatch { .. }
             | Self::WorkingEquipmentRequiresStructuralSupport { .. }
             | Self::WorkingEquipmentMounted { .. }
+            | Self::WorkingPlayerOutsideDeposit { .. }
             | Self::EquipmentConditionMismatch { .. }
             | Self::OutputProfileMismatch { .. }
             | Self::ZeroRequestedMass { .. }

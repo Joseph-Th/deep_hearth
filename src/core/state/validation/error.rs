@@ -12,6 +12,7 @@ use crate::inventory::{
     StorageEnclosureValidationError,
 };
 use crate::labor::PlayerWorkValidationError;
+use crate::logistics::LogisticsValidationError;
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialId, MaterialPhaseStateError, ParticleSizeStateError};
 use crate::mining::{MiningJobValidationError, MiningValidationError};
@@ -19,7 +20,10 @@ use crate::ore_processing::{
     ComminutionJobValidationError, ConstituentSeparationJobValidationError,
     ScreeningJobValidationError,
 };
-use crate::production::{ProcessId, ProductionJobId, ProductionValidationError};
+use crate::production::{
+    ProcessId, ProductionJobId, ProductionSiteEndpoint, ProductionValidationError,
+};
+use crate::spatial::VoxelCoord;
 use crate::structural::{
     StructuralAnalysisError, StructuralDamageEvent, StructuralElementId, StructureValidationError,
 };
@@ -40,6 +44,7 @@ pub enum StateValidationError {
     Geology(GeologyValidationError),
     GeologicalKnowledge(GeologicalKnowledgeValidationError),
     Inventory(InventoryValidationError),
+    Logistics(LogisticsValidationError),
     StorageEnclosure(StorageEnclosureValidationError),
     Production(ProductionValidationError),
     Mining(MiningValidationError),
@@ -87,6 +92,13 @@ pub enum StateValidationError {
     UnknownJobDestination {
         job: ProductionJobId,
         stockpile: StockpileId,
+    },
+    JobSpatialEndpointMismatch {
+        job: ProductionJobId,
+        first: ProductionSiteEndpoint,
+        first_position: VoxelCoord,
+        second: ProductionSiteEndpoint,
+        second_position: VoxelCoord,
     },
     UnknownJobEnergySource {
         job: ProductionJobId,

@@ -6,6 +6,7 @@ use crate::equipment::EquipmentDefinition;
 use crate::inventory::StockpileRecord;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::registry::Registries;
+use crate::spatial::VoxelBounds;
 
 use super::super::MiningJobValidationError;
 use crate::mining::{MiningJobRecord, MiningMethodDefinition};
@@ -18,6 +19,7 @@ pub(super) struct MiningJobReferences<'state> {
     pub(super) deposit_temperature: Temperature,
     pub(super) deposit_composition: &'state MaterialComposition,
     pub(super) deposit_remaining_mass: Mass,
+    pub(super) deposit_bounds: VoxelBounds,
     pub(super) excavation_hardness: Pressure,
 }
 
@@ -53,6 +55,7 @@ pub(super) fn resolve_mining_job_references<'state>(
         deposit_temperature: deposit.temperature(),
         deposit_composition: deposit.composition(),
         deposit_remaining_mass: deposit.remaining_mass(),
+        deposit_bounds: deposit.bounds(),
         excavation_hardness: deposit.excavation_hardness(),
     })
 }

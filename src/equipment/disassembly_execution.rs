@@ -67,6 +67,9 @@ pub struct ValidatedEquipmentDisassembly {
     equipment: EquipmentId,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
+    expected_logistics_revision: u64,
+    next_logistics_revision: Option<u64>,
+    detached_position: Option<crate::spatial::VoxelCoord>,
     expected_condition: Condition,
     expected_embodied_mass: Mass,
     ingress: ValidatedMaterialIngress,
@@ -78,6 +81,13 @@ impl ValidatedEquipmentDisassembly {
         self,
         state: &mut AppState,
     ) -> Result<EquipmentDisassemblyOutcome, EquipmentDisassemblyCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(EquipmentDisassemblyCommitError::StaleLogistics {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         if state.inventory().revision() != self.ingress.expected_revision() {
             return Err(EquipmentDisassemblyCommitError::StaleInventory {
                 expected: self.ingress.expected_revision(),
@@ -127,6 +137,18 @@ impl ValidatedEquipmentDisassembly {
             self.expected_equipment_revision,
             self.next_equipment_revision,
         );
+        if let (Some(next_revision), Some(position)) =
+            (self.next_logistics_revision, self.detached_position)
+        {
+            state
+                .logistics_state_mut()
+                .apply_equipment_location_removal(
+                    self.expected_logistics_revision,
+                    next_revision,
+                    self.equipment,
+                    position,
+                );
+        }
         let recovered_lots = apply_material_ingress(state.inventory_state_mut(), self.ingress);
         Ok(EquipmentDisassemblyOutcome { recovered_lots })
     }

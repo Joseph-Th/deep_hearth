@@ -20,6 +20,7 @@ pub mod fluid;
 pub mod geology;
 pub mod inventory;
 pub mod labor;
+pub mod logistics;
 pub mod mining;
 pub mod production;
 pub mod structural;

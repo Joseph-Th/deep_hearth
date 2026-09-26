@@ -12,6 +12,7 @@ use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
+use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputRoute, ProcessOutputStream, ProcessResolution,
     ProcessResolutionError, ProductionJobId, StartProcessCommitError, StartProcessError,
@@ -233,6 +234,7 @@ pub fn resolve_manual_constituent_separation_process(
 /// Failure while reserving a resolved manual separation job and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualConstituentSeparationError {
+    Access(PlayerStockpileAccessError),
     Process(StartProcessError),
     Work(PlayerWorkStartError),
 }
@@ -240,6 +242,7 @@ pub enum StartManualConstituentSeparationError {
 impl Display for StartManualConstituentSeparationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Access(error) => write!(formatter, "manual separation access failed: {error}"),
             Self::Process(error) => write!(formatter, "manual separation start failed: {error}"),
             Self::Work(error) => {
                 write!(formatter, "manual separation labor is unavailable: {error}")
@@ -251,6 +254,7 @@ impl Display for StartManualConstituentSeparationError {
 impl Error for StartManualConstituentSeparationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Access(error) => Some(error),
             Self::Process(error) => Some(error),
             Self::Work(error) => Some(error),
         }
@@ -259,6 +263,7 @@ impl Error for StartManualConstituentSeparationError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualConstituentSeparationCommitError {
+    StaleLogisticsRevision { expected: u64, actual: u64 },
     Process(StartProcessCommitError),
     Work(PlayerWorkCommitError),
 }
@@ -266,6 +271,10 @@ pub enum ManualConstituentSeparationCommitError {
 impl Display for ManualConstituentSeparationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "manual separation expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::Process(error) => write!(formatter, "manual separation commit failed: {error}"),
             Self::Work(error) => {
                 write!(formatter, "manual separation labor commit failed: {error}")
@@ -277,6 +286,7 @@ impl Display for ManualConstituentSeparationCommitError {
 impl Error for ManualConstituentSeparationCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::StaleLogisticsRevision { .. } => None,
             Self::Process(error) => Some(error),
             Self::Work(error) => Some(error),
         }
@@ -288,6 +298,7 @@ impl Error for ManualConstituentSeparationCommitError {
 pub struct ValidatedManualConstituentSeparationStart {
     process: ValidatedStartProcess,
     work: ValidatedPlayerWorkStart,
+    expected_logistics_revision: u64,
 }
 
 impl ValidatedManualConstituentSeparationStart {
@@ -295,6 +306,15 @@ impl ValidatedManualConstituentSeparationStart {
         self,
         state: &mut AppState,
     ) -> Result<ProductionJobId, ManualConstituentSeparationCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(
+                ManualConstituentSeparationCommitError::StaleLogisticsRevision {
+                    expected: self.expected_logistics_revision,
+                    actual: actual_logistics_revision,
+                },
+            );
+        }
         self.work
             .precheck(state)
             .map_err(ManualConstituentSeparationCommitError::Work)?;
@@ -325,6 +345,12 @@ pub fn validate_start_manual_constituent_separation(
                 process: process_id,
             },
         ))?;
+    validate_player_stockpile_access(state, source)
+        .map_err(StartManualConstituentSeparationError::Access)?;
+    validate_player_stockpile_access(state, target_destination)
+        .map_err(StartManualConstituentSeparationError::Access)?;
+    validate_player_stockpile_access(state, residue_destination)
+        .map_err(StartManualConstituentSeparationError::Access)?;
     let routes = [
         ProcessOutputRoute::new(
             ManualConstituentSeparationProcessDefinition::TARGET_STREAM,
@@ -353,5 +379,9 @@ pub fn validate_start_manual_constituent_separation(
         definition.exertion(),
     )
     .map_err(StartManualConstituentSeparationError::Work)?;
-    Ok(ValidatedManualConstituentSeparationStart { process, work })
+    Ok(ValidatedManualConstituentSeparationStart {
+        process,
+        work,
+        expected_logistics_revision: state.logistics().revision(),
+    })
 }

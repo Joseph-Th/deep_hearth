@@ -1,6 +1,9 @@
 //! Exact reverse-index coverage for immutable built-in manual craft relationships.
 
-use crate::content::{FORM_BOARD, MATERIAL_WOOD, build_registries};
+use crate::content::{
+    FORM_BOARD, MATERIAL_WOOD, PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_SAW_WOOD_BOARDS,
+    build_registries,
+};
 use crate::material::CommodityKey;
 
 #[test]
@@ -38,4 +41,16 @@ fn manual_craft_reverse_indexes_match_authored_board_edges_in_stable_process_ord
         .map(super::ManualCraftDefinition::process)
         .collect::<Vec<_>>();
     assert_eq!(consumers, expected_consumers);
+}
+
+#[test]
+fn powered_variants_group_machine_execution_under_the_manual_transform() {
+    let registries = build_registries();
+    let variants = registries
+        .crafting()
+        .powered_variants(PROCESS_SAW_WOOD_BOARDS)
+        .map(super::PoweredCraftDefinition::process)
+        .collect::<Vec<_>>();
+
+    assert_eq!(variants, vec![PROCESS_POWER_SAW_WOOD_BOARDS]);
 }

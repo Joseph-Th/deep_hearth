@@ -8,7 +8,13 @@ impl Error for PlayerWorkValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::ManualPowerConditionDuration(error) => Some(error),
+            Self::ManualPowerEquipmentAccess(error) => Some(error),
+            Self::ManualPowerDestinationAccess(error) => Some(error),
             Self::ProspectingEquipmentConditionDuration(error) => Some(error),
+            Self::ProspectingEquipmentAccess(error) => Some(error),
+            Self::EquipmentMaintenanceAccess(error) => Some(error),
+            Self::ManualProductionAccess(error) => Some(error),
+            Self::StorageDismantlingAccess(error) => Some(error),
             Self::StorageDismantlingRecoveryStorage(error) => Some(error),
             Self::WorkWithoutPlayer
             | Self::RevisionExhausted
@@ -48,6 +54,7 @@ impl Error for PlayerWorkValidationError {
             | Self::ProspectingUnknownMaterial { .. }
             | Self::ProspectingRegionVolumeOverflow
             | Self::ProspectingRegionTooLarge { .. }
+            | Self::ProspectingPlayerOutsideRegion { .. }
             | Self::ProspectingEquipmentMissing
             | Self::ProspectingUnexpectedEquipment { .. }
             | Self::ProspectingEquipmentDefinitionMismatch

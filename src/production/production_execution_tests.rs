@@ -23,6 +23,7 @@ use crate::inventory::{
     add_solid_stockpile_for_test, add_stockpile, deposit_bulk_for_test, deposit_lot_for_test,
     deposit_lot_spec_for_test, validate_material_relocation_for_test, validate_mount_stockpile,
 };
+use crate::logistics::validate_place_ground_stockpile;
 use crate::maintenance::Condition;
 use crate::material::{
     CommodityKey, MaterialComposition, MaterialLotSpec, ParticleSizeClass,
@@ -34,7 +35,8 @@ use crate::ore_processing::{
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
-    ProductionJobRecord, ProductionValidationError, validate_process_inputs,
+    ProductionJobRecord, ProductionSiteEndpoint, ProductionValidationError,
+    validate_process_inputs,
 };
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
@@ -262,6 +264,129 @@ fn unstarted_process_fixture() -> (Registries, AppState, StockpileId, StockpileI
     let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 20);
     (registries, state, source, destination)
+}
+
+#[test]
+fn process_start_rejects_separated_known_endpoints() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resources = add_test_heating_resources(&registries, &mut state);
+    let resolved = resolve_test_heating(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    let source_position = VoxelCoord::new(0, 0, 0);
+    validate_place_ground_stockpile(&state, source, source_position)
+        .unwrap_or_else(|error| panic!("production-site source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("production-site source placement commit failed: {error}"));
+    let energy_position = VoxelCoord::new(1, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        resources.energy,
+        energy_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_process(&registries, &state, &resolved, source, destination,).err(),
+        Some(StartProcessError::SpatialEndpointMismatch {
+            first: ProductionSiteEndpoint::Source(source),
+            first_position: source_position,
+            second: ProductionSiteEndpoint::EnergyStore(resources.energy),
+            second_position: energy_position,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn process_start_token_rejects_logistics_change_before_commit() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolved = make_test_resolution(&registries, &mut state, source);
+    let validated = validate_start_process(&registries, &state, &resolved, source, destination)
+        .unwrap_or_else(|error| panic!("stale production-site validation failed: {error}"));
+    let expected = state.logistics().revision();
+    validate_place_ground_stockpile(&state, source, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("stale production-site placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale production-site placement commit failed: {error}"));
+    let actual = state.logistics().revision();
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(StartProcessCommitError::StaleLogisticsRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_running_process_with_separated_active_endpoints() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resources = add_test_heating_resources(&registries, &mut state);
+    let resolved = resolve_test_heating(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    let position = VoxelCoord::new(0, 0, 0);
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, position)
+            .unwrap_or_else(|error| panic!("running production-site placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("running production-site placement commit failed: {error}")
+            });
+    }
+    let equipment_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        equipment_revision,
+        equipment_revision + 1,
+        resources.equipment,
+        position,
+    );
+    let energy_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        energy_revision,
+        energy_revision + 1,
+        resources.energy,
+        position,
+    );
+    let job = validate_start_process(&registries, &state, &resolved, source, destination)
+        .unwrap_or_else(|error| panic!("running production-site validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("running production-site commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let remote_position = VoxelCoord::new(1, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("running production-site serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["detached_equipment"]
+        [resources.equipment.value().to_string()] = serde_json::json!({"x": 1, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("running production-site decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::JobSpatialEndpointMismatch {
+                job,
+                first: ProductionSiteEndpoint::Equipment(resources.equipment),
+                first_position: remote_position,
+                second: ProductionSiteEndpoint::Destination(destination),
+                second_position: position,
+            }
+        ))
+    );
 }
 
 fn add_active_stockpile_support(

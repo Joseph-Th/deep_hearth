@@ -13,12 +13,9 @@ mod records;
 mod storage_history;
 
 pub(super) use lot_mutation::{
-    LotSlice, apply_aggregate_withdraw, apply_consume_lot_slice, apply_insert_or_merge_new_lot,
+    LotSlice, LotStorageTransition, apply_aggregate_deposit, apply_aggregate_withdraw,
+    apply_consume_lot_slice, apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
     get_stockpile_mut_or_panic,
-};
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(super) use lot_mutation::{
-    LotStorageTransition, apply_aggregate_deposit, apply_move_full_lot, apply_split_lot,
 };
 pub(crate) use records::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, PureMaterialTraceValidationError,
@@ -73,7 +70,6 @@ impl InventoryState {
         self.support_revision
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) const fn next_stockpile_id(&self) -> u32 {
         self.next_stockpile_id
     }
@@ -82,7 +78,6 @@ impl InventoryState {
         self.next_lot_id
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) fn insert_stockpile(
         &mut self,
         record: StockpileRecord,

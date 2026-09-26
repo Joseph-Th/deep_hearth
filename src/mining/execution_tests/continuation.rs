@@ -238,9 +238,11 @@ fn validated_mining_start_rejects_hidden_reserve_change_without_disclosing_amoun
     )
     .unwrap_or_else(|error| panic!("reserve-stale mining validation failed: {error}"));
     let geology_revision = state.geology().revision();
+    let extraction_tick = state.tick();
     state.geology_state_mut().apply_extraction(
         deposit,
         Mass::from_milligrams(100_000),
+        extraction_tick,
         geology_revision + 1,
     );
     let before = state.clone();

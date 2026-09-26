@@ -5,10 +5,12 @@ use std::fmt::{Display, Formatter};
 
 use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError, ProspectingMethodId};
+use crate::logistics::PlayerEquipmentAccessError;
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::MaterialId;
 use crate::mining::MiningJobId;
 use crate::production::ProductionJobId;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FieldProspectingStartError {
@@ -23,6 +25,10 @@ pub enum FieldProspectingStartError {
         actual: u128,
         maximum: u128,
     },
+    PlayerOutsideRegion {
+        player_position: VoxelCoord,
+        region: VoxelBounds,
+    },
     EquipmentRequired {
         method: ProspectingMethodId,
     },
@@ -31,6 +37,7 @@ pub enum FieldProspectingStartError {
         equipment: EquipmentId,
     },
     Equipment(EquipmentProviderError),
+    EquipmentAccess(PlayerEquipmentAccessError),
     EquipmentMounted {
         equipment: EquipmentId,
     },
@@ -77,6 +84,26 @@ impl Display for FieldProspectingStartError {
                 formatter,
                 "prospecting region contains {actual} voxels but method allows at most {maximum}"
             ),
+            Self::PlayerOutsideRegion {
+                player_position,
+                region,
+            } => {
+                let min = region.min();
+                let max = region.max_exclusive();
+                write!(
+                    formatter,
+                    "player at voxel ({},{},{}) is outside prospecting region [({},{},{}),({},{},{}))",
+                    player_position.x(),
+                    player_position.y(),
+                    player_position.z(),
+                    min.x(),
+                    min.y(),
+                    min.z(),
+                    max.x(),
+                    max.y(),
+                    max.z()
+                )
+            }
             Self::EquipmentRequired { method } => write!(
                 formatter,
                 "prospecting method {} requires a physical sampling instrument",
@@ -90,6 +117,9 @@ impl Display for FieldProspectingStartError {
             ),
             Self::Equipment(error) => {
                 write!(formatter, "prospecting equipment unavailable: {error}")
+            }
+            Self::EquipmentAccess(error) => {
+                write!(formatter, "prospecting equipment access failed: {error}")
             }
             Self::EquipmentMounted { equipment } => write!(
                 formatter,
@@ -145,11 +175,13 @@ impl Error for FieldProspectingStartError {
         match self {
             Self::Work(error) => Some(error),
             Self::Equipment(error) => Some(error),
+            Self::EquipmentAccess(error) => Some(error),
             Self::ConditionDuration(error) => Some(error),
             Self::UnknownMethod { .. }
             | Self::UnknownMaterial { .. }
             | Self::RegionVolumeOverflow
             | Self::RegionTooLarge { .. }
+            | Self::PlayerOutsideRegion { .. }
             | Self::EquipmentRequired { .. }
             | Self::UnexpectedEquipment { .. }
             | Self::EquipmentMounted { .. }
@@ -168,6 +200,10 @@ impl Error for FieldProspectingStartError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FieldProspectingCommitError {
     Work(PlayerWorkCommitError),
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleEquipmentRevision {
         expected: u64,
         actual: u64,
@@ -189,6 +225,10 @@ impl Display for FieldProspectingCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Work(error) => write!(formatter, "prospecting labor commit failed: {error}"),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "prospecting expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
                 "prospecting equipment expected revision {expected} but current revision is {actual}"
@@ -218,7 +258,8 @@ impl Error for FieldProspectingCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Work(error) => Some(error),
-            Self::StaleEquipmentRevision { .. }
+            Self::StaleLogisticsRevision { .. }
+            | Self::StaleEquipmentRevision { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. } => None,

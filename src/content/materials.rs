@@ -248,51 +248,148 @@ fn register_materials(registry: &mut MaterialRegistry) {
 }
 
 fn register_commodities(registry: &mut MaterialRegistry) {
-    for commodity in [
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-        CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
-        CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
-        CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
-        CommodityKey::new(MATERIAL_WOOD, FORM_INSULATED_PANTRY_BODY),
-        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
-        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
-        CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
-        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
-        CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
-        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
-        CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
-        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-        CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
-        CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-        CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
-        CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
-        CommodityKey::new(MATERIAL_SLAG, FORM_EXHAUSTED_TAILINGS),
-        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
-        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-        CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
-        CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD),
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
-        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-        CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT),
-        CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL),
-        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
-        CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
-        CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
-        CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
-        CommodityKey::new(MATERIAL_STONE, FORM_EXHAUSTED_TAILINGS),
-        CommodityKey::new(MATERIAL_CLAY, FORM_CRUSHED),
-        CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
-        CommodityKey::new(MATERIAL_CLAY, FORM_EXHAUSTED_TAILINGS),
+    for (commodity, name) in [
+        (CommodityKey::new(MATERIAL_WOOD, FORM_LOG), "timber log"),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), "wood handle"),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_BOARD), "timber board"),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+            "timber chest body",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
+            "double-wall timber chest body",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+            "bulk timber crate body",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_INSULATED_PANTRY_BODY),
+            "insulated timber pantry body",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+            "rough timber field box body",
+        ),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_CHIP), "wood chips"),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP), "wood scrap"),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL),
+            "timber riddle panel",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
+            "timber flywheel",
+        ),
+        (CommodityKey::new(MATERIAL_COPPER, FORM_ORE), "copper ore"),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+            "crushed copper ore",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
+            "copper concentrate",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+            "copper ingot",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            "molten copper",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            "copper reinforcement",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCREEN_PLATE),
+            "copper sizing screen plate",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
+            "copper frame-saw blade",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+            "native copper",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+            "copper scrap",
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_CHIP),
+            "copper chips",
+        ),
+        (
+            CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
+            "crushed slag",
+        ),
+        (
+            CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
+            "slag tailings",
+        ),
+        (
+            CommodityKey::new(MATERIAL_SLAG, FORM_EXHAUSTED_TAILINGS),
+            "exhausted slag tailings",
+        ),
+        (CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD), "grain"),
+        (CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD), "berries"),
+        (CommodityKey::new(MATERIAL_MEAT, FORM_FOOD), "meat"),
+        (
+            CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD),
+            "roasted legumes",
+        ),
+        (CommodityKey::new(MATERIAL_STONE, FORM_LUMP), "stone"),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
+            "carved stone provisions crock body",
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            "knapped stone tool",
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT),
+            "knapped stone drill bit",
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL),
+            "stone grindstone wheel",
+        ),
+        (CommodityKey::new(MATERIAL_STONE, FORM_CHIP), "stone chips"),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+            "stone flywheel",
+        ),
+        (CommodityKey::new(MATERIAL_STONE, FORM_SCRAP), "stone scrap"),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
+            "crushed stone",
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
+            "stone tailings",
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_EXHAUSTED_TAILINGS),
+            "exhausted stone tailings",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_CRUSHED),
+            "crushed clay",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
+            "clay tailings",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_EXHAUSTED_TAILINGS),
+            "exhausted clay tailings",
+        ),
     ] {
-        registry.register_commodity(commodity);
+        registry.register_commodity(commodity, name);
     }
 }

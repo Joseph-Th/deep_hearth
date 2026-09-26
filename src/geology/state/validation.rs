@@ -65,7 +65,44 @@ fn validate_geological_deposit(
             current,
         });
     }
+    validate_deposit_timeline(key, record, current)?;
     Ok(())
+}
+
+fn validate_deposit_timeline(
+    deposit: GeologicalDepositId,
+    record: &GeologicalDepositRecord,
+    current: SimulationTick,
+) -> Result<(), GeologyValidationError> {
+    match (record.lifecycle, record.depleted_at) {
+        (GeologicalDepositLifecycle::Available, None) => Ok(()),
+        (GeologicalDepositLifecycle::Available, Some(depleted_at)) => {
+            Err(GeologyValidationError::AvailableHasDepletionTick {
+                deposit,
+                depleted_at,
+            })
+        }
+        (GeologicalDepositLifecycle::Depleted, None) => {
+            Err(GeologyValidationError::DepletedMissingDepletionTick { deposit })
+        }
+        (GeologicalDepositLifecycle::Depleted, Some(depleted_at)) => {
+            if depleted_at < record.generated_at {
+                return Err(GeologyValidationError::DepletionBeforeGeneration {
+                    deposit,
+                    generated_at: record.generated_at,
+                    depleted_at,
+                });
+            }
+            if depleted_at > current {
+                return Err(GeologyValidationError::DepletedInFuture {
+                    deposit,
+                    depleted_at,
+                    current,
+                });
+            }
+            Ok(())
+        }
+    }
 }
 
 fn validate_deposit_mass_and_lifecycle(

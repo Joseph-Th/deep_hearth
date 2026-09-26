@@ -1,5 +1,6 @@
 //! Owns inventory custody, deterministic material selection, and validated matter mutation.
 
+pub(crate) mod allocation;
 mod coalescing;
 mod enclosure_dismantling;
 mod enclosure_execution;
@@ -54,13 +55,12 @@ pub(crate) use reserved_ingress::{
     ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositReceipt, ReservedDepositRequest,
     apply_reserved_deposits, decide_reserved_deposits,
 };
-pub use selection::MaterialLotSelection;
 pub(crate) use selection::{
-    ConsumptionReservation, ConsumptionSelection, ConsumptionSelectionError,
-    ExplicitConsumptionSelectionError, ReservationError, apply_prechecked_consumption_reservation,
-    validate_consumption_reservation_from_selection, validate_consumption_selection,
-    validate_explicit_consumption_selection,
+    ConsumptionReservation, ConsumptionSelection, ConsumptionSelectionError, ReservationError,
+    apply_prechecked_consumption_reservation, validate_consumption_reservation_from_selection,
+    validate_consumption_selection, validate_explicit_consumption_selection,
 };
+pub use selection::{ExplicitConsumptionSelectionError, MaterialLotSelection};
 pub(crate) use state::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialStorageHistory, PureMaterialTraceValidationError,
     STORAGE_AGE_PARTS_PER_TICK, checked_consumed_material_mass, validate_loaded_inventory,
@@ -87,13 +87,11 @@ pub use structural_integration::{
 };
 pub(crate) use transactions::{
     MaterialEgressError, MaterialReformCommitError, MaterialReformError, ValidatedMaterialEgress,
-    ValidatedMaterialReform, apply_material_egress, validate_material_egress_from_selection,
-    validate_material_reform_from_selection,
+    ValidatedMaterialReform, ValidatedMaterialRelocation, apply_material_egress,
+    validate_material_egress_from_selection, validate_material_reform_from_selection,
+    validate_material_relocation_from_selection,
 };
-#[cfg(feature = "test-gameplay")]
-pub(crate) use transactions::{
-    ValidatedMaterialRelocation, validate_material_relocation_from_selection,
-};
+pub use transactions::{MaterialRelocationCommitError, MaterialRelocationError};
 
 #[cfg(test)]
 pub(crate) use test_support::{
@@ -101,5 +99,3 @@ pub(crate) use test_support::{
     deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
     deposit_lot_spec_for_test, validate_material_relocation_for_test,
 };
-#[cfg(test)]
-pub(crate) use transactions::{MaterialRelocationCommitError, MaterialRelocationError};

@@ -10,6 +10,10 @@ pub enum MiningStartCommitError {
     TargetNoLongerResolved,
     /// Hidden source state changed after validation. Exact reserve values stay non-oracular.
     TargetChanged,
+    StaleLogistics {
+        expected: u64,
+        actual: u64,
+    },
     StaleInventory {
         expected: u64,
         actual: u64,
@@ -37,6 +41,10 @@ impl Display for MiningStartCommitError {
             ),
             Self::TargetChanged => formatter.write_str(
                 "validated mining target changed after validation; resolve the target again",
+            ),
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "validated mining start expected logistics revision {expected} but current revision is {actual}"
             ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
@@ -68,6 +76,7 @@ impl Error for MiningStartCommitError {
             Self::Work(error) => Some(error),
             Self::TargetNoLongerResolved
             | Self::TargetChanged
+            | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::StaleMining { .. }

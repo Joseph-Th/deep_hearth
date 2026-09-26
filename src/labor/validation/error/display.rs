@@ -22,6 +22,10 @@ impl Display for PlayerWorkValidationError {
             ),
             Self::ManualProductionScheduleInvalid => formatter
                 .write_str("player manual-production work has an invalid persisted schedule"),
+            Self::ManualProductionAccess(error) => write!(
+                formatter,
+                "player manual-production output access is invalid: {error}"
+            ),
             Self::MiningJobMissing => {
                 formatter.write_str("player work references missing mining job")
             }
@@ -49,6 +53,10 @@ impl Display for PlayerWorkValidationError {
             Self::ManualPowerEquipmentMissing => {
                 formatter.write_str("manual power work references missing equipment")
             }
+            Self::ManualPowerEquipmentAccess(error) => write!(
+                formatter,
+                "manual power equipment access is invalid: {error}"
+            ),
             Self::ManualPowerEquipmentDefinitionMismatch => formatter
                 .write_str("manual power equipment definition disagrees with its persisted trace"),
             Self::ManualPowerEquipmentConditionMismatch => formatter
@@ -62,6 +70,10 @@ impl Display for PlayerWorkValidationError {
             Self::ManualPowerDestinationMissing => {
                 formatter.write_str("manual power work references missing energy destination")
             }
+            Self::ManualPowerDestinationAccess(error) => write!(
+                formatter,
+                "manual power destination access is invalid: {error}"
+            ),
             Self::ManualPowerDestinationDefinitionMismatch => formatter.write_str(
                 "manual power destination definition disagrees with its persisted trace",
             ),
@@ -118,6 +130,26 @@ impl Display for PlayerWorkValidationError {
                 formatter,
                 "player prospecting region contains {actual} voxels but method allows at most {maximum}"
             ),
+            Self::ProspectingPlayerOutsideRegion {
+                player_position,
+                region,
+            } => {
+                let min = region.min();
+                let max = region.max_exclusive();
+                write!(
+                    formatter,
+                    "player at voxel ({},{},{}) is outside active prospecting region [({},{},{}),({},{},{}))",
+                    player_position.x(),
+                    player_position.y(),
+                    player_position.z(),
+                    min.x(),
+                    min.y(),
+                    min.z(),
+                    max.x(),
+                    max.y(),
+                    max.z()
+                )
+            }
             Self::ProspectingEquipmentMissing => formatter.write_str(
                 "player prospecting method requires a persisted physical sampling instrument",
             ),
@@ -125,6 +157,10 @@ impl Display for PlayerWorkValidationError {
                 formatter,
                 "player prospecting work unexpectedly occupies equipment {}",
                 equipment.value()
+            ),
+            Self::ProspectingEquipmentAccess(error) => write!(
+                formatter,
+                "player prospecting equipment access is invalid: {error}"
             ),
             Self::ProspectingEquipmentDefinitionMismatch => formatter.write_str(
                 "player prospecting equipment definition disagrees with its persisted trace",
@@ -193,6 +229,10 @@ impl Display for PlayerWorkValidationError {
             Self::EquipmentMaintenanceEquipmentMissing => {
                 formatter.write_str("equipment maintenance work references missing equipment")
             }
+            Self::EquipmentMaintenanceAccess(error) => write!(
+                formatter,
+                "equipment maintenance access is invalid: {error}"
+            ),
             Self::EquipmentMaintenanceDefinitionMismatch => formatter.write_str(
                 "equipment maintenance definition disagrees with its persisted equipment trace",
             ),
@@ -222,6 +262,10 @@ impl Display for PlayerWorkValidationError {
             ),
             Self::EquipmentMaintenanceEquipmentRevisionExhausted => formatter.write_str(
                 "active equipment maintenance cannot reserve its completion equipment revision",
+            ),
+            Self::StorageDismantlingAccess(error) => write!(
+                formatter,
+                "storage dismantling stockpile access is invalid: {error}"
             ),
             Self::StorageDismantlingTargetMissing => formatter
                 .write_str("storage dismantling work references a missing target stockpile"),

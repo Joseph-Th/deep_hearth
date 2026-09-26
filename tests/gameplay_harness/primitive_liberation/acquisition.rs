@@ -1,4 +1,11 @@
-//! Executed raw-material acquisition witness for the reusable primitive liberation kit.
+//! Executed raw-material-to-kit fabrication witness for the reusable primitive liberation kit.
+//!
+//! Raw stone and logs are disclosed pre-admission fixture state because ordinary world gathering and
+//! haulage do not yet have production owners. They begin in a logistics-owned ground stockpile at
+//! the player's persistent voxel, then cross the ordinary same-voxel pickup boundary into finite
+//! carried custody after admission. Everything after the raw world-source bootstrap crosses the
+//! canonical logistics, crafting, equipment, energy-store, labor, survival, and conservation
+//! boundaries.
 
 use std::collections::BTreeMap;
 
@@ -16,10 +23,16 @@ use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
+use deep_hearth::inventory::MaterialLotSelection;
+use deep_hearth::logistics::{
+    assess_player_carrying, validate_allocate_ground_stockpile,
+    validate_initialize_player_logistics, validate_pickup_from_ground,
+};
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
+use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::super::environment::ROOM_TEMPERATURE;
@@ -330,16 +343,27 @@ pub(super) fn acquire_raw_kit<T>(
         .unwrap_or(Mass::ZERO);
 
     let mut state = AppState::new();
-    let raw = add_solid_stockpile(&mut state, raw_mass);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    let raw = validate_initialize_player_logistics(&state, player_position, raw_mass)
+        .unwrap_or_else(|error| panic!("liberation carried-custody setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation carried-custody commit failed: {error}"))
+        .carried_stockpile();
+    let ground_raw = validate_allocate_ground_stockpile(&state, player_position, raw_mass)
+        .unwrap_or_else(|error| panic!("liberation ground raw allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation ground raw allocation commit failed: {error}"));
+    let mut pickup = Vec::new();
     for (commodity, mass) in raw_requirements {
-        seed_lot(
+        let lot = seed_lot(
             registries,
             &mut state,
-            raw,
+            ground_raw,
             commodity,
             mass,
             ROOM_TEMPERATURE,
         );
+        pickup.push(MaterialLotSelection::new(lot, mass));
     }
     let parts = add_solid_stockpile(&mut state, raw_mass);
     let panel_feed = add_solid_stockpile(&mut state, raw_mass);
@@ -352,6 +376,19 @@ pub(super) fn acquire_raw_kit<T>(
         .unwrap_or_else(|error| panic!("liberation kit matter setup failed: {error}"))
         .total();
     let started_at = state.tick().value();
+
+    validate_pickup_from_ground(registries, &state, ground_raw, &pickup)
+        .unwrap_or_else(|error| panic!("liberation same-voxel raw pickup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation same-voxel raw pickup commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(ground_raw)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "liberation ground bootstrap must be emptied through canonical pickup",
+    );
 
     for input in adze_profile.inputs() {
         craft_component(
@@ -429,6 +466,12 @@ pub(super) fn acquire_raw_kit<T>(
         Some(Mass::ZERO),
         "liberation kit raw witness must consume its exact disclosed stone/log opportunity",
     );
+    let carrying = assess_player_carrying(&state)
+        .unwrap_or_else(|| panic!("liberation carried-custody assessment disappeared"));
+    assert_eq!(carrying.position(), player_position);
+    assert_eq!(carrying.stockpile(), raw);
+    assert_eq!(carrying.capacity(), raw_mass);
+    assert_eq!(carrying.stored(), Mass::ZERO);
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("liberation kit final matter audit failed: {error}"))
@@ -449,7 +492,7 @@ pub(super) fn acquire_raw_kit<T>(
         .checked_sub(survival_after.hydration())
         .unwrap_or_else(|| panic!("liberation kit hydration reserve increased"));
     reviewln!(
-        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} scope=raw-stone+logs->adze+reusable-base-processing-kit disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] built=[adze:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:{}t body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} scope=raw-stone+logs->adze+reusable-base-processing-kit raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] built=[adze:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:{}t body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
         planned_batches,
         stone_raw.milligrams(),
         wood_raw.milligrams(),

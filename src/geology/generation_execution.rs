@@ -149,6 +149,7 @@ pub(crate) fn insert_generated_deposit(
         composition: spec.composition().clone(),
         lifecycle: GeologicalDepositLifecycle::Available,
         generated_at,
+        depleted_at: None,
     };
 
     state

@@ -11,6 +11,7 @@ use crate::fluid::{
     FluidDefinition, FluidDefinitionId, FluidEgressError, FluidValidationError, add_fluid_store,
     add_fluid_store_with_contents_for_fixture, validate_fluid_egress,
 };
+use crate::logistics::{LogisticsValidationError, validate_place_fluid_store};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
@@ -30,6 +31,94 @@ fn registries_with_material(material: crate::material::MaterialId) -> Registries
         "structural fluid fixture",
         material,
     )])
+}
+
+#[test]
+fn fluid_support_change_rejects_stale_logistics_before_structural_mutation() {
+    let registries = registries();
+    let mut state = AppState::new();
+    let support = add_active_support(&registries, &mut state, 0);
+    let store = add_filled(&registries, &mut state, 1_000_000);
+    let token = validate_mount_fluid_store(&registries, &state, store, support)
+        .unwrap_or_else(|error| panic!("stale fluid logistics setup failed: {error}"));
+    let expected = state.logistics().revision();
+    validate_place_fluid_store(&state, store, VoxelCoord::new(0, 0, 0))
+        .unwrap_or_else(|error| panic!("stale fluid logistics placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale fluid logistics placement commit failed: {error}"));
+    let actual = state.logistics().revision();
+    let before = state.clone();
+
+    assert_eq!(
+        token.commit(&mut state),
+        Err(FluidSupportCommitError::StaleLogisticsRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        state
+            .fluid()
+            .get_store(store)
+            .and_then(|record| record.supported_by()),
+        None
+    );
+}
+
+#[test]
+fn located_fluid_store_rejects_mount_to_disjoint_support() {
+    let registries = registries();
+    let mut state = AppState::new();
+    let support = add_active_support(&registries, &mut state, 0);
+    let store = add_filled(&registries, &mut state, 1_000);
+    let position = VoxelCoord::new(1, 0, 0);
+    validate_place_fluid_store(&state, store, position)
+        .unwrap_or_else(|error| panic!("disjoint fluid location setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("disjoint fluid location commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_mount_fluid_store(&registries, &state, store, support).err(),
+        Some(FluidSupportError::KnownStoreOutsideTarget {
+            store,
+            position,
+            element: support,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_located_fluid_store_outside_its_support() {
+    let registries = registries();
+    let mut state = AppState::new();
+    let support = add_active_support(&registries, &mut state, 0);
+    let store = add_filled(&registries, &mut state, 1_000);
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_place_fluid_store(&state, store, position)
+        .unwrap_or_else(|error| panic!("fluid support-location setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fluid support-location commit failed: {error}"));
+    let _ = mount(&registries, &mut state, store, support);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let remote = VoxelCoord::new(1, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("fluid support-location serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["fluid_stores"][store.value().to_string()] =
+        serde_json::json!({"x": 1, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("fluid support-location decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::FluidStoreOutsideSupport {
+                store,
+                position: remote,
+                element: support,
+            }
+        )))
+    );
 }
 
 #[test]

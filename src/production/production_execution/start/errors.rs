@@ -7,8 +7,10 @@ use crate::equipment::EquipmentId;
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
 use crate::material::{FormId, MaterialId};
 use crate::mining::MiningJobId;
+use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralElementId, StructuralLifecycle};
 
+use super::super::super::ProductionSiteEndpoint;
 use super::super::super::definitions::ProcessId;
 use super::super::super::resolution::ProcessOutputStreamId;
 use super::super::super::state::{ProductionJobId, ProductionOccupancyRelease};
@@ -58,6 +60,12 @@ pub enum StartProcessError {
     },
     MissingOutputRoute {
         stream: ProcessOutputStreamId,
+    },
+    SpatialEndpointMismatch {
+        first: ProductionSiteEndpoint,
+        first_position: VoxelCoord,
+        second: ProductionSiteEndpoint,
+        second_position: VoxelCoord,
     },
     DestinationStorage(StockpileStorageError),
     CapacityExceeded {

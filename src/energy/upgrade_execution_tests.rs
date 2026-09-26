@@ -19,10 +19,12 @@ use crate::energy::{
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerError, ManualPowerRequest, validate_start_manual_power};
+use crate::logistics::{PlayerEnergyStoreAccessError, validate_initialize_player_logistics};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
+use crate::spatial::VoxelCoord;
 use crate::survival::initialize_player_survival;
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -47,6 +49,47 @@ fn assemble_stone_flywheel(registries: &Registries, state: &mut AppState) -> Ene
         .unwrap_or_else(|error| panic!("flywheel upgrade assembly validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("flywheel upgrade assembly commit failed: {error}"))
+}
+
+#[test]
+fn energy_store_upgrade_rejects_known_remote_store() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = assemble_stone_flywheel(&registries, &mut state);
+    let source = reinforcement_source(&registries, &mut state);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote store upgrade logistics failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote store upgrade logistics commit failed: {error}"));
+    let store_position = VoxelCoord::new(1, 0, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        store,
+        store_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_upgrade_energy_store(
+            &registries,
+            &state,
+            store,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            source,
+        )
+        .err(),
+        Some(EnergyStoreUpgradeError::StoreAccess(
+            PlayerEnergyStoreAccessError::RemoteKnownEnergyStore {
+                store,
+                store_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
@@ -100,6 +143,32 @@ fn reinforcement_source(registries: &Registries, state: &mut AppState) -> Stockp
     )
     .unwrap_or_else(|error| panic!("flywheel reinforcement material failed: {error}"));
     source
+}
+
+#[test]
+fn energy_store_upgrade_reports_the_exact_missing_addition() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = assemble_stone_flywheel(&registries, &mut state);
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("missing-flywheel-upgrade stockpile failed: {error}"));
+
+    assert_eq!(
+        validate_upgrade_energy_store(
+            &registries,
+            &state,
+            store,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            source,
+        )
+        .err(),
+        Some(EnergyStoreUpgradeError::InsufficientMaterial {
+            stockpile: source,
+            commodity: CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            available: Mass::ZERO,
+            required: Mass::from_milligrams(20_000),
+        })
+    );
 }
 
 fn assemble_stone_crank(

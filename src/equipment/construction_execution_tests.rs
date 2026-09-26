@@ -5,15 +5,20 @@ use crate::content::{
     EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::Temperature;
-use crate::core::state::StateValidationError;
+use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::equipment::EquipmentValidationError;
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
 };
+use crate::logistics::{
+    PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::spatial::VoxelCoord;
 
 fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::StockpileId) {
     let registries = build_registries();
@@ -41,6 +46,76 @@ fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::Stockp
         .unwrap_or_else(|error| panic!("assembly exhaustion material fixture failed: {error}"));
     }
     (registries, state, source)
+}
+
+#[test]
+fn equipment_assembly_at_initialized_player_creates_detached_world_location() {
+    let (registries, mut state, source) = unassembled_pick_fixture();
+    let position = VoxelCoord::new(4, -1, 2);
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("located equipment logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("located equipment logistics commit failed: {error}"));
+
+    let equipment = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
+        .unwrap_or_else(|error| panic!("located equipment assembly failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("located equipment assembly commit failed: {error}"));
+
+    assert_eq!(
+        state.logistics().equipment_position(equipment),
+        Some(position)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn equipment_assembly_rejects_known_remote_material_source() {
+    let (registries, mut state, source) = unassembled_pick_fixture();
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote equipment logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote equipment logistics commit failed: {error}"));
+    let source_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, source, source_position)
+        .unwrap_or_else(|error| panic!("remote equipment placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote equipment placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source).err(),
+        Some(EquipmentAssemblyError::Access(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: source,
+                stockpile_position: source_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn equipment_assembly_token_rejects_location_added_after_validation() {
+    let (registries, mut state, source) = unassembled_pick_fixture();
+    let validated = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
+        .unwrap_or_else(|error| panic!("stale equipment assembly validation failed: {error}"));
+    validate_place_ground_stockpile(&state, source, VoxelCoord::new(2, 0, 0))
+        .unwrap_or_else(|error| panic!("stale equipment source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale equipment source placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(EquipmentAssemblyCommitError::StaleLogistics {
+            expected: 0,
+            actual: 1,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
@@ -105,6 +180,7 @@ fn composite_pick_requires_both_authored_inputs_and_rejects_forged_embodiment() 
         validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source).err(),
         Some(EquipmentAssemblyError::InsufficientMaterial {
             stockpile: source,
+            commodity: CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
             available: Mass::ZERO,
             required: Mass::from_milligrams(200_000),
         })

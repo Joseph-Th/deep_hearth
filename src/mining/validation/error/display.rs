@@ -12,6 +12,38 @@ impl Display for MiningJobValidationError {
                 "mining job {} references an unknown method",
                 job.value()
             ),
+            Self::WorkingPlayerOutsideDeposit {
+                job,
+                player_position,
+                bounds,
+            } => {
+                let min = bounds.min();
+                let max = bounds.max_exclusive();
+                write!(
+                    formatter,
+                    "active mining job {} player at voxel ({},{},{}) is outside deposit bounds [({},{},{}),({},{},{}))",
+                    job.value(),
+                    player_position.x(),
+                    player_position.y(),
+                    player_position.z(),
+                    min.x(),
+                    min.y(),
+                    min.z(),
+                    max.x(),
+                    max.y(),
+                    max.z()
+                )
+            }
+            Self::WorkingEquipmentAccess { job, error } => write!(
+                formatter,
+                "active mining job {} equipment access is invalid: {error}",
+                job.value()
+            ),
+            Self::WorkingDestinationAccess { job, error } => write!(
+                formatter,
+                "active mining job {} destination access is invalid: {error}",
+                job.value()
+            ),
             Self::UnknownDeposit { job } => write!(
                 formatter,
                 "mining job {} references an unknown deposit",

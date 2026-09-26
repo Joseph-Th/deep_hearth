@@ -6,6 +6,7 @@ use crate::inventory::{
     StockpileStoredMassChange, validate_material_ingress, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
+use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId};
 use crate::registry::Registries;
@@ -163,6 +164,10 @@ pub fn validate_disassemble_equipment(
     if let Some(error) = validation_occupancy_error(state, equipment) {
         return Err(error);
     }
+    validate_player_equipment_access(state, equipment)
+        .map_err(EquipmentDisassemblyError::EquipmentAccess)?;
+    validate_player_stockpile_access(state, destination)
+        .map_err(EquipmentDisassemblyError::DestinationAccess)?;
 
     let ingress = validate_material_ingress(
         registries,
@@ -200,11 +205,24 @@ pub fn validate_disassemble_equipment(
     let next_equipment_revision = expected_equipment_revision
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("equipment headroom check includes disassembly revision"));
+    let expected_logistics_revision = state.logistics().revision();
+    let detached_position = state.logistics().equipment_position(equipment);
+    let next_logistics_revision = match detached_position {
+        Some(_) => Some(
+            expected_logistics_revision
+                .checked_add(1)
+                .ok_or(EquipmentDisassemblyError::LogisticsRevisionExhausted)?,
+        ),
+        None => None,
+    };
 
     Ok(ValidatedEquipmentDisassembly {
         equipment,
         expected_equipment_revision,
         next_equipment_revision,
+        expected_logistics_revision,
+        next_logistics_revision,
+        detached_position,
         expected_condition: record.condition(),
         expected_embodied_mass: record.embodied_mass(),
         ingress,

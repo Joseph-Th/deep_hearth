@@ -9,6 +9,7 @@ use crate::inventory::{
     validate_stockpile_storage, validate_storage_dismantling_target_for_completion,
 };
 use crate::labor::StorageEnclosureDismantlingWork;
+use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 
 use super::{
@@ -124,7 +125,8 @@ fn validate_completion_replay(
         StorageEnclosureDismantlingError::TargetContentsIncompatible { lot, .. } => {
             PlayerWorkValidationError::StorageDismantlingTargetContentsIncompatible { lot }
         }
-        StorageEnclosureDismantlingError::UnknownTarget { .. }
+        StorageEnclosureDismantlingError::Access(_)
+        | StorageEnclosureDismantlingError::UnknownTarget { .. }
         | StorageEnclosureDismantlingError::NotEnclosed { .. }
         | StorageEnclosureDismantlingError::UnknownDefinition { .. }
         | StorageEnclosureDismantlingError::TargetMounted { .. }
@@ -200,6 +202,10 @@ pub(super) fn validate_storage_enclosure_dismantling_work(
     available_hydration: Volume,
 ) -> Result<(), PlayerWorkValidationError> {
     validate_work_identity(active_jobs, &work)?;
+    validate_player_stockpile_access(state, work.target())
+        .map_err(PlayerWorkValidationError::StorageDismantlingAccess)?;
+    validate_player_stockpile_access(state, work.recovery_destination())
+        .map_err(PlayerWorkValidationError::StorageDismantlingAccess)?;
     let (target, enclosure) = validate_target(state, &work)?;
     validate_recovery_destination(registries, state, enclosure, &work)?;
     let (definition, remaining) =

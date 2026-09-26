@@ -3,6 +3,7 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
+use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
@@ -204,6 +205,10 @@ fn validate_manual_production_work(
     };
     if active_jobs.manual_production != Some(job) {
         return Err(PlayerWorkValidationError::ManualProductionMissingWork);
+    }
+    for stream in record.output_streams() {
+        validate_player_stockpile_access(state, stream.destination())
+            .map_err(PlayerWorkValidationError::ManualProductionAccess)?;
     }
     let remaining = match record.suspension() {
         Some(suspension) => suspension.remaining_active_time(),

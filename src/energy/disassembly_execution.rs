@@ -11,6 +11,7 @@ use crate::inventory::{
     apply_material_ingress, validate_material_ingress, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
+use crate::logistics::{validate_player_energy_store_access, validate_player_stockpile_access};
 use crate::registry::Registries;
 
 use super::{EnergyStoreId, EnergyStoreOccupancy, energy_store_occupancy};
@@ -80,6 +81,9 @@ pub struct ValidatedEnergyStoreDisassembly {
     store: EnergyStoreId,
     expected_energy_revision: u64,
     next_energy_revision: u64,
+    expected_logistics_revision: u64,
+    next_logistics_revision: Option<u64>,
+    detached_position: Option<crate::spatial::VoxelCoord>,
     expected_embodied_mass: Mass,
     ingress: ValidatedMaterialIngress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
@@ -90,6 +94,13 @@ impl ValidatedEnergyStoreDisassembly {
         self,
         state: &mut AppState,
     ) -> Result<EnergyStoreDisassemblyOutcome, EnergyStoreDisassemblyCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(EnergyStoreDisassemblyCommitError::StaleLogistics {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         if state.inventory().revision() != self.ingress.expected_revision() {
             return Err(EnergyStoreDisassemblyCommitError::StaleInventory {
                 expected: self.ingress.expected_revision(),
@@ -139,6 +150,18 @@ impl ValidatedEnergyStoreDisassembly {
             self.expected_energy_revision,
             self.next_energy_revision,
         );
+        if let (Some(next_revision), Some(position)) =
+            (self.next_logistics_revision, self.detached_position)
+        {
+            state
+                .logistics_state_mut()
+                .apply_energy_store_location_removal(
+                    self.expected_logistics_revision,
+                    next_revision,
+                    self.store,
+                    position,
+                );
+        }
         let recovered_lots = apply_material_ingress(state.inventory_state_mut(), self.ingress);
         Ok(EnergyStoreDisassemblyOutcome { recovered_lots })
     }
@@ -177,6 +200,10 @@ pub fn validate_disassemble_energy_store(
         }
         None => {}
     }
+    validate_player_energy_store_access(state, store)
+        .map_err(EnergyStoreDisassemblyError::StoreAccess)?;
+    validate_player_stockpile_access(state, destination)
+        .map_err(EnergyStoreDisassemblyError::DestinationAccess)?;
 
     let ingress = validate_material_ingress(
         registries,
@@ -214,11 +241,24 @@ pub fn validate_disassemble_energy_store(
     let next_energy_revision = expected_energy_revision.checked_add(1).unwrap_or_else(|| {
         unreachable!("energy headroom check includes store disassembly revision")
     });
+    let expected_logistics_revision = state.logistics().revision();
+    let detached_position = state.logistics().energy_store_position(store);
+    let next_logistics_revision = match detached_position {
+        Some(_) => Some(
+            expected_logistics_revision
+                .checked_add(1)
+                .ok_or(EnergyStoreDisassemblyError::LogisticsRevisionExhausted)?,
+        ),
+        None => None,
+    };
 
     Ok(ValidatedEnergyStoreDisassembly {
         store,
         expected_energy_revision,
         next_energy_revision,
+        expected_logistics_revision,
+        next_logistics_revision,
+        detached_position,
         expected_embodied_mass: record.embodied_mass(),
         ingress,
         structural_load,

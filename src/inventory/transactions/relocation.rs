@@ -22,7 +22,7 @@ mod errors;
 mod integrity;
 mod planning;
 
-pub(crate) use errors::{MaterialRelocationCommitError, MaterialRelocationError};
+pub use errors::{MaterialRelocationCommitError, MaterialRelocationError};
 use planning::{
     plan_lot_transfers, validate_destination_mass, validate_destination_storage,
     validate_relocation_endpoints,

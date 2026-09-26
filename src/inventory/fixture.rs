@@ -5,7 +5,6 @@
 //! canonical owner paths used by runtime systems. The gameplay harness reaches it only through
 //! `content::gameplay_fixture`.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -15,10 +14,11 @@ use crate::material::{CommodityKey, MaterialComposition, MaterialLotSpec, Materi
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+use super::allocation::{EmptyStockpileAllocationError, validate_empty_stockpile_allocation};
 use super::ingress::{
     MaterialIngressEntry, MaterialIngressError, apply_material_ingress, validate_material_ingress,
 };
-use super::state::{MaterialLotId, StockpileId, StockpileRecord, StockpileStorageProfile};
+use super::state::{MaterialLotId, StockpileId, StockpileStorageProfile};
 use super::structural_integration::{
     StockpileStoredMassChange, StockpileStructuralLoadError, validate_stockpile_stored_mass_changes,
 };
@@ -32,25 +32,7 @@ pub(crate) enum MaterialFixtureError {
     StructuralCommit(StructuralCommitError),
 }
 
-/// Failure while allocating a controlled empty stockpile fixture.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AddStockpileError {
-    ZeroCapacity,
-    IdExhausted,
-    RevisionExhausted,
-}
-
-impl Display for AddStockpileError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ZeroCapacity => formatter.write_str("stockpile capacity must be nonzero"),
-            Self::IdExhausted => formatter.write_str("stockpile identifier space is exhausted"),
-            Self::RevisionExhausted => formatter.write_str("inventory revision space is exhausted"),
-        }
-    }
-}
-
-impl Error for AddStockpileError {}
+pub(crate) type AddStockpileError = EmptyStockpileAllocationError;
 
 impl Display for MaterialFixtureError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
@@ -75,32 +57,11 @@ pub(crate) fn add_stockpile(
     capacity: Mass,
     storage_profile: StockpileStorageProfile,
 ) -> Result<StockpileId, AddStockpileError> {
-    if capacity.is_zero() {
-        return Err(AddStockpileError::ZeroCapacity);
-    }
-
-    let inventories = state.inventory_state_mut();
-    let id = StockpileId::new(inventories.next_stockpile_id());
-    let Some(next_id) = inventories.next_stockpile_id().checked_add(1) else {
-        return Err(AddStockpileError::IdExhausted);
-    };
-    let Some(next_revision) = inventories.revision().checked_add(1) else {
-        return Err(AddStockpileError::RevisionExhausted);
-    };
-
-    let record = StockpileRecord {
-        id,
-        capacity,
-        storage_profile,
-        enclosure: None,
-        supported_by: None,
-        stored_mass: Mass::ZERO,
-        reserved_inbound: Mass::ZERO,
-        contents: BTreeMap::new(),
-    };
-
-    inventories.insert_stockpile(record, next_id, next_revision);
-    Ok(id)
+    validate_empty_stockpile_allocation(state.inventory(), capacity, storage_profile)?
+        .commit(state)
+        .map_err(|error| {
+            unreachable!("synchronous fixture stockpile allocation became stale: {error}")
+        })
 }
 
 impl Error for MaterialFixtureError {

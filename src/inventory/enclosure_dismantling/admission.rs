@@ -2,6 +2,7 @@
 
 use crate::core::state::AppState;
 use crate::labor::{PlayerWork, StorageEnclosureDismantlingWork, validate_player_work_start};
+use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 
 use super::super::{
@@ -185,6 +186,10 @@ pub fn validate_start_storage_enclosure_dismantling(
     target: StockpileId,
     recovery_destination: StockpileId,
 ) -> Result<ValidatedStorageEnclosureDismantlingStart, StorageEnclosureDismantlingError> {
+    validate_player_stockpile_access(state, target)
+        .map_err(StorageEnclosureDismantlingError::Access)?;
+    validate_player_stockpile_access(state, recovery_destination)
+        .map_err(StorageEnclosureDismantlingError::Access)?;
     let (target_record, enclosure) = validate_dismantling_target(state, target)?;
     validate_dismantling_recovery_destination(state, target, recovery_destination)?;
     let definition = enclosure.definition();
@@ -234,6 +239,7 @@ pub fn validate_start_storage_enclosure_dismantling(
         definition,
         enclosure_created_at: enclosure.created_at(),
         expected_profile: target_record.storage_profile(),
+        expected_logistics_revision: state.logistics().revision(),
         reservation,
         work,
         player_work,

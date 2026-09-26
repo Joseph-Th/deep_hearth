@@ -143,6 +143,12 @@ def _foundry_summary(lines: list[str]) -> str | None:
     recovery_casts, remainders, recovery_cleared, stranded = _foundry_recovery_counts(
         foundry
     )
+    cooldown_ticks = [
+        int(match.group(1))
+        for line in foundry
+        if (match := re.search(r"\bcooldown:(\d+)t", line)) is not None
+        and int(match.group(1)) > 0
+    ]
     unmelted_span = (
         f"{min(unmelted_masses)}..{max(unmelted_masses)}mg"
         if unmelted_masses
@@ -157,8 +163,8 @@ def _foundry_summary(lines: list[str]) -> str | None:
         f"cast-capacity-limited={sum('cast-limit=thermal-sink-capacity' in line for line in foundry)} "
         f"feed-deferred=[orders:{len(unmelted_masses)} retained:{retained_unmelted}/{len(unmelted_masses)} mass:{unmelted_span}] "
         f"cast-recovery=[remainders:{remainders} recovery-casts:{recovery_casts} "
-        f"cleared:{recovery_cleared} molten-stranded:{stranded}] "
-        f"full-after-cooldown={sum('outcome=full-order-recovered-after-cooldown' in line for line in foundry)}"
+        f"cleared:{recovery_cleared} molten-stranded:{stranded} "
+        f"cooldown-events:{len(cooldown_ticks)} cooldown:{min(cooldown_ticks) if cooldown_ticks else 0}..{max(cooldown_ticks) if cooldown_ticks else 0}t]"
     )
 
 

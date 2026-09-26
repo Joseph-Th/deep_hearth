@@ -14,12 +14,14 @@ use crate::inventory::{
     validate_stockpile_support_for_new_inbound,
 };
 use crate::labor::{PlayerWork, validate_player_work_start};
+use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::maintenance::Condition;
 use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
+use crate::spatial::VoxelBounds;
 
 use super::errors::MiningStartError;
-use crate::mining::physics::resolve_mining_physics;
+use crate::mining::physics::{MiningPhysicsError, resolve_mining_physics};
 use crate::mining::state::{MiningJobIdentity, MiningJobResources, MiningJobSchedule};
 use crate::mining::{
     MiningJobId, MiningJobRecord, MiningMethodDefinition, MiningMethodId, MiningTargetRequest,
@@ -33,7 +35,9 @@ pub use commit::ValidatedMiningStart;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningTargetPlan {
     deposit: GeologicalDepositId,
+    bounds: VoxelBounds,
     excavation_hardness: Pressure,
+    hardness_is_acquired: bool,
     deposit_mass_before: Mass,
 }
 
@@ -61,21 +65,21 @@ fn validate_mining_target(
     if !current.has_same_authorization_binding(target) {
         return Err(MiningStartError::TargetNoLongerResolved);
     }
-    let excavation_hardness = current
-        .excavation_hardness()
-        .ok_or(MiningStartError::MissingExcavationHardnessEvidence {
-            material: current.material(),
-            region: current.region(),
-        })?
-        .upper();
     let deposit = target.deposit;
     let record = state
         .geology()
         .get_deposit(deposit)
         .unwrap_or_else(|| panic!("re-resolved mining target deposit disappeared"));
+    let (excavation_hardness, hardness_is_acquired) = current
+        .excavation_hardness()
+        .map_or((record.excavation_hardness(), false), |estimate| {
+            (estimate.upper(), true)
+        });
     Ok(MiningTargetPlan {
         deposit,
+        bounds: record.bounds(),
         excavation_hardness,
+        hardness_is_acquired,
         deposit_mass_before: record.remaining_mass(),
     })
 }
@@ -86,6 +90,7 @@ fn resolve_mining_equipment_plan(
     method: &MiningMethodDefinition,
     equipment: EquipmentId,
     excavation_hardness: Pressure,
+    hardness_is_acquired: bool,
     mass: Mass,
 ) -> Result<MiningEquipmentPlan, MiningStartError> {
     let (provider, occupancy) =
@@ -98,6 +103,8 @@ fn resolve_mining_equipment_plan(
     {
         return Err(MiningStartError::EquipmentMounted { equipment });
     }
+    validate_player_equipment_access(state, equipment)
+        .map_err(MiningStartError::EquipmentAccess)?;
     match occupancy {
         Some(EquipmentOccupancy::Production { job, release }) => {
             return Err(MiningStartError::EquipmentBusyProduction {
@@ -123,7 +130,18 @@ fn resolve_mining_equipment_plan(
         excavation_hardness,
         mass,
     )
-    .map_err(MiningStartError::from)?;
+    .map_err(|error| match error {
+        MiningPhysicsError::DepositTooHard { maximum, .. } if !hardness_is_acquired => {
+            MiningStartError::TargetResistsEquipment { maximum }
+        }
+        error @ MiningPhysicsError::MissingCapability { .. }
+        | error @ MiningPhysicsError::CapabilityKindMismatch { .. }
+        | error @ MiningPhysicsError::BatchTooLarge { .. }
+        | error @ MiningPhysicsError::DepositTooHard { .. }
+        | error @ MiningPhysicsError::ZeroThroughput
+        | error @ MiningPhysicsError::Duration(_)
+        | error @ MiningPhysicsError::ConditionDuration(_) => MiningStartError::from(error),
+    })?;
     Ok(MiningEquipmentPlan {
         duration: physics.duration(),
         condition_after: physics.condition_after(),
@@ -180,6 +198,8 @@ fn validate_mining_destination(
     requested_mass: Mass,
     output_mass: Mass,
 ) -> Result<MiningDestinationPlan, MiningStartError> {
+    validate_player_stockpile_access(state, destination)
+        .map_err(MiningStartError::DestinationAccess)?;
     let destination_record = state.inventory().get_stockpile(destination).ok_or(
         MiningStartError::UnknownDestination {
             stockpile: destination,
@@ -231,6 +251,7 @@ struct RevisionTransition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningStartRevisions {
     equipment: u64,
+    logistics: u64,
     mining: RevisionTransition,
     structure: Option<u64>,
 }
@@ -275,6 +296,7 @@ fn validate_mining_revision_capacity(
         .unwrap_or_else(|| unreachable!("mining revision headroom includes admission"));
     Ok(MiningStartRevisions {
         equipment: expected_equipment_revision,
+        logistics: state.logistics().revision(),
         mining: RevisionTransition {
             expected: expected_mining_revision,
             next: next_mining_revision,
@@ -301,12 +323,22 @@ pub fn validate_start_mining(
         .get_method(method)
         .ok_or(MiningStartError::UnknownMethod { method })?;
     let target_plan = validate_mining_target(state, target)?;
+    if let Some(player) = state.logistics().player().copied()
+        && !target_plan.bounds.has_voxel(player.position())
+    {
+        return Err(MiningStartError::PlayerOutsideDeposit {
+            player_position: player.position(),
+            deposit: target_plan.deposit,
+            bounds: target_plan.bounds,
+        });
+    }
     let equipment_plan = resolve_mining_equipment_plan(
         registries,
         state,
         method_definition,
         equipment,
         target_plan.excavation_hardness,
+        target_plan.hardness_is_acquired,
         mass,
     )?;
     let completes_at = state

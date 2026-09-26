@@ -558,6 +558,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         melting.solid_forms(),
         &[
             FORM_INGOT,
+            FORM_CHIP,
             FORM_REINFORCEMENT,
             FORM_NATIVE_METAL,
             FORM_SCRAP
@@ -987,6 +988,16 @@ fn first_foundry_content_forms_an_ordinary_electrical_casting_chain() {
         .unwrap_or_else(|| panic!("first-foundry dynamo disappeared"));
     assert!(!dynamo.requires_structural_support());
     assert!(dynamo.assembly_profile().is_some());
+    let dynamo_upgrade = dynamo
+        .upgrade_profile()
+        .unwrap_or_else(|| panic!("first-foundry dynamo lost treadle conversion route"));
+    assert_eq!(dynamo_upgrade.from(), EQUIPMENT_TIMBER_TREADLE_DRIVE);
+    assert_eq!(
+        dynamo
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_TREADLE_POWER_OUTPUT),
+        Some(CapabilityValue::Power(Power::from_microwatts(100_000_000)))
+    );
     assert_eq!(
         dynamo
             .capabilities()

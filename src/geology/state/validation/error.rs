@@ -42,6 +42,23 @@ pub enum GeologyValidationError {
         deposit: GeologicalDepositId,
         remaining: Mass,
     },
+    AvailableHasDepletionTick {
+        deposit: GeologicalDepositId,
+        depleted_at: SimulationTick,
+    },
+    DepletedMissingDepletionTick {
+        deposit: GeologicalDepositId,
+    },
+    DepletionBeforeGeneration {
+        deposit: GeologicalDepositId,
+        generated_at: SimulationTick,
+        depleted_at: SimulationTick,
+    },
+    DepletedInFuture {
+        deposit: GeologicalDepositId,
+        depleted_at: SimulationTick,
+        current: SimulationTick,
+    },
     InvalidComposition {
         deposit: GeologicalDepositId,
         error: CompositionError,
@@ -136,6 +153,42 @@ impl Display for GeologyValidationError {
                 deposit.value(),
                 remaining.milligrams()
             ),
+            Self::AvailableHasDepletionTick {
+                deposit,
+                depleted_at,
+            } => write!(
+                formatter,
+                "available geological deposit {} carries depletion tick {}",
+                deposit.value(),
+                depleted_at.value()
+            ),
+            Self::DepletedMissingDepletionTick { deposit } => write!(
+                formatter,
+                "depleted geological deposit {} is missing its depletion tick",
+                deposit.value()
+            ),
+            Self::DepletionBeforeGeneration {
+                deposit,
+                generated_at,
+                depleted_at,
+            } => write!(
+                formatter,
+                "geological deposit {} depleted at tick {} before generation at tick {}",
+                deposit.value(),
+                depleted_at.value(),
+                generated_at.value()
+            ),
+            Self::DepletedInFuture {
+                deposit,
+                depleted_at,
+                current,
+            } => write!(
+                formatter,
+                "geological deposit {} depleted at tick {} after current tick {}",
+                deposit.value(),
+                depleted_at.value(),
+                current.value()
+            ),
             Self::InvalidComposition { deposit, error } => write!(
                 formatter,
                 "geological deposit {} has invalid composition: {error}",
@@ -222,6 +275,10 @@ impl Error for GeologyValidationError {
             | Self::RemainingMassExceedsInitial { .. }
             | Self::AvailableWithoutMass { .. }
             | Self::DepletedWithRemainingMass { .. }
+            | Self::AvailableHasDepletionTick { .. }
+            | Self::DepletedMissingDepletionTick { .. }
+            | Self::DepletionBeforeGeneration { .. }
+            | Self::DepletedInFuture { .. }
             | Self::CompositionMissingHost { .. }
             | Self::UnknownCommodityMaterial { .. }
             | Self::UnknownCommodityForm { .. }

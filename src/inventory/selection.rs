@@ -12,9 +12,8 @@ mod implicit;
 mod integrity;
 mod reservation;
 
-pub(crate) use explicit::{
-    ExplicitConsumptionSelectionError, validate_explicit_consumption_selection,
-};
+pub use explicit::ExplicitConsumptionSelectionError;
+pub(crate) use explicit::validate_explicit_consumption_selection;
 pub(crate) use implicit::{ConsumptionSelectionError, validate_consumption_selection};
 pub(in crate::inventory) use integrity::{
     assert_consumption_parts_match_state, assert_consumption_parts_match_state_iter,

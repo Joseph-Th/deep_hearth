@@ -12,12 +12,17 @@ use crate::energy::{
     calculate_explicit_energy_accounting,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::logistics::{
+    PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::material::{
     CommodityKey, ParticleSizeDistribution, ParticleSizeRange, ParticleSizeStateError,
 };
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
+use crate::spatial::VoxelCoord;
 
 fn unassembled_store_fixture() -> (Registries, AppState, crate::inventory::StockpileId) {
     let registries = build_registries();
@@ -44,6 +49,79 @@ fn unassembled_store_fixture() -> (Registries, AppState, crate::inventory::Stock
     .unwrap_or_else(|error| panic!("energy assembly shaft fixture failed: {error}"));
 
     (registries, state, source)
+}
+
+#[test]
+fn energy_store_assembly_rejects_known_remote_material_source() {
+    let (registries, mut state, source) = unassembled_store_fixture();
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote energy logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote energy logistics commit failed: {error}"));
+    let source_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, source, source_position)
+        .unwrap_or_else(|error| panic!("remote energy placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote energy placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .err(),
+        Some(EnergyStoreAssemblyError::Access(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: source,
+                stockpile_position: source_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn energy_store_assembly_at_initialized_player_creates_world_location() {
+    let (registries, mut state, source) = unassembled_store_fixture();
+    let position = VoxelCoord::new(3, 0, -2);
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("located energy logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("located energy logistics commit failed: {error}"));
+
+    let store =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .unwrap_or_else(|error| panic!("located energy assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("located energy assembly commit failed: {error}"));
+
+    assert_eq!(
+        state.logistics().energy_store_position(store),
+        Some(position)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn energy_store_assembly_token_rejects_location_added_after_validation() {
+    let (registries, mut state, source) = unassembled_store_fixture();
+    let validated =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .unwrap_or_else(|error| panic!("stale energy assembly validation failed: {error}"));
+    validate_place_ground_stockpile(&state, source, VoxelCoord::new(2, 0, 0))
+        .unwrap_or_else(|error| panic!("stale energy source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale energy source placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(EnergyStoreAssemblyCommitError::StaleLogistics {
+            expected: 0,
+            actual: 1,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 fn assembled_store_fixture() -> (Registries, AppState, EnergyStoreId) {
@@ -77,6 +155,34 @@ fn assembled_store_fixture() -> (Registries, AppState, EnergyStoreId) {
         "assembled store material must remain represented in explicit energy ownership"
     );
     (registries, state, store)
+}
+
+#[test]
+fn energy_store_assembly_reports_the_exact_missing_component() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_100_000))
+        .unwrap_or_else(|error| panic!("missing-component stockpile failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+        Mass::from_milligrams(900_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("missing-component flywheel failed: {error}"));
+
+    assert_eq!(
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .err(),
+        Some(EnergyStoreAssemblyError::InsufficientMaterial {
+            stockpile: source,
+            commodity: CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            available: Mass::ZERO,
+            required: Mass::from_milligrams(200_000),
+        })
+    );
 }
 
 #[test]

@@ -10,6 +10,7 @@ use crate::fluid::FluidState;
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
 use crate::inventory::InventoryState;
 use crate::labor::PlayerWorkState;
+use crate::logistics::LogisticsState;
 use crate::mining::MiningState;
 use crate::production::ProductionState;
 use crate::structural::StructureState;
@@ -62,6 +63,7 @@ impl Debug for AppState {
             .field("structures", &self.systems.structures)
             .field("geological_knowledge", &self.systems.geological_knowledge)
             .field("inventory", &self.systems.inventory)
+            .field("logistics", &self.systems.logistics)
             .field("production", &self.systems.production)
             .field("mining", &self.systems.mining)
             .field("player_work", &self.systems.player_work)
@@ -106,6 +108,7 @@ struct SystemState {
     geology: GeologyState,
     geological_knowledge: GeologicalKnowledgeState,
     inventory: InventoryState,
+    logistics: LogisticsState,
     production: ProductionState,
     #[serde(serialize_with = "crate::mining::serialize_mining_state")]
     mining: MiningState,
@@ -137,6 +140,7 @@ impl AppState {
                 geology: GeologyState::new(),
                 geological_knowledge: GeologicalKnowledgeState::new(),
                 inventory: InventoryState::new(),
+                logistics: LogisticsState::new(),
                 production: ProductionState::new(),
                 mining: MiningState::new(),
                 player_work: PlayerWorkState::new(),
@@ -224,6 +228,16 @@ impl AppState {
         &mut self.systems.inventory
     }
 
+    /// Returns read-only authoritative player world-location and carried-custody state.
+    #[must_use]
+    pub const fn logistics(&self) -> &LogisticsState {
+        &self.systems.logistics
+    }
+
+    pub(crate) fn logistics_state_mut(&mut self) -> &mut LogisticsState {
+        &mut self.systems.logistics
+    }
+
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         // Trusted load calls this on decoded state before semantic validation. Rebuilders must
         // therefore derive index identity from persisted collection keys, never from unchecked
@@ -236,8 +250,8 @@ impl AppState {
         self.systems.geological_knowledge.rebuild_derived_indexes();
         self.systems.production.rebuild_derived_indexes();
         self.systems.mining.rebuild_derived_indexes();
-        // Survival, player work, and geology hold no derived indexes: their persisted records are
-        // the complete continuation state, so there is nothing to rebuild.
+        // Survival, player work, logistics, and geology hold no derived indexes: their persisted
+        // records are the complete continuation state, so there is nothing to rebuild.
     }
 
     /// Returns read-only authoritative production scheduling state.

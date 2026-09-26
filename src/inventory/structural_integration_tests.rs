@@ -18,6 +18,7 @@ use crate::inventory::{
     MaterialRelocationTestError, add_solid_stockpile_for_test, deposit_lot_for_test,
     validate_material_relocation_for_test,
 };
+use crate::logistics::{validate_initialize_player_logistics, validate_place_ground_stockpile};
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -48,6 +49,96 @@ impl Deref for StructuralHeatingResolution {
     fn deref(&self) -> &Self::Target {
         self.0.process_resolution()
     }
+}
+
+#[test]
+fn ground_stockpile_requires_explicit_location_transition_before_mounting() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000))
+        .unwrap_or_else(|error| panic!("ground stockpile fixture failed: {error}"));
+    let position = VoxelCoord::new(4, 0, -2);
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap_or_else(|error| panic!("ground stockpile placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("ground stockpile placement commit failed: {error}"));
+    let support = active_support(&registries, &mut state, 0);
+
+    assert_eq!(
+        validate_mount_stockpile(&registries, &state, stockpile, support).err(),
+        Some(StockpileSupportError::GroundLocated {
+            stockpile,
+            position,
+        })
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(stockpile)
+            .and_then(|record| record.supported_by()),
+        None
+    );
+}
+
+#[test]
+fn validated_mount_rejects_ground_location_added_before_commit() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000))
+        .unwrap_or_else(|error| panic!("stale ground-mount stockpile failed: {error}"));
+    let support = active_support(&registries, &mut state, 0);
+    let validated = validate_mount_stockpile(&registries, &state, stockpile, support)
+        .unwrap_or_else(|error| panic!("stale ground-mount validation failed: {error}"));
+    let position = VoxelCoord::new(8, 0, 1);
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap_or_else(|error| panic!("stale ground-mount placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale ground-mount placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(StockpileSupportCommitError::GroundLocated {
+            stockpile,
+            position,
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(stockpile)
+            .and_then(|record| record.supported_by()),
+        None
+    );
+}
+
+#[test]
+fn player_carried_stockpile_cannot_also_be_structurally_mounted() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_initialize_player_logistics(
+        &state,
+        VoxelCoord::new(0, 0, 0),
+        Mass::from_milligrams(10_000),
+    )
+    .unwrap_or_else(|error| panic!("carried-stockpile logistics setup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("carried-stockpile logistics commit failed: {error}"))
+    .carried_stockpile();
+    let support = active_support(&registries, &mut state, 0);
+
+    assert_eq!(
+        validate_mount_stockpile(&registries, &state, carried, support).err(),
+        Some(StockpileSupportError::PlayerCarried { stockpile: carried })
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .and_then(|record| record.supported_by()),
+        None
+    );
 }
 
 #[test]

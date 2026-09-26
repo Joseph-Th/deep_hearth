@@ -20,6 +20,10 @@ use crate::inventory::{
     validate_mount_stockpile, validate_unmount_stockpile,
 };
 use crate::labor::PlayerWorkValidationError;
+use crate::logistics::{
+    GroundStockpilePlacementCommitError, PlayerStockpileAccessError,
+    validate_initialize_player_logistics, validate_place_ground_stockpile,
+};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -75,6 +79,170 @@ fn fixture() -> (
     let recovery = add_solid_stockpile_for_test(&mut state, CHEST_MASS)
         .unwrap_or_else(|error| panic!("dismantle recovery fixture failed: {error}"));
     (registries, state, target, construction, recovery, food)
+}
+
+#[test]
+fn storage_dismantling_rejects_known_remote_enclosure() {
+    let (registries, mut state, target, construction, recovery, _food) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("remote dismantling enclosure build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote dismantling enclosure build commit failed: {error}"));
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote dismantling logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote dismantling logistics commit failed: {error}"));
+    let target_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, target, target_position)
+        .unwrap_or_else(|error| panic!("remote dismantling target placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote dismantling target placement commit failed: {error}")
+        });
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery).err(),
+        Some(StorageEnclosureDismantlingError::Access(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: target,
+                stockpile_position: target_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn storage_dismantling_token_rejects_location_added_after_validation() {
+    let (registries, mut state, target, construction, recovery, _food) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("stale-location dismantling enclosure build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| {
+        panic!("stale-location dismantling enclosure build commit failed: {error}")
+    });
+    let validated =
+        validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+            .unwrap_or_else(|error| {
+                panic!("stale-location dismantling validation failed: {error}")
+            });
+    validate_place_ground_stockpile(&state, recovery, VoxelCoord::new(2, 0, 0))
+        .unwrap_or_else(|error| panic!("stale-location recovery placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale-location recovery placement commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(
+            StorageEnclosureDismantlingCommitError::StaleLogisticsRevision {
+                expected: 0,
+                actual: 1,
+            }
+        )
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn ground_placement_token_rejects_storage_dismantling_started_after_validation() {
+    let (registries, mut state, target, construction, recovery, _food) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("placement-race dismantling enclosure build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| {
+        panic!("placement-race dismantling enclosure build commit failed: {error}")
+    });
+    let placement = validate_place_ground_stockpile(&state, target, VoxelCoord::new(3, 0, 0))
+        .unwrap_or_else(|error| panic!("placement-race dismantling placement failed: {error}"));
+    let _ = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+        .unwrap_or_else(|error| panic!("placement-race dismantling start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("placement-race dismantling start commit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        placement.commit(&mut state),
+        Err(GroundStockpilePlacementCommitError::BusyStorageDismantling { stockpile: target })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_active_dismantling_after_target_is_moved_remote() {
+    let (registries, mut state, target, construction, recovery, _food) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("remote-load dismantling enclosure build failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| {
+        panic!("remote-load dismantling enclosure build commit failed: {error}")
+    });
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-load dismantling logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-load dismantling logistics commit failed: {error}"));
+    for stockpile in [target, recovery] {
+        validate_place_ground_stockpile(&state, stockpile, player_position)
+            .unwrap_or_else(|error| panic!("remote-load dismantling placement failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("remote-load dismantling placement commit failed: {error}")
+            });
+    }
+    let _ = validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery)
+        .unwrap_or_else(|error| panic!("remote-load dismantling start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-load dismantling start commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let remote_position = VoxelCoord::new(1, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("remote-load dismantling serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["ground_stockpiles"][target.value().to_string()] =
+        serde_json::json!({"x": 1, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("remote-load dismantling decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::StorageDismantlingAccess(
+                PlayerStockpileAccessError::RemoteKnownStockpile {
+                    stockpile: target,
+                    stockpile_position: remote_position,
+                    player_position,
+                }
+            )
+        )))
+    );
 }
 
 fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {

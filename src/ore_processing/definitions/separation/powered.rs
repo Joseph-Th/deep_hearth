@@ -110,6 +110,15 @@ impl ConstituentSeparationProcessDefinition {
         self.physics.residue_output_form()
     }
 
+    /// Whether feed must use the target material as its commodity host.
+    ///
+    /// Sorting represents recognizable target pieces and therefore requires that host identity.
+    /// Concentration can accept another host when exact composition contains the target constituent.
+    #[must_use]
+    pub const fn requires_target_host(self) -> bool {
+        self.physics.is_sorting()
+    }
+
     /// Returns the authored fraction of exact target content recovered to the target stream.
     /// Recovery is conservatively floored at the whole-milligram output boundary for each
     /// temperature/particle-size recovery group. The unresolved fractional target and all

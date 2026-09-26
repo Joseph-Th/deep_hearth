@@ -4,6 +4,7 @@ use crate::capability::CapabilityValue;
 use crate::content::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_THERMAL_BATCH,
     CAPABILITY_THERMAL_MAX_TEMPERATURE, CAPABILITY_TREADLE_DYNAMO_OUTPUT,
+    CAPABILITY_TREADLE_POWER_OUTPUT,
 };
 use crate::content::crafted_parts::TIMBER_FLYWHEEL_MASS;
 use crate::content::materials::{
@@ -11,7 +12,7 @@ use crate::content::materials::{
     MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use crate::core::quantity::{Mass, Power, Temperature};
-use crate::equipment::EquipmentDefinition;
+use crate::equipment::{EquipmentDefinition, EquipmentUpgradeProfile};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use super::super::authoring::{
@@ -20,7 +21,7 @@ use super::super::authoring::{
 };
 use super::super::{
     EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
-    EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
 };
 
 const COPPER_ELECTRICAL_COMPONENT_MASS: Mass = Mass::from_milligrams(40_000);
@@ -28,9 +29,10 @@ const FIRST_FOUNDRY_BATCH: Mass = Mass::from_milligrams(20_000);
 
 /// A timber treadle and flywheel driving a copper-wound low-voltage dynamo.
 ///
-/// This is deliberately a dedicated electrical provider rather than allowing the existing
-/// mechanical treadle to change carrier implicitly. The player therefore makes a real material
-/// investment before electrical thermal work becomes possible.
+/// This is an explicit additive conversion of the ordinary mechanical treadle rather than a
+/// second nearly identical frame. The converted machine retains its mechanical output and gains a
+/// dedicated electrical provider, so earlier infrastructure remains useful while copper winding
+/// still creates a real material investment before electrical thermal work becomes possible.
 pub(super) fn timber_treadle_dynamo() -> EquipmentDefinition {
     assembled_definition_with_condition_curves(
         EQUIPMENT_TIMBER_TREADLE_DYNAMO,
@@ -46,25 +48,51 @@ pub(super) fn timber_treadle_dynamo() -> EquipmentDefinition {
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(400_000),
+                Mass::from_milligrams(200_000),
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 COPPER_ELECTRICAL_COMPONENT_MASS,
             ),
         ]),
-        profile([(
-            CAPABILITY_TREADLE_DYNAMO_OUTPUT,
-            CapabilityValue::Power(Power::from_microwatts(100_000_000)),
-        )]),
+        profile([
+            (
+                CAPABILITY_TREADLE_POWER_OUTPUT,
+                CapabilityValue::Power(Power::from_microwatts(100_000_000)),
+            ),
+            (
+                CAPABILITY_TREADLE_DYNAMO_OUTPUT,
+                CapabilityValue::Power(Power::from_microwatts(100_000_000)),
+            ),
+        ]),
         thresholds(),
-        vec![power_condition_curve(
-            CAPABILITY_TREADLE_DYNAMO_OUTPUT,
-            500_000,
-            Power::from_microwatts(50_000_000),
-        )],
+        vec![
+            power_condition_curve(
+                CAPABILITY_TREADLE_POWER_OUTPUT,
+                500_000,
+                Power::from_microwatts(50_000_000),
+            ),
+            power_condition_curve(
+                CAPABILITY_TREADLE_DYNAMO_OUTPUT,
+                500_000,
+                Power::from_microwatts(50_000_000),
+            ),
+        ],
     )
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE))
+    .with_upgrade_profile(EquipmentUpgradeProfile::new(
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                COPPER_ELECTRICAL_COMPONENT_MASS,
+            ),
+        ]),
+    ))
 }
 
 /// Small stone crucible furnace heated by an electrical arc between replaceable copper electrodes.

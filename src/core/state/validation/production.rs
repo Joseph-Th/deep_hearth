@@ -103,6 +103,15 @@ fn validate_production_job(
     validate_job_consumed_energy(registries, state, job)?;
     validate_job_released_energy(registries, state, job)?;
     validate_job_equipment(registries, state, job)?;
+    crate::production::validate_running_job_site(state, job).map_err(|mismatch| {
+        StateValidationError::JobSpatialEndpointMismatch {
+            job: job.id(),
+            first: mismatch.first,
+            first_position: mismatch.first_position,
+            second: mismatch.second,
+            second_position: mismatch.second_position,
+        }
+    })?;
     validate_job_resource_topology(registries, job)?;
     validate_job_subsystem_contracts(registries, job)?;
     validate_job_consumed_inputs(registries, job)?;

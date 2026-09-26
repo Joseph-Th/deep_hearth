@@ -5,6 +5,8 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass};
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
+use crate::logistics::{PlayerEnergyStoreAccessError, PlayerStockpileAccessError};
+use crate::material::CommodityKey;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::structural::StructuralCommitError;
 
@@ -12,6 +14,8 @@ use super::super::{EnergyStoreDefinitionId, EnergyStoreId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreUpgradeError {
+    StoreAccess(PlayerEnergyStoreAccessError),
+    SourceAccess(PlayerStockpileAccessError),
     UnknownStore {
         store: EnergyStoreId,
     },
@@ -43,6 +47,7 @@ pub enum EnergyStoreUpgradeError {
     },
     InsufficientMaterial {
         stockpile: StockpileId,
+        commodity: CommodityKey,
         available: Mass,
         required: Mass,
     },
@@ -61,6 +66,13 @@ pub enum EnergyStoreUpgradeError {
 impl Display for EnergyStoreUpgradeError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StoreAccess(error) => {
+                write!(formatter, "energy-store upgrade access failed: {error}")
+            }
+            Self::SourceAccess(error) => write!(
+                formatter,
+                "energy-store upgrade material access failed: {error}"
+            ),
             Self::UnknownStore { store } => {
                 write!(formatter, "unknown energy store {}", store.value())
             }
@@ -113,13 +125,15 @@ impl Display for EnergyStoreUpgradeError {
             ),
             Self::InsufficientMaterial {
                 stockpile,
+                commodity,
                 available,
                 required,
             } => write!(
                 formatter,
-                "energy-store upgrade stockpile {} contains {} mg but {} mg of authored addition material is required",
+                "energy-store upgrade stockpile {} contains {} mg of commodity {} but {} mg is required",
                 stockpile.value(),
                 available.milligrams(),
+                commodity.value(),
                 required.milligrams()
             ),
             Self::SourceMassOverflow { stockpile } => write!(
@@ -148,6 +162,8 @@ impl Display for EnergyStoreUpgradeError {
 impl Error for EnergyStoreUpgradeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::StoreAccess(error) => Some(error),
+            Self::SourceAccess(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownStore { .. }
             | Self::UnknownTargetDefinition { .. }
@@ -168,6 +184,10 @@ impl Error for EnergyStoreUpgradeError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreUpgradeCommitError {
+    StaleLogistics {
+        expected: u64,
+        actual: u64,
+    },
     StaleInventory {
         expected: u64,
         actual: u64,
@@ -195,6 +215,10 @@ pub enum EnergyStoreUpgradeCommitError {
 impl Display for EnergyStoreUpgradeCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "energy-store upgrade expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
                 "energy-store upgrade expected inventory revision {expected} but current revision is {actual}"
@@ -235,7 +259,8 @@ impl Error for EnergyStoreUpgradeCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventory { .. }
+            Self::StaleLogistics { .. }
+            | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. }
             | Self::UnknownStore { .. }
             | Self::StoreChanged { .. }

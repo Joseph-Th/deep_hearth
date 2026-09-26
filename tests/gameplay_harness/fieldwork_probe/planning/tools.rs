@@ -369,7 +369,7 @@ fn viable_fieldwork_tools(
         let estimate =
             estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order);
         if report_candidates {
-            reviewln!(
+            println!(
                 "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=no-service,caller-supplied-visible-workload",
                 state.tick().value(),
                 tool.label,

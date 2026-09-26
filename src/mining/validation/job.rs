@@ -4,6 +4,7 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::validate_stockpile_storage;
+use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::registry::Registries;
 
 use super::MiningJobValidationError;
@@ -49,6 +50,38 @@ fn map_physics_error(job: MiningJobId, error: MiningPhysicsError) -> MiningJobVa
             MiningJobValidationError::ConditionDuration { job, error }
         }
     }
+}
+
+fn validate_working_spatial_access(
+    state: &AppState,
+    job: &MiningJobRecord,
+    references: &MiningJobReferences<'_>,
+) -> Result<(), MiningJobValidationError> {
+    if !job.is_working() {
+        return Ok(());
+    }
+    if let Some(player) = state.logistics().player().copied()
+        && !references.deposit_bounds.has_voxel(player.position())
+    {
+        return Err(MiningJobValidationError::WorkingPlayerOutsideDeposit {
+            job: job.id(),
+            player_position: player.position(),
+            bounds: references.deposit_bounds,
+        });
+    }
+    validate_player_equipment_access(state, job.equipment()).map_err(|error| {
+        MiningJobValidationError::WorkingEquipmentAccess {
+            job: job.id(),
+            error,
+        }
+    })?;
+    validate_player_stockpile_access(state, job.destination()).map_err(|error| {
+        MiningJobValidationError::WorkingDestinationAccess {
+            job: job.id(),
+            error,
+        }
+    })?;
+    Ok(())
 }
 
 fn validate_working_mining_equipment(
@@ -260,6 +293,7 @@ pub(super) fn validate_loaded_mining_job(
     validate_working_mining_equipment(state, job, &references)?;
     validate_mining_source_ownership(job, &references)?;
     validate_mining_output(registries, job, &references)?;
+    validate_working_spatial_access(state, job, &references)?;
     validate_mining_equipment_exclusivity(state, job)?;
     validate_mining_job_physics(registries, job, &references)
 }

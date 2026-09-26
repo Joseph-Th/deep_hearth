@@ -28,6 +28,10 @@ use crate::inventory::{
     deposit_lot_for_test, deposit_lot_spec_for_test,
 };
 use crate::labor::PlayerWork;
+use crate::logistics::{
+    PlayerStockpileAccessError, validate_initialize_player_logistics,
+    validate_place_ground_stockpile,
+};
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::CompositionComponent;
 use crate::matter::calculate_matter_accounting;
@@ -38,6 +42,7 @@ use crate::ore_processing::{
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, StartProcessError, validate_start_process};
 use crate::simulation::advance_tick;
+use crate::spatial::VoxelCoord;
 use crate::survival::{assess_survival, initialize_player_survival};
 
 const MASS_FLOW_CAPABILITY: CapabilityId = CapabilityId::new(970_001);
@@ -1378,6 +1383,76 @@ fn resolve_manual_comminution(
         ),
     )
     .unwrap_or_else(|error| panic!("manual comminution resolution failed: {error}"))
+}
+
+#[test]
+fn manual_comminution_rejects_known_remote_source() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_comminution_fixture(mass);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&fixture.state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote comminution logistics setup failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| panic!("remote comminution logistics commit failed: {error}"));
+    let source_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&fixture.state, fixture.source, source_position)
+        .unwrap_or_else(|error| panic!("remote comminution source placement failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("remote comminution source placement commit failed: {error}")
+        });
+    let resolved = resolve_manual_comminution(&fixture, mass);
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        validate_start_manual_comminution(
+            &fixture.registries,
+            &fixture.state,
+            &resolved,
+            fixture.source,
+            fixture.destination,
+        )
+        .err(),
+        Some(StartManualComminutionError::Access(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: fixture.source,
+                stockpile_position: source_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn manual_comminution_token_rejects_location_added_after_validation() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_comminution_fixture(mass);
+    let resolved = resolve_manual_comminution(&fixture, mass);
+    let validated = validate_start_manual_comminution(
+        &fixture.registries,
+        &fixture.state,
+        &resolved,
+        fixture.source,
+        fixture.destination,
+    )
+    .unwrap_or_else(|error| panic!("stale-location comminution validation failed: {error}"));
+    validate_place_ground_stockpile(&fixture.state, fixture.source, VoxelCoord::new(5, 0, 0))
+        .unwrap_or_else(|error| panic!("stale-location comminution placement failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("stale-location comminution placement commit failed: {error}")
+        });
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        validated.commit(&mut fixture.state),
+        Err(ManualComminutionCommitError::StaleLogisticsRevision {
+            expected: 0,
+            actual: 1,
+        })
+    );
+    assert_eq!(fixture.state, before);
 }
 
 #[test]

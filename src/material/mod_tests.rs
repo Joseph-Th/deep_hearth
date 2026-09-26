@@ -39,7 +39,8 @@ fn liquid_commodity_requires_fusion_properties() {
 
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            registry.register_commodity(CommodityKey::new(material, liquid));
+            registry
+                .register_commodity(CommodityKey::new(material, liquid), "test liquid material");
         }))
         .is_err()
     );
@@ -182,8 +183,55 @@ fn commodity_requires_explicit_material_form_authoring() {
     ));
     assert!(!registry.has_commodity(CommodityKey::new(material, form)));
 
-    registry.register_commodity(CommodityKey::new(material, form));
+    registry.register_commodity(CommodityKey::new(material, form), "test commodity");
     assert!(registry.has_commodity(CommodityKey::new(material, form)));
+}
+
+#[test]
+fn material_catalog_surfaces_are_stable_and_complete_for_presentation() {
+    let mut registry = MaterialRegistry::new();
+    let material_a = MaterialId::new(4);
+    let material_b = MaterialId::new(3);
+    let form_a = FormId::new(8);
+    let form_b = FormId::new(7);
+    for (material, name) in [(material_a, "material a"), (material_b, "material b")] {
+        registry.register_material(MaterialDefinition::new(
+            material,
+            name,
+            make_test_properties(),
+        ));
+    }
+    for (form, name) in [(form_a, "form a"), (form_b, "form b")] {
+        registry.register_form(FormDefinition::new(
+            form,
+            name,
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+            MaterialFormCohesion::Loose,
+        ));
+    }
+    let commodity_a = CommodityKey::new(material_a, form_a);
+    let commodity_b = CommodityKey::new(material_b, form_b);
+    registry.register_commodity(commodity_a, "commodity a");
+    registry.register_commodity(commodity_b, "commodity b");
+
+    assert_eq!(
+        registry
+            .definitions()
+            .map(MaterialDefinition::id)
+            .collect::<Vec<_>>(),
+        vec![material_b, material_a]
+    );
+    assert_eq!(
+        registry.forms().map(FormDefinition::id).collect::<Vec<_>>(),
+        vec![form_b, form_a]
+    );
+    assert_eq!(
+        registry.commodities().collect::<Vec<_>>(),
+        vec![commodity_b, commodity_a]
+    );
+    assert_eq!(registry.commodity_name(commodity_b), Some("commodity b"));
+    assert_eq!(registry.commodity_name(commodity_a), Some("commodity a"));
 }
 
 #[test]

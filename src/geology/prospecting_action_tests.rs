@@ -16,6 +16,10 @@ use crate::geology::{
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId, ProspectingWork};
+use crate::logistics::{
+    PlayerEquipmentAccessError, validate_allocate_ground_stockpile,
+    validate_initialize_player_logistics,
+};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::mining::{MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -27,6 +31,160 @@ use crate::survival::{Vitality, assess_survival, initialize_player_survival, pla
 fn one_voxel(x: i64) -> VoxelBounds {
     VoxelBounds::new(VoxelCoord::new(x, -1, 0), VoxelCoord::new(x + 1, 0, 1))
         .unwrap_or_else(|error| panic!("field prospecting bounds fixture failed: {error}"))
+}
+
+#[test]
+fn prospecting_rejects_player_outside_requested_region() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote-region prospecting survival setup failed: {error}"));
+    let player_position = VoxelCoord::new(0, -1, 0);
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-region prospecting logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-region prospecting logistics commit failed: {error}")
+        });
+    let region = one_voxel(42);
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_field_prospecting(
+            &registries,
+            &state,
+            FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+        )
+        .err(),
+        Some(FieldProspectingStartError::PlayerOutsideRegion {
+            player_position,
+            region,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn instrumented_prospecting_rejects_known_remote_hammer() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote-hammer prospecting survival setup failed: {error}"));
+    let hammer = assemble_sampling_hammer(&registries, &mut state);
+    let region = one_voxel(42);
+    let player_position = region.min();
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-hammer prospecting logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-hammer prospecting logistics commit failed: {error}")
+        });
+    let equipment_position = VoxelCoord::new(43, -1, 0);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        hammer,
+        equipment_position,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_field_prospecting(
+            &registries,
+            &state,
+            FieldProspectingRequest::new_with_equipment(
+                PROSPECTING_DETAILED_FIELD_SURVEY,
+                region,
+                MATERIAL_COPPER,
+                hammer,
+            ),
+        )
+        .err(),
+        Some(FieldProspectingStartError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment: hammer,
+                equipment_position,
+                player_position,
+            }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn prospecting_token_rejects_logistics_change_before_commit() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stale prospecting survival setup failed: {error}"));
+    let region = one_voxel(42);
+    validate_initialize_player_logistics(&state, region.min(), Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale prospecting logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("stale prospecting logistics commit failed: {error}"));
+    let validated = validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("stale prospecting validation failed: {error}"));
+    let expected = state.logistics().revision();
+    validate_allocate_ground_stockpile(&state, region.min(), Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("stale prospecting competing allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("stale prospecting competing allocation commit failed: {error}")
+        });
+    let actual = state.logistics().revision();
+    let before = state.clone();
+
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(FieldProspectingCommitError::StaleLogisticsRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_active_prospecting_with_player_outside_region() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("remote-load prospecting survival setup failed: {error}"));
+    let region = one_voxel(42);
+    let player_position = region.min();
+    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| panic!("remote-load prospecting logistics setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("remote-load prospecting logistics commit failed: {error}"));
+    validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("remote-load prospecting validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("remote-load prospecting commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let remote_position = VoxelCoord::new(0, -1, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("remote-load prospecting serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["player"]["position"] =
+        serde_json::json!({"x": 0, "y": -1, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("remote-load prospecting decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::ProspectingPlayerOutsideRegion {
+                player_position: remote_position,
+                region,
+            }
+        )))
+    );
 }
 
 fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {

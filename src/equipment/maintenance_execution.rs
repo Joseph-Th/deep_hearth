@@ -105,6 +105,7 @@ pub struct ValidatedEquipmentMaintenance {
     condition_after: Condition,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
+    expected_logistics_revision: u64,
     admission: EquipmentMaintenanceAdmission,
     material: ValidatedMaintenanceMaterial,
     work: EquipmentMaintenanceWork,

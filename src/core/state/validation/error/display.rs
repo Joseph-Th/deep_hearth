@@ -26,6 +26,7 @@ impl Display for StateValidationError {
                 write!(formatter, "invalid geological knowledge state: {error}")
             }
             Self::Inventory(error) => write!(formatter, "invalid inventory state: {error}"),
+            Self::Logistics(error) => write!(formatter, "invalid logistics state: {error}"),
             Self::StorageEnclosure(error) => {
                 write!(formatter, "invalid storage enclosure state: {error}")
             }
@@ -124,6 +125,23 @@ impl Display for StateValidationError {
                 "production job {} references missing destination stockpile {}",
                 job.value(),
                 stockpile.value()
+            ),
+            Self::JobSpatialEndpointMismatch {
+                job,
+                first,
+                first_position,
+                second,
+                second_position,
+            } => write!(
+                formatter,
+                "running production job {} has separated known endpoints: {first} at ({},{},{}) and {second} at ({},{},{})",
+                job.value(),
+                first_position.x(),
+                first_position.y(),
+                first_position.z(),
+                second_position.x(),
+                second_position.y(),
+                second_position.z()
             ),
             Self::UnknownJobEnergySource { job, store } => write!(
                 formatter,

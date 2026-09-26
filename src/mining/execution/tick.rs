@@ -138,6 +138,7 @@ pub(crate) fn apply_mining_tick(
     state.geology_state_mut().apply_extraction(
         plan.extraction.deposit,
         plan.extraction.mass,
+        plan.completion_tick,
         next_geology_revision,
     );
     if let Some((change, next_equipment_revision)) = equipment_revision {

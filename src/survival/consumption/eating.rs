@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass};
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::{
     ConsumptionSelection, ExplicitConsumptionSelectionError, MaterialEgressError, MaterialLotId,
     MaterialLotSelection, StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
@@ -20,8 +20,10 @@ use crate::labor::{
     EatingWork, PlayerAttentionError, PlayerWork, ValidatedPlayerAttentionHold,
     validate_player_attention,
 };
+use crate::logistics::validate_player_stockpile_access;
 use crate::material::MaterialId;
 use crate::registry::Registries;
+use crate::survival::DirectConsumptionDefinition;
 
 use super::super::FoodCategory;
 use super::super::state::{PendingConsumedFoodTrace, PendingConsumedMatterBaseline, PendingEating};
@@ -38,6 +40,23 @@ pub(crate) use resolution::trace_absorption_offer;
 struct ConsumedMassAccounting {
     baselines: Vec<PendingConsumedMatterBaseline>,
     totals: Vec<(MaterialId, AggregateMass)>,
+}
+
+fn validate_meal_duration(
+    direct_consumption: DirectConsumptionDefinition,
+    mass: Mass,
+) -> Result<TickSpan, EatError> {
+    let minimum = direct_consumption.minimum_meal_mass();
+    if mass < minimum {
+        return Err(EatError::MealMassBelowIntakeMinimum { mass, minimum });
+    }
+    let maximum = direct_consumption.maximum_meal_mass();
+    if mass > maximum {
+        return Err(EatError::MealMassExceedsIntakeLimit { mass, maximum });
+    }
+    Ok(direct_consumption
+        .meal_duration(mass)
+        .unwrap_or_else(|| unreachable!("validated nonzero bounded meal must have a duration")))
 }
 
 #[must_use]
@@ -142,6 +161,7 @@ impl EatOutcome {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEat {
     attention: ValidatedPlayerAttentionHold,
+    expected_logistics_revision: u64,
     expected_survival_revision: u64,
     next_survival_revision: u64,
     egress: ValidatedMaterialEgress,
@@ -253,6 +273,7 @@ pub fn validate_eat(
         PlayerAttentionError::PlayerDead => EatError::PlayerDead,
         PlayerAttentionError::Busy { active } => EatError::PlayerBusy { active },
     })?;
+    validate_player_stockpile_access(state, source).map_err(EatError::Access)?;
     let exact_selection =
         validate_explicit_consumption_selection(state.inventory(), source, selections)
             .map_err(map_eat_selection_error)?;
@@ -270,24 +291,7 @@ pub fn validate_eat(
         return Err(EatError::HydrationOverflow);
     }
     let total_mass = exact_selection.total_consumed();
-    let direct_consumption = physiology.direct_consumption();
-    let minimum_meal_mass = direct_consumption.minimum_meal_mass();
-    if total_mass < minimum_meal_mass {
-        return Err(EatError::MealMassBelowIntakeMinimum {
-            mass: total_mass,
-            minimum: minimum_meal_mass,
-        });
-    }
-    let maximum_meal_mass = direct_consumption.maximum_meal_mass();
-    if total_mass > maximum_meal_mass {
-        return Err(EatError::MealMassExceedsIntakeLimit {
-            mass: total_mass,
-            maximum: maximum_meal_mass,
-        });
-    }
-    let duration = direct_consumption
-        .meal_duration(total_mass)
-        .unwrap_or_else(|| unreachable!("validated nonzero bounded meal must have a duration"));
+    let duration = validate_meal_duration(physiology.direct_consumption(), total_mass)?;
     let completes_at = state
         .tick()
         .checked_add_span(duration)
@@ -333,6 +337,7 @@ pub fn validate_eat(
 
     Ok(ValidatedEat {
         attention,
+        expected_logistics_revision: state.logistics().revision(),
         expected_survival_revision,
         next_survival_revision,
         egress,
@@ -352,6 +357,13 @@ pub fn validate_eat(
 
 impl ValidatedEat {
     pub fn commit(self, state: &mut AppState) -> Result<EatOutcome, EatCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(EatCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         if let Err(conflict) = self.attention.precheck(state) {
             return Err(EatCommitError::StalePlayerWorkRevision {
                 expected: conflict.expected(),

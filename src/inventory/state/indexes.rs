@@ -18,7 +18,11 @@ impl InventoryState {
             .flat_map(StockpileLotIndex::lot_ids)
     }
 
-    pub(in crate::inventory) fn lot_ids_for_commodity(
+    /// Iterates one stockpile's lots for an exact commodity in stable persistent-ID order.
+    ///
+    /// Cross-domain read planners use this derived index to avoid rescanning unrelated stacks;
+    /// mutation of the index remains inventory-owned.
+    pub(crate) fn lot_ids_for_commodity(
         &self,
         stockpile: StockpileId,
         commodity: CommodityKey,

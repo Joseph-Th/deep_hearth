@@ -6,6 +6,8 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
+use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
+use crate::material::CommodityKey;
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::structural::{StructuralCommitError, StructuralElementId};
@@ -14,6 +16,8 @@ use super::super::{EquipmentDefinitionId, EquipmentId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentUpgradeError {
+    EquipmentAccess(PlayerEquipmentAccessError),
+    SourceAccess(PlayerStockpileAccessError),
     UnknownEquipment {
         equipment: EquipmentId,
     },
@@ -57,6 +61,7 @@ pub enum EquipmentUpgradeError {
     },
     InsufficientMaterial {
         stockpile: StockpileId,
+        commodity: CommodityKey,
         available: Mass,
         required: Mass,
     },
@@ -75,6 +80,13 @@ pub enum EquipmentUpgradeError {
 impl Display for EquipmentUpgradeError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::EquipmentAccess(error) => {
+                write!(formatter, "equipment upgrade access failed: {error}")
+            }
+            Self::SourceAccess(error) => write!(
+                formatter,
+                "equipment upgrade material access failed: {error}"
+            ),
             Self::UnknownEquipment { equipment } => {
                 write!(formatter, "unknown equipment id {}", equipment.value())
             }
@@ -151,13 +163,15 @@ impl Display for EquipmentUpgradeError {
             ),
             Self::InsufficientMaterial {
                 stockpile,
+                commodity,
                 available,
                 required,
             } => write!(
                 formatter,
-                "equipment-upgrade stockpile {} contains {} mg but {} mg of authored addition material is required",
+                "equipment-upgrade stockpile {} contains {} mg of commodity {} but {} mg is required",
                 stockpile.value(),
                 available.milligrams(),
+                commodity.value(),
                 required.milligrams()
             ),
             Self::SourceMassOverflow { stockpile } => write!(
@@ -185,6 +199,8 @@ impl Display for EquipmentUpgradeError {
 impl Error for EquipmentUpgradeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::EquipmentAccess(error) => Some(error),
+            Self::SourceAccess(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownEquipment { .. }
             | Self::UnknownTargetDefinition { .. }
@@ -208,6 +224,10 @@ impl Error for EquipmentUpgradeError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentUpgradeCommitError {
+    StaleLogistics {
+        expected: u64,
+        actual: u64,
+    },
     StaleInventory {
         expected: u64,
         actual: u64,
@@ -253,6 +273,10 @@ pub enum EquipmentUpgradeCommitError {
 impl Display for EquipmentUpgradeCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogistics { expected, actual } => write!(
+                formatter,
+                "equipment upgrade expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
                 "equipment upgrade expected inventory revision {expected} but current revision is {actual}"
@@ -329,7 +353,8 @@ impl Error for EquipmentUpgradeCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventory { .. }
+            Self::StaleLogistics { .. }
+            | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::UnknownEquipment { .. }
             | Self::DefinitionChanged { .. }

@@ -95,20 +95,22 @@ impl ProductionState {
         reason: ProductionSuspensionReason,
     ) {
         self.assert_suspend_job_available(id, suspended_at, remaining_active_time);
-        let due = self
-            .jobs
-            .get(&id)
-            .map(|record| record.schedule.completes_at)
-            .unwrap_or_else(|| unreachable!("production suspension job was prechecked"));
-        let record = self
-            .jobs
-            .get(&id)
-            .unwrap_or_else(|| unreachable!("production suspension job was prechecked"));
+        let (due, requires_energy_revision, requires_equipment_revision) = {
+            let record = self
+                .jobs
+                .get(&id)
+                .unwrap_or_else(|| unreachable!("production suspension job was prechecked"));
+            (
+                record.schedule.completes_at,
+                record.requires_energy_revision_at_completion(),
+                record.requires_equipment_revision_at_completion(),
+            )
+        };
         self.indexes.remove_due_job_with_requirements(
             id,
             due,
-            record.requires_energy_revision_at_completion(),
-            record.requires_equipment_revision_at_completion(),
+            requires_energy_revision,
+            requires_equipment_revision,
         );
         self.indexes.set_suspended(id, true);
         if reason == ProductionSuspensionReason::PlayerLaborUnavailable {
@@ -189,23 +191,23 @@ impl ProductionState {
     ) {
         let completed_suspension_time =
             self.assert_resume_job_available(id, resumed_at, scheduled_completion);
-        let was_player_labor_suspended = self
-            .jobs
-            .get(&id)
-            .and_then(|record| record.schedule.suspension)
-            .is_some_and(|suspension| {
-                suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
-            });
+        let (was_player_labor_suspended, requires_energy_revision, requires_equipment_revision) = {
+            let record = self
+                .jobs
+                .get(&id)
+                .unwrap_or_else(|| unreachable!("production resume job was prechecked"));
+            (
+                record.schedule.suspension.is_some_and(|suspension| {
+                    suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
+                }),
+                record.requires_energy_revision_at_completion(),
+                record.requires_equipment_revision_at_completion(),
+            )
+        };
         if was_player_labor_suspended {
             self.indexes.set_player_labor_suspended(id, false);
         }
         self.indexes.set_suspended(id, false);
-        let record = self
-            .jobs
-            .get(&id)
-            .unwrap_or_else(|| unreachable!("production resume job was prechecked"));
-        let requires_energy_revision = record.requires_energy_revision_at_completion();
-        let requires_equipment_revision = record.requires_equipment_revision_at_completion();
         let record = self
             .jobs
             .get_mut(&id)

@@ -3,8 +3,12 @@
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialLotId, StockpileStorageError};
+use crate::logistics::{
+    PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, PlayerStockpileAccessError,
+};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::MaterialId;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 
 mod display;
 mod source;
@@ -17,6 +21,7 @@ pub enum PlayerWorkValidationError {
     ManualProductionJobMissing,
     ManualProductionProcessMismatch,
     ManualProductionScheduleInvalid,
+    ManualProductionAccess(PlayerStockpileAccessError),
     MiningJobMissing,
     MiningJobNotWorking,
     MiningMethodMissing,
@@ -26,11 +31,13 @@ pub enum PlayerWorkValidationError {
     MiningMissingWork,
     ManualPowerMethodMissing,
     ManualPowerEquipmentMissing,
+    ManualPowerEquipmentAccess(PlayerEquipmentAccessError),
     ManualPowerEquipmentDefinitionMismatch,
     ManualPowerEquipmentConditionMismatch,
     ManualPowerEquipmentRequiresStructuralSupport,
     ManualPowerEquipmentMounted,
     ManualPowerDestinationMissing,
+    ManualPowerDestinationAccess(PlayerEnergyStoreAccessError),
     ManualPowerDestinationDefinitionMismatch,
     ManualPowerCarrierMismatch,
     ManualPowerDestinationCannotAcceptEnergy,
@@ -55,6 +62,10 @@ pub enum PlayerWorkValidationError {
         actual: u128,
         maximum: u128,
     },
+    ProspectingPlayerOutsideRegion {
+        player_position: VoxelCoord,
+        region: VoxelBounds,
+    },
     ProspectingEquipmentMissing,
     ProspectingUnexpectedEquipment {
         equipment: EquipmentId,
@@ -67,6 +78,7 @@ pub enum PlayerWorkValidationError {
     ProspectingEquipmentMounted {
         equipment: EquipmentId,
     },
+    ProspectingEquipmentAccess(PlayerEquipmentAccessError),
     ProspectingEquipmentConditionDuration(ActiveConditionDurationError),
     ProspectingEquipmentConditionOutcomeMismatch {
         stored: Condition,
@@ -91,6 +103,7 @@ pub enum PlayerWorkValidationError {
     DrinkingScheduleInvalid,
     DrinkingDurationMismatch,
     EquipmentMaintenanceEquipmentMissing,
+    EquipmentMaintenanceAccess(PlayerEquipmentAccessError),
     EquipmentMaintenanceDefinitionMismatch,
     EquipmentMaintenanceConditionMismatch,
     EquipmentMaintenanceProfileMissing,
@@ -101,6 +114,7 @@ pub enum PlayerWorkValidationError {
     EquipmentMaintenanceDurationMismatch,
     EquipmentMaintenanceResourceDoubleBooked,
     EquipmentMaintenanceEquipmentRevisionExhausted,
+    StorageDismantlingAccess(PlayerStockpileAccessError),
     StorageDismantlingTargetMissing,
     StorageDismantlingEnclosureMissing,
     StorageDismantlingDefinitionMissing,

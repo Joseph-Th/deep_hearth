@@ -12,7 +12,8 @@ use super::capabilities::{
     CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 use super::materials::{
-    FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP, MATERIAL_COPPER,
+    FORM_CHIP, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
+    MATERIAL_COPPER,
 };
 use super::processes::{
     PROCESS_CAST_PURE_COPPER, PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER,
@@ -40,6 +41,7 @@ pub(crate) fn build_thermal_registry() -> ThermalRegistry {
             MATERIAL_COPPER,
             vec![
                 FORM_INGOT,
+                FORM_CHIP,
                 FORM_REINFORCEMENT,
                 FORM_NATIVE_METAL,
                 FORM_SCRAP,

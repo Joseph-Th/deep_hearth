@@ -22,6 +22,7 @@ impl Error for StartProcessError {
             | Self::DuplicateOutputRoute { .. }
             | Self::UnknownOutputRoute { .. }
             | Self::MissingOutputRoute { .. }
+            | Self::SpatialEndpointMismatch { .. }
             | Self::CapacityExceeded { .. }
             | Self::MassOverflow { .. }
             | Self::CompletionTickOverflow { .. }

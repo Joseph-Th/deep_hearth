@@ -11,8 +11,10 @@ use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_ener
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
+use crate::logistics::validate_initialize_player_logistics;
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
+use crate::spatial::VoxelCoord;
 use crate::survival::initialize_player_survival;
 
 fn assembled_store(registries: &Registries, state: &mut AppState) -> EnergyStoreId {
@@ -42,6 +44,35 @@ fn assembled_store(registries: &Registries, state: &mut AppState) -> EnergyStore
         .unwrap_or_else(|error| panic!("store disassembly assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("store disassembly assembly commit failed: {error}"))
+}
+
+#[test]
+fn disassembly_removes_detached_energy_store_location() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(2, 0, 4);
+    let destination =
+        validate_initialize_player_logistics(&state, position, Mass::from_milligrams(2_000_000))
+            .unwrap_or_else(|error| panic!("located store disassembly logistics failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("located store disassembly logistics commit failed: {error}")
+            })
+            .carried_stockpile();
+    let store = assembled_store(&registries, &mut state);
+    assert_eq!(
+        state.logistics().energy_store_position(store),
+        Some(position)
+    );
+
+    let _ = validate_disassemble_energy_store(&registries, &state, store, destination)
+        .unwrap_or_else(|error| panic!("located store disassembly validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("located store disassembly commit failed: {error}"));
+
+    assert_eq!(state.logistics().energy_store_position(store), None);
+    assert!(state.energy().get_store(store).is_none());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn assembled_crank(registries: &Registries, state: &mut AppState) -> crate::equipment::EquipmentId {

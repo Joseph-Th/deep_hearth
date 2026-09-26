@@ -13,6 +13,13 @@ impl ValidatedEquipmentMaintenance {
         self,
         state: &mut AppState,
     ) -> Result<EquipmentMaintenanceStartOutcome, EquipmentMaintenanceCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(EquipmentMaintenanceCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         let actual_revision = state.equipment().revision();
         if actual_revision != self.expected_equipment_revision {
             return Err(EquipmentMaintenanceCommitError::StaleEquipmentRevision {

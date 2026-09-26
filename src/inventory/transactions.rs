@@ -2,8 +2,6 @@
 
 mod egress;
 mod reform;
-
-#[cfg(any(test, feature = "test-gameplay"))]
 mod relocation;
 
 pub(crate) use egress::{
@@ -15,9 +13,7 @@ pub(crate) use reform::{
     validate_material_reform_from_selection,
 };
 
-#[cfg(test)]
-pub(crate) use relocation::{MaterialRelocationCommitError, MaterialRelocationError};
-#[cfg(any(test, feature = "test-gameplay"))]
+pub use relocation::{MaterialRelocationCommitError, MaterialRelocationError};
 pub(crate) use relocation::{
     ValidatedMaterialRelocation, validate_material_relocation_from_selection,
 };

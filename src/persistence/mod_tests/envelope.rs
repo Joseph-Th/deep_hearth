@@ -115,6 +115,14 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                     "stockpiles": {},
                     "lots": {}
                 },
+                "logistics": {
+                    "revision": 0,
+                    "player": null,
+                    "ground_stockpiles": {},
+                    "detached_equipment": {},
+                    "detached_energy_stores": {},
+                    "fluid_stores": {}
+                },
                 "production": {
                     "revision": 0,
                     "next_job_id": 1,
@@ -256,6 +264,7 @@ fn unknown_fields_are_rejected_at_envelope_and_nested_state_boundaries() {
         "geology",
         "geological_knowledge",
         "inventory",
+        "logistics",
         "production",
         "mining",
         "player_work",

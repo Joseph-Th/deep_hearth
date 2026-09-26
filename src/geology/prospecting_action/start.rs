@@ -9,6 +9,7 @@ use crate::labor::{
     PlayerWork, PlayerWorkResourceBudget, ProspectingDefinition, ProspectingMethodId,
     ProspectingRegionError, ProspectingWork, ValidatedPlayerWorkStart, validate_player_work_start,
 };
+use crate::logistics::validate_player_equipment_access;
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::material::MaterialId;
 use crate::registry::Registries;
@@ -87,10 +88,18 @@ pub struct ValidatedFieldProspectingStart {
     work_start: ValidatedPlayerWorkStart,
     work: ProspectingWork,
     expected_equipment_revision: Option<u64>,
+    expected_logistics_revision: u64,
 }
 
 impl ValidatedFieldProspectingStart {
     pub fn commit(self, state: &mut AppState) -> Result<(), FieldProspectingCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(FieldProspectingCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         self.work_start
             .precheck(state)
             .map_err(FieldProspectingCommitError::Work)?;
@@ -232,6 +241,8 @@ fn resolve_prospecting_equipment_plan(
     {
         return Err(FieldProspectingStartError::EquipmentMounted { equipment });
     }
+    validate_player_equipment_access(state, equipment)
+        .map_err(FieldProspectingStartError::EquipmentAccess)?;
     validate_start_equipment_occupancy(occupancy, equipment)?;
     let use_trace = provider.validated_use();
     let condition_after = calculate_usable_condition_after_active_ticks(
@@ -260,6 +271,14 @@ pub fn validate_start_field_prospecting(
             method: request.method,
         })?;
     let observation_count = validate_prospecting_target(registries, request, method)?;
+    if let Some(player) = state.logistics().player().copied()
+        && !request.region.has_voxel(player.position())
+    {
+        return Err(FieldProspectingStartError::PlayerOutsideRegion {
+            player_position: player.position(),
+            region: request.region,
+        });
+    }
     let equipment_plan = resolve_prospecting_equipment_plan(registries, state, request, method)?;
     state
         .geological_knowledge()
@@ -299,5 +318,6 @@ pub fn validate_start_field_prospecting(
         work_start,
         work,
         expected_equipment_revision: equipment_plan.expected_revision,
+        expected_logistics_revision: state.logistics().revision(),
     })
 }

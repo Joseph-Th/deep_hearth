@@ -110,6 +110,14 @@ impl ValidatedStockpileSupportChange {
                 actual: record.supported_by(),
             });
         }
+        if self.after.is_some()
+            && let Some(position) = state.logistics().ground_stockpile_position(self.stockpile)
+        {
+            return Err(StockpileSupportCommitError::GroundLocated {
+                stockpile: self.stockpile,
+                position,
+            });
+        }
         if let Some(error) = support_commit_error(state, self.stockpile) {
             return Err(error);
         }
@@ -182,6 +190,19 @@ pub fn validate_mount_stockpile(
         .inventory()
         .get_stockpile(stockpile)
         .ok_or(StockpileSupportError::UnknownStockpile { stockpile })?;
+    if state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.carried_stockpile() == stockpile)
+    {
+        return Err(StockpileSupportError::PlayerCarried { stockpile });
+    }
+    if let Some(position) = state.logistics().ground_stockpile_position(stockpile) {
+        return Err(StockpileSupportError::GroundLocated {
+            stockpile,
+            position,
+        });
+    }
     if let Some(existing) = record.supported_by() {
         return Err(StockpileSupportError::AlreadyMounted {
             stockpile,

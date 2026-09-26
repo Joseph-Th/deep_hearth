@@ -15,6 +15,10 @@ use super::super::super::state::EquipmentId;
 /// Commit failure after one or more maintenance owners changed since validation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentMaintenanceCommitError {
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleEquipmentRevision {
         expected: u64,
         actual: u64,
@@ -54,6 +58,10 @@ pub enum EquipmentMaintenanceCommitError {
 impl Display for EquipmentMaintenanceCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "validated equipment maintenance expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment maintenance expected equipment revision {expected} but current revision is {actual}"
@@ -125,6 +133,7 @@ impl Error for EquipmentMaintenanceCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerWork(error) => Some(error),
+            Self::StaleLogisticsRevision { .. } => None,
             Self::StaleEquipmentRevision {
                 expected: _expected,
                 actual: _actual,

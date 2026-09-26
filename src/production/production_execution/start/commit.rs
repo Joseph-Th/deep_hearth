@@ -26,6 +26,7 @@ impl ValidatedStartProcess {
             next_job_id,
             expected_production_revision,
             next_production_revision,
+            expected_logistics_revision,
             reservation,
             energy_reservation,
             energy_ingress_reservation,
@@ -36,6 +37,7 @@ impl ValidatedStartProcess {
         let job_id = job.id();
 
         validate_commit_occupancy(state, &job)?;
+        validate_logistics_revision(state, expected_logistics_revision)?;
         validate_production_revision(state, expected_production_revision)?;
         if let Some(energy) = &energy_ingress_reservation {
             validate_energy_revision(state, energy.expected_revision())?;
@@ -81,6 +83,17 @@ impl ValidatedStartProcess {
             .insert_job(job, next_job_id, next_production_revision);
         Ok(job_id)
     }
+}
+
+fn validate_logistics_revision(
+    state: &AppState,
+    expected: u64,
+) -> Result<(), StartProcessCommitError> {
+    let actual = state.logistics().revision();
+    if actual != expected {
+        return Err(StartProcessCommitError::StaleLogisticsRevision { expected, actual });
+    }
+    Ok(())
 }
 
 fn validate_commit_occupancy(

@@ -4,6 +4,7 @@ use crate::core::state::AppState;
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
+use crate::logistics::validate_player_stockpile_access;
 use crate::production::{
     ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess, validate_process_inputs,
     validate_start_manual_process,
@@ -14,6 +15,7 @@ use crate::survival::{Vitality, assess_survival};
 mod batch;
 mod definitions;
 mod errors;
+mod input_planning;
 mod physics;
 mod powered;
 mod projection;
@@ -31,6 +33,11 @@ pub use definitions::{
 pub use errors::{
     ManualCraftCommitError, ManualCraftEquipmentProjectionError, ManualCraftError,
     ManualCraftHandProjectionError, StartManualCraftError,
+};
+pub use input_planning::{
+    ManualCraftInputAvailability, ManualCraftInputMode, ManualCraftInputPlanError,
+    ManualCraftStockpileOption, assess_manual_craft_inputs, manual_craft_options_from_stockpile,
+    plan_manual_craft_from_stockpile,
 };
 pub(crate) use physics::resolve_manual_craft_equipment_physics;
 pub use powered::{
@@ -122,6 +129,17 @@ impl ManualCraftStartRequest {
         Self { craft, destination }
     }
 
+    /// Sends conserved craft output back to the same inventory custody that supplied the input.
+    ///
+    /// This is the familiar personal-inventory/container crafting path. Canonical production
+    /// admission still projects outgoing input before reserving incoming output, so identical
+    /// source/destination does not bypass finite capacity.
+    #[must_use]
+    pub fn in_place(craft: ManualCraftRequest) -> Self {
+        let destination = craft.source();
+        Self { craft, destination }
+    }
+
     #[must_use]
     pub fn single(
         process: ProcessId,
@@ -133,6 +151,11 @@ impl ManualCraftStartRequest {
             ManualCraftRequest::single(process, source, selection),
             destination,
         )
+    }
+
+    #[must_use]
+    pub const fn destination(&self) -> StockpileId {
+        self.destination
     }
 }
 
@@ -243,10 +266,18 @@ pub fn resolve_manual_craft(
 pub struct ValidatedManualCraftStart {
     process: ValidatedStartProcess,
     work: ValidatedPlayerWorkStart,
+    expected_logistics_revision: u64,
 }
 
 impl ValidatedManualCraftStart {
     pub fn commit(self, state: &mut AppState) -> Result<ProductionJobId, ManualCraftCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(ManualCraftCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         self.work
             .precheck(state)
             .map_err(ManualCraftCommitError::Work)?;
@@ -268,6 +299,8 @@ pub fn validate_start_manual_craft(
     let ManualCraftStartRequest { craft, destination } = request;
     let process_id = craft.process();
     let source = craft.source();
+    validate_player_stockpile_access(state, source).map_err(StartManualCraftError::Access)?;
+    validate_player_stockpile_access(state, destination).map_err(StartManualCraftError::Access)?;
     let resolution = resolve_manual_craft(registries, state, &craft)
         .map_err(StartManualCraftError::Resolution)?;
     let process =
@@ -290,12 +323,20 @@ pub fn validate_start_manual_craft(
         exertion,
     )
     .map_err(StartManualCraftError::Work)?;
-    Ok(ValidatedManualCraftStart { process, work })
+    Ok(ValidatedManualCraftStart {
+        process,
+        work,
+        expected_logistics_revision: state.logistics().revision(),
+    })
 }
 
 #[cfg(test)]
 #[path = "index_tests.rs"]
 mod index_tests;
+
+#[cfg(test)]
+#[path = "input_planning_tests.rs"]
+mod input_planning_tests;
 
 #[cfg(test)]
 #[path = "wood_recovery_tests.rs"]

@@ -12,6 +12,48 @@ fn bounds() -> VoxelBounds {
     }
 }
 
+#[test]
+fn loaded_validation_rejects_incoherent_depletion_timeline() {
+    let registries = build_registries();
+
+    let (mut available_with_tick, deposit) = extraction_state(
+        Mass::from_milligrams(75),
+        GeologicalDepositLifecycle::Available,
+    );
+    available_with_tick
+        .deposits
+        .get_mut(&deposit)
+        .unwrap_or_else(|| panic!("available timeline fixture disappeared"))
+        .depleted_at = Some(SimulationTick::ZERO);
+    assert_eq!(
+        validate_loaded_geology(
+            registries.materials(),
+            &available_with_tick,
+            SimulationTick::ZERO,
+        ),
+        Err(GeologyValidationError::AvailableHasDepletionTick {
+            deposit,
+            depleted_at: SimulationTick::ZERO,
+        })
+    );
+
+    let (mut depleted_without_tick, deposit) =
+        extraction_state(Mass::ZERO, GeologicalDepositLifecycle::Depleted);
+    depleted_without_tick
+        .deposits
+        .get_mut(&deposit)
+        .unwrap_or_else(|| panic!("depleted timeline fixture disappeared"))
+        .depleted_at = None;
+    assert_eq!(
+        validate_loaded_geology(
+            registries.materials(),
+            &depleted_without_tick,
+            SimulationTick::ZERO,
+        ),
+        Err(GeologyValidationError::DepletedMissingDepletionTick { deposit })
+    );
+}
+
 fn extraction_state(
     remaining_mass: Mass,
     lifecycle: GeologicalDepositLifecycle,
@@ -32,6 +74,8 @@ fn extraction_state(
             composition: MaterialComposition::pure(MATERIAL_COPPER),
             lifecycle,
             generated_at: SimulationTick::ZERO,
+            depleted_at: (lifecycle == GeologicalDepositLifecycle::Depleted)
+                .then_some(SimulationTick::ZERO),
         },
     );
     (state, deposit)
@@ -46,7 +90,7 @@ fn extraction_owner_rejects_over_extraction() {
     let before = state.clone();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        state.apply_extraction(deposit, Mass::from_milligrams(76), 1);
+        state.apply_extraction(deposit, Mass::from_milligrams(76), SimulationTick::ZERO, 1);
     }));
 
     assert!(result.is_err());
@@ -62,7 +106,7 @@ fn extraction_owner_rejects_zero_mass_transfer() {
     let before = state.clone();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        state.apply_extraction(deposit, Mass::ZERO, 1);
+        state.apply_extraction(deposit, Mass::ZERO, SimulationTick::ZERO, 1);
     }));
 
     assert!(result.is_err());
@@ -75,7 +119,7 @@ fn extraction_owner_rejects_depleted_deposit_mutation() {
     let before = state.clone();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        state.apply_extraction(deposit, Mass::ZERO, 1);
+        state.apply_extraction(deposit, Mass::ZERO, SimulationTick::ZERO, 1);
     }));
 
     assert!(result.is_err());
@@ -89,20 +133,32 @@ fn extraction_owner_subtracts_exact_transferred_mass_and_depletes_at_zero() {
         GeologicalDepositLifecycle::Available,
     );
 
-    state.apply_extraction(deposit, Mass::from_milligrams(25), 1);
+    state.apply_extraction(
+        deposit,
+        Mass::from_milligrams(25),
+        SimulationTick::new(1),
+        1,
+    );
     let record = state
         .get_deposit(deposit)
         .unwrap_or_else(|| panic!("extracted deposit disappeared"));
     assert_eq!(record.remaining_mass(), Mass::from_milligrams(50));
     assert_eq!(record.lifecycle(), GeologicalDepositLifecycle::Available);
+    assert_eq!(record.depleted_at, None);
     assert_eq!(state.revision(), 1);
 
-    state.apply_extraction(deposit, Mass::from_milligrams(50), 2);
+    state.apply_extraction(
+        deposit,
+        Mass::from_milligrams(50),
+        SimulationTick::new(2),
+        2,
+    );
     let record = state
         .get_deposit(deposit)
         .unwrap_or_else(|| panic!("depleted deposit disappeared"));
     assert_eq!(record.remaining_mass(), Mass::ZERO);
     assert_eq!(record.lifecycle(), GeologicalDepositLifecycle::Depleted);
+    assert_eq!(record.depleted_at, Some(SimulationTick::new(2)));
     assert_eq!(state.revision(), 2);
 }
 
@@ -125,6 +181,7 @@ fn loaded_validation_rejects_lifecycle_mass_disagreement() {
             composition: MaterialComposition::pure(MATERIAL_COPPER),
             lifecycle: GeologicalDepositLifecycle::Depleted,
             generated_at: SimulationTick::ZERO,
+            depleted_at: Some(SimulationTick::ZERO),
         },
     );
 
@@ -156,6 +213,7 @@ fn loaded_validation_rejects_zero_excavation_hardness() {
             composition: MaterialComposition::pure(MATERIAL_COPPER),
             lifecycle: GeologicalDepositLifecycle::Available,
             generated_at: SimulationTick::ZERO,
+            depleted_at: None,
         },
     );
 
@@ -184,6 +242,7 @@ fn loaded_validation_rejects_liquid_geological_deposit() {
             composition: MaterialComposition::pure(MATERIAL_COPPER),
             lifecycle: GeologicalDepositLifecycle::Available,
             generated_at: SimulationTick::ZERO,
+            depleted_at: None,
         },
     );
 
@@ -216,6 +275,7 @@ fn loaded_validation_rejects_processed_particulate_geological_deposit() {
             composition: MaterialComposition::pure(MATERIAL_COPPER),
             lifecycle: GeologicalDepositLifecycle::Available,
             generated_at: SimulationTick::ZERO,
+            depleted_at: None,
         },
     );
 

@@ -15,6 +15,7 @@ impl Error for StateValidationError {
             Self::Geology(error) => Some(error),
             Self::GeologicalKnowledge(error) => Some(error),
             Self::Inventory(error) => Some(error),
+            Self::Logistics(error) => Some(error),
             Self::StorageEnclosure(error) => Some(error),
             Self::Production(error) => Some(error),
             Self::Mining(error) => Some(error),
@@ -57,7 +58,8 @@ impl Error for StateValidationError {
             | Self::UnknownJobSource { .. }
             | Self::JobEnergyTopologyMismatch { .. }
             | Self::JobEquipmentTopologyMismatch { .. }
-            | Self::UnknownJobDestination { .. } => None,
+            | Self::UnknownJobDestination { .. }
+            | Self::JobSpatialEndpointMismatch { .. } => None,
             Self::UnknownJobEnergySource {
                 job: _job,
                 store: _store,

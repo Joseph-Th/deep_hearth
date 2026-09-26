@@ -70,6 +70,7 @@ fn evidence_cannot_authorize_a_deposit_generated_after_it_was_acquired() {
     state.geology_state_mut().apply_extraction(
         historical,
         Mass::from_milligrams(1_000),
+        SimulationTick::ZERO,
         next_revision,
     );
     apply_clock_advance(&mut state, SimulationTick::new(1));

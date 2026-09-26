@@ -161,6 +161,23 @@ impl ThermalRegistry {
         self.casting.get(&process).copied()
     }
 
+    /// Iterates sensible-heating definitions in stable process-ID order.
+    pub fn sensible_heating_definitions(
+        &self,
+    ) -> impl Iterator<Item = SensibleHeatingProcessDefinition> + '_ {
+        self.sensible_heating.values().copied()
+    }
+
+    /// Iterates pure-material melting definitions in stable process-ID order.
+    pub fn melting_definitions(&self) -> impl Iterator<Item = &MeltingProcessDefinition> {
+        self.melting.values()
+    }
+
+    /// Iterates pure-material casting definitions in stable process-ID order.
+    pub fn casting_definitions(&self) -> impl Iterator<Item = CastingProcessDefinition> + '_ {
+        self.casting.values().copied()
+    }
+
     pub(crate) fn validate_references(
         &self,
         production: &ProductionRegistry,

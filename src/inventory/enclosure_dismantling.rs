@@ -70,6 +70,7 @@ pub struct ValidatedStorageEnclosureDismantlingStart {
     definition: StorageDefinitionId,
     enclosure_created_at: SimulationTick,
     expected_profile: StockpileStorageProfile,
+    expected_logistics_revision: u64,
     reservation: ValidatedInboundReservation,
     work: StorageEnclosureDismantlingWork,
     player_work: ValidatedPlayerWorkStart,
@@ -81,6 +82,15 @@ impl ValidatedStorageEnclosureDismantlingStart {
         state: &mut AppState,
     ) -> Result<StorageEnclosureDismantlingStartOutcome, StorageEnclosureDismantlingCommitError>
     {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(
+                StorageEnclosureDismantlingCommitError::StaleLogisticsRevision {
+                    expected: self.expected_logistics_revision,
+                    actual: actual_logistics_revision,
+                },
+            );
+        }
         let actual_revision = state.inventory().revision();
         if actual_revision != self.reservation.expected_revision() {
             return Err(

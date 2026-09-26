@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::labor::PlayerWorkStartError;
+use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
 use crate::mining::MiningJobId;
@@ -17,6 +18,9 @@ use super::material::EquipmentMaintenanceMaterialError;
 /// Failure while validating an already physically resolved equipment maintenance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentMaintenanceError {
+    EquipmentAccess(PlayerEquipmentAccessError),
+    MaterialSourceAccess(PlayerStockpileAccessError),
+    SpentDestinationAccess(PlayerStockpileAccessError),
     UnknownEquipment {
         equipment: EquipmentId,
     },
@@ -74,6 +78,17 @@ pub enum EquipmentMaintenanceError {
 impl Display for EquipmentMaintenanceError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::EquipmentAccess(error) => {
+                write!(formatter, "equipment maintenance access failed: {error}")
+            }
+            Self::MaterialSourceAccess(error) => write!(
+                formatter,
+                "equipment maintenance replacement-source access failed: {error}"
+            ),
+            Self::SpentDestinationAccess(error) => write!(
+                formatter,
+                "equipment maintenance spent-destination access failed: {error}"
+            ),
             Self::UnknownEquipment { equipment } => {
                 write!(formatter, "unknown equipment id {}", equipment.value())
             }
@@ -185,6 +200,9 @@ impl Display for EquipmentMaintenanceError {
 impl Error for EquipmentMaintenanceError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::EquipmentAccess(error) => Some(error),
+            Self::MaterialSourceAccess(error) => Some(error),
+            Self::SpentDestinationAccess(error) => Some(error),
             Self::Material(error) => Some(error),
             Self::PlayerWork(error) => Some(error),
             Self::UnknownEquipment {
