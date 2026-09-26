@@ -162,14 +162,7 @@ impl Display for LogisticsValidationError {
 
 impl Error for LogisticsValidationError {}
 
-pub(crate) fn validate_loaded_logistics(
-    state: &LogisticsState,
-    inventory: &InventoryState,
-    equipment: &EquipmentState,
-    energy: &EnergyState,
-    fluid: &FluidState,
-    structures: &StructureState,
-) -> Result<(), LogisticsValidationError> {
+fn validate_revision(state: &LogisticsState) -> Result<(), LogisticsValidationError> {
     let populated = state.player().is_some()
         || state.stockpile_locations().next().is_some()
         || state.equipment_locations().next().is_some()
@@ -177,34 +170,45 @@ pub(crate) fn validate_loaded_logistics(
         || state.fluid_store_locations().next().is_some();
     match (populated, state.revision()) {
         (false, revision) if revision != 0 => {
-            return Err(LogisticsValidationError::UninitializedRevisionNonzero {
-                revision: state.revision(),
-            });
+            Err(LogisticsValidationError::UninitializedRevisionNonzero { revision })
         }
-        (true, 0) => {
-            return Err(LogisticsValidationError::InitializedRevisionZero);
-        }
-        _ => {}
+        (true, 0) => Err(LogisticsValidationError::InitializedRevisionZero),
+        _ => Ok(()),
     }
-    if let Some(player) = state.player().copied() {
-        let stockpile = inventory.get_stockpile(player.carried_stockpile()).ok_or(
-            LogisticsValidationError::UnknownCarriedStockpile {
-                stockpile: player.carried_stockpile(),
-            },
-        )?;
-        if let Some(element) = stockpile.supported_by() {
-            return Err(LogisticsValidationError::CarriedStockpileMounted {
-                stockpile: player.carried_stockpile(),
-                element,
-            });
-        }
-        if let Some(enclosure) = stockpile.enclosure() {
-            return Err(LogisticsValidationError::CarriedStockpileEnclosed {
-                stockpile: player.carried_stockpile(),
-                definition: enclosure.definition(),
-            });
-        }
+}
+
+fn validate_player_custody(
+    state: &LogisticsState,
+    inventory: &InventoryState,
+) -> Result<(), LogisticsValidationError> {
+    let Some(player) = state.player().copied() else {
+        return Ok(());
+    };
+    let stockpile = inventory.get_stockpile(player.carried_stockpile()).ok_or(
+        LogisticsValidationError::UnknownCarriedStockpile {
+            stockpile: player.carried_stockpile(),
+        },
+    )?;
+    if let Some(element) = stockpile.supported_by() {
+        return Err(LogisticsValidationError::CarriedStockpileMounted {
+            stockpile: player.carried_stockpile(),
+            element,
+        });
     }
+    if let Some(enclosure) = stockpile.enclosure() {
+        return Err(LogisticsValidationError::CarriedStockpileEnclosed {
+            stockpile: player.carried_stockpile(),
+            definition: enclosure.definition(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_stockpile_locations(
+    state: &LogisticsState,
+    inventory: &InventoryState,
+    structures: &StructureState,
+) -> Result<(), LogisticsValidationError> {
     for (stockpile, position) in state.stockpile_locations() {
         if state
             .player()
@@ -226,6 +230,14 @@ pub(crate) fn validate_loaded_logistics(
             });
         }
     }
+    Ok(())
+}
+
+fn validate_equipment_locations(
+    state: &LogisticsState,
+    equipment: &EquipmentState,
+    structures: &StructureState,
+) -> Result<(), LogisticsValidationError> {
     for (equipment_id, position) in state.equipment_locations() {
         let record = equipment.get_equipment(equipment_id).ok_or(
             LogisticsValidationError::UnknownLocatedEquipment {
@@ -243,11 +255,26 @@ pub(crate) fn validate_loaded_logistics(
             });
         }
     }
+    Ok(())
+}
+
+fn validate_energy_store_locations(
+    state: &LogisticsState,
+    energy: &EnergyState,
+) -> Result<(), LogisticsValidationError> {
     for (store, _) in state.energy_store_locations() {
         if energy.get_store(store).is_none() {
             return Err(LogisticsValidationError::UnknownLocatedEnergyStore { store });
         }
     }
+    Ok(())
+}
+
+fn validate_fluid_store_locations(
+    state: &LogisticsState,
+    fluid: &FluidState,
+    structures: &StructureState,
+) -> Result<(), LogisticsValidationError> {
     for (store, position) in state.fluid_store_locations() {
         let record = fluid
             .get_store(store)
@@ -263,5 +290,22 @@ pub(crate) fn validate_loaded_logistics(
             });
         }
     }
+    Ok(())
+}
+
+pub(crate) fn validate_loaded_logistics(
+    state: &LogisticsState,
+    inventory: &InventoryState,
+    equipment: &EquipmentState,
+    energy: &EnergyState,
+    fluid: &FluidState,
+    structures: &StructureState,
+) -> Result<(), LogisticsValidationError> {
+    validate_revision(state)?;
+    validate_player_custody(state, inventory)?;
+    validate_stockpile_locations(state, inventory, structures)?;
+    validate_equipment_locations(state, equipment, structures)?;
+    validate_energy_store_locations(state, energy)?;
+    validate_fluid_store_locations(state, fluid, structures)?;
     Ok(())
 }

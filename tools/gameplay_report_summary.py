@@ -39,6 +39,8 @@ _ORDINARY_DIGEST_FIELDS = {
         "processing-crossover",
         "disclosed-order-attention",
         "parallel-work",
+        "executed-manual-fallback",
+        "integrated-campaign",
         "reinvestment",
         "next-stage-continuation",
     ),
@@ -50,7 +52,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "kit-decision",
         "first-foundry",
         "remaining-frontier",
-        "industrial-foundry-frontier",
     ),
     "woodworking": (
         "samples",
@@ -65,23 +66,25 @@ _ORDINARY_DIGEST_FIELDS = {
         "outcomes",
         "reserve-knowledge",
         "orders",
+        "pacing-physical",
         "heavy-tool-market",
         "initial-shortfall-campaign",
     ),
     "power-provider": (
         "samples",
         "choice",
-        "interaction-density",
+        "project-experience",
         "decision-crossover-charges",
-        "evidence-scope",
         "settlement-choice",
-        "settlement-interaction-density",
+        "settlement-project-experience",
         "settlement-decision-crossover-charges",
-        "settlement-evidence-scope",
     ),
     "survival": (
         "samples",
         "pressure",
+        "diet",
+        "provisioning",
+        "balanced-diet-counterfactual",
         "preservation",
         "commitment",
         "work-interlock",
@@ -156,22 +159,58 @@ def _digest_summary(summary: str) -> str:
         probe = field(summary, "probe")
         if probe is None:
             return summary
+        if probe == "fieldwork":
+            experience = compact_fields(
+                summary,
+                (
+                    "samples",
+                    "outcomes",
+                    "reserve-knowledge",
+                    "orders",
+                    "pacing-physical",
+                    "reuse-physical",
+                ),
+            )
+            adaptation = compact_fields(
+                summary,
+                (
+                    "heavy-tool-market",
+                    "initial-shortfall-campaign",
+                ),
+            )
+            return (
+                f"GAMEPLAY probe=fieldwork {experience}".rstrip()
+                + "\n"
+                + f"GAMEPLAY fieldwork-adaptation {adaptation}".rstrip()
+            )
         detail = compact_fields(summary, _ORDINARY_DIGEST_FIELDS.get(probe, ("samples",)))
         return f"GAMEPLAY probe={probe} {detail}".rstrip()
 
     if summary.startswith("PLAYER LOOP EVIDENCE "):
-        detail = compact_fields(
+        core = compact_fields(
             summary,
             (
                 "observe-infer",
-                "thermal-bootstrap",
+                "prepare-invest",
+                "extract",
                 "world-feedback",
                 "delegate",
                 "reassess-reinvest",
+            ),
+        )
+        dynamics = compact_fields(
+            summary,
+            (
+                "survive-adapt",
+                "maintain-recover",
                 "choice-diversity",
             ),
         )
-        return f"GAMEPLAY loop {detail}".rstrip()
+        return (
+            f"GAMEPLAY loop {core}".rstrip()
+            + "\n"
+            + f"GAMEPLAY loop-dynamics {dynamics}".rstrip()
+        )
 
     if summary.startswith("CONTROLLED SUMMARY probe=workshop "):
         return (

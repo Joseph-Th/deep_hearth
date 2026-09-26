@@ -1083,7 +1083,8 @@ pub(super) fn run_primitive_progression_case(
         primary_mining_jobs: concurrent_work.mining_jobs,
         reserve_mining_jobs: reserve_work.mining_jobs,
         steady_mining_jobs: steady_state.mining_jobs,
-        steady_feed_buffer_limited_cycles: steady_state.feed_buffer_limited_cycles,
+        steady_feed_buffer_ready_cycles: steady_state.feed_buffer_ready_cycles,
+        steady_feed_buffer_capacity_cycles: steady_state.feed_buffer_capacity_cycles,
         separation_feed_mass: separation.feed_mass,
         recovered_copper_mass: separation.target_mass,
         separation_required_energy: separation.required_energy,
@@ -1188,7 +1189,7 @@ pub(super) fn run_primitive_progression_case(
             reinforced_hardness_limit.pascals(),
         );
         println!(
-            "PROGRESSION SYSTEMS knowledge=[surface:{}t hardness-sampling:{}t deferred-refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ passive-loss-before-reserve:{}nJ reserve-recharge:{}t banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm overlap-setup-equivalent:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-plan:{} work:{}t jobs:{} mined:{}mg stop:{} initial-overlap:{}t primary-feed-replenishment-overlap:{}t primary-unfilled:{}t reserve:{}t reserve-mining:{}t/{}jobs stop:{} reserve-feed-replenishment-overlap:{}t reserve-unfilled:{}t steady-machine:{}t steady-mining:{}jobs buffer-limited:{}cycles steady-feed-replenishment-overlap:{}t steady-unfilled:{}t total-feed-replenishment-overlap:{}t total-unfilled:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick-service:condition:{}->{}ppm component:{}mg prep:{}t service:{}t reinforcement-preserved:{}] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
+            "PROGRESSION SYSTEMS knowledge=[surface:{}t hardness-sampling:{}t deferred-refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ passive-loss-before-reserve:{}nJ reserve-recharge:{}t banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm overlap-setup-equivalent:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-plan:{} work:{}t jobs:{} mined:{}mg stop:{} initial-overlap:{}t primary-feed-replenishment-overlap:{}t primary-unfilled:{}t reserve:{}t reserve-mining:{}t/{}jobs stop:{} reserve-feed-replenishment-overlap:{}t reserve-unfilled:{}t steady-machine:{}t steady-mining:{}jobs feed-ready:{}cycles feed-capacity:{}cycles steady-feed-replenishment-overlap:{}t steady-unfilled:{}t total-feed-replenishment-overlap:{}t total-unfilled:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick-service:condition:{}->{}ppm component:{}mg prep:{}t service:{}t reinforcement-preserved:{}] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             surface_prospecting_ticks,
             hardness_sampling_ticks,
             detailed_survey_ticks,
@@ -1253,7 +1254,8 @@ pub(super) fn run_primitive_progression_case(
             reserve_player_free_ticks,
             steady_state.machine_ticks,
             steady_state.mining_jobs,
-            steady_state.feed_buffer_limited_cycles,
+            steady_state.feed_buffer_ready_cycles,
+            steady_state.feed_buffer_capacity_cycles,
             steady_state.useful_overlap_ticks,
             steady_state.player_free_ticks,
             total_useful_overlap_ticks,

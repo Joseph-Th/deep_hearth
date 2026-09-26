@@ -155,6 +155,11 @@ def _kit_acquisition(lines: list[str]) -> str:
     preassembled_routes = sum(
         " continuity=controlled-preassembled-kit" in line for line in routes
     )
+    fixture_sources = sum(
+        " raw-origin=pre-admission-fixture " in line for line in witnesses
+    )
+    runtime_pickups = sum(" pickup=same-voxel-runtime " in line for line in witnesses)
+    world_gathering = sum(" world-gathering-proved=true " in line for line in witnesses)
     stone: list[int] = []
     wood: list[int] = []
     total: list[int] = []
@@ -178,6 +183,9 @@ def _kit_acquisition(lines: list[str]) -> str:
     return (
         "kit-acquisition=["
         f"executed:{len(witnesses)} live-routes:{live_kit_routes} preassembled:{preassembled_routes} "
+        f"source=[fixture:{fixture_sources}/{len(witnesses)} "
+        f"pickup-runtime:{runtime_pickups}/{len(witnesses)} "
+        f"world-gathering:{world_gathering}/{len(witnesses)}] "
         f"raw:stone-{scaled_span(stone, 1_000_000, 'kg')}"
         f"/wood-{scaled_span(wood, 1_000_000, 'kg')}"
         f"/total-{scaled_span(total, 1_000_000, 'kg')} "

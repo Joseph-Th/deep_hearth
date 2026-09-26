@@ -37,11 +37,38 @@ pub(super) struct SteadyStateWork {
     pub(super) player_free_ticks: u64,
     pub(super) mined_mass: Mass,
     pub(super) mining_jobs: u64,
-    pub(super) feed_buffer_limited_cycles: u64,
+    pub(super) feed_buffer_ready_cycles: u64,
+    pub(super) feed_buffer_capacity_cycles: u64,
     pub(super) maintenance_preparation_ticks: u64,
     pub(super) maintenance_preparation_overlap_ticks: u64,
     pub(super) stop: PrimitiveSteadyStop,
     pub(super) terminal_crusher_condition_ppm: u32,
+}
+
+impl SteadyStateWork {
+    fn record_autonomous_stop(&mut self, stop: AutonomousWorkStop) {
+        match stop {
+            AutonomousWorkStop::FeedBufferReady => {
+                self.feed_buffer_ready_cycles = self
+                    .feed_buffer_ready_cycles
+                    .checked_add(1)
+                    .unwrap_or_else(|| {
+                        panic!("primitive steady-state feed-ready count overflowed")
+                    });
+            }
+            AutonomousWorkStop::FeedBufferCapacity => {
+                self.feed_buffer_capacity_cycles = self
+                    .feed_buffer_capacity_cycles
+                    .checked_add(1)
+                    .unwrap_or_else(|| {
+                        panic!("primitive steady-state feed-capacity count overflowed")
+                    });
+            }
+            AutonomousWorkStop::MachineCompleted
+            | AutonomousWorkStop::TargetSupply
+            | AutonomousWorkStop::ToolCondition => {}
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -286,15 +313,7 @@ pub(super) fn run_steady_state_crushing(
             .mining_jobs
             .checked_add(work.mining_jobs)
             .unwrap_or_else(|| panic!("primitive steady-state mining-job count overflowed"));
-        if matches!(
-            work.autonomous_stop,
-            AutonomousWorkStop::FeedBufferReady | AutonomousWorkStop::FeedBufferCapacity
-        ) {
-            totals.feed_buffer_limited_cycles = totals
-                .feed_buffer_limited_cycles
-                .checked_add(1)
-                .unwrap_or_else(|| panic!("primitive steady-state buffer-limit count overflowed"));
-        }
+        totals.record_autonomous_stop(work.autonomous_stop);
         if overlap_setup_equivalent_cycle.is_none()
             && totals.useful_overlap_ticks >= required_productive_ticks
         {

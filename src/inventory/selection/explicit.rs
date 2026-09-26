@@ -1,6 +1,8 @@
 //! Exact caller-selected lot binding for outcome-sensitive material operations.
 
 use std::collections::BTreeMap;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::material::{CommodityKey, MaterialInputSpec};
@@ -39,6 +41,59 @@ pub enum ExplicitConsumptionSelectionError {
         stockpile: StockpileId,
     },
 }
+
+impl Display for ExplicitConsumptionSelectionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownStockpile { stockpile } => {
+                write!(formatter, "unknown source stockpile {}", stockpile.value())
+            }
+            Self::EmptySelection => formatter.write_str("material selection must not be empty"),
+            Self::ZeroMass { lot } => write!(
+                formatter,
+                "material lot {} was selected with zero mass",
+                lot.value()
+            ),
+            Self::DuplicateLot { lot } => write!(
+                formatter,
+                "material lot {} appears more than once in the selection",
+                lot.value()
+            ),
+            Self::UnknownLot { lot } => {
+                write!(formatter, "unknown selected material lot {}", lot.value())
+            }
+            Self::LotOwnedElsewhere {
+                lot,
+                requested_source,
+                actual_source,
+            } => write!(
+                formatter,
+                "material lot {} belongs to stockpile {} rather than requested source {}",
+                lot.value(),
+                actual_source.value(),
+                requested_source.value()
+            ),
+            Self::InsufficientLotMass {
+                lot,
+                available,
+                requested,
+            } => write!(
+                formatter,
+                "material lot {} has {} mg available but {} mg was requested",
+                lot.value(),
+                available.milligrams(),
+                requested.milligrams()
+            ),
+            Self::MassOverflow { stockpile } => write!(
+                formatter,
+                "selected material mass overflows for stockpile {}",
+                stockpile.value()
+            ),
+        }
+    }
+}
+
+impl Error for ExplicitConsumptionSelectionError {}
 
 pub(crate) fn validate_explicit_consumption_selection(
     state: &InventoryState,

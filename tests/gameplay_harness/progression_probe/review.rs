@@ -97,7 +97,8 @@ pub(crate) struct PrimitiveProgressionReview {
     primary_mining_jobs: u64,
     reserve_mining_jobs: u64,
     steady_mining_jobs: u64,
-    pub(crate) steady_feed_buffer_limited_cycles: u64,
+    pub(crate) steady_feed_buffer_ready_cycles: u64,
+    pub(crate) steady_feed_buffer_capacity_cycles: u64,
     maintenance_material_preparation_ticks: u64,
     maintenance_preparation_overlap_ticks: u64,
     component_service_ticks: u64,
@@ -991,7 +992,8 @@ pub(crate) fn evaluate_primitive_progression_probe(
         primary_mining_jobs: natural.primary_mining_jobs,
         reserve_mining_jobs: natural.reserve_mining_jobs,
         steady_mining_jobs: natural.steady_mining_jobs,
-        steady_feed_buffer_limited_cycles: natural.steady_feed_buffer_limited_cycles,
+        steady_feed_buffer_ready_cycles: natural.steady_feed_buffer_ready_cycles,
+        steady_feed_buffer_capacity_cycles: natural.steady_feed_buffer_capacity_cycles,
         maintenance_material_preparation_ticks: natural.maintenance_material_preparation_ticks,
         maintenance_preparation_overlap_ticks: natural.maintenance_preparation_overlap_ticks,
         component_service_ticks: natural.component_service_ticks,
@@ -1300,10 +1302,11 @@ fn report_primitive_progression_review(
     );
     report_maintained_manual_fallback(seed, manual_fallback);
     reviewln!(
-        "PROGRESSION BUFFER seed=0x{seed:016X} evidence=stockpiling-coverage-counterfactual selected=false policy=two-upcoming-batches work-order={}cycles mining=[steady:{}jobs buffer-stops:{}cycles] machine={}t productive-attention=[feed:{}t maintenance-prep:{}t] returned-attention={}t payback=not-established outcome=stockpile-order demand=[{stockpile_demand}]",
+        "PROGRESSION BUFFER seed=0x{seed:016X} evidence=stockpiling-coverage-counterfactual selected=false policy=two-upcoming-batches work-order={}cycles mining=[steady:{}jobs feed-ready:{}cycles capacity-blocked:{}cycles] machine={}t productive-attention=[feed:{}t maintenance-prep:{}t] returned-attention={}t payback=not-established outcome=stockpile-order demand=[{stockpile_demand}]",
         STOCKPILE_WORK_ORDER_CYCLES,
         review.steady_mining_jobs,
-        review.steady_feed_buffer_limited_cycles,
+        review.steady_feed_buffer_ready_cycles,
+        review.steady_feed_buffer_capacity_cycles,
         review.machine_work_ticks,
         feed_attention_ticks,
         review.maintenance_preparation_overlap_ticks,
@@ -1393,7 +1396,7 @@ fn report_primitive_progression_review(
     );
     let reinvestment_review = detailed_reinvestment_summary(&review.reinvestment);
     reviewln!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap continuity=single-state fantasy=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t hardness-sampling:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} deferred-refinement:{}t alternative-evidence:{}..{}ppm] local-copper=[selected:{} rule=hard-lower>owned-bulk scope:pick-vs-crank-sequencing global-portfolio:not-claimed owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[pick-feed:{} pick-grade:{}ppm crank-first-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} hard-access-lead:{}t hard-window:{}t/{}mg crank-output-window:{}t autonomy-lead:{}t eventual-convergence:{:+}t converged:{}] strategy-timing=[pick-first=[pick:{}t hard-sample:{}t machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t]] manual-second-counterfactual=[isolated:{}t pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} hard-info-lead-vs-crank-first:{}t automation-delay:+{}t manual-recovery:{}ppm powered-recovery:{}ppm] coverage-autonomy=[feed-attention:{}t maintenance-prep-overlap:{}t productive-attention:{}t returned-attention:{}t returned:{}ppm overlap/setup:{}ppm unrecovered-setup:{}t post-convergence-target:{} feed-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] overlap-setup-equivalent:{overlap_setup_equivalent} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] selected-reinvestment=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] coverage-maintenance=[captured:{maintenance_coverage_captured} pick:{}->{}ppm component:{}mg material-preparation:{}t overlapped:{}t service:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap continuity=single-state fantasy=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t hardness-sampling:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} deferred-refinement:{}t alternative-evidence:{}..{}ppm] local-copper=[selected:{} rule=hard-lower>owned-bulk scope:pick-vs-crank-sequencing global-portfolio:not-claimed owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[pick-feed:{} pick-grade:{}ppm crank-first-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} hard-access-lead:{}t hard-window:{}t/{}mg crank-output-window:{}t autonomy-lead:{}t eventual-convergence:{:+}t converged:{}] strategy-timing=[pick-first=[pick:{}t hard-sample:{}t machine:{}t crank:{}t] crank-first=[crank:{}t machine:{}t output:{}t pick:{}t]] manual-second-counterfactual=[isolated:{}t pick:{}t hard-sample:{}t second:{}t charged-line:{}t feed:{} hard-info-lead-vs-crank-first:{}t automation-delay:+{}t manual-recovery:{}ppm powered-recovery:{}ppm] coverage-autonomy=[feed-attention:{}t maintenance-prep-overlap:{}t productive-attention:{}t returned-attention:{}t returned:{}ppm overlap/setup:{}ppm unrecovered-setup:{}t post-convergence-target:{} feed-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs feed-ready:{}/{}cycles capacity-blocked:{}] overlap-setup-equivalent:{overlap_setup_equivalent} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] selected-reinvestment=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] coverage-maintenance=[captured:{maintenance_coverage_captured} pick:{}->{}ppm component:{}mg material-preparation:{}t overlapped:{}t service:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
         } else {
@@ -1475,8 +1478,9 @@ fn report_primitive_progression_review(
         review.reserve_mining_jobs,
         review.reserve_autonomous_stop.label(),
         review.steady_mining_jobs,
-        review.steady_feed_buffer_limited_cycles,
+        review.steady_feed_buffer_ready_cycles,
         review.steady_state_cycles,
+        review.steady_feed_buffer_capacity_cycles,
         post_overlap_setup_equivalent_cycles,
         review.steady_state_cycles,
         MAX_STEADY_STATE_CRUSH_CYCLES,
@@ -1525,7 +1529,7 @@ fn report_primitive_progression_review(
             mechanization.hard_ore_mined.milligrams(),
         );
         reviewln!(
-            "PROGRESSION AUTONOMY seed=0x{seed:016X} evidence=stockpiling-coverage-counterfactual setup=[automation:{}t separator:{}t line:{}t] overlap-setup-equivalent=[{overlap_setup_equivalent} post-equivalent:{}cycles economic-payback:not-established] delegated-work=[machine:{}t necessary-feed-attention:{}t reserve-feed-attention:{}t returned-attention:{}t returned:{}ppm primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[returned-attention:{:+}t elapsed:{:+}t]",
+            "PROGRESSION AUTONOMY seed=0x{seed:016X} evidence=stockpiling-coverage-counterfactual setup=[automation:{}t separator:{}t line:{}t] overlap-setup-equivalent=[{overlap_setup_equivalent} post-equivalent:{}cycles economic-payback:not-established] delegated-work=[machine:{}t necessary-feed-attention:{}t reserve-feed-attention:{}t returned-attention:{}t returned:{}ppm primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs feed-ready:{}/{}cycles capacity-blocked:{}] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[returned-attention:{:+}t elapsed:{:+}t]",
             review.automation_preparation_ticks,
             review.separator_preparation_ticks,
             review.processing_line_preparation_ticks,
@@ -1540,8 +1544,9 @@ fn report_primitive_progression_review(
             review.reserve_mining_jobs,
             review.reserve_autonomous_stop.label(),
             review.steady_mining_jobs,
-            review.steady_feed_buffer_limited_cycles,
+            review.steady_feed_buffer_ready_cycles,
             review.steady_state_cycles,
+            review.steady_feed_buffer_capacity_cycles,
             review.steady_state_cycles,
             review.steady_state_stop.label(),
             review.final_crusher_condition_ppm,

@@ -280,8 +280,12 @@ fn autonomous_crushing_does_not_fill_idle_time_with_unbounded_feed_mining() {
         FocusedProbeCase::new(0xD33F_C01D_5052, None, FocusedProbeRole::MaintainedAnchor),
     );
     assert!(
-        review.steady_feed_buffer_limited_cycles > 0,
+        review.steady_feed_buffer_ready_cycles > 0,
         "the actor must stop replenishing a two-batch feed buffer instead of mining solely to occupy machine time"
+    );
+    assert_eq!(
+        review.steady_feed_buffer_capacity_cycles, 0,
+        "the maintained autonomy route must distinguish a successfully prepared next-cycle buffer from a storage-capacity blocker"
     );
     assert_eq!(
         review.overlap_setup_equivalent_cycles, None,

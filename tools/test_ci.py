@@ -1965,7 +1965,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "PROGRESSION REVIEW seed=0x1 sample=anchor role=runtime-experience-after-disclosed-bootstrap continuity=single-state captured:true coverage-autonomy=[repeat-horizon:12/24cycles stop:stockpile-order-complete] selected-reinvestment=[completed copper-invested:60000mg next-stage=[sizing-plate-continuation:90t]] stored-work=[passive-loss:125000000000nJ reserve-recharge:1t]",
             "PROGRESSION GOAL seed=0x1 immediate=265t delayed=741t chosen=immediate",
             "LIBERATION COST seed=0x1 scavenger-marginal=[attention:17t native:6mg]",
-            "LIBERATION KIT ACQUISITION seed=0x1 scope=raw-stone+logs->adze+reusable-base-processing-kit disclosed-campaign=8batches workload-known-before-build=true raw=[stone:8000000mg wood:15400000mg total:23400000mg] built=[adze:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:404t body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+            "LIBERATION KIT ACQUISITION seed=0x1 scope=raw-stone+logs->adze+reusable-base-processing-kit raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign=8batches workload-known-before-build=true raw=[stone:8000000mg wood:15400000mg total:23400000mg] built=[adze:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:404t body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
             "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
             "LIBERATION FRONTIER CAPABILITY seed=0x1 cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:12000000mg wood:12000000mg native:160000mg scrap:20000mg] build-choice=[order:20000mg direct-native:40t reinforcement:20000mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] scarcity-choice=[order:20000mg source:scrap-only cold-rework:18000mg/900000ppm shortfall:2000mg foundry:20000mg/1000000ppm selection:foundry reason:cold-rework-underfills-order] fabrication=800t/48.0m dynamo-path=treadle-additive-upgrade electrical-charge=[35t 12300000000000nJ body:100nJ/20uL] melt=[35t 2.1m feed:scrap] cast=[18t 1.1m heat:12300000000000nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:45t] installed-recovery=[cold-rework:50t reinforcement:18000mg chips:2000mg fulfillment:900000ppm foundry-active:80t reinforcement:20000mg chips:0mg fulfillment:1000000ppm useful-gain:+2000mg attention-delta:+30t] total=898t/53.9m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=full-scrap-recovery",
@@ -2042,10 +2042,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "first-foundry=[defer:1/1 scarcity-select:1/1 scarcity-shortfall:2..2g native:40..40t/100..100% setup:800..800t upgrade:1/1 recovery:50..50t/90..90%->80..80t/100..100% gain:2..2g/+30..+30t]",
             concise,
         )
-        self.assertIn(
-            "industrial-foundry-frontier=[manual-electrical-max:100..100W industrial-furnace-transfer-ceiling:2000000..2000000W ceiling-ratio:20000..20000x electrical-melting:1/1 conversion-path-present:1/1]",
-            concise,
-        )
+        self.assertNotIn("industrial-foundry-frontier=", concise)
         self.assertIn(
             "kit-decision=[attention-payback:8..8jobs disclosed-horizon:8..8batches selected:kit1/manual0 policy=manual-below-payback;kit-at-or-above evaluated:1/1 preassembled:0]",
             concise,
@@ -2054,15 +2051,23 @@ class LocalCiPlanTests(unittest.TestCase):
             "kit-acquisition=[executed:1 live-routes:1 preassembled:0",
             concise,
         )
+        self.assertIn(
+            "source=[fixture:1/1 pickup-runtime:1/1 world-gathering:0/1]",
+            concise,
+        )
         self.assertIn("choice=[saw:0 adze:0 bare:1]", concise)
         self.assertIn(
             "heavy-tool-market=[selected:0 deferred:1 unavailable:0",
             concise,
         )
         self.assertIn(
-            "evidence-scope=[productive-cycle-executed:1/1 full-project-executed:1/1 provider-lifecycle-projected:1/1]",
+            "project-experience=[charges:2..2 services:1..1 feed:1..1kg provisioning-stops:1..1",
             concise,
         )
+        self.assertNotIn("evidence-scope=", concise)
+        self.assertIn("pacing-physical=[first-expedition:3.8..3.8m", concise)
+        self.assertIn("reuse-physical=[repeat-complete:7.2..7.2s", concise)
+        self.assertIn("integrated-campaign=[single-state:1/1 fantasy-captured:1/1]", concise)
         self.assertIn(
             "work-interlock=[policy=[task-floor:0 working-reserve:0]",
             concise,

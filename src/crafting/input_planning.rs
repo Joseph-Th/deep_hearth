@@ -1,5 +1,6 @@
 //! Familiar recipe-input planning over exact inventory lots.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
@@ -291,7 +292,7 @@ fn scan_input_groups(
     }
 
     let expected_composition = MaterialComposition::pure(input.material());
-    let mut groups = Vec::<CompatibleInputGroup>::new();
+    let mut groups_by_temperature = BTreeMap::<Temperature, CompatibleInputGroup>::new();
     let mut total_eligible_mass = Mass::ZERO;
     for lot_id in state.inventory().lot_ids_for_commodity(source, input) {
         let lot = state.inventory().get_lot(lot_id).unwrap_or_else(|| {
@@ -312,22 +313,21 @@ fn scan_input_groups(
         total_eligible_mass = total_eligible_mass
             .checked_add(lot.mass())
             .unwrap_or_else(|| panic!("validated stockpile eligible manual-craft mass overflowed"));
-        if let Some(group) = groups
-            .iter_mut()
-            .find(|group| group.temperature == lot.temperature())
-        {
-            group.mass = group.mass.checked_add(lot.mass()).unwrap_or_else(|| {
-                panic!("validated stockpile compatible manual-craft mass overflowed")
-            });
-            group.lots.push((lot_id, lot.mass()));
-        } else {
-            groups.push(CompatibleInputGroup {
-                temperature: lot.temperature(),
-                mass: lot.mass(),
-                lots: vec![(lot_id, lot.mass())],
-            });
-        }
+        let temperature = lot.temperature();
+        let group =
+            groups_by_temperature
+                .entry(temperature)
+                .or_insert_with(|| CompatibleInputGroup {
+                    temperature,
+                    mass: Mass::ZERO,
+                    lots: Vec::new(),
+                });
+        group.mass = group.mass.checked_add(lot.mass()).unwrap_or_else(|| {
+            panic!("validated stockpile compatible manual-craft mass overflowed")
+        });
+        group.lots.push((lot_id, lot.mass()));
     }
+    let groups = groups_by_temperature.into_values().collect::<Vec<_>>();
 
     let largest_compatible_mass = groups
         .iter()
@@ -402,12 +402,11 @@ pub fn plan_manual_craft_from_stockpile(
             required,
         })?;
     if candidates.next().is_some() {
-        let mut temperatures = groups
+        let temperatures = groups
             .iter()
             .filter(|group| group.mass >= required)
             .map(|group| group.temperature)
             .collect::<Vec<_>>();
-        temperatures.sort_unstable();
         return Err(
             ManualCraftInputPlanError::MultipleCompatibleInputTemperatures {
                 input: availability.input(),
