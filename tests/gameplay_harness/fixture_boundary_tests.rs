@@ -10,7 +10,9 @@ use deep_hearth::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
+use deep_hearth::logistics::validate_initialize_player_logistics;
 use deep_hearth::material::CommodityKey;
+use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::initialize_player_survival;
 
 fn seed_delivery_endpoints(
@@ -29,6 +31,27 @@ fn seed_delivery_endpoints(
         deep_hearth::core::quantity::Temperature::from_millikelvin(293_150),
     );
     (source, destination)
+}
+
+#[test]
+fn gameplay_bootstrap_rejects_world_seeding_after_logistics_admission() {
+    let mut state = AppState::new();
+    validate_initialize_player_logistics(
+        &state,
+        VoxelCoord::new(0, 0, 0),
+        Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("fixture-boundary logistics setup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fixture-boundary logistics commit failed: {error}"));
+
+    assert_fixture_rejected_without_mutation(&mut state, |state| {
+        let _ = seed_stockpile(
+            state,
+            Mass::from_milligrams(1),
+            StockpileStorageProfile::unbounded_solid_only(),
+        );
+    });
 }
 
 fn assert_fixture_rejected_without_mutation(

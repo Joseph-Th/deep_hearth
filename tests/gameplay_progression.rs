@@ -57,6 +57,8 @@ mod seed_input;
 mod settlement_drill_contract_tests;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[path = "gameplay_harness/world_admission.rs"]
+mod world_admission;
 
 #[cfg(test)]
 #[test]

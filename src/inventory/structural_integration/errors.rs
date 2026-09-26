@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Force;
 use crate::inventory::StockpileId;
+use crate::logistics::PlayerStockpileAccessError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::spatial::VoxelCoord;
 use crate::structural::{
@@ -120,10 +121,12 @@ pub enum StockpileSupportError {
     PlayerCarried {
         stockpile: StockpileId,
     },
-    GroundLocated {
+    StockpileNotOnTarget {
         stockpile: StockpileId,
         position: VoxelCoord,
+        element: StructuralElementId,
     },
+    Access(PlayerStockpileAccessError),
     TargetNotActive {
         element: StructuralElementId,
         lifecycle: StructuralLifecycle,
@@ -162,17 +165,20 @@ impl Display for StockpileSupportError {
                 "stockpile {} is player-carried custody and cannot also be structurally mounted",
                 stockpile.value()
             ),
-            Self::GroundLocated {
+            Self::StockpileNotOnTarget {
                 stockpile,
                 position,
+                element,
             } => write!(
                 formatter,
-                "stockpile {} is a loose ground stockpile at voxel ({},{},{}) and requires an explicit placement transition before structural mounting",
+                "stockpile {} is at voxel ({},{},{}) outside structural element {}",
                 stockpile.value(),
                 position.x(),
                 position.y(),
-                position.z()
+                position.z(),
+                element.value()
             ),
+            Self::Access(error) => write!(formatter, "stockpile access failed: {error}"),
             Self::TargetNotActive { element, lifecycle } => write!(
                 formatter,
                 "structural element {} is {lifecycle:?} and cannot receive a stockpile",
@@ -205,11 +211,12 @@ impl Error for StockpileSupportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Load(error) => Some(error),
+            Self::Access(error) => Some(error),
             Self::UnknownStockpile { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
             | Self::PlayerCarried { .. }
-            | Self::GroundLocated { .. }
+            | Self::StockpileNotOnTarget { .. }
             | Self::TargetNotActive { .. }
             | Self::StockpileBusy { .. }
             | Self::StockpileBusyStorageDismantling { .. }
@@ -221,13 +228,13 @@ impl Error for StockpileSupportError {
 /// Failure to commit a revision-bound stockpile support change.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StockpileSupportCommitError {
-    StaleInventoryRevision {
+    StaleLogisticsRevision {
         expected: u64,
         actual: u64,
     },
-    GroundLocated {
-        stockpile: StockpileId,
-        position: VoxelCoord,
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
     },
     UnknownStockpile {
         stockpile: StockpileId,
@@ -251,6 +258,10 @@ pub enum StockpileSupportCommitError {
 impl Display for StockpileSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "validated stockpile support change expected logistics revision {expected} but current revision is {actual}"
+            ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "validated stockpile support change expected inventory revision {expected} but current revision is {actual}"
@@ -259,17 +270,6 @@ impl Display for StockpileSupportCommitError {
                 formatter,
                 "stockpile {} disappeared before support commit",
                 stockpile.value()
-            ),
-            Self::GroundLocated {
-                stockpile,
-                position,
-            } => write!(
-                formatter,
-                "stockpile {} became ground-located at voxel ({},{},{}) before support commit",
-                stockpile.value(),
-                position.x(),
-                position.y(),
-                position.z()
             ),
             Self::SupportChanged {
                 stockpile,
@@ -307,10 +307,10 @@ impl Error for StockpileSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision { .. }
+            Self::StaleLogisticsRevision { .. }
+            | Self::StaleInventoryRevision { .. }
             | Self::UnknownStockpile { .. }
             | Self::SupportChanged { .. }
-            | Self::GroundLocated { .. }
             | Self::StockpileBusy { .. }
             | Self::StockpileBusyStorageDismantling { .. } => None,
         }

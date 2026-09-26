@@ -1,6 +1,6 @@
 //! Enforces gameplay-harness execution invariants and actor-policy coverage.
 //!
-//! Physical outcomes are observations unless an explicit regression contract fixes them. Hard
+//! Physical outcomes are observations unless an explicit contract fixes them. Hard
 //! failures target canonical execution and stable required-input contracts.
 
 use super::configuration::MaintainedAnchor;

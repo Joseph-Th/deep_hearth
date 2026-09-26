@@ -1,4 +1,4 @@
-//! Shared manual-craft schedule physics regressions.
+//! Shared manual-craft schedule physics contracts.
 
 use super::*;
 use crate::capability::{CapabilityProfile, CapabilityValue, CapabilityValueKind};

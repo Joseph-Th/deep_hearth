@@ -1,4 +1,4 @@
-//! Regression coverage for fieldwork planning and tool-choice economics.
+//! Fieldwork planning and tool-choice economics contracts.
 
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::survival::initialize_player_survival;

@@ -1,4 +1,4 @@
-//! Trusted-load regressions for direct manual-power replay.
+//! Trusted-load contracts for direct manual-power replay.
 
 use super::*;
 

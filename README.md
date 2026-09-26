@@ -10,9 +10,9 @@ absent runtime scope. Do not infer reachability from source presence or controll
 
 1. Read workspace [`../AGENTS.md`](../AGENTS.md), then project [`AGENTS.md`](AGENTS.md).
 2. Read [`STATUS.md`](STATUS.md) for current reachable, capability-only, and absent scope.
-3. Use the task map below to find the owner, canonical boundary, contract, and focused proof.
-4. Read that owner and its adjacent tests; open deeper authority pages only as needed.
-5. Use [`TESTING.md`](TESTING.md) for verification and gameplay-evaluation commands.
+3. Use the [task map](#task-map) to find the owner, canonical boundary, and contract.
+4. Read the owner and adjacent tests. Open deeper authority pages only for the question they own.
+5. Verify with the smallest complete lane in [`TESTING.md`](TESTING.md).
 
 ## Abstraction ladder
 
@@ -32,14 +32,14 @@ Descend only until uncertainty resolves; after editing, prove owner/crossed cont
 
 ## Control coordinate
 
-A feature name is not a system address. Use:
+Address consequential work as:
 
 `authority / owner / stage / flow / proof`
 
-Authority locates truth; owner the generated fact; stage the `observe -> resolve -> validate -> commit ->
-continue -> outcome/audit` position; flow the matter/fluid/energy/labor/information/support/capacity/identity/time
-edge; proof the owner/boundary/continuation/system/exploration level. Missing legitimate observation, blocker,
-mutation, continuation, or outcome surfaces are control-surface debt, not permission for parallel rules.
+Use the authority for the claim, the owner for the generated fact, the operation stage
+(`observe -> resolve -> validate -> commit -> continue -> outcome/audit`), the crossed physical/state flow, and
+the narrowest proof that establishes the contract. Do not create a parallel rule when an owner lacks a convenient
+observation or outcome surface.
 
 ## Source role map
 
@@ -59,16 +59,8 @@ Directory presence does not imply ownership. Classify new facts/resolvers/projec
 
 ## Authorities
 
-| Question | Authority |
-| --- | --- |
-| Project execution rules | [`AGENTS.md`](AGENTS.md) |
-| Ownership, mutation, determinism, persistence, API shape | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
-| Implemented subsystem and physical contracts | [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) |
-| Product direction and intended player experience | [`GAME_DESIGN.md`](GAME_DESIGN.md) |
-| Future system-integration priority and accretion sequence | [`DIRECTION.md`](DIRECTION.md) |
-| Current reachable, capability-only, and absent scope | [`STATUS.md`](STATUS.md) |
-| Test organization, proof selection, and local verification | [`TESTING.md`](TESTING.md) |
-| Automated-player boundaries and gameplay evidence semantics | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) |
+The [abstraction ladder](#abstraction-ladder) is the routing authority. Use each document only for the question
+it owns; do not copy mutable facts between them.
 
 ## Task map
 

@@ -206,8 +206,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             ROOM_TEMPERATURE,
         );
     }
+    super::world_admission::locate_stationary_endpoints(
+        &mut state,
+        &[raw, parts, cast_storage, molten],
+        &[],
+    );
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("first foundry survival setup failed: {error}"));
+    super::world_admission::initialize_stationary_player_logistics(&mut state);
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("first foundry player survival disappeared"));
     let matter_before = calculate_matter_accounting(&state)
@@ -458,11 +464,17 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let recovery_attention_delta =
         i128::from(foundry_recovery_attention) - i128::from(direct_rework_ticks);
     reviewln!(
-        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:12000000mg wood:12000000mg native:160000mg scrap:20000mg] build-choice=[order:20000mg direct-native:{}t reinforcement:{}mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] fabrication={}t/{} dynamo-path=treadle-additive-upgrade electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {} feed:scrap] cast=[{}t {} heat:{}nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:{}t] installed-recovery=[cold-rework:{}t reinforcement:{}mg chips:{}mg fulfillment:{}ppm foundry-active:{}t reinforcement:20000mg chips:0mg fulfillment:1000000ppm useful-gain:+{}mg attention-delta:{:+}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=full-scrap-recovery",
+        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:12000000mg wood:12000000mg native:160000mg scrap:20000mg] build-choice=[order:20000mg direct-native:{}t reinforcement:{}mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] scarcity-choice=[order:20000mg source:scrap-only cold-rework:{}mg/{}ppm shortfall:{}mg foundry:20000mg/1000000ppm selection:foundry reason:cold-rework-underfills-order] fabrication={}t/{} dynamo-path=treadle-additive-upgrade electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {} feed:scrap] cast=[{}t {} heat:{}nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:{}t] installed-recovery=[cold-rework:{}t reinforcement:{}mg chips:{}mg fulfillment:{}ppm foundry-active:{}t reinforcement:20000mg chips:0mg fulfillment:1000000ppm useful-gain:+{}mg attention-delta:{:+}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=full-scrap-recovery",
         case.seed(),
         focused_probe_role_label(case.role()),
         direct_native_ticks,
         direct_native_reinforcement.milligrams(),
+        direct_reinforcement.milligrams(),
+        direct_fulfillment_ppm,
+        FIRST_CAST_MASS
+            .checked_sub(direct_reinforcement)
+            .unwrap_or_else(|| panic!("direct scrap rework exceeded scarcity order"))
+            .milligrams(),
         fabrication_ticks,
         format_physical_duration(registries, fabrication_ticks),
         charge_ticks,

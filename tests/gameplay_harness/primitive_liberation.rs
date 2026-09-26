@@ -15,6 +15,7 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::{EnergyCarrier, EnergyStoreId};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
+use deep_hearth::logistics::validate_allocate_ground_stockpile;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -25,7 +26,6 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
-use super::inventory_support::add_solid_stockpile;
 use super::manual_ore_recovery::{ManualOreRecoveryPlan, evaluate_manual_ore_recovery};
 use super::ore_fixture::copper_ore_composition;
 use super::seed::mix64;
@@ -63,6 +63,17 @@ struct PrimitiveLiberationBootstrap {
     ore_lot: MaterialLotId,
 }
 
+fn allocate_liberation_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
+    validate_allocate_ground_stockpile(
+        state,
+        super::world_admission::STATIONARY_PLAYER_ORIGIN,
+        capacity,
+    )
+    .unwrap_or_else(|error| panic!("liberation stockpile allocation failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("liberation stockpile allocation commit failed: {error}"))
+}
+
 fn bootstrap_liberation_inventory(
     registries: &Registries,
     state: &mut AppState,
@@ -70,19 +81,19 @@ fn bootstrap_liberation_inventory(
     copper_ppm: u32,
     clay_share_ppm: u32,
 ) -> PrimitiveLiberationBootstrap {
-    let ore = add_solid_stockpile(state, batch_mass);
-    let crushed = add_solid_stockpile(state, batch_mass);
-    let ground = add_solid_stockpile(state, batch_mass);
-    let undersize = add_solid_stockpile(state, batch_mass);
-    let oversize = add_solid_stockpile(state, batch_mass);
-    let concentrate = add_solid_stockpile(state, batch_mass);
-    let tailings = add_solid_stockpile(state, batch_mass);
-    let fine_tailings = add_solid_stockpile(state, batch_mass);
-    let exhausted_tailings = add_solid_stockpile(state, batch_mass);
-    let native_copper = add_solid_stockpile(state, batch_mass);
-    let manual_crushed = add_solid_stockpile(state, batch_mass);
-    let manual_native = add_solid_stockpile(state, batch_mass);
-    let manual_residue = add_solid_stockpile(state, batch_mass);
+    let ore = allocate_liberation_stockpile(state, batch_mass);
+    let crushed = allocate_liberation_stockpile(state, batch_mass);
+    let ground = allocate_liberation_stockpile(state, batch_mass);
+    let undersize = allocate_liberation_stockpile(state, batch_mass);
+    let oversize = allocate_liberation_stockpile(state, batch_mass);
+    let concentrate = allocate_liberation_stockpile(state, batch_mass);
+    let tailings = allocate_liberation_stockpile(state, batch_mass);
+    let fine_tailings = allocate_liberation_stockpile(state, batch_mass);
+    let exhausted_tailings = allocate_liberation_stockpile(state, batch_mass);
+    let native_copper = allocate_liberation_stockpile(state, batch_mass);
+    let manual_crushed = allocate_liberation_stockpile(state, batch_mass);
+    let manual_native = allocate_liberation_stockpile(state, batch_mass);
+    let manual_residue = allocate_liberation_stockpile(state, batch_mass);
     let ore_lot = seed_composed_lot(
         registries,
         state,

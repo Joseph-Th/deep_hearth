@@ -21,13 +21,28 @@ fn minimum_drink_projection_prices_its_own_consumption_time() {
         .unwrap_or_else(|error| panic!("minimum drink projection failed: {error}"))
         .unwrap_or_else(|| panic!("drink projection unexpectedly needed no drink"));
 
-    assert_eq!(projection.volume(), Volume::from_microliters(100_375));
-    assert_eq!(projection.duration(), TickSpan::new(3));
-    assert_eq!(
-        projection.hydration_offered(),
-        Volume::from_microliters(100_375)
+    let expected_volume = physiology.direct_consumption().minimum_drink_volume();
+    let expected_duration = physiology
+        .direct_consumption()
+        .drink_duration(expected_volume)
+        .unwrap_or_else(|| panic!("authored minimum drink has no duration"));
+    let expected_loss = Volume::from_microliters(
+        physiology
+            .hydration_loss_per_tick()
+            .microliters()
+            .checked_mul(expected_duration.value())
+            .unwrap_or_else(|| panic!("minimum-drink hydration loss overflowed")),
     );
-    assert_eq!(projection.hydration_after(), target);
+    let expected_after = current
+        .checked_add(expected_volume)
+        .and_then(|value| value.checked_sub(expected_loss))
+        .unwrap_or_else(|| panic!("minimum-drink hydration expectation failed"));
+
+    assert_eq!(projection.volume(), expected_volume);
+    assert_eq!(projection.duration(), expected_duration);
+    assert_eq!(projection.hydration_offered(), expected_volume);
+    assert_eq!(projection.hydration_after(), expected_after);
+    assert!(projection.hydration_after() >= target);
 }
 
 #[test]

@@ -9,10 +9,13 @@ use crate::content::{
     make_test_registries_with_equipment,
 };
 use crate::core::quantity::{Area, Mass};
-use crate::core::state::validate_loaded_state;
+use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
-use crate::logistics::validate_initialize_player_logistics;
+use crate::logistics::{
+    LogisticsValidationError, PlayerEquipmentAccessError, validate_initialize_player_logistics,
+};
 use crate::maintenance::{Condition, MaintenanceThresholds};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralCommitError, StructuralDamageEvent, StructuralMutationError, add_structural_element,
@@ -31,7 +34,7 @@ fn condition(parts_per_million: u32) -> Condition {
 }
 
 #[test]
-fn mounting_colocated_detached_equipment_consumes_logistics_location() {
+fn mounting_colocated_equipment_preserves_logistics_location() {
     let registries = make_registries(Mass::from_milligrams(1_000));
     let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
@@ -45,12 +48,17 @@ fn mounting_colocated_detached_equipment_consumes_logistics_location() {
     state
         .logistics_state_mut()
         .apply_equipment_placement(1, 2, equipment, position);
+    let logistics_revision = state.logistics().revision();
 
     let mounted = validate_mount_equipment(&registries, &state, equipment, member)
         .unwrap_or_else(|error| panic!("located equipment mount failed: {error}"));
     let _ = commit_support(mounted, &mut state);
 
-    assert_eq!(state.logistics().equipment_position(equipment), None);
+    assert_eq!(
+        state.logistics().equipment_position(equipment),
+        Some(position)
+    );
+    assert_eq!(state.logistics().revision(), logistics_revision);
     assert_eq!(
         state
             .equipment()
@@ -62,29 +70,55 @@ fn mounting_colocated_detached_equipment_consumes_logistics_location() {
 }
 
 #[test]
-fn mounting_detached_equipment_rejects_remote_structural_target() {
+fn trusted_load_rejects_mounted_equipment_location_outside_support() {
     let registries = make_registries(Mass::from_milligrams(1_000));
     let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let equipment = add_test_equipment(&registries, &mut state);
-    validate_initialize_player_logistics(
-        &state,
-        VoxelCoord::new(0, 0, 0),
-        Mass::from_milligrams(1),
-    )
-    .unwrap_or_else(|error| panic!("remote equipment logistics setup failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("remote equipment logistics commit failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    state
+        .logistics_state_mut()
+        .apply_equipment_placement(0, 1, equipment, position);
+    let mounted = validate_mount_equipment(&registries, &state, equipment, member)
+        .unwrap_or_else(|error| panic!("mounted equipment load mount failed: {error}"));
+    let _ = commit_support(mounted, &mut state);
+    let remote_position = VoxelCoord::new(5, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mounted equipment load serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["equipment_locations"]
+        [equipment.value().to_string()] = serde_json::json!({"x": 5, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("mounted equipment load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::EquipmentOutsideSupport {
+                equipment,
+                position: remote_position,
+                element: member,
+            }
+        )))
+    );
+}
+
+#[test]
+fn mounting_located_equipment_rejects_remote_structural_target() {
+    let registries = make_registries(Mass::from_milligrams(1_000));
+    let mut state = AppState::new();
+    let member = add_member(&registries, &mut state, 0);
+    activate_member(&registries, &mut state, member);
+    let equipment = add_test_equipment(&registries, &mut state);
     let position = VoxelCoord::new(3, 0, 0);
     state
         .logistics_state_mut()
-        .apply_equipment_placement(1, 2, equipment, position);
+        .apply_equipment_placement(0, 1, equipment, position);
     let before = state.clone();
 
     assert_eq!(
         validate_mount_equipment(&registries, &state, equipment, member).err(),
-        Some(EquipmentSupportError::DetachedEquipmentNotOnTarget {
+        Some(EquipmentSupportError::EquipmentNotOnTarget {
             equipment,
             position,
             element: member,
@@ -94,20 +128,24 @@ fn mounting_detached_equipment_rejects_remote_structural_target() {
 }
 
 #[test]
-fn unmounting_at_player_voxel_creates_detached_equipment_location() {
+fn unmounting_colocated_equipment_preserves_world_location() {
     let registries = make_registries(Mass::from_milligrams(1_000));
     let mut state = AppState::new();
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let equipment = add_test_equipment(&registries, &mut state);
-    let mount = validate_mount_equipment(&registries, &state, equipment, member)
-        .unwrap_or_else(|error| panic!("unmount-location source mount failed: {error}"));
-    let _ = commit_support(mount, &mut state);
     let position = VoxelCoord::new(0, 0, 0);
     validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("unmount-location logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("unmount-location logistics commit failed: {error}"));
+    state
+        .logistics_state_mut()
+        .apply_equipment_placement(1, 2, equipment, position);
+    let mount = validate_mount_equipment(&registries, &state, equipment, member)
+        .unwrap_or_else(|error| panic!("unmount-location source mount failed: {error}"));
+    let _ = commit_support(mount, &mut state);
+    let logistics_revision = state.logistics().revision();
 
     let unmount = validate_unmount_equipment(&registries, &state, equipment)
         .unwrap_or_else(|error| panic!("unmount-location validation failed: {error}"));
@@ -117,6 +155,7 @@ fn unmounting_at_player_voxel_creates_detached_equipment_location() {
         state.logistics().equipment_position(equipment),
         Some(position)
     );
+    assert_eq!(state.logistics().revision(), logistics_revision);
     assert_eq!(
         state
             .equipment()
@@ -134,6 +173,10 @@ fn unmounting_rejects_player_remote_from_structural_support() {
     let member = add_member(&registries, &mut state, 0);
     activate_member(&registries, &mut state, member);
     let equipment = add_test_equipment(&registries, &mut state);
+    let equipment_position = VoxelCoord::new(0, 0, 0);
+    state
+        .logistics_state_mut()
+        .apply_equipment_placement(0, 1, equipment, equipment_position);
     let mount = validate_mount_equipment(&registries, &state, equipment, member)
         .unwrap_or_else(|error| panic!("remote-unmount source mount failed: {error}"));
     let _ = commit_support(mount, &mut state);
@@ -146,11 +189,13 @@ fn unmounting_rejects_player_remote_from_structural_support() {
 
     assert_eq!(
         validate_unmount_equipment(&registries, &state, equipment).err(),
-        Some(EquipmentSupportError::PlayerNotOnMountedEquipmentSupport {
-            equipment,
-            player_position,
-            element: member,
-        })
+        Some(EquipmentSupportError::Access(
+            PlayerEquipmentAccessError::RemoteKnownEquipment {
+                equipment,
+                equipment_position,
+                player_position,
+            }
+        ))
     );
     assert_eq!(state, before);
 }

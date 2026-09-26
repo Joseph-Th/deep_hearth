@@ -48,9 +48,8 @@ fn plan_woodworking_demand(registries: &Registries, seed: u64) -> WoodworkingDem
     let immediate_roll = mix64(seed ^ 0x574F_4F44_5052_4F4A);
     let queued_roll = mix64(seed ^ 0x574F_4F44_5155_4555);
     let project_queue = queued_roll % 51;
-    // Exercise three player-visible planning horizons instead of letting the wide queue range make
-    // the equipment-free route effectively disappear from organic play. Project-scale worlds keep
-    // the original distribution; the lower tail now represents genuinely small disclosed jobs.
+    // Preserve three player-visible planning horizons so organic samples include genuinely small
+    // jobs as well as project-scale queues; otherwise the equipment-free route is rarely viable.
     let (horizon, immediate_scale, queued_scale) = match project_queue {
         0..=5 => ("immediate-only", 1 + immediate_roll % 3, 0),
         6..=15 => (
@@ -161,8 +160,23 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("woodworking initial matter audit failed: {error}"))
         .total();
+    super::super::world_admission::locate_stationary_endpoints(
+        &mut state,
+        &[
+            raw,
+            adze_parts,
+            saw_parts,
+            output,
+            adze_replacement,
+            adze_spent,
+            saw_replacement,
+            saw_spent,
+        ],
+        &[],
+    );
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("woodworking survival setup failed: {error}"));
+    super::super::world_admission::initialize_stationary_player_logistics(&mut state);
     WoodworkingWorld {
         state,
         raw,

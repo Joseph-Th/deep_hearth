@@ -465,10 +465,24 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
+    let mut stationary_stockpiles =
+        BTreeSet::from([enclosed_food, ambient_food, assembled, dismantle_recovery]);
+    stationary_stockpiles.extend(raw_sources.values().copied());
+    stationary_stockpiles.extend(
+        route_destinations
+            .iter()
+            .flat_map(|destinations| destinations.iter().copied()),
+    );
+    super::super::world_admission::locate_stationary_endpoints(
+        &mut state,
+        &stationary_stockpiles.into_iter().collect::<Vec<_>>(),
+        &[],
+    );
     // Player admission ends fixture mutation; the subepisode then uses only canonical production
     // work and simulation ticks.
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("preservation infrastructure player setup failed: {error}"));
+    super::super::world_admission::initialize_stationary_player_logistics(&mut state);
     let projection_started_at = state.tick();
     let transition_at = SimulationTick::new(
         projection_started_at

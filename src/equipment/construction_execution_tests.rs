@@ -49,13 +49,19 @@ fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::Stockp
 }
 
 #[test]
-fn equipment_assembly_at_initialized_player_creates_detached_world_location() {
+fn equipment_assembly_at_initialized_player_creates_world_location() {
     let (registries, mut state, source) = unassembled_pick_fixture();
     let position = VoxelCoord::new(4, -1, 2);
     validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("located equipment logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("located equipment logistics commit failed: {error}"));
+    validate_place_ground_stockpile(&state, source, position)
+        .unwrap_or_else(|error| panic!("located equipment source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("located equipment source placement commit failed: {error}")
+        });
 
     let equipment = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
         .unwrap_or_else(|error| panic!("located equipment assembly failed: {error}"))

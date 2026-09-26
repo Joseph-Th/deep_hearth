@@ -1,13 +1,9 @@
 //! Contracts for persistent player world location and carried custody.
 
 use super::*;
-use crate::content::{
-    EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_LOG, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD,
-    build_registries,
-};
+use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{
     MaterialLotSelection, MaterialRelocationError, add_solid_stockpile_for_test,
     deposit_lot_for_test,
@@ -42,59 +38,6 @@ fn initialization_binds_player_position_to_inventory_owned_carried_capacity() {
 }
 
 #[test]
-fn persisted_logistics_rejects_detached_equipment_that_is_also_mounted() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    let position = VoxelCoord::new(0, 0, 0);
-    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("mounted equipment logistics setup failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("mounted equipment logistics commit failed: {error}"));
-    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
-        .unwrap_or_else(|error| panic!("mounted equipment source failed: {error}"));
-    for (commodity, mass) in [
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(800_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(200_000),
-        ),
-    ] {
-        deposit_lot_for_test(
-            &registries,
-            &mut state,
-            source,
-            commodity,
-            mass,
-            Temperature::from_millikelvin(293_150),
-        )
-        .unwrap_or_else(|error| panic!("mounted equipment material failed: {error}"));
-    }
-    let equipment = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
-        .unwrap_or_else(|error| panic!("mounted equipment assembly failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("mounted equipment assembly commit failed: {error}"));
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("mounted equipment serialization failed: {error}"));
-    encoded["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["supported_by"] =
-        serde_json::json!(1_u64);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("mounted equipment decode failed: {error}"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Logistics(
-            LogisticsValidationError::DetachedEquipmentMounted {
-                equipment,
-                element: crate::structural::StructuralElementId::new(1),
-            }
-        )))
-    );
-}
-
-#[test]
 fn ground_stockpile_allocation_creates_empty_custody_at_requested_voxel() {
     let registries = build_registries();
     let mut state = AppState::new();
@@ -110,7 +53,7 @@ fn ground_stockpile_allocation_creates_empty_custody_at_requested_voxel() {
 
     assert_eq!(stockpile, expected);
     assert_eq!(
-        state.logistics().ground_stockpile_position(stockpile),
+        state.logistics().stationary_stockpile_position(stockpile),
         Some(position)
     );
     let record = state
@@ -158,7 +101,7 @@ fn ground_stockpile_allocation_rejects_stale_inventory_without_half_location() {
     assert_eq!(
         state
             .logistics()
-            .ground_stockpile_position(expected_stockpile),
+            .stationary_stockpile_position(expected_stockpile),
         None
     );
 }

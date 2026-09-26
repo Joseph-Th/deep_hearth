@@ -406,7 +406,7 @@ pub fn validate_place_ground_stockpile(
     {
         return Err(GroundStockpilePlacementError::PlayerCarried { stockpile });
     }
-    if let Some(existing) = state.logistics().ground_stockpile_position(stockpile) {
+    if let Some(existing) = state.logistics().stationary_stockpile_position(stockpile) {
         return Err(GroundStockpilePlacementError::AlreadyLocated {
             stockpile,
             position: existing,
@@ -567,7 +567,7 @@ fn validate_ground_access(
         .ok_or(GroundMaterialTransferError::PlayerUninitialized)?;
     let ground = state
         .logistics()
-        .ground_stockpile_position(ground_stockpile)
+        .stationary_stockpile_position(ground_stockpile)
         .ok_or(GroundMaterialTransferError::GroundStockpileNotLocated {
             stockpile: ground_stockpile,
         })?;

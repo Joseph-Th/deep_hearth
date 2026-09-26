@@ -36,7 +36,7 @@ pub use delivery::{
 
 pub(super) fn assert_pre_admission(state: &AppState, operation: &str) {
     assert!(
-        state.survival().player().is_none(),
+        state.survival().player().is_none() && state.logistics().player().is_none(),
         "gameplay bootstrap {operation} must occur before actor admission"
     );
 }

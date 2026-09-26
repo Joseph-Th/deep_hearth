@@ -18,6 +18,8 @@ use super::{
 const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
 const MAXIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 333_150;
 const MINIMUM_MEAL_MASS_MG: u64 = 10_000;
+/// Smallest ordinary drink action: one meaningful cup-sized serving rather than threshold-sipping.
+const MINIMUM_DRINK_VOLUME_UL: u64 = 250_000;
 
 fn direct_consumption_temperature() -> ConsumptionTemperatureRange {
     ConsumptionTemperatureRange::new(
@@ -43,7 +45,7 @@ fn physiology() -> PhysiologyDefinition {
             Mass::from_milligrams(MINIMUM_MEAL_MASS_MG),
             Mass::from_milligrams(1_000_000),
             TickSpan::new(100),
-            Volume::from_microliters(10_000),
+            Volume::from_microliters(MINIMUM_DRINK_VOLUME_UL),
             Volume::from_microliters(1_250_000),
             TickSpan::new(30),
         ),

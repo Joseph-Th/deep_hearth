@@ -140,6 +140,18 @@ fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
         equipment,
         player_position,
     );
+    validate_place_ground_stockpile(&state, source, player_position)
+        .unwrap_or_else(|error| panic!("remote-load maintenance source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-load maintenance source placement commit failed: {error}")
+        });
+    validate_place_ground_stockpile(&state, spent, player_position)
+        .unwrap_or_else(|error| panic!("remote-load maintenance spent placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-load maintenance spent placement commit failed: {error}")
+        });
     let resolution = resolve_equipment_maintenance(
         &registries,
         &state,
@@ -155,8 +167,8 @@ fn trusted_load_rejects_active_maintenance_with_remote_equipment() {
     let equipment_position = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("remote-load maintenance serialization failed: {error}"));
-    encoded["state"]["systems"]["logistics"]["detached_equipment"][equipment.value().to_string()] =
-        serde_json::json!({"x": 1, "y": 0, "z": 0});
+    encoded["state"]["systems"]["logistics"]["equipment_locations"]
+        [equipment.value().to_string()] = serde_json::json!({"x": 1, "y": 0, "z": 0});
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("remote-load maintenance decode failed: {error}"));
 
@@ -192,6 +204,19 @@ fn maintenance_rejects_known_remote_replacement_source() {
         .commit(&mut state)
         .unwrap_or_else(|error| {
             panic!("remote-source maintenance logistics commit failed: {error}")
+        });
+    let logistics_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        logistics_revision,
+        logistics_revision + 1,
+        equipment,
+        player_position,
+    );
+    validate_place_ground_stockpile(&state, spent, player_position)
+        .unwrap_or_else(|error| panic!("remote-source maintenance spent placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-source maintenance spent placement commit failed: {error}")
         });
     let source_position = VoxelCoord::new(1, 0, 0);
     validate_place_ground_stockpile(&state, source, source_position)

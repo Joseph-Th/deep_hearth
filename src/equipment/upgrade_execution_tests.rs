@@ -110,6 +110,13 @@ fn equipment_upgrade_rejects_known_remote_material_source() {
         .unwrap_or_else(|error| panic!("remote upgrade source logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("remote upgrade source logistics commit failed: {error}"));
+    let logistics_revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        logistics_revision,
+        logistics_revision + 1,
+        equipment,
+        player_position,
+    );
     let source_position = VoxelCoord::new(1, 0, 0);
     validate_place_ground_stockpile(&state, reinforcement, source_position)
         .unwrap_or_else(|error| panic!("remote upgrade source placement failed: {error}"))

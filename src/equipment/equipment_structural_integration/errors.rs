@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Force;
 use crate::core::time::SimulationTick;
+use crate::logistics::PlayerEquipmentAccessError;
 use crate::mining::MiningJobId;
 use crate::production::ProductionJobId;
 use crate::spatial::VoxelCoord;
@@ -63,17 +64,12 @@ pub enum EquipmentSupportError {
         expected: Force,
     },
     EquipmentRevisionExhausted,
-    LogisticsRevisionExhausted,
-    DetachedEquipmentNotOnTarget {
+    EquipmentNotOnTarget {
         equipment: EquipmentId,
         position: VoxelCoord,
         element: StructuralElementId,
     },
-    PlayerNotOnMountedEquipmentSupport {
-        equipment: EquipmentId,
-        player_position: VoxelCoord,
-        element: StructuralElementId,
-    },
+    Access(PlayerEquipmentAccessError),
     Structure(StructuralMutationError),
 }
 
@@ -86,19 +82,6 @@ impl Display for EquipmentSupportError {
             Self::AlreadyMounted { equipment, element } => write!(
                 formatter,
                 "equipment {} is already supported by structural element {}",
-                equipment.value(),
-                element.value()
-            ),
-            Self::PlayerNotOnMountedEquipmentSupport {
-                equipment,
-                player_position,
-                element,
-            } => write!(
-                formatter,
-                "player at voxel ({},{},{}) cannot unmount equipment {} from remote structural element {}",
-                player_position.x(),
-                player_position.y(),
-                player_position.z(),
                 equipment.value(),
                 element.value()
             ),
@@ -176,22 +159,20 @@ impl Display for EquipmentSupportError {
             Self::EquipmentRevisionExhausted => {
                 formatter.write_str("equipment revision space is exhausted")
             }
-            Self::LogisticsRevisionExhausted => {
-                formatter.write_str("logistics revision space is exhausted")
-            }
-            Self::DetachedEquipmentNotOnTarget {
+            Self::EquipmentNotOnTarget {
                 equipment,
                 position,
                 element,
             } => write!(
                 formatter,
-                "detached equipment {} is at voxel ({},{},{}) outside structural element {}",
+                "equipment {} is at voxel ({},{},{}) outside structural element {}",
                 equipment.value(),
                 position.x(),
                 position.y(),
                 position.z(),
                 element.value()
             ),
+            Self::Access(error) => write!(formatter, "equipment access failed: {error}"),
             Self::Structure(error) => {
                 write!(formatter, "structural support change failed: {error}")
             }
@@ -203,6 +184,7 @@ impl Error for EquipmentSupportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
+            Self::Access(error) => Some(error),
             Self::UnknownEquipment { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
@@ -216,9 +198,7 @@ impl Error for EquipmentSupportError {
             | Self::WeightForceOverflow { .. }
             | Self::ExistingEquipmentLoadMismatch { .. }
             | Self::EquipmentRevisionExhausted
-            | Self::LogisticsRevisionExhausted
-            | Self::DetachedEquipmentNotOnTarget { .. }
-            | Self::PlayerNotOnMountedEquipmentSupport { .. } => None,
+            | Self::EquipmentNotOnTarget { .. } => None,
         }
     }
 }

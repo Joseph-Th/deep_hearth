@@ -240,7 +240,7 @@ fn run_fieldwork_order(
     )
 }
 
-// Controlled supply overrides belong to regression setup, never to candidate selection.
+// Controlled supply overrides belong to test setup, never to actor candidate selection.
 fn run_fieldwork_with_supply(
     registries: &Registries,
     case: FocusedProbeCase,

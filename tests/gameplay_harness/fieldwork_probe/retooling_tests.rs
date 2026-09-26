@@ -1,4 +1,4 @@
-//! Regression coverage for evidence-driven fieldwork retooling and owned-tool reuse.
+//! Evidence-driven fieldwork retooling and owned-tool reuse contracts.
 
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK,

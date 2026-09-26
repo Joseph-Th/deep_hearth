@@ -118,10 +118,10 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                 "logistics": {
                     "revision": 0,
                     "player": null,
-                    "ground_stockpiles": {},
-                    "detached_equipment": {},
-                    "detached_energy_stores": {},
-                    "fluid_stores": {}
+                    "stockpile_locations": {},
+                    "equipment_locations": {},
+                    "energy_store_locations": {},
+                    "fluid_store_locations": {}
                 },
                 "production": {
                     "revision": 0,

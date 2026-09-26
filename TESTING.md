@@ -14,12 +14,7 @@ Use the smallest lane that completely proves the changed contract.
 | Full fmt | `python tools/check_format.py --all` |
 | Production compile | `cargo check-fast` |
 | Production gate | `python ci.py gate` |
-| Fast lib-only Clippy | `cargo lint-fast` |
-| Lint one focused test target | `python tools/run_test.py --lint <test-or-suite-selector>` |
-| List tests without building | `python tools/run_test.py --list [substring]` |
-| Test-owner type check, no link | `python tools/run_test.py --check <test-or-suite-selector>` |
 | Run one exact unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
-| Show one selected test's captured stdout | `python tools/run_test.py --verbose <qualified-name-or-unique-substring>` |
 | Run one owner/subsystem test group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Gameplay harness contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
@@ -27,16 +22,17 @@ Use the smallest lane that completely proves the changed contract.
 | Gameplay audit | `python ci.py audit --gameplay` |
 | Core + gameplay audit | `python ci.py audit --all` |
 | Production Clippy | `python ci.py gate --lint` |
-| Shader validation | `python ci.py gate --shaders` |
-| Rustdoc | `python ci.py gate --rustdoc` |
-| Long-horizon soak | `python ci.py gate --soak` |
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
-| Current BCA hotspot review | `python ci.py bca --hotspots [--path <scope>] [--since <revision>]` |
 | Agent Rust diagnostics | `python tools/rust_diagnostics.py --help` |
 
 `quick` is build-free and checks changed Rust formatting; `check_format.py --all` is the full-format checkpoint.
 `gate` runs one build lane; `audit` is explicit broad runtime coverage. Neither repeats `quick`.
+
+Use `run_test.py --list` to discover selectors, `--check` for test-owner type checking without linking,
+`--lint` for a focused test target, and `--verbose` for captured stdout. Specialized gates are
+`python ci.py gate --shaders`, `python ci.py gate --rustdoc`, and `python ci.py gate --soak`. Use
+`python ci.py bca --hotspots` only when reviewing existing complexity concentration rather than changed code.
 
 Gameplay gates/audits use stable roots; `report` adds fresh variation. Scope it while tuning one family; unscoped is
 the cross-system checkpoint. Replay with `--variation-seed <u64>` and, for policy-varying scopes,
@@ -149,8 +145,8 @@ Explicit roots replay cases. Cheap cross-cutting contracts belong in
 `gameplay_audit` target. The default report emits compact measured summaries without a second CI-owned
 interpretation layer; use `python ci.py report --verbose` for replayable preservation, woodworking, fieldwork,
 and other episode detail.
-Aggregate time uses the registry-derived clock. The broad audit includes `fieldwork_probe::batch_capped_mining_finishes_the_requested_order` for
-ordinary extraction-order continuation; the fieldwork exploration episode remains report-driven.
+Aggregate time uses the registry-derived clock. Broad gameplay audit covers ordinary extraction-order
+continuation; exploratory fieldwork remains report-driven.
 
 ## Completion
 

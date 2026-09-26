@@ -88,6 +88,10 @@ fn energy_store_assembly_at_initialized_player_creates_world_location() {
         .unwrap_or_else(|error| panic!("located energy logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("located energy logistics commit failed: {error}"));
+    validate_place_ground_stockpile(&state, source, position)
+        .unwrap_or_else(|error| panic!("located energy source placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("located energy source placement commit failed: {error}"));
 
     let store =
         validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)

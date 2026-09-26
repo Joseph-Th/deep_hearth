@@ -135,6 +135,8 @@ mod woodworking_probe;
 mod workshop;
 #[path = "gameplay_harness/workshop_contract_tests.rs"]
 mod workshop_contract_tests;
+#[path = "gameplay_harness/world_admission.rs"]
+mod world_admission;
 
 #[test]
 fn gameplay_harness_gate() {

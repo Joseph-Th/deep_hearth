@@ -610,7 +610,7 @@ fn drinking_moves_finite_water_volume_into_survival_owner() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_and_spend_reserves(&registries, &mut state);
-    for _ in 0..80 {
+    for _ in 0..2_000 {
         let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("water reserve-spend tick failed: {error}"));
     }
@@ -658,15 +658,34 @@ fn drinking_moves_finite_water_volume_into_survival_owner() {
     );
     assert_eq!(outcome.hydration_offered(), drink_volume);
     assert_eq!(hydration_at_admission, hydration_before);
-    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    let drink_duration = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .drink_duration(drink_volume)
+        .unwrap_or_else(|| panic!("minimum drink duration disappeared"));
+    assert_eq!(
+        finish_direct_consumption(&registries, &mut state),
+        drink_duration.value()
+    );
     let hydration_after = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("water completed survival state is missing"))
         .hydration();
     assert_eq!(
         hydration_after,
         hydration_before
-            .checked_sub(registries.survival().physiology().hydration_loss_per_tick())
-            .and_then(|value| value.checked_add(drink_volume))
+            .checked_add(drink_volume)
+            .and_then(|value| {
+                value.checked_sub(Volume::from_microliters(
+                    registries
+                        .survival()
+                        .physiology()
+                        .hydration_loss_per_tick()
+                        .microliters()
+                        .checked_mul(drink_duration.value())
+                        .unwrap_or_else(|| panic!("hydration loss expectation overflowed")),
+                ))
+            })
             .unwrap_or_else(|| panic!("hydration expectation overflowed"))
     );
     validate_loaded_state(&registries, &state)

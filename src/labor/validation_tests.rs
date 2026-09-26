@@ -1,4 +1,4 @@
-//! Shared trusted-load schedule projection regressions.
+//! Shared trusted-load schedule projection contracts.
 
 use super::*;
 

@@ -101,6 +101,8 @@ mod tick_observation;
 mod woodworking_probe;
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
+#[path = "gameplay_harness/world_admission.rs"]
+mod world_admission;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReportScope {
@@ -174,7 +176,7 @@ fn main() -> ExitCode {
             "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
         );
         std::println!(
-            "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap integrated-anchors=[primitive-progression:single-state-all-samples primitive-liberation:raw-kit-to-native-copper-maintained-anchor] focused-episodes=[survival-provisioning,woodworking,fieldwork,power-provider] reachability-authority=STATUS.md"
+            "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap exact-local=[survival-provisioning,woodworking,power-provider,primitive-liberation-maintained-anchor,first-foundry] movement-abstracted=[primitive-progression,fieldwork,primitive-liberation-preassembled-variation] movement-authority=absent reachability-authority=STATUS.md"
         );
     }
     if scope.includes(ReportScope::Survival) {

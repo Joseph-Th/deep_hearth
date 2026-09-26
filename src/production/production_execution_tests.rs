@@ -370,7 +370,7 @@ fn trusted_load_rejects_running_process_with_separated_active_endpoints() {
     let remote_position = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("running production-site serialization failed: {error}"));
-    encoded["state"]["systems"]["logistics"]["detached_equipment"]
+    encoded["state"]["systems"]["logistics"]["equipment_locations"]
         [resources.equipment.value().to_string()] = serde_json::json!({"x": 1, "y": 0, "z": 0});
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("running production-site decode failed: {error}"));

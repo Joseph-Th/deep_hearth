@@ -265,7 +265,7 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
         cleaned.native_copper_mass.milligrams(),
     );
     reviewln!(
-        "LIBERATION PACING seed=0x{seed:016X} primary={} scavenger={} cleanup={} charge-body=[demand:{}nJ/{}uL full:{}nJ/{}uL] machine-time={}t parallel-work=not-exercised interpretation=recovered-native-copper-pays-extra-dressing-cost",
+        "LIBERATION PACING seed=0x{seed:016X} primary={} scavenger={} cleanup={} charge-body=[demand:{}nJ/{}uL full:{}nJ/{}uL] machine-time={}t parallel-work=covered-by-progression-probe interpretation=recovered-native-copper-pays-extra-dressing-cost",
         super::super::physical_time::format_physical_duration(registries, primary_ticks),
         super::super::physical_time::format_physical_duration(registries, scavenger_ticks),
         super::super::physical_time::format_physical_duration(registries, cleanup_ticks),

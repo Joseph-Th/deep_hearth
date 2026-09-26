@@ -9,7 +9,7 @@ use crate::content::{
     make_test_registries_with_standard_sensible_heating,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
-use crate::core::state::validate_loaded_state;
+use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::TickSpan;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::equipment::add_equipment;
@@ -18,10 +18,12 @@ use crate::inventory::{
     MaterialRelocationTestError, add_solid_stockpile_for_test, deposit_lot_for_test,
     validate_material_relocation_for_test,
 };
-use crate::logistics::{validate_initialize_player_logistics, validate_place_ground_stockpile};
+use crate::logistics::{
+    LogisticsValidationError, validate_initialize_player_logistics, validate_place_ground_stockpile,
+};
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
     ProcessId, ProcessResolution, ProductionAvailabilityChange, ProductionSuspensionReason,
     StartProcessError, validate_start_process,
@@ -52,7 +54,7 @@ impl Deref for StructuralHeatingResolution {
 }
 
 #[test]
-fn ground_stockpile_requires_explicit_location_transition_before_mounting() {
+fn located_stockpile_rejects_structural_target_at_another_voxel() {
     let registries = build_registries();
     let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000))
@@ -66,9 +68,10 @@ fn ground_stockpile_requires_explicit_location_transition_before_mounting() {
 
     assert_eq!(
         validate_mount_stockpile(&registries, &state, stockpile, support).err(),
-        Some(StockpileSupportError::GroundLocated {
+        Some(StockpileSupportError::StockpileNotOnTarget {
             stockpile,
             position,
+            element: support,
         })
     );
     assert_eq!(
@@ -81,7 +84,77 @@ fn ground_stockpile_requires_explicit_location_transition_before_mounting() {
 }
 
 #[test]
-fn validated_mount_rejects_ground_location_added_before_commit() {
+fn mounting_colocated_stockpile_preserves_its_world_location() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000))
+        .unwrap_or_else(|error| panic!("located stockpile fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap_or_else(|error| panic!("located stockpile placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("located stockpile placement commit failed: {error}"));
+    let support = active_support(&registries, &mut state, 0);
+    let logistics_revision = state.logistics().revision();
+
+    let _ = validate_mount_stockpile(&registries, &state, stockpile, support)
+        .unwrap_or_else(|error| panic!("located stockpile mount validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("located stockpile mount commit failed: {error}"));
+
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(stockpile),
+        Some(position)
+    );
+    assert_eq!(state.logistics().revision(), logistics_revision);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(stockpile)
+            .and_then(|record| record.supported_by()),
+        Some(support)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn trusted_load_rejects_mounted_stockpile_location_outside_support() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000))
+        .unwrap_or_else(|error| panic!("mounted stockpile load fixture failed: {error}"));
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap_or_else(|error| panic!("mounted stockpile load placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mounted stockpile load placement commit failed: {error}"));
+    let support = active_support(&registries, &mut state, 0);
+    let _ = validate_mount_stockpile(&registries, &state, stockpile, support)
+        .unwrap_or_else(|error| panic!("mounted stockpile load mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mounted stockpile load mount commit failed: {error}"));
+    let remote_position = VoxelCoord::new(5, 0, 0);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mounted stockpile load serialization failed: {error}"));
+    encoded["state"]["systems"]["logistics"]["stockpile_locations"]
+        [stockpile.value().to_string()] = serde_json::json!({"x": 5, "y": 0, "z": 0});
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("mounted stockpile load decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::StockpileOutsideSupport {
+                stockpile,
+                position: remote_position,
+                element: support,
+            }
+        )))
+    );
+}
+
+#[test]
+fn validated_mount_rejects_logistics_change_before_commit() {
     let registries = build_registries();
     let mut state = AppState::new();
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000))
@@ -98,9 +171,9 @@ fn validated_mount_rejects_ground_location_added_before_commit() {
 
     assert_eq!(
         validated.commit(&mut state),
-        Err(StockpileSupportCommitError::GroundLocated {
-            stockpile,
-            position,
+        Err(StockpileSupportCommitError::StaleLogisticsRevision {
+            expected: 0,
+            actual: 1,
         })
     );
     assert_eq!(state, before);

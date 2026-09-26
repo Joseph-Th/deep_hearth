@@ -32,11 +32,9 @@ use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
-use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::super::environment::ROOM_TEMPERATURE;
-use super::super::inventory_support::add_solid_stockpile;
 use super::super::manual_craft_execution::{execute_manual_craft, execute_manual_craft_batches};
 use super::super::manual_craft_selection::select_manual_craft_request;
 
@@ -343,12 +341,7 @@ pub(super) fn acquire_raw_kit<T>(
         .unwrap_or(Mass::ZERO);
 
     let mut state = AppState::new();
-    let player_position = VoxelCoord::new(0, 0, 0);
-    let raw = validate_initialize_player_logistics(&state, player_position, raw_mass)
-        .unwrap_or_else(|error| panic!("liberation carried-custody setup failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("liberation carried-custody commit failed: {error}"))
-        .carried_stockpile();
+    let player_position = super::super::world_admission::STATIONARY_PLAYER_ORIGIN;
     let ground_raw = validate_allocate_ground_stockpile(&state, player_position, raw_mass)
         .unwrap_or_else(|error| panic!("liberation ground raw allocation failed: {error}"))
         .commit(&mut state)
@@ -365,9 +358,20 @@ pub(super) fn acquire_raw_kit<T>(
         );
         pickup.push(MaterialLotSelection::new(lot, mass));
     }
-    let parts = add_solid_stockpile(&mut state, raw_mass);
-    let panel_feed = add_solid_stockpile(&mut state, raw_mass);
+    let parts = validate_allocate_ground_stockpile(&state, player_position, raw_mass)
+        .unwrap_or_else(|error| panic!("liberation parts allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation parts allocation commit failed: {error}"));
+    let panel_feed = validate_allocate_ground_stockpile(&state, player_position, raw_mass)
+        .unwrap_or_else(|error| panic!("liberation panel-feed allocation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation panel-feed allocation commit failed: {error}"));
     let bootstrap = bootstrap_before_admission(&mut state);
+    let raw = validate_initialize_player_logistics(&state, player_position, raw_mass)
+        .unwrap_or_else(|error| panic!("liberation carried-custody setup failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("liberation carried-custody commit failed: {error}"))
+        .carried_stockpile();
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("liberation kit survival setup failed: {error}"));
     let survival_before = assess_survival(registries, &state)

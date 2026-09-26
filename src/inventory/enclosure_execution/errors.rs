@@ -8,6 +8,7 @@ use crate::inventory::{
     MaterialLotId, StockpileId, StockpileStorageError, StockpileStorageProfile,
     StockpileStructuralLoadError, StorageDefinitionId,
 };
+use crate::logistics::PlayerStockpileAccessError;
 use crate::material::CommodityKey;
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralCommitError, StructuralElementId};
@@ -35,6 +36,8 @@ pub enum StorageEnclosureConstructionError {
     PlayerCarriedTarget {
         stockpile: StockpileId,
     },
+    TargetAccess(PlayerStockpileAccessError),
+    SourceAccess(PlayerStockpileAccessError),
     LocatedTargetSourceUnlocated {
         target: StockpileId,
         target_position: VoxelCoord,
@@ -118,6 +121,13 @@ impl Display for StorageEnclosureConstructionError {
                 "stockpile {} is player-carried custody and cannot become a stationary storage enclosure",
                 stockpile.value()
             ),
+            Self::TargetAccess(error) => write!(formatter, "storage target access failed: {error}"),
+            Self::SourceAccess(error) => {
+                write!(
+                    formatter,
+                    "storage construction source access failed: {error}"
+                )
+            }
             Self::LocatedTargetSourceUnlocated {
                 target,
                 target_position,
@@ -217,6 +227,7 @@ impl Error for StorageEnclosureConstructionError {
         match self {
             Self::TargetContentsIncompatible { error, .. } => Some(error),
             Self::StructuralLoad(error) => Some(error),
+            Self::TargetAccess(error) | Self::SourceAccess(error) => Some(error),
             Self::UnknownDefinition { .. }
             | Self::UnknownTarget { .. }
             | Self::UnknownSource { .. }

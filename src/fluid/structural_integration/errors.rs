@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Force;
+use crate::logistics::PlayerFluidStoreAccessError;
 use crate::spatial::VoxelCoord;
 use crate::structural::{
     StructuralCommitError, StructuralElementId, StructuralLifecycle, StructuralMutationError,
@@ -129,6 +130,7 @@ pub enum FluidSupportError {
         position: VoxelCoord,
         element: StructuralElementId,
     },
+    Access(PlayerFluidStoreAccessError),
     FluidRevisionExhausted,
     Load(FluidStructuralLoadError),
 }
@@ -158,6 +160,7 @@ impl Display for FluidSupportError {
                 position.z(),
                 element.value()
             ),
+            Self::Access(error) => write!(formatter, "fluid store access failed: {error}"),
             Self::NotMounted { store } => write!(
                 formatter,
                 "fluid store {} has no structural support assignment to remove",
@@ -180,6 +183,7 @@ impl Error for FluidSupportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Load(error) => Some(error),
+            Self::Access(error) => Some(error),
             Self::UnknownStore { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }

@@ -137,11 +137,12 @@ fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
             0,
         ),
     );
-    let volume = Volume::from_microliters(125_000);
-    assert_eq!(
-        physiology.direct_consumption().drink_duration(volume),
-        Some(TickSpan::new(3))
-    );
+    let volume = minimum_drink_volume(&registries);
+    let duration = physiology
+        .direct_consumption()
+        .drink_duration(volume)
+        .unwrap_or_else(|| panic!("minimum drink has no authored duration"));
+    assert!(duration.value() > 1);
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
@@ -160,7 +161,9 @@ fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
     let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("multi-tick drinking first tick failed: {error}"));
     let first_tick_hydration = hydration_before
-        .checked_add(Volume::from_microliters(41_666))
+        .checked_add(Volume::from_microliters(
+            volume.microliters() / duration.value(),
+        ))
         .and_then(|value| value.checked_sub(physiology.hydration_loss_per_tick()))
         .unwrap_or_else(|| panic!("multi-tick first hydration expectation failed"));
     assert_eq!(
@@ -182,7 +185,7 @@ fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
     let mut uninterrupted = state.clone();
     assert_eq!(loaded, uninterrupted);
 
-    for _ in 0..2 {
+    for _ in 1..duration.value() {
         let _ = advance_tick(&registries, &mut loaded).unwrap_or_else(|error| {
             panic!("loaded multi-tick drinking continuation failed: {error}")
         });
@@ -200,7 +203,11 @@ fn multi_tick_drinking_round_trip_preserves_fractional_absorption_exactly() {
             .checked_add(volume)
             .and_then(|value| {
                 value.checked_sub(Volume::from_microliters(
-                    physiology.hydration_loss_per_tick().microliters() * 3,
+                    physiology
+                        .hydration_loss_per_tick()
+                        .microliters()
+                        .checked_mul(duration.value())
+                        .unwrap_or_else(|| panic!("multi-tick hydration loss overflowed")),
                 ))
             })
             .unwrap_or_else(|| panic!("multi-tick final hydration expectation failed"))
@@ -213,7 +220,7 @@ fn dead_player_pending_consumption_cancels_on_next_tick_with_player_work() {
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("dead-consumption survival setup failed: {error}"));
-    let volume = Volume::from_microliters(125_000);
+    let volume = minimum_drink_volume(&registries);
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
@@ -339,7 +346,14 @@ fn drinking_near_capacity_absorbs_after_same_tick_basal_loss() {
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("partial-hydration post-drink audit failed: {error}"));
-    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    let duration = physiology
+        .direct_consumption()
+        .drink_duration(drink_volume)
+        .unwrap_or_else(|| panic!("minimum drink duration disappeared"));
+    assert_eq!(
+        finish_direct_consumption(&registries, &mut state),
+        duration.value()
+    );
     assert_eq!(
         assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("partial-hydration survival state disappeared after drink"))
@@ -386,14 +400,24 @@ fn drink_hydration_first_covers_same_tick_hydration_shortfall() {
         .unwrap_or_else(|error| panic!("drink-shortfall validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("drink-shortfall commit failed: {error}"));
-    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
-    let shortfall = physiology
-        .hydration_loss_per_tick()
-        .checked_sub(hydration_before)
-        .unwrap_or(Volume::ZERO);
-    let expected_after = outcome
-        .hydration_offered()
-        .checked_sub(shortfall)
+    let duration = physiology
+        .direct_consumption()
+        .drink_duration(volume)
+        .unwrap_or_else(|| panic!("minimum drink duration disappeared"));
+    assert_eq!(
+        finish_direct_consumption(&registries, &mut state),
+        duration.value()
+    );
+    let total_loss = Volume::from_microliters(
+        physiology
+            .hydration_loss_per_tick()
+            .microliters()
+            .checked_mul(duration.value())
+            .unwrap_or_else(|| panic!("drink-shortfall hydration loss overflowed")),
+    );
+    let expected_after = hydration_before
+        .checked_add(outcome.hydration_offered())
+        .and_then(|value| value.checked_sub(total_loss))
         .unwrap_or(Volume::ZERO);
     assert_eq!(
         assess_survival(&registries, &state)
@@ -636,7 +660,14 @@ fn drinking_at_full_hydration_absorbs_as_basal_loss_creates_capacity() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("full-hydration drinking commit failed: {error}"));
     assert_eq!(outcome.hydration_offered(), volume);
-    assert_eq!(finish_direct_consumption(&registries, &mut state), 1);
+    let duration = physiology
+        .direct_consumption()
+        .drink_duration(volume)
+        .unwrap_or_else(|| panic!("minimum drink duration disappeared"));
+    assert_eq!(
+        finish_direct_consumption(&registries, &mut state),
+        duration.value()
+    );
     assert_eq!(
         assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("full-hydration player disappeared after drinking"))

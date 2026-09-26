@@ -47,10 +47,11 @@ fn assembled_store(registries: &Registries, state: &mut AppState) -> EnergyStore
 }
 
 #[test]
-fn disassembly_removes_detached_energy_store_location() {
+fn disassembly_removes_energy_store_location() {
     let registries = build_registries();
     let mut state = AppState::new();
     let position = VoxelCoord::new(2, 0, 4);
+    let store = assembled_store(&registries, &mut state);
     let destination =
         validate_initialize_player_logistics(&state, position, Mass::from_milligrams(2_000_000))
             .unwrap_or_else(|error| panic!("located store disassembly logistics failed: {error}"))
@@ -59,7 +60,13 @@ fn disassembly_removes_detached_energy_store_location() {
                 panic!("located store disassembly logistics commit failed: {error}")
             })
             .carried_stockpile();
-    let store = assembled_store(&registries, &mut state);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        store,
+        position,
+    );
     assert_eq!(
         state.logistics().energy_store_position(store),
         Some(position)

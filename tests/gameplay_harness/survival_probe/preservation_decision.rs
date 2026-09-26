@@ -142,6 +142,7 @@ fn evaluate_no_build(
     }
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("no-build player admission: {error:?}"));
+    super::super::world_admission::initialize_stationary_player_logistics(&mut state);
     let before = state.clone();
     let elapsed_ticks = reference
         .production_ticks

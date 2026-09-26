@@ -1,4 +1,4 @@
-//! Storage-history coalescing policy regressions.
+//! Storage-history coalescing policy contracts.
 
 use super::*;
 

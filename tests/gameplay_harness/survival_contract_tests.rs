@@ -116,9 +116,9 @@ fn preservation_material_budget_makes_intermediate_frontier_actionable() {
 fn preservation_decline_executes_without_spending_the_raw_opportunity() {
     use super::survival_probe::preservation_decision::evaluate_preservation_decision;
     let registries = build_registries();
-    // Replayed ordinary world/policy pair where the actor values retaining the disclosed raw
-    // opportunity above every currently worthwhile enclosure. The execution contract should not
-    // depend on a historical storage tuning point continuing to decline forever.
+    // Replayed ordinary world/policy pair where retaining the disclosed raw opportunity outranks
+    // every enclosure. The contract is the no-build decision and unspent opportunity, not any
+    // particular preservation tuning trajectory.
     let seed = 0x043C_561D_398D_32BA;
     let world = provisioning_world(&registries, seed);
     let decision = evaluate_preservation_decision(

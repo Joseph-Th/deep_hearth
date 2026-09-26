@@ -1,4 +1,4 @@
-//! Exact stored-fluid thermal-energy accounting regressions.
+//! Exact stored-fluid thermal-energy accounting contracts.
 
 use crate::content::{
     FLUID_WATER, MATERIAL_COPPER, build_registries, make_test_registries_with_fluids,

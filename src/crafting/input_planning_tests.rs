@@ -140,7 +140,7 @@ fn trusted_load_rejects_active_manual_craft_with_remote_output_destination() {
     let remote_position = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("remote-load craft serialization failed: {error}"));
-    encoded["state"]["systems"]["logistics"]["ground_stockpiles"]
+    encoded["state"]["systems"]["logistics"]["stockpile_locations"]
         [destination.value().to_string()] = serde_json::json!({"x": 1, "y": 0, "z": 0});
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("remote-load craft decode failed: {error}"));

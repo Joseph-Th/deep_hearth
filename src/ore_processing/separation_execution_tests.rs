@@ -704,6 +704,18 @@ fn manual_separation_rejects_known_remote_output_destination() {
         .unwrap_or_else(|error| panic!("remote separation logistics setup failed: {error}"))
         .commit(&mut fixture.state)
         .unwrap_or_else(|error| panic!("remote separation logistics commit failed: {error}"));
+    validate_place_ground_stockpile(&fixture.state, fixture.source, player_position)
+        .unwrap_or_else(|error| panic!("remote separation source placement failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("remote separation source placement commit failed: {error}")
+        });
+    validate_place_ground_stockpile(&fixture.state, fixture.residue, player_position)
+        .unwrap_or_else(|error| panic!("remote separation residue placement failed: {error}"))
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("remote separation residue placement commit failed: {error}")
+        });
     let target_position = VoxelCoord::new(1, 0, 0);
     validate_place_ground_stockpile(&fixture.state, fixture.target, target_position)
         .unwrap_or_else(|error| panic!("remote separation target placement failed: {error}"))

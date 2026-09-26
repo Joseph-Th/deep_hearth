@@ -60,6 +60,13 @@ fn manual_power_rejects_known_remote_destination_store() {
         .unwrap_or_else(|error| panic!("remote power logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("remote power logistics commit failed: {error}"));
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        crank,
+        player_position,
+    );
     let store_position = VoxelCoord::new(1, 0, 0);
     let revision = state.logistics().revision();
     state.logistics_state_mut().apply_energy_store_placement(
@@ -106,6 +113,20 @@ fn manual_power_token_rejects_logistics_change_before_commit() {
         .unwrap_or_else(|error| panic!("stale power logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("stale power logistics commit failed: {error}"));
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        crank,
+        player_position,
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        drive,
+        player_position,
+    );
     let validated = validate_start_manual_power(
         &registries,
         &state,
@@ -138,13 +159,27 @@ fn trusted_load_rejects_active_manual_power_with_remote_destination() {
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("remote-load power survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
     let player_position = VoxelCoord::new(0, 0, 0);
     validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("remote-load power logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("remote-load power logistics commit failed: {error}"));
-    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
-    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        crank,
+        player_position,
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        drive,
+        player_position,
+    );
     let _ = validate_start_manual_power(
         &registries,
         &state,
@@ -163,7 +198,7 @@ fn trusted_load_rejects_active_manual_power_with_remote_destination() {
     let store_position = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("remote-load power serialization failed: {error}"));
-    encoded["state"]["systems"]["logistics"]["detached_energy_stores"][drive.value().to_string()] =
+    encoded["state"]["systems"]["logistics"]["energy_store_locations"][drive.value().to_string()] =
         serde_json::json!({"x": 1, "y": 0, "z": 0});
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("remote-load power decode failed: {error}"));

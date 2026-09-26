@@ -36,6 +36,8 @@ mod seed_input;
 mod tick_observation;
 #[path = "gameplay_harness/woodworking_probe.rs"]
 mod woodworking_probe;
+#[path = "gameplay_harness/world_admission.rs"]
+mod world_admission;
 
 #[cfg(test)]
 #[test]

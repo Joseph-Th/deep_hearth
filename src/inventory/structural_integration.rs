@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::AggregateMass;
 use crate::core::state::AppState;
+use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralElementId, StructuralLifecycle, StructuralMutationError,
@@ -83,6 +84,7 @@ pub struct ValidatedStockpileSupportChange {
     after: Option<StructuralElementId>,
     expected_inventory_revision: u64,
     next_inventory_revision: u64,
+    expected_logistics_revision: u64,
     structural: ValidatedStockpileStructuralLoad,
 }
 
@@ -91,6 +93,13 @@ impl ValidatedStockpileSupportChange {
         self,
         state: &mut AppState,
     ) -> Result<StockpileSupportOutcome, StockpileSupportCommitError> {
+        let actual_logistics_revision = state.logistics().revision();
+        if actual_logistics_revision != self.expected_logistics_revision {
+            return Err(StockpileSupportCommitError::StaleLogisticsRevision {
+                expected: self.expected_logistics_revision,
+                actual: actual_logistics_revision,
+            });
+        }
         let actual_revision = state.inventory().revision();
         if actual_revision != self.expected_inventory_revision {
             return Err(StockpileSupportCommitError::StaleInventoryRevision {
@@ -108,14 +117,6 @@ impl ValidatedStockpileSupportChange {
                 stockpile: self.stockpile,
                 expected: self.before,
                 actual: record.supported_by(),
-            });
-        }
-        if self.after.is_some()
-            && let Some(position) = state.logistics().ground_stockpile_position(self.stockpile)
-        {
-            return Err(StockpileSupportCommitError::GroundLocated {
-                stockpile: self.stockpile,
-                position,
             });
         }
         if let Some(error) = support_commit_error(state, self.stockpile) {
@@ -197,12 +198,6 @@ pub fn validate_mount_stockpile(
     {
         return Err(StockpileSupportError::PlayerCarried { stockpile });
     }
-    if let Some(position) = state.logistics().ground_stockpile_position(stockpile) {
-        return Err(StockpileSupportError::GroundLocated {
-            stockpile,
-            position,
-        });
-    }
     if let Some(existing) = record.supported_by() {
         return Err(StockpileSupportError::AlreadyMounted {
             stockpile,
@@ -210,6 +205,7 @@ pub fn validate_mount_stockpile(
         });
     }
     validate_not_busy(state, stockpile)?;
+    validate_player_stockpile_access(state, stockpile).map_err(StockpileSupportError::Access)?;
     let target = state
         .structures()
         .get_element(element)
@@ -222,6 +218,15 @@ pub fn validate_mount_stockpile(
         return Err(StockpileSupportError::TargetNotActive {
             element,
             lifecycle: target.lifecycle(),
+        });
+    }
+    if let Some(position) = state.logistics().stationary_stockpile_position(stockpile)
+        && !target.bounds().has_voxel(position)
+    {
+        return Err(StockpileSupportError::StockpileNotOnTarget {
+            stockpile,
+            position,
+            element,
         });
     }
     let mass = supported_mass_projection(state, element, &BTreeMap::new(), None)
@@ -261,6 +266,7 @@ pub fn validate_mount_stockpile(
         after: Some(element),
         expected_inventory_revision,
         next_inventory_revision,
+        expected_logistics_revision: state.logistics().revision(),
         structural,
     })
 }
@@ -279,6 +285,7 @@ pub fn validate_unmount_stockpile(
         .supported_by()
         .ok_or(StockpileSupportError::NotMounted { stockpile })?;
     validate_not_busy(state, stockpile)?;
+    validate_player_stockpile_access(state, stockpile).map_err(StockpileSupportError::Access)?;
     if state.structures().get_element(element).is_none() {
         return Err(StockpileSupportError::Load(
             StockpileStructuralLoadError::UnknownSupport { stockpile, element },
@@ -309,6 +316,7 @@ pub fn validate_unmount_stockpile(
         after: None,
         expected_inventory_revision,
         next_inventory_revision,
+        expected_logistics_revision: state.logistics().revision(),
         structural,
     })
 }

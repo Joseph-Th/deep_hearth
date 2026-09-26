@@ -55,17 +55,24 @@ fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId 
 }
 
 #[test]
-fn disassembly_removes_detached_equipment_location() {
+fn disassembly_removes_equipment_location() {
     let registries = build_registries();
     let mut state = AppState::new();
     let position = VoxelCoord::new(2, 0, -1);
+    let equipment = assembled_pick(&registries, &mut state);
     let destination =
         validate_initialize_player_logistics(&state, position, Mass::from_milligrams(2_000_000))
             .unwrap_or_else(|error| panic!("located disassembly logistics setup failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("located disassembly logistics commit failed: {error}"))
             .carried_stockpile();
-    let equipment = assembled_pick(&registries, &mut state);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        equipment,
+        position,
+    );
     assert_eq!(
         state.logistics().equipment_position(equipment),
         Some(position)

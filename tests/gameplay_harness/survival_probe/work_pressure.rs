@@ -45,6 +45,7 @@ pub(super) fn evaluate_survival_work_pressure_probe(
     let mut prospecting = AppState::new();
     initialize_player_survival(registries, &mut prospecting)
         .unwrap_or_else(|error| panic!("work-pressure prospecting survival setup failed: {error}"));
+    super::super::world_admission::initialize_stationary_player_logistics(&mut prospecting);
     let prospecting_method = prospecting_method_for_work_pressure(registries, seed);
     let prospecting_definition = registries
         .labor()
@@ -54,8 +55,8 @@ pub(super) fn evaluate_survival_work_pressure_probe(
     let region_width = i64::try_from(prospecting_definition.maximum_region_voxels().min(4))
         .unwrap_or_else(|_| unreachable!("bounded prospecting footprint fits i64"));
     let region = VoxelBounds::new(
-        VoxelCoord::new(24, -1, 0),
-        VoxelCoord::new(24 + region_width, 0, 1),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(region_width, 1, 1),
     )
     .unwrap_or_else(|error| panic!("work-pressure prospecting bounds failed: {error}"));
     let prospecting_region_voxels = region
@@ -147,6 +148,15 @@ pub(super) fn evaluate_survival_work_pressure_probe(
             ROOM_TEMPERATURE,
         );
     }
+    super::super::world_admission::locate_stationary_endpoints(
+        &mut power,
+        &[component_source],
+        &[],
+    );
+    initialize_player_survival(registries, &mut power).unwrap_or_else(|error| {
+        panic!("work-pressure manual-power survival setup failed: {error}")
+    });
+    super::super::world_admission::initialize_stationary_player_logistics(&mut power);
     let crank = validate_assemble_equipment(
         registries,
         &power,
@@ -165,9 +175,6 @@ pub(super) fn evaluate_survival_work_pressure_probe(
     .unwrap_or_else(|error| panic!("work-pressure stone flywheel assembly failed: {error}"))
     .commit(&mut power)
     .unwrap_or_else(|error| panic!("work-pressure stone flywheel assembly commit failed: {error}"));
-    initialize_player_survival(registries, &mut power).unwrap_or_else(|error| {
-        panic!("work-pressure manual-power survival setup failed: {error}")
-    });
     let requested_energy = registries
         .energy()
         .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)

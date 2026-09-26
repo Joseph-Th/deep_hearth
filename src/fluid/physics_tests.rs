@@ -1,4 +1,4 @@
-//! Exact homogeneous-fluid mass projection regressions.
+//! Exact homogeneous-fluid mass projection contracts.
 
 use crate::content::{FLUID_WATER, MATERIAL_WATER, build_registries};
 use crate::core::quantity::{Temperature, Volume};

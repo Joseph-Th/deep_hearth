@@ -82,8 +82,8 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
         // baseline visible without relying on organic sampling luck.
         "fieldwork" => (1, &[0, 2, 3, 5, 6], 0x4649_454C_4450_5242),
         // Keep one long-project coverage world because it crosses repeated crusher service and
-        // survival provisioning; this caught meal-time reserve planning that short cycles cannot.
-        // Organic variation still owns broad provider/workload exploration.
+        // survival provisioning, which short cycles do not exercise together. Organic variation
+        // owns broader provider/workload exploration.
         "power-provider" => (
             0xD33F_C01D_907E,
             &[7, 11, 0x10FA_D311_A1B9_7550],

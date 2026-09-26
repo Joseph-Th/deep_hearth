@@ -401,6 +401,11 @@ pub(super) fn prepare_provisioning_world(
         drink_supply,
         ROOM_TEMPERATURE,
     );
+    super::super::world_admission::locate_stationary_endpoints(
+        &mut state,
+        &[ambient_meal, preserved_reserve],
+        &[drink_store],
+    );
 
     // Actor admission follows all fixture-only mutations; canonical ticks create subsequent
     // survival pressure.
@@ -414,6 +419,7 @@ pub(super) fn prepare_provisioning_world(
             seed_player_survival_at_hydration_warning_boundary(registries, &mut state)
         }
     }
+    super::super::world_admission::initialize_stationary_player_logistics(&mut state);
 
     advance_idle_ticks(
         registries,

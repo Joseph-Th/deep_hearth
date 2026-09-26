@@ -1,4 +1,4 @@
-//! Real productive consumers used to exercise stored work in power-provider comparisons.
+//! Productive consumers for stored-work power-provider comparisons.
 
 use deep_hearth::content::{
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_LOG, MATERIAL_WOOD,

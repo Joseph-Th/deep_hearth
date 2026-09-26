@@ -570,9 +570,13 @@ Keep a comment only when it preserves information the code does not state clearl
 - safety assumptions and invariant dependencies;
 - durable model boundaries or tradeoffs that explain why a simpler implementation would be wrong.
 
-Do not restate syntax, narrate chronology, preserve superseded approaches, record debugging sessions, or leave
-commented-out production code. State present constraints directly instead of describing how the implementation
-arrived there.
+Write comments and authority prose in present-tense contract language. Do not restate syntax, narrate project
+chronology, preserve superseded approaches, record debugging sessions, or leave commented-out production code.
+History belongs in version control. Describe the invariant, ownership rule, or design constraint that applies now.
+
+Do not duplicate tunable authored values in comments or authority prose unless the exact value is itself part of
+the documented contract. Prefer naming the owning definition, projection, or validation rule so content tuning
+cannot silently stale documentation.
 
 Prefer direct data structures and static dispatch in core systems. Add dynamic dispatch, generic registries,
 background machinery, or other coordination layers only when the behavior is genuinely open or dynamic and

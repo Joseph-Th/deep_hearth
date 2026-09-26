@@ -94,20 +94,6 @@ make the first two cheap; it must not silently upgrade them into the stronger cl
 declarations. Keep transitive authored-path and ordinary-reachability claims in topology/reachability authorities
 instead of pushing them into individual definitions.
 
-### Current operability signals
-
-Use concrete callers to distinguish useful future work from theoretical API symmetry:
-
-| Signal | Direction |
-| --- | --- |
-| A commit creates no new continuation fact | Preserve `()`; do not add signature ceremony solely for API symmetry. |
-| Several callers loop canonical ticks with their own stop logic | Prefer one bounded batch/stop abstraction only if it serves multiple legitimate callers. It must call canonical ticks and preserve outcome order. |
-| A prediction can share production semantics before mutation | Preserve prediction/authorization sharing; the actor previews legality without cloning or mutating the world. |
-| Tie-breaking among otherwise legal observable inputs | Keep tie-breaking in actor policy; the inventory owner supplies authoritative lots unless product semantics require a canonical choice. |
-
-Keep this table small. Remove a signal when its underlying friction disappears; it is a planning aid, not a
-second status page.
-
 ### Operability refinement order
 
 When an authorized implementation slice exposes these debts, prefer the least-semantic-cost improvement first:
@@ -127,6 +113,11 @@ When an authorized implementation slice exposes these debts, prefer the least-se
 6. **Add freshness metadata only on demonstrated retention need.** Expose narrow revision/dependency stamps when
    a useful planning result is expensive enough to retain across other actions. Do not publish every owner
    revision or introduce a global world revision preemptively.
+
+Preserve simple shapes when they are sufficient: a commit that creates no continuation fact may return `()`;
+tie-breaking among equally legal observable inputs belongs to actor policy unless product semantics require a
+canonical choice; prediction and authorization should share production semantics without cloning or mutating the
+world.
 
 At every step, remove the superseded caller reconstruction and its tests/diagnostics rather than retaining two
 ways to derive the same semantic answer. This order is a refinement heuristic, not an executable task queue;
@@ -149,7 +140,7 @@ High-leverage improvements are usually local:
 - propagation of an existing destination-owner landing identity through a crossed custody edge;
 - an explicit cross-owner edge that makes custody and stale dependencies followable;
 - a routed authority/source/proof entry that prevents repository-wide search;
-- a focused regression that turns a previously broad investigation into a cheap falsification.
+- a focused proof that makes a contract cheap to falsify.
 
 Do not build a universal AI facade, reflection schema, duplicated action catalog, or generic planner API unless
 the product itself genuinely needs that abstraction. Agent ergonomics should emerge from a more coherent domain
@@ -210,39 +201,24 @@ each slice when concrete friction is exposed, so the repository becomes easier t
 
 ### 1. Close existing control loops
 
-Before opening major new domains, preferentially finish ordinary authorization around already-modeled physical
-transitions and capability-only systems where a small missing edge is the blocker. High-value examples are
-player-authorized construction/deconstruction or recovery steps, ordinary acquisition paths, and production
-read surfaces that currently require controlled setup. Copper progression now closes its first thermal loop:
-ordinary native copper can fund a dedicated treadle dynamo, finite electrical buffer, portable stone arc
-crucible, stone mold, and thermal sink; a 20 g cast ingot can return to the reinforcement loop through ordinary
-cold working. This deliberately reuses the existing labor, energy, thermal, production, inventory, survival,
-and matter owners without pretending that a portable 100 W generator supplies the installed 2 MW industrial
-furnace. The next higher-leverage missing edges are therefore world-space action/logistics and ordinary general
-construction, which are prerequisites for credible installed industrial infrastructure and later routed power.
-Chemical reduction belongs later when authored compound ores actually require a reductant/byproduct model.
+Before opening major domains, finish ordinary authorization around implemented physical transitions when a small
+missing edge blocks use. Typical high-value slices include ordinary acquisition, player-authorized
+construction/deconstruction or recovery, and production read surfaces that replace controlled setup or caller
+reconstruction. Preserve meaningful scale boundaries: portable generation should not stand in for industrial
+power infrastructure, and chemical reduction should enter only when authored material chemistry requires a
+reductant/byproduct model.
 
 Completion criterion: the capability can move from controlled/capability-only evidence toward ordinary play
 without adding an alternate semantic path.
 
 ### 2. Establish world-space action and logistics
 
-Matter currently has strong local custody but limited general movement authority. Build the world-space action
-substrate that can own placement, carrying/haulage, delivery, access, path cost, and transport time/energy/labor
-without turning inventory into a universal movement authority.
-
-The first foundation is now in place: player position and finite carried custody persist, while loose stockpiles,
-detached unmounted equipment, finite energy stores, and finite fluid stores can own voxel locations. Exact same-
-voxel pickup/drop composes canonical inventory relocation, while player actions share stockpile/equipment/energy/
-fluid access checks instead of inventing proximity rules. Prospecting and mining bind labor to their authored
-survey/deposit spaces, manual power binds provider and destination to local custody, drinking rejects known-remote
-fluid stores, and trusted load replays the spatial obligations that remain live. Continue from that owner rather
-than reopening inventory: movement/path authorization, transport cost, ordinary source acquisition, mounted-
-production site/contact geometry, fluid transport/pumping, and explicit transport semantics for mounted-to-
-mounted equipment relocation are the remaining high-leverage edges. Powered production already rejects
-disagreement among ground/detached endpoints whose logistics locations are known and replays continuing endpoint
-coherence on trusted load; what remains is physical placement and transport for mounted/networked infrastructure
-rather than another generic proximity check.
+Build world-space action and logistics on the persistent custody/location semantics defined in
+[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md). Logistics should own placement, carrying/haulage, delivery, access,
+path cost, and transport time/energy/labor without turning inventory into a movement authority. Extend the same
+model to movement/path authorization, ordinary source acquisition, mounted-production site/contact geometry,
+fluid transport/pumping, and explicit mounted-to-mounted equipment transport. Prefer physical placement and
+transport over generic proximity predicates.
 
 Its direct-player surface should deliberately use familiar block-survival grammar: an active hotbar item,
 primary break/use-tool action, secondary place/interact/consume action, ordinary pickup/drop, and slot/container
@@ -309,7 +285,7 @@ actions rather than opaque periodic penalties.
 
 ### 7. Expand industrial transformation depth
 
-After current progression gaps have ordinary physical routes, add alloying, forging, machining, broader
+After progression gaps have ordinary physical routes, add alloying, forging, machining, broader
 separation, combustion/thermal plant depth, chemistry, and advanced power as extensions of the existing
 material, thermal, energy, capability, equipment, maintenance, and logistics abstractions. Each process stage
 must own a distinct physical transformation or control problem.

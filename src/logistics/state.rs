@@ -46,13 +46,13 @@ pub struct LogisticsState {
     revision: u64,
     player: Option<PlayerLogisticsRecord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
-    ground_stockpiles: BTreeMap<StockpileId, VoxelCoord>,
+    stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
-    detached_equipment: BTreeMap<EquipmentId, VoxelCoord>,
+    equipment_locations: BTreeMap<EquipmentId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
-    detached_energy_stores: BTreeMap<EnergyStoreId, VoxelCoord>,
+    energy_store_locations: BTreeMap<EnergyStoreId, VoxelCoord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
-    fluid_stores: BTreeMap<FluidStoreId, VoxelCoord>,
+    fluid_store_locations: BTreeMap<FluidStoreId, VoxelCoord>,
 }
 
 impl LogisticsState {
@@ -61,48 +61,48 @@ impl LogisticsState {
         Self {
             revision: 0,
             player: None,
-            ground_stockpiles: BTreeMap::new(),
-            detached_equipment: BTreeMap::new(),
-            detached_energy_stores: BTreeMap::new(),
-            fluid_stores: BTreeMap::new(),
+            stockpile_locations: BTreeMap::new(),
+            equipment_locations: BTreeMap::new(),
+            energy_store_locations: BTreeMap::new(),
+            fluid_store_locations: BTreeMap::new(),
         }
     }
 
     /// Returns the world voxel of one finite fluid store when logistics owns a location.
     #[must_use]
     pub fn fluid_store_position(&self, store: FluidStoreId) -> Option<VoxelCoord> {
-        self.fluid_stores.get(&store).copied()
+        self.fluid_store_locations.get(&store).copied()
     }
 
     /// Iterates explicitly located finite fluid stores in stable store-ID order.
-    pub fn fluid_stores(&self) -> impl Iterator<Item = (FluidStoreId, VoxelCoord)> + '_ {
-        self.fluid_stores
+    pub fn fluid_store_locations(&self) -> impl Iterator<Item = (FluidStoreId, VoxelCoord)> + '_ {
+        self.fluid_store_locations
             .iter()
             .map(|(store, position)| (*store, *position))
     }
 
-    /// Returns the world voxel of one detached finite-energy store managed by logistics.
+    /// Returns the world voxel of one finite-energy store managed by logistics.
     #[must_use]
     pub fn energy_store_position(&self, store: EnergyStoreId) -> Option<VoxelCoord> {
-        self.detached_energy_stores.get(&store).copied()
+        self.energy_store_locations.get(&store).copied()
     }
 
-    /// Iterates detached energy-store locations in stable store-ID order.
-    pub fn detached_energy_stores(&self) -> impl Iterator<Item = (EnergyStoreId, VoxelCoord)> + '_ {
-        self.detached_energy_stores
+    /// Iterates energy-store locations in stable store-ID order.
+    pub fn energy_store_locations(&self) -> impl Iterator<Item = (EnergyStoreId, VoxelCoord)> + '_ {
+        self.energy_store_locations
             .iter()
             .map(|(store, position)| (*store, *position))
     }
 
-    /// Returns the world voxel of one detached, unmounted equipment instance managed by logistics.
+    /// Returns the world voxel of one equipment instance managed by logistics.
     #[must_use]
     pub fn equipment_position(&self, equipment: EquipmentId) -> Option<VoxelCoord> {
-        self.detached_equipment.get(&equipment).copied()
+        self.equipment_locations.get(&equipment).copied()
     }
 
-    /// Iterates detached equipment locations in stable equipment-ID order.
-    pub fn detached_equipment(&self) -> impl Iterator<Item = (EquipmentId, VoxelCoord)> + '_ {
-        self.detached_equipment
+    /// Iterates equipment locations in stable equipment-ID order.
+    pub fn equipment_locations(&self) -> impl Iterator<Item = (EquipmentId, VoxelCoord)> + '_ {
+        self.equipment_locations
             .iter()
             .map(|(equipment, position)| (*equipment, *position))
     }
@@ -116,13 +116,13 @@ impl LogisticsState {
         self.player.as_ref()
     }
 
-    /// Returns the world voxel of one loose, unsupported stockpile managed by logistics.
+    /// Returns the world voxel of one stationary stockpile managed by logistics.
     #[must_use]
-    pub fn ground_stockpile_position(&self, stockpile: StockpileId) -> Option<VoxelCoord> {
-        self.ground_stockpiles.get(&stockpile).copied()
+    pub fn stationary_stockpile_position(&self, stockpile: StockpileId) -> Option<VoxelCoord> {
+        self.stockpile_locations.get(&stockpile).copied()
     }
 
-    /// Returns the known world voxel of a player-carried or loose ground stockpile.
+    /// Returns the known world voxel of a player-carried or stationary stockpile.
     #[must_use]
     pub fn stockpile_position(&self, stockpile: StockpileId) -> Option<VoxelCoord> {
         if let Some(player) = self.player
@@ -130,12 +130,12 @@ impl LogisticsState {
         {
             return Some(player.position());
         }
-        self.ground_stockpile_position(stockpile)
+        self.stationary_stockpile_position(stockpile)
     }
 
-    /// Iterates loose ground stockpiles in stable stockpile-ID order.
-    pub fn ground_stockpiles(&self) -> impl Iterator<Item = (StockpileId, VoxelCoord)> + '_ {
-        self.ground_stockpiles
+    /// Iterates stationary stockpile locations in stable stockpile-ID order.
+    pub fn stockpile_locations(&self) -> impl Iterator<Item = (StockpileId, VoxelCoord)> + '_ {
+        self.stockpile_locations
             .iter()
             .map(|(stockpile, position)| (*stockpile, *position))
     }
@@ -180,15 +180,15 @@ impl LogisticsState {
             "ground stockpile placement must advance logistics revision exactly once"
         );
         assert!(
-            !self.ground_stockpiles.contains_key(&stockpile),
-            "ground stockpile placement cannot replace an existing location"
+            !self.stockpile_locations.contains_key(&stockpile),
+            "stockpile placement cannot replace an existing location"
         );
         assert!(
             self.player
                 .is_none_or(|player| player.carried_stockpile() != stockpile),
             "player-carried custody cannot also be placed on the ground"
         );
-        let previous = self.ground_stockpiles.insert(stockpile, position);
+        let previous = self.stockpile_locations.insert(stockpile, position);
         assert!(previous.is_none());
         self.revision = next_revision;
     }
@@ -203,10 +203,10 @@ impl LogisticsState {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert!(
-            !self.detached_equipment.contains_key(&equipment),
-            "detached equipment placement cannot replace an existing location"
+            !self.equipment_locations.contains_key(&equipment),
+            "equipment placement cannot replace an existing location"
         );
-        let previous = self.detached_equipment.insert(equipment, position);
+        let previous = self.equipment_locations.insert(equipment, position);
         assert!(previous.is_none());
         self.revision = next_revision;
     }
@@ -221,9 +221,9 @@ impl LogisticsState {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert_eq!(
-            self.detached_equipment.remove(&equipment),
+            self.equipment_locations.remove(&equipment),
             Some(expected_position),
-            "detached equipment location changed after validation"
+            "equipment location changed after validation"
         );
         self.revision = next_revision;
     }
@@ -238,10 +238,10 @@ impl LogisticsState {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert!(
-            !self.detached_energy_stores.contains_key(&store),
-            "detached energy-store placement cannot replace an existing location"
+            !self.energy_store_locations.contains_key(&store),
+            "energy-store placement cannot replace an existing location"
         );
-        let previous = self.detached_energy_stores.insert(store, position);
+        let previous = self.energy_store_locations.insert(store, position);
         assert!(previous.is_none());
         self.revision = next_revision;
     }
@@ -256,9 +256,9 @@ impl LogisticsState {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert_eq!(
-            self.detached_energy_stores.remove(&store),
+            self.energy_store_locations.remove(&store),
             Some(expected_position),
-            "detached energy-store location changed after validation"
+            "energy-store location changed after validation"
         );
         self.revision = next_revision;
     }
@@ -273,10 +273,10 @@ impl LogisticsState {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert!(
-            !self.fluid_stores.contains_key(&store),
+            !self.fluid_store_locations.contains_key(&store),
             "fluid-store placement cannot replace an existing location"
         );
-        let previous = self.fluid_stores.insert(store, position);
+        let previous = self.fluid_store_locations.insert(store, position);
         assert!(previous.is_none());
         self.revision = next_revision;
     }

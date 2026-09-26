@@ -3,9 +3,8 @@
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
-    ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE, ENERGY_TIMBER_FLYWHEEL_DRIVE,
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE,
     EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE,
     MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK, MANUAL_POWER_WALKING_WHEEL,
     MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
@@ -13,6 +12,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
+use deep_hearth::energy::EnergyStoreDefinitionId;
 use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::labor::ManualPowerMethodId;
@@ -22,7 +22,7 @@ use deep_hearth::registry::Registries;
 use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
-use super::equipment_support::pristine_equipment_capability;
+use super::equipment_support::{nominal_equipment_mass_capability, pristine_equipment_capability};
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
@@ -54,7 +54,10 @@ use planning::{
 use provisioning::seed_power_project_provisions;
 
 fn declared_primitive_crushing_project(registries: &Registries, seed: u64) -> (Mass, Energy) {
-    let kilograms = 5 + mix64(seed ^ 0x5052_494D_5F4F_5245) % 146;
+    // Keep this episode in the scale where a portable stone crusher is still a plausible player
+    // choice. Larger ore campaigns belong to the settlement-scale machinery/progression probes;
+    // feeding 100+ kg through a 1 kg-batch starter crusher mostly measures repeated interaction.
+    let kilograms = 5 + mix64(seed ^ 0x5052_494D_5F4F_5245) % 56;
     let mass = Mass::from_milligrams(
         kilograms
             .checked_mul(1_000_000)
@@ -107,16 +110,61 @@ fn provider_power_microwatts(
         .unwrap_or_else(|| panic!("power provider {context} provider power is sub-microwatt"))
 }
 
+fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyStoreDefinitionId {
+    let process = registries
+        .ore_processing()
+        .get_comminution(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("primitive power project crusher process disappeared"));
+    let maximum_batch = nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_STONE_CRUSHER,
+        process.max_batch_mass_capability(),
+    );
+    let required = deep_hearth::energy::calculate_mass_specific_energy(
+        maximum_batch,
+        process.specific_energy(),
+    );
+
+    registries
+        .energy()
+        .definitions()
+        .filter(|definition| {
+            definition.carrier() == process.energy_carrier()
+                && definition.capacity() >= required
+                && !definition.max_input_power().is_zero()
+                && !definition.max_output_power().is_zero()
+                && definition.assembly_profile().is_some_and(|assembly| {
+                    assembly.inputs().iter().all(|input| {
+                        matches!(input.commodity().material(), MATERIAL_STONE | MATERIAL_WOOD)
+                    })
+                })
+        })
+        .min_by_key(|definition| {
+            (
+                definition.capacity().nanojoules(),
+                definition
+                    .assembly_profile()
+                    .map(|assembly| assembly.input_mass().milligrams())
+                    .unwrap_or(u64::MAX),
+                definition.id().value(),
+            )
+        })
+        .map(|definition| definition.id())
+        .unwrap_or_else(|| {
+            panic!(
+                "no ordinary copper-free mechanical accumulator can fund one pristine crusher batch of {}mg requiring {}nJ",
+                maximum_batch.milligrams(),
+                required.nanojoules(),
+            )
+        })
+}
+
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
-    // Vary the matched charge job across all three copper-free ordinary accumulators. Timber
-    // substitutes bulk woodworking for stone and lower capacity; paired stone maximizes work
-    // buffering. All remain large enough for the treadle's higher throughput to save attention.
-    let store_definition = match mix64(seed ^ 0x0504_F575_24A4_F421) % 3 {
-        0 => ENERGY_TIMBER_FLYWHEEL_DRIVE,
-        1 => ENERGY_STONE_FLYWHEEL_DRIVE,
-        _ => ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
-    };
+    // Derive the smallest ordinary copper-free accumulator that funds one complete pristine
+    // crusher batch from the current content graph. This keeps the player policy stable when
+    // crusher energy, batch capacity, or authored storage definitions are retuned.
+    let store_definition = primitive_accumulator_for_current_crusher(registries);
     let (primitive_project_mass, primitive_project_work) =
         declared_primitive_crushing_project(registries, seed);
     let mut state = AppState::new();
@@ -144,8 +192,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let primitive_service_replacement =
         add_solid_stockpile(&mut state, Mass::from_milligrams(15_000_000));
     let primitive_service_spent =
-        // The generated crusher campaign reaches 120 kg and can cross ten component services.
-        // Keep the spent sink finite but large enough for that declared horizon so this probe
+        // Keep the spent sink finite but large enough for the bounded starter-workshop campaign so this probe
         // measures provider/maintenance lifecycle rather than an unrelated waste-bin ceiling.
         add_solid_stockpile(&mut state, Mass::from_milligrams(20_000_000));
     let primitive_provisions = seed_power_project_provisions(registries, &mut state);
@@ -159,8 +206,22 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         copper_ore_composition(350_000, 200_000),
     );
     let shaped = add_solid_stockpile(&mut state, Mass::from_milligrams(40_000_000));
+    super::world_admission::locate_stationary_endpoints(
+        &mut state,
+        &[
+            raw,
+            primitive_feed,
+            primitive_output,
+            primitive_service_replacement,
+            primitive_service_spent,
+            primitive_provisions.food,
+            shaped,
+        ],
+        &[primitive_provisions.water],
+    );
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("power provider survival setup failed: {error}"));
+    super::world_admission::initialize_stationary_player_logistics(&mut state);
     let primitive_consumer = build_primitive_power_consumer(
         registries,
         &mut state,
@@ -221,8 +282,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &mut settlement_state,
         settlement_raw,
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        // The generated lumber campaign reaches 2,000 kg. Keep its sawmill blade-service copper
-        // finite but sufficiently funded so this provider probe reaches the declared workload
+        // Keep sawmill blade-service copper finite but sufficiently funded so this provider probe reaches
+        // its bounded settlement workload
         // instead of turning into a separate copper-depletion episode.
         Mass::from_milligrams(1_000_000),
         ROOM_TEMPERATURE,
@@ -244,8 +305,22 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_service_spent =
         add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(1_000_000));
     let settlement_provisions = seed_power_project_provisions(registries, &mut settlement_state);
+    super::world_admission::locate_stationary_endpoints(
+        &mut settlement_state,
+        &[
+            settlement_raw,
+            settlement_feed,
+            settlement_shaped,
+            settlement_output,
+            settlement_service_replacement,
+            settlement_service_spent,
+            settlement_provisions.food,
+        ],
+        &[settlement_provisions.water],
+    );
     initialize_player_survival(registries, &mut settlement_state)
         .unwrap_or_else(|error| panic!("settlement power survival setup failed: {error}"));
+    super::world_admission::initialize_stationary_player_logistics(&mut settlement_state);
     let settlement_consumer = build_settlement_power_consumer(
         registries,
         &mut settlement_state,

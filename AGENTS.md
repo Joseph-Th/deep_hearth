@@ -20,7 +20,7 @@ Read [`DIRECTION.md`](DIRECTION.md) only for future sequencing/integration choic
 
 ## Operating protocol
 
-Treat the repository as one linked control system. Before editing, assign one **control coordinate**:
+Before editing, assign one control coordinate:
 
 1. **Authority:** which truth layer owns the claim: intent, direction, current reality, implemented contract,
    concrete source, or evidence?
@@ -30,21 +30,15 @@ Treat the repository as one linked control system. Before editing, assign one **
    edges cross the change?
 5. **Proof:** owner, boundary, continuation, system/gameplay, or exploratory evidence?
 
-The task is that coordinate plus the desired delta; a feature name is not an address. Descend the
-[`README.md`](README.md) abstraction ladder only until uncertainty resolves, then verify bottom-up.
+A feature name is not an address. Start with the routed owner and crossed edge; widen only when a canonical
+operation, durable record, trusted-load rule, tick phase, or failing proof shows another owner participates.
+Search by canonical operation, durable identity, typed error, and adjacent proof rather than by every file sharing
+the feature noun.
 
-Keep investigation evidence-bounded: start with current scope, one owner, and crossed edges; expand only when a
-canonical operation, durable record, trusted-load validator, tick phase, or failing proof shows another owner
-participates. Read transformation/resolver code only for changed physical derivation. Stop when intent, reality,
-owner, control path, flows, and distinguishing proof are known; widen again only on contradictory evidence.
-
-Search by authority heading, owner, canonical operation, durable identity, typed error, and adjacent proof rather
-than by every file sharing a feature noun.
-
-Changes should be accretive: attach new behavior to an existing owner and control grammar where one exists. A
-new concept should add the minimum necessary definition, authoritative state, observation, authorization,
-mutation, outcome, persistence, and proof surfaces. Do not create a parallel manager, helper API, cache, status
-flag, or test-only path for a fact that already has an owner.
+Attach new behavior to the existing owner and control grammar whenever possible. Add only the definition, state,
+observation, authorization, mutation, outcome, persistence, and proof surfaces required by the new semantics. Do
+not introduce a parallel manager, cache, status flag, helper API, or test-only path for a fact that already has an
+owner.
 
 ## Guardrails
 

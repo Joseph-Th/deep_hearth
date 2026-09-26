@@ -906,6 +906,13 @@ fn mining_rejects_known_remote_output_destination() {
         .unwrap_or_else(|error| panic!("remote-output mining logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("remote-output mining logistics commit failed: {error}"));
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        pick,
+        player_position,
+    );
     let destination_position = VoxelCoord::new(
         player_position.x() + 1,
         player_position.y(),
@@ -955,6 +962,19 @@ fn mining_token_rejects_logistics_change_before_commit() {
         .unwrap_or_else(|error| panic!("stale-logistics mining setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("stale-logistics mining commit failed: {error}"));
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        pick,
+        player_position,
+    );
+    validate_place_ground_stockpile(&state, destination, player_position)
+        .unwrap_or_else(|error| panic!("stale-logistics destination placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("stale-logistics destination placement commit failed: {error}")
+        });
     let validated = validate_known_mining(
         &registries,
         &state,
@@ -993,6 +1013,19 @@ fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
         .unwrap_or_else(|error| panic!("remote-load mining logistics setup failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("remote-load mining logistics commit failed: {error}"));
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        pick,
+        player_position,
+    );
+    validate_place_ground_stockpile(&state, destination, player_position)
+        .unwrap_or_else(|error| panic!("remote-load mining destination placement failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("remote-load mining destination placement commit failed: {error}")
+        });
     let job = validate_known_mining(
         &registries,
         &state,

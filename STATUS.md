@@ -10,7 +10,7 @@ Current progression:
 
 `local clues -> prospecting -> direct or sampled mining -> native-copper dressing -> primitive mechanization -> copper upgrades -> settlement mechanization -> reinforcement/recovery -> first electrical foundry casting/recovery`
 
-Primitive grinding, sizing, concentration, scavenging, and concentrate cleaning are ordinary. Rich elemental-copper concentrate cleans to `FORM_NATIVE_METAL` without reduction. A copper-wound treadle upgrade, finite energy stores, stone crucible, and mold provide 20 g melt/cast recovery; ingot cold-works to reinforcement, while native copper is cheaper for small orders. Industrial foundry scale remains frontier.
+Primitive grinding, sizing, concentration, scavenging, and concentrate cleaning are ordinary. Rich elemental-copper concentrate cleans to `FORM_NATIVE_METAL` without reduction. A copper-wound treadle upgrade, finite energy storage, stone crucible, and mold provide low-throughput melt/cast recovery; ingot cold-works to reinforcement, while native copper is cheaper for small orders. Industrial foundry scale remains frontier.
 
 | Area | Reachable capability |
 | --- | --- |
@@ -29,10 +29,10 @@ player-relevant flow stops today. [`DIRECTION.md`](DIRECTION.md) owns which boun
 
 | From | Missing edge | Current consequence |
 | --- | --- | --- |
-| First foundry casting | industrial-scale foundry acquisition/support/high-power supply | Ordinary play reaches 20 g copper melt/cast recovery; the portable 100 W route does not make 2 MW-class industrial foundry infrastructure ordinary. |
-| Player/world custody | movement, haulage, delivery, path cost, and ordinary world-source acquisition | Logistics persists player, stockpile, equipment, energy-store, and fluid-store locations and rejects known-remote direct actions. General movement/transport and gathering remain absent. |
+| First foundry casting | industrial-scale foundry acquisition/support/high-power supply | Ordinary play reaches portable low-throughput copper melt/cast recovery; this does not make industrial foundry infrastructure ordinary. |
+| Player/world custody | movement, haulage, delivery, path cost, and ordinary world-source acquisition | Logistics persists player, stockpile, equipment, energy-store, and fluid-store locations and requires exact local custody for direct player actions. General movement/transport and gathering remain absent. |
 | Structural physics and material embodiment | ordinary player construction/deconstruction authorization | Structures can own conserved members, support, load, damage, and failure, but ordinary play cannot yet construct the general structural graph. |
-| Physical equipment maintenance | mounted-equipment site access and maintenance-tool requirements | Detached service enforces known-local equipment/material endpoints; mounted-site/tool rules remain absent. |
+| Physical equipment maintenance | maintenance-tool requirements and transport to service sites | Service enforces exact-local equipment/material endpoints for both mounted and unmounted equipment; maintenance tools and general transport remain absent. |
 | Finite energy stores | routed mechanical/electrical transmission or conversion | Stores have exact capacity, power limits, passive loss, and process integration, but no generic physical network moves energy between endpoints. |
 | Finite fluid stores | routed transport, pumping, mixing, or pressure network | Stores have exact volume, temperature, withdrawal, and structural load, but fluid movement beyond canonical consumption/egress remains absent. |
 | Capability-level industrial machinery and energy infrastructure | ordinary acquisition/construction routes | Controlled setup can evaluate industrial workshop, ore, and foundry execution; ordinary acquisition is absent. |
@@ -48,7 +48,7 @@ is incomplete.
 | Core | Deterministic headless simulation, immutable validated registries, generated `AppState`, typed time, checked integer physical quantities, and explicit tick order. No runtime stochastic owner is currently implemented. |
 | Persistence | Current schema only. Trusted load rebuilds derived indexes and validates the complete supported runtime graph. Encoding and storage are adapter concerns. |
 | Production | Timed closed-mass jobs, exact inputs, reserved/routed outputs, persisted work-in-process, support-aware suspension/resume, and same-site admission for explicitly located endpoints. |
-| Logistics | Persistent player/carried custody plus stockpile, detached-equipment, energy-store, and fluid-store voxels; same-voxel pickup/drop; known-remote access rejection; production-site coherence; and trusted-load replay of live spatial obligations. Fluid locations also constrain drinking and structural support. |
+| Logistics | Persistent player/carried custody plus stockpile, equipment, energy-store, and fluid-store voxels; support-independent stockpile/equipment locations; same-voxel pickup/drop; exact-local player access; production-site coherence; and trusted-load replay of live spatial obligations. Located stockpiles, equipment, and fluid stores must remain inside any assigned structural support. |
 | Energy and fluids | Finite typed-carrier energy stores with directional power limits and optional passive loss; finite homogeneous fluid stores with exact withdrawal and support-aware structural load. Generic inter-store transfer is absent. |
 | Storage recovery | Material-backed stockpile enclosures have an exact timed dismantling action owned by exclusive player work, with checkpointed exposure, ambient-storage restoration, and exact body recovery. |
 | Structures | Material-backed members, contact-constrained support topology, axial analysis, source-owned loads, damage, and failure cascades. General player construction is absent. |
@@ -63,7 +63,7 @@ play cannot yet acquire their required infrastructure.
 | --- | --- |
 | Workshop | Installed industrial machinery under finite stored work, survival pressure, wear, maintenance, structural support, suspension/recovery, and actor policy. |
 | Ore preparation | Installed industrial crushing, grinding, screening, regrinding, and concentration with exact constituent accounting/tailings. The same physics are ordinarily reachable through slower primitive providers; this surface is the industrial throughput benchmark. |
-| Foundry | Installed industrial pure-copper heating/melting/casting, remelting, finite energy, phase boundaries, heat recovery, and sink loss remains the capability-only throughput benchmark. Ordinary play separately reaches a portable 20 g electrical foundry through the same owners. Reduction remains absent for future compound ores. |
+| Foundry | Installed industrial pure-copper heating/melting/casting, remelting, finite energy, phase boundaries, heat recovery, and sink loss remain the capability-only throughput benchmark. Ordinary play separately reaches a portable low-throughput electrical foundry through the same owners. Reduction remains absent for compound ores. |
 
 ## Absent scope
 
@@ -74,7 +74,7 @@ play cannot yet acquire their required infrastructure.
 | Logistics | Player movement/pathing, haulage cost, general delivery/transport, container/hotbar presentation, ordinary resource-source acquisition, fluid transport, mounted-production site geometry, and mounted-to-mounted equipment transport. Local custody/access and explicitly located production-site coherence are implemented. |
 | Advanced geology/mining | Regional generation, voxel ore topology, sampling/drilling/assays/geophysics, mechanized excavation, access, haulage, drainage, ground control, waste-rock handling, and tailings transport/impoundment. |
 | Thermal/chemical industry | Environmental heat transport beyond explicit sink loss, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, reduction/smelting, alloying, forging, machining, broader separation, broader wood/stone chip recovery, and broader non-copper/non-stone scrap recycling. |
-| Maintenance/structures | Maintenance tool requirements and mounted-equipment structural-site access, general structural construction/deconstruction, demolition/salvage physics, bending, shear, torsion, buckling, joints, and terrain support. Detached equipment maintenance already enforces known-local equipment/material access. |
+| Maintenance/structures | Maintenance tool requirements, general structural construction/deconstruction, demolition/salvage physics, bending, shear, torsion, buckling, joints, and terrain support. Equipment maintenance already enforces exact-local equipment/material access, including mounted equipment whose persisted location lies on its support. |
 | Power networks | Generic transfer, shafts/belts, inertia/slip/clutches, steam, scalable electrical generation/distribution/protection, and spatial integration. The treadle dynamo is a direct provider, not a network. |
 | Hydrology | Generic fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, and pressure-dependent fluid behavior. |
 | Ecology and society | Agriculture, soil, ecology, genetics, creatures, hunting/combat, workers, settlements, trade, economy, and migration. |

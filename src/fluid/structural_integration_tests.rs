@@ -104,7 +104,7 @@ fn trusted_load_rejects_located_fluid_store_outside_its_support() {
     let remote = VoxelCoord::new(1, 0, 0);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("fluid support-location serialization failed: {error}"));
-    encoded["state"]["systems"]["logistics"]["fluid_stores"][store.value().to_string()] =
+    encoded["state"]["systems"]["logistics"]["fluid_store_locations"][store.value().to_string()] =
         serde_json::json!({"x": 1, "y": 0, "z": 0});
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("fluid support-location decode failed: {error}"));

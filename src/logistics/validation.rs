@@ -30,27 +30,29 @@ pub enum LogisticsValidationError {
         stockpile: StockpileId,
         definition: StorageDefinitionId,
     },
-    UnknownGroundStockpile {
+    UnknownLocatedStockpile {
         stockpile: StockpileId,
     },
-    GroundStockpileAlsoCarried {
+    LocatedStockpileAlsoCarried {
         stockpile: StockpileId,
     },
-    GroundStockpileMounted {
+    StockpileOutsideSupport {
         stockpile: StockpileId,
+        position: VoxelCoord,
         element: StructuralElementId,
     },
-    UnknownDetachedEquipment {
+    UnknownLocatedEquipment {
         equipment: EquipmentId,
     },
-    DetachedEquipmentMounted {
+    EquipmentOutsideSupport {
         equipment: EquipmentId,
+        position: VoxelCoord,
         element: StructuralElementId,
     },
-    UnknownDetachedEnergyStore {
+    UnknownLocatedEnergyStore {
         store: EnergyStoreId,
     },
-    UnknownFluidStore {
+    UnknownLocatedFluidStore {
         store: FluidStoreId,
     },
     FluidStoreOutsideSupport {
@@ -81,12 +83,12 @@ impl Display for LogisticsValidationError {
                 stockpile.value(),
                 element.value()
             ),
-            Self::UnknownDetachedEnergyStore { store } => write!(
+            Self::UnknownLocatedEnergyStore { store } => write!(
                 formatter,
-                "detached energy-store location references missing store {}",
+                "energy-store location references missing store {}",
                 store.value()
             ),
-            Self::UnknownFluidStore { store } => write!(
+            Self::UnknownLocatedFluidStore { store } => write!(
                 formatter,
                 "fluid-store location references missing store {}",
                 store.value()
@@ -104,15 +106,22 @@ impl Display for LogisticsValidationError {
                 position.z(),
                 element.value()
             ),
-            Self::UnknownDetachedEquipment { equipment } => write!(
+            Self::UnknownLocatedEquipment { equipment } => write!(
                 formatter,
-                "detached equipment location references missing equipment {}",
+                "equipment location references missing equipment {}",
                 equipment.value()
             ),
-            Self::DetachedEquipmentMounted { equipment, element } => write!(
+            Self::EquipmentOutsideSupport {
+                equipment,
+                position,
+                element,
+            } => write!(
                 formatter,
-                "equipment {} is both detached in logistics and mounted to structural element {}",
+                "equipment {} at voxel ({},{},{}) lies outside structural support {} bounds",
                 equipment.value(),
+                position.x(),
+                position.y(),
+                position.z(),
                 element.value()
             ),
             Self::CarriedStockpileEnclosed {
@@ -124,20 +133,27 @@ impl Display for LogisticsValidationError {
                 stockpile.value(),
                 definition.value()
             ),
-            Self::UnknownGroundStockpile { stockpile } => write!(
+            Self::UnknownLocatedStockpile { stockpile } => write!(
                 formatter,
-                "ground location references missing stockpile {}",
+                "stockpile location references missing stockpile {}",
                 stockpile.value()
             ),
-            Self::GroundStockpileAlsoCarried { stockpile } => write!(
+            Self::LocatedStockpileAlsoCarried { stockpile } => write!(
                 formatter,
-                "stockpile {} is both player-carried and ground-located",
+                "stockpile {} is both player-carried and separately located",
                 stockpile.value()
             ),
-            Self::GroundStockpileMounted { stockpile, element } => write!(
+            Self::StockpileOutsideSupport {
+                stockpile,
+                position,
+                element,
+            } => write!(
                 formatter,
-                "ground stockpile {} is also mounted to structural element {}",
+                "stockpile {} at voxel ({},{},{}) lies outside structural support {} bounds",
                 stockpile.value(),
+                position.x(),
+                position.y(),
+                position.z(),
                 element.value()
             ),
         }
@@ -155,10 +171,10 @@ pub(crate) fn validate_loaded_logistics(
     structures: &StructureState,
 ) -> Result<(), LogisticsValidationError> {
     let populated = state.player().is_some()
-        || state.ground_stockpiles().next().is_some()
-        || state.detached_equipment().next().is_some()
-        || state.detached_energy_stores().next().is_some()
-        || state.fluid_stores().next().is_some();
+        || state.stockpile_locations().next().is_some()
+        || state.equipment_locations().next().is_some()
+        || state.energy_store_locations().next().is_some()
+        || state.fluid_store_locations().next().is_some();
     match (populated, state.revision()) {
         (false, revision) if revision != 0 => {
             return Err(LogisticsValidationError::UninitializedRevisionNonzero {
@@ -189,42 +205,53 @@ pub(crate) fn validate_loaded_logistics(
             });
         }
     }
-    for (stockpile, _) in state.ground_stockpiles() {
+    for (stockpile, position) in state.stockpile_locations() {
         if state
             .player()
             .is_some_and(|player| player.carried_stockpile() == stockpile)
         {
-            return Err(LogisticsValidationError::GroundStockpileAlsoCarried { stockpile });
+            return Err(LogisticsValidationError::LocatedStockpileAlsoCarried { stockpile });
         }
         let record = inventory
             .get_stockpile(stockpile)
-            .ok_or(LogisticsValidationError::UnknownGroundStockpile { stockpile })?;
-        if let Some(element) = record.supported_by() {
-            return Err(LogisticsValidationError::GroundStockpileMounted { stockpile, element });
-        }
-    }
-    for (equipment_id, _) in state.detached_equipment() {
-        let record = equipment.get_equipment(equipment_id).ok_or(
-            LogisticsValidationError::UnknownDetachedEquipment {
-                equipment: equipment_id,
-            },
-        )?;
-        if let Some(element) = record.supported_by() {
-            return Err(LogisticsValidationError::DetachedEquipmentMounted {
-                equipment: equipment_id,
+            .ok_or(LogisticsValidationError::UnknownLocatedStockpile { stockpile })?;
+        if let Some(element) = record.supported_by()
+            && let Some(support) = structures.get_element(element)
+            && !support.bounds().has_voxel(position)
+        {
+            return Err(LogisticsValidationError::StockpileOutsideSupport {
+                stockpile,
+                position,
                 element,
             });
         }
     }
-    for (store, _) in state.detached_energy_stores() {
-        if energy.get_store(store).is_none() {
-            return Err(LogisticsValidationError::UnknownDetachedEnergyStore { store });
+    for (equipment_id, position) in state.equipment_locations() {
+        let record = equipment.get_equipment(equipment_id).ok_or(
+            LogisticsValidationError::UnknownLocatedEquipment {
+                equipment: equipment_id,
+            },
+        )?;
+        if let Some(element) = record.supported_by()
+            && let Some(support) = structures.get_element(element)
+            && !support.bounds().has_voxel(position)
+        {
+            return Err(LogisticsValidationError::EquipmentOutsideSupport {
+                equipment: equipment_id,
+                position,
+                element,
+            });
         }
     }
-    for (store, position) in state.fluid_stores() {
+    for (store, _) in state.energy_store_locations() {
+        if energy.get_store(store).is_none() {
+            return Err(LogisticsValidationError::UnknownLocatedEnergyStore { store });
+        }
+    }
+    for (store, position) in state.fluid_store_locations() {
         let record = fluid
             .get_store(store)
-            .ok_or(LogisticsValidationError::UnknownFluidStore { store })?;
+            .ok_or(LogisticsValidationError::UnknownLocatedFluidStore { store })?;
         if let Some(element) = record.supported_by()
             && let Some(support) = structures.get_element(element)
             && !support.bounds().has_voxel(position)

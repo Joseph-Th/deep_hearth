@@ -71,11 +71,11 @@ impl FocusedProbeCase {
     }
 }
 
-/// Resolves maintained regression cases plus an optional bounded replayable variation sample.
+/// Resolves maintained contract cases plus an optional bounded replayable variation sample.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
 /// focused gates run maintained deterministic cases plus one bounded deterministic organic-variation
-/// case, so the repair loop exercises organic gameplay without becoming a soak; explicit variation
+/// case, so fast verification exercises organic gameplay without becoming a soak; explicit variation
 /// roots reseed that bounded case, while reports sample a broader organic set. A probe-specific
 /// salt keeps concerns independent. Physical and actor variation use independent replay roots so
 /// changing a preference cannot silently change the world.

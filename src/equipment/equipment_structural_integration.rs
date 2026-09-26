@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::{AggregateMass, Force};
 use crate::core::state::AppState;
+use crate::logistics::validate_player_equipment_access;
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralElementId, StructuralLifecycle, StructuralLoadKind,
@@ -50,21 +51,7 @@ pub struct ValidatedEquipmentSupportChange {
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
     expected_logistics_revision: u64,
-    logistics: EquipmentLogisticsTransition,
     structural: ValidatedStructuralLoadChange,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EquipmentLogisticsTransition {
-    None,
-    RemoveDetached {
-        position: crate::spatial::VoxelCoord,
-        next_revision: u64,
-    },
-    PlaceDetached {
-        position: crate::spatial::VoxelCoord,
-        next_revision: u64,
-    },
 }
 
 fn validate_equipment_structural_change(
@@ -150,29 +137,6 @@ impl ValidatedEquipmentSupportChange {
             self.after,
             self.next_equipment_revision,
         );
-        match self.logistics {
-            EquipmentLogisticsTransition::None => {}
-            EquipmentLogisticsTransition::RemoveDetached {
-                position,
-                next_revision,
-            } => state
-                .logistics_state_mut()
-                .apply_equipment_location_removal(
-                    self.expected_logistics_revision,
-                    next_revision,
-                    self.equipment,
-                    position,
-                ),
-            EquipmentLogisticsTransition::PlaceDetached {
-                position,
-                next_revision,
-            } => state.logistics_state_mut().apply_equipment_placement(
-                self.expected_logistics_revision,
-                next_revision,
-                self.equipment,
-                position,
-            ),
-        }
         Ok(EquipmentSupportOutcome { structural })
     }
 }
@@ -214,6 +178,7 @@ pub fn validate_mount_equipment(
         });
     }
     validate_not_busy(state, equipment)?;
+    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
 
     let target =
         state
@@ -228,26 +193,15 @@ pub fn validate_mount_equipment(
             lifecycle: target.lifecycle(),
         });
     }
-    let expected_logistics_revision = state.logistics().revision();
-    let detached_position = state.logistics().equipment_position(equipment);
-    if let Some(position) = detached_position
+    if let Some(position) = state.logistics().equipment_position(equipment)
         && !target.bounds().has_voxel(position)
     {
-        return Err(EquipmentSupportError::DetachedEquipmentNotOnTarget {
+        return Err(EquipmentSupportError::EquipmentNotOnTarget {
             equipment,
             position,
             element,
         });
     }
-    let logistics = match detached_position {
-        Some(position) => EquipmentLogisticsTransition::RemoveDetached {
-            position,
-            next_revision: expected_logistics_revision
-                .checked_add(1)
-                .ok_or(EquipmentSupportError::LogisticsRevisionExhausted)?,
-        },
-        None => EquipmentLogisticsTransition::None,
-    };
 
     let current_mass = validate_existing_load(registries, state, element)?;
     let next_mass = current_mass
@@ -268,8 +222,7 @@ pub fn validate_mount_equipment(
         after: Some(element),
         expected_equipment_revision,
         next_equipment_revision,
-        expected_logistics_revision,
-        logistics,
+        expected_logistics_revision: state.logistics().revision(),
         structural,
     })
 }
@@ -289,34 +242,13 @@ pub fn validate_unmount_equipment(
         .supported_by()
         .ok_or(EquipmentSupportError::NotMounted { equipment })?;
     validate_not_busy(state, equipment)?;
-    let source =
-        state
-            .structures()
-            .get_element(element)
-            .ok_or(EquipmentSupportError::Structure(
-                StructuralMutationError::UnknownElement { element },
-            ))?;
-    let expected_logistics_revision = state.logistics().revision();
-    let logistics = match state.logistics().player().copied() {
-        Some(player) => {
-            let position = player.position();
-            if !source.bounds().has_voxel(position) {
-                return Err(EquipmentSupportError::PlayerNotOnMountedEquipmentSupport {
-                    equipment,
-                    player_position: position,
-                    element,
-                });
-            }
-            EquipmentLogisticsTransition::PlaceDetached {
-                position,
-                next_revision: expected_logistics_revision
-                    .checked_add(1)
-                    .ok_or(EquipmentSupportError::LogisticsRevisionExhausted)?,
-            }
-        }
-        None => EquipmentLogisticsTransition::None,
-    };
-
+    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
+    state
+        .structures()
+        .get_element(element)
+        .ok_or(EquipmentSupportError::Structure(
+            StructuralMutationError::UnknownElement { element },
+        ))?;
     validate_existing_load(registries, state, element)?;
     let remaining_mass = supported_mass(state, element, Some(equipment))?;
     let next_load = support_force(registries, element, remaining_mass)?;
@@ -334,8 +266,7 @@ pub fn validate_unmount_equipment(
         after: None,
         expected_equipment_revision,
         next_equipment_revision,
-        expected_logistics_revision,
-        logistics,
+        expected_logistics_revision: state.logistics().revision(),
         structural,
     })
 }
@@ -364,6 +295,7 @@ pub fn validate_relocate_equipment(
         });
     }
     validate_not_busy(state, equipment)?;
+    validate_player_equipment_access(state, equipment).map_err(EquipmentSupportError::Access)?;
 
     let target_record =
         state
@@ -376,6 +308,15 @@ pub fn validate_relocate_equipment(
         return Err(EquipmentSupportError::TargetNotActive {
             element: target,
             lifecycle: target_record.lifecycle(),
+        });
+    }
+    if let Some(position) = state.logistics().equipment_position(equipment)
+        && !target_record.bounds().has_voxel(position)
+    {
+        return Err(EquipmentSupportError::EquipmentNotOnTarget {
+            equipment,
+            position,
+            element: target,
         });
     }
 
@@ -403,7 +344,6 @@ pub fn validate_relocate_equipment(
         expected_equipment_revision,
         next_equipment_revision,
         expected_logistics_revision: state.logistics().revision(),
-        logistics: EquipmentLogisticsTransition::None,
         structural,
     })
 }

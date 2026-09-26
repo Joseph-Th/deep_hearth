@@ -125,12 +125,19 @@ def _first_foundry(lines: list[str]) -> str:
     ]
     useful_gain = _numeric_values(witnesses, r"\buseful-gain:\+(\d+)mg")
     foundry_deferred = sum(" foundry-deferred:true " in line for line in witnesses)
+    scarcity_foundry = sum(
+        " scarcity-choice=[" in line and " selection:foundry " in line
+        for line in witnesses
+    )
+    scarcity_shortfall = _numeric_values(witnesses, r"\bshortfall:(\d+)mg")
     treadle_upgrade = sum(
         " dynamo-path=treadle-additive-upgrade " in line for line in witnesses
     )
     return (
         "first-foundry=["
-        f"defer:{foundry_deferred}/{len(witnesses)} native:{_span(direct_native, 't')}/"
+        f"defer:{foundry_deferred}/{len(witnesses)} scarcity-select:{scarcity_foundry}/{len(witnesses)} "
+        f"scarcity-shortfall:{scaled_span(scarcity_shortfall, 1_000, 'g')} "
+        f"native:{_span(direct_native, 't')}/"
         f"{scaled_span(native_fulfillment, 10_000, '%')} setup:{_span(fabrication, 't')} "
         f"upgrade:{treadle_upgrade}/{len(witnesses)} recovery:{_span(cold_rework, 't')}/"
         f"{scaled_span(cold_fulfillment, 10_000, '%')}->{_span(foundry_active, 't')}/"

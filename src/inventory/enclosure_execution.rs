@@ -1,6 +1,7 @@
 //! Material-backed construction of preservation enclosures around existing stockpiles.
 
 use crate::core::state::AppState;
+use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 
 use super::storage_validation::validate_stockpile_storage_profile;
@@ -116,6 +117,10 @@ pub fn validate_build_storage_enclosure(
     {
         return Err(StorageEnclosureConstructionError::PlayerCarriedTarget { stockpile: target });
     }
+    validate_player_stockpile_access(state, target)
+        .map_err(StorageEnclosureConstructionError::TargetAccess)?;
+    validate_player_stockpile_access(state, source)
+        .map_err(StorageEnclosureConstructionError::SourceAccess)?;
     if state
         .player_work()
         .get_storage_dismantling_stockpile_occupant(target)
@@ -172,7 +177,7 @@ fn logistics_stockpile_position(
     {
         return Some(player.position());
     }
-    state.logistics().ground_stockpile_position(stockpile)
+    state.logistics().stationary_stockpile_position(stockpile)
 }
 
 fn validate_world_location(
@@ -180,7 +185,7 @@ fn validate_world_location(
     target: StockpileId,
     source: StockpileId,
 ) -> Result<(), StorageEnclosureConstructionError> {
-    let Some(target_position) = state.logistics().ground_stockpile_position(target) else {
+    let Some(target_position) = state.logistics().stationary_stockpile_position(target) else {
         return Ok(());
     };
     let Some(source_position) = logistics_stockpile_position(state, source) else {

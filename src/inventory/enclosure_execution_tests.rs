@@ -25,8 +25,8 @@ use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, validate_mount_stockpile,
 };
 use crate::logistics::{
-    validate_allocate_ground_stockpile, validate_initialize_player_logistics,
-    validate_place_ground_stockpile,
+    PlayerStockpileAccessError, validate_allocate_ground_stockpile,
+    validate_initialize_player_logistics, validate_place_ground_stockpile,
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -81,7 +81,7 @@ fn construction_fixture(
 }
 
 #[test]
-fn located_storage_target_rejects_remote_carried_construction_material() {
+fn storage_construction_rejects_remote_target_even_with_carried_material() {
     let registries = build_registries();
     let mut state = AppState::new();
     let player_position = VoxelCoord::new(0, 0, 0);
@@ -123,14 +123,13 @@ fn located_storage_target_rejects_remote_carried_construction_material() {
             carried,
         )
         .err(),
-        Some(
-            StorageEnclosureConstructionError::LocatedTargetSourceRemote {
-                target,
-                target_position,
-                source: carried,
-                source_position: player_position,
-            }
-        )
+        Some(StorageEnclosureConstructionError::TargetAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: target,
+                stockpile_position: target_position,
+                player_position,
+            },
+        ))
     );
     assert_eq!(state, before);
 }
@@ -183,7 +182,7 @@ fn located_storage_target_accepts_carried_material_at_same_voxel() {
         Some(STORAGE_TIMBER_PROVISIONS_CHEST)
     );
     assert_eq!(
-        state.logistics().ground_stockpile_position(target),
+        state.logistics().stationary_stockpile_position(target),
         Some(position)
     );
     assert_eq!(
@@ -336,7 +335,7 @@ fn raw_timber_in_carried_custody_becomes_a_placed_field_box_at_player_voxel() {
         Some(STORAGE_ROUGH_TIMBER_FIELD_BOX)
     );
     assert_eq!(
-        state.logistics().ground_stockpile_position(target),
+        state.logistics().stationary_stockpile_position(target),
         Some(position)
     );
     assert_eq!(

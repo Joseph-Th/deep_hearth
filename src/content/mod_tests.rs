@@ -8,7 +8,7 @@ use crate::capability::{
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::core::quantity::{
-    Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power, Temperature,
+    Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power, Temperature, Volume,
 };
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId};
@@ -60,6 +60,21 @@ fn built_in_water_has_an_authoritative_liquid_phase_boundary() {
                 definition.minimum_modeled_temperature(registries.materials())
             }),
         Some(materials::WATER_MELTING_POINT)
+    );
+}
+
+#[test]
+fn built_in_direct_drinking_uses_a_meaningful_serving_floor() {
+    let registries = build_registries();
+
+    assert_eq!(
+        registries
+            .survival()
+            .physiology()
+            .direct_consumption()
+            .minimum_drink_volume(),
+        Volume::from_microliters(250_000),
+        "ordinary drinking should use a cup-sized serving floor rather than threshold-sipping"
     );
 }
 
