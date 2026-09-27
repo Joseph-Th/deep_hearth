@@ -18,16 +18,17 @@ pub(in super::super) struct ProvisioningWorld {
 pub(in super::super) fn minimum_visible_preservation_age_ticks(
     preservation_multiplier_ppm: u32,
 ) -> u64 {
-    const AMBIENT_PRESERVATION_PPM: u64 = 1_000_000;
+    let ambient_preservation_ppm =
+        u64::from(StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm());
     let preservation = u64::from(preservation_multiplier_ppm);
     assert!(
-        preservation > AMBIENT_PRESERVATION_PPM,
+        preservation > ambient_preservation_ppm,
         "preservation witness requires a rate strictly better than ambient"
     );
     // Choose the first whole elapsed tick n for which even the conservative rounded preserved
     // age is at most n-1 ambient ticks:
     // n * ambient / preservation <= n - 1.
-    preservation.div_ceil(preservation - AMBIENT_PRESERVATION_PPM)
+    preservation.div_ceil(preservation - ambient_preservation_ppm)
 }
 
 pub(in super::super) fn provisioning_world(

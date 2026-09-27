@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .common import physical_duration_span, scaled_span
+from .common import physical_duration_span, sample_shape, scaled_span
 
 
 def _span(values: list[int], unit: str) -> str:
@@ -362,7 +362,8 @@ def liberation_summary(lines: list[str]) -> str | None:
     )
     return (
         "ORDINARY SUMMARY probe=primitive-liberation "
-        f"samples={len(liberation)} cleanup-executed={cleanup_executed}/{len(liberation)} "
+        f"samples={len(liberation)} sample-shape=[{sample_shape(liberation)}] "
+        f"cleanup-executed={cleanup_executed}/{len(liberation)} "
         f"final-concentrate-grade={grade_span} native-copper={native_span} "
         f"scavenger-copper={scavenged_span} "
         f"scavenger-marginal=[attention:{marginal_attention} native:{marginal_native}] "

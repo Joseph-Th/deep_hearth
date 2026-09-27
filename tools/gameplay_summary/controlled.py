@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .common import compact_fields
+from .common import compact_fields, sample_shape
 
 
 def _workshop_summary(lines: list[str]) -> str | None:
@@ -17,12 +17,20 @@ def _workshop_summary(lines: list[str]) -> str | None:
         workshop,
         ("scenarios", "orders", "adaptive", "stops", "maintenance-blockers"),
     )
+    harness_input = next(
+        (line for line in lines if line.startswith("HARNESS INPUT ")), None
+    )
+    sample_detail = ""
+    if harness_input is not None:
+        shape = compact_fields(harness_input, ("anchors", "variation", "custom"))
+        if shape:
+            sample_detail = f" sample-shape=[{shape}]"
     experience = next(
         (line for line in lines if line.startswith("WORKSHOP EXPERIENCE REVIEW ")),
         None,
     )
     if experience is None:
-        return f"CONTROLLED SUMMARY probe=workshop {detail}".rstrip()
+        return f"CONTROLLED SUMMARY probe=workshop {detail}{sample_detail}".rstrip()
 
     parts: list[str] = []
     pressure_shape = re.search(
@@ -58,7 +66,7 @@ def _workshop_summary(lines: list[str]) -> str | None:
             f"stranded:{recovery.group(3)}]"
         )
     suffix = f" {' '.join(parts)}" if parts else ""
-    return f"CONTROLLED SUMMARY probe=workshop {detail}{suffix}".rstrip()
+    return f"CONTROLLED SUMMARY probe=workshop {detail}{sample_detail}{suffix}".rstrip()
 
 
 def _agency_summary(lines: list[str]) -> str | None:
@@ -90,6 +98,7 @@ def _ore_summary(lines: list[str]) -> str | None:
     return (
         "ORE CAPABILITY SUMMARY "
         f"samples={len(ore_completed) + len(ore_stopped)} "
+        f"sample-shape=[{sample_shape(ore_lines)}] "
         f"completed={len(ore_completed)} stopped={len(ore_stopped)} "
         f"finite-energy-stops={sum('blocker=finite-energy' in line for line in ore_stopped)} "
         f"retryable-energy-stops={sum('blocker=finite-energy' in line and 'retry=stage-input-retained' in line for line in ore_stopped)} "
@@ -157,6 +166,7 @@ def _foundry_summary(lines: list[str]) -> str | None:
     return (
         "FOUNDRY CAPABILITY SUMMARY "
         f"samples={len(foundry)} "
+        f"sample-shape=[{sample_shape(foundry)}] "
         f"full={sum(' outcome=full-order-' in line for line in foundry)} "
         f"partial={sum(' outcome=partial-order-' in line for line in foundry)} "
         f"melt-limited={sum('melt-limit=finite-energy' in line for line in foundry)} "

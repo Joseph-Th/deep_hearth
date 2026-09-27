@@ -1395,6 +1395,29 @@ class LocalCiPlanTests(unittest.TestCase):
             "python ci.py gate --gameplay workshop",
         )
 
+    def test_gameplay_failure_without_test_name_preserves_fresh_replay_roots(self) -> None:
+        output = (
+            "PROBE INPUT name=woodworking mode=gate samples=9 organic=1 "
+            "world_root=0xAAAA behavior_root=0xBBBB "
+            "replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+        )
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("woodworking"), output, ""),
+            "python ci.py gate --gameplay woodworking "
+            "--variation-seed 0xAAAA --behavior-seed 0xBBBB",
+        )
+
+    def test_broad_gameplay_failure_without_test_name_preserves_fresh_replay_roots(self) -> None:
+        output = (
+            "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
+            "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
+        )
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, ""),
+            "python ci.py audit --gameplay "
+            "--variation-seed 0xAAAA --behavior-seed 0xBBBB",
+        )
+
     def test_focused_gameplay_failure_points_to_exact_small_target(self) -> None:
         output = "failures:\n    gameplay_ore_preparation_probe\n"
         error = "error: test failed, to rerun pass `--test gameplay_ore`"
@@ -1527,6 +1550,19 @@ class LocalCiPlanTests(unittest.TestCase):
             "python ci.py audit --gameplay",
         )
 
+    def test_unknown_gameplay_failure_preserves_available_replay_roots(self) -> None:
+        output = (
+            "PROBE INPUT name=woodworking mode=gate samples=9 organic=1 "
+            "world_root=0xAAAA behavior_root=0xBBBB "
+            "replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+            "failures:\n    future_contracts::new_global_check\n"
+        )
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, ""),
+            "python ci.py audit --gameplay "
+            "--variation-seed 0xAAAA --behavior-seed 0xBBBB",
+        )
+
     def test_integration_exact_command_infers_target_required_features(self) -> None:
         args = argparse.Namespace(
             target=ci.GAMEPLAY_TARGETS["ore"],
@@ -1651,7 +1687,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 ["report", "--scope", "fieldwork", "--behavior-seed", "0x1234"]
             )
 
-    def test_report_seed_flags_are_report_only(self) -> None:
+    def test_replay_seed_flags_reject_non_gameplay_lanes(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             ci.parse_args(["quick", "--variation-seed", "0x1234"])
 
@@ -1811,22 +1847,118 @@ class LocalCiPlanTests(unittest.TestCase):
             ("0x0000000000000099", "unused"),
         )
 
-    def test_fresh_gameplay_variation_is_report_only(self) -> None:
+    def test_fresh_gameplay_variation_covers_repository_owned_playlike_runs(self) -> None:
         self.assertTrue(ci.uses_fresh_gameplay_variation(ci.parse_args(["report"])))
+        for argv in (
+            ["gate", "--gameplay", "survival"],
+            ["gate", "--gameplay", "progression"],
+            ["gate", "--gameplay", "workshop"],
+            ["audit", "--gameplay"],
+            ["audit", "--all"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertTrue(ci.uses_fresh_gameplay_variation(ci.parse_args(argv)))
         for argv in (
             ["quick"],
             ["gate"],
             ["gate", "--gameplay", "contracts"],
-            ["gate", "--gameplay", "survival"],
-            ["gate", "--gameplay", "progression"],
-            ["gate", "--gameplay", "workshop"],
+            ["gate", "--gameplay", "settlement"],
             ["audit", "--core"],
-            ["audit", "--gameplay"],
-            ["audit", "--all"],
             ["gate", "--lint"],
         ):
             with self.subTest(argv=argv):
                 self.assertFalse(ci.uses_fresh_gameplay_variation(ci.parse_args(argv)))
+
+    def test_gameplay_variation_policy_separates_world_and_behavior_roots(self) -> None:
+        self.assertIs(
+            ci.gameplay_variation_behavior(
+                ci.parse_args(["gate", "--gameplay", "progression"])
+            ),
+            False,
+        )
+        self.assertIs(
+            ci.gameplay_variation_behavior(
+                ci.parse_args(["gate", "--gameplay", "fieldwork"])
+            ),
+            False,
+        )
+        self.assertIs(
+            ci.gameplay_variation_behavior(
+                ci.parse_args(["gate", "--gameplay", "survival"])
+            ),
+            True,
+        )
+        self.assertIs(
+            ci.gameplay_variation_behavior(
+                ci.parse_args(["gate", "--gameplay", "woodworking"])
+            ),
+            True,
+        )
+        self.assertIs(
+            ci.gameplay_variation_behavior(
+                ci.parse_args(["gate", "--gameplay", "workshop"])
+            ),
+            True,
+        )
+        self.assertIs(
+            ci.gameplay_variation_behavior(ci.parse_args(["audit", "--gameplay"])),
+            True,
+        )
+        self.assertIsNone(
+            ci.gameplay_variation_behavior(
+                ci.parse_args(["gate", "--gameplay", "contracts"])
+            )
+        )
+
+    def test_gameplay_gate_and_audit_accept_replay_roots_only_when_consumed(self) -> None:
+        progression = ci.parse_args(
+            [
+                "gate",
+                "--gameplay",
+                "progression",
+                "--variation-seed",
+                "0x2A",
+            ]
+        )
+        self.assertEqual(progression.variation_seed, "0x000000000000002A")
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            ci.parse_args(
+                [
+                    "gate",
+                    "--gameplay",
+                    "progression",
+                    "--behavior-seed",
+                    "0x2A",
+                ]
+            )
+        audit = ci.parse_args(
+            [
+                "audit",
+                "--gameplay",
+                "--variation-seed",
+                "0x2A",
+                "--behavior-seed",
+                "0x2B",
+            ]
+        )
+        self.assertEqual(audit.variation_seed, "0x000000000000002A")
+        self.assertEqual(audit.behavior_seed, "0x000000000000002B")
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            ci.parse_args(
+                [
+                    "gate",
+                    "--gameplay",
+                    "contracts",
+                    "--variation-seed",
+                    "0x2A",
+                ]
+            )
 
     def test_successful_gameplay_stage_can_report_environment_replay_roots(self) -> None:
         environment = {
@@ -2005,7 +2137,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "LIBERATION COST seed=0x1 scavenger-marginal=[attention:17t native:6mg]",
             "LIBERATION KIT ACQUISITION seed=0x1 scope=raw-stone+logs->adze+reusable-base-processing-kit raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign=8batches workload-known-before-build=true raw=[stone:8000000mg wood:15400000mg total:23400000mg] built=[adze:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:404t body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
             "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
-            "LIBERATION FRONTIER CAPABILITY seed=0x1 cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
+            "LIBERATION FRONTIER CAPABILITY seed=0x1 sample=anchor cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:12000000mg wood:12000000mg native:160000mg scrap:20000mg] build-choice=[order:20000mg direct-native:40t reinforcement:20000mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] scarcity-choice=[order:20000mg source:scrap-only cold-rework:18000mg/900000ppm shortfall:2000mg foundry:20000mg/1000000ppm selection:foundry reason:cold-rework-underfills-order] fabrication=800t/48.0m dynamo-path=treadle-additive-upgrade electrical-charge=[35t 12300000000000nJ body:100nJ/20uL] melt=[35t 2.1m feed:scrap] cast=[18t 1.1m heat:12300000000000nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:45t] installed-recovery=[cold-rework:50t reinforcement:18000mg chips:2000mg fulfillment:900000ppm foundry-active:80t reinforcement:20000mg chips:0mg fulfillment:1000000ppm useful-gain:+2000mg attention-delta:+30t] total=898t/53.9m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=full-scrap-recovery",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
@@ -2023,12 +2155,13 @@ class LocalCiPlanTests(unittest.TestCase):
             "POWER PROVIDER EXPERIENCE seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:stone-crusher feed:1000000mg work:1000000000000nJ buffer-lower-bound-charges:1 consumer-projected-charges:1 projected-services:1] buffer:1000000000000nJ decision=[selected:crank policy=minimize-workload-attention-then-metabolic-then-hydration-then-material] crank=[first-charge:2t second-charge:3t] treadle=[first-charge:1t second-charge:2t] productive-cycle=[consumer:stone-crusher crank:9t treadle:9t] projected-provider-lifecycle=[crank:body:10000000000000nJ/20000uL condition:990000ppm treadle:body:8000000000000nJ/18000uL condition:995000ppm] comparison=[charge-attention-reduction:1ppm metabolic-crank:2nJ metabolic-treadle:1nJ pristine-rate-break-even:2 wear-aware-decision-crossover:3 provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher]",
             "POWER PROJECT EXPERIENCE seed=0x1 sample=anchor era=settlement selected=walking-wheel declared=[work:400000000000000nJ pristine-charge-events:80 project-cache=[food:8000000mg preservation:4000000ppm water:256000000uL]] executed=[charge-events:80 survival-limited-batches:0 active-attention:2500t provider-attention:2200t consumer-runtime:5600t maintenance=[services:4 preparation:240t service:12t replacement:216000mg] provisioning=[stops:2 attention:48t drinks:2 volume:200000uL meals:0 mass:0mg] elapsed:8100t reserves=[start:1001nJ/1001uL end:1nJ/1uL]] condition=[provider:900000ppm consumer:800000ppm] full-counterfactual=[treadle-active-attention:2600t walking-active-attention:2500t attention-best:walking-wheel selected-agrees:true] evidence=complete-selected-project-canonical",
             "POWER SETTLEMENT seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:powered-saw feed:1600000000mg work:400000000000000nJ charge-events:80] buffer:5000000000000nJ decision=[selected:walking-wheel policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:2290t projected-attention-walking:2210t] treadle=[first-charge:14t second-charge:15t] walking-wheel=[first-charge:10t second-charge:11t] productive-cycle=[consumer:powered-saw treadle:56t walking:56t] projected-provider-lifecycle=[treadle:body:100000000000000nJ/200000uL condition:800000ppm walking-wheel:body:80000000000000nJ/150000uL condition:900000ppm] comparison=[charge-saving:4t metabolic-saving:1nJ pristine-rate-break-even:60charges wear-aware-decision-crossover:56charges provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw]",
+            "HARNESS INPUT plan=anchor+variation anchors=1 variation=0 custom=0 world_root=0x1 behavior_root=0x2 replay=0x1@0x2",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=1 orders=[complete:1 partial:0 productive:1/1] adaptive=[total:0 condition:0 stored-work:0] stops=[structural:0 maintenance-required:1 energy:0 declined-manual:0 survival-limited-manual:0] maintenance-blockers=[replacement-supply:1 service-labor:0]",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt pressure-shape=[clean:1 single:0 multi-system:10] interlocks=[stored-work+throughput:11 body+power:5 wear+maintenance:6 structure+production:9] recovery=[suspensions:3 resumed:3 stranded:0]",
             "AGENCY SUMMARY worlds=1",
-            "CAPABILITY ORE_PREP seed=0x1 outcome=completed feed=[copper:400000ppm]",
+            "CAPABILITY ORE_PREP seed=0x1 sample=anchor outcome=completed feed=[copper:400000ppm]",
             "ORE REVIEW seed=0x2 sample=coverage role=capability-only outcome=stopped stage=grind blocker=finite-energy available=1nJ requested=2nJ tick=3 retry=stage-input-retained retry-input=10mg matter=conserved",
-            "CAPABILITY FOUNDRY seed=0x1 outcome=full-order-complete offered=10mg melted=10mg unmelted=0mg feed-retained=true melt-limit=offered-batch first-cast=10mg cast-limit=offered-batch molten-after-first=0mg recovery-cast=0mg molten-final=0mg heating=[runtime-route:direct-melt same-source-preheat:counterfactual-only direct:10mg/2t preheated:10mg/3t]",
+            "CAPABILITY FOUNDRY seed=0x1 sample=anchor outcome=full-order-complete offered=10mg melted=10mg unmelted=0mg feed-retained=true melt-limit=offered-batch first-cast=10mg cast-limit=offered-batch molten-after-first=0mg recovery-cast=0mg molten-final=0mg heating=[runtime-route:direct-melt same-source-preheat:counterfactual-only direct:10mg/2t preheated:10mg/3t]",
             "POWER BUILD BILL seed=0x1 noisy-detail",
             "FIELDWORK PACING seed=0x1 noisy-detail",
         ]
@@ -2041,7 +2174,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "default gameplay digest must stay reviewable without pinning its exact section count",
         )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
-        self.assertLess(len(concise.encode()), 6_000)
+        self.assertLess(len(concise.encode()), 6_500)
         for prefix in (
             "SIMULATION TIME ",
             "GAMEPLAY probe=primitive-progression ",
@@ -2072,6 +2205,14 @@ class LocalCiPlanTests(unittest.TestCase):
             self.assertNotIn(redundant, concise)
         self.assertIn(
             "disclosed-order-attention=[manual:2470..2470t mechanized:429..429t saved:2041..2041t]",
+            concise,
+        )
+        self.assertIn(
+            "probe=primitive-progression samples=1 sample-shape=[anchor:1 coverage:0 organic:0 replay:0]",
+            concise,
+        )
+        self.assertIn(
+            "probe=workshop scenarios=1 sample-shape=[",
             concise,
         )
         self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
@@ -2115,7 +2256,7 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "CAPABILITY probe=ore samples=2 completed=1 stopped=1 finite-energy-stops=1 retryable-energy-stops=1 variable-feed=1",
+            "CAPABILITY probe=ore samples=2 sample-shape=[anchor:1 coverage:1 organic:0 replay:0] completed=1 stopped=1 finite-energy-stops=1 retryable-energy-stops=1 variable-feed=1",
             concise,
         )
         self.assertEqual(
@@ -2640,7 +2781,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": "woodworking",
             "primitive_treadle_requires_meaningful_attention_return": "power-provider",
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": "settlement",
-            "settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_work": "foundry",
+            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": "foundry",
             "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": "woodworking",
             "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": "fieldwork",
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": "survival",

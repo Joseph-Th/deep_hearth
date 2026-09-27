@@ -15,6 +15,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::crafting::ManualCraftDefinition;
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId, StockpileStorageProfile};
@@ -30,6 +31,7 @@ use deep_hearth::thermal::{
 };
 
 use super::environment::ROOM_TEMPERATURE;
+use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
@@ -40,10 +42,42 @@ use super::material_selection::select_stockpile_mass;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
 
-const FIRST_CAST_MASS: Mass = Mass::from_milligrams(20_000);
 const RAW_STONE_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
 const RAW_WOOD_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
 const RAW_NATIVE_COPPER_OPPORTUNITY: Mass = Mass::from_milligrams(160_000);
+
+fn manual_batches_for_output(
+    definition: &ManualCraftDefinition,
+    commodity: CommodityKey,
+    required: Mass,
+    context: &'static str,
+) -> u64 {
+    let per_batch = definition
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == commodity)
+        .map(|output| output.mass())
+        .unwrap_or_else(|| {
+            panic!(
+                "first foundry {context} process {} lost output {}",
+                definition.process().value(),
+                commodity.value()
+            )
+        });
+    assert!(
+        !per_batch.is_zero(),
+        "first foundry {context} output must remain nonzero"
+    );
+    required.milligrams().div_ceil(per_batch.milligrams())
+}
+
+fn scaled_output_mass(mass: Mass, batches: u64, context: &'static str) -> Mass {
+    Mass::from_milligrams(
+        mass.milligrams()
+            .checked_mul(batches)
+            .unwrap_or_else(|| panic!("first foundry {context} mass overflowed")),
+    )
+}
 
 fn select_commodity_mass(
     state: &AppState,
@@ -169,10 +203,33 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         return;
     }
 
+    let melting_definition = registries
+        .thermal()
+        .get_melting(PROCESS_MELT_PURE_COPPER)
+        .unwrap_or_else(|| panic!("first foundry melting definition disappeared"));
+    let casting_definition = registries
+        .thermal()
+        .get_casting(PROCESS_CAST_PURE_COPPER)
+        .unwrap_or_else(|| panic!("first foundry casting definition disappeared"));
+    let first_cast_mass = nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+        melting_definition.max_batch_mass_capability(),
+    )
+    .min(nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_STONE_INGOT_MOLD,
+        casting_definition.max_batch_mass_capability(),
+    ));
+    assert!(
+        !first_cast_mass.is_zero(),
+        "first foundry authored furnace/mold batch must remain nonzero"
+    );
+
     let mut state = AppState::new();
     let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(25_000_000));
     let parts = add_solid_stockpile(&mut state, Mass::from_milligrams(25_000_000));
-    let cast_storage = add_solid_stockpile(&mut state, FIRST_CAST_MASS);
+    let cast_storage = add_solid_stockpile(&mut state, first_cast_mass);
     let melting_point = registries
         .materials()
         .get_material(MATERIAL_COPPER)
@@ -180,7 +237,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|| panic!("first foundry copper melting point disappeared"));
     let molten_profile = StockpileStorageProfile::new(false, true, melting_point)
         .unwrap_or_else(|error| panic!("first foundry molten storage profile failed: {error}"));
-    let molten = seed_stockpile(&mut state, FIRST_CAST_MASS, molten_profile);
+    let molten = seed_stockpile(&mut state, first_cast_mass, molten_profile);
 
     for (commodity, mass) in [
         (
@@ -197,7 +254,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         ),
         (
             CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-            FIRST_CAST_MASS,
+            first_cast_mass,
         ),
     ] {
         let _ = seed_lot(
@@ -230,13 +287,23 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     // below remains ordinary acquisition/execution coverage and quantifies its distinct recovery
     // value once installed.
     let mut direct_native_state = state.clone();
+    let native_rework = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("first foundry native-copper rework definition disappeared"));
+    let direct_native_batches = manual_batches_for_output(
+        native_rework,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        first_cast_mass,
+        "native-copper alternative",
+    );
     let direct_native_ticks = execute_manual_craft_batches(
         registries,
         &mut direct_native_state,
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
         raw,
         parts,
-        1,
+        direct_native_batches,
         "first foundry pre-investment native-copper alternative",
     )
     .value();
@@ -245,7 +312,10 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .get_stockpile(parts)
         .unwrap_or_else(|| panic!("first foundry direct-native parts stockpile disappeared"))
         .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT));
-    assert_eq!(direct_native_reinforcement, FIRST_CAST_MASS);
+    assert!(
+        direct_native_reinforcement >= first_cast_mass,
+        "direct native-copper route must satisfy the current foundry-sized order"
+    );
     validate_loaded_state(registries, &direct_native_state)
         .unwrap_or_else(|error| panic!("first foundry direct-native branch invalid: {error}"));
 
@@ -304,6 +374,12 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
                 )
             })
     };
+    let direct_rework_batches =
+        first_cast_mass.milligrams() / direct_rework_definition.input_mass().milligrams();
+    assert!(
+        direct_rework_batches > 0,
+        "first foundry scarcity order must admit at least one complete direct scrap-rework batch"
+    );
     let mut direct_rework_state = state.clone();
     let direct_rework_ticks = execute_manual_craft_batches(
         registries,
@@ -311,7 +387,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
         raw,
         parts,
-        1,
+        direct_rework_batches,
         "first foundry direct scrap-rework counterfactual",
     )
     .value();
@@ -327,33 +403,41 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP));
     assert_eq!(
         direct_reinforcement,
-        authored_direct_output(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
+        scaled_output_mass(
+            authored_direct_output(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)),
+            direct_rework_batches,
+            "direct reinforcement output",
+        )
     );
     assert_eq!(
         direct_residual,
-        authored_direct_output(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP))
+        scaled_output_mass(
+            authored_direct_output(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP)),
+            direct_rework_batches,
+            "direct residual output",
+        )
     );
     assert!(
-        direct_reinforcement < FIRST_CAST_MASS,
+        direct_reinforcement < first_cast_mass,
         "direct scrap rework must remain short of the declared reinforcement order"
     );
     let direct_fulfillment_ppm = direct_reinforcement
         .milligrams()
         .checked_mul(1_000_000)
         .unwrap_or_else(|| panic!("first foundry direct fulfillment overflowed"))
-        / FIRST_CAST_MASS.milligrams();
+        / first_cast_mass.milligrams();
 
     let composition = MaterialComposition::pure(MATERIAL_COPPER);
     let sensible = calculate_sensible_heat(
         registries.materials(),
-        FIRST_CAST_MASS,
+        first_cast_mass,
         &composition,
         ROOM_TEMPERATURE,
         melting_point,
     )
     .unwrap_or_else(|error| panic!("first foundry sensible heat failed: {error}"))
     .energy();
-    let fusion = calculate_fusion_heat(registries.materials(), FIRST_CAST_MASS, MATERIAL_COPPER)
+    let fusion = calculate_fusion_heat(registries.materials(), first_cast_mass, MATERIAL_COPPER)
         .unwrap_or_else(|error| panic!("first foundry fusion heat failed: {error}"))
         .energy();
     let required_electrical = sensible
@@ -386,7 +470,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         &state,
         raw,
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-        FIRST_CAST_MASS,
+        first_cast_mass,
         "recoverable copper scrap feed",
     );
     let melting = resolve_melting_process(
@@ -418,7 +502,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let molten_selection = select_stockpile_mass(
         &state,
         molten,
-        FIRST_CAST_MASS,
+        first_cast_mass,
         "first foundry molten copper feed",
     );
     let casting = resolve_casting_process(
@@ -447,13 +531,25 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     .unwrap_or_else(|error| panic!("first foundry cast commit failed: {error}"));
     finish_uninterrupted_production_job(registries, &mut state, cast_job, "first foundry cast");
 
+    let downstream_definition = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("first foundry ingot rework definition disappeared"));
+    assert!(
+        first_cast_mass
+            .milligrams()
+            .is_multiple_of(downstream_definition.input_mass().milligrams()),
+        "authored first-foundry batch must remain exactly consumable by the downstream ingot route"
+    );
+    let downstream_batches =
+        first_cast_mass.milligrams() / downstream_definition.input_mass().milligrams();
     let downstream_ticks = execute_manual_craft_batches(
         registries,
         &mut state,
         PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT,
         cast_storage,
         parts,
-        1,
+        downstream_batches,
         "first foundry cast-output reinforcement",
     )
     .value();
@@ -463,7 +559,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|| panic!("first foundry recovery parts stockpile disappeared"))
         .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT));
     assert_eq!(
-        foundry_reinforcement, FIRST_CAST_MASS,
+        foundry_reinforcement, first_cast_mass,
         "first foundry recovery must complete the declared reinforcement order"
     );
     assert_eq!(
@@ -492,7 +588,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let stone_opportunity_mg = RAW_STONE_OPPORTUNITY.milligrams();
     let wood_opportunity_mg = RAW_WOOD_OPPORTUNITY.milligrams();
     let native_opportunity_mg = RAW_NATIVE_COPPER_OPPORTUNITY.milligrams();
-    let order_mass_mg = FIRST_CAST_MASS.milligrams();
+    let order_mass_mg = first_cast_mass.milligrams();
     reviewln!(
         "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:{stone_opportunity_mg}mg wood:{wood_opportunity_mg}mg native:{native_opportunity_mg}mg scrap:{order_mass_mg}mg] build-choice=[order:{order_mass_mg}mg direct-native:{}t reinforcement:{}mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] scarcity-choice=[order:{order_mass_mg}mg source:scrap-only cold-rework:{}mg/{}ppm shortfall:{}mg foundry:{order_mass_mg}mg/1000000ppm selection:foundry reason:cold-rework-underfills-order] fabrication={}t/{} dynamo-path=treadle-additive-upgrade electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {} feed:scrap] cast=[{}t {} heat:{}nJ] downstream=[ingot:{order_mass_mg}mg reinforcement:{order_mass_mg}mg cold-work:{}t] installed-recovery=[cold-rework:{}t reinforcement:{}mg chips:{}mg fulfillment:{}ppm foundry-active:{}t reinforcement:{order_mass_mg}mg chips:0mg fulfillment:1000000ppm useful-gain:+{}mg attention-delta:{:+}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=full-scrap-recovery",
         case.seed(),
@@ -501,7 +597,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         direct_native_reinforcement.milligrams(),
         direct_reinforcement.milligrams(),
         direct_fulfillment_ppm,
-        FIRST_CAST_MASS
+        first_cast_mass
             .checked_sub(direct_reinforcement)
             .unwrap_or_else(|| panic!("direct scrap rework exceeded scarcity order"))
             .milligrams(),
@@ -522,7 +618,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         direct_residual.milligrams(),
         direct_fulfillment_ppm,
         foundry_recovery_attention,
-        FIRST_CAST_MASS
+        first_cast_mass
             .checked_sub(direct_reinforcement)
             .unwrap_or_else(|| panic!("direct scrap rework exceeded foundry recovery"))
             .milligrams(),

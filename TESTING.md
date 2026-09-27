@@ -94,8 +94,9 @@ until the soak lane is requested.
 ## Gameplay evaluation
 
 Focused gameplay targets are edit-loop compile surfaces; broad cross-cutting contracts live in the consolidated
-gameplay audit target. `python ci.py report` is exploratory and may use fresh variation; gates and audits use
-stable replayable inputs. Replay options and actor/evidence rules are owned by
+gameplay audit target. Repository-owned gameplay gates and audits keep fixed contract anchors but add a small
+fresh replayable organic slice; `python ci.py report` uses a broader fresh slice. Direct Cargo execution retains
+deterministic fallback roots for debugging. Replay options and actor/evidence rules are owned by
 [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
 
 ## Completion

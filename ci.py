@@ -86,19 +86,21 @@ REPORT_BEHAVIOR_SCOPES = {
 }
 
 
-def configure_report_replay_environment(
-    args: argparse.Namespace,
+def configure_gameplay_replay_environment(
     environ,
     *,
+    variation_override: str | None,
+    behavior_override: str | None,
+    use_behavior_seed: bool,
     randbits=secrets.randbits,
 ) -> tuple[str, str]:
-    """Apply/validate report replay roots before any Cargo process is started."""
+    """Apply or generate replayable gameplay roots before any Cargo process starts."""
 
     variation_key = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
     behavior_key = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
 
-    if args.variation_seed is not None:
-        variation = args.variation_seed
+    if variation_override is not None:
+        variation = variation_override
     elif variation_key in environ:
         try:
             variation = parse_replay_seed(environ[variation_key])
@@ -108,11 +110,11 @@ def configure_report_replay_environment(
         variation = f"0x{randbits(64):016X}"
     environ[variation_key] = variation
 
-    if args.scope not in REPORT_BEHAVIOR_SCOPES:
+    if not use_behavior_seed:
         return variation, "unused"
 
-    if args.behavior_seed is not None:
-        behavior = args.behavior_seed
+    if behavior_override is not None:
+        behavior = behavior_override
     elif behavior_key in environ:
         try:
             behavior = parse_replay_seed(environ[behavior_key])
@@ -124,10 +126,47 @@ def configure_report_replay_environment(
     return variation, behavior
 
 
-def uses_fresh_gameplay_variation(args: argparse.Namespace) -> bool:
-    """Return whether this command intentionally explores fresh gameplay variation."""
+def gameplay_variation_behavior(args: argparse.Namespace) -> bool | None:
+    """Return behavior-root usage for gameplay sampling, or None when no sampling runs."""
 
-    return args.preset == "report"
+    if args.preset == "report":
+        return args.scope in REPORT_BEHAVIOR_SCOPES
+    if args.preset == "gate":
+        scope = args.gameplay
+        if scope in (None, "contracts", "all"):
+            return None
+        spec = GAMEPLAY_SCOPE_SPECS[scope]
+        if spec.test is None:
+            return None
+        return spec.uses_behavior_seed
+    if args.preset == "audit" and (args.gameplay is not None or args.all):
+        # The consolidated gameplay audit includes policy-varying workshop/survival/woodworking
+        # episodes, so one independent behavior root covers the full bounded checkpoint.
+        return True
+    return None
+
+
+def configure_report_replay_environment(
+    args: argparse.Namespace,
+    environ,
+    *,
+    randbits=secrets.randbits,
+) -> tuple[str, str]:
+    """Apply report replay roots through the shared gameplay sampling contract."""
+
+    return configure_gameplay_replay_environment(
+        environ,
+        variation_override=args.variation_seed,
+        behavior_override=args.behavior_seed,
+        use_behavior_seed=args.scope in REPORT_BEHAVIOR_SCOPES,
+        randbits=randbits,
+    )
+
+
+def uses_fresh_gameplay_variation(args: argparse.Namespace) -> bool:
+    """Return whether this command runs bounded gameplay variation with fresh default roots."""
+
+    return gameplay_variation_behavior(args) is not None
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)
@@ -279,10 +318,16 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
                 return (
                     f"python tools/run_test.py --target {target}{replay_suffix} {failed[-1]}"
                 )
-            return "python ci.py audit --gameplay"
+            return f"python ci.py audit --gameplay{replay_suffix}"
         for scope, target in GAMEPLAY_TARGETS.items():
             if target in command:
-                return f"python ci.py gate --gameplay {scope}"
+                replay_flags = gameplay_replay_flags(combined)
+                replay_suffix = f" {replay_flags}" if replay_flags else ""
+                return f"python ci.py gate --gameplay {scope}{replay_suffix}"
+        if GAMEPLAY_AUDIT_TARGET in command:
+            replay_flags = gameplay_replay_flags(combined)
+            replay_suffix = f" {replay_flags}" if replay_flags else ""
+            return f"python ci.py audit --gameplay{replay_suffix}"
     return None
 
 
@@ -748,12 +793,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variation-seed",
         type=parse_replay_seed,
-        help="with report, replay one physical-world variation root (decimal or 0x hex u64)",
+        help=(
+            "replay one physical-world variation root for report or a gameplay gate/audit "
+            "(decimal or 0x hex u64)"
+        ),
     )
     parser.add_argument(
         "--behavior-seed",
         type=parse_replay_seed,
-        help="with report, replay one actor-policy root where the selected scope uses it",
+        help=(
+            "replay one actor-policy root where the selected report/gameplay gate/audit uses it"
+        ),
     )
     return parser
 
@@ -829,8 +879,15 @@ def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Name
         parser.error("--since, --path, and --hotspots are valid only with the bca preset")
     if args.preset != "report" and args.scope != "all":
         parser.error("--scope is valid only with the report preset")
-    if args.preset != "report" and (args.variation_seed is not None or args.behavior_seed is not None):
-        parser.error("--variation-seed and --behavior-seed are valid only with the report preset")
+    if args.variation_seed is not None or args.behavior_seed is not None:
+        replayable_gameplay = gameplay_variation_behavior(args) is not None
+        if args.preset != "report" and not replayable_gameplay:
+            parser.error(
+                "--variation-seed and --behavior-seed require report or a gameplay gate/audit "
+                "that runs bounded organic variation"
+            )
+        if args.behavior_seed is not None and gameplay_variation_behavior(args) is False:
+            parser.error("the selected gameplay scope does not use an actor-policy behavior seed")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -850,11 +907,17 @@ def main() -> int:
         for label, command in plan:
             print(f"{label}: {' '.join(command)}")
         return 0
-    if uses_fresh_gameplay_variation(args):
+    behavior_variation = gameplay_variation_behavior(args)
+    if behavior_variation is not None:
         try:
-            configure_report_replay_environment(args, os.environ)
+            configure_gameplay_replay_environment(
+                os.environ,
+                variation_override=args.variation_seed,
+                behavior_override=args.behavior_seed,
+                use_behavior_seed=behavior_variation,
+            )
         except ValueError as error:
-            print(f"report replay: {error}", file=sys.stderr)
+            print(f"gameplay replay: {error}", file=sys.stderr)
             return 2
 
     started = time.perf_counter()

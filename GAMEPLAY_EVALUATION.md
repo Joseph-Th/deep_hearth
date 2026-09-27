@@ -156,10 +156,11 @@ contract/audit targets.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Supported gameplay gates and audits run maintained deterministic cases plus bounded organic-variation cases from
-stable fallback roots, so both repair loops and checkpoints are repeatable. `python ci.py report` alone samples a
-broader fresh set. Printed roots are replay evidence;
-explicit variation or behavior roots replace them when reproducing a case. Concise summaries expose `sample-shape`;
+Repository-owned gameplay gates and audits run maintained deterministic cases plus a small bounded organic slice
+from fresh replayable roots. Direct Cargo execution keeps deterministic fallback roots for low-level debugging.
+`python ci.py report` uses the same fixed anchors with a broader fresh organic slice. Printed roots are replay
+evidence; explicit variation or behavior roots reproduce a case exactly. Concise summaries expose
+`sample-shape`;
 maintained anchor/coverage cases prove contracts and must not be read as prevalence. When frequency matters,
 interpret the separately reported organic slice as bounded sampled-world evidence, not as a population estimate. Full episodes are
 reserved for behavior that requires executed cross-system consequences. A world may succeed, adapt, or stop at a
@@ -188,12 +189,13 @@ aggregate observable contract rather than incidental internal identity.
 
 `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` controls physical-world variation;
 `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` controls actor-policy variation where applicable; and
-`DEEP_HEARTH_GAMEPLAY_SEEDS` selects explicit focused worlds for deliberate replay. Supported CI gameplay
-commands generate fresh variation/behavior roots when none are supplied, while maintained anchors stay fixed and
-the organic sample remains bounded. Direct Cargo execution uses the maintained fallback roots. Failure and success
-summaries must retain replay input. `python ci.py report --variation-seed <u64>` replays a printed physical-world
-root directly; report scopes that consume actor-policy variation also accept `--behavior-seed <u64>`. These flags
-are the validated CLI equivalents of the environment variables and take precedence over ambient values.
+`DEEP_HEARTH_GAMEPLAY_SEEDS` selects explicit focused worlds for deliberate replay. Repository-owned gameplay
+gates, gameplay audits, and reports generate fresh variation/behavior roots when none are supplied, while
+maintained anchors stay fixed and each organic sample remains bounded. Direct Cargo execution uses maintained
+fallback roots. Failure and success summaries retain replay input. `--variation-seed <u64>` is accepted by
+reports and gameplay gate/audit lanes that consume organic variation; scopes with actor-policy variation also
+accept `--behavior-seed <u64>`. These flags are the validated CLI equivalents of the environment variables and
+take precedence over ambient values.
 
 `python ci.py report` is the bounded exploration surface. Its default concise view keeps the measured player
 loop and loop dynamics, one summary per ordinary probe, ordinary integration frontiers exposed by those probes,

@@ -35,6 +35,7 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
 _ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
         "samples",
+        "sample-shape",
         "first-copper",
         "processing-crossover",
         "disclosed-order-attention",
@@ -46,6 +47,7 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "primitive-liberation": (
         "samples",
+        "sample-shape",
         "cleanup-executed",
         "native-copper",
         "kit-acquisition",
@@ -55,6 +57,7 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "woodworking": (
         "samples",
+        "sample-shape",
         "choice",
         "decision-coverage",
         "attention-payback",
@@ -72,6 +75,7 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "power-provider": (
         "samples",
+        "sample-shape",
         "choice",
         "project-experience",
         "decision-crossover-charges",
@@ -81,6 +85,7 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "survival": (
         "samples",
+        "sample-shape",
         "pressure",
         "diet",
         "provisioning",
@@ -164,6 +169,7 @@ def _digest_summary(summary: str) -> str:
                 summary,
                 (
                     "samples",
+                    "sample-shape",
                     "outcomes",
                     "reserve-knowledge",
                     "orders",
@@ -215,7 +221,9 @@ def _digest_summary(summary: str) -> str:
     if summary.startswith("CONTROLLED SUMMARY probe=workshop "):
         return (
             "CAPABILITY probe=workshop "
-            + compact_fields(summary, ("scenarios", "orders", "stops", "recovery"))
+            + compact_fields(
+                summary, ("scenarios", "sample-shape", "orders", "stops", "recovery")
+            )
         ).rstrip()
     if summary.startswith("CONTROLLED SUMMARY probe=agency "):
         return (

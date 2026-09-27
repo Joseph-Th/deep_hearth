@@ -28,6 +28,7 @@ use deep_hearth::thermal::{
 };
 
 use super::environment::ROOM_TEMPERATURE;
+use super::equipment_support::nominal_equipment_mass_capability;
 use super::foundry_probe::{choose_heating_strategy, probe_setup};
 use super::foundry_setup::setup_foundry_probe;
 use super::manual_power_timing::finish_manual_power_work;
@@ -35,11 +36,31 @@ use super::material_selection::select_stockpile_mass;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::world_admission::{initialize_stationary_player_logistics, locate_stationary_endpoints};
 
-const SETTLEMENT_CAST_MASS: Mass = Mass::from_milligrams(80_000);
-
 #[test]
-fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_work() {
+fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work() {
     let registries = build_registries();
+    let melting_definition = registries
+        .thermal()
+        .get_melting(PROCESS_MELT_PURE_COPPER)
+        .unwrap_or_else(|| panic!("settlement foundry melting definition disappeared"));
+    let casting_definition = registries
+        .thermal()
+        .get_casting(PROCESS_CAST_PURE_COPPER)
+        .unwrap_or_else(|| panic!("settlement foundry casting definition disappeared"));
+    let settlement_cast_mass = nominal_equipment_mass_capability(
+        &registries,
+        EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE,
+        melting_definition.max_batch_mass_capability(),
+    )
+    .min(nominal_equipment_mass_capability(
+        &registries,
+        EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
+        casting_definition.max_batch_mass_capability(),
+    ));
+    assert!(
+        !settlement_cast_mass.is_zero(),
+        "settlement foundry authored furnace/mold batch must remain nonzero"
+    );
     let mut required_parts = BTreeMap::<CommodityKey, Mass>::new();
     for equipment in [
         EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
@@ -102,7 +123,7 @@ fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_w
     }
     let feed = seed_stockpile(
         &mut state,
-        SETTLEMENT_CAST_MASS,
+        settlement_cast_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let _ = seed_lot(
@@ -110,7 +131,7 @@ fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_w
         &mut state,
         feed,
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-        SETTLEMENT_CAST_MASS,
+        settlement_cast_mass,
         ROOM_TEMPERATURE,
     );
     let melting_point = registries
@@ -120,13 +141,13 @@ fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_w
         .unwrap_or_else(|| panic!("settlement foundry copper melting point disappeared"));
     let molten = seed_stockpile(
         &mut state,
-        SETTLEMENT_CAST_MASS,
+        settlement_cast_mass,
         StockpileStorageProfile::new(false, true, melting_point)
             .unwrap_or_else(|error| panic!("settlement molten storage profile failed: {error}")),
     );
     let cast = seed_stockpile(
         &mut state,
-        SETTLEMENT_CAST_MASS,
+        settlement_cast_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     locate_stationary_endpoints(&mut state, &[parts, feed, molten, cast], &[]);
@@ -215,7 +236,7 @@ fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_w
     let composition = MaterialComposition::pure(MATERIAL_COPPER);
     let required_energy = calculate_sensible_heat(
         registries.materials(),
-        SETTLEMENT_CAST_MASS,
+        settlement_cast_mass,
         &composition,
         ROOM_TEMPERATURE,
         melting_point,
@@ -225,7 +246,7 @@ fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_w
     .checked_add(
         calculate_fusion_heat(
             registries.materials(),
-            SETTLEMENT_CAST_MASS,
+            settlement_cast_mass,
             MATERIAL_COPPER,
         )
         .unwrap_or_else(|error| panic!("settlement foundry fusion heat failed: {error}"))
@@ -265,7 +286,7 @@ fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_w
     let feed_selection = select_stockpile_mass(
         &state,
         feed,
-        SETTLEMENT_CAST_MASS,
+        settlement_cast_mass,
         "settlement foundry copper feed",
     );
     let melting = resolve_melting_process(
@@ -301,7 +322,7 @@ fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_w
     let molten_selection = select_stockpile_mass(
         &state,
         molten,
-        SETTLEMENT_CAST_MASS,
+        settlement_cast_mass,
         "settlement foundry molten feed",
     );
     let casting = resolve_casting_process(
@@ -338,7 +359,7 @@ fn settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_w
             .inventory()
             .get_stockpile(cast)
             .map(|stockpile| stockpile.stored_mass()),
-        Some(SETTLEMENT_CAST_MASS)
+        Some(settlement_cast_mass)
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("settlement foundry final state invalid: {error}"));
