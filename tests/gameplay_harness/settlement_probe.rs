@@ -37,8 +37,28 @@ use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 
+#[path = "capital_investment_policy.rs"]
+mod capital_policy;
+use capital_policy::{clears_attention_return, minimum_attention_return};
+
 const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
 const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 40;
+
+pub(super) fn settlement_sawmill_minimum_attention_return(setup_attention_ticks: u64) -> u64 {
+    minimum_attention_return(0, setup_attention_ticks)
+}
+
+pub(super) fn settlement_sawmill_clears_attention_return(
+    baseline_attention_ticks: u64,
+    machine_attention_ticks: u64,
+    minimum_attention_return_ticks: u64,
+) -> bool {
+    clears_attention_return(
+        baseline_attention_ticks,
+        machine_attention_ticks,
+        minimum_attention_return_ticks,
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LumberInvestmentChoice {
@@ -409,7 +429,12 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
                 .unwrap_or_else(|| panic!("settlement repeated charge attention overflowed")),
         )
         .unwrap_or_else(|| panic!("settlement machine attention overflowed"));
-    let choice = if machine_attention < baseline_attention {
+    let minimum_attention_return = settlement_sawmill_minimum_attention_return(setup_attention);
+    let choice = if settlement_sawmill_clears_attention_return(
+        baseline_attention,
+        machine_attention,
+        minimum_attention_return,
+    ) {
         LumberInvestmentChoice::SashSawmill
     } else {
         LumberInvestmentChoice::FrameSaw
@@ -544,12 +569,13 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         .unwrap_or_else(|| panic!("settlement player survival disappeared after order"));
     let attention_saved = i128::from(baseline_attention) - i128::from(machine_attention);
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy:min-player-attention baseline:{}t mechanized:{}t setup:{}t charge-per-batch:{}t margin:{:+}t] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charge-per-batch:{}t margin:{:+}t] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
         case.seed(),
         focused_probe_role_label(case.role()),
         order_batches,
         order_mass.milligrams(),
         choice.label(),
+        minimum_attention_return,
         baseline_attention,
         machine_attention,
         setup_attention,

@@ -32,8 +32,12 @@ use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::settlement_probe::{
+    settlement_sawmill_clears_attention_return, settlement_sawmill_minimum_attention_return,
+};
 
 const SHORT_LUMBER_ORDER: u64 = 20;
+const MARGINAL_LUMBER_ORDER: u64 = 38;
 const PROJECT_LUMBER_ORDER: u64 = 40;
 
 fn seed_material(
@@ -187,6 +191,20 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         .with_equipment(frame_saw),
     )
     .unwrap_or_else(|error| panic!("sawmill short baseline projection failed: {error}"));
+    let marginal_baseline = resolve_manual_craft(
+        &registries,
+        &state,
+        &select_manual_craft_request(
+            &registries,
+            &state,
+            PROCESS_SAW_WOOD_BOARDS,
+            work_source,
+            MARGINAL_LUMBER_ORDER,
+            "sawmill marginal-order baseline",
+        )
+        .with_equipment(frame_saw),
+    )
+    .unwrap_or_else(|error| panic!("sawmill marginal baseline projection failed: {error}"));
     let project_request = select_manual_craft_request(
         &registries,
         &state,
@@ -245,13 +263,32 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
     .unwrap_or_else(|error| panic!("sawmill charge projection failed: {error}"));
     let charge_ticks = charge.work().completes_at().value() - state.tick().value();
     let short_machine_attention = setup_attention + charge_ticks * SHORT_LUMBER_ORDER;
+    let marginal_machine_attention = setup_attention + charge_ticks * MARGINAL_LUMBER_ORDER;
     let project_machine_attention = setup_attention + charge_ticks * PROJECT_LUMBER_ORDER;
+    let minimum_attention_return = settlement_sawmill_minimum_attention_return(setup_attention);
+    assert_eq!(minimum_attention_return, 10);
     assert!(
-        short_machine_attention >= short_baseline.duration().value(),
+        !settlement_sawmill_clears_attention_return(
+            short_baseline.duration().value(),
+            short_machine_attention,
+            minimum_attention_return,
+        ),
         "small lumber orders must keep using the already-owned frame saw instead of forcing mechanization"
     );
     assert!(
-        project_machine_attention < project_baseline.duration().value(),
+        !settlement_sawmill_clears_attention_return(
+            marginal_baseline.duration().value(),
+            marginal_machine_attention,
+            minimum_attention_return,
+        ),
+        "a token attention win must not consume settlement capital for sawmill conversion"
+    );
+    assert!(
+        settlement_sawmill_clears_attention_return(
+            project_baseline.duration().value(),
+            project_machine_attention,
+            minimum_attention_return,
+        ),
         "a disclosed settlement lumber project must be large enough to repay sawmill conversion and charging attention"
     );
 

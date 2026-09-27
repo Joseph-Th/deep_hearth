@@ -23,6 +23,7 @@ use super::super::manual_craft_planning::project_manual_assembly_package;
 mod policy;
 use policy::{
     primitive_treadle_clears_attention_return, primitive_treadle_minimum_attention_return,
+    settlement_walking_clears_attention_return, settlement_walking_minimum_attention_return,
 };
 
 #[path = "power_provider_planning/lifecycle.rs"]
@@ -153,6 +154,7 @@ pub(super) struct SettlementPowerPlan {
     pub(super) walking_lifecycle_hydration_ul: u64,
     pub(super) treadle_lifecycle_condition: Condition,
     pub(super) walking_lifecycle_condition: Condition,
+    pub(super) minimum_attention_return_ticks: u64,
     pub(super) decision_crossover_charges: Option<u64>,
 }
 
@@ -197,6 +199,10 @@ pub(super) fn settlement_power_plan(
         requested,
         "settlement walking wheel",
     );
+    let minimum_attention_return_ticks = settlement_walking_minimum_attention_return(
+        treadle_build.attention_ticks,
+        walking_build.attention_ticks,
+    );
     let decision_crossover_charges = first_candidate_preferred_charge(
         registries,
         treadle_route,
@@ -204,7 +210,7 @@ pub(super) fn settlement_power_plan(
         walking_route,
         walking_build,
         MAX_SETTLEMENT_CROSSOVER_CHARGES,
-        0,
+        minimum_attention_return_ticks,
     );
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     let walking_charge = walking_route.project(registries, Condition::PRISTINE);
@@ -237,25 +243,15 @@ pub(super) fn settlement_power_plan(
         .hydration_ul
         .checked_add(walking_lifecycle.hydration_ul)
         .unwrap_or_else(|| panic!("settlement walking total hydration overflowed"));
-    let treadle_key = (
-        treadle_lifecycle_attention,
-        treadle_lifecycle_metabolic_nj,
-        treadle_lifecycle_hydration_ul,
-        treadle_build.input_mass_mg,
-        0_u8,
-    );
-    let walking_key = (
-        walking_lifecycle_attention,
-        walking_lifecycle_metabolic_nj,
-        walking_lifecycle_hydration_ul,
-        walking_build.input_mass_mg,
-        1_u8,
-    );
     SettlementPowerPlan {
-        choice: if treadle_key <= walking_key {
-            SettlementPowerChoice::Treadle
-        } else {
+        choice: if settlement_walking_clears_attention_return(
+            treadle_lifecycle_attention,
+            walking_lifecycle_attention,
+            minimum_attention_return_ticks,
+        ) {
             SettlementPowerChoice::WalkingWheel
+        } else {
+            SettlementPowerChoice::Treadle
         },
         capacity_nj,
         declared_work_nj,
@@ -272,6 +268,7 @@ pub(super) fn settlement_power_plan(
         walking_lifecycle_hydration_ul,
         treadle_lifecycle_condition: treadle_lifecycle.condition_after,
         walking_lifecycle_condition: walking_lifecycle.condition_after,
+        minimum_attention_return_ticks,
         decision_crossover_charges,
     }
 }
