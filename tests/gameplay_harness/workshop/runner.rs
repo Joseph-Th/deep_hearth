@@ -239,10 +239,10 @@ enum BatchSelection {
 }
 
 struct BatchSelectionContext<'a> {
-    variation: ScenarioVariation,
+    policy: ScenarioPolicyVariation,
+    nominal_batch_mass: Mass,
     state: &'a mut AppState,
     ids: WorkshopIds,
-    delivery_authorization: &'a mut Option<ControlledMaterialDelivery>,
     thresholds: deep_hearth::maintenance::MaintenanceThresholds,
     current_support: &'a mut StructuralElementId,
     alternate_support: &'a mut StructuralElementId,
@@ -270,6 +270,7 @@ fn manual_recovery_adaptation_reason(constraint: Option<ManualRecoveryConstraint
 fn attempt_manual_recovery(
     registries: &Registries,
     context: &mut BatchSelectionContext<'_>,
+    controller: &mut ControlledDeliveryRuntime<'_>,
     planned_mass: Mass,
 ) -> PreBatchTransition {
     match largest_manual_recovery(
@@ -277,7 +278,7 @@ fn attempt_manual_recovery(
         &*context.state,
         context.ids,
         planned_mass,
-        context.variation.policy.energy_recovery_preference,
+        context.policy.energy_recovery_preference,
     ) {
         ManualRecoverySearch::Available {
             mass,
@@ -292,13 +293,9 @@ fn attempt_manual_recovery(
                     mass.milligrams(),
                 );
             }
-            let mut controller = ControlledDeliveryRuntime {
-                delivery: context.variation.delivery,
-                authorization: &mut *context.delivery_authorization,
-            };
             let mut actor = ScenarioActorRuntime::new(
-                context.variation.policy,
-                context.variation.ore.nominal_batch_mass,
+                context.policy,
+                context.nominal_batch_mass,
                 &mut *context.current_support,
                 &mut *context.alternate_support,
                 ScenarioActorReport {
@@ -313,7 +310,7 @@ fn attempt_manual_recovery(
                 &mut *context.state,
                 context.ids,
                 *option,
-                &mut controller,
+                controller,
                 &mut actor,
             );
             if context.report.structure.structural_stop {
@@ -401,7 +398,7 @@ fn choose_powered_batch(
         large,
         CrushChoiceContext {
             thresholds: context.thresholds,
-            preference: context.variation.policy.power_preference,
+            preference: context.policy.power_preference,
         },
     );
     SelectedBatch {
@@ -420,11 +417,9 @@ fn choose_powered_batch(
 fn select_next_batch(
     registries: &Registries,
     mut context: BatchSelectionContext<'_>,
+    controller: &mut ControlledDeliveryRuntime<'_>,
+    transition_budget: u64,
 ) -> BatchSelection {
-    let transition_budget = u64::from(context.variation.crusher.maintenance_replacement_units)
-        .checked_add(3)
-        .unwrap_or_else(|| panic!("workshop pre-batch transition budget overflowed"));
-
     for _ in 0..transition_budget {
         if matches!(
             context.state.player_work().active(),
@@ -453,7 +448,7 @@ fn select_next_batch(
         let planned_mass = Mass::from_milligrams(
             remaining
                 .milligrams()
-                .min(context.variation.ore.nominal_batch_mass.milligrams()),
+                .min(context.nominal_batch_mass.milligrams()),
         );
         match largest_safe_powered_crush_batch(
             registries,
@@ -479,7 +474,7 @@ fn select_next_batch(
                 }
             }
             CrushBatchSearch::EnergyUnavailable => {
-                match attempt_manual_recovery(registries, &mut context, planned_mass) {
+                match attempt_manual_recovery(registries, &mut context, controller, planned_mass) {
                     PreBatchTransition::Retry => continue,
                     PreBatchTransition::Stop => return BatchSelection::Stop,
                     PreBatchTransition::Proceed => {
@@ -496,18 +491,27 @@ fn select_next_batch(
 }
 
 fn select_episode_batch(registries: &Registries, episode: &mut WorkshopEpisode) -> BatchSelection {
+    let transition_budget = u64::from(episode.variation.crusher.maintenance_replacement_units)
+        .checked_add(3)
+        .unwrap_or_else(|| panic!("workshop pre-batch transition budget overflowed"));
+    let mut controller = ControlledDeliveryRuntime {
+        delivery: episode.variation.delivery,
+        authorization: &mut episode.delivery_authorization,
+    };
     select_next_batch(
         registries,
         BatchSelectionContext {
-            variation: episode.variation,
+            policy: episode.variation.policy,
+            nominal_batch_mass: episode.variation.ore.nominal_batch_mass,
             state: &mut episode.state,
             ids: episode.ids,
-            delivery_authorization: &mut episode.delivery_authorization,
             thresholds: episode.thresholds,
             current_support: &mut episode.current_support,
             alternate_support: &mut episode.alternate_support,
             report: &mut episode.report,
         },
+        &mut controller,
+        transition_budget,
     )
 }
 
@@ -935,7 +939,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         );
         if verbose {
             std::println!(
-                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup ordinary-frontier-capability=LIBERATION-FRONTIER-CAPABILITY controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-deterministic-regressions explicit-replay=optional-bounded-variation exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+POWER-PROVIDER-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+                "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup ordinary-frontier-capability=LIBERATION-FRONTIER-CAPABILITY controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,deposit-hardness,future-controlled-event] routine-gates=maintained-witnesses+one-bounded-organic-case explicit-replay=roots-on-gates+audits+reports exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+WOODWORKING-EXPERIENCE+FIELDWORK-EXPERIENCE+POWER-PROVIDER-EXPERIENCE+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
             );
         }
     }

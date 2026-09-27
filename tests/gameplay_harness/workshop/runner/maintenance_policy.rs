@@ -29,8 +29,7 @@ pub(super) fn handle_pre_batch_maintenance(
         );
     }
     if band == MaintenanceBand::Warning
-        && context.variation.policy.maintenance_preference
-            == MaintenancePreference::ServiceAtWarning
+        && context.policy.maintenance_preference == MaintenancePreference::ServiceAtWarning
         && !context.report.maintenance.supply_exhausted
         && !defer_warning
     {
@@ -140,7 +139,7 @@ pub(super) fn warning_demand_plan(
         .get_equipment(context.ids.crusher)
         .unwrap_or_else(|| panic!("workshop crusher disappeared"))
         .condition();
-    if context.variation.policy.maintenance_preference != MaintenancePreference::ServiceAtWarning
+    if context.policy.maintenance_preference != MaintenancePreference::ServiceAtWarning
         || context.thresholds.classify(condition) != MaintenanceBand::Warning
     {
         return WarningDemandPlan::EvaluateMaintenance;
@@ -181,7 +180,7 @@ pub(super) fn warning_demand_plan(
         return WarningDemandPlan::EvaluateMaintenance;
     }
 
-    let planned_mass = std::cmp::min(remaining, context.variation.ore.nominal_batch_mass);
+    let planned_mass = std::cmp::min(remaining, context.nominal_batch_mass);
     let plan = match largest_safe_powered_crush_batch(
         registries,
         context.state,
@@ -207,7 +206,7 @@ pub(super) fn warning_demand_plan(
         plan.large,
         CrushChoiceContext {
             thresholds: context.thresholds,
-            preference: context.variation.policy.power_preference,
+            preference: context.policy.power_preference,
         },
     );
     let duration = option.resolved.process_resolution().duration();
