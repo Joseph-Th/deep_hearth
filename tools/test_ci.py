@@ -1292,8 +1292,9 @@ class LocalCiPlanTests(unittest.TestCase):
             )
         self.assertTrue(all(name.startswith(prefixes) for name in contracts))
         self.assertLess(
-            run_test.target_source_weight(ci.GAMEPLAY_TARGETS["settlement"], None),
             run_test.target_source_weight(OWNER_CONTRACT_TARGETS["settlement"], None),
+            run_test.target_source_weight(ci.GAMEPLAY_TARGETS["settlement"], None),
+            "owner contracts must remain narrower than the play-like settlement-to-foundry scope",
         )
 
     def test_gameplay_replay_summary_is_compact_for_focused_and_workshop_runs(self) -> None:
@@ -2205,7 +2206,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "LIBERATION KIT ACQUISITION seed=0x1 scope=raw-stone+logs->adze+reusable-base-processing-kit raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign=8batches workload-known-before-build=true raw=[stone:8000000mg wood:15400000mg total:23400000mg] built=[adze:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:404t body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
             "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
             "LIBERATION FRONTIER CAPABILITY seed=0x1 sample=anchor cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
-            "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-copper-recovery-decision upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:12000000mg wood:12000000mg native:160000mg scrap:20000mg] immediate-choice=[order:20000mg direct-native:40t reinforcement:20000mg selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] recovery-choice=[order:20000mg source:scrap-only cold-rework:50t reinforcement:18000mg chips:2000mg recovery:900000ppm shortfall:2000mg selection:foundry reason=cold-rework-cannot-satisfy-disclosed-order] foundry-build=true fabrication=1090t/65.4m dynamo-path=treadle-additive-upgrade electrical-charge=[35t 12300000000000nJ body:100nJ/20uL] melt=[35t 2.1m feed:scrap] cast=[18t 1.1m heat:12300000000000nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:15t] installed-recovery=[foundry-active:50t reinforcement:20000mg chips:0mg recovery:1000000ppm useful-gain:+2000mg required-gain:2000mg attention-delta:+0t] total=1168t/70.1m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=full-scrap-recovery",
+            "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode resource-opportunity=[stone:19200000mg wood:12000000mg native:280000mg] immediate-choice=[order:20000mg direct-native:40t reinforcement:20000mg selection:direct-native reason=cheap-current-order] bootstrap-choice=[remaining-native:260000mg foundry-capital:160000mg cast-ingots:80000mg required:240000mg shortfall:0mg selection:foundry reason=cast-ingot-stock-required-for-next-stage-mold] foundry-build=true fabrication=1090t/65.4m campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:212t autonomous:424t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] copper-after-bootstrap:20000mg total-player-attention:1270t total-elapsed:1694t/101.6m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-foundry",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
             "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
@@ -2239,7 +2240,7 @@ class LocalCiPlanTests(unittest.TestCase):
         concise_lines = concise.splitlines()
         self.assertLessEqual(
             len(concise_lines),
-            16,
+            17,
             "default gameplay digest must stay reviewable without pinning its exact section count",
         )
         self.assertLessEqual(max(map(len, concise_lines)), 900)
@@ -2252,6 +2253,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "GAMEPLAY probe=fieldwork ",
             "GAMEPLAY probe=power-provider ",
             "GAMEPLAY probe=settlement ",
+            "GAMEPLAY probe=foundry-bootstrap ",
             "GAMEPLAY probe=survival ",
             "GAMEPLAY loop ",
             "GAMEPLAY loop-investment ",
@@ -2289,7 +2291,11 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
         self.assertIn("cleanup-executed=1/1", concise)
         self.assertIn(
-            "first-foundry=[fresh-defer:1/1 scrap-choice:direct0/foundry1 orders:20..20g shortfall:2..2g cold:50..50t/90..90% builds:1/1 setup:1090..1090t installed:50..50t/100% gain:+2..2g/+0..+0t]",
+            "probe=foundry-bootstrap samples=1 choice=[build:1 defer:0] copper=[available:260..260g threshold:240..240g shortfall:0..0g]",
+            concise,
+        )
+        self.assertIn(
+            "mold=[20..20g->80..80g] rhythm=[cooldown:212..212t autonomous:424..424t]",
             concise,
         )
         self.assertNotIn("industrial-foundry-frontier=", concise)
@@ -2319,7 +2325,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "work-interlock=[serving-floor:n/a policy=[task-floor:0 working-reserve:0]",
             concise,
         )
-        self.assertIn("GAMEPLAY loop-investment thermal-bootstrap=[", concise)
+        self.assertIn("GAMEPLAY loop-investment thermal-bootstrap=1/1", concise)
         self.assertIn(
             "delegate=[mechanized-processing:1/1 settlement-orders:0/1 attention-saved:2041..2041t",
             concise,

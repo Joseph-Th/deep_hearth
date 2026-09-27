@@ -11,14 +11,6 @@ def _span(values: list[int], unit: str) -> str:
     return f"{min(values)}..{max(values)}{unit}" if values else "n/a"
 
 
-def _signed_span(values: list[int], unit: str) -> str:
-    return (
-        f"{min(values):+d}..{max(values):+d}{unit}"
-        if values
-        else "n/a"
-    )
-
-
 def _numeric_values(lines: list[str], pattern: str) -> list[int]:
     return [
         int(match.group(1))
@@ -95,44 +87,6 @@ def _frontier_evidence(lines: list[str]) -> tuple[str, str]:
         f"conversion-path-present:{sum('conversion-path:present' in line for line in frontier_lines)}/{count}]"
     )
     return frontier, f"{readiness} {energy_frontier}"
-
-
-def _first_foundry(lines: list[str]) -> str:
-    witnesses = [line for line in lines if line.startswith("FIRST FOUNDRY EXPERIENCE ")]
-    fabrication = _numeric_values(witnesses, r"\bfabrication=(\d+)t/")
-    direct_native = _numeric_values(witnesses, r"\bdirect-native:(\d+)t")
-    recovery_orders = _numeric_values(witnesses, r"\brecovery-choice=\[order:(\d+)mg")
-    cold_rework = _numeric_values(witnesses, r"\bcold-rework:(\d+)t")
-    cold_recovery = _numeric_values(witnesses, r"\brecovery:(\d+)ppm")
-    foundry_active = _numeric_values(witnesses, r"\bfoundry-active:(\d+)t")
-    attention_delta = [
-        int(match.group(1))
-        for line in witnesses
-        if (
-            match := re.search(r"\battention-delta:([+-]\d+)t", line)
-        )
-        is not None
-    ]
-    useful_gain = _numeric_values(witnesses, r"\buseful-gain:\+(\d+)mg")
-    immediate_deferred = sum(" immediate-choice=[" in line for line in witnesses)
-    direct_selected = sum(" selection:direct-rework " in line for line in witnesses)
-    foundry_selected = sum(" selection:foundry " in line for line in witnesses)
-    foundry_builds = sum(" foundry-build=true " in line for line in witnesses)
-    scarcity_shortfall = _numeric_values(witnesses, r"\bshortfall:(\d+)mg")
-    treadle_upgrade = sum(
-        " dynamo-path=treadle-additive-upgrade " in line for line in witnesses
-    )
-    return (
-        "first-foundry=["
-        f"fresh-defer:{immediate_deferred}/{len(witnesses)} "
-        f"scrap-choice:direct{direct_selected}/foundry{foundry_selected} "
-        f"orders:{scaled_span(recovery_orders, 1_000, 'g')} "
-        f"shortfall:{scaled_span(scarcity_shortfall, 1_000, 'g')} "
-        f"cold:{_span(cold_rework, 't')}/{scaled_span(cold_recovery, 10_000, '%')} "
-        f"builds:{foundry_builds}/{len(witnesses)} setup:{_span(fabrication, 't')} "
-        f"installed:{_span(foundry_active, 't')}/100% "
-        f"gain:+{scaled_span(useful_gain, 1_000, 'g')}/{_signed_span(attention_delta, 't')}]"
-    )
 
 
 def _kit_acquisition(lines: list[str]) -> str:
@@ -359,7 +313,6 @@ def liberation_summary(lines: list[str]) -> str | None:
         f"scavenger-marginal=[attention:{marginal_attention} native:{marginal_native}] "
         f"{_kit_acquisition(lines)} "
         f"{_kit_decision(lines)} "
-        f"{_first_foundry(lines)} "
         f"{_route_tradeoff(lines)} "
         f"conserved={sum('matter=conserved' in line for line in liberation)} "
         f"ordinary-loop=[concentrate-reachable:{len(liberation)}/{len(liberation)} "

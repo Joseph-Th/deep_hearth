@@ -1422,6 +1422,31 @@ fn first_foundry_content_forms_an_ordinary_electrical_casting_chain() {
         );
     }
 
+    let batch_mold = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD)
+        .unwrap_or_else(|| panic!("settlement batch mold disappeared"));
+    let batch_mold_upgrade = batch_mold
+        .upgrade_profile()
+        .unwrap_or_else(|| panic!("settlement batch mold lost first-foundry upgrade route"));
+    assert_eq!(batch_mold_upgrade.from(), EQUIPMENT_STONE_INGOT_MOLD);
+    assert!(
+        batch_mold_upgrade.additions().inputs().iter().any(|input| {
+            input.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
+                && input.mass() == Mass::from_milligrams(80_000)
+        }),
+        "settlement batch mold must consume four first-foundry copper ingots"
+    );
+    assert!(
+        batch_mold
+            .assembly_profile()
+            .is_some_and(|profile| profile.inputs().iter().any(|input| {
+                input.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
+                    && input.mass() == Mass::from_milligrams(80_000)
+            })),
+        "fresh settlement batch mold assembly must preserve the cast-ingot material bill"
+    );
+
     let electrical = registries
         .energy()
         .get_store(ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER)

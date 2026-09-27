@@ -7,6 +7,7 @@ import os
 from tools.gameplay_summary.common import compact_fields, field
 from tools.gameplay_summary.controlled import controlled_gameplay_summary
 from tools.gameplay_summary.fieldwork import fieldwork_summary
+from tools.gameplay_summary.foundry_bootstrap import foundry_bootstrap_summary
 from tools.gameplay_summary.liberation import liberation_summary
 from tools.gameplay_summary.loop import player_loop_evidence
 from tools.gameplay_summary.power import power_provider_summary
@@ -27,6 +28,7 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
         fieldwork_summary(lines),
         power_provider_summary(lines),
         settlement_summary(lines),
+        foundry_bootstrap_summary(lines),
         survival_summary(lines),
     ):
         if summary is not None:
@@ -54,7 +56,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "native-copper",
         "kit-acquisition",
         "kit-decision",
-        "first-foundry",
         "remaining-frontier",
     ),
     "woodworking": (
@@ -91,6 +92,14 @@ _ORDINARY_DIGEST_FIELDS = {
         "attention",
         "mechanization",
     ),
+    "foundry-bootstrap": (
+        "samples",
+        "choice",
+        "copper",
+        "mold",
+        "rhythm",
+        "attention",
+    ),
     "survival": (
         "samples",
         "sample-shape",
@@ -109,7 +118,7 @@ _EXPECTED_ORDINARY_BY_PROBE = {
     "woodworking": {"woodworking"},
     "fieldwork": {"fieldwork"},
     "power-provider": {"power-provider"},
-    "settlement": {"settlement"},
+    "settlement": {"settlement", "foundry-bootstrap"},
     "survival-provisioning": {"survival"},
 }
 _EXPECTED_CONTROLLED_BY_PROBE = {

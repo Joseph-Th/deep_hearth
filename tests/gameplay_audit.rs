@@ -86,6 +86,8 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
+#[path = "gameplay_harness/settlement_scope.rs"]
+mod settlement_scope;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/temporal.rs"]
@@ -165,7 +167,10 @@ fn gameplay_survival_provisioning_probe() {
 
 #[test]
 fn gameplay_settlement_probe() {
-    focused_runner::run_focused_probe("settlement", settlement_probe::run_settlement_probe);
+    focused_runner::run_focused_probe(
+        "settlement",
+        settlement_scope::run_settlement_progression_scope,
+    );
 }
 
 #[test]

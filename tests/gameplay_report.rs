@@ -97,6 +97,8 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
+#[path = "gameplay_harness/settlement_scope.rs"]
+mod settlement_scope;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/survival_probe.rs"]
@@ -193,7 +195,7 @@ fn main() -> ExitCode {
         run_focused_probe_with_registries(
             &registries,
             "settlement",
-            settlement_probe::run_settlement_probe,
+            settlement_scope::run_settlement_progression_scope,
             true,
             fallback_variation_root,
             fallback_behavior_root,

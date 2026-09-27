@@ -182,7 +182,8 @@ fn primitive_commodity_has_root_route(
     if !visiting.insert(commodity) {
         return false;
     }
-    let reachable = registries
+
+    let manual_route = registries
         .crafting()
         .definitions()
         .filter(|definition| {
@@ -194,8 +195,44 @@ fn primitive_commodity_has_root_route(
         .any(|producer| {
             primitive_commodity_has_root_route(registries, producer.input(), roots, visiting)
         });
+    let casting_route = !manual_route
+        && registries
+            .thermal()
+            .casting_definitions()
+            .filter(|definition| {
+                definition.material() == commodity.material()
+                    && definition.solid_form() == commodity.form()
+            })
+            .any(|producer| {
+                primitive_commodity_has_root_route(
+                    registries,
+                    CommodityKey::new(commodity.material(), producer.liquid_form()),
+                    roots,
+                    visiting,
+                )
+            });
+    let melting_route = !manual_route
+        && !casting_route
+        && registries
+            .thermal()
+            .melting_definitions()
+            .filter(|definition| {
+                definition.material() == commodity.material()
+                    && definition.liquid_form() == commodity.form()
+            })
+            .any(|producer| {
+                producer.solid_forms().iter().any(|form| {
+                    primitive_commodity_has_root_route(
+                        registries,
+                        CommodityKey::new(commodity.material(), *form),
+                        roots,
+                        visiting,
+                    )
+                })
+            });
+
     assert!(visiting.remove(&commodity));
-    reachable
+    manual_route || casting_route || melting_route
 }
 
 fn assert_primitive_commodity_reachable(
@@ -206,7 +243,7 @@ fn assert_primitive_commodity_reachable(
 ) {
     assert!(
         primitive_commodity_has_root_route(registries, commodity, roots, visiting),
-        "primitive component commodity {} must have at least one acyclic ordinary manual route from an authored primitive root",
+        "primitive component commodity {} must have at least one acyclic ordinary material route from an authored primitive root",
         commodity.value()
     );
 }

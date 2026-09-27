@@ -84,20 +84,11 @@ def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: in
 
 
 def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
-    direct_rework = sum(" selection:direct-rework " in line for line in first_foundry)
-    foundry_selected = sum(" selection:foundry " in line for line in first_foundry)
     foundry_builds = sum(" foundry-build=true " in line for line in first_foundry)
-    full_recovery = sum(
-        " continuation=full-scrap-recovery" in line for line in first_foundry
+    batch_foundry = sum(
+        " continuation=settlement-batch-foundry" in line for line in first_foundry
     )
-    no_active_penalty = sum(" attention-delta:+0t" in line for line in first_foundry)
-    return (
-        "thermal-bootstrap=["
-        f"choice:direct{direct_rework}/foundry{foundry_selected} "
-        f"builds:{foundry_builds}/{len(first_foundry)} "
-        f"full:{full_recovery}/{foundry_builds} "
-        f"active-parity:{no_active_penalty}/{foundry_builds}]"
-    )
+    return f"thermal-bootstrap={batch_foundry}/{foundry_builds}"
 
 
 def _reserve_knowledge_changed_plan(fieldwork: list[str]) -> int:

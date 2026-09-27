@@ -160,16 +160,21 @@ struct PrimitiveLiberationCampaignLifecycle {
     treadle_condition_ppm: u32,
 }
 
-fn run_powered_campaign_lifecycle(
-    registries: &Registries,
-    mut state: AppState,
-    batches: &[PrimitiveLiberationBootstrap],
+#[derive(Clone, Copy)]
+struct PrimitiveLiberationCampaignInfrastructure {
     crusher: EquipmentId,
     quern: EquipmentId,
     screen: EquipmentId,
     separator: EquipmentId,
     treadle: EquipmentId,
     drive: EnergyStoreId,
+}
+
+fn run_powered_campaign_lifecycle(
+    registries: &Registries,
+    mut state: AppState,
+    batches: &[PrimitiveLiberationBootstrap],
+    infrastructure: PrimitiveLiberationCampaignInfrastructure,
 ) -> PrimitiveLiberationCampaignLifecycle {
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("liberation campaign matter setup failed: {error}"))
@@ -203,12 +208,12 @@ fn run_powered_campaign_lifecycle(
             exhausted_tailings: bootstrap.exhausted_tailings,
             native_copper: bootstrap.native_copper,
             ore_lot: bootstrap.ore_lot,
-            crusher,
-            quern,
-            screen,
-            separator,
-            treadle,
-            drive,
+            crusher: infrastructure.crusher,
+            quern: infrastructure.quern,
+            screen: infrastructure.screen,
+            separator: infrastructure.separator,
+            treadle: infrastructure.treadle,
+            drive: infrastructure.drive,
         };
         let primary = primary::run(registries, &mut scenario);
         let scavenged = scavenging::run(registries, &mut scenario, &primary);
@@ -257,11 +262,11 @@ fn run_powered_campaign_lifecycle(
             .checked_sub(survival_after.hydration())
             .unwrap_or_else(|| panic!("liberation campaign hydration reserve increased"))
             .microliters(),
-        crusher_condition_ppm: condition(crusher),
-        quern_condition_ppm: condition(quern),
-        screen_condition_ppm: condition(screen),
-        separator_condition_ppm: condition(separator),
-        treadle_condition_ppm: condition(treadle),
+        crusher_condition_ppm: condition(infrastructure.crusher),
+        quern_condition_ppm: condition(infrastructure.quern),
+        screen_condition_ppm: condition(infrastructure.screen),
+        separator_condition_ppm: condition(infrastructure.separator),
+        treadle_condition_ppm: condition(infrastructure.treadle),
     }
 }
 
@@ -339,12 +344,14 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             registries,
             acquired.state.clone(),
             &campaign_bootstraps,
-            acquired.crusher,
-            acquired.quern,
-            acquired.screen,
-            acquired.separator,
-            acquired.treadle,
-            acquired.drive,
+            PrimitiveLiberationCampaignInfrastructure {
+                crusher: acquired.crusher,
+                quern: acquired.quern,
+                screen: acquired.screen,
+                separator: acquired.separator,
+                treadle: acquired.treadle,
+                drive: acquired.drive,
+            },
         );
         (
             acquired.state,

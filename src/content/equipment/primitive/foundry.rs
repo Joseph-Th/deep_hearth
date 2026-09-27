@@ -8,8 +8,8 @@ use crate::content::capabilities::{
 };
 use crate::content::crafted_parts::{COPPER_ELECTRICAL_WINDING_MASS, TIMBER_FLYWHEEL_MASS};
 use crate::content::materials::{
-    FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_LUMP, FORM_REINFORCEMENT,
-    FORM_STONE_CROCK_BODY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LUMP,
+    FORM_REINFORCEMENT, FORM_STONE_CROCK_BODY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use crate::core::quantity::{Mass, Power, Temperature};
 use crate::equipment::{EquipmentDefinition, EquipmentUpgradeProfile};
@@ -336,6 +336,10 @@ pub(super) fn stone_ingot_mold() -> EquipmentDefinition {
 }
 
 /// Four clamped stone cavities that accept one settlement-scale copper casting batch.
+///
+/// The copper clamps are standardized cast stock rather than ordinary hammered reinforcement.
+/// Expanding casting capacity therefore requires output from the first foundry instead of another
+/// cold-worked reinforcement sink.
 pub(super) fn four_cavity_stone_ingot_mold() -> EquipmentDefinition {
     assembled_definition_with_condition_curves(
         EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
@@ -350,7 +354,7 @@ pub(super) fn four_cavity_stone_ingot_mold() -> EquipmentDefinition {
                 Mass::from_milligrams(7_200_000),
             ),
             MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
                 Mass::from_milligrams(80_000),
             ),
         ]),
@@ -387,7 +391,7 @@ pub(super) fn four_cavity_stone_ingot_mold() -> EquipmentDefinition {
                 Mass::from_milligrams(7_200_000),
             ),
             MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
                 Mass::from_milligrams(80_000),
             ),
         ]),
