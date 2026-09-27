@@ -1,24 +1,23 @@
-//! Focused industrial-workshop gameplay target for the fast edit/test loop.
+//! Industrial-workshop contracts isolated from the scenario gate binary for fast exact reruns.
 
-#[cfg(not(test))]
-#[path = "gameplay_harness/agency.rs"]
-mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
-#[cfg(not(test))]
-#[path = "gameplay_harness/catalog.rs"]
-mod catalog;
+#[allow(
+    dead_code,
+    reason = "contract target reuses scenario configuration without the report/gate entrypoints"
+)]
 #[path = "gameplay_harness/configuration.rs"]
 mod configuration;
+#[allow(
+    dead_code,
+    reason = "contract target exercises only the workshop contract subset of shared assertions"
+)]
 #[path = "gameplay_harness/contracts.rs"]
 mod contracts;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
-#[cfg(not(test))]
-#[path = "gameplay_harness/fresh_seed.rs"]
-mod fresh_seed;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]
@@ -29,14 +28,19 @@ mod maintenance_timing;
 mod manual_power_timing;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
-#[cfg(not(test))]
-pub(super) use crate::output;
-#[cfg(test)]
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
+#[allow(
+    dead_code,
+    reason = "contract target needs report data types but does not render gameplay reports"
+)]
 #[path = "gameplay_harness/report.rs"]
 mod report;
+#[allow(
+    dead_code,
+    reason = "contract target constructs selected scenario variants without the full runner"
+)]
 #[path = "gameplay_harness/scenario.rs"]
 mod scenario;
 #[path = "gameplay_harness/seed.rs"]
@@ -49,34 +53,12 @@ mod structural_fixture;
 mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-
+#[allow(
+    dead_code,
+    reason = "contract tests call selected workshop internals without the public gate entrypoint"
+)]
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
 
-#[cfg(test)]
-#[test]
-fn gameplay_harness_gate() {
-    workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Gate);
-}
-
-#[cfg(not(test))]
-pub(super) fn run_report() {
-    let mut arguments = std::env::args().skip(1);
-    let mode = arguments.next();
-    if let Some(extra) = arguments.next() {
-        eprintln!("gameplay-workshop-report: unexpected extra argument {extra:?}");
-        std::process::exit(2);
-    }
-    match mode.as_deref() {
-        None | Some("workshop") => {
-            workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Explore);
-        }
-        Some("agency") => agency::run_exploratory_agency_counterfactuals(),
-        Some(mode) => {
-            eprintln!(
-                "gameplay-workshop-report: unknown mode {mode:?}; expected workshop or agency"
-            );
-            std::process::exit(2);
-        }
-    }
-}
+#[path = "gameplay_harness/workshop_contract_tests.rs"]
+mod workshop_contract_tests;

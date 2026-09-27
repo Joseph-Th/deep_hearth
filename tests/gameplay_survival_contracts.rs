@@ -1,4 +1,4 @@
-//! Focused survival gameplay target for the fast edit/test loop.
+//! Survival gameplay contracts isolated from the play-like probe binary for fast exact reruns.
 
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
@@ -8,6 +8,10 @@ mod output;
 mod direct_consumption_timing;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
+#[allow(
+    dead_code,
+    reason = "survival contracts reuse focused case types without invoking the probe runner"
+)]
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
@@ -28,6 +32,11 @@ mod prospecting_timing;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[allow(
+    dead_code,
+    unused_imports,
+    reason = "survival contracts exercise selected probe planning helpers without the full episode"
+)]
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
 #[path = "gameplay_harness/temporal.rs"]
@@ -37,20 +46,5 @@ mod tick_observation;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
 
-#[cfg(test)]
-#[test]
-fn gameplay_survival_provisioning_probe() {
-    focused_runner::run_focused_probe(
-        "survival-provisioning",
-        survival_probe::run_survival_provisioning_probe,
-    );
-}
-
-#[test]
-#[ignore = "exploratory report; run via python ci.py report --scope survival"]
-fn gameplay_survival_provisioning_report() {
-    focused_runner::run_focused_report(
-        "survival-provisioning",
-        survival_probe::run_survival_provisioning_probe,
-    );
-}
+#[path = "gameplay_harness/survival_contract_tests.rs"]
+mod survival_contract_tests;

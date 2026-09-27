@@ -4,6 +4,8 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
+#[path = "gameplay_harness/capital_investment_policy.rs"]
+mod capital_investment_policy;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/focused_runner.rs"]
@@ -28,16 +30,8 @@ mod production_timing;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
-#[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
-mod settlement_drill_contract_tests;
-#[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
-mod settlement_helve_contract_tests;
-#[path = "gameplay_harness/settlement_machine_contract_tests.rs"]
-mod settlement_machine_contract_tests;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
-#[path = "gameplay_harness/settlement_wire_contract_tests.rs"]
-mod settlement_wire_contract_tests;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 #[path = "gameplay_harness/world_admission.rs"]

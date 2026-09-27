@@ -32,6 +32,16 @@ from tools import (  # noqa: E402
 _source_text_cache: dict[Path, str] = {}
 _maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
 
+OWNER_CONTRACT_TARGETS = {
+    "workshop": "gameplay_workshop_contracts",
+    "survival": "gameplay_survival_contracts",
+    "progression": "gameplay_progression_contracts",
+    "settlement": "gameplay_settlement_contracts",
+    "woodworking": "gameplay_woodworking_contracts",
+    "fieldwork": "gameplay_fieldwork_contracts",
+    "foundry": "gameplay_foundry_contracts",
+}
+
 
 def read_maintained_text(path: Path) -> str:
     """Return cached source text; the working tree is static during one contract run."""
@@ -1130,7 +1140,7 @@ class LocalCiPlanTests(unittest.TestCase):
         )
 
     def test_focused_gameplay_scopes_use_separate_targets_with_one_library_feature_shape(self) -> None:
-        self.assertEqual(set(ci.GAMEPLAY_TARGETS) - {"settlement"}, set(ci.GAMEPLAY_TESTS))
+        self.assertEqual(set(ci.GAMEPLAY_TARGETS), set(ci.GAMEPLAY_TESTS))
         self.assertEqual(len(set(ci.GAMEPLAY_TARGETS.values())), len(ci.GAMEPLAY_TARGETS))
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         definitions = {definition["name"]: definition for definition in manifest.get("test", [])}
@@ -1138,11 +1148,8 @@ class LocalCiPlanTests(unittest.TestCase):
             command = ci.gameplay_command(scope)
             self.assertEqual(cargo_test_targets(command), [target])
             self.assertIn("test-gameplay", command)
-            if test_name := ci.GAMEPLAY_TESTS.get(scope):
-                self.assertIn(test_name, command)
-                self.assertIn("--exact", command)
-            else:
-                self.assertNotIn("--exact", command)
+            self.assertIn(ci.GAMEPLAY_TESTS[scope], command)
+            self.assertIn("--exact", command)
             self.assertNotIn("--nocapture", command)
             self.assertEqual(definitions[target].get("required-features"), ["test-gameplay"])
         self.assertEqual(
@@ -1189,7 +1196,13 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_routine_gameplay_targets_do_not_compile_fresh_seed_generation(self) -> None:
         fresh_seed = (ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs").resolve()
-        for target in (*ci.GAMEPLAY_TARGETS.values(), ci.GAMEPLAY_AUDIT_TARGET):
+        routine_targets = (
+            *ci.GAMEPLAY_TARGETS.values(),
+            *OWNER_CONTRACT_TARGETS.values(),
+            ci.GAMEPLAY_CONTRACTS_TARGET,
+            ci.GAMEPLAY_AUDIT_TARGET,
+        )
+        for target in routine_targets:
             root = run_test.cargo_test_target_path(target)
             features = run_test.cargo_feature_set(target, None)
             reachable = {
@@ -1206,7 +1219,7 @@ class LocalCiPlanTests(unittest.TestCase):
         report = ROOT / "tests" / "gameplay_report.rs"
         self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
 
-    def test_each_focused_gameplay_target_compiles_only_owner_local_tests(self) -> None:
+    def test_each_focused_gameplay_target_keeps_owner_contract_suites_out_of_probe_builds(self) -> None:
         probe_modules = {
             "workshop": "workshop",
             "survival": "survival_probe",
@@ -1217,7 +1230,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "ore": "ore_probe",
             "foundry": "foundry_probe",
         }
-        owner_contract_prefixes = {
+        split_contract_prefixes = {
             "workshop": ("workshop_contract_tests::",),
             "survival": ("survival_contract_tests::",),
             "progression": ("progression_contract_tests::",),
@@ -1226,7 +1239,6 @@ class LocalCiPlanTests(unittest.TestCase):
                 "woodworking_contract_tests::",
             ),
             "fieldwork": ("prospecting_instrument_contract_tests::",),
-            "ore": ("ore_contract_tests::",),
             "foundry": ("foundry_contract_tests::",),
         }
         for scope, target in (
@@ -1238,12 +1250,17 @@ class LocalCiPlanTests(unittest.TestCase):
             allowed_root_tests = {gate}
             if report_test := ci.FOCUSED_REPORT_TESTS.get(scope):
                 allowed_root_tests.add(report_test)
+            for prefix in split_contract_prefixes.get(scope, ()):
+                self.assertFalse(
+                    any(name.startswith(prefix) for name in tests),
+                    f"focused gameplay target {scope} must not compile owner contract suite {prefix}",
+                )
             unrelated = [
                 name
                 for name in tests
                 if name not in allowed_root_tests
                 and not name.startswith(f"{probe_modules[scope]}::")
-                and not name.startswith(owner_contract_prefixes.get(scope, ()))
+                and not (scope == "ore" and name.startswith("ore_contract_tests::"))
             ]
             self.assertEqual(
                 unrelated,
@@ -1251,30 +1268,32 @@ class LocalCiPlanTests(unittest.TestCase):
                 f"focused gameplay target {scope} must not compile unrelated tests",
             )
 
-    def test_settlement_target_contains_only_settlement_investment_contracts_and_probe(self) -> None:
-        catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
+    def test_settlement_probe_and_contract_targets_are_separate(self) -> None:
+        focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
+        contracts = run_test.source_test_catalog(OWNER_CONTRACT_TARGETS["settlement"], None)
         prefixes = (
             "settlement_drill_contract_tests::",
             "settlement_helve_contract_tests::",
             "settlement_machine_contract_tests::",
             "settlement_wire_contract_tests::",
         )
-        self.assertTrue(catalog)
         expected_probe_names = {"gameplay_settlement_probe", "gameplay_settlement_report"}
-        self.assertTrue(
-            all(name.startswith(prefixes) or name in expected_probe_names for name in catalog)
-        )
-        self.assertTrue(expected_probe_names.issubset(catalog))
+        self.assertEqual(set(focused), expected_probe_names)
         for prefix in prefixes:
             self.assertTrue(
-                any(name.startswith(prefix) for name in catalog),
-                f"settlement target lost contract owner {prefix.removesuffix('::')}",
+                any(name.startswith(prefix) for name in contracts),
+                f"settlement contract target lost owner {prefix.removesuffix('::')}",
             )
+        self.assertTrue(all(name.startswith(prefixes) for name in contracts))
+        self.assertLess(
+            run_test.target_source_weight(ci.GAMEPLAY_TARGETS["settlement"], None),
+            run_test.target_source_weight(OWNER_CONTRACT_TARGETS["settlement"], None),
+        )
 
     def test_gameplay_replay_summary_is_compact_for_focused_and_workshop_runs(self) -> None:
         self.assertEqual(
             ci.gameplay_replay_summary(
-                "PROBE INPUT name=survival-provisioning mode=gate samples=2 organic=1 "
+                "PROBE INPUT name=survival-provisioning mode=explore samples=2 organic=1 "
                 "world_root=0x111 behavior_root=0x222 "
                 "replay=anchor:0xA@0x1,organic:0xC@0x3\n"
             ),
@@ -1283,7 +1302,7 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "PROBE INPUT name=survival-provisioning mode=gate samples=3 organic=0 "
-                "world_root=0xE7A10A7E5EED2026 behavior_root=0xE7A10A7E5EED2026 "
+                "world_root=n/a behavior_root=maintained "
                 "replay=anchor:0xA@0x1,coverage:0xB@0x2,coverage:0xC@0x3\n"
             ),
             "maintained=3",
@@ -1318,6 +1337,21 @@ class LocalCiPlanTests(unittest.TestCase):
             "custom=2",
         )
         self.assertIsNone(ci.gameplay_replay_summary("test result: ok. 1 passed"))
+
+    def test_focused_and_owner_contract_targets_stay_below_broad_audit_surface(self) -> None:
+        audit_weight = run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None)
+        targets = {
+            *ci.GAMEPLAY_TARGETS.values(),
+            ci.GAMEPLAY_CONTRACTS_TARGET,
+            *OWNER_CONTRACT_TARGETS.values(),
+        }
+        for target in targets:
+            with self.subTest(target=target):
+                self.assertLess(
+                    run_test.target_source_weight(target, None),
+                    audit_weight,
+                    f"{target} stopped being a bounded iteration surface",
+                )
 
     def test_gate_rejects_complete_core_suite_as_a_repair_loop(self) -> None:
         with self.assertRaisesRegex(ValueError, "audit-only"):
@@ -1399,27 +1433,24 @@ class LocalCiPlanTests(unittest.TestCase):
             "python ci.py gate --gameplay workshop",
         )
 
-    def test_gameplay_failure_without_test_name_preserves_fresh_replay_roots(self) -> None:
+    def test_gameplay_failure_without_test_name_reuses_deterministic_scope(self) -> None:
         output = (
-            "PROBE INPUT name=woodworking mode=gate samples=9 organic=1 "
-            "world_root=0xAAAA behavior_root=0xBBBB "
-            "replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+            "PROBE INPUT name=woodworking mode=gate samples=8 organic=0 "
+            "world_root=n/a behavior_root=maintained replay=anchor:0x1@0x2\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("woodworking"), output, ""),
-            "python ci.py gate --gameplay woodworking "
-            "--variation-seed 0xAAAA --behavior-seed 0xBBBB",
+            "python ci.py gate --gameplay woodworking",
         )
 
-    def test_broad_gameplay_failure_without_test_name_preserves_fresh_replay_roots(self) -> None:
+    def test_broad_gameplay_failure_without_test_name_reuses_deterministic_audit(self) -> None:
         output = (
-            "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
-            "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
+            "HARNESS INPUT plan=maintained anchors=7 variation=0 custom=0 "
+            "world_root=n/a behavior_root=maintained replay=0x1@0x2\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, ""),
-            "python ci.py audit --gameplay "
-            "--variation-seed 0xAAAA --behavior-seed 0xBBBB",
+            "python ci.py audit --gameplay",
         )
 
     def test_focused_gameplay_failure_points_to_exact_small_target(self) -> None:
@@ -1458,37 +1489,37 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_broad_focused_failure_stays_on_the_warm_audit_target(self) -> None:
         output = (
-            "PROBE INPUT name=ore-preparation mode=gate samples=3 organic=1 "
-            "world_root=0x1234 behavior_root=n/a replay=anchor:0x1,organic:0x2\n"
+            "PROBE INPUT name=ore-preparation mode=gate samples=2 organic=0 "
+            "world_root=n/a behavior_root=n/a replay=anchor:0x1,coverage:0x2\n"
             "failures:\n    gameplay_ore_preparation_probe\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit --variation-seed 0x1234 gameplay_ore_preparation_probe",
+            "python tools/run_test.py --target gameplay_audit gameplay_ore_preparation_probe",
         )
 
     def test_agency_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
-            "AGENCY INPUT mode=gate organic=1 variation_root=0x24311DCEB06D58AE\n"
+            "AGENCY INPUT mode=gate organic=0 variation_root=n/a\n"
             "failures:\n    agency::gameplay_agency_counterfactuals\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit --variation-seed 0x24311DCEB06D58AE agency::gameplay_agency_counterfactuals",
+            "python tools/run_test.py --target gameplay_audit agency::gameplay_agency_counterfactuals",
         )
 
-    def test_workshop_failure_preserves_both_replay_roots(self) -> None:
+    def test_workshop_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
-            "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
-            "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
+            "HARNESS INPUT plan=maintained anchors=7 variation=0 custom=0 "
+            "world_root=n/a behavior_root=maintained replay=0x1@0x2\n"
             "failures:\n    gameplay_harness_gate\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA --behavior-seed 0xBBBB gameplay_harness_gate",
+            "python tools/run_test.py --target gameplay_audit gameplay_harness_gate",
         )
 
     def test_process_catalog_failure_reuses_the_warm_audit_target(self) -> None:
@@ -1554,17 +1585,15 @@ class LocalCiPlanTests(unittest.TestCase):
             "python ci.py audit --gameplay",
         )
 
-    def test_unknown_gameplay_failure_preserves_available_replay_roots(self) -> None:
+    def test_unknown_gameplay_failure_keeps_deterministic_broad_repair(self) -> None:
         output = (
-            "PROBE INPUT name=woodworking mode=gate samples=9 organic=1 "
-            "world_root=0xAAAA behavior_root=0xBBBB "
-            "replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+            "PROBE INPUT name=woodworking mode=gate samples=8 organic=0 "
+            "world_root=n/a behavior_root=maintained replay=anchor:0x1@0x2\n"
             "failures:\n    future_contracts::new_global_check\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, ""),
-            "python ci.py audit --gameplay "
-            "--variation-seed 0xAAAA --behavior-seed 0xBBBB",
+            "python ci.py audit --gameplay",
         )
 
     def test_integration_exact_command_infers_target_required_features(self) -> None:
@@ -1851,94 +1880,34 @@ class LocalCiPlanTests(unittest.TestCase):
             ("0x0000000000000099", "unused"),
         )
 
-    def test_fresh_gameplay_variation_covers_repository_owned_playlike_runs(self) -> None:
-        self.assertTrue(ci.uses_fresh_gameplay_variation(ci.parse_args(["report"])))
+    def test_gameplay_variation_policy_is_exploration_only(self) -> None:
+        self.assertIs(
+            ci.gameplay_variation_behavior(
+                ci.parse_args(["report", "--scope", "fieldwork"])
+            ),
+            False,
+        )
+        self.assertIs(
+            ci.gameplay_variation_behavior(
+                ci.parse_args(["report", "--scope", "woodworking"])
+            ),
+            True,
+        )
         for argv in (
             ["gate", "--gameplay", "survival"],
             ["gate", "--gameplay", "progression"],
             ["gate", "--gameplay", "workshop"],
-            ["gate", "--gameplay", "settlement"],
             ["audit", "--gameplay"],
             ["audit", "--all"],
         ):
             with self.subTest(argv=argv):
-                self.assertTrue(ci.uses_fresh_gameplay_variation(ci.parse_args(argv)))
+                self.assertIsNone(ci.gameplay_variation_behavior(ci.parse_args(argv)))
+
+    def test_gameplay_gate_and_audit_reject_exploration_roots(self) -> None:
         for argv in (
-            ["quick"],
-            ["gate"],
-            ["gate", "--gameplay", "contracts"],
-            ["audit", "--core"],
-            ["gate", "--lint"],
-        ):
-            with self.subTest(argv=argv):
-                self.assertFalse(ci.uses_fresh_gameplay_variation(ci.parse_args(argv)))
-
-    def test_gameplay_variation_policy_separates_world_and_behavior_roots(self) -> None:
-        self.assertIs(
-            ci.gameplay_variation_behavior(
-                ci.parse_args(["gate", "--gameplay", "progression"])
-            ),
-            False,
-        )
-        self.assertIs(
-            ci.gameplay_variation_behavior(
-                ci.parse_args(["gate", "--gameplay", "fieldwork"])
-            ),
-            False,
-        )
-        self.assertIs(
-            ci.gameplay_variation_behavior(
-                ci.parse_args(["gate", "--gameplay", "survival"])
-            ),
-            True,
-        )
-        self.assertIs(
-            ci.gameplay_variation_behavior(
-                ci.parse_args(["gate", "--gameplay", "woodworking"])
-            ),
-            True,
-        )
-        self.assertIs(
-            ci.gameplay_variation_behavior(
-                ci.parse_args(["gate", "--gameplay", "workshop"])
-            ),
-            True,
-        )
-        self.assertIs(
-            ci.gameplay_variation_behavior(ci.parse_args(["audit", "--gameplay"])),
-            True,
-        )
-        self.assertIsNone(
-            ci.gameplay_variation_behavior(
-                ci.parse_args(["gate", "--gameplay", "contracts"])
-            )
-        )
-
-    def test_gameplay_gate_and_audit_accept_replay_roots_only_when_consumed(self) -> None:
-        progression = ci.parse_args(
-            [
-                "gate",
-                "--gameplay",
-                "progression",
-                "--variation-seed",
-                "0x2A",
-            ]
-        )
-        self.assertEqual(progression.variation_seed, "0x000000000000002A")
-        with (
-            contextlib.redirect_stderr(io.StringIO()),
-            self.assertRaises(SystemExit),
-        ):
-            ci.parse_args(
-                [
-                    "gate",
-                    "--gameplay",
-                    "progression",
-                    "--behavior-seed",
-                    "0x2A",
-                ]
-            )
-        audit = ci.parse_args(
+            ["gate", "--gameplay", "progression", "--variation-seed", "0x2A"],
+            ["gate", "--gameplay", "survival", "--behavior-seed", "0x2A"],
+            ["gate", "--gameplay", "contracts", "--variation-seed", "0x2A"],
             [
                 "audit",
                 "--gameplay",
@@ -1946,37 +1915,47 @@ class LocalCiPlanTests(unittest.TestCase):
                 "0x2A",
                 "--behavior-seed",
                 "0x2B",
-            ]
-        )
-        self.assertEqual(audit.variation_seed, "0x000000000000002A")
-        self.assertEqual(audit.behavior_seed, "0x000000000000002B")
-        with (
-            contextlib.redirect_stderr(io.StringIO()),
-            self.assertRaises(SystemExit),
+            ],
         ):
-            ci.parse_args(
-                [
-                    "gate",
-                    "--gameplay",
-                    "contracts",
-                    "--variation-seed",
-                    "0x2A",
-                ]
-            )
+            with self.subTest(argv=argv):
+                with (
+                    contextlib.redirect_stderr(io.StringIO()),
+                    self.assertRaises(SystemExit),
+                ):
+                    ci.parse_args(argv)
 
-    def test_successful_gameplay_stage_can_report_environment_replay_roots(self) -> None:
+    def test_deterministic_gameplay_verification_clears_ambient_seed_state(self) -> None:
+        for argv in (
+            ["gate", "--gameplay", "survival"],
+            ["gate", "--gameplay", "contracts"],
+            ["audit", "--gameplay"],
+            ["audit", "--all"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertTrue(
+                    ci.runs_deterministic_gameplay_verification(ci.parse_args(argv))
+                )
+
+        environment = {
+            "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
+            "KEEP": "yes",
+        }
+        ci.clear_gameplay_seed_environment(environment)
+        self.assertEqual(environment, {"KEEP": "yes"})
+
+    def test_only_reports_surface_environment_replay_roots(self) -> None:
         environment = {
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
         }
         self.assertEqual(
-            ci.gameplay_environment_summary("gameplay progression", environment),
+            ci.gameplay_environment_summary("gameplay report progression", environment),
             "roots=0xAAAA/0xBBBB",
         )
-        self.assertEqual(
-            ci.gameplay_environment_summary("gameplay", environment),
-            "roots=0xAAAA/0xBBBB",
-        )
+        self.assertIsNone(ci.gameplay_environment_summary("gameplay progression", environment))
+        self.assertIsNone(ci.gameplay_environment_summary("gameplay", environment))
         self.assertIsNone(ci.gameplay_environment_summary("core", environment))
         self.assertIsNone(ci.gameplay_environment_summary("gameplay contracts", environment))
         self.assertIsNone(ci.gameplay_environment_summary("compile", environment))
@@ -2434,6 +2413,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
                 *ci.GAMEPLAY_TARGETS.values(),
+                *OWNER_CONTRACT_TARGETS.values(),
             },
         )
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
@@ -2685,21 +2665,21 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_execution_card_checker_requires_portfolio_profiles_and_bca_policy(self) -> None:
         valid = {
             "AGENTS.md": (
-                "**Applicable profiles:** Universal; Stateful Application; Deterministic System; "
+                "**Profiles:** Universal, Stateful Application, Deterministic System, "
                 "Automated Behavior Evaluation\n**BCA policy:** ratchet\n"
             )
         }
         self.assertEqual(check_authority_docs.check_execution_card(valid), [])
 
         missing_profile = {
-            "AGENTS.md": "**Applicable profiles:** Universal\n**BCA policy:** ratchet\n"
+            "AGENTS.md": "**Profiles:** Universal\n**BCA policy:** ratchet\n"
         }
         errors = check_authority_docs.check_execution_card(missing_profile)
         self.assertTrue(any("missing applicable portfolio profiles" in error for error in errors))
 
         missing_bca = {
             "AGENTS.md": (
-                "**Applicable profiles:** Universal; Stateful Application; Deterministic System; "
+                "**Profiles:** Universal, Stateful Application, Deterministic System, "
                 "Automated Behavior Evaluation\n"
             )
         }
@@ -2782,23 +2762,23 @@ class ExactTestCommandTests(unittest.TestCase):
             run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None),
         )
 
-    def test_automatic_selection_prefers_owner_focused_gameplay_targets(self) -> None:
+    def test_automatic_selection_prefers_smallest_owner_gameplay_target(self) -> None:
         cases = {
-            "batch_capped_mining_finishes_the_requested_order": "fieldwork",
-            "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": "woodworking",
-            "primitive_treadle_requires_meaningful_attention_return": "power-provider",
-            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": "settlement",
-            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": "foundry",
-            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": "woodworking",
-            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": "fieldwork",
-            "preservation_storage_routes_are_authored_recoverable_tradeoffs": "survival",
-            "ore_probe_generation_varies_feed_and_operating_state": "ore",
-            "primitive_recovery_and_reinforcement_routes_remain_connected": "progression",
-            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": "workshop",
+            "batch_capped_mining_finishes_the_requested_order": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": ci.GAMEPLAY_TARGETS["woodworking"],
+            "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
+            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": OWNER_CONTRACT_TARGETS["settlement"],
+            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": OWNER_CONTRACT_TARGETS["foundry"],
+            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": OWNER_CONTRACT_TARGETS["woodworking"],
+            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": OWNER_CONTRACT_TARGETS["fieldwork"],
+            "preservation_storage_routes_are_authored_recoverable_tradeoffs": OWNER_CONTRACT_TARGETS["survival"],
+            "ore_probe_generation_varies_feed_and_operating_state": ci.GAMEPLAY_TARGETS["ore"],
+            "primitive_recovery_and_reinforcement_routes_remain_connected": OWNER_CONTRACT_TARGETS["progression"],
+            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": OWNER_CONTRACT_TARGETS["workshop"],
         }
-        for selector, scope in cases.items():
+        for selector, expected_target in cases.items():
             target, _name = run_test.resolve_automatic_exact_selection(selector, None)
-            self.assertEqual(target, ci.GAMEPLAY_TARGETS[scope])
+            self.assertEqual(target, expected_target)
             self.assertLess(
                 run_test.target_source_weight(target, None),
                 run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None),
@@ -2976,7 +2956,7 @@ class ExactTestCommandTests(unittest.TestCase):
                 focused,
                 f"focused gameplay scope {scope} must resolve in its dedicated target",
             )
-        settlement = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
+        settlement = run_test.source_test_catalog(OWNER_CONTRACT_TARGETS["settlement"], None)
         self.assertIn(
             "settlement_wire_contract_tests::flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield",
             settlement,

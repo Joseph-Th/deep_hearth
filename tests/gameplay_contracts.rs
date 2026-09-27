@@ -1,5 +1,7 @@
 //! Lightweight gameplay-harness contracts kept out of the heavy scenario/probe binaries.
 
+#[path = "gameplay_harness/capital_investment_policy.rs"]
+mod capital_investment_policy;
 #[path = "gameplay_harness/catalog.rs"]
 mod catalog;
 #[path = "gameplay_harness/configuration.rs"]
@@ -11,6 +13,8 @@ mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
 
+#[path = "gameplay_harness/capital_investment_policy_tests.rs"]
+mod capital_investment_policy_tests;
 #[path = "gameplay_harness/configuration_tests.rs"]
 mod configuration_tests;
 #[path = "gameplay_harness/fixture_boundary_tests.rs"]

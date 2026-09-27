@@ -169,15 +169,21 @@ pub(super) fn run_focused_probe_with_registries(
         None
     };
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
-    let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let behavior_raw = uses_behavior_seed
-        .then(|| env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok())
-        .flatten();
     let variation_count = if explore {
         EXPLORATORY_VARIATION_COUNT
     } else {
         GATE_VARIATION_COUNT
     };
+    let variation_raw = (explore || scenario_raw.is_some())
+        .then(|| env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok())
+        .flatten();
+    let behavior_raw = (explore || scenario_raw.is_some())
+        .then(|| {
+            uses_behavior_seed
+                .then(|| env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok())
+                .flatten()
+        })
+        .flatten();
     let cases = focused_probe_cases_from(FocusedProbeSeedPlan {
         variation_count,
         scenario_raw: scenario_raw.as_deref(),
@@ -231,16 +237,24 @@ pub(super) fn run_focused_probe_with_registries(
             .count(),
         scenario_raw.as_deref().map_or_else(
             || {
-                variation_raw
-                    .as_deref()
-                    .map_or_else(|| format!("0x{default_variation_root:016X}"), str::to_owned)
+                if variation_count == 0 {
+                    "n/a".to_owned()
+                } else {
+                    variation_raw
+                        .as_deref()
+                        .map_or_else(|| format!("0x{default_variation_root:016X}"), str::to_owned)
+                }
             },
             |_| "explicit".to_owned(),
         ),
         if uses_behavior_seed {
-            behavior_raw
-                .as_deref()
-                .map_or_else(|| format!("0x{default_behavior_root:016X}"), str::to_owned)
+            if variation_count == 0 && scenario_raw.is_none() {
+                "maintained".to_owned()
+            } else {
+                behavior_raw
+                    .as_deref()
+                    .map_or_else(|| format!("0x{default_behavior_root:016X}"), str::to_owned)
+            }
         } else {
             "unused".to_owned()
         },

@@ -7,8 +7,9 @@ linker = "lld-link.exe"
 # Daily feedback stays on the smallest artifact that can catch the current class of mistake. The
 # compile-only aliases avoid codegen/linking while code is unstable; exact unit tests and the core
 # audit reuse one feature-minimal test artifact while gameplay targets opt into their setup feature.
-# Keep compile-only feedback on the test profile so dependencies are not rebuilt under a separate
-# dev-profile fingerprint immediately before an executable test.
+# Compile-only feedback is an alternative to executable proof while code is unstable, not a warm-up
+# step before tests. Keep it on the test profile so switching lanes does not add a second dependency
+# profile, but invoke the executable proof directly when that is the contract being checked.
 check-fast = "check --quiet --locked --profile test --lib"
 # One lib-only Clippy shape serves both the direct edit loop and `gate --lint`.
 # Gameplay/report wrappers are compiled by their focused or audit lanes instead of

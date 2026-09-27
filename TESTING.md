@@ -13,8 +13,7 @@ Use the smallest lane that completely proves the changed contract.
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
 | CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
-| Production compile | `cargo check-fast` |
-| Production gate | `python ci.py gate` |
+| Compile-only production check | `python ci.py gate` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Gameplay contracts | `python ci.py gate --gameplay contracts` |
@@ -28,9 +27,11 @@ Use the smallest lane that completely proves the changed contract.
 not belong in the ordinary edit loop.
 
 Use `python tools/run_test.py --list` for build-free discovery. Exact selectors resolve to the smallest suitable
-Cargo target. Use `--check` for test-target type checking, `--lint` for focused test-target Clippy, and
-`--verbose` only when captured output is needed. `cargo check-fast` shares the test profile so compile feedback
-warms the executable-test cache.
+Cargo target, including owner-specific gameplay contract targets that are kept separate from play-like probe
+binaries. Use `--check` for test-target type checking, `--lint` for focused test-target Clippy, and `--verbose`
+only when captured output is needed. Compile-only checking and executable testing are alternative proof lanes:
+do not run `gate` or `cargo check-fast` merely as a prerequisite to a test, because the extra build does not
+replace that test target's own compilation/linking.
 
 Specialized gates are `python ci.py gate --shaders`, `python ci.py gate --rustdoc`, and
 `python ci.py gate --soak`. Scoped audits remain available as `python ci.py audit --core` and
@@ -59,7 +60,7 @@ production semantics.
 | Conservation mismatch | The first crossed custody edge and the corresponding accounting projection. |
 | Trusted-load failure/divergence | `LoadedSaveEnvelope::into_state`, named validator, then the first differing continuation outcome. |
 | Tick/job lifecycle mismatch | Relevant durable work record, schedule, owner state, and `TickOutcome`. |
-| Gameplay choice/no-action changed | Focused scope with replay seeds, observations, candidates/blockers, choice, and typed result. |
+| Gameplay choice/no-action changed | Deterministic focused scope first; use report replay roots only when investigating sampled organic behavior. |
 | Capability appears unreachable | [`STATUS.md`](STATUS.md) plus the acquisition path; separate owner capability from ordinary reachability. |
 
 Widen only when the evidence crosses another owner or runtime boundary.
@@ -93,14 +94,17 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused gameplay targets are edit-loop compile surfaces; broad cross-cutting contracts live in the consolidated
-gameplay audit target. Repository-owned gameplay gates and audits keep fixed contract anchors but add a small
-fresh replayable organic slice; `python ci.py report` uses a broader fresh slice. Direct Cargo execution retains
-deterministic fallback roots for debugging. Replay options and actor/evidence rules are owned by
+Focused gameplay probe targets are edit-loop compile surfaces. Larger owner contract suites use separate narrow
+targets so an exact contract test does not compile the play-like probe or the consolidated gameplay audit.
+Repository-owned gameplay gates and audits run maintained deterministic cases only. Organic sampling and replay
+roots belong to `python ci.py report`, where the extra work provides exploratory evidence instead of adding
+variance and runtime to verification. Replay options and actor/evidence rules are owned by
 [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
 
 ## Completion
 
 Run only the lane required by the changed contract plus specialized evidence whose contract changed.
 Documentation-only work runs `python tools/check_authority_docs.py`; CI/test-tooling changes also run
-`python -m unittest tools.test_ci -q`. Broad audits are deliberate checkpoints, not a staircase after every edit.
+`python -m unittest tools.test_ci -q`. Do not staircase compile-only checks, exact tests, focused gameplay, and
+broad audits after every edit; each additional build must prove a distinct changed contract. Broad audits are
+deliberate checkpoints.

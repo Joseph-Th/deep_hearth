@@ -17,14 +17,8 @@ use deep_hearth::ore_processing::{
 };
 use deep_hearth::registry::Registries;
 
+use super::super::capital_investment_policy::{clears_attention_return, minimum_attention_return};
 use super::super::manual_craft_planning::project_manual_assembly_package;
-
-#[path = "power_provider_policy.rs"]
-mod policy;
-use policy::{
-    primitive_treadle_clears_attention_return, primitive_treadle_minimum_attention_return,
-    settlement_walking_clears_attention_return, settlement_walking_minimum_attention_return,
-};
 
 #[path = "power_provider_planning/lifecycle.rs"]
 mod lifecycle;
@@ -199,10 +193,8 @@ pub(super) fn settlement_power_plan(
         requested,
         "settlement walking wheel",
     );
-    let minimum_attention_return_ticks = settlement_walking_minimum_attention_return(
-        treadle_build.attention_ticks,
-        walking_build.attention_ticks,
-    );
+    let minimum_attention_return_ticks =
+        minimum_attention_return(treadle_build.attention_ticks, walking_build.attention_ticks);
     let decision_crossover_charges = first_candidate_preferred_charge(
         registries,
         treadle_route,
@@ -244,7 +236,7 @@ pub(super) fn settlement_power_plan(
         .checked_add(walking_lifecycle.hydration_ul)
         .unwrap_or_else(|| panic!("settlement walking total hydration overflowed"));
     SettlementPowerPlan {
-        choice: if settlement_walking_clears_attention_return(
+        choice: if clears_attention_return(
             treadle_lifecycle_attention,
             walking_lifecycle_attention,
             minimum_attention_return_ticks,
@@ -408,10 +400,8 @@ pub(super) fn primitive_power_plan(
         crank_route.project_lifecycle_batches(registries, consumer_order.batches());
     let treadle_lifecycle =
         treadle_route.project_lifecycle_batches(registries, consumer_order.batches());
-    let minimum_attention_return_ticks = primitive_treadle_minimum_attention_return(
-        crank_build.attention_ticks,
-        treadle_build.attention_ticks,
-    );
+    let minimum_attention_return_ticks =
+        minimum_attention_return(crank_build.attention_ticks, treadle_build.attention_ticks);
     let decision_crossover_charges = first_candidate_preferred_charge(
         registries,
         crank_route,
@@ -446,7 +436,7 @@ pub(super) fn primitive_power_plan(
         .checked_add(treadle_lifecycle.hydration_ul)
         .unwrap_or_else(|| panic!("power provider treadle total hydration overflowed"));
     PrimitivePowerPlan {
-        choice: if primitive_treadle_clears_attention_return(
+        choice: if clears_attention_return(
             crank_lifecycle_attention,
             treadle_lifecycle_attention,
             minimum_attention_return_ticks,

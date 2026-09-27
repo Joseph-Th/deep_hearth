@@ -1,6 +1,7 @@
 //! Matched-world workshop policy counterfactuals and agency evidence.
 
 use std::collections::BTreeSet;
+#[cfg(not(test))]
 use std::env;
 
 use super::configuration::MaintainedAnchor;
@@ -16,6 +17,7 @@ use super::scenario::ScenarioVariation;
 #[cfg(not(test))]
 use super::seed::MAINTAINED_VARIATION_ROOT;
 use super::seed::mix64;
+#[cfg(not(test))]
 use super::seed_input::parse_seed;
 use super::workshop::runner::run_scenario;
 use deep_hearth::content::build_registries;
@@ -851,6 +853,7 @@ fn exploratory_agency_worlds(variation_root: u64) -> Vec<AgencyWorld> {
     worlds
 }
 
+#[cfg(not(test))]
 fn configured_agency_root() -> Option<u64> {
     env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
         .ok()
@@ -894,18 +897,8 @@ fn maintained_agency_worlds() -> Vec<AgencyWorld> {
 #[cfg(test)]
 pub(super) fn run_gameplay_agency_counterfactuals() {
     let registries = build_registries();
-    let variation_root = configured_agency_root();
-    let mut worlds = maintained_agency_worlds();
-    if let Some(root) = variation_root {
-        worlds.extend(organic_agency_worlds(root, 1));
-    }
-    let variation_label = variation_root
-        .map(|root| format!("0x{root:016X}"))
-        .unwrap_or_else(|| "n/a".to_owned());
-    std::println!(
-        "AGENCY INPUT mode=gate organic={} variation_root={variation_label}",
-        usize::from(variation_root.is_some())
-    );
+    let worlds = maintained_agency_worlds();
+    std::println!("AGENCY INPUT mode=gate organic=0 variation_root=n/a");
     run_agency_probe(&registries, &worlds);
 }
 

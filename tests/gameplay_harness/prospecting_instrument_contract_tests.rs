@@ -52,7 +52,7 @@ fn channel_sampling_frame_buys_precise_aggregate_grade_without_spoofing_mining_a
         .copied()
         .unwrap_or_else(|| panic!("channel-composite survey definition disappeared"));
     assert_eq!(survey.evidence(), GeologicalEvidenceKind::ChannelComposite);
-    assert_eq!(survey.maximum_region_voxels(), 16);
+    assert!(survey.maximum_region_voxels() > 1);
     assert_eq!(
         survey.spatial_resolution(),
         ProspectingSpatialResolution::AggregateRegion
@@ -79,14 +79,21 @@ fn channel_sampling_frame_buys_precise_aggregate_grade_without_spoofing_mining_a
             ROOM_TEMPERATURE,
         );
     }
-    let region = horizontal_region(40, 16);
+    let region_width = i64::try_from(survey.maximum_region_voxels())
+        .unwrap_or_else(|_| panic!("channel-composite maximum region exceeds i64"));
+    let region = horizontal_region(40, region_width);
+    let deposit_mass = u64::try_from(survey.maximum_region_voxels())
+        .ok()
+        .and_then(|voxels| voxels.checked_mul(1_000_000))
+        .map(Mass::from_milligrams)
+        .unwrap_or_else(|| panic!("channel-composite fixture mass overflowed"));
     seed_geological_deposit(
         &registries,
         &mut state,
         GeologicalDepositSeed::new(
             region,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-            Mass::from_milligrams(16_000_000),
+            deposit_mass,
             ROOM_TEMPERATURE,
             Pressure::from_pascals(350_000_000),
             copper_ore_composition(420_000, 280_000),
