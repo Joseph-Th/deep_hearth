@@ -1,6 +1,6 @@
 # Deep Hearth Agent Guide
 
-**Applicable profiles:** Universal; Stateful Application; Deterministic System; Automated Behavior Evaluation
+**Profiles:** Universal, Stateful Application, Deterministic System, Automated Behavior Evaluation
 **BCA policy:** ratchet
 
 **Rust agent diagnostics:** advisory. Use bounded, uncertainty-driven commands from [`tools/README.md`](tools/README.md); they are not BCA or completion gates. [`TESTING.md`](TESTING.md) owns verification.

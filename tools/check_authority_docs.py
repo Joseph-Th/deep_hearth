@@ -546,17 +546,17 @@ def check_execution_card(documents: dict[str, str]) -> list[str]:
             "AGENTS.md: declare exactly one `**BCA policy:** ratchet` near the project entry point"
         )
 
-    profile_prefix = "**Applicable profiles:**"
+    profile_prefix = "**Profiles:**"
     profile_declarations = [
         line.strip() for line in agents.splitlines() if line.startswith(profile_prefix)
     ]
     if len(profile_declarations) != 1:
-        errors.append("AGENTS.md: declare exactly one `**Applicable profiles:**` line")
+        errors.append("AGENTS.md: declare exactly one `**Profiles:**` line")
         return errors
 
     declared = {
         profile.strip()
-        for profile in profile_declarations[0].removeprefix(profile_prefix).split(";")
+        for profile in profile_declarations[0].removeprefix(profile_prefix).split(",")
         if profile.strip()
     }
     missing = EXPECTED_PROFILES - declared
