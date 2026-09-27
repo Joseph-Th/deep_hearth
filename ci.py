@@ -250,10 +250,6 @@ def quick_plan() -> list[tuple[str, list[str]]]:
             "repository contracts",
             [sys.executable, "tools/check_authority_docs.py"],
         ),
-        (
-            "local CI contracts",
-            [sys.executable, "-m", "unittest", "tools.test_ci", "-q"],
-        ),
     ]
 
 

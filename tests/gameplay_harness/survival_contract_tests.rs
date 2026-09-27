@@ -199,11 +199,16 @@ fn survival_explanation_marks_singleton_enclosure_without_forcing_investment() {
         Mass::from_milligrams(1),
         Some(&stone_only),
     );
-    assert_eq!(projections.len(), 1);
+    let [projection] = projections.as_slice() else {
+        panic!(
+            "stone-only preservation fixture must expose exactly one candidate, found {}",
+            projections.len()
+        )
+    };
     let comparison = PreservationComparison::from_candidates(
         projections.len(),
-        projections[0].definition,
-        projections[0].definition,
+        projection.definition,
+        projection.definition,
     );
     assert_eq!(comparison, PreservationComparison::EnclosureSingleton);
     assert_eq!(

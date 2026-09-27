@@ -393,8 +393,8 @@ class LocalCiPlanTests(unittest.TestCase):
             check_format.formatting_policy_changed(["Cargo.toml", "src/lib.rs"])
         )
 
-    def test_quick_lane_runs_python_contracts_as_an_importable_module(self) -> None:
-        self.assertIn(
+    def test_quick_lane_does_not_retest_ci_tooling_for_unrelated_edits(self) -> None:
+        self.assertNotIn(
             (
                 "local CI contracts",
                 [sys.executable, "-m", "unittest", "tools.test_ci", "-q"],
@@ -1067,6 +1067,8 @@ class LocalCiPlanTests(unittest.TestCase):
             cargo_config["target"]["x86_64-pc-windows-msvc"].get("linker"),
             "lld-link.exe",
         )
+        self.assertIn("--profile test", cargo_config["alias"]["check-fast"])
+        self.assertIn("--profile test", cargo_config["alias"]["lint-fast"])
 
     def test_gameplay_report_examples_are_executable_only(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -1251,20 +1253,19 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_settlement_target_contains_only_settlement_investment_contracts(self) -> None:
         catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
-        self.assertEqual(len(catalog), 6)
-        self.assertTrue(
-            all(
-                name.startswith(
-                    (
-                        "settlement_drill_contract_tests::",
-                        "settlement_helve_contract_tests::",
-                        "settlement_machine_contract_tests::",
-                        "settlement_wire_contract_tests::",
-                    )
-                )
-                for name in catalog
-            )
+        prefixes = (
+            "settlement_drill_contract_tests::",
+            "settlement_helve_contract_tests::",
+            "settlement_machine_contract_tests::",
+            "settlement_wire_contract_tests::",
         )
+        self.assertTrue(catalog)
+        self.assertTrue(all(name.startswith(prefixes) for name in catalog))
+        for prefix in prefixes:
+            self.assertTrue(
+                any(name.startswith(prefix) for name in catalog),
+                f"settlement target lost contract owner {prefix.removesuffix('::')}",
+            )
 
     def test_gameplay_replay_summary_is_compact_for_focused_and_workshop_runs(self) -> None:
         self.assertEqual(

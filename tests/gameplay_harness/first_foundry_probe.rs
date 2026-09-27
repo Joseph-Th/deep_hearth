@@ -243,8 +243,8 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let direct_native_reinforcement = direct_native_state
         .inventory()
         .get_stockpile(parts)
-        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)))
-        .unwrap_or(Mass::ZERO);
+        .unwrap_or_else(|| panic!("first foundry direct-native parts stockpile disappeared"))
+        .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT));
     assert_eq!(direct_native_reinforcement, FIRST_CAST_MASS);
     validate_loaded_state(registries, &direct_native_state)
         .unwrap_or_else(|error| panic!("first foundry direct-native branch invalid: {error}"));
@@ -318,13 +318,13 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let direct_reinforcement = direct_rework_state
         .inventory()
         .get_stockpile(parts)
-        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)))
-        .unwrap_or(Mass::ZERO);
+        .unwrap_or_else(|| panic!("first foundry direct-rework parts stockpile disappeared"))
+        .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT));
     let direct_residual = direct_rework_state
         .inventory()
         .get_stockpile(parts)
-        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP)))
-        .unwrap_or(Mass::ZERO);
+        .unwrap_or_else(|| panic!("first foundry direct-rework parts stockpile disappeared"))
+        .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP));
     assert_eq!(
         direct_reinforcement,
         authored_direct_output(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
@@ -460,8 +460,8 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let foundry_reinforcement = state
         .inventory()
         .get_stockpile(parts)
-        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)))
-        .unwrap_or(Mass::ZERO);
+        .unwrap_or_else(|| panic!("first foundry recovery parts stockpile disappeared"))
+        .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT));
     assert_eq!(
         foundry_reinforcement, FIRST_CAST_MASS,
         "first foundry recovery must complete the declared reinforcement order"

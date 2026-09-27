@@ -11,6 +11,7 @@ Use the smallest lane that completely proves the changed contract.
 | --- | --- |
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
+| CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
 | Full fmt | `python tools/check_format.py --all` |
 | Production compile | `cargo check-fast` |
 | Production gate | `python ci.py gate` |
@@ -26,8 +27,10 @@ Use the smallest lane that completely proves the changed contract.
 | Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 | Agent Rust diagnostics | `python tools/rust_diagnostics.py --help` |
 
-`quick` is build-free and checks changed Rust formatting; `check_format.py --all` is the full-format checkpoint.
-`gate` runs one build lane; `audit` is explicit broad runtime coverage. Neither repeats `quick`.
+`quick` is build-free and checks changed Rust formatting, the complexity ratchet, and repository contracts.
+CI/test-tooling self-tests are explicit because unrelated Rust edits do not need to re-prove the runner itself.
+`check_format.py --all` is the full-format checkpoint. `gate` runs one build lane; `audit` is explicit broad
+runtime coverage. Neither repeats `quick`.
 
 Use `run_test.py --list` to discover selectors, `--check` for test-owner type checking without linking,
 `--lint` for a focused test target, and `--verbose` for captured stdout. Specialized gates are
@@ -39,7 +42,8 @@ the cross-system checkpoint. Replay with `--variation-seed <u64>` and, for polic
 `--behavior-seed <u64>`; decimal and `0x` hex are validated before Cargo starts.
 
 `run_test.py` resolves selectors build-free to the smallest target for execution, `--check`, and `--lint`. Use
-`cargo check-fast` while production code is unstable; pin `--target` only for a warm failure or explicit boundary.
+`cargo check-fast` while production code is unstable; it shares the test profile so dependency work carries into
+the executable proof that follows. Pin `--target` only for a warm failure or explicit boundary.
 `--verbose`/reports use `--nocapture`; focused gameplay gates keep success quiet and failures captured. Core tests
 stay feature-minimal; gameplay alone enables `test-gameplay`; `audit --all` runs both cache shapes.
 

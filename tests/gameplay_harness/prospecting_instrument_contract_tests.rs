@@ -242,9 +242,14 @@ fn shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_ev
         .unwrap_or_else(|error| panic!("shallow-core survey commit failed: {error}"));
     let outcome = complete_prospecting_work(&registries, &mut state, work, "shallow-core survey");
     assert_eq!(outcome.evidence(), GeologicalEvidenceKind::CoreSample);
-    let observations = outcome.observations().collect::<Vec<_>>();
-    assert_eq!(observations.len(), 1);
-    let observation = observations[0];
+    let mut observations = outcome.observations();
+    let observation = observations
+        .next()
+        .unwrap_or_else(|| panic!("shallow-core survey produced no observation"));
+    assert!(
+        observations.next().is_none(),
+        "one shallow-core survey must produce exactly one observation"
+    );
     let record = state
         .geological_knowledge()
         .get_observation(observation)

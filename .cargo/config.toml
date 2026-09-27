@@ -7,11 +7,13 @@ linker = "lld-link.exe"
 # Daily feedback stays on the smallest artifact that can catch the current class of mistake. The
 # compile-only aliases avoid codegen/linking while code is unstable; exact unit tests and the core
 # audit reuse one feature-minimal test artifact while gameplay targets opt into their setup feature.
-check-fast = "check --quiet --locked --lib"
+# Keep compile-only feedback on the test profile so dependencies are not rebuilt under a separate
+# dev-profile fingerprint immediately before an executable test.
+check-fast = "check --quiet --locked --profile test --lib"
 # One lib-only Clippy shape serves both the direct edit loop and `gate --lint`.
 # Gameplay/report wrappers are compiled by their focused or audit lanes instead of
-# cloning the same large harness graph under Clippy.
-lint-fast = "clippy --quiet --locked --lib -- -D warnings"
+# cloning the same large harness graph under Clippy. It shares the same profile/cache as tests.
+lint-fast = "clippy --quiet --locked --profile test --lib -- -D warnings"
 # Exact unit tests and full core audits share this feature-minimal library-test artifact, so moving
 # between owners reuses the same incremental codegen and linked binary instead of fragmenting cache.
 test-core = "test --quiet --locked --lib"
