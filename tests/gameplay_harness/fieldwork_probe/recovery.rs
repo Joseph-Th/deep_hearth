@@ -17,6 +17,7 @@ use super::survey::{FOLLOWUP_CHANNEL_STARTS, FieldworkSurveyStrategy, localize_t
 
 pub(super) struct InitialShortfallRecovery {
     pub(super) strategy: FieldworkSurveyStrategy,
+    pub(super) planned_sites: u64,
     pub(super) upgrade_ticks: u64,
     pub(super) projected_point_search_ticks: u64,
     pub(super) projected_indexed_search_ticks: Option<u64>,
@@ -43,6 +44,26 @@ pub(super) struct InitialShortfallRecovery {
     pub(super) fulfilled: Mass,
     pub(super) remaining: Mass,
     pub(super) terminal: &'static str,
+}
+
+fn demand_sized_followup_sites(
+    remaining: Mass,
+    observed_site_upper: Mass,
+    available_sites: u64,
+) -> u64 {
+    assert!(
+        !remaining.is_zero(),
+        "fieldwork shortfall horizon requires unfinished demand"
+    );
+    assert!(
+        available_sites > 0,
+        "fieldwork shortfall horizon requires at least one candidate site"
+    );
+    let comparable_site_mass = observed_site_upper.milligrams().max(1);
+    remaining
+        .milligrams()
+        .div_ceil(comparable_site_mass)
+        .clamp(1, available_sites)
 }
 
 #[derive(Clone, Copy)]
@@ -328,8 +349,17 @@ fn run_initial_shortfall_sites(
 pub(super) fn execute_initial_shortfall_recovery(
     review: &FieldworkEpisodeReview<'_>,
 ) -> InitialShortfallRecovery {
-    let planned_sites = u64::try_from(FOLLOWUP_CHANNEL_STARTS.len())
+    let available_sites = u64::try_from(FOLLOWUP_CHANNEL_STARTS.len())
         .unwrap_or_else(|_| unreachable!("bounded fieldwork recovery horizon fits u64"));
+    let remaining = review
+        .requested
+        .checked_sub(review.extraction.extracted)
+        .unwrap_or_else(|| unreachable!("initial fieldwork extraction cannot exceed its order"));
+    let planned_sites = demand_sized_followup_sites(
+        remaining,
+        review.observed_resource_mass.upper(),
+        available_sites,
+    );
     let survey_decision = decide_fieldwork_survey_strategy(
         review.registries,
         review.state,
@@ -385,6 +415,7 @@ pub(super) fn execute_initial_shortfall_recovery(
 
     InitialShortfallRecovery {
         strategy: survey_decision.selected_strategy,
+        planned_sites,
         upgrade_ticks,
         projected_point_search_ticks: survey_decision.projected_point_search_ticks,
         projected_indexed_search_ticks: survey_decision.projected_indexed_search_ticks,
@@ -419,3 +450,7 @@ pub(super) fn execute_initial_shortfall_recovery(
         },
     }
 }
+
+#[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod tests;
