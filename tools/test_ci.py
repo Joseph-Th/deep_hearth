@@ -2472,12 +2472,12 @@ class LocalCiPlanTests(unittest.TestCase):
 
         missing = dict(documents)
         missing["README.md"] = missing["README.md"].replace(
-            "## Control coordinate", "## Renamed coordinate", 1
+            "## Authority map", "## Renamed authority map", 1
         )
         errors = check_authority_docs.check_required_authority_sections(missing)
         self.assertTrue(
             any(
-                "README.md: missing required authority sections: Control coordinate" in error
+                "README.md: missing required authority sections: Authority map" in error
                 for error in errors
             )
         )

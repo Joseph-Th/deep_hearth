@@ -50,256 +50,72 @@ That does not authorize bypassing `AppState` ownership for generated simulation 
 
 ## Agent-legible control grammar
 
-Consequential subsystems should present the same conceptual control surface even when some roles collapse into
-one implementation for a simple owner:
+Consequential subsystems use a common semantic vocabulary. Simple owners may collapse adjacent stages, but the
+distinction between observation, prediction, authorization, and mutation remains explicit.
 
-| Role | Purpose |
+| Role | Contract |
 | --- | --- |
-| Definition | Immutable authored possibility, identity, limits, and references. |
-| State/record | Authoritative generated fact required for continuation. |
-| Projection/assessment | Read-only observable state or derived consequence; never an alternate owner. |
-| Resolution/decision | Pure or read-only derivation of one concrete operation from current facts. |
-| Validation/authorization | Proof that a requested consequential transition is legal against a bound state snapshot. |
-| Commit/apply | The one mutation path that transfers ownership, advances lifecycle, or changes an authoritative fact. |
-| Outcome | Typed description of the committed consequence needed by callers, orchestration, presentation, or tests. |
-| Validation/audit | Local and cross-owner checks that reconstruct truth rather than trusting cached claims. |
+| Definition | Immutable authored identity, limits, and references. |
+| State/record | Generated authoritative fact required for continuation. |
+| Projection/assessment | Read-only interpretation of definitions and current state; never another owner. |
+| Resolution/decision | Concrete predicted consequence for one request without mutation. |
+| Validation/authorization | State-bound proof that one consequential transition is currently legal. |
+| Commit/apply | The canonical authoritative mutation. |
+| Durable work | Persisted custody, reservation, provider trace, lifecycle, or schedule after admission. |
+| Outcome/receipt | Stable identity and consequential result needed for continuation, presentation, or proof. |
 
-This grammar is a design interface, not a requirement to manufacture empty types. A small single-owner action
-may combine resolution and validation, or return a simple outcome. What must remain explicit is the distinction
-between observation, prediction, authorization, and mutation.
-
-Callers should not need privileged field access or before/after whole-state diffing to understand a normal
-operation. Prefer narrow canonical projections for important decision inputs and typed outcomes for important
-committed consequences. Presentation, gameplay actors, tests, and future automation should consume those same
-surfaces rather than reimplementing domain rules.
-
-### Agent operability properties
-
-Agent ergonomics is an architectural quality of the system, not a harness convenience. A well-shaped subsystem
-minimizes the reasoning and tool calls required to reach a correct consequential action while preserving the
-same authority and safety boundaries used by every other caller.
-
-Optimize for these properties:
-
-| Property | Architectural consequence |
-| --- | --- |
-| Bounded orientation | A cold start reaches the relevant authority, owner, operation, and proof without repository-wide enumeration. |
-| Semantic addressability | A task can be located by authority layer, owner, operation stage, crossed flow, and proof level rather than by ambiguous feature vocabulary. |
-| Local completeness | The controlling definition/state, canonical operation, typed rejection, durable continuation identity, and adjacent proof are discoverable from one bounded owner/edge cone. |
-| Semantic compression | Production surfaces expose domain meaning directly when legitimate callers would otherwise reconstruct the same formula, blocker, or consequence from raw fields. |
-| Monotonic accretion | New capability extends existing vocabulary, owners, edges, operation stages, and evidence wherever their semantics already fit instead of adding a parallel mini-architecture. |
-| Cheap falsification | The smallest wrong nearby behavior has a focused proof that fails close to the controlling abstraction. |
-| Explicit uncertainty | Missing reachability, absent observation, bounded search, and unsupported modeling are represented as such rather than guessed through implementation detail. |
-
-Do not optimize call count by weakening revision checks, bounds, typing, or authority. The objective is fewer
-unnecessary calls because each semantic surface is more complete, not fewer checks.
-
-### System address and search anchors
-
-Every consequential change should be expressible as one control coordinate:
+The normal lifecycle is:
 
 ```text
-authority / owner / stage / flow / proof
+request -> resolve/decide -> validate/authorize -> commit/apply
+        -> durable work/tick when delayed -> outcome/claim/assessment
 ```
 
-The coordinate is intentionally orthogonal. For example, one mining task may be about current reachability,
-`MiningState`, validation, information plus matter custody, and a boundary proof. Another may share the mining
-feature name while the task actually concerns authored intent, `GeologicalKnowledgeState`, observation,
-information flow, and gameplay evidence.
+Do not manufacture types only for symmetry. A direct single-owner operation may combine stages when authority,
+failure, and continuation remain unambiguous. Do not add a generic command bus around typed domain operations.
 
-Once the coordinate is known, preferred search anchors are stable semantic nouns and symbols: authority
-heading, owner type/module, request/resolution/validated token, durable job or record identity, typed error,
-outcome, and adjacent test. Source layout should make those anchors cheap to follow. Repeated need to search by
-incidental field names, inspect whole-state dumps, or infer success from unrelated diffs is evidence that the
-control surface or locality is weak.
+### Read-side contracts
 
-### Consequential operation lifecycle
+Read surfaces should expose domain meaning at the narrowest owner that knows it:
 
-Use one conceptual lifecycle for consequential work. Stages that add no value for a simple operation may
-collapse, but stages must not change meaning between subsystems:
+- **Exact read:** use a known record or definition by stable identity when its field is already the authoritative
+  answer.
+- **Semantic projection:** expose a typed assessment or derived index when legitimate callers would otherwise
+  reproduce the same inclusion rule, physical formula, blocker, or relationship.
+- **Concrete resolution:** bind selected runtime identities and current condition/custody/support/energy/
+  knowledge facts before validation.
+- **Freshness:** retained plans or projections are usable only while the authoritative dependencies that produced
+  them remain unchanged. Use narrow revision/dependency stamps only when retention is useful.
+- **Feasibility:** when production already computes a monotonic bound such as capacity, batch size, duration, or
+  rate, expose that bound rather than forcing callers to discover it by repeated failure.
+- **Receipt:** propagate owner-selected landing identity, schedule, or lifecycle result when continuation would
+  otherwise require a destination rescan or whole-state diff.
 
-```text
-request / intent
-    -> resolve / decide
-    -> validate / authorize
-    -> commit / apply
-    -> durable work or immediate authoritative state
-    -> tick / scheduled continuation when needed
-    -> typed outcome, completion, claim, or assessment
-```
+A query from which callers may infer absence must state its semantics: exhaustive for a declared scope, bounded
+partial with an explicit bound/continuation, or sampled with replayable inputs. Never silently truncate a
+semantic query.
 
-- **Request** carries caller intent and stable domain identities, not mutable authority.
-- **Resolve/decide** computes physical consequences, candidate providers, bottlenecks, or plans without mutation.
-- **Validate/authorize** binds all mutable preconditions needed for the promised atomic commit.
-- **Commit/apply** is the ownership transition. It does not redo domain planning through a second ruleset.
-- **Durable work** owns any custody, reservation, schedule, or provider trace that must survive after the command.
-- **Tick/continuation** advances only persisted future-affecting state through visible orchestration.
-- **Outcome/claim/assessment** exposes the consequential result at the abstraction level a legitimate caller
-  needs, without requiring privileged reconstruction.
+### Planning claim strength
 
-Do not add a generic command bus merely to make these stages look uniform. The shared lifecycle is semantic;
-typed domain requests, resolutions, validations, and outcomes remain preferable to erased action payloads.
+Use the weakest term actually established:
 
-### Planning freshness, feasibility, and receipts
-
-An agent should be able to retain useful reasoning without pretending that a derived answer is authoritative.
-Three contracts keep that working model cheap and safe:
-
-- **Freshness:** a retained projection, resolution, or plan is usable only while the authoritative dependencies
-  that determined it remain unchanged. Validated tokens bind the mutable dependencies needed for commit. When a
-  legitimate caller benefits from retaining an expensive read-side result across other actions, prefer narrow
-  owner revisions, dependency stamps, or equally explicit invalidation semantics over a global world revision.
-- **Feasibility:** when one requested dimension is monotonic and production already computes its limiting
-  quantities, expose the useful bound or bottleneck through the narrowest domain resolver/assessment. Repeated
-  binary search or validator probing merely to discover a maximum feasible batch, duration, capacity, or rate is
-  control-surface debt. If feasibility is not globally monotonic because authoritative timing changes another
-  resource bound, keep that coupling inside an exact owner-side projection rather than teaching callers a false
-  monotonic search rule. Candidate preferences and search order among physically distinct alternatives remain
-  caller policy.
-- **Receipt:** after a consequential commit or tick, return or expose the stable identity, schedule, lifecycle,
-  and consequential deltas needed to continue the operation. A caller should not need a whole-state rescan just
-  to learn which admitted job exists, what completed, or which owner-local facts changed.
-
-For custody transitions, prefer an **owner landing receipt** over a coordinator-specific reconstruction. If an
-inventory ingress already determines which persistent lot identity survives insertion/coalescing, that identity
-is the inventory owner's semantic result. A production completion, mining claim, salvage operation, or future
-logistics delivery may compose that receipt with its own job/route identity instead of inventing a separate
-"produced lot" concept. The receipt should describe contribution-to-surviving-identity, not imply that a new
-record was allocated when the matter merged into an existing one. The concrete receipt shapes live in
-[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#destination-landing-identity).
-
-A receipt or dependency stamp is evidence about authoritative state, not another state owner. Callers may cache
-it as disposable working memory. If a later command or tick can affect a dependency, refresh the relevant
-projection before using it again; if the only safe refresh rule is "reread the entire world", the control
-surface is insufficiently local.
-
-Do not manufacture outcomes for symmetry. A commit result is sufficient when it exposes every consequential
-fact the caller cannot already name and may legitimately need next. Returning `()` is appropriate when the
-caller already holds the durable target identity, the change is immediate, no new schedule/custody/identity is
-created, and any important non-obvious consequence is already represented by the validated token or another
-canonical outcome. Conversely, a receipt is warranted when commit chooses or creates a persistent identity,
-starts delayed work whose schedule is not otherwise exposed, resolves merge/routing identity, or produces a
-cross-owner consequence that cannot be reconstructed from the caller's existing stable identities.
-
-Prefer exposing useful precomputed continuation on the validated token when it exists before commit. For
-example, a timed start token may expose its exact `work()`/schedule while completion later emits a distinct
-typed outcome. This avoids returning the same information twice merely to standardize signatures.
-
-Typed rejection should identify the causal domain precondition and the identities or expected/actual quantities
-needed to understand it. Production errors do not prescribe strategy. An actor or UI may classify the same
-typed blocker as resize, replenish, wait, repair, reroute, gather information, or stop according to its own
-policy. Do not introduce one global blocker enum merely to encode those policy choices.
-
-### Planning graphs and horizon
-
-Long-horizon planning becomes cheaper when three different graphs remain explicit instead of being collapsed
-into one notion of "reachability":
-
-| Graph | Question | Source of truth | Lifetime |
-| --- | --- | --- | --- |
-| Possibility graph | What authored transformations, constructions, upgrades, recoveries, providers, and carrier relationships could participate in a route? | Immutable validated registries and their rebuildable reverse indexes | Registry lifetime |
-| State graph | What actually exists now, where is it owned, and what condition/custody/support/schedule relationships currently hold? | Authoritative `AppState` owners | Persisted continuation |
-| Opportunity graph | Which concrete operations are legitimately observable and feasible now, and what currently blocks nearby candidates? | Read-only production projections/resolvers over registries plus actor-visible current state | Disposable and freshness-bound |
-
-The possibility graph is domain topology, not ordinary reachability. A process may have authored inputs,
-outputs, provider requirements, and a physically valid resolver while its required infrastructure is not
-ordinarily obtainable. [`STATUS.md`](STATUS.md) remains the authority for that distinction. Likewise, the state
-graph may contain controlled-fixture infrastructure that an ordinary actor could not have acquired.
-
-Use the narrowest observation shape that owns the queried meaning:
-
-- **Exact read:** read a known authoritative record/definition by stable identity when the caller already knows
-  what it wants. A semantic facade adds no value merely to report condition, mass, capacity, schedule, or another
-  already-authoritative field.
-- **Caller enumeration:** iterate a bounded/stable authored or observable collection when inclusion/ranking is
-  genuinely policy, reporting, or exploratory choice. The owner should not absorb the caller's preference.
-- **Semantic query:** add a typed projection/index when the inclusion rule itself is reusable domain meaning
-  that callers otherwise copy, especially across registries/owners. Examples include authored producers of a
-  commodity, nominal definitions satisfying capability requirements, or process execution-family ownership.
-- **Concrete resolver:** once stable runtime identities are selected, use the canonical owner resolver to
-  incorporate condition, support, custody, energy, knowledge, or other mutable facts.
-
-This hierarchy prevents agent ergonomics from degenerating into accessor proliferation. Raw iteration is debt
-only when legitimate callers repeatedly reconstruct the same semantic relationship that the domain can state
-more directly.
-
-#### Query completeness contract
-
-Any discovery/query surface from which a caller may reason about absence must make its scope and completeness
-legible. Prefer one of these shapes:
-
-- **Exhaustive for a declared scope:** every matching item in that exact immutable/observable domain is returned
-  in deterministic order. Empty means no match exists within the declared scope.
-- **Bounded partial:** the caller supplies or receives an explicit item/work/horizon bound; the result states
-  that more candidates may exist and provides a deterministic continuation cursor when continuation is useful.
-- **Sampled/exploratory:** the sampling policy and replay input are explicit. Absence is evidence only about the
-  sample, never about production availability.
-
-Do not silently truncate semantic queries. Stable ordering needs complete tie-breakers so continuation does not
-skip or duplicate candidates. A cursor identifies position in a deterministic query result, not authorization;
-for mutable opportunity queries it is also subject to the query's freshness contract. If current state changes
-materially between pages, restart or reject continuation rather than merging pages from different state views.
-
-Prefer goal-directed exhaustive queries over huge global catalogs when the authored set is naturally bounded.
-Pagination is useful only when the real result can grow enough to matter; do not introduce cursor ceremony for
-small registry collections that can be returned completely and cheaply.
-
-The opportunity graph should normally be generated lazily and goal-directed rather than materialized as one
-universal action catalog. A query such as "what can produce this commodity?", "what can provide this typed
-capability?", or "what is blocking this selected operation?" may use immutable reverse indexes and canonical
-owner projections. The answer must retain typed domain identities and requirements so the caller can descend to
-the real resolver/validator instead of executing an erased graph edge.
-
-Long-horizon policy may chain possibility edges to form hypotheses. Near execution, each step must be regrounded
-in actor-visible state, freshly resolved, then authorized through the canonical command. After commit, use the
-receipt to advance the plan. This gives one safe planning ladder:
-
-```text
-goal
-    -> authored possibilities
-    -> observable current state
-    -> fresh concrete opportunities / blockers
-    -> policy choice
-    -> validation / authorization
-    -> commit / continuation
-    -> receipt / feedback
-    -> replan as needed
-```
-
-Reverse indexes over immutable definitions are semantic compression, not alternate rules. Prefer owner-specific
-or cross-registry derived indexes that preserve typed relationships over a generic graph framework. They may be
-built once with `Registries`, validated against their source definitions, and omitted from persistence. Do not
-encode actor preference, hidden runtime truth, or mutable availability into them.
-
-When topology spans several validated registries, the aggregate `Registries` assembly boundary is the natural
-owner of the derived cross-registry index. Domain registries continue to own their definitions; the aggregate
-may cache relationships already established by cross-validation. [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#planning-topology)
-owns the concrete topology projection contract.
-
-### Claim-strength vocabulary
-
-Use vocabulary that states how much has actually been established. Each row is stronger than the rows above it:
-
-| Term | Claim |
+| Term | Meaning |
 | --- | --- |
-| Direct authored edge | One definition declares an immediate production, assembly, upgrade, recovery, provider, or other typed relationship. Nothing is claimed about prerequisites beyond that edge. |
-| Authored path | A transitive chain of direct authored edges connects a goal to declared roots or other hypotheses. Current world state and ordinary acquisition are not implied. |
-| Ordinary reachability | The project has an ordinary-play acquisition path under the current scope contract. [`STATUS.md`](STATUS.md) owns this claim. |
-| Current opportunity | Actor-visible current state plus canonical read-side semantics identify a concrete candidate worth considering now. It is not yet mutation authority. |
-| Authorized action | Validation has bound the current mutable preconditions for one consequential commit. |
-| Committed consequence | Canonical mutation/tick has occurred and a durable record or typed receipt identifies the result. |
+| Direct authored edge | One definition declares one immediate typed relationship. |
+| Authored path | A declared traversal connects authored edges; current world state is not implied. |
+| Ordinary reachability | Normal play can acquire and execute the route; [`STATUS.md`](STATUS.md) owns this claim. |
+| Current opportunity | Legitimate observable state plus canonical read-side semantics identify a concrete candidate. |
+| Authorized action | Validation has bound the mutable preconditions for one commit. |
+| Committed consequence | Canonical mutation/tick occurred and durable state or a typed receipt identifies the result. |
 
-Do not use `reachable`, `available`, or `can` as casual synonyms across these levels. Domain APIs may keep an
-established name whose narrower semantics are already explicit, but new surfaces should name the weakest claim
-they actually prove. In particular, a local definition predicate such as a declared assembly/acquisition route
-must not be interpreted as transitive or ordinary reachability.
+Do not use `reachable`, `available`, or `can` as synonyms across these levels.
 
-### Temporal control and batching
+### Temporal control
 
-`advance_tick` is the authoritative temporal transition. Agent ergonomics does not justify a second clock path.
-[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract) owns the batching versus fast-forward
-equivalence contract: batching wraps canonical ticks with an explicit horizon bound, while fast-forward requires
-proved equivalence across every skipped phase.
+`advance_tick` is the only authoritative simulation-time mutation. Batching may call canonical tick semantics
+repeatedly and stop on declared observable events; it may not skip hidden intermediate semantics. A true
+fast-forward path would require a separately proved equivalent authoritative transition. The concrete stepping
+contract lives in [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract).
 
 ## Abstraction and dependency direction
 
@@ -524,28 +340,16 @@ universal reflection API or generic command bus.
 
 ## Naming
 
-| Role | Form |
-| --- | --- |
-| keyed lookup | `get_*` |
-| conditional scan | `find_*` |
-| final derivation | `resolve_*` |
-| accessor | noun form such as `status()` |
-| constructor | `new()` |
-| aggregate assembly | `build_*` |
-| runtime insertion/removal | `insert_*`, `remove_*` |
-| authored registration | `register_*` |
-| predicate | `is_*`, `has_*`, `can_*` |
-| read-only decision | `decide_*` returning `*Plan` / `*Outcome` / `*Delta` |
-| observable assessment | `assess_*` returning a canonical read-only assessment or feasibility envelope |
-| read-only reconciliation | `calculate_*` recomputing authoritative totals without mutation |
-| structural derivation | `analyze_*` deriving a structural or diagnostic model from current state |
-| future-state projection | `project_*` deriving a disposable future consequence without mutation |
-| decided mutation | `apply_*` |
-| checked command | `validate_*` returning `Validated*` when appropriate |
-| validated mutation | consuming `commit` |
+Use the workspace naming roles from `STANDARDS.md`. Project-specific read-side prefixes are:
 
-Reserve `destroy_*` for consequential destruction and `delete_*` for literal external deletion. Do not add
-`execute_*`, `perform_*`, or `attempt_*` for roles already covered above.
+- `assess_*` for canonical observable assessments or feasibility envelopes;
+- `calculate_*` for exact read-only reconciliation/physical totals;
+- `analyze_*` for structural or diagnostic derivation;
+- `project_*` for disposable future consequences without mutation.
+
+Consequential checked commands use `validate_*` and a consuming `commit` when state-bound authorization is
+material. Crate-owned tick orchestration may use `decide_*` / `apply_*`. Reserve `destroy_*` for modeled
+destruction and `delete_*` for literal external deletion.
 
 ## Source and comment contracts
 

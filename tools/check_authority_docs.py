@@ -41,14 +41,14 @@ EXPECTED_PROFILES = {
 
 IGNORED_DOCUMENTATION_ROOTS = {".git", "target"}
 COLD_START_DOCUMENT_MAX_BYTES = {
-    "AGENTS.md": 4_200,
-    "README.md": 11_000,
-    "STATUS.md": 12_500,
-    "TESTING.md": 10_500,
+    "AGENTS.md": 2_800,
+    "README.md": 7_500,
+    "STATUS.md": 8_000,
+    "TESTING.md": 7_000,
 }
 # Preserve reserve below the tool-facing cold-start envelope. New orientation prose must earn
 # context budget rather than consuming the entire envelope by default.
-COLD_START_TOTAL_MAX_BYTES = 38_000
+COLD_START_TOTAL_MAX_BYTES = 24_000
 WORKSPACE_CONTRACT_BEGIN = "<!-- workspace-contract:begin"
 WORKSPACE_CONTRACT_END = "<!-- workspace-contract:end -->"
 
@@ -56,10 +56,8 @@ REQUIRED_AUTHORITY_SECTIONS = {
     "AGENTS.md": ("Cold start", "Operating protocol", "Guardrails", "Completion"),
     "README.md": (
         "Orientation",
-        "Abstraction ladder",
-        "Control coordinate",
+        "Authority map",
         "Source role map",
-        "Authorities",
         "Task map",
         "Change-impact map",
     ),

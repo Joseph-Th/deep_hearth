@@ -1,4 +1,4 @@
-//! Cross-owner trusted-load regressions for mining jobs.
+//! Cross-owner trusted-load contracts for mining jobs.
 
 use super::*;
 

@@ -41,155 +41,32 @@ specific vertical slice.
 
 ## Control-surface program
 
-Agent/player legibility is an ongoing architectural program, not a separate subsystem. When an owner is touched,
-check whether callers can answer its important control questions through production surfaces:
+When a slice touches an owner, make the existing control path easier to operate before adding parallel
+abstractions. Legitimate callers should be able to find:
 
-- current relevant state or assessment;
-- legal action families or concrete action prerequisites;
-- representative blockers with typed reasons;
-- projected physical/cost consequence where planning materially benefits;
-- committed typed outcome;
-- stable identity needed to continue, inspect, claim, repair, or reverse work.
+- current relevant state or a canonical assessment;
+- legal action prerequisites and typed blockers;
+- a useful projection for costly choices when production already knows the controlling physics;
+- the canonical authorization/mutation boundary;
+- the committed outcome and stable identity needed to continue, inspect, claim, repair, or reverse work.
 
-Add the narrowest missing projection or outcome at the owner. Do not create a universal action bus, generic
-reflection layer, harness-only legality model, or privileged AI state surface merely to make automation easier.
-Typed domain operations remain the authority.
+Prefer improvements in this order:
 
-### Control-surface maturity
+1. consume an existing projection/outcome instead of rescanning state;
+2. propagate an owner result that a crossed edge currently discards;
+3. add a typed immutable reverse index or read-side projection for repeated domain reconstruction;
+4. expose a production-owned feasible bound when repeated probing varies only one physical dimension;
+5. batch canonical `advance_tick` calls only when callers repeatedly hand-roll the same bounded wait;
+6. add freshness metadata only when a useful read-side result is actually retained across mutations.
 
-Do not pursue API symmetry for its own sake. Mature each control path only as far as its real callers need:
+Keep strategy outside production. Candidate ranking, goals, risk tolerance, and search budgets belong to the caller;
+production owns legality, physics, and authoritative outcomes. Do not build a universal action bus, AI facade,
+reflection layer, or mutable availability cache for agent convenience.
 
-| Need | Preferred production surface | Current strong examples |
-| --- | --- | --- |
-| Understand current pressure/state | canonical read-only assessment or owner record accessor | `SurvivalAssessment`, `GeologicalKnowledgeAssessment`, `StructuralAssessment` |
-| Compare a costly action before committing | deterministic `Resolved*` / decision object exposing material bottlenecks and consequences | powered ore `Resolved*`, thermal `Resolved*`, equipment maintenance resolution |
-| Protect consequential mutation | revision/state-bound `Validated*` token with typed rejection and a consuming commit | production start, mining, equipment/storage/energy lifecycle operations |
-| Continue delayed work | stable runtime identity plus persisted job/custody/schedule state, with admission schedule returned when callers need it | `ProductionJobId`, `MiningJobId`, `PlayerWorkState`, `EatOutcome::completes_at`, `DrinkOutcome::completes_at` |
-| Observe committed consequence | typed outcome/completion/claim result containing stable identity and material deltas needed downstream | `TickOutcome`, `ProcessCompletion::landings`, `MiningClaimReceipt`, maintenance/disassembly/support outcomes |
-| Act on hidden truth safely | opaque evidence-derived authorization that withholds the hidden owner identity | `MiningTargetResolution` |
-| Adapt a scalable request | production-derived feasible bound or bottleneck when the domain already knows the monotonic limiting quantities | equipment/process batch limits and typed finite-energy/condition blockers are ingredients; do not force callers to rediscover the combined envelope by repeated failure |
-| Retain planning safely | narrow dependency/revision or equally explicit invalidation semantics when a read-side result is expensive enough to keep | revision-bound production completion and validated owner operations show the pattern; do not add a global world revision solely for convenience |
-| Discover a route toward a goal | goal-directed immutable topology lookup that exposes authored producers/providers/assembly/upgrade/recovery relationships without claiming current availability | process execution/provider/energy topology is indexed by `Registries::process_topology`; broader acquisition/upgrade/recovery path discovery remains caller-local |
-| Wait for a known temporal boundary | bounded batched stepping over canonical `advance_tick`, preserving ordered outcomes and optional actor-visible stop conditions | many gameplay/tests hand-roll `advance_exact`; workshop already uses `TickOutcome` to stop on completion or suspension |
-| Reason safely from absence | query result with explicit scope and completeness: exhaustive, bounded-partial with continuation, or sampled/replayable | gameplay evaluation already distinguishes bounded search from unavailability; future production/topology discovery should make the same distinction structurally |
-
-Treat raw-state access as control-surface debt only when a legitimate caller must reconstruct domain meaning,
-legality, or prediction that a production owner already knows how to derive. Reading an exact record field for
-reporting, identity, or already-authoritative state is not itself debt. This distinction prevents agent
-ergonomics from turning into redundant facade construction.
-
-When a harness, adapter, or future autonomous actor contains copied thresholds, physical formulas, provider
-matching, hidden-state workarounds, or before/after inference solely because production exposes no semantic
-answer, move the derivation to the narrowest production owner and reuse it. When the consumer merely formats or
-aggregates canonical values, leave that work outside the owner.
-
-Repeated legality calls are not automatically debt. It is legitimate for an actor to evaluate genuinely
-different alternatives. Debt exists when the alternatives differ only along a monotonic dimension and the
-production resolver already computes the limits needed to answer that dimension directly.
-
-Use increasing claim strength when planning control surfaces: **direct authored edge -> authored path -> ordinary
-reachability -> current opportunity -> authorization -> committed consequence**. Registry-derived topology should
-make the first two cheap; it must not silently upgrade them into the stronger claims. Local
-`has_authored_acquisition_edge` and `has_authored_assembly_edge` predicates are deliberately direct-edge
-declarations. Keep transitive authored-path and ordinary-reachability claims in topology/reachability authorities
-instead of pushing them into individual definitions.
-
-### Operability refinement order
-
-When an authorized implementation slice exposes these debts, prefer the least-semantic-cost improvement first:
-
-1. **Consume existing semantics correctly.** Replace caller rescans or duplicated checks with already-available
-   typed outcomes/projections before adding production API.
-2. **Propagate discarded owner results.** If a lower owner already computes a continuation fact, carry it through
-   the crossed edge.
-3. **Compress immutable topology.** Add typed registry-derived reverse indexes for repeated producer/provider/
-   construction/upgrade/recovery discovery. Prove exact derivation from definitions; do not add mutable world
-   availability or actor preference.
-4. **Expose production-owned feasible projections.** Replace repeated request probing with domain-specific
-   bounds where production already derives the limiting dimensions. Do not simplify a coupled physical constraint merely to obtain a searchable scalar.
-5. **Batch canonical continuation.** If multiple legitimate callers still hand-roll time loops, provide bounded
-   stepping that executes `advance_tick` and preserves ordered outcomes. Do not implement semantic fast-forward
-   as a convenience optimization.
-6. **Add freshness metadata only on demonstrated retention need.** Expose narrow revision/dependency stamps when
-   a useful planning result is expensive enough to retain across other actions. Do not publish every owner
-   revision or introduce a global world revision preemptively.
-
-Preserve simple shapes when they are sufficient: a commit that creates no continuation fact may return `()`;
-tie-breaking among equally legal observable inputs belongs to actor policy unless product semantics require a
-canonical choice; prediction and authorization should share production semantics without cloning or mutating the
-world.
-
-At every step, remove the superseded caller reconstruction and its tests/diagnostics rather than retaining two
-ways to derive the same semantic answer. This order is a refinement heuristic, not an executable task queue;
-[`STATUS.md`](STATUS.md) changes only when runtime scope/reachability actually changes.
-
-For new discovery surfaces, prefer **narrow exhaustive queries** before generic pagination. A topology query for
-one commodity/provider relationship should usually be complete and cheap. Add continuation only when measured
-result size justifies it, and never use truncation as a hidden resource-control mechanism.
-
-### Agent-operability program
-
-Every substantial slice should make the system at least as easy for the next agent to address correctly as it
-was before. Treat repeated reasoning cost as design evidence, not merely as inconvenience.
-
-High-leverage improvements are usually local:
-
-- a canonical projection that replaces repeated raw-state reconstruction;
-- a typed blocker that names the actionable owner/precondition instead of forcing broad diagnosis;
-- a stable work identity/outcome that removes whole-state before/after inference;
-- propagation of an existing destination-owner landing identity through a crossed custody edge;
-- an explicit cross-owner edge that makes custody and stale dependencies followable;
-- a routed authority/source/proof entry that prevents repository-wide search;
-- a focused proof that makes a contract cheap to falsify.
-
-Do not build a universal AI facade, reflection schema, duplicated action catalog, or generic planner API unless
-the product itself genuinely needs that abstraction. Agent ergonomics should emerge from a more coherent domain
-system, not a second semantic layer laid over an incoherent one.
-
-### Semantic entropy budget
-
-New capability has an information cost as well as an implementation cost. Before introducing a new concept,
-ask whether it necessarily adds any of these: a new durable owner, a new operation lifecycle shape, a new flow
-kind, a new generic status vocabulary, a new cache/invalidation rule, a new authority document, a new test lane,
-or a new compatibility branch. Each addition must correspond to genuinely new semantics that cannot be expressed
-cleanly through the existing tower.
-
-Prefer changes that increase capability faster than they increase the number of concepts an agent must keep in
-working memory. Reusing one owner or edge for another physically equivalent operation is usually more accretive
-than adding a neighboring abstraction whose main benefit is local convenience.
-
-Repeated friction is a useful prioritization signal. If several unrelated tasks repeatedly require the same
-wide search, copied derivation, hidden-state workaround, broad audit, or manual state-diff reconstruction, fixing
-that semantic bottleneck can have more connective leverage than adding another content branch.
-
-For long-horizon agent control, prioritize **topology compression before planner centralization**. It is useful
-for production to expose stable authored relationships and current semantic blockers that every legitimate
-caller would otherwise rediscover. It is not useful for production to decide the actor's goal, route ordering,
-risk tolerance, resource valuation, or stopping policy. A richer possibility/opportunity vocabulary should make
-many planners easier to build without making one planner authoritative.
-
-### Integration triage
-
-Choose among otherwise valid future slices lexicographically rather than collapsing the design into one opaque
-score. Earlier questions dominate later ones:
-
-1. **Does it close a real current loop?** Prefer an absent edge that blocks ordinary progression, recovery,
-   delegation, or control of already-implemented capability over a disconnected new content family.
-2. **Can it reuse current owners and currencies?** Prefer matter/energy/labor/information/support/time flows that
-   deepen existing abstractions over a feature that needs a parallel state model.
-3. **Does it remove privileged setup or duplicated reasoning?** Prefer replacing capability-fixture injection,
-   hidden reconstruction, or copied legality with an ordinary production route or canonical projection.
-4. **Does it reduce future semantic cost?** Prefer work that turns a recurring wide search, copied derivation,
-   ambiguous blocker, or broad diagnostic into a stable owner/edge/projection/proof reusable by later slices.
-5. **How many existing investments become more useful?** Prefer edges that connect several current materials,
-   machines, stores, structures, knowledge records, or recovery routes rather than one narrow endpoint.
-6. **Is failure actionable and recoverable?** Prefer a slice with visible blockers and repair/resume/reroute
-   semantics over one that terminates in an unexplained dead end.
-7. **Can it be proved cheaply?** Among similarly valuable slices, prefer the one whose owner/boundary contract
-   can be established with bounded deterministic evidence before broad gameplay evaluation.
-
-This ordering is a decision aid, not a permanent roadmap score. Re-evaluate after each substantial slice because
-closing one edge can change which later edge has the highest connective leverage.
+Prioritize future slices that close a real current loop, reuse existing owners and physical currencies, replace
+controlled setup or duplicated reasoning with an ordinary path, connect several existing investments, expose
+recoverable failure, and admit a focused proof. Re-evaluate after each substantial slice because closing one edge
+changes the value of the next.
 
 ## Default integration sequence
 

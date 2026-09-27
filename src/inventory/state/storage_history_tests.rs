@@ -1,4 +1,4 @@
-//! Focused regressions for rational storage-exposure projection semantics.
+//! Storage-exposure projection contracts for rational preservation history.
 
 use super::*;
 

@@ -19,130 +19,70 @@ capability-only state; setup never establishes ordinary reachability.
 
 ## Actor contract
 
-After setup, actor code must use production resolvers, validators, commits, and simulation ticks; read only
-legitimate observable state, explicit actor policy, and canonical projections; never inspect hidden geology,
-future controlled events, setup authorization, or comparison-branch outcomes; and preserve ordinary ownership,
-persistence, conservation, capability, and survival rules. `src/content/gameplay_fixture.rs` is the
-controlled-scenario fixture boundary: it owns pre-admission starting-state construction and any opaque
-authorizations created during setup for disclosed controlled events. Pre-admission ends as soon as either the
-survival player or logistics player is initialized, so world-space custody cannot be created first and then used
-to justify further fixture mutation. Those authorizations may commit later only through their canonical production
-validators/commits and must not become actor observations or arbitrary post-admission mutation authority.
+After controlled setup, automated actors use the same production resolvers, validators, commits, and simulation
+ticks as ordinary runtime behavior. They may read legitimate observable state, explicit actor policy, and
+canonical production projections. They may not inspect hidden geology, future controlled events, setup
+authorization, or comparison-branch outcomes.
 
-The actor may reason from observable attention, material demand, survival cost, throughput, capacity, condition,
-and acquired evidence. Registry order, implementation identity, hidden truth, and future outcomes are not policy
-inputs. Observable ties require an explicit actor rule.
+`src/content/gameplay_fixture.rs` owns pre-admission fixture construction and opaque authorization for disclosed
+controlled events. Pre-admission ends when the survival or logistics player is initialized. After that boundary,
+all consequential changes use canonical runtime operations. Fixture authorization is never actor-visible evidence.
 
-Prefer canonical assessments and typed outcomes when production already knows the semantic answer. If actor code
-must reproduce a domain formula, threshold, provider rule, or hidden-state inference solely because no
-production read surface exists, treat that as possible control-surface debt. Exact record reads for identity,
-reporting, or already-authoritative values are not debt.
-
-Shared harness support may own evaluation policy such as deterministic lot selection, bounded sampling,
-scenario variation, or report formatting. Such policy stays outside production unless it is also a legitimate
-product-domain answer. Reuse does not by itself confer simulation authority.
+Actor policy may choose among observable alternatives using attention, material demand, survival reserve,
+throughput, capacity, condition, and acquired evidence. Production owns legality and physics; actor code owns
+candidate generation, ranking, search order, stopping rules, and policy ties. Shared harness helpers may implement
+that evaluation policy but do not gain simulation authority.
 
 ### Decision-frame contract
 
-For material actor choices, prefer one bounded decision frame assembled from canonical production surfaces:
+Material choices should be explainable from one bounded frame:
 
 ```text
-legitimate observation
-    -> bounded candidate families
-    -> production-derived resolution / blocker
-    -> policy comparison
-    -> selected action or explicit no-action
-    -> typed result and later feedback
+observable state -> bounded candidates -> production resolution/blocker
+                 -> actor policy -> selected action or explicit no-action
+                 -> typed result -> later feedback
 ```
 
-Candidate generation is actor policy, but it should exploit domain structure rather than brute-force every
-identity combination when production already exposes a narrower semantic route. Production owns legality and
-physics; the actor owns search order, stopping rules, preferences, and uncertainty tolerance.
+Candidate sets must state what their absence means. An exhaustive search over a declared observable domain may
+support “no candidate in that domain now.” Budgeted, sampled, heuristic, or truncated search supports only the
+bounded search result. Preserve the search bound or continuation in diagnostics.
 
-Every actor candidate set should have an evidence-strength interpretation. If generation exhaustively traverses
-one declared observable domain, an empty set may support "no candidate in that domain now". If generation is
-budgeted, heuristic, sampled, or stops after enough acceptable candidates, emptiness/absence supports only a
-generator/search result and must retain its bound. This is the distinction behind `Generator gap` versus a
-production `Validation gate` or canonical unavailability proof.
+Authored topology is legitimate actor input for declared transformations/providers/routes, but it establishes
+possibility only. Current opportunity requires actor-visible state and canonical production resolution;
+authorization still requires validation. Do not turn registry order, implementation identity, or hidden truth
+into policy inputs.
 
-If a production/topology query itself is bounded, actor diagnostics preserve the query scope, completeness flag,
-continuation/budget, and freshness basis. Do not collapse a partial production query into an exhaustive actor
-claim merely because the actor used every item that happened to be returned.
+Freeze an investment decision before running matched comparison branches. Later lifecycle cost and terminal
+inventory assess that decision; they do not retroactively reselect it. Refresh current resource/condition
+assessments before later service, fallback, or adaptation decisions.
 
-Immutable authored topology is legitimate actor input when it is exposed through production registries or a
-canonical registry-derived projection. It can answer what transformations/providers/routes are authored in
-principle. It cannot establish that the route is ordinarily reachable, that the actor currently owns its
-prerequisites, or that hidden world truth will satisfy it. Current candidates must be grounded in actor-visible
-state and canonical resolution before policy compares them.
-
-Keep topology discovery separate from route choice. A shared reverse index may return all manual producers of a
-commodity, all nominal providers of a capability requirement, or the assembly ancestry of an infrastructure
-definition. The actor decides which alternatives to investigate and how to rank their observable costs. This
-separation allows one reusable causal map without moving strategy into simulation authority.
-
-Actor diagnostics should name the strength of a planning claim. An authored edge/path is not an ordinary-play
-claim; ordinary reachability is not proof that prerequisites are present now; a current opportunity is not an
-authorization; a prior authorization is not valid after its bound state becomes stale. This vocabulary prevents
-catalog discovery, controlled setup, current-state reasoning, and committed evidence from being merged into one
-ambiguous notion of "available".
-
-A good frame contains enough stable identity and typed consequence data that diagnostics, replay, and
-counterfactual comparison can explain the choice without rereading hidden state or diffing the entire world.
-When the same missing production projection forces several actors/probes to reconstruct the same meaning, treat
-that as control-surface debt rather than standard harness infrastructure.
-
-Freeze investment intent before evaluating comparison branches. Later lifecycle costs and terminal inventory assess
-the decision afterward; they do not reselect it. A pre-action estimate retains its assumptions and uncertainty.
-During execution, refresh observable resource and condition checks before each service or fallback.
-
-For chained production/mining work, consume the exact contribution plus destination-owned landing identity from
-`ProcessCompletion::landings()` / `ProcessParcelLanding` or `MiningClaimReceipt`. A landing may name a
-pre-existing lot when inventory coalesces compatible matter; the paired `MaterialLotSpec` preserves what this
-operation contributed even though the surviving lot may now contain more matter. Selecting "the lot that looks
-like the output" by scanning a destination is therefore not equivalent evidence. Actor policy may choose among
-multiple landed outputs, but it should not reconstruct custody identity already decided by inventory.
-
-For direct eating/drinking, use the admitted outcome's `completes_at()` when scheduling the next observation or
-decision rather than rereading `PlayerWorkState` solely to recover the schedule. The work owner remains the
-authoritative persisted continuation; the outcome is a disposable receipt for the caller that just admitted it.
+Use owner-provided continuation data instead of reconstructing it. In particular, consume
+`ProcessCompletion::landings()` / `ProcessParcelLanding`, `MiningClaimReceipt`, and admitted direct-consumption
+completion ticks rather than rescanning destinations or rereading unrelated state to rediscover identities or
+schedules.
 
 ### Adaptive search and freshness
 
-An actor may perform bounded search when search itself is policy, when alternatives are physically distinct, or
-when production does not yet expose a direct feasible envelope. Keep that search reproducible and preserve the
-offered request, selected request, and production blocker that caused adaptation.
+Bounded search is valid when alternatives are genuinely distinct or no direct production envelope exists. Keep
+it deterministic/replayable and retain the offered request, selected request, and typed production blocker.
 
-When the search repeatedly varies only one monotonic quantity such as batch mass and treats a stable set of
-capacity/resource/lifetime errors as "too large", that is evidence for a production planning surface. The
-preferred future shape is a domain-specific feasible bound or bottleneck derived from the same resolver physics,
-not a harness-maintained formula and not a generic action catalog.
+Repeated probing that varies only one monotonic quantity is evidence for a production-owned feasible bound, not
+for a harness-side formula. The actor still owns what to do with that bound: reduce scale, recharge, switch
+provider, use a fallback, or abandon the goal.
 
-Separate **domain constraint classification** from **policy response classification**. If several operations
-sharing one physical profile repeatedly identify the same limiting dimensions, production may expose those
-dimensions. An actor remains responsible for deciding that a finite-energy limit means recharge now, switch
-provider, reduce batch, use a manual fallback, or abandon the goal. The same production blocker may rationally
-produce different policy responses in different contexts.
-
-Actor-side projections and candidate frames are disposable caches. Reuse one only when no intervening
-authoritative transition can affect the facts it depended on. Otherwise reacquire the narrow production
-assessment/resolution. Never use a cloned future branch, diagnostic truth, or remembered validation success as
-authority for the current state.
+Candidate frames and projections are disposable. Reuse them only while all authoritative dependencies they rely
+on remain unchanged; otherwise reacquire the narrow production assessment/resolution. A cloned future branch or
+remembered validation success never authorizes current state.
 
 ### Temporal observation horizon
 
-An actor may choose a bounded observation horizon from legitimate information such as a current work schedule,
-policy deadline, or fixed experiment horizon. Advancing several ticks in one harness/tool call is acceptable only
-when the implementation executes canonical tick semantics and preserves any ordered actor-visible outcomes that
-could change policy before the requested horizon.
+An actor may choose a bounded horizon from legitimate information such as a current schedule, policy deadline, or
+fixed experiment duration. Multi-tick harness helpers are valid only when they execute canonical
+`advance_tick` semantics and preserve ordered actor-visible outcomes that could change policy before the horizon.
 
-A known completion tick is an upper bound, not foreknowledge that the operation will complete normally. Support
-loss, death, suspension, depletion, or another observable transition may require an earlier decision. Therefore
-an actor-facing batch should stop on declared observable event classes or return the intervening outcomes; it
-must not silently leap to the requested tick and discard decision-relevant feedback.
-
-True semantic fast-forward is outside the current actor contract unless production itself implements and proves
-an equivalent authoritative interval transition. Harness code may optimize invocation overhead, not simulation
-rules.
+A known completion tick is an upper bound, not guaranteed completion. Helpers must stop on declared
+decision-relevant events or return intervening outcomes. Semantic fast-forward is outside the actor contract
+unless production owns and proves the equivalent authoritative transition.
 
 ## Evidence modes
 
