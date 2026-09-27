@@ -672,7 +672,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .unwrap_or(0)
         .min(1_000_000);
     reviewln!(
-        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] cleanup=[native-copper:{}mg recovery:{}ppm residue:{}mg] sink=usable-native-copper remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[{}] reachability-authority=STATUS.md",
+        "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] cleanup=[native-copper:{}mg recovery:{}ppm residue:{}mg] sink=usable-native-copper remaining-frontier=industrial-foundry-scale ordinary-continuation=[first-foundry->80g-batch-upgrades] industrial-foundry-frontier=[{}] reachability-authority=STATUS.md",
         focused_probe_role_label(case.role()),
         batch_mass.milligrams(),
         copper_ppm,

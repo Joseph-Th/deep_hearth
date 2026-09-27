@@ -19,8 +19,6 @@ pub(in crate::inventory) use integrity::{
     assert_consumption_parts_match_state, assert_consumption_parts_match_state_iter,
     assert_consumption_parts_well_formed,
 };
-#[cfg(test)]
-pub(crate) use reservation::apply_consumption_reservation;
 pub(crate) use reservation::{
     ConsumptionReservation, ReservationError, apply_prechecked_consumption_reservation,
     validate_consumption_reservation_from_selection,

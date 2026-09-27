@@ -3,7 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
-use deep_hearth::content::{FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD};
+use deep_hearth::content::{
+    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+};
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::crafting::project_manual_craft_hand_work;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
@@ -56,6 +58,10 @@ impl PreservationConstructionPlan {
 pub(super) fn is_disclosed_preservation_raw_material(commodity: CommodityKey) -> bool {
     commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
         || commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+        // Native copper is a legitimate post-processing settlement input. Survival scenarios may
+        // disclose a finite owned quantity exactly as they disclose logs or stone; the route still
+        // has to perform canonical cold-working before copper can enter an enclosure assembly.
+        || commodity == CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)
 }
 
 fn discover_manual_construction_route(

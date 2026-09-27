@@ -11,14 +11,13 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, apply_clock_advance, validate_loaded_state};
 use crate::core::time::SimulationTick;
 use crate::energy::calculate_explicit_energy_accounting;
-use crate::inventory::selection::apply_consumption_reservation;
 use crate::inventory::{
     ConsumptionSelectionError, MaterialFixtureError, MaterialIngressEntry, MaterialIngressError,
     MaterialLotId, MaterialLotRecord, MaterialRelocationCommitError, MaterialRelocationError,
     MaterialRelocationTestError, ReservedDepositRequest, StockpileId, StockpileStorageError,
     StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile, apply_material_ingress,
-    apply_reserved_deposits, decide_reserved_deposits, deposit_bulk_for_test,
-    deposit_composed_lot_for_test, deposit_lot_for_test,
+    apply_prechecked_consumption_reservation, apply_reserved_deposits, decide_reserved_deposits,
+    deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
     validate_consumption_reservation_from_selection, validate_consumption_selection,
     validate_loaded_inventory, validate_material_ingress, validate_material_relocation_for_test,
 };

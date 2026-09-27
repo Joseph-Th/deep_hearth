@@ -4,9 +4,10 @@ use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
 use deep_hearth::content::{
-    EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, FORM_ORE,
-    MATERIAL_COPPER, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_INDEXED_CHANNEL_SURVEY,
-    build_registries,
+    EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+    EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME, EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL, FORM_ORE,
+    MATERIAL_COPPER, PROSPECTING_CHANNEL_COMPOSITE_SURVEY, PROSPECTING_DETAILED_FIELD_SURVEY,
+    PROSPECTING_INDEXED_CHANNEL_SURVEY, PROSPECTING_SHALLOW_CORE_SURVEY, build_registries,
 };
 use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -21,7 +22,9 @@ use deep_hearth::geology::{
 use deep_hearth::labor::ProspectingSpatialResolution;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::mining::{MiningTargetRequest, resolve_mining_target};
+use deep_hearth::mining::{
+    MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target,
+};
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
@@ -38,6 +41,258 @@ fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
         VoxelCoord::new(start_x + width, 0, 1),
     )
     .unwrap_or_else(|error| panic!("prospecting-instrument region failed: {error}"))
+}
+
+#[test]
+fn channel_sampling_frame_buys_precise_aggregate_grade_without_spoofing_mining_authority() {
+    let registries = build_registries();
+    let survey = registries
+        .labor()
+        .get_prospecting(PROSPECTING_CHANNEL_COMPOSITE_SURVEY)
+        .copied()
+        .unwrap_or_else(|| panic!("channel-composite survey definition disappeared"));
+    assert_eq!(survey.evidence(), GeologicalEvidenceKind::ChannelComposite);
+    assert_eq!(survey.maximum_region_voxels(), 16);
+    assert_eq!(
+        survey.spatial_resolution(),
+        ProspectingSpatialResolution::AggregateRegion
+    );
+    assert_eq!(survey.excavation_hardness_resolution(), None);
+    assert_eq!(survey.resource_mass_resolution(), None);
+
+    let frame_definition = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME)
+        .unwrap_or_else(|| panic!("channel-sampling frame definition disappeared"));
+    let frame_assembly = frame_definition
+        .assembly_profile()
+        .unwrap_or_else(|| panic!("channel-sampling frame lost its assembly profile"));
+    let mut state = AppState::new();
+    let frame_source = add_solid_stockpile(&mut state, frame_assembly.input_mass());
+    for input in frame_assembly.inputs() {
+        seed_lot(
+            &registries,
+            &mut state,
+            frame_source,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let region = horizontal_region(40, 16);
+    seed_geological_deposit(
+        &registries,
+        &mut state,
+        GeologicalDepositSeed::new(
+            region,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(16_000_000),
+            ROOM_TEMPERATURE,
+            Pressure::from_pascals(350_000_000),
+            copper_ore_composition(420_000, 280_000),
+        ),
+    );
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("channel-composite matter setup failed: {error}"))
+        .total();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("channel-composite survival setup failed: {error}"));
+    let frame = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME,
+        frame_source,
+    )
+    .unwrap_or_else(|error| panic!("channel-sampling frame assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("channel-sampling frame assembly commit failed: {error}"));
+
+    let start = validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new_with_equipment(
+            PROSPECTING_CHANNEL_COMPOSITE_SURVEY,
+            region,
+            MATERIAL_COPPER,
+            frame,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("channel-composite survey start failed: {error}"));
+    let work = start.work();
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("channel-composite survey commit failed: {error}"));
+    let outcome =
+        complete_prospecting_work(&registries, &mut state, work, "channel-composite survey");
+    assert_eq!(outcome.evidence(), GeologicalEvidenceKind::ChannelComposite);
+    let mut observations = outcome.observations();
+    let observation = observations
+        .next()
+        .unwrap_or_else(|| panic!("aggregate channel-composite survey emitted no observation"));
+    assert!(
+        observations.next().is_none(),
+        "aggregate channel-composite survey must emit exactly one observation"
+    );
+    let record = state
+        .geological_knowledge()
+        .get_observation(observation)
+        .unwrap_or_else(|| panic!("channel-composite observation disappeared"));
+    let finding = record
+        .finding(MATERIAL_COPPER)
+        .unwrap_or_else(|| panic!("channel-composite copper finding disappeared"));
+    assert!(finding.lower_ppm() > 0);
+    assert_eq!(record.excavation_hardness(), None);
+    assert_eq!(record.resource_mass(), None);
+    assert!(matches!(
+        resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER)),
+        Err(MiningTargetResolutionError::EvidenceInsufficientToResolveTarget { .. })
+    ));
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("channel-composite final state invalid: {error}"));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("channel-composite matter audit failed: {error}"))
+            .total(),
+        matter_before,
+        "prospecting instrument construction and use must conserve matter"
+    );
+}
+
+#[test]
+fn shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence() {
+    let registries = build_registries();
+    let survey = registries
+        .labor()
+        .get_prospecting(PROSPECTING_SHALLOW_CORE_SURVEY)
+        .copied()
+        .unwrap_or_else(|| panic!("shallow-core survey definition disappeared"));
+    assert_eq!(survey.evidence(), GeologicalEvidenceKind::CoreSample);
+    assert_eq!(survey.maximum_region_voxels(), 1);
+    assert!(survey.excavation_hardness_resolution().is_some());
+    assert!(survey.resource_mass_resolution().is_some());
+
+    let drill_definition = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL)
+        .unwrap_or_else(|| panic!("tripod core drill definition disappeared"));
+    let drill_assembly = drill_definition
+        .assembly_profile()
+        .unwrap_or_else(|| panic!("tripod core drill lost its assembly profile"));
+
+    let mut state = AppState::new();
+    let drill_source = add_solid_stockpile(&mut state, drill_assembly.input_mass());
+    for input in drill_assembly.inputs() {
+        seed_lot(
+            &registries,
+            &mut state,
+            drill_source,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let region = horizontal_region(80, 1);
+    seed_geological_deposit(
+        &registries,
+        &mut state,
+        GeologicalDepositSeed::new(
+            region,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(2_000_000),
+            ROOM_TEMPERATURE,
+            Pressure::from_pascals(375_000_000),
+            copper_ore_composition(460_000, 260_000),
+        ),
+    );
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("shallow-core matter setup failed: {error}"))
+        .total();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("shallow-core survival setup failed: {error}"));
+
+    let drill = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL,
+        drill_source,
+    )
+    .unwrap_or_else(|error| panic!("tripod core drill assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("tripod core drill assembly commit failed: {error}"));
+    let condition_before = state
+        .equipment()
+        .get_equipment(drill)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("assembled tripod core drill disappeared"));
+
+    let start = validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new_with_equipment(
+            PROSPECTING_SHALLOW_CORE_SURVEY,
+            region,
+            MATERIAL_COPPER,
+            drill,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("shallow-core survey start failed: {error}"));
+    let work = start.work();
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("shallow-core survey commit failed: {error}"));
+    let outcome = complete_prospecting_work(&registries, &mut state, work, "shallow-core survey");
+    assert_eq!(outcome.evidence(), GeologicalEvidenceKind::CoreSample);
+    let observations = outcome.observations().collect::<Vec<_>>();
+    assert_eq!(observations.len(), 1);
+    let observation = observations[0];
+    let record = state
+        .geological_knowledge()
+        .get_observation(observation)
+        .unwrap_or_else(|| panic!("shallow-core observation disappeared"));
+    let finding = record
+        .finding(MATERIAL_COPPER)
+        .unwrap_or_else(|| panic!("shallow-core copper finding disappeared"));
+    assert!(finding.lower_ppm() > 0);
+    assert!(record.excavation_hardness().is_some());
+    assert!(record.resource_mass().is_some());
+    assert!(
+        state
+            .equipment()
+            .get_equipment(drill)
+            .is_some_and(|equipment| equipment.condition() < condition_before),
+        "core drilling must wear the physical drill"
+    );
+
+    let resolved_target =
+        resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER))
+            .unwrap_or_else(|error| {
+                panic!("core evidence did not resolve its sampled target: {error}")
+            });
+    assert_eq!(resolved_target.region(), region);
+
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("shallow-core final state invalid: {error}"));
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("shallow-core save encoding failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("shallow-core save decoding failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("shallow-core trusted load failed: {error}"));
+    let loaded_record = loaded
+        .geological_knowledge()
+        .get_observation(observation)
+        .unwrap_or_else(|| panic!("shallow-core observation disappeared across save/load"));
+    assert_eq!(loaded_record.evidence(), GeologicalEvidenceKind::CoreSample);
+    assert!(loaded_record.excavation_hardness().is_some());
+    assert!(loaded_record.resource_mass().is_some());
+    assert_eq!(
+        calculate_matter_accounting(&loaded)
+            .unwrap_or_else(|error| panic!("shallow-core matter audit failed: {error}"))
+            .total(),
+        matter_before,
+        "core-drill construction, sampling, and persistence must conserve matter"
+    );
 }
 
 #[test]

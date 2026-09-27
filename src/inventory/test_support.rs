@@ -1,8 +1,9 @@
 //! Unit-test conveniences over the shared canonical inventory fixture boundary.
 
+use super::allocation::EmptyStockpileAllocationError;
 pub(crate) use super::fixture::MaterialFixtureError;
 use super::fixture::{
-    AddStockpileError, add_stockpile, deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
+    add_stockpile, deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
     deposit_lot_spec_for_fixture,
 };
 use super::state::{MaterialLotId, StockpileId, StockpileStorageProfile};
@@ -21,7 +22,7 @@ const TEST_REFERENCE_TEMPERATURE: Temperature = Temperature::from_millikelvin(29
 pub(crate) fn add_solid_stockpile_for_test(
     state: &mut AppState,
     capacity: Mass,
-) -> Result<StockpileId, AddStockpileError> {
+) -> Result<StockpileId, EmptyStockpileAllocationError> {
     add_stockpile(
         state,
         capacity,

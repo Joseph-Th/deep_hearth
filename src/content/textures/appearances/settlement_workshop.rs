@@ -4,12 +4,14 @@ use crate::texture::ObjectAppearanceDefinition;
 
 use super::super::{
     OBJECT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, OBJECT_COPPER_REINFORCED_WOODWORKING_ADZE,
-    OBJECT_COPPER_SCRAP, OBJECT_NATIVE_COPPER, OBJECT_STONE_WOODWORKING_ADZE, OBJECT_TAILINGS,
+    OBJECT_COPPER_SCRAP, OBJECT_FLYWHEEL_WIRE_DRAWBENCH, OBJECT_NATIVE_COPPER,
+    OBJECT_STONE_WOODWORKING_ADZE, OBJECT_TAILINGS, OBJECT_TIMBER_CHANNEL_SAMPLING_FRAME,
     OBJECT_TIMBER_DRESSING_BENCH, OBJECT_TIMBER_FRAME_COMMINUTION_MILL,
     OBJECT_TIMBER_FRAME_SAW_BENCH, OBJECT_TIMBER_HELVE_HAMMER, OBJECT_TIMBER_ORE_DRESSING_TABLE,
-    OBJECT_TIMBER_SASH_SAWMILL, OBJECT_TIMBER_TREADLE_HAMMER, OBJECT_TIMBER_WALKING_WHEEL_DRIVE,
-    TEXTURE_COPPER_HAMMERED, TEXTURE_COPPER_ORE, TEXTURE_SCREEN_MESH, TEXTURE_SLAG, TEXTURE_STONE,
-    TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE, TEXTURE_WORKING_METAL,
+    OBJECT_TIMBER_SASH_SAWMILL, OBJECT_TIMBER_TREADLE_HAMMER, OBJECT_TIMBER_TRIPOD_CORE_DRILL,
+    OBJECT_TIMBER_WALKING_WHEEL_DRIVE, OBJECT_TIMBER_WIRE_DRAWBENCH, TEXTURE_COPPER_HAMMERED,
+    TEXTURE_COPPER_ORE, TEXTURE_SCREEN_MESH, TEXTURE_SLAG, TEXTURE_STONE, TEXTURE_WOOD_END,
+    TEXTURE_WOOD_SIDE, TEXTURE_WORKING_METAL,
 };
 use super::object;
 
@@ -19,6 +21,31 @@ pub(super) fn definitions() -> impl Iterator<Item = ObjectAppearanceDefinition> 
             OBJECT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
             "copper-reinforced geological sampling hammer",
             &[TEXTURE_STONE, TEXTURE_COPPER_HAMMERED, TEXTURE_WOOD_SIDE],
+        ),
+        object(
+            OBJECT_TIMBER_CHANNEL_SAMPLING_FRAME,
+            "timber channel-sampling frame",
+            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END, TEXTURE_COPPER_HAMMERED],
+        ),
+        object(
+            OBJECT_TIMBER_TRIPOD_CORE_DRILL,
+            "timber tripod shallow-core drill",
+            &[
+                TEXTURE_WOOD_SIDE,
+                TEXTURE_WOOD_END,
+                TEXTURE_STONE,
+                TEXTURE_COPPER_HAMMERED,
+            ],
+        ),
+        object(
+            OBJECT_FLYWHEEL_WIRE_DRAWBENCH,
+            "flywheel-driven copper wire drawbench",
+            &[
+                TEXTURE_WOOD_SIDE,
+                TEXTURE_WOOD_END,
+                TEXTURE_STONE,
+                TEXTURE_COPPER_HAMMERED,
+            ],
         ),
         object(
             OBJECT_STONE_WOODWORKING_ADZE,
@@ -70,6 +97,16 @@ pub(super) fn definitions() -> impl Iterator<Item = ObjectAppearanceDefinition> 
             OBJECT_TIMBER_TREADLE_HAMMER,
             "timber treadle forging hammer",
             &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END, TEXTURE_STONE],
+        ),
+        object(
+            OBJECT_TIMBER_WIRE_DRAWBENCH,
+            "timber copper wire drawbench",
+            &[
+                TEXTURE_WOOD_SIDE,
+                TEXTURE_WOOD_END,
+                TEXTURE_STONE,
+                TEXTURE_COPPER_HAMMERED,
+            ],
         ),
         object(
             OBJECT_TIMBER_SASH_SAWMILL,

@@ -236,8 +236,7 @@ fn consumption_reservation_and_reserved_deposit_preserve_final_quantity() {
         Mass::ZERO,
         "consumption reservation must own source post-withdrawal mass projection"
     );
-    apply_consumption_reservation(state.inventory_state_mut(), reservation)
-        .unwrap_or_else(|error| panic!("reservation commit failed: {error:?}"));
+    apply_prechecked_consumption_reservation(state.inventory_state_mut(), reservation);
     assert_lot_aggregate_agreement(&registries, &state, "after reservation");
     assert_eq!(
         state

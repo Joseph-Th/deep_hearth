@@ -34,12 +34,6 @@ pub(crate) enum ReservationError {
     },
 }
 
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ReservationCommitError {
-    StaleInventoryRevision { expected: u64, actual: u64 },
-}
-
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ConsumptionReservation {
@@ -165,21 +159,6 @@ pub(crate) fn validate_consumption_reservation_from_selection(
         consumed_inputs,
         inbound_by_destination,
     })
-}
-
-#[cfg(test)]
-pub(crate) fn apply_consumption_reservation(
-    state: &mut InventoryState,
-    reservation: ConsumptionReservation,
-) -> Result<(), ReservationCommitError> {
-    if state.revision() != reservation.expected_revision {
-        return Err(ReservationCommitError::StaleInventoryRevision {
-            expected: reservation.expected_revision,
-            actual: state.revision(),
-        });
-    }
-    apply_prechecked_consumption_reservation(state, reservation);
-    Ok(())
 }
 
 /// Applies a reservation after a surrounding multi-owner transaction has checked its revision.

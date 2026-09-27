@@ -48,6 +48,12 @@ pub enum GeologicalEvidenceKind {
     SurfaceExposure,
     LooseIndicator,
     PannedConcentrate,
+    /// Systematic aggregate chips collected across one bounded exposed channel.
+    ///
+    /// This is physical abundance evidence, but unlike a localized excavation or core sample it
+    /// deliberately does not claim host-rock hardness or total resource scale for the aggregate
+    /// footprint.
+    ChannelComposite,
     ExcavationSample,
     CoreSample,
     LaboratoryAssay,

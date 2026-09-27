@@ -84,6 +84,397 @@ fn phase_change_definitions_require_authored_phase_directions() {
 }
 
 #[test]
+fn settlement_batch_foundry_and_channel_sampling_add_distinct_connected_progression() {
+    let registries = build_registries();
+
+    let winding = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING)
+        .unwrap_or_else(|| panic!("copper electrical-winding craft disappeared"));
+    assert_eq!(
+        winding.input(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
+    );
+    assert_eq!(winding.input_mass(), Mass::from_milligrams(60_000));
+    assert_eq!(
+        winding
+            .outputs()
+            .iter()
+            .map(|output| output.mass().milligrams())
+            .sum::<u64>(),
+        60_000,
+        "electrical winding fabrication must conserve its copper input"
+    );
+    assert!(winding.outputs().iter().any(|output| {
+        output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING)
+            && output.mass() == crafted_parts::COPPER_ELECTRICAL_WINDING_MASS
+    }));
+    let powered_winding = registries
+        .crafting()
+        .get_powered(PROCESS_POWER_HAMMER_COPPER_ELECTRICAL_WINDING)
+        .unwrap_or_else(|| panic!("powered electrical-winding route disappeared"));
+    assert_eq!(
+        powered_winding.transform(),
+        PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING
+    );
+
+    let dynamo = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO)
+        .unwrap_or_else(|| panic!("double-wound treadle dynamo disappeared"));
+    assert_eq!(
+        dynamo.upgrade_profile().map(|upgrade| upgrade.from()),
+        Some(EQUIPMENT_TIMBER_TREADLE_DYNAMO)
+    );
+    assert_eq!(
+        dynamo
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_TREADLE_DYNAMO_OUTPUT),
+        Some(CapabilityValue::Power(Power::from_microwatts(150_000_000)))
+    );
+
+    for (equipment, from, transfer_capability, transfer_power) in [
+        (
+            EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE,
+            EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+            capabilities::CAPABILITY_HEATING_POWER,
+            300_000_000,
+        ),
+        (
+            EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
+            EQUIPMENT_STONE_INGOT_MOLD,
+            capabilities::CAPABILITY_COOLING_POWER,
+            400_000_000,
+        ),
+    ] {
+        let definition = registries
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("settlement foundry equipment disappeared"));
+        assert_eq!(
+            definition.upgrade_profile().map(|upgrade| upgrade.from()),
+            Some(from)
+        );
+        assert_eq!(
+            definition
+                .capabilities()
+                .get_capability(capabilities::CAPABILITY_THERMAL_BATCH),
+            Some(CapabilityValue::Mass(Mass::from_milligrams(80_000)))
+        );
+        assert_eq!(
+            definition
+                .capabilities()
+                .get_capability(transfer_capability),
+            Some(CapabilityValue::Power(Power::from_microwatts(
+                transfer_power
+            )))
+        );
+    }
+
+    let electrical = registries
+        .energy()
+        .get_store(ENERGY_COPPER_RACK_ELECTRICAL_BUFFER)
+        .unwrap_or_else(|| panic!("settlement electrical buffer disappeared"));
+    assert_eq!(
+        electrical.upgrade_profile().map(|upgrade| upgrade.from()),
+        Some(ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER)
+    );
+    assert_eq!(
+        electrical.capacity(),
+        Energy::from_nanojoules(60_000_000_000_000)
+    );
+    assert_eq!(
+        electrical.max_input_power(),
+        Power::from_microwatts(150_000_000)
+    );
+    assert_eq!(
+        electrical.max_output_power(),
+        Power::from_microwatts(300_000_000)
+    );
+
+    let thermal = registries
+        .energy()
+        .get_store(ENERGY_COPPER_BANDED_STONE_THERMAL_SINK)
+        .unwrap_or_else(|| panic!("settlement thermal sink disappeared"));
+    assert_eq!(
+        thermal.upgrade_profile().map(|upgrade| upgrade.from()),
+        Some(ENERGY_STONE_THERMAL_SINK)
+    );
+    assert_eq!(
+        thermal.capacity(),
+        Energy::from_nanojoules(60_000_000_000_000)
+    );
+    assert_eq!(
+        thermal.max_input_power(),
+        Power::from_microwatts(400_000_000)
+    );
+    assert_eq!(
+        thermal.passive_dissipation_power(),
+        Power::from_microwatts(20_000_000)
+    );
+
+    let survey = registries
+        .labor()
+        .get_prospecting(PROSPECTING_CHANNEL_COMPOSITE_SURVEY)
+        .unwrap_or_else(|| panic!("channel-composite survey disappeared"));
+    assert_eq!(survey.maximum_region_voxels(), 16);
+    assert_eq!(survey.abundance_uncertainty_ppm(), 12_500);
+    assert_eq!(
+        survey.spatial_resolution(),
+        crate::labor::ProspectingSpatialResolution::AggregateRegion
+    );
+    assert_eq!(survey.excavation_hardness_resolution(), None);
+    assert_eq!(survey.resource_mass_resolution(), None);
+    let instrument = survey
+        .equipment()
+        .unwrap_or_else(|| panic!("channel-composite survey lost its physical instrument"));
+    assert_eq!(
+        instrument.primary(),
+        EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME
+    );
+    assert_eq!(instrument.alternative(), None);
+
+    let crock = registries
+        .storage()
+        .get(STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("copper-banded provisions crock disappeared"));
+    let pantry = registries
+        .storage()
+        .get(STORAGE_INSULATED_TIMBER_PANTRY)
+        .unwrap_or_else(|| panic!("insulated timber pantry disappeared"));
+    assert_eq!(
+        crock.maximum_stockpile_capacity(),
+        Mass::from_milligrams(6_000_000)
+    );
+    assert!(
+        crock.storage_profile().preservation_multiplier_ppm()
+            > pantry.storage_profile().preservation_multiplier_ppm(),
+        "copper-banded crock must buy preservation rather than bulk capacity"
+    );
+    assert!(crock.maximum_stockpile_capacity() < pantry.maximum_stockpile_capacity());
+    assert!(crock.assembly_profile().inputs().iter().any(|input| {
+        input.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
+            && input.mass() == Mass::from_milligrams(40_000)
+    }));
+}
+
+#[test]
+fn wire_drawbench_and_shallow_core_drill_are_specialist_settlement_investments() {
+    let registries = build_registries();
+
+    let hammered = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING)
+        .unwrap_or_else(|| panic!("hammered electrical-winding route disappeared"));
+    let drawn = registries
+        .crafting()
+        .get_manual(PROCESS_DRAW_COPPER_ELECTRICAL_WINDING)
+        .unwrap_or_else(|| panic!("drawn electrical-winding route disappeared"));
+    assert_eq!(hammered.input(), drawn.input());
+    assert_eq!(hammered.input_mass(), drawn.input_mass());
+    let hammered_winding = hammered
+        .outputs()
+        .iter()
+        .find(|output| {
+            output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING)
+        })
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("hammered winding output disappeared"));
+    let drawn_winding = drawn
+        .outputs()
+        .iter()
+        .find(|output| {
+            output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING)
+        })
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("drawn winding output disappeared"));
+    assert_eq!(
+        hammered_winding,
+        crafted_parts::COPPER_ELECTRICAL_WINDING_MASS
+    );
+    assert_eq!(drawn_winding, Mass::from_milligrams(60_000));
+    assert!(drawn_winding > hammered_winding);
+    assert!(
+        drawn
+            .outputs()
+            .iter()
+            .all(|output| { output.commodity() != CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP) }),
+        "specialist wire drawing should preserve copper that the general hammer route trims as scrap"
+    );
+    let draw_profile = drawn
+        .equipment_profile()
+        .unwrap_or_else(|| panic!("wire-drawing route lost its required equipment"));
+    assert!(draw_profile.requires_equipment());
+    assert_eq!(
+        draw_profile.mass_flow_capability(),
+        capabilities::CAPABILITY_COPPER_WIRE_DRAWING_FLOW
+    );
+
+    let drawplate = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_STONE_DRAWPLATE)
+        .unwrap_or_else(|| panic!("stone drawplate fabrication disappeared"));
+    assert_eq!(
+        drawplate.input(),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+    );
+    assert!(drawplate.outputs().iter().any(|output| {
+        output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_DRAWPLATE)
+            && output.mass() == crafted_parts::STONE_DRAWPLATE_MASS
+    }));
+    assert_eq!(
+        drawplate
+            .outputs()
+            .iter()
+            .map(|output| output.mass().milligrams())
+            .sum::<u64>(),
+        drawplate.input_mass().milligrams()
+    );
+
+    let drawbench = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_WIRE_DRAWBENCH)
+        .unwrap_or_else(|| panic!("wire drawbench disappeared"));
+    assert_eq!(
+        drawbench
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_COPPER_WIRE_DRAWING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            MassFlow::from_milligrams_per_second(600)
+        ))
+    );
+    assert_eq!(
+        drawbench
+            .maintenance_profile()
+            .map(|maintenance| maintenance.replacement()),
+        Some(CommodityKey::new(MATERIAL_STONE, FORM_DRAWPLATE))
+    );
+    let one = std::num::NonZeroU64::new(1)
+        .unwrap_or_else(|| unreachable!("one winding is a nonzero batch"));
+    let hammer_work = crate::crafting::project_manual_craft_equipment(
+        &registries,
+        PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING,
+        one,
+        EQUIPMENT_TIMBER_TREADLE_HAMMER,
+        crate::maintenance::Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("hammer winding projection failed: {error}"));
+    let draw_work = crate::crafting::project_manual_craft_equipment(
+        &registries,
+        PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
+        one,
+        EQUIPMENT_TIMBER_WIRE_DRAWBENCH,
+        crate::maintenance::Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("drawbench winding projection failed: {error}"));
+    assert!(
+        draw_work.duration() < hammer_work.duration(),
+        "specialist drawbench must repay setup with lower active winding time"
+    );
+
+    let powered_drawing = registries
+        .crafting()
+        .get_powered(PROCESS_POWER_DRAW_COPPER_ELECTRICAL_WINDING)
+        .unwrap_or_else(|| panic!("powered wire-drawing route disappeared"));
+    assert_eq!(
+        powered_drawing.transform(),
+        PROCESS_DRAW_COPPER_ELECTRICAL_WINDING
+    );
+    let flywheel_drawbench = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH)
+        .unwrap_or_else(|| panic!("flywheel wire drawbench disappeared"));
+    assert_eq!(
+        flywheel_drawbench
+            .upgrade_profile()
+            .map(|upgrade| upgrade.from()),
+        Some(EQUIPMENT_TIMBER_WIRE_DRAWBENCH)
+    );
+    assert_eq!(
+        flywheel_drawbench
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_COPPER_WIRE_DRAWING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            MassFlow::from_milligrams_per_second(800)
+        ))
+    );
+    assert_eq!(
+        flywheel_drawbench
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_POWERED_COPPER_WIRE_DRAWING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            MassFlow::from_milligrams_per_second(2_000)
+        ))
+    );
+    assert_eq!(
+        flywheel_drawbench
+            .maintenance_profile()
+            .map(|maintenance| maintenance.replacement()),
+        Some(CommodityKey::new(MATERIAL_STONE, FORM_DRAWPLATE))
+    );
+    let upgrade = flywheel_drawbench
+        .upgrade_profile()
+        .unwrap_or_else(|| panic!("flywheel drawbench lost additive upgrade route"));
+    assert!(upgrade.additions().inputs().iter().any(|input| {
+        input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL)
+            && input.mass() == crafted_parts::STONE_FLYWHEEL_MASS
+    }));
+
+    let detailed = registries
+        .labor()
+        .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
+        .unwrap_or_else(|| panic!("detailed field survey disappeared"));
+    let channel = registries
+        .labor()
+        .get_prospecting(PROSPECTING_CHANNEL_COMPOSITE_SURVEY)
+        .unwrap_or_else(|| panic!("channel-composite survey disappeared"));
+    let core = registries
+        .labor()
+        .get_prospecting(PROSPECTING_SHALLOW_CORE_SURVEY)
+        .unwrap_or_else(|| panic!("shallow-core survey disappeared"));
+    assert_eq!(
+        core.evidence(),
+        crate::geology::GeologicalEvidenceKind::CoreSample
+    );
+    assert_eq!(core.maximum_region_voxels(), 1);
+    assert!(core.duration() > detailed.duration());
+    assert!(core.abundance_uncertainty_ppm() < detailed.abundance_uncertainty_ppm());
+    assert!(core.abundance_uncertainty_ppm() < channel.abundance_uncertainty_ppm());
+    assert!(core.excavation_hardness_resolution() < detailed.excavation_hardness_resolution());
+    assert!(core.resource_mass_resolution() < detailed.resource_mass_resolution());
+    let core_instrument = core
+        .equipment()
+        .unwrap_or_else(|| panic!("shallow-core survey lost its instrument"));
+    assert_eq!(
+        core_instrument.primary(),
+        EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL
+    );
+    assert_eq!(core_instrument.alternative(), None);
+
+    let drill = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL)
+        .unwrap_or_else(|| panic!("tripod core drill disappeared"));
+    let drill_assembly = drill
+        .assembly_profile()
+        .unwrap_or_else(|| panic!("tripod core drill lost its assembly"));
+    assert!(drill_assembly.inputs().iter().any(|input| {
+        input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT)
+            && input.mass() == crafted_parts::STONE_DRILL_BIT_MASS
+    }));
+    assert!(drill_assembly.inputs().iter().any(|input| {
+        input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL)
+            && input.mass() == crafted_parts::STONE_FLYWHEEL_MASS
+    }));
+    assert_eq!(
+        drill
+            .maintenance_profile()
+            .map(|maintenance| maintenance.replacement()),
+        Some(CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT))
+    );
+}
+
+#[test]
 fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
     let registries = build_registries();
 

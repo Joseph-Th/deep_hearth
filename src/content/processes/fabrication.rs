@@ -3,18 +3,19 @@
 use crate::production::ProcessDefinition;
 
 use super::{
-    PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-    PROCESS_COLD_WORK_COPPER_SAW_BLADE, PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+    PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING, PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
+    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
     PROCESS_DRESS_STONE_CHIP_DRILL_BIT, PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
     PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_KNAP_STONE_DRILL_BIT, PROCESS_KNAP_STONE_TOOL,
     PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_RECOVER_WOOD_SCRAP_BOARDS,
     PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_REWORK_WOOD_SCRAP_HANDLE, PROCESS_SAW_WOOD_BOARDS,
-    PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL,
-    PROCESS_SHAPE_TIMBER_FLYWHEEL, PROCESS_SHAPE_TIMBER_RIDDLE_PANEL, PROCESS_SHAPE_WOOD_BOARDS,
-    PROCESS_SHAPE_WOOD_HANDLE,
+    PROCESS_SHAPE_STONE_DRAWPLATE, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL, PROCESS_SHAPE_TIMBER_FLYWHEEL,
+    PROCESS_SHAPE_TIMBER_RIDDLE_PANEL, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 20] {
+pub(super) fn definitions() -> [ProcessDefinition; 23] {
     [
         ProcessDefinition::new(
             PROCESS_REKNAP_STONE_SCRAP_TOOL,
@@ -35,6 +36,11 @@ pub(super) fn definitions() -> [ProcessDefinition; 20] {
         ProcessDefinition::new(
             PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL,
             "shape abrasive grindstone wheel",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_SHAPE_STONE_DRAWPLATE,
+            "shape polished stone drawplate",
             Vec::new(),
         ),
         ProcessDefinition::new(
@@ -76,6 +82,16 @@ pub(super) fn definitions() -> [ProcessDefinition; 20] {
         ProcessDefinition::new(
             PROCESS_COLD_WORK_COPPER_SAW_BLADE,
             "cold-work copper frame-saw blade",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING,
+            "cold-work copper conductor winding",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
+            "draw copper conductor winding",
             Vec::new(),
         ),
         ProcessDefinition::new(

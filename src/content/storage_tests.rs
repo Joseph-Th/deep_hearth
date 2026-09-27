@@ -552,10 +552,11 @@ fn stone_crock_salvage_returns_exact_reworkable_stone_scrap() {
 }
 
 #[test]
-fn preservation_salvage_requires_fresh_primary_input_before_rebuilding_the_same_body() {
+fn preservation_salvage_requires_fresh_primary_input_before_rebuilding_fabricated_bodies() {
     let registries = build_registries();
 
     for storage in registries.storage().definitions() {
+        let mut fabricated_body_count = 0_u32;
         for body in storage.assembly_profile().inputs() {
             let producers = registries
                 .crafting()
@@ -566,11 +567,14 @@ fn preservation_salvage_requires_fresh_primary_input_before_rebuilding_the_same_
                     })
                 })
                 .collect::<Vec<_>>();
-            assert!(
-                !producers.is_empty(),
-                "storage body {} has no exact manual construction recipe",
-                body.commodity().value()
-            );
+            if producers.is_empty() {
+                // Direct structural additions such as copper bands are ordinary assembly
+                // components, not enclosure-body intermediates. Their primitive reachability is
+                // covered by the global infrastructure-route contract; this test owns only the
+                // body -> salvage -> body anti-arbitrage loop.
+                continue;
+            }
+            fabricated_body_count += 1;
             let salvage_routes = registries
                 .crafting()
                 .manual_consumers(body.commodity())
@@ -634,5 +638,10 @@ fn preservation_salvage_requires_fresh_primary_input_before_rebuilding_the_same_
                 }
             }
         }
+        assert!(
+            fabricated_body_count != 0,
+            "preservation storage {} must contain at least one fabricated enclosure body",
+            storage.id().value()
+        );
     }
 }

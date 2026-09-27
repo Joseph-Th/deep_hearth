@@ -3,10 +3,11 @@
 use std::collections::BTreeSet;
 
 use deep_hearth::content::{
-    FORM_INGOT, FORM_LOG, FORM_LUMP, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    STORAGE_BULK_TIMBER_PROVISIONS_CRATE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
-    STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST, STORAGE_INSULATED_TIMBER_PANTRY,
-    STORAGE_ROUGH_TIMBER_FIELD_BOX, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
+    FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD, STORAGE_BULK_TIMBER_PROVISIONS_CRATE, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
+    STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK, STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
+    STORAGE_INSULATED_TIMBER_PANTRY, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::StockpileStorageProfile;
@@ -143,6 +144,10 @@ fn preservation_raw_bootstrap_is_explicit_not_inferred_from_missing_producers() 
     assert!(is_disclosed_preservation_raw_material(CommodityKey::new(
         MATERIAL_STONE,
         FORM_LUMP,
+    )));
+    assert!(is_disclosed_preservation_raw_material(CommodityKey::new(
+        MATERIAL_COPPER,
+        FORM_NATIVE_METAL,
     )));
     assert!(!is_disclosed_preservation_raw_material(CommodityKey::new(
         MATERIAL_COPPER,
@@ -329,6 +334,10 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
         .storage()
         .get(STORAGE_CARVED_STONE_PROVISIONS_CROCK)
         .unwrap_or_else(|| panic!("carved stone provisions crock disappeared"));
+    let banded_crock = registries
+        .storage()
+        .get(STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK)
+        .unwrap_or_else(|| panic!("copper-banded provisions crock disappeared"));
     assert!(rough.maximum_stockpile_capacity() < standard.maximum_stockpile_capacity());
     assert!(
         rough.storage_profile().preservation_multiplier_ppm()
@@ -385,8 +394,25 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
             .iter()
             .all(|input| input.commodity().material() == MATERIAL_STONE)
     );
+    assert_eq!(
+        banded_crock.maximum_stockpile_capacity(),
+        crock.maximum_stockpile_capacity(),
+        "copper banding must buy preservation rather than hidden bulk capacity"
+    );
+    assert!(
+        banded_crock.storage_profile().preservation_multiplier_ppm()
+            > pantry.storage_profile().preservation_multiplier_ppm()
+    );
+    let banded_plan = preservation_construction_plan(&registries, banded_crock.assembly_profile());
+    assert!(
+        banded_plan
+            .raw_requirements()
+            .contains_key(&CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)),
+        "copper-banded preservation must expose its finite post-copper material commitment"
+    );
 
     for storage in preservation {
+        let mut recoverable_body_count = 0_u32;
         for input in storage.assembly_profile().inputs() {
             assert!(
                 registries
@@ -413,12 +439,15 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
                                 |total, output| total.checked_add(output.mass()),
                             ) == Some(input.mass())
                     });
-            assert!(
-                salvage.is_some(),
-                "preservation body {} has no exact same-material salvage route",
-                input.commodity().value()
-            );
+            if salvage.is_some() {
+                recoverable_body_count += 1;
+            }
         }
+        assert!(
+            recoverable_body_count != 0,
+            "preservation enclosure {} has no recoverable fabricated body",
+            storage.id().value()
+        );
     }
 }
 
@@ -455,8 +484,8 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         .len()
         .max(authored_prospecting.len())
         .max(authored_preservation.len())
-        .saturating_mul(16)
-        .clamp(64, 256);
+        .saturating_mul(64)
+        .clamp(256, 1024);
     let worlds = (1_u64
         ..=u64::try_from(sample_count)
             .unwrap_or_else(|_| unreachable!("bounded survival sample count fits u64")))

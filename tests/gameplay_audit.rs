@@ -123,6 +123,8 @@ mod seed_contract_tests;
 mod settlement_helve_contract_tests;
 #[path = "gameplay_harness/settlement_machine_contract_tests.rs"]
 mod settlement_machine_contract_tests;
+#[path = "gameplay_harness/settlement_wire_contract_tests.rs"]
+mod settlement_wire_contract_tests;
 #[path = "gameplay_harness/survival_contract_tests.rs"]
 mod survival_contract_tests;
 #[path = "gameplay_harness/survival_probe.rs"]

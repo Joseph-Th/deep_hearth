@@ -66,6 +66,18 @@ pub const EQUIPMENT_TIMBER_TREADLE_DYNAMO: EquipmentDefinitionId = EquipmentDefi
 pub const EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE: EquipmentDefinitionId =
     EquipmentDefinitionId::new(42);
 pub const EQUIPMENT_STONE_INGOT_MOLD: EquipmentDefinitionId = EquipmentDefinitionId::new(43);
+pub const EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(44);
+pub const EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(45);
+pub const EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(46);
+pub const EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(47);
+pub const EQUIPMENT_TIMBER_WIRE_DRAWBENCH: EquipmentDefinitionId = EquipmentDefinitionId::new(48);
+pub const EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(49);
+pub const EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH: EquipmentDefinitionId = EquipmentDefinitionId::new(50);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

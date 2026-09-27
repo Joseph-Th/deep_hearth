@@ -107,7 +107,7 @@ pub(super) fn mass_condition_curve(
     )
 }
 
-fn component_maintenance(
+pub(super) fn component_maintenance(
     replacement: CommodityKey,
     component_mass: Mass,
 ) -> EquipmentMaintenanceProfile {

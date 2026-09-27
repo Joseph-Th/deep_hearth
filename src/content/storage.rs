@@ -15,7 +15,8 @@ use super::crafted_parts::{
 };
 use super::{
     FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_DOUBLE_WALL_CHEST_BODY, FORM_INSULATED_PANTRY_BODY,
-    FORM_ROUGH_BOX_BODY, FORM_STONE_CROCK_BODY, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, FORM_STONE_CROCK_BODY, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const STORAGE_TIMBER_PROVISIONS_CHEST: StorageDefinitionId = StorageDefinitionId::new(1);
@@ -25,6 +26,8 @@ pub const STORAGE_BULK_TIMBER_PROVISIONS_CRATE: StorageDefinitionId = StorageDef
 pub const STORAGE_INSULATED_TIMBER_PANTRY: StorageDefinitionId = StorageDefinitionId::new(4);
 pub const STORAGE_ROUGH_TIMBER_FIELD_BOX: StorageDefinitionId = StorageDefinitionId::new(5);
 pub const STORAGE_CARVED_STONE_PROVISIONS_CROCK: StorageDefinitionId = StorageDefinitionId::new(6);
+pub const STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK: StorageDefinitionId =
+    StorageDefinitionId::new(7);
 const PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE: Temperature = Temperature::from_millikelvin(333_150);
 const STORAGE_DISMANTLE_MILLIGRAMS_PER_TICK: u64 = 100_000;
 
@@ -108,6 +111,15 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
     .unwrap_or_else(|error| {
         panic!("carved stone provisions crock storage profile failed: {error}")
     });
+    let copper_banded_crock_preservation = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE,
+        5_000_000,
+    )
+    .unwrap_or_else(|error| {
+        panic!("copper-banded stone provisions crock storage profile failed: {error}")
+    });
     StorageRegistry::new([
         storage_definition(
             STORAGE_ROUGH_TIMBER_FIELD_BOX,
@@ -168,6 +180,25 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
                 CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
                 STONE_PROVISIONS_CROCK_BODY_MASS,
             )]),
+        ),
+        // Copper banding turns the small carved crock into the best long-horizon provisions store,
+        // but does not increase its capacity. The insulated timber pantry remains better for larger
+        // batches, while the crock asks the player to spend scarce worked copper on perishability.
+        storage_definition(
+            STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK,
+            "copper-banded sealed stone provisions crock",
+            Mass::from_milligrams(6_000_000),
+            copper_banded_crock_preservation,
+            MaterialAssemblyProfile::new(vec![
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
+                    STONE_PROVISIONS_CROCK_BODY_MASS,
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                    Mass::from_milligrams(40_000),
+                ),
+            ]),
         ),
     ])
 }

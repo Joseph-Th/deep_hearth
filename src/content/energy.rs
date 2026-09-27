@@ -7,10 +7,13 @@ use crate::energy::{
 };
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
-use super::crafted_parts::{COPPER_REINFORCEMENT_MASS, STONE_FLYWHEEL_MASS, TIMBER_FLYWHEEL_MASS};
+use super::crafted_parts::{
+    COPPER_ELECTRICAL_WINDING_MASS, COPPER_REINFORCEMENT_MASS, STONE_FLYWHEEL_MASS,
+    TIMBER_FLYWHEEL_MASS,
+};
 use super::materials::{
-    FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_LUMP, FORM_REINFORCEMENT, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_LUMP, FORM_REINFORCEMENT,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const ENERGY_MECHANICAL_SMALL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(1);
@@ -28,6 +31,10 @@ pub const ENERGY_TIMBER_FRAME_FLYWHEEL_BANK: EnergyStoreDefinitionId =
 pub const ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(10);
 pub const ENERGY_STONE_THERMAL_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(11);
+pub const ENERGY_COPPER_RACK_ELECTRICAL_BUFFER: EnergyStoreDefinitionId =
+    EnergyStoreDefinitionId::new(12);
+pub const ENERGY_COPPER_BANDED_STONE_THERMAL_SINK: EnergyStoreDefinitionId =
+    EnergyStoreDefinitionId::new(13);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -242,5 +249,82 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(4_000_000),
         )])),
+        // A rack of parallel copper plates and one purpose-made conductor winding. The fourfold
+        // energy capacity matches the settlement foundry's four-pot batch while transfer limits
+        // remain low enough that charging and melting still consume visible player time.
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_COPPER_RACK_ELECTRICAL_BUFFER,
+            "copper-rack electrical buffer",
+            EnergyCarrier::Electrical,
+            Energy::from_nanojoules(60_000_000_000_000),
+            Power::from_microwatts(150_000_000),
+            Power::from_microwatts(300_000_000),
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(320_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+                COPPER_ELECTRICAL_WINDING_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(4_800_000),
+            ),
+        ]))
+        .with_upgrade_profile(EnergyStoreUpgradeProfile::new(
+            ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
+            MaterialAssemblyProfile::new(vec![
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                    Mass::from_milligrams(240_000),
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+                    COPPER_ELECTRICAL_WINDING_MASS,
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                    Mass::from_milligrams(3_200_000),
+                ),
+            ]),
+        )),
+        // More thermal mass buys four-cavity casting capacity; copper banding improves heat pickup
+        // without creating a generic heat-transfer network. Passive loss does not worsen on upgrade,
+        // so the larger sink retains heat longer and repeated casting still has a real cooldown cost.
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_COPPER_BANDED_STONE_THERMAL_SINK,
+            "copper-banded stone foundry heat sink",
+            EnergyCarrier::Thermal,
+            Energy::from_nanojoules(60_000_000_000_000),
+            Power::from_microwatts(400_000_000),
+            Power::ZERO,
+        )
+        .with_passive_dissipation_power(Power::from_microwatts(20_000_000))
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(16_000_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(80_000),
+            ),
+        ]))
+        .with_upgrade_profile(EnergyStoreUpgradeProfile::new(
+            ENERGY_STONE_THERMAL_SINK,
+            MaterialAssemblyProfile::new(vec![
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                    Mass::from_milligrams(12_000_000),
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                    Mass::from_milligrams(80_000),
+                ),
+            ]),
+        )),
     ])
 }

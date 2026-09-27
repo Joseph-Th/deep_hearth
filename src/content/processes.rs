@@ -63,6 +63,11 @@ pub const PROCESS_GRIND_STONE_SCRAP_DRILL_BIT: ProcessId = ProcessId::new(52);
 pub const PROCESS_POWER_GRIND_STONE_SCRAP_TOOL: ProcessId = ProcessId::new(53);
 pub const PROCESS_POWER_GRIND_STONE_SCRAP_DRILL_BIT: ProcessId = ProcessId::new(54);
 pub const PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT: ProcessId = ProcessId::new(55);
+pub const PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING: ProcessId = ProcessId::new(56);
+pub const PROCESS_POWER_HAMMER_COPPER_ELECTRICAL_WINDING: ProcessId = ProcessId::new(57);
+pub const PROCESS_SHAPE_STONE_DRAWPLATE: ProcessId = ProcessId::new(58);
+pub const PROCESS_DRAW_COPPER_ELECTRICAL_WINDING: ProcessId = ProcessId::new(59);
+pub const PROCESS_POWER_DRAW_COPPER_ELECTRICAL_WINDING: ProcessId = ProcessId::new(60);
 
 mod fabrication;
 mod ore;

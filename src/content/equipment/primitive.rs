@@ -7,6 +7,7 @@ use crate::content::crafted_parts::COPPER_REINFORCEMENT_MASS;
 use crate::content::materials::{FORM_REINFORCEMENT, MATERIAL_COPPER};
 
 mod dressing;
+mod fieldwork;
 mod foundry;
 mod metalworking;
 mod mining;
@@ -22,6 +23,8 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         dressing::timber_dressing_bench(),
         metalworking::timber_treadle_hammer(),
         metalworking::timber_helve_hammer(),
+        metalworking::timber_wire_drawbench(),
+        metalworking::flywheel_wire_drawbench(),
         mining::stone_pick(),
         power::stone_hand_crank(),
         mining::copper_reinforced_pick(),
@@ -30,6 +33,8 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         mining::copper_reinforced_stone_quarry_pick(),
         mining::stone_geological_hammer(),
         mining::copper_reinforced_geological_hammer(),
+        fieldwork::timber_channel_sampling_frame(),
+        fieldwork::timber_tripod_core_drill(),
         precision::stone_flywheel_pump_drill(),
         precision::timber_spindle_drill(),
         power::timber_treadle_drive(),
@@ -53,8 +58,11 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         toolroom::timber_treadle_grindstone(),
         toolroom::timber_flywheel_grinding_bench(),
         foundry::timber_treadle_dynamo(),
+        foundry::double_wound_treadle_dynamo(),
         foundry::stone_arc_crucible_furnace(),
+        foundry::four_pot_arc_crucible_furnace(),
         foundry::stone_ingot_mold(),
+        foundry::four_cavity_stone_ingot_mold(),
     ]
 }
 

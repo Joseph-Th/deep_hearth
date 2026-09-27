@@ -8,22 +8,22 @@ use crate::survival::SurvivalExertion;
 
 use crate::content::capabilities::CAPABILITY_STONE_GRINDING_FLOW;
 use crate::content::crafted_parts::{
-    STONE_DRILL_BIT_MASS, STONE_FLYWHEEL_MASS, STONE_GRINDSTONE_WHEEL_MASS,
+    STONE_DRAWPLATE_MASS, STONE_DRILL_BIT_MASS, STONE_FLYWHEEL_MASS, STONE_GRINDSTONE_WHEEL_MASS,
     STONE_PROVISIONS_CROCK_BODY_MASS,
 };
 use crate::content::materials::{
-    FORM_CHIP, FORM_DRILL_BIT, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_LUMP, FORM_SCRAP,
-    FORM_STONE_CROCK_BODY, FORM_TOOL, MATERIAL_STONE,
+    FORM_CHIP, FORM_DRAWPLATE, FORM_DRILL_BIT, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_LUMP,
+    FORM_SCRAP, FORM_STONE_CROCK_BODY, FORM_TOOL, MATERIAL_STONE,
 };
 use crate::content::processes::{
     PROCESS_DRESS_STONE_CHIP_DRILL_BIT, PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
     PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_KNAP_STONE_DRILL_BIT, PROCESS_KNAP_STONE_TOOL,
     PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
-    PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL,
-    PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
+    PROCESS_SHAPE_STONE_DRAWPLATE, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 10] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 11] {
     [
         knap_stone_tool(),
         knap_stone_drill_bit(),
@@ -33,6 +33,7 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 10] {
         grind_stone_scrap_drill_bit(),
         shape_stone_flywheel(),
         shape_stone_grindstone_wheel(),
+        shape_stone_drawplate(),
         shape_stone_provisions_crock(),
         salvage_stone_provisions_crock_body(),
     ]
@@ -40,6 +41,31 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 10] {
 
 fn grinding_profile() -> ManualCraftEquipmentProfile {
     ManualCraftEquipmentProfile::new_required(CAPABILITY_STONE_GRINDING_FLOW, 1_000)
+}
+
+/// Polishes and perforates a hard stone plate for repeated cold drawing of copper strip and rod.
+///
+/// The die is deliberately a durable service part rather than a consumed recipe catalyst. Building
+/// it asks for real stone-shaping attention up front, while the drawbench later repays that cost by
+/// eliminating the trimming loss of the general-purpose hammer route.
+fn shape_stone_drawplate() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_SHAPE_STONE_DRAWPLATE,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(500_000),
+        TickSpan::new(70),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_DRAWPLATE),
+                STONE_DRAWPLATE_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(100_000),
+            ),
+        ],
+    )
 }
 
 /// Abrasively reworks worn service stone with less mass loss than percussion reknapping.

@@ -32,8 +32,6 @@ pub(crate) enum MaterialFixtureError {
     StructuralCommit(StructuralCommitError),
 }
 
-pub(crate) type AddStockpileError = EmptyStockpileAllocationError;
-
 impl Display for MaterialFixtureError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -56,7 +54,7 @@ pub(crate) fn add_stockpile(
     state: &mut AppState,
     capacity: Mass,
     storage_profile: StockpileStorageProfile,
-) -> Result<StockpileId, AddStockpileError> {
+) -> Result<StockpileId, EmptyStockpileAllocationError> {
     validate_empty_stockpile_allocation(state.inventory(), capacity, storage_profile)?
         .commit(state)
         .map_err(|error| {

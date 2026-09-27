@@ -614,8 +614,7 @@ fn fully_consumed_lot_identity_is_not_reused_by_later_ingress() {
         BTreeMap::new(),
     )
     .unwrap_or_else(|error| panic!("lot-reuse consumption reservation failed: {error:?}"));
-    apply_consumption_reservation(state.inventory_state_mut(), reservation)
-        .unwrap_or_else(|error| panic!("lot-reuse consumption commit failed: {error:?}"));
+    apply_prechecked_consumption_reservation(state.inventory_state_mut(), reservation);
     assert!(state.inventory().get_lot(removed).is_none());
     assert_eq!(
         state.inventory().next_lot_id(),

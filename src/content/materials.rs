@@ -50,6 +50,8 @@ pub const FORM_TIMBER_RIDDLE_PANEL: FormId = FormId::new(26);
 pub const FORM_EXHAUSTED_TAILINGS: FormId = FormId::new(27);
 pub const FORM_DRILL_BIT: FormId = FormId::new(28);
 pub const FORM_GRINDSTONE_WHEEL: FormId = FormId::new(29);
+pub const FORM_ELECTRICAL_WINDING: FormId = FormId::new(30);
+pub const FORM_DRAWPLATE: FormId = FormId::new(31);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -113,6 +115,8 @@ fn register_forms(registry: &mut MaterialRegistry) {
         consolidated_form(FORM_TIMBER_RIDDLE_PANEL, "timber riddle panel"),
         consolidated_form(FORM_DRILL_BIT, "knapped rotary drill bit"),
         consolidated_form(FORM_GRINDSTONE_WHEEL, "abrasive grindstone wheel"),
+        consolidated_form(FORM_ELECTRICAL_WINDING, "electrical winding"),
+        consolidated_form(FORM_DRAWPLATE, "polished stone drawplate"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
         loose_form(
@@ -312,6 +316,10 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             "copper frame-saw blade",
         ),
         (
+            CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+            "copper conductor winding",
+        ),
+        (
             CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
             "native copper",
         ),
@@ -358,6 +366,10 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         (
             CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL),
             "stone grindstone wheel",
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_DRAWPLATE),
+            "polished stone drawplate",
         ),
         (CommodityKey::new(MATERIAL_STONE, FORM_CHIP), "stone chips"),
         (

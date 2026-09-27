@@ -123,6 +123,15 @@ pub const OBJECT_TIMBER_FLYWHEEL_GRINDING_BENCH: ObjectAppearanceId = ObjectAppe
 pub const OBJECT_TIMBER_TREADLE_DYNAMO: ObjectAppearanceId = ObjectAppearanceId::new(71);
 pub const OBJECT_STONE_ARC_CRUCIBLE_FURNACE: ObjectAppearanceId = ObjectAppearanceId::new(72);
 pub const OBJECT_STONE_INGOT_MOLD: ObjectAppearanceId = ObjectAppearanceId::new(73);
+pub const OBJECT_COPPER_ELECTRICAL_WINDING: ObjectAppearanceId = ObjectAppearanceId::new(74);
+pub const OBJECT_TIMBER_CHANNEL_SAMPLING_FRAME: ObjectAppearanceId = ObjectAppearanceId::new(75);
+pub const OBJECT_DOUBLE_WOUND_TREADLE_DYNAMO: ObjectAppearanceId = ObjectAppearanceId::new(76);
+pub const OBJECT_FOUR_POT_ARC_CRUCIBLE_FURNACE: ObjectAppearanceId = ObjectAppearanceId::new(77);
+pub const OBJECT_FOUR_CAVITY_STONE_INGOT_MOLD: ObjectAppearanceId = ObjectAppearanceId::new(78);
+pub const OBJECT_STONE_DRAWPLATE: ObjectAppearanceId = ObjectAppearanceId::new(79);
+pub const OBJECT_TIMBER_WIRE_DRAWBENCH: ObjectAppearanceId = ObjectAppearanceId::new(80);
+pub const OBJECT_TIMBER_TRIPOD_CORE_DRILL: ObjectAppearanceId = ObjectAppearanceId::new(81);
+pub const OBJECT_FLYWHEEL_WIRE_DRAWBENCH: ObjectAppearanceId = ObjectAppearanceId::new(82);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

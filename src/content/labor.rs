@@ -16,6 +16,7 @@ use super::capabilities::{
 };
 use super::equipment::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
+    EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME, EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL,
 };
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
@@ -27,6 +28,8 @@ pub const PROSPECTING_DETAILED_FIELD_SURVEY: ProspectingMethodId = ProspectingMe
 pub const PROSPECTING_REGIONAL_RECONNAISSANCE: ProspectingMethodId = ProspectingMethodId::new(3);
 pub const PROSPECTING_LOCAL_TRANSECT: ProspectingMethodId = ProspectingMethodId::new(4);
 pub const PROSPECTING_INDEXED_CHANNEL_SURVEY: ProspectingMethodId = ProspectingMethodId::new(5);
+pub const PROSPECTING_CHANNEL_COMPOSITE_SURVEY: ProspectingMethodId = ProspectingMethodId::new(6);
+pub const PROSPECTING_SHALLOW_CORE_SURVEY: ProspectingMethodId = ProspectingMethodId::new(7);
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
@@ -154,6 +157,41 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel)
             .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
             .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
+            // A gridded sampling frame buys a different information product rather than simply
+            // replacing the geological hammer. It screens a broad 16-voxel exposure at half the
+            // indexed survey's abundance uncertainty, but deliberately produces one composite
+            // observation with no hardness or reserve-size estimate. Promising regions still need
+            // localized hammer work before tool selection and extraction planning.
+            ProspectingDefinition::new_with_equipment(
+                PROSPECTING_CHANNEL_COMPOSITE_SURVEY,
+                GeologicalEvidenceKind::ChannelComposite,
+                TickSpan::new(36),
+                16,
+                12_500,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_600_000_000_000),
+                    Volume::from_microliters(450),
+                ),
+                ProspectingEquipmentProfile::new(EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME, 160),
+            ),
+            // The tripod core drill is the expensive local confirmation tool. It resolves a
+            // single voxel much more tightly than hammer sampling, including hardness and a
+            // conservative resource-scale estimate, but its long attention cost prevents it from
+            // replacing broad reconnaissance or channel screening.
+            ProspectingDefinition::new_with_equipment(
+                PROSPECTING_SHALLOW_CORE_SURVEY,
+                GeologicalEvidenceKind::CoreSample,
+                TickSpan::new(84),
+                1,
+                8_000,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_800_000_000_000),
+                    Volume::from_microliters(520),
+                ),
+                ProspectingEquipmentProfile::new(EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL, 220),
+            )
+            .with_excavation_hardness_resolution(Pressure::from_pascals(20_000_000))
+            .with_resource_mass_resolution(Mass::from_milligrams(250_000)),
         ],
     )
 }
