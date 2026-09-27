@@ -39,6 +39,7 @@ OWNER_CONTRACT_TARGETS = {
     "settlement": "gameplay_settlement_contracts",
     "woodworking": "gameplay_woodworking_contracts",
     "fieldwork": "gameplay_fieldwork_contracts",
+    "ore": "gameplay_ore_contracts",
     "foundry": "gameplay_foundry_contracts",
 }
 
@@ -1131,7 +1132,7 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_gameplay_contract_gate_uses_only_the_lightweight_contract_target(self) -> None:
         command = ci.gameplay_command("contracts")
         self.assertEqual(cargo_test_targets(command), [ci.GAMEPLAY_CONTRACTS_TARGET])
-        self.assertIn("test-gameplay", command)
+        self.assertIn(ci.GAMEPLAY_FEATURE, command)
         self.assertNotIn("--exact", command)
         self.assertNotIn("--nocapture", command)
         self.assertEqual(
@@ -1147,19 +1148,24 @@ class LocalCiPlanTests(unittest.TestCase):
         for scope, target in ci.GAMEPLAY_TARGETS.items():
             command = ci.gameplay_command(scope)
             self.assertEqual(cargo_test_targets(command), [target])
-            self.assertIn("test-gameplay", command)
+            self.assertIn(ci.GAMEPLAY_FEATURE, command)
             self.assertIn(ci.GAMEPLAY_TESTS[scope], command)
             self.assertIn("--exact", command)
             self.assertNotIn("--nocapture", command)
             self.assertEqual(definitions[target].get("required-features"), ["test-gameplay"])
         self.assertEqual(
             definitions[ci.GAMEPLAY_CONTRACTS_TARGET].get("required-features"),
-            ["test-gameplay"],
+            [ci.GAMEPLAY_FEATURE],
         )
         self.assertEqual(
             definitions[ci.GAMEPLAY_AUDIT_TARGET].get("required-features"),
-            ["test-gameplay"],
+            [ci.GAMEPLAY_FEATURE],
         )
+        for target in OWNER_CONTRACT_TARGETS.values():
+            self.assertEqual(
+                definitions[target].get("required-features"),
+                [ci.GAMEPLAY_FEATURE],
+            )
         self.assertNotIn("--nocapture", ci.gameplay_command("all"))
 
     def test_focused_gameplay_roots_do_not_import_unrelated_probe_families(self) -> None:
@@ -1239,6 +1245,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 "woodworking_contract_tests::",
             ),
             "fieldwork": ("prospecting_instrument_contract_tests::",),
+            "ore": ("ore_contract_tests::",),
             "foundry": ("foundry_contract_tests::",),
         }
         for scope, target in (
@@ -1260,7 +1267,6 @@ class LocalCiPlanTests(unittest.TestCase):
                 for name in tests
                 if name not in allowed_root_tests
                 and not name.startswith(f"{probe_modules[scope]}::")
-                and not (scope == "ore" and name.startswith("ore_contract_tests::"))
             ]
             self.assertEqual(
                 unrelated,
@@ -1382,7 +1388,7 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertFalse(any("check-fast" in command for command in builds))
         self.assertFalse(any(stage in ci.quick_plan() for stage in plan))
         self.assertNotIn("test-gameplay", builds[0])
-        self.assertIn("test-gameplay", builds[1])
+        self.assertIn(ci.GAMEPLAY_FEATURE, builds[1])
         self.assertEqual(cargo_test_targets(builds[1]), [ci.GAMEPLAY_AUDIT_TARGET])
 
     def test_core_repair_loop_stays_feature_minimal_while_gameplay_is_explicit(self) -> None:
@@ -1390,14 +1396,14 @@ class LocalCiPlanTests(unittest.TestCase):
         core_alias = config["alias"]["test-core"]
         gameplay = " ".join(ci.gameplay_command("all"))
         self.assertNotIn("--features", core_alias)
-        self.assertIn("--features test-gameplay", gameplay)
+        self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", gameplay)
 
     def test_scoped_audits_do_not_build_the_other_broad_surface(self) -> None:
         core_builds = cargo_build_commands(ci.audit_plan("core"))
         gameplay_builds = cargo_build_commands(ci.audit_plan("gameplay"))
         self.assertEqual(core_builds, [["cargo", "test-core"]])
         self.assertEqual(len(gameplay_builds), 1)
-        self.assertIn("test-gameplay", gameplay_builds[0])
+        self.assertIn(ci.GAMEPLAY_FEATURE, gameplay_builds[0])
         self.assertNotIn(["cargo", "test-core"], gameplay_builds)
 
     def test_broad_gameplay_audit_uses_one_consolidated_target(self) -> None:
@@ -1632,7 +1638,7 @@ class LocalCiPlanTests(unittest.TestCase):
         args = run_test.parse_args(
             ["--check", "--target", "lib", "--features", "test-gameplay"]
         )
-        with self.assertRaisesRegex(ValueError, ci.GAMEPLAY_CONTRACTS_TARGET):
+        with self.assertRaisesRegex(ValueError, "integration targets"):
             run_test.cargo_check_command(args)
 
     def test_integration_check_command_infers_required_features_without_linking(self) -> None:
@@ -1654,7 +1660,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 "--test",
                 ci.GAMEPLAY_CONTRACTS_TARGET,
                 "--features",
-                "test-gameplay",
+                ci.GAMEPLAY_FEATURE,
             ],
         )
 
@@ -2772,7 +2778,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": OWNER_CONTRACT_TARGETS["woodworking"],
             "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": OWNER_CONTRACT_TARGETS["fieldwork"],
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": OWNER_CONTRACT_TARGETS["survival"],
-            "ore_probe_generation_varies_feed_and_operating_state": ci.GAMEPLAY_TARGETS["ore"],
+            "ore_probe_generation_varies_feed_and_operating_state": OWNER_CONTRACT_TARGETS["ore"],
             "primitive_recovery_and_reinforcement_routes_remain_connected": OWNER_CONTRACT_TARGETS["progression"],
             "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": OWNER_CONTRACT_TARGETS["workshop"],
         }

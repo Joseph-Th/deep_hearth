@@ -96,6 +96,8 @@ until the soak lane is requested.
 
 Focused gameplay probe targets are edit-loop compile surfaces. Larger owner contract suites use separate narrow
 targets so an exact contract test does not compile the play-like probe or the consolidated gameplay audit.
+All gameplay test targets keep one `test-gameplay` Cargo feature shape so moving between probe, contract, and
+audit lanes reuses the same library artifact instead of fragmenting the incremental cache.
 Repository-owned gameplay gates and audits run maintained deterministic cases only. Organic sampling and replay
 roots belong to `python ci.py report`, where the extra work provides exploratory evidence instead of adding
 variance and runtime to verification. Replay options and actor/evidence rules are owned by

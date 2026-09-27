@@ -133,10 +133,11 @@ exhaustive check establishes that conclusion.
 
 ## Focused scopes
 
-All focused targets use the `test-gameplay` feature contract. Broad gameplay verification uses one consolidated
-`gameplay_audit` target so the shared harness module graph is compiled and linked once; the small focused targets
-remain the fast iteration surfaces. Scoped reports reuse ignored report tests in those focused binaries where
-available; cross-system reporting and workshop/agency exploration remain explicit examples.
+All gameplay test targets use one `test-gameplay` Cargo feature shape so probe, contract, and audit lanes reuse
+the same library artifact. Broad gameplay verification compiles one consolidated `gameplay_audit` harness graph;
+small focused probe and owner-contract targets remain the fast iteration surfaces. Scoped reports reuse ignored
+report tests in those focused binaries where available; cross-system reporting and workshop/agency exploration
+remain explicit examples.
 
 Focused probe targets expose the routine gate/probe without compiling the larger owner contract suites.
 Owner-specific contract targets remain available for exact-test iteration and are selected automatically by

@@ -1,4 +1,4 @@
-//! Focused ore-preparation gameplay target for the fast edit/test loop.
+//! Ore-preparation generator contracts isolated from the play-like probe binary.
 
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
@@ -10,6 +10,7 @@ mod capability_boundary;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
+#[allow(dead_code, unused_imports)]
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
@@ -22,6 +23,7 @@ mod inventory_support;
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
+#[allow(dead_code, unused_imports)]
 #[path = "gameplay_harness/ore_probe.rs"]
 mod ore_probe;
 #[path = "gameplay_harness/ore_setup.rs"]
@@ -39,20 +41,5 @@ mod structural_fixture;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 
-#[cfg(test)]
-#[test]
-fn gameplay_ore_preparation_probe() {
-    focused_runner::run_focused_probe(
-        "ore-preparation",
-        ore_probe::run_ore_preparation_capability_probe,
-    );
-}
-
-#[test]
-#[ignore = "exploratory report; run via python ci.py report --scope ore"]
-fn gameplay_ore_preparation_report() {
-    focused_runner::run_focused_report(
-        "ore-preparation",
-        ore_probe::run_ore_preparation_capability_probe,
-    );
-}
+#[path = "gameplay_harness/ore_contract_tests.rs"]
+mod ore_contract_tests;

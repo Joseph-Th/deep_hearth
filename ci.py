@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent
 GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_REPORT_EXAMPLE = "gameplay-report"
+GAMEPLAY_FEATURE = "test-gameplay"
 
 
 @dataclass(frozen=True)
@@ -395,7 +396,7 @@ def gameplay_targets_command(
         "--quiet",
         "--locked",
         "--features",
-        "test-gameplay",
+        GAMEPLAY_FEATURE,
     ]
     for target in targets:
         command.extend(("--test", target))
@@ -444,7 +445,7 @@ def gameplay_report_example_command(
         "--example",
         example,
         "--features",
-        "test-gameplay",
+        GAMEPLAY_FEATURE,
     ]
     if arguments:
         command.extend(("--", *arguments))

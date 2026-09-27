@@ -120,6 +120,11 @@ name = "gameplay_foundry_contracts"
 path = "tests/gameplay_foundry_contracts.rs"
 required-features = ["test-gameplay"]
 
+[[test]]
+name = "gameplay_ore_contracts"
+path = "tests/gameplay_ore_contracts.rs"
+required-features = ["test-gameplay"]
+
 [features]
 default = []
 test-gameplay = []
