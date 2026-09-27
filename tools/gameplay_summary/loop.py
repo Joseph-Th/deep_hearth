@@ -13,10 +13,12 @@ class _LoopEvidenceLines:
     progression: list[str]
     progression_reviews: list[str]
     liberation: list[str]
+    liberation_kit: list[str]
     first_foundry: list[str]
     woodworking: list[str]
     fieldwork: list[str]
     power: list[str]
+    settlement: list[str]
     power_projects: list[str]
     survival: list[str]
     survey_campaigns: list[str]
@@ -33,10 +35,12 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
         progression=_lines_with_prefix(lines, "PROGRESSION EXPERIENCE "),
         progression_reviews=_lines_with_prefix(lines, "PROGRESSION REVIEW "),
         liberation=_lines_with_prefix(lines, "LIBERATION FRONTIER CAPABILITY "),
+        liberation_kit=_lines_with_prefix(lines, "LIBERATION KIT ACQUISITION "),
         first_foundry=_lines_with_prefix(lines, "FIRST FOUNDRY EXPERIENCE "),
         woodworking=_lines_with_prefix(lines, "WOODWORKING EXPERIENCE "),
         fieldwork=_lines_with_prefix(lines, "FIELDWORK EXPERIENCE "),
         power=_lines_with_prefix(lines, "POWER PROVIDER EXPERIENCE "),
+        settlement=_lines_with_prefix(lines, "SETTLEMENT EXPERIENCE "),
         power_projects=_lines_with_prefix(lines, "POWER PROJECT EXPERIENCE "),
         survival=_lines_with_prefix(lines, "SURVIVAL EXPERIENCE "),
         survey_campaigns=_lines_with_prefix(lines, "FIELDWORK SURVEY CAMPAIGN "),
@@ -56,7 +60,8 @@ def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
         f"single-state-progression:{single_state}/{len(evidence.progression_reviews)} "
         f"domain-episodes:survival{len(evidence.survival)}/"
         f"woodworking{len(evidence.woodworking)}/fieldwork{len(evidence.fieldwork)}/"
-        f"power{len(evidence.power)}/liberation{len(evidence.liberation)}/"
+        f"power{len(evidence.power)}/settlement{len(evidence.settlement)}/"
+        f"liberation{len(evidence.liberation)}/"
         f"first-foundry{len(evidence.first_foundry)}]"
     )
 
@@ -79,27 +84,19 @@ def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: in
 
 
 def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
+    direct_rework = sum(" selection:direct-rework " in line for line in first_foundry)
+    foundry_selected = sum(" selection:foundry " in line for line in first_foundry)
+    foundry_builds = sum(" foundry-build=true " in line for line in first_foundry)
     full_recovery = sum(
         " continuation=full-scrap-recovery" in line for line in first_foundry
     )
-    separate_state = sum(
-        " state-continuity=separate-disclosed-opportunity " in line
-        for line in first_foundry
-    )
-    foundry_deferred = sum(" foundry-deferred:true " in line for line in first_foundry)
-    treadle_upgrade = sum(
-        " dynamo-path=treadle-additive-upgrade " in line for line in first_foundry
-    )
-    returned_reinforcement = sum(
-        " downstream=[ingot:20000mg reinforcement:20000mg " in line
-        for line in first_foundry
-    )
+    no_active_penalty = sum(" attention-delta:+0t" in line for line in first_foundry)
     return (
         "thermal-bootstrap=["
-        f"coverage:{len(first_foundry)} separate:{separate_state}/{len(first_foundry)} "
-        f"full:{full_recovery}/{len(first_foundry)} deferred:{foundry_deferred}/{len(first_foundry)} "
-        f"treadle-upgrade:{treadle_upgrade}/{len(first_foundry)} "
-        f"cast-reuse:{returned_reinforcement}/{len(first_foundry)}]"
+        f"choice:direct{direct_rework}/foundry{foundry_selected} "
+        f"builds:{foundry_builds}/{len(first_foundry)} "
+        f"full:{full_recovery}/{foundry_builds} "
+        f"active-parity:{no_active_penalty}/{foundry_builds}]"
     )
 
 
@@ -138,6 +135,7 @@ def _choice_diversity(
     woodworking: list[str],
     fieldwork: list[str],
     power: list[str],
+    settlement: list[str],
     survival: list[str],
     survey_campaigns: list[str],
     bulk_crossovers: list[str],
@@ -146,6 +144,11 @@ def _choice_diversity(
         choice
         for line in woodworking
         if (choice := field(line, "choice")) is not None
+    }
+    settlement_choices = {
+        match.group(1)
+        for line in settlement
+        if (match := re.search(r"\bchoice:([^\s\]]+)", line)) is not None
     }
     fieldwork_tools = {
         tool for line in fieldwork if (tool := field(line, "tool")) is not None
@@ -178,6 +181,7 @@ def _choice_diversity(
         f"fieldwork-selected:{len(fieldwork_tools)}/4 "
         f"bulk-crossover-tools:{len(bulk_tools)}/2 "
         f"power-market:{len(power_choices)}/2 "
+        f"settlement-investment:{len(settlement_choices)}/2 "
         f"survey-strategy:{len(survey_strategies)}/2 "
         f"preservation:{len(preservation_policies)}/5]"
     )
@@ -186,6 +190,8 @@ def _choice_diversity(
 def _prepare_invest_evidence(
     woodworking: list[str],
     power: list[str],
+    settlement: list[str],
+    liberation_kit: list[str],
     survey_campaigns: list[str],
     shortfall_recoveries: list[str],
 ) -> str:
@@ -198,16 +204,21 @@ def _prepare_invest_evidence(
     indexed_shortfalls = sum(
         " strategy=indexed-channel " in line for line in shortfall_recoveries
     )
+    settlement_builds = sum(" upgraded:true " in line for line in settlement)
     return (
         "prepare-invest=["
+        f"primitive-kit:{len(liberation_kit)} "
         f"woodworking-tool:{invested_woodworking}/{len(woodworking)} "
         f"power-market:{len(power)}/{len(power)} "
+        f"settlement-machine:{settlement_builds}/{len(settlement)} "
         f"knowledge-tech=[campaign:{indexed_campaigns}/{len(survey_campaigns)} "
         f"lived-shortfall:{indexed_shortfalls}/{len(shortfall_recoveries)}]]"
     )
 
 
-def _delegate_reinvest_evidence(progression: list[str]) -> tuple[str, str]:
+def _delegate_reinvest_evidence(
+    progression: list[str], settlement: list[str]
+) -> tuple[str, str]:
     mechanized = sum(
         "processing-investment=[selected:mechanized" in line for line in progression
     )
@@ -235,9 +246,15 @@ def _delegate_reinvest_evidence(progression: list[str]) -> tuple[str, str]:
         if autonomous_room
         else "n/a"
     )
+    settlement_delegated = sum(
+        (match := re.search(r"\bdelegated:(\d+)t", line)) is not None
+        and int(match.group(1)) > 0
+        for line in settlement
+    )
     delegate = (
         "delegate=["
         f"mechanized-processing:{mechanized}/{len(progression)} "
+        f"settlement-orders:{settlement_delegated}/{len(settlement)} "
         f"attention-saved:{_attention_saved_span(progression)} "
         f"productive-overlap:{overlap_span} autonomous-room:{room_span}]"
     )
@@ -258,17 +275,39 @@ def _survival_adaptation_evidence(
         if match is not None and int(match.group(1)) > 0 and int(match.group(2)) > 0:
             executed_power += 1
     project_breaks = []
+    project_drinks = []
+    project_meals = []
     for line in power_projects:
         match = re.search(r"provisioning=\[stops:(\d+)", line)
         if match is not None:
             project_breaks.append(int(match.group(1)))
+        drinks = re.search(r"provisioning=\[.*?drinks:(\d+)", line)
+        if drinks is not None:
+            project_drinks.append(int(drinks.group(1)))
+        meals = re.search(r"provisioning=\[.*?meals:(\d+)", line)
+        if meals is not None:
+            project_meals.append(int(meals.group(1)))
+    serving_floor_ul = [
+        int(match.group(1))
+        for line in survival
+        if (
+            match := re.search(r"\bshort-loop-serving-floor:(\d+)uL", line)
+        )
+        is not None
+    ]
+    serving_floor = (
+        f"{min(serving_floor_ul) / 1_000:g}..{max(serving_floor_ul) / 1_000:g}mL"
+        if serving_floor_ul
+        else "n/a"
+    )
     return (
         "survive-adapt=["
-        f"reprovisioned-after-work:{follow_up}/{len(survival)} "
+        f"short-loop-serving-floor:{serving_floor} "
+        f"short-loop-reprovision:{follow_up}/{len(survival)} "
         f"hydration-policy:task-floor{task_floor}/working-reserve{working_reserve} "
         f"opportunistic-power:{executed_power}/{opportunity_power} "
-        f"mechanized-project-breaks:{sum(value > 0 for value in project_breaks)}/{len(project_breaks)} "
-        f"break-count:{sum(project_breaks)} "
+        f"sustained-project-provisioning=[breaks:{sum(value > 0 for value in project_breaks)}/{len(project_breaks)} "
+        f"events:{sum(project_breaks)} drinks:{sum(project_drinks)} meals:{sum(project_meals)}] "
         f"warning-safe:{sum(' warning-safe:true' in line for line in survival)}/{len(survival)}]"
     )
 
@@ -423,18 +462,21 @@ def player_loop_evidence(lines: list[str]) -> str | None:
             evidence.woodworking,
             evidence.fieldwork,
             evidence.power,
+            evidence.settlement,
             evidence.survival,
         )
     ):
         return None
 
     extracted = _fieldwork_extracted(evidence.fieldwork)
-    delegate, reinvest = _delegate_reinvest_evidence(evidence.progression)
+    delegate, reinvest = _delegate_reinvest_evidence(
+        evidence.progression, evidence.settlement
+    )
     return (
         "PLAYER LOOP EVIDENCE "
         f"{_evidence_shape(evidence)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
-        f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.survey_campaigns, evidence.shortfall_recoveries)} "
+        f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries)} "
         f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted)} "
         f"{_thermal_bootstrap_evidence(evidence.first_foundry)} "
         f"{_world_feedback_evidence(lines, evidence.fieldwork)} "
@@ -442,5 +484,5 @@ def player_loop_evidence(lines: list[str]) -> str | None:
         f"{_maintenance_evidence(evidence.woodworking, evidence.power_projects)} "
         f"{delegate} "
         f"{reinvest} "
-        f"{_choice_diversity(evidence.woodworking, evidence.fieldwork, evidence.power, evidence.survival, evidence.survey_campaigns, evidence.bulk_crossovers)}"
+        f"{_choice_diversity(evidence.woodworking, evidence.fieldwork, evidence.power, evidence.settlement, evidence.survival, evidence.survey_campaigns, evidence.bulk_crossovers)}"
     )

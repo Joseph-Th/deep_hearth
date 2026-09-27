@@ -169,12 +169,18 @@ pub(super) fn primitive_material_plan(registries: &Registries) -> PrimitiveMater
         "primitive pick service reserve",
     );
 
+    let primitive_raw_inputs = [
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+    ];
     let mut process_batches: BTreeMap<deep_hearth::production::ProcessId, u64> = BTreeMap::new();
     for (commodity, required) in requirements {
-        let (craft, batches) = manual_craft_topology_plan_for_output(
+        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
             registries,
             commodity,
             required,
+            &primitive_raw_inputs,
             "primitive progression component planning",
         );
         process_batches

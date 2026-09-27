@@ -6,8 +6,8 @@ use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_COPPER_REINFORCED_PICK,
     EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
-    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK, FORM_NATIVE_METAL, MATERIAL_COPPER,
-    MINING_METHOD_HAND_PICK,
+    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
 };
 use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::AppState;
@@ -22,7 +22,7 @@ use deep_hearth::registry::Registries;
 use super::equipment_support::pristine_equipment_capability;
 use super::focused_seeds::FocusedProbeCase;
 use super::manual_craft_planning::{
-    manual_craft_topology_plan_for_output, project_manual_assembly_package,
+    manual_craft_topology_plan_for_output_from_inputs, project_manual_assembly_package,
 };
 use super::manual_craft_selection::{
     first_sufficient_pure_temperature, select_manual_craft_request,
@@ -34,13 +34,13 @@ const FIELDWORK_KNOWN_SITE_REPEAT_HORIZON: u64 = 12;
 const FIELDWORK_BULK_ORDER_BATCHES: u64 = 48;
 const FIELDWORK_BULK_ORDER_MIN_BATCHES: u64 = 32;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_SEED: u64 = 0;
-const FIELDWORK_REINFORCED_BULK_COVERAGE_BATCHES: u64 = 48;
-const FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_MG: u64 = 28_000_000;
+const FIELDWORK_REINFORCED_BULK_COVERAGE_BATCHES: u64 = 64;
+const FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_MG: u64 = 40_000_000;
 const FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED: u64 = 2;
 const FIELDWORK_BULK_INVESTMENT_COVERAGE_BATCHES: u64 = 40;
 const FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_MG: u64 = 28_000_000;
 const FIELDWORK_RESERVE_SCALE_COVERAGE_SEED: u64 = 6;
-const FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES: u64 = 48;
+const FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES: u64 = 64;
 
 #[path = "fieldwork_probe/campaign.rs"]
 mod campaign;

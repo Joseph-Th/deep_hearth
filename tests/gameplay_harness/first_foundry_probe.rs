@@ -41,6 +41,7 @@ use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::seed::mix64;
 
 const RAW_STONE_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
 const RAW_WOOD_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
@@ -196,13 +197,6 @@ fn craft_foundry_components(
 }
 
 pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProbeCase) {
-    if !matches!(
-        case.role(),
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::ExplicitReplay
-    ) {
-        return;
-    }
-
     let melting_definition = registries
         .thermal()
         .get_melting(PROCESS_MELT_PURE_COPPER)
@@ -319,44 +313,25 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     validate_loaded_state(registries, &direct_native_state)
         .unwrap_or_else(|error| panic!("first foundry direct-native branch invalid: {error}"));
 
-    let fabrication_ticks = craft_foundry_components(registries, &mut state, raw, parts);
-    let assemble_equipment = |state: &mut AppState, definition| {
-        validate_assemble_equipment(registries, state, definition, parts)
-            .unwrap_or_else(|error| panic!("first foundry equipment assembly failed: {error}"))
-            .commit(state)
-            .unwrap_or_else(|error| panic!("first foundry equipment commit failed: {error}"))
+    // A foundry should be a response to disclosed material scarcity, not a mandatory technology
+    // checkbox. Vary how much of this recovered scrap the current order actually needs. The
+    // maintained coverage pair deliberately brackets the cold-rework yield; organic worlds vary
+    // the order inside the same physically available batch.
+    let recovery_order_ppm = match case.role() {
+        FocusedProbeRole::MaintainedAnchor => 1_000_000_u64,
+        FocusedProbeRole::MaintainedCoverage if case.seed().is_multiple_of(2) => 850_000,
+        FocusedProbeRole::MaintainedCoverage => 950_000,
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            820_000 + mix64(case.seed() ^ 0x464F_554E_4452_594F) % 180_001
+        }
     };
-    let treadle = assemble_equipment(&mut state, EQUIPMENT_TIMBER_TREADLE_DRIVE);
-    let dynamo = validate_upgrade_equipment(
-        registries,
-        &state,
-        treadle,
-        EQUIPMENT_TIMBER_TREADLE_DYNAMO,
-        parts,
-    )
-    .unwrap_or_else(|error| panic!("first foundry treadle-dynamo upgrade failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("first foundry treadle-dynamo upgrade commit failed: {error}"));
-    let furnace = assemble_equipment(&mut state, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE);
-    let mold = assemble_equipment(&mut state, EQUIPMENT_STONE_INGOT_MOLD);
-    let electrical = validate_assemble_energy_store(
-        registries,
-        &state,
-        ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
-        parts,
-    )
-    .unwrap_or_else(|error| panic!("first foundry electrical-buffer assembly failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("first foundry electrical-buffer commit failed: {error}"));
-    let heat_sink =
-        validate_assemble_energy_store(registries, &state, ENERGY_STONE_THERMAL_SINK, raw)
-            .unwrap_or_else(|error| panic!("first foundry thermal-sink assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("first foundry thermal-sink commit failed: {error}"));
-
-    // Compare the two legitimate scrap-recovery choices from the same post-setup observable state.
-    // Cold rework is faster but leaves fine copper chips that cannot be cold-consolidated again;
-    // remelting spends more active attention to recover the whole batch into standardized stock.
+    let recovery_order = Mass::from_milligrams(
+        u128::from(first_cast_mass.milligrams())
+            .checked_mul(u128::from(recovery_order_ppm))
+            .map(|scaled| scaled.div_ceil(1_000_000))
+            .and_then(|scaled| u64::try_from(scaled).ok())
+            .unwrap_or_else(|| panic!("first foundry recovery order overflowed")),
+    );
     let direct_rework_definition = registries
         .crafting()
         .get_manual(PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT)
@@ -378,7 +353,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         first_cast_mass.milligrams() / direct_rework_definition.input_mass().milligrams();
     assert!(
         direct_rework_batches > 0,
-        "first foundry scarcity order must admit at least one complete direct scrap-rework batch"
+        "first foundry recovery opportunity must admit at least one complete scrap-rework batch"
     );
     let mut direct_rework_state = state.clone();
     let direct_rework_ticks = execute_manual_craft_batches(
@@ -417,15 +392,94 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             "direct residual output",
         )
     );
-    assert!(
-        direct_reinforcement < first_cast_mass,
-        "direct scrap rework must remain short of the declared reinforcement order"
-    );
-    let direct_fulfillment_ppm = direct_reinforcement
+    let direct_recovery_ppm = direct_reinforcement
         .milligrams()
         .checked_mul(1_000_000)
-        .unwrap_or_else(|| panic!("first foundry direct fulfillment overflowed"))
+        .unwrap_or_else(|| panic!("first foundry direct recovery overflowed"))
         / first_cast_mass.milligrams();
+    let direct_shortfall = if direct_reinforcement >= recovery_order {
+        Mass::ZERO
+    } else {
+        recovery_order
+            .checked_sub(direct_reinforcement)
+            .unwrap_or_else(|| unreachable!("direct recovery was below the disclosed order"))
+    };
+    if direct_shortfall.is_zero() {
+        validate_loaded_state(registries, &direct_rework_state).unwrap_or_else(|error| {
+            panic!("first foundry direct recovery branch invalid: {error}")
+        });
+        assert_eq!(
+            calculate_matter_accounting(&direct_rework_state)
+                .unwrap_or_else(|error| panic!("first foundry direct matter audit failed: {error}"))
+                .total(),
+            matter_before,
+        );
+        let direct_survival = assess_survival(registries, &direct_rework_state)
+            .unwrap_or_else(|| panic!("first foundry direct-rework player disappeared"));
+        let order_mass_mg = recovery_order.milligrams();
+        let scrap_mass_mg = first_cast_mass.milligrams();
+        reviewln!(
+            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-decision upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:{}mg wood:{}mg native:{}mg scrap:{scrap_mass_mg}mg] immediate-choice=[order:{scrap_mass_mg}mg direct-native:{}t reinforcement:{}mg selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] recovery-choice=[order:{order_mass_mg}mg source:scrap-only cold-rework:{}t reinforcement:{}mg chips:{}mg recovery:{}ppm shortfall:0mg selection:direct-rework foundry-deferred:true reason=cold-rework-satisfies-disclosed-order] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved",
+            case.seed(),
+            focused_probe_role_label(case.role()),
+            RAW_STONE_OPPORTUNITY.milligrams(),
+            RAW_WOOD_OPPORTUNITY.milligrams(),
+            RAW_NATIVE_COPPER_OPPORTUNITY.milligrams(),
+            direct_native_ticks,
+            direct_native_reinforcement.milligrams(),
+            direct_rework_ticks,
+            direct_reinforcement.milligrams(),
+            direct_residual.milligrams(),
+            direct_recovery_ppm,
+            direct_rework_ticks,
+            survival_before
+                .metabolic_energy()
+                .checked_sub(direct_survival.metabolic_energy())
+                .unwrap_or_else(|| panic!("first foundry direct metabolic reserve increased"))
+                .nanojoules(),
+            survival_before
+                .hydration()
+                .checked_sub(direct_survival.hydration())
+                .unwrap_or_else(|| panic!("first foundry direct hydration reserve increased"))
+                .microliters(),
+        );
+        return;
+    }
+
+    let fabrication_ticks = craft_foundry_components(registries, &mut state, raw, parts);
+    let assemble_equipment = |state: &mut AppState, definition| {
+        validate_assemble_equipment(registries, state, definition, parts)
+            .unwrap_or_else(|error| panic!("first foundry equipment assembly failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("first foundry equipment commit failed: {error}"))
+    };
+    let treadle = assemble_equipment(&mut state, EQUIPMENT_TIMBER_TREADLE_DRIVE);
+    let dynamo = validate_upgrade_equipment(
+        registries,
+        &state,
+        treadle,
+        EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+        parts,
+    )
+    .unwrap_or_else(|error| panic!("first foundry treadle-dynamo upgrade failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("first foundry treadle-dynamo upgrade commit failed: {error}"));
+    let furnace = assemble_equipment(&mut state, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE);
+    let mold = assemble_equipment(&mut state, EQUIPMENT_STONE_INGOT_MOLD);
+    let electrical = validate_assemble_energy_store(
+        registries,
+        &state,
+        ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
+        parts,
+    )
+    .unwrap_or_else(|error| panic!("first foundry electrical-buffer assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("first foundry electrical-buffer commit failed: {error}"));
+    let heat_sink =
+        validate_assemble_energy_store(registries, &state, ENERGY_STONE_THERMAL_SINK, raw)
+            .unwrap_or_else(|error| panic!("first foundry thermal-sink assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("first foundry thermal-sink commit failed: {error}"));
 
     let composition = MaterialComposition::pure(MATERIAL_COPPER);
     let sensible = calculate_sensible_heat(
@@ -588,19 +642,19 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let stone_opportunity_mg = RAW_STONE_OPPORTUNITY.milligrams();
     let wood_opportunity_mg = RAW_WOOD_OPPORTUNITY.milligrams();
     let native_opportunity_mg = RAW_NATIVE_COPPER_OPPORTUNITY.milligrams();
-    let order_mass_mg = first_cast_mass.milligrams();
+    let order_mass_mg = recovery_order.milligrams();
+    let scrap_mass_mg = first_cast_mass.milligrams();
     reviewln!(
-        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:{stone_opportunity_mg}mg wood:{wood_opportunity_mg}mg native:{native_opportunity_mg}mg scrap:{order_mass_mg}mg] build-choice=[order:{order_mass_mg}mg direct-native:{}t reinforcement:{}mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] scarcity-choice=[order:{order_mass_mg}mg source:scrap-only cold-rework:{}mg/{}ppm shortfall:{}mg foundry:{order_mass_mg}mg/1000000ppm selection:foundry reason:cold-rework-underfills-order] fabrication={}t/{} dynamo-path=treadle-additive-upgrade electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {} feed:scrap] cast=[{}t {} heat:{}nJ] downstream=[ingot:{order_mass_mg}mg reinforcement:{order_mass_mg}mg cold-work:{}t] installed-recovery=[cold-rework:{}t reinforcement:{}mg chips:{}mg fulfillment:{}ppm foundry-active:{}t reinforcement:{order_mass_mg}mg chips:0mg fulfillment:1000000ppm useful-gain:+{}mg attention-delta:{:+}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=full-scrap-recovery",
+        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-decision upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:{stone_opportunity_mg}mg wood:{wood_opportunity_mg}mg native:{native_opportunity_mg}mg scrap:{scrap_mass_mg}mg] immediate-choice=[order:{scrap_mass_mg}mg direct-native:{}t reinforcement:{}mg selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] recovery-choice=[order:{order_mass_mg}mg source:scrap-only cold-rework:{}t reinforcement:{}mg chips:{}mg recovery:{}ppm shortfall:{}mg selection:foundry reason=cold-rework-cannot-satisfy-disclosed-order] foundry-build=true fabrication={}t/{} dynamo-path=treadle-additive-upgrade electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {} feed:scrap] cast=[{}t {} heat:{}nJ] downstream=[ingot:{scrap_mass_mg}mg reinforcement:{scrap_mass_mg}mg cold-work:{}t] installed-recovery=[foundry-active:{}t reinforcement:{scrap_mass_mg}mg chips:0mg recovery:1000000ppm useful-gain:+{}mg required-gain:{}mg attention-delta:{:+}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=full-scrap-recovery",
         case.seed(),
         focused_probe_role_label(case.role()),
         direct_native_ticks,
         direct_native_reinforcement.milligrams(),
+        direct_rework_ticks,
         direct_reinforcement.milligrams(),
-        direct_fulfillment_ppm,
-        first_cast_mass
-            .checked_sub(direct_reinforcement)
-            .unwrap_or_else(|| panic!("direct scrap rework exceeded scarcity order"))
-            .milligrams(),
+        direct_residual.milligrams(),
+        direct_recovery_ppm,
+        direct_shortfall.milligrams(),
         fabrication_ticks,
         format_physical_duration(registries, fabrication_ticks),
         charge_ticks,
@@ -613,15 +667,12 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         format_physical_duration(registries, cast_ticks),
         released_heat.nanojoules(),
         downstream_ticks,
-        direct_rework_ticks,
-        direct_reinforcement.milligrams(),
-        direct_residual.milligrams(),
-        direct_fulfillment_ppm,
         foundry_recovery_attention,
         first_cast_mass
             .checked_sub(direct_reinforcement)
             .unwrap_or_else(|| panic!("direct scrap rework exceeded foundry recovery"))
             .milligrams(),
+        direct_shortfall.milligrams(),
         recovery_attention_delta,
         elapsed,
         format_physical_duration(registries, elapsed),

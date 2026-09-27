@@ -101,19 +101,9 @@ def _first_foundry(lines: list[str]) -> str:
     witnesses = [line for line in lines if line.startswith("FIRST FOUNDRY EXPERIENCE ")]
     fabrication = _numeric_values(witnesses, r"\bfabrication=(\d+)t/")
     direct_native = _numeric_values(witnesses, r"\bdirect-native:(\d+)t")
-    native_fulfillment = _numeric_values(
-        witnesses,
-        r"\bdirect-native:\d+t reinforcement:\d+mg fulfillment:(\d+)ppm",
-    )
+    recovery_orders = _numeric_values(witnesses, r"\brecovery-choice=\[order:(\d+)mg")
     cold_rework = _numeric_values(witnesses, r"\bcold-rework:(\d+)t")
-    cold_fulfillment = _numeric_values(
-        witnesses,
-        r"\bcold-rework:\d+t reinforcement:\d+mg chips:\d+mg fulfillment:(\d+)ppm",
-    )
-    foundry_fulfillment = _numeric_values(
-        witnesses,
-        r"\bfoundry-active:\d+t reinforcement:\d+mg chips:\d+mg fulfillment:(\d+)ppm",
-    )
+    cold_recovery = _numeric_values(witnesses, r"\brecovery:(\d+)ppm")
     foundry_active = _numeric_values(witnesses, r"\bfoundry-active:(\d+)t")
     attention_delta = [
         int(match.group(1))
@@ -124,25 +114,24 @@ def _first_foundry(lines: list[str]) -> str:
         is not None
     ]
     useful_gain = _numeric_values(witnesses, r"\buseful-gain:\+(\d+)mg")
-    foundry_deferred = sum(" foundry-deferred:true " in line for line in witnesses)
-    scarcity_foundry = sum(
-        " scarcity-choice=[" in line and " selection:foundry " in line
-        for line in witnesses
-    )
+    immediate_deferred = sum(" immediate-choice=[" in line for line in witnesses)
+    direct_selected = sum(" selection:direct-rework " in line for line in witnesses)
+    foundry_selected = sum(" selection:foundry " in line for line in witnesses)
+    foundry_builds = sum(" foundry-build=true " in line for line in witnesses)
     scarcity_shortfall = _numeric_values(witnesses, r"\bshortfall:(\d+)mg")
     treadle_upgrade = sum(
         " dynamo-path=treadle-additive-upgrade " in line for line in witnesses
     )
     return (
         "first-foundry=["
-        f"defer:{foundry_deferred}/{len(witnesses)} scarcity-select:{scarcity_foundry}/{len(witnesses)} "
-        f"scarcity-shortfall:{scaled_span(scarcity_shortfall, 1_000, 'g')} "
-        f"native:{_span(direct_native, 't')}/"
-        f"{scaled_span(native_fulfillment, 10_000, '%')} setup:{_span(fabrication, 't')} "
-        f"upgrade:{treadle_upgrade}/{len(witnesses)} recovery:{_span(cold_rework, 't')}/"
-        f"{scaled_span(cold_fulfillment, 10_000, '%')}->{_span(foundry_active, 't')}/"
-        f"{scaled_span(foundry_fulfillment, 10_000, '%')} "
-        f"gain:{scaled_span(useful_gain, 1_000, 'g')}/{_signed_span(attention_delta, 't')}]"
+        f"fresh-defer:{immediate_deferred}/{len(witnesses)} "
+        f"scrap-choice:direct{direct_selected}/foundry{foundry_selected} "
+        f"orders:{scaled_span(recovery_orders, 1_000, 'g')} "
+        f"shortfall:{scaled_span(scarcity_shortfall, 1_000, 'g')} "
+        f"cold:{_span(cold_rework, 't')}/{scaled_span(cold_recovery, 10_000, '%')} "
+        f"builds:{foundry_builds}/{len(witnesses)} setup:{_span(fabrication, 't')} "
+        f"installed:{_span(foundry_active, 't')}/100% "
+        f"gain:+{scaled_span(useful_gain, 1_000, 'g')}/{_signed_span(attention_delta, 't')}]"
     )
 
 
@@ -306,10 +295,9 @@ def _route_tradeoff(lines: list[str]) -> str:
 
 def _kit_decision(lines: list[str]) -> str:
     routes = [line for line in lines if line.startswith("LIBERATION ROUTE TRADEOFF ")]
+    live_builds = sum(" continuity=live-kit-used" in line for line in routes)
     payback_jobs: list[int] = []
-    planned_batches: list[int] = []
-    selected_kit = 0
-    selected_manual = 0
+    payback_proofs = 0
     for line in routes:
         campaign = re.search(r"campaign=\[planned:(\d+)batches", line)
         payback = re.search(r"\bkit-payback:(\d+)batches\b", line)
@@ -319,18 +307,20 @@ def _kit_decision(lines: list[str]) -> str:
         planned = int(campaign.group(1))
         actual_payback = int(payback.group(1))
         payback_jobs.append(actual_payback)
-        planned_batches.append(planned)
         if planned >= actual_payback and int(executed.group(1)) == planned:
-            selected_kit += 1
-        else:
-            selected_manual += 1
+            payback_proofs += 1
+    disclosed_horizons = [
+        int(match.group(1))
+        for line in routes
+        if (match := re.search(r"campaign=\[planned:(\d+)batches", line)) is not None
+    ]
     return (
         "kit-decision=["
+        f"build-and-use:{live_builds}/{len(routes)} "
+        f"disclosed-horizon:{_span(disclosed_horizons, 'batches')} "
+        f"payback-proof:{payback_proofs}/{len(routes)} "
         f"attention-payback:{_span(payback_jobs, 'jobs')} "
-        f"disclosed-horizon:{_span(planned_batches, 'batches')} "
-        f"selected:kit{selected_kit}/manual{selected_manual} "
-        "policy=manual-below-payback;kit-at-or-above "
-        f"evaluated:{len(payback_jobs)}/{len(routes)} "
+        "policy=repeat-work-only;payback-proved-per-build "
         f"preassembled:{sum(' continuity=controlled-preassembled-kit' in line for line in routes)}]"
     )
 

@@ -67,6 +67,8 @@ mod ore_setup;
 mod physical_time;
 #[path = "gameplay_harness/power_provider_probe.rs"]
 mod power_provider_probe;
+#[path = "gameplay_harness/powered_craft_planning.rs"]
+mod powered_craft_planning;
 #[path = "gameplay_harness/preservation_route.rs"]
 mod preservation_route;
 #[path = "gameplay_harness/primitive_liberation.rs"]
@@ -91,6 +93,8 @@ mod scenario;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_probe.rs"]
+mod settlement_probe;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/survival_probe.rs"]
@@ -115,6 +119,7 @@ enum ReportScope {
     Woodworking,
     Fieldwork,
     PowerProvider,
+    Settlement,
     Agency,
     Ore,
     Foundry,
@@ -131,12 +136,13 @@ impl ReportScope {
             Some("woodworking") => Self::Woodworking,
             Some("fieldwork") => Self::Fieldwork,
             Some("power-provider") => Self::PowerProvider,
+            Some("settlement") => Self::Settlement,
             Some("agency") => Self::Agency,
             Some("ore") => Self::Ore,
             Some("foundry") => Self::Foundry,
             Some(scope) => {
                 return Err(format!(
-                    "unknown scope {scope:?}; expected all, workshop, survival, progression, woodworking, fieldwork, power-provider, agency, ore, or foundry"
+                    "unknown scope {scope:?}; expected all, workshop, survival, progression, woodworking, fieldwork, power-provider, settlement, agency, ore, or foundry"
                 ));
             }
         };
@@ -178,7 +184,17 @@ fn main() -> ExitCode {
             "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
         );
         std::println!(
-            "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap exact-local=[survival-provisioning,woodworking,power-provider,primitive-liberation-maintained-anchor,first-foundry] movement-abstracted=[primitive-progression,fieldwork,primitive-liberation-preassembled-variation] movement-authority=absent reachability-authority=STATUS.md"
+            "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap exact-local=[survival-provisioning,woodworking,power-provider,settlement,primitive-liberation-maintained-anchor,first-foundry] movement-abstracted=[primitive-progression,fieldwork,primitive-liberation-preassembled-variation] movement-authority=absent reachability-authority=STATUS.md"
+        );
+    }
+    if scope.includes(ReportScope::Settlement) {
+        run_focused_probe_with_registries(
+            &registries,
+            "settlement",
+            settlement_probe::run_settlement_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
         );
     }
     if scope.includes(ReportScope::Survival) {

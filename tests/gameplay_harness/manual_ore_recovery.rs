@@ -8,9 +8,10 @@ use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
-    ManualComminutionRequest, ManualConstituentSeparationRequest,
-    resolve_manual_comminution_process, resolve_manual_constituent_separation_process,
-    validate_start_manual_comminution, validate_start_manual_constituent_separation,
+    ManualComminutionRequest, ManualConstituentSeparationRequest, ManualOreProcessProfile,
+    project_manual_ore_duration, resolve_manual_comminution_process,
+    resolve_manual_constituent_separation_process, validate_start_manual_comminution,
+    validate_start_manual_constituent_separation,
 };
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::assess_survival;
@@ -28,6 +29,65 @@ pub(super) struct ManualOreRecoveryReview {
     pub(super) powered_recovery_ppm: u32,
     pub(super) metabolic_cost_nj: u128,
     pub(super) hydration_cost_ul: u64,
+}
+
+/// Projects player attention for the ordinary hand-breaking and hand-sorting fallback.
+///
+/// This uses the same authored batch limits, rates, physical tick duration, and exertion profiles
+/// as runtime manual ore processing, without inspecting future outputs or mutating world state.
+pub(super) fn project_manual_ore_recovery_attention(
+    registries: &Registries,
+    feed_mass: Mass,
+) -> u64 {
+    let breaking = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("manual ore recovery lost its hand-breaking definition"));
+    let sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("manual ore recovery lost its hand-sorting definition"));
+    let mut attention = 0_u64;
+    for (profile, maximum, context) in [
+        (
+            ManualOreProcessProfile::new(
+                breaking.processing_rate(),
+                breaking.max_batch_mass(),
+                breaking.exertion(),
+            ),
+            breaking.max_batch_mass(),
+            "breaking",
+        ),
+        (
+            ManualOreProcessProfile::new(
+                sorting.processing_rate(),
+                sorting.max_batch_mass(),
+                sorting.exertion(),
+            ),
+            sorting.max_batch_mass(),
+            "sorting",
+        ),
+    ] {
+        let mut remaining = feed_mass;
+        while !remaining.is_zero() {
+            let batch = remaining.min(maximum);
+            let duration = project_manual_ore_duration(
+                registries.core().physical_tick_duration(),
+                profile,
+                batch,
+            )
+            .unwrap_or_else(|error| {
+                panic!("manual ore recovery {context} projection failed: {error}")
+            });
+            attention = attention
+                .checked_add(duration.value())
+                .unwrap_or_else(|| panic!("manual ore recovery projection attention overflowed"));
+            remaining = remaining
+                .checked_sub(batch)
+                .unwrap_or_else(|| unreachable!("projected manual ore batch cannot exceed feed"));
+        }
+    }
+    attention
 }
 
 #[derive(Clone, Copy)]
@@ -180,6 +240,11 @@ pub(super) fn evaluate_manual_ore_recovery(
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("manual ore recovery player disappeared at decision point"));
     let execution = execute_manual_ore_recovery(registries, &mut state, plan);
+    assert_eq!(
+        execution.attention_ticks,
+        project_manual_ore_recovery_attention(registries, plan.feed_mass),
+        "executed manual ore attention diverged from its pre-action projection"
+    );
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("manual ore recovery matter audit failed: {error}"))

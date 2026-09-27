@@ -9,8 +9,9 @@ use deep_hearth::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_ROTARY_QUERN,
     EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
-    FORM_BOARD, FORM_CHIP, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    FORM_BOARD, FORM_CHIP, FORM_INGOT, FORM_LOG, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
+    FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
     PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_HAND_BREAK_ORE,
     PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL,
     PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
@@ -24,7 +25,7 @@ use super::environment::ROOM_TEMPERATURE;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_planning::{
-    manual_craft_plan_for_available_output, manual_craft_topology_plan_for_output,
+    manual_craft_plan_for_available_output, manual_craft_topology_plan_for_output_from_inputs,
 };
 use super::progression_probe::{
     DEEP_OPPORTUNITY_MIN_BATCHES, MARGINAL_OPPORTUNITY_MAX_BATCHES,
@@ -50,10 +51,11 @@ fn bootstrap_planning_excludes_faster_required_equipment_producers() {
         "bootstrap-planning regression requires a competing required-equipment board route"
     );
 
-    let (selected, batches) = manual_craft_topology_plan_for_output(
+    let (selected, batches) = manual_craft_topology_plan_for_output_from_inputs(
         &registries,
         boards,
         Mass::from_milligrams(800_000),
+        &[CommodityKey::new(MATERIAL_WOOD, FORM_LOG)],
         "bootstrap-planning regression",
     );
 
@@ -97,6 +99,39 @@ fn current_manual_craft_planning_ignores_unowned_salvage_inputs() {
     assert_eq!(selected.process(), PROCESS_SHAPE_WOOD_BOARDS);
     assert_eq!(batches, 2);
     assert_eq!(selected_source, raw);
+}
+
+#[test]
+fn primitive_topology_planning_does_not_select_unacquired_cast_stock() {
+    let registries = build_registries();
+    let reinforcement = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
+    let ingot = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
+    let cast_route = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("cast-copper reinforcement route disappeared"));
+    let native_route = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("native-copper reinforcement route disappeared"));
+    assert_eq!(cast_route.input(), ingot);
+    assert_eq!(native_route.input(), native);
+    assert!(
+        cast_route.duration() < native_route.duration(),
+        "regression requires the later cast-stock route to be the globally faster route"
+    );
+
+    let (selected, batches) = manual_craft_topology_plan_for_output_from_inputs(
+        &registries,
+        reinforcement,
+        Mass::from_milligrams(20_000),
+        &[native],
+        "primitive native-copper topology regression",
+    );
+
+    assert_eq!(selected.process(), PROCESS_COLD_WORK_COPPER_REINFORCEMENT);
+    assert_eq!(batches, 1);
 }
 
 #[test]

@@ -89,6 +89,13 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             &[7, 11, 0x10FA_D311_A1B9_7550],
             0x504F_5752_5052_4F42,
         ),
+        // Settlement investment keeps one short direct-work anchor and one long mechanization
+        // coverage horizon; organic variation fills the crossover between them.
+        "settlement" => (
+            0xD33F_C01D_5E77,
+            &[0x0000_0000_0000_0040],
+            0x5345_5454_5052_4F42,
+        ),
         "ore-preparation" => (
             0xD33F_C01D_0A11,
             &[ORE_FINITE_ENERGY_COVERAGE_SEED],

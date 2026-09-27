@@ -2,6 +2,14 @@
 
 use super::super::*;
 
+pub(super) fn disclosed_raw_inputs() -> [CommodityKey; 3] {
+    [
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+    ]
+}
+
 pub(super) fn add_mass(
     totals: &mut BTreeMap<CommodityKey, Mass>,
     commodity: CommodityKey,
@@ -73,10 +81,11 @@ fn upgrade_raw_requirements(
     let mut raw = BTreeMap::new();
     let mut total_raw = Mass::ZERO;
     for input in upgrade.additions().inputs() {
-        let (craft, batches) = manual_craft_topology_plan_for_output(
+        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
             registries,
             input.commodity(),
             input.mass(),
+            &disclosed_raw_inputs(),
             context,
         );
         let consumed = multiplied_mass(craft.input_mass(), batches, context);
@@ -111,10 +120,11 @@ pub(in super::super) fn fieldwork_raw_opportunity(
             EQUIPMENT_STONE_PICK,
         ],
     ) {
-        let (craft, batches) = manual_craft_topology_plan_for_output(
+        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
             registries,
             commodity,
             required,
+            &disclosed_raw_inputs(),
             "field-tool component planning",
         );
         let consumed = multiplied_mass(craft.input_mass(), batches, "field-tool raw input");
@@ -210,10 +220,11 @@ pub(in super::super) fn project_sampling_hammer_upgrade_ticks(
         let missing = input.mass().checked_sub(available).unwrap_or_else(|| {
             unreachable!("fieldwork sampling upgrade checked parts availability")
         });
-        let (craft, batches) = manual_craft_topology_plan_for_output(
+        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
             registries,
             input.commodity(),
             missing,
+            &disclosed_raw_inputs(),
             "fieldwork sampling-hammer upgrade projection",
         );
         add_mass(

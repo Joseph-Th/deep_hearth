@@ -48,7 +48,9 @@ GAMEPLAY_SCOPE_SPECS = {
         "gameplay_primitive_progression_probe",
         "gameplay_primitive_progression_report",
     ),
-    "settlement": GameplayScopeSpec("gameplay_settlement", None, None),
+    "settlement": GameplayScopeSpec(
+        "gameplay_settlement", None, "gameplay_settlement_report"
+    ),
     "woodworking": GameplayScopeSpec(
         "gameplay_woodworking",
         "gameplay_woodworking_probe",
@@ -135,6 +137,9 @@ def gameplay_variation_behavior(args: argparse.Namespace) -> bool | None:
         scope = args.gameplay
         if scope in (None, "contracts", "all"):
             return None
+        if scope == "settlement":
+            # The settlement target keeps its owner contracts together with one play-like probe.
+            return False
         spec = GAMEPLAY_SCOPE_SPECS[scope]
         if spec.test is None:
             return None
@@ -170,7 +175,7 @@ def uses_fresh_gameplay_variation(args: argparse.Namespace) -> bool:
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)
-REPORT_SCOPES = ("all", *GAMEPLAY_TESTS, "agency")
+REPORT_SCOPES = ("all", *GAMEPLAY_SCOPE_SPECS, "agency")
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
 RUST_TEST_RESULT = re.compile(

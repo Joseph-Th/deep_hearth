@@ -9,7 +9,7 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, FORM_ORE, MANUAL_POWER_HAND_CRANK,
-    MATERIAL_COPPER,
+    MATERIAL_COPPER, PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
 use deep_hearth::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Pressure, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};

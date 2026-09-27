@@ -32,6 +32,9 @@ pub(super) struct IntegratedSurvivalWorkReview {
     pub(super) initial_drink_volume_ul: u64,
     pub(super) initial_drink_ticks: u64,
     pub(super) prospecting_ticks: u64,
+    pub(super) followup_prospecting_triggered: bool,
+    pub(super) followup_prospecting_ticks: u64,
+    pub(super) followup_found_continuation: bool,
     pub(super) power_triggered_by_observation: bool,
     pub(super) reprovisioned_after_prospecting: bool,
     pub(super) reprovision_volume_ul: u64,
@@ -136,6 +139,24 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         VoxelCoord::new(40 + region_width, 0, 1),
     )
     .unwrap_or_else(|error| panic!("integrated survival prospecting bounds failed: {error}"));
+    let followup_definition = registries
+        .labor()
+        .get_prospecting(PROSPECTING_REGIONAL_RECONNAISSANCE)
+        .copied()
+        .unwrap_or_else(|| {
+            panic!("integrated survival regional follow-up prospecting method disappeared")
+        });
+    let followup_width = i64::try_from(followup_definition.maximum_region_voxels().min(4))
+        .unwrap_or_else(|_| {
+            unreachable!("bounded integrated follow-up prospecting footprint fits i64")
+        });
+    let followup_region = VoxelBounds::new(
+        VoxelCoord::new(40 + region_width, -1, 0),
+        VoxelCoord::new(40 + region_width + followup_width, 0, 1),
+    )
+    .unwrap_or_else(|error| {
+        panic!("integrated survival follow-up prospecting bounds failed: {error}")
+    });
     let opportunity_present = mix64(seed ^ 0x494E_5445_4752_4F50) & 1 == 0;
     if opportunity_present {
         seed_geological_deposit(
@@ -150,6 +171,20 @@ pub(super) fn evaluate_integrated_survival_work_loop(
                 MaterialComposition::pure(MATERIAL_COPPER),
             ),
         );
+        if mix64(seed ^ 0x494E_5445_4743_4F4E) & 1 == 0 {
+            seed_geological_deposit(
+                registries,
+                &mut state,
+                GeologicalDepositSeed::new(
+                    followup_region,
+                    CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+                    Mass::from_milligrams(8_000_000),
+                    ROOM_TEMPERATURE,
+                    Pressure::from_pascals(350_000_000),
+                    MaterialComposition::pure(MATERIAL_COPPER),
+                ),
+            );
+        }
     }
     seed_player_survival_at_hydration_warning_boundary(registries, &mut state);
 
@@ -233,9 +268,9 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         .get_observation(observation.observation())
         .and_then(|record| record.finding(MATERIAL_COPPER))
         .unwrap_or_else(|| panic!("integrated survival prospecting finding disappeared"));
-    let power_triggered_by_observation = finding.lower_ppm() > 0;
+    let followup_prospecting_triggered = finding.lower_ppm() > 0;
     assert_eq!(
-        power_triggered_by_observation, opportunity_present,
+        followup_prospecting_triggered, opportunity_present,
         "integrated survival actor-visible finding must distinguish the disclosed opportunity"
     );
 
@@ -248,7 +283,7 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested_energy);
     let after_prospecting = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("integrated survival player disappeared after prospecting"));
-    let power_projection = power_triggered_by_observation.then(|| {
+    let power_projection = followup_prospecting_triggered.then(|| {
         let crank_record = state
             .equipment()
             .get_equipment(crank)
@@ -265,23 +300,38 @@ pub(super) fn evaluate_integrated_survival_work_loop(
             panic!("integrated survival manual-power projection failed: {error}")
         })
     });
-    let manual_power_floor = power_projection.map(|projection| {
+    let followup_projection = followup_prospecting_triggered.then(|| {
+        project_prospecting_work(
+            registries,
+            PROSPECTING_REGIONAL_RECONNAISSANCE,
+            followup_region,
+        )
+        .unwrap_or_else(|error| {
+            panic!("integrated survival follow-up prospecting projection failed: {error}")
+        })
+    });
+    let followup_work_floor = followup_projection.map(|projection| {
+        let followup_hydration = projection.resource_budget().hydration();
+        let possible_power_hydration = power_projection
+            .map(|power| power.resource_budget().hydration())
+            .unwrap_or(Volume::ZERO);
         physiology
             .thirsty_below()
-            .checked_add(projection.resource_budget().hydration())
+            .checked_add(followup_hydration)
+            .and_then(|target| target.checked_add(possible_power_hydration))
             .unwrap_or_else(|| {
-                panic!("integrated survival manual-power hydration target overflowed")
+                panic!("integrated survival follow-up work hydration target overflowed")
             })
     });
     let reprovisioned_after_prospecting =
-        manual_power_floor.is_some_and(|floor| after_prospecting.hydration() < floor);
+        followup_work_floor.is_some_and(|floor| after_prospecting.hydration() < floor);
     let reprovision_projection = if reprovisioned_after_prospecting {
-        let manual_power_floor = manual_power_floor
-            .unwrap_or_else(|| unreachable!("reprovision requires a manual-power floor"));
+        let followup_work_floor = followup_work_floor
+            .unwrap_or_else(|| unreachable!("reprovision requires a follow-up work floor"));
         let target = match hydration_policy {
-            WorkHydrationPolicy::TaskFloor => manual_power_floor,
+            WorkHydrationPolicy::TaskFloor => followup_work_floor,
             WorkHydrationPolicy::WorkingReserve => {
-                std::cmp::max(manual_power_floor, working_reserve_target)
+                std::cmp::max(followup_work_floor, working_reserve_target)
             }
         };
         Some(
@@ -318,6 +368,49 @@ pub(super) fn evaluate_integrated_survival_work_loop(
     } else {
         0
     };
+    let (followup_prospecting_ticks, followup_found_continuation) =
+        if followup_prospecting_triggered {
+            let followup_request = FieldProspectingRequest::new(
+                PROSPECTING_REGIONAL_RECONNAISSANCE,
+                followup_region,
+                MATERIAL_COPPER,
+            );
+            let followup = validate_start_field_prospecting(registries, &state, followup_request)
+                .unwrap_or_else(|error| {
+                    panic!("integrated survival follow-up prospecting start failed: {error}")
+                });
+            let work = followup.work();
+            let ticks = work
+                .completes_at()
+                .value()
+                .checked_sub(state.tick().value())
+                .unwrap_or_else(|| {
+                    unreachable!("validated follow-up prospecting completes after it starts")
+                });
+            assert_eq!(
+                Some(ticks),
+                followup_projection.map(|projection| projection.duration().value()),
+                "follow-up prospecting admission duration must match its projection"
+            );
+            followup.commit(&mut state).unwrap_or_else(|error| {
+                panic!("integrated survival follow-up prospecting commit failed: {error}")
+            });
+            let outcome = complete_prospecting_work(
+                registries,
+                &mut state,
+                work,
+                "integrated survival neighboring reconnaissance",
+            );
+            let continuation = state
+                .geological_knowledge()
+                .get_observation(outcome.observation())
+                .and_then(|record| record.finding(MATERIAL_COPPER))
+                .is_some_and(|finding| finding.lower_ppm() > 0);
+            (ticks, continuation)
+        } else {
+            (0, false)
+        };
+    let power_triggered_by_observation = followup_found_continuation;
     let manual_power_ticks = if power_triggered_by_observation {
         let power = validate_start_manual_power(registries, &state, power_request).unwrap_or_else(
             |error| panic!("integrated survival manual-power start failed: {error}"),
@@ -386,6 +479,9 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         initial_drink_volume_ul: initial_drink_volume.microliters(),
         initial_drink_ticks,
         prospecting_ticks,
+        followup_prospecting_triggered,
+        followup_prospecting_ticks,
+        followup_found_continuation,
         power_triggered_by_observation,
         reprovisioned_after_prospecting,
         reprovision_volume_ul: reprovision_volume.microliters(),

@@ -42,7 +42,10 @@ fn cold_work_cast_copper() -> ManualCraftDefinition {
         PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT,
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
         COPPER_REINFORCEMENT_MASS,
-        TickSpan::new(45),
+        // Uniform cast stock is already consolidated and sized for working. Forming it should be
+        // distinctly easier than consolidating irregular native metal or scrap; otherwise the
+        // foundry pays energy and setup cost only to increase the player's active-work burden.
+        TickSpan::new(15),
         copper_work_exertion(),
         vec![ManualCraftOutput::new(
             CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),

@@ -1470,7 +1470,7 @@ fn first_foundry_content_forms_an_ordinary_electrical_casting_chain() {
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
     );
     assert_eq!(rework.input_mass(), Mass::from_milligrams(20_000));
-    assert_eq!(rework.duration(), TickSpan::new(45));
+    assert_eq!(rework.duration(), TickSpan::new(15));
     assert_eq!(
         rework.outputs(),
         &[ManualCraftOutput::new(

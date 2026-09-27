@@ -308,7 +308,12 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         kit_acquisition,
         bootstrap,
         campaign_lifecycle,
-    ) = if case.role() == FocusedProbeRole::MaintainedAnchor {
+    ) = if matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor
+            | FocusedProbeRole::OrganicVariation
+            | FocusedProbeRole::ExplicitReplay
+    ) {
         let (acquired, campaign_bootstraps) = acquisition::acquire_raw_kit(
             registries,
             seed,

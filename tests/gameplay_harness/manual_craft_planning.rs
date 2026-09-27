@@ -132,21 +132,28 @@ fn manual_craft_plan_for_output_matching<'a>(
     (definition, batches)
 }
 
-/// Selects the most attention-efficient equipment-free authored route without considering current
-/// inventory. Use this only for pre-episode requirement topology where current inventory
-/// deliberately does not exist yet.
-pub(super) fn manual_craft_topology_plan_for_output<'a>(
+/// Selects the most attention-efficient equipment-free authored route whose input belongs to the
+/// scenario's explicitly disclosed source forms.
+///
+/// Use this for pre-episode raw-opportunity planning. A later conversion route may be globally
+/// faster while still being unavailable because its input form has not been produced yet.
+pub(super) fn manual_craft_topology_plan_for_output_from_inputs<'a>(
     registries: &'a Registries,
     commodity: CommodityKey,
     required: Mass,
+    allowed_inputs: &[CommodityKey],
     context: &'static str,
 ) -> (&'a ManualCraftDefinition, u64) {
+    assert!(
+        !allowed_inputs.is_empty(),
+        "gameplay harness {context} requires at least one disclosed source form"
+    );
     manual_craft_plan_for_output_matching(
         registries,
         commodity,
         required,
         context,
-        |_definition, _batches| true,
+        |definition, _batches| allowed_inputs.contains(&definition.input()),
     )
 }
 

@@ -11,6 +11,7 @@ from tools.gameplay_summary.liberation import liberation_summary
 from tools.gameplay_summary.loop import player_loop_evidence
 from tools.gameplay_summary.power import power_provider_summary
 from tools.gameplay_summary.progression import progression_summary
+from tools.gameplay_summary.settlement import settlement_summary
 from tools.gameplay_summary.survival import survival_summary
 from tools.gameplay_summary.woodworking import woodworking_summary
 
@@ -25,6 +26,7 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
         woodworking_summary(lines),
         fieldwork_summary(lines),
         power_provider_summary(lines),
+        settlement_summary(lines),
         survival_summary(lines),
     ):
         if summary is not None:
@@ -77,11 +79,17 @@ _ORDINARY_DIGEST_FIELDS = {
         "samples",
         "sample-shape",
         "choice",
-        "project-experience",
         "decision-crossover-charges",
         "settlement-choice",
-        "settlement-project-experience",
         "settlement-decision-crossover-charges",
+    ),
+    "settlement": (
+        "samples",
+        "sample-shape",
+        "choice",
+        "demand",
+        "attention",
+        "mechanization",
     ),
     "survival": (
         "samples",
@@ -101,6 +109,7 @@ _EXPECTED_ORDINARY_BY_PROBE = {
     "woodworking": {"woodworking"},
     "fieldwork": {"fieldwork"},
     "power-provider": {"power-provider"},
+    "settlement": {"settlement"},
     "survival-provisioning": {"survival"},
 }
 _EXPECTED_CONTROLLED_BY_PROBE = {
@@ -204,6 +213,7 @@ def _digest_summary(summary: str) -> str:
                 "reassess-reinvest",
             ),
         )
+        investment = compact_fields(summary, ("thermal-bootstrap",))
         dynamics = compact_fields(
             summary,
             (
@@ -214,6 +224,8 @@ def _digest_summary(summary: str) -> str:
         )
         return (
             f"GAMEPLAY loop {core}".rstrip()
+            + "\n"
+            + f"GAMEPLAY loop-investment {investment}".rstrip()
             + "\n"
             + f"GAMEPLAY loop-dynamics {dynamics}".rstrip()
         )

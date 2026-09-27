@@ -1,7 +1,9 @@
 //! Extraction-tool capability, cost, and market planning for fieldwork.
 
 use super::super::*;
-use super::materials::{add_mass, equipment_component_requirements, multiplied_mass};
+use super::materials::{
+    add_mass, disclosed_raw_inputs, equipment_component_requirements, multiplied_mass,
+};
 
 pub(in super::super) const FIELDWORK_ORDER_MAX_BATCHES: u64 = 256;
 
@@ -185,10 +187,11 @@ fn estimate_tool_preparation(
         }
         // The declared raw-tool family uses its equipment-free topology route. Missing raw
         // inputs exclude this route; they do not prove that every possible salvage route fails.
-        let (craft, batches) = manual_craft_topology_plan_for_output(
+        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
             registries,
             commodity,
             missing,
+            &disclosed_raw_inputs(),
             "fieldwork pre-action components",
         );
         let consumed = multiplied_mass(craft.input_mass(), batches, "planned raw input");

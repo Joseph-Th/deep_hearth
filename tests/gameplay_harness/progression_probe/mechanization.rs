@@ -139,17 +139,12 @@ pub(super) fn native_input_for_upgrade(
         .inputs()
         .iter()
         .try_fold(Mass::ZERO, |total, input| {
-            let (craft, batches) =
-                manual_craft_topology_plan_for_output(
-                    registries,
-                    input.commodity(),
-                    input.mass(),
-                    "primitive copper upgrade planning",
-                );
-            assert_eq!(
-                craft.input(),
-                native,
-                "primitive copper upgrade component must remain directly cold-workable from native copper"
+            let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
+                registries,
+                input.commodity(),
+                input.mass(),
+                &[native],
+                "primitive copper upgrade planning",
             );
             total.checked_add(multiply_mass(
                 craft.input_mass(),
