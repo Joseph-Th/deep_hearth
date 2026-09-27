@@ -88,7 +88,6 @@ parallel state, legality, or test-only surface.
 - Preserve deterministic continuation, strict trusted-load validation, checked physical arithmetic, typed ownership, and exact represented matter, fluid, and energy accounting.
 - Core systems perform no implicit external IO; adapters own external effects.
 - Remove obsolete code and stale documentation. Do not add compatibility scaffolding, test-only public APIs, fake callers, or broad warning suppressions without an active contract.
-- Verification is local. Do not add or depend on hosted CI.
 - Rust diagnostics are advisory and routed through [`tools/README.md`](tools/README.md).
 
 ## Completion
