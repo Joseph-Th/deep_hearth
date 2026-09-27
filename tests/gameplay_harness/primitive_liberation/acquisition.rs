@@ -35,7 +35,8 @@ use deep_hearth::registry::Registries;
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::super::environment::ROOM_TEMPERATURE;
-use super::super::manual_craft_execution::{execute_manual_craft, execute_manual_craft_batches};
+use super::super::manual_craft_batches::execute_manual_craft_batches;
+use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::manual_craft_selection::select_manual_craft_request;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

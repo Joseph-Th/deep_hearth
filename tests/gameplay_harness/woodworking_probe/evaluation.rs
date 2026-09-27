@@ -655,6 +655,33 @@ fn evaluate_woodworking_lifecycle(
         .saw
         .as_ref()
         .is_some_and(|saw| saw.route.fallback_due_to_copper);
+    let expected_saw_copper_consumed = evidence.saw.as_ref().map_or(Mass::ZERO, |saw| {
+        checked_mass_times(
+            world.blade_input,
+            saw.route
+                .saw_services
+                .checked_add(1)
+                .unwrap_or_else(|| panic!("woodworking saw blade count overflowed")),
+            "saw lifecycle copper",
+        )
+    });
+    let copper_after_saw = evidence.saw.as_ref().map_or(world.copper_available, |saw| {
+        saw.state
+            .inventory()
+            .get_stockpile(world.raw)
+            .map(|stockpile| {
+                stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL))
+            })
+            .unwrap_or_else(|| panic!("woodworking raw stockpile disappeared after saw lifecycle"))
+    });
+    let saw_copper_consumed = world
+        .copper_available
+        .checked_sub(copper_after_saw)
+        .unwrap_or_else(|| panic!("woodworking saw lifecycle increased available native copper"));
+    assert_eq!(
+        saw_copper_consumed, expected_saw_copper_consumed,
+        "executed saw lifecycle copper must match the initial blade plus service replacements"
+    );
     let metrics = WoodworkingLifecycleMetrics {
         adze_total_attention,
         saw_total_timber,
@@ -679,24 +706,8 @@ fn evaluate_woodworking_lifecycle(
         actual_timber_balance,
         saw_timber_saving: actual_timber_balance == WoodworkingTimberBalance::Saving,
         saw_timber_neutral: actual_timber_balance == WoodworkingTimberBalance::Neutral,
-        saw_copper_consumed: evidence.saw.as_ref().map_or(Mass::ZERO, |saw| {
-            checked_mass_times(
-                world.blade_input,
-                saw.route
-                    .saw_services
-                    .checked_add(1)
-                    .unwrap_or_else(|| panic!("woodworking saw blade count overflowed")),
-                "saw lifecycle copper",
-            )
-        }),
-        copper_after_saw: Mass::ZERO,
-    };
-    let metrics = WoodworkingLifecycleMetrics {
-        copper_after_saw: world
-            .copper_available
-            .checked_sub(metrics.saw_copper_consumed)
-            .unwrap_or(Mass::ZERO),
-        ..metrics
+        saw_copper_consumed,
+        copper_after_saw,
     };
     assert_woodworking_maintained_witness(case, decision, evidence, metrics);
     metrics

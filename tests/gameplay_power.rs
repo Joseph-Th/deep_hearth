@@ -22,6 +22,8 @@ mod focused_seeds;
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
+#[path = "gameplay_harness/manual_craft_batches.rs"]
+mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
 #[allow(

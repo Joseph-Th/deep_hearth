@@ -6,10 +6,8 @@ use deep_hearth::crafting::{
     ManualCraftRequest, ManualCraftStartRequest, resolve_manual_craft, validate_start_manual_craft,
 };
 use deep_hearth::inventory::StockpileId;
-use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 
-use super::manual_craft_selection::select_manual_craft_request;
 use super::production_timing::finish_uninterrupted_production_job;
 
 pub(super) fn execute_manual_craft(
@@ -44,17 +42,4 @@ pub(super) fn execute_manual_craft(
         );
     }
     duration
-}
-
-pub(super) fn execute_manual_craft_batches(
-    registries: &Registries,
-    state: &mut AppState,
-    process: ProcessId,
-    source: StockpileId,
-    destination: StockpileId,
-    batches: u64,
-    context: &'static str,
-) -> TickSpan {
-    let request = select_manual_craft_request(registries, state, process, source, batches, context);
-    execute_manual_craft(registries, state, request, destination, context)
 }

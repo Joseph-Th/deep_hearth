@@ -18,9 +18,8 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::material::CommodityKey;
-use deep_hearth::registry::ProcessEquipmentRole;
+use deep_hearth::registry::{ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily};
 
-use super::catalog::{ProcessResolverKind, process_catalog_entries};
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
@@ -103,7 +102,6 @@ fn current_manual_craft_planning_ignores_unowned_salvage_inputs() {
 #[test]
 fn primitive_recovery_and_reinforcement_routes_remain_connected() {
     let registries = build_registries();
-    let catalog = process_catalog_entries(&registries);
 
     let hand_break = registries
         .ore_processing()
@@ -127,27 +125,31 @@ fn primitive_recovery_and_reinforcement_routes_remain_connected() {
     assert!(!manual_sort.max_batch_mass().is_zero());
     assert!(!manual_sort.processing_rate().is_zero());
 
-    for (process, expected_provider_count) in [
-        (PROCESS_HAND_BREAK_ORE, 2),
-        (PROCESS_HAND_SORT_NATIVE_COPPER, 1),
+    for (process, expected_family) in [
+        (
+            PROCESS_HAND_BREAK_ORE,
+            ProcessExecutionFamily::ManualComminution,
+        ),
+        (
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            ProcessExecutionFamily::ManualSeparation,
+        ),
     ] {
-        let entry = catalog
-            .iter()
-            .find(|entry| entry.process == process)
-            .unwrap_or_else(|| {
-                panic!("manual progression process is absent from process topology")
-            });
-        assert!(matches!(
-            entry.resolver,
-            ProcessResolverKind::ManualComminution | ProcessResolverKind::ManualSeparation
-        ));
+        let topology = registries
+            .process_topology(process)
+            .unwrap_or_else(|| panic!("manual progression process lost canonical topology"));
+        assert_eq!(topology.execution_family(), expected_family);
         assert_eq!(
-            (
-                entry.nominal_provider_count,
-                entry.compatible_energy_store_count
-            ),
-            (expected_provider_count, 0)
+            topology.equipment_role(),
+            ProcessEquipmentRole::Optional,
+            "primitive manual recovery should remain equipment-assisted rather than tool-gated"
         );
+        assert!(
+            !topology.nominal_providers().is_empty(),
+            "primitive manual recovery should retain at least one durable-tool investment path"
+        );
+        assert_eq!(topology.energy_role(), ProcessEnergyRole::None);
+        assert!(topology.compatible_energy_stores().is_empty());
     }
 
     let fresh_stone = registries

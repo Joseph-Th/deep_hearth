@@ -50,7 +50,8 @@ fn seed_material(
     );
 }
 
-pub(super) fn assert_spindle_drill_investment_contract() {
+#[test]
+fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attention() {
     let registries = build_registries();
     let spindle_batch = authored_batch(
         &registries,

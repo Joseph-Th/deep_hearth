@@ -10,7 +10,7 @@ use deep_hearth::equipment::{
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::registry::Registries;
 
-use super::super::manual_craft_execution::execute_manual_craft_batches;
+use super::super::manual_craft_batches::execute_manual_craft_batches;
 use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::planning::{FieldworkTool, equipment_component_requirements};
 

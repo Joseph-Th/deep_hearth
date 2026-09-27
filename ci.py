@@ -28,7 +28,7 @@ GAMEPLAY_REPORT_EXAMPLE = "gameplay-report"
 @dataclass(frozen=True)
 class GameplayScopeSpec:
     target: str
-    test: str
+    test: str | None
     report_test: str | None
     uses_behavior_seed: bool = False
 
@@ -48,6 +48,7 @@ GAMEPLAY_SCOPE_SPECS = {
         "gameplay_primitive_progression_probe",
         "gameplay_primitive_progression_report",
     ),
+    "settlement": GameplayScopeSpec("gameplay_settlement", None, None),
     "woodworking": GameplayScopeSpec(
         "gameplay_woodworking",
         "gameplay_woodworking_probe",
@@ -68,7 +69,9 @@ GAMEPLAY_SCOPE_SPECS = {
     ),
 }
 GAMEPLAY_TARGETS = {scope: spec.target for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
-GAMEPLAY_TESTS = {scope: spec.test for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
+GAMEPLAY_TESTS = {
+    scope: spec.test for scope, spec in GAMEPLAY_SCOPE_SPECS.items() if spec.test is not None
+}
 FOCUSED_REPORT_TESTS = {
     scope: spec.report_test
     for scope, spec in GAMEPLAY_SCOPE_SPECS.items()
@@ -127,7 +130,7 @@ def uses_fresh_gameplay_variation(args: argparse.Namespace) -> bool:
     return args.preset == "report"
 
 
-GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TESTS)
+GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)
 REPORT_SCOPES = ("all", *GAMEPLAY_TESTS, "agency")
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
@@ -281,8 +284,8 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
                     f"python tools/run_test.py --target {target}{replay_suffix} {failed[-1]}"
                 )
             return "python ci.py audit --gameplay"
-        for scope, test_name in GAMEPLAY_TESTS.items():
-            if test_name in command:
+        for scope, target in GAMEPLAY_TARGETS.items():
+            if target in command:
                 return f"python ci.py gate --gameplay {scope}"
     return None
 
@@ -373,17 +376,14 @@ def gameplay_targets_command(
     return command
 
 
-def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
+def gameplay_command(scope: str) -> list[str]:
     if scope == "all":
-        return gameplay_targets_command(GAMEPLAY_AUDIT_TARGETS, nocapture=nocapture)
+        return gameplay_targets_command(GAMEPLAY_AUDIT_TARGETS)
     if scope == "contracts":
         return gameplay_targets_command((GAMEPLAY_CONTRACTS_TARGET,))
     return gameplay_targets_command(
         (GAMEPLAY_TARGETS[scope],),
-        test_filter=GAMEPLAY_TESTS[scope],
-        # Focused gates capture stdout in ci.py, then surface only the short replay token on success.
-        # On failure the same output preserves the exact world needed to reproduce the problem.
-        nocapture=True,
+        test_filter=GAMEPLAY_TESTS.get(scope),
     )
 
 

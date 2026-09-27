@@ -49,6 +49,8 @@ COLD_START_DOCUMENT_MAX_BYTES = {
 # Preserve reserve below the tool-facing cold-start envelope. New orientation prose must earn
 # context budget rather than consuming the entire envelope by default.
 COLD_START_TOTAL_MAX_BYTES = 38_000
+WORKSPACE_CONTRACT_BEGIN = "<!-- workspace-contract:begin"
+WORKSPACE_CONTRACT_END = "<!-- workspace-contract:end -->"
 
 REQUIRED_AUTHORITY_SECTIONS = {
     "AGENTS.md": ("Cold start", "Operating protocol", "Guardrails", "Completion"),
@@ -288,13 +290,30 @@ def public_root_mutator_names(state_source: str) -> list[str]:
     return PUBLIC_MUT_SELF.findall(state_source)
 
 
+def cold_start_budget_text(relative: str, text: str) -> str:
+    """Return project-local orientation text charged to the cold-start budget."""
+
+    if relative != "AGENTS.md":
+        return text
+    start = text.find(WORKSPACE_CONTRACT_BEGIN)
+    if start < 0:
+        return text
+    end = text.find(WORKSPACE_CONTRACT_END, start)
+    if end < 0:
+        return text
+    end += len(WORKSPACE_CONTRACT_END)
+    return text[:start] + text[end:]
+
+
 def check_cold_start_context_budget(documents: dict[str, str]) -> list[str]:
-    """Bound automatically loaded orientation prose so cold-start context cannot grow invisibly."""
+    """Bound project-local orientation prose so cold-start context cannot grow invisibly."""
 
     errors: list[str] = []
     total = 0
     for relative, maximum in COLD_START_DOCUMENT_MAX_BYTES.items():
-        size = len(documents.get(relative, "").encode("utf-8"))
+        size = len(
+            cold_start_budget_text(relative, documents.get(relative, "")).encode("utf-8")
+        )
         total += size
         if size > maximum:
             errors.append(
@@ -309,10 +328,10 @@ def check_cold_start_context_budget(documents: dict[str, str]) -> list[str]:
 
 
 def cold_start_context_usage(documents: dict[str, str]) -> tuple[int, int]:
-    """Return current cold-start bytes and reserved aggregate headroom."""
+    """Return project-local cold-start bytes and reserved aggregate headroom."""
 
     used = sum(
-        len(documents.get(relative, "").encode("utf-8"))
+        len(cold_start_budget_text(relative, documents.get(relative, "")).encode("utf-8"))
         for relative in COLD_START_DOCUMENT_MAX_BYTES
     )
     return used, max(0, COLD_START_TOTAL_MAX_BYTES - used)

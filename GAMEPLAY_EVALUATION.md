@@ -198,13 +198,16 @@ All focused targets use the `test-gameplay` feature contract. Broad gameplay ver
 remain the fast iteration surfaces. Scoped reports reuse ignored report tests in those focused binaries where
 available; cross-system reporting and workshop/agency exploration remain explicit examples.
 
-Each focused target contains one routine gate/probe; report-capable roots add one ignored exploratory entry.
-Generator, topology, counterfactual, and other cross-cutting contracts stay in the broad contract/audit targets.
+Focused probe targets expose one routine gate/probe and may compile cheap owner-local contracts for exact-test
+iteration; `settlement` is only the related machine-investment contract set. Report-capable roots add one ignored
+exploratory entry. Generator, topology, counterfactual, and other cross-cutting contracts stay in the broad
+contract/audit targets.
 
 | Scope | Contract |
 | --- | --- |
 | `survival` | Hunger, thirst, recovery, preservation investment, storage recovery, and work/provisioning interaction through ordinary runtime paths. |
 | `progression` | Evidence-gated mining, primitive processing, mechanization, maintenance, reinvestment, and first-foundry decision/execution coverage. |
+| `settlement` | Repeated-work investment contracts for spindle drill, wire drawbench, helve hammer, sawmill, lathe, and grindstone conversions. |
 | report `primitive-liberation` | Raw-material acquisition, primitive-kit construction, ore processing, payback, and first-foundry opportunity evidence. |
 | report `woodworking` | Bare-hand/adze/frame-saw investment, wear, maintenance, and attention/material payback. |
 | report `fieldwork` | Sampling, bounded search, depletion, retooling, salvage, survey investment, and evidence-driven extraction adaptation. |

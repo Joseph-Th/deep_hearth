@@ -14,6 +14,8 @@ mod equipment_support;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/foundry_contract_tests.rs"]
+mod foundry_contract_tests;
 #[path = "gameplay_harness/foundry_probe.rs"]
 mod foundry_probe;
 #[path = "gameplay_harness/foundry_setup.rs"]
@@ -22,6 +24,8 @@ mod foundry_setup;
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
+#[path = "gameplay_harness/manual_power_timing.rs"]
+mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
 mod material_selection;
 #[path = "gameplay_harness/production_support.rs"]
@@ -38,6 +42,8 @@ mod structural_fixture;
 mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[path = "gameplay_harness/world_admission.rs"]
+mod world_admission;
 
 #[cfg(test)]
 #[test]

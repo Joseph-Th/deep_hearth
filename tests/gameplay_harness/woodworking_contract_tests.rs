@@ -18,7 +18,8 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
-use super::manual_craft_execution::{execute_manual_craft, execute_manual_craft_batches};
+use super::manual_craft_batches::execute_manual_craft_batches;
+use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
 
 #[test]

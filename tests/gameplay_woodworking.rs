@@ -14,6 +14,8 @@ mod focused_seeds;
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
+#[path = "gameplay_harness/manual_craft_batches.rs"]
+mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
 #[allow(
@@ -28,12 +30,16 @@ mod manual_craft_selection;
 mod physical_time;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/saw_bench_contract_tests.rs"]
+mod saw_bench_contract_tests;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[path = "gameplay_harness/woodworking_contract_tests.rs"]
+mod woodworking_contract_tests;
 #[path = "gameplay_harness/woodworking_probe.rs"]
 mod woodworking_probe;
 #[path = "gameplay_harness/world_admission.rs"]

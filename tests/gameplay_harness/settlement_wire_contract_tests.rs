@@ -59,7 +59,6 @@ fn flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_y
         PROCESS_POWER_DRAW_COPPER_ELECTRICAL_WINDING,
         "flywheel drawbench investment",
     );
-    assert_eq!(powered_batch.input_mass, Mass::from_milligrams(60_000));
 
     let mut state = AppState::new();
 

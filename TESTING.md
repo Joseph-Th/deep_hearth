@@ -38,13 +38,10 @@ Gameplay gates/audits use stable roots; `report` adds fresh variation. Scope it 
 the cross-system checkpoint. Replay with `--variation-seed <u64>` and, for policy-varying scopes,
 `--behavior-seed <u64>`; decimal and `0x` hex are validated before Cargo starts.
 
-`run_test.py` resolves selectors build-free to the smallest target for execution, `--check`, and `--lint`. Prefer
-`cargo check-fast` while production code is unstable and `--check <unit-test-selector>` for test-only type checking
-without relinking. Pin `--target` only for a warm failed binary or explicit integration boundary; `--verbose`
-implies `--nocapture`.
-
-Core tests stay feature-minimal; gameplay alone enables `test-gameplay`. `audit --all` runs both cache shapes
-separately.
+`run_test.py` resolves selectors build-free to the smallest target for execution, `--check`, and `--lint`. Use
+`cargo check-fast` while production code is unstable; pin `--target` only for a warm failure or explicit boundary.
+`--verbose`/reports use `--nocapture`; focused gameplay gates keep success quiet and failures captured. Core tests
+stay feature-minimal; gameplay alone enables `test-gameplay`; `audit --all` runs both cache shapes.
 
 ## Evidence ladder
 
@@ -137,16 +134,11 @@ persistence, conservation, or numerical accumulation adds evidence that focused 
 Automated-player boundaries/evidence semantics live in [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md); read
 it only for gameplay-harness behavior or interpretation.
 
-Focused gameplay targets are compile surfaces, not contract collections. Most reuse one artifact for gate/probe
-and an ignored report. Workshop/agency keep a separate report artifact so catalog/fresh-seed/counterfactual code
-stays out of the routine gate. Gates/audits use fixed bounded variation; `report` alone adds fresh variation.
-Explicit roots replay cases. Cheap cross-cutting contracts belong in
-`gameplay_contracts`; broad contracts use the consolidated
-`gameplay_audit` target. The default report emits compact measured summaries without a second CI-owned
-interpretation layer; use `python ci.py report --verbose` for replayable preservation, woodworking, fieldwork,
-and other episode detail.
-Aggregate time uses the registry-derived clock. Broad gameplay audit covers ordinary extraction-order
-continuation; exploratory fieldwork remains report-driven.
+Focused gameplay targets are small compile surfaces. Cheap owner-local contracts may share them so exact tests
+avoid `gameplay_audit`; scope gates still select only their named probe. `gameplay_settlement` is contract-only.
+Cross-cutting contracts stay in `gameplay_contracts`/`gameplay_audit`. Workshop/agency reports stay separate;
+`report` alone adds fresh variation and `--verbose` gives replay detail. Aggregate time uses the registry clock;
+broad audit covers ordinary extraction-order continuation while exploratory fieldwork remains report-driven.
 
 ## Completion
 

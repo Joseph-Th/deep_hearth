@@ -33,7 +33,7 @@ use super::environment::ROOM_TEMPERATURE;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
-use super::manual_craft_execution::execute_manual_craft_batches;
+use super::manual_craft_batches::execute_manual_craft_batches;
 use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
@@ -41,6 +41,9 @@ use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
 
 const FIRST_CAST_MASS: Mass = Mass::from_milligrams(20_000);
+const RAW_STONE_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
+const RAW_WOOD_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
+const RAW_NATIVE_COPPER_OPPORTUNITY: Mass = Mass::from_milligrams(160_000);
 
 fn select_commodity_mass(
     state: &AppState,
@@ -182,15 +185,15 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     for (commodity, mass) in [
         (
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(12_000_000),
+            RAW_STONE_OPPORTUNITY,
         ),
         (
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(12_000_000),
+            RAW_WOOD_OPPORTUNITY,
         ),
         (
             CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-            Mass::from_milligrams(160_000),
+            RAW_NATIVE_COPPER_OPPORTUNITY,
         ),
         (
             CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
@@ -222,8 +225,8 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let started_at = state.tick().value();
 
     // Freeze the actual current-order decision before constructing foundry infrastructure. The
-    // disclosed native copper is already a legal 20 g reinforcement source, so a player solving
-    // only this order should use it rather than paying the foundry setup cost. Foundry execution
+    // disclosed native copper is already a legal reinforcement source for the current order, so a
+    // player solving only this order should use it rather than paying the foundry setup cost. Foundry execution
     // below remains ordinary acquisition/execution coverage and quantifies its distinct recovery
     // value once installed.
     let mut direct_native_state = state.clone();
@@ -284,6 +287,23 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     // Compare the two legitimate scrap-recovery choices from the same post-setup observable state.
     // Cold rework is faster but leaves fine copper chips that cannot be cold-consolidated again;
     // remelting spends more active attention to recover the whole batch into standardized stock.
+    let direct_rework_definition = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("first foundry direct scrap-rework definition disappeared"));
+    let authored_direct_output = |commodity| {
+        direct_rework_definition
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == commodity)
+            .map(|output| output.mass())
+            .unwrap_or_else(|| {
+                panic!(
+                    "first foundry direct scrap-rework lost authored output {}",
+                    commodity.value()
+                )
+            })
+    };
     let mut direct_rework_state = state.clone();
     let direct_rework_ticks = execute_manual_craft_batches(
         registries,
@@ -305,11 +325,17 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .get_stockpile(parts)
         .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP)))
         .unwrap_or(Mass::ZERO);
-    assert_eq!(direct_reinforcement, Mass::from_milligrams(18_000));
-    assert_eq!(direct_residual, Mass::from_milligrams(2_000));
+    assert_eq!(
+        direct_reinforcement,
+        authored_direct_output(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
+    );
+    assert_eq!(
+        direct_residual,
+        authored_direct_output(CommodityKey::new(MATERIAL_COPPER, FORM_CHIP))
+    );
     assert!(
         direct_reinforcement < FIRST_CAST_MASS,
-        "direct scrap rework must remain short of the declared 20 g reinforcement order"
+        "direct scrap rework must remain short of the declared reinforcement order"
     );
     let direct_fulfillment_ppm = direct_reinforcement
         .milligrams()
@@ -438,7 +464,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or(Mass::ZERO);
     assert_eq!(
         foundry_reinforcement, FIRST_CAST_MASS,
-        "first foundry recovery must complete the declared 20 g reinforcement order"
+        "first foundry recovery must complete the declared reinforcement order"
     );
     assert_eq!(
         state
@@ -463,8 +489,12 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|| panic!("first foundry recovery attention overflowed"));
     let recovery_attention_delta =
         i128::from(foundry_recovery_attention) - i128::from(direct_rework_ticks);
+    let stone_opportunity_mg = RAW_STONE_OPPORTUNITY.milligrams();
+    let wood_opportunity_mg = RAW_WOOD_OPPORTUNITY.milligrams();
+    let native_opportunity_mg = RAW_NATIVE_COPPER_OPPORTUNITY.milligrams();
+    let order_mass_mg = FIRST_CAST_MASS.milligrams();
     reviewln!(
-        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:12000000mg wood:12000000mg native:160000mg scrap:20000mg] build-choice=[order:20000mg direct-native:{}t reinforcement:{}mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] scarcity-choice=[order:20000mg source:scrap-only cold-rework:{}mg/{}ppm shortfall:{}mg foundry:20000mg/1000000ppm selection:foundry reason:cold-rework-underfills-order] fabrication={}t/{} dynamo-path=treadle-additive-upgrade electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {} feed:scrap] cast=[{}t {} heat:{}nJ] downstream=[ingot:20000mg reinforcement:20000mg cold-work:{}t] installed-recovery=[cold-rework:{}t reinforcement:{}mg chips:{}mg fulfillment:{}ppm foundry-active:{}t reinforcement:20000mg chips:0mg fulfillment:1000000ppm useful-gain:+{}mg attention-delta:{:+}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=full-scrap-recovery",
+        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-copper-recovery-coverage upstream=primitive-liberation-capability-proved state-continuity=separate-disclosed-opportunity raw-opportunity=[stone:{stone_opportunity_mg}mg wood:{wood_opportunity_mg}mg native:{native_opportunity_mg}mg scrap:{order_mass_mg}mg] build-choice=[order:{order_mass_mg}mg direct-native:{}t reinforcement:{}mg fulfillment:1000000ppm selection:direct-native foundry-deferred:true reason=current-order-does-not-repay-setup] scarcity-choice=[order:{order_mass_mg}mg source:scrap-only cold-rework:{}mg/{}ppm shortfall:{}mg foundry:{order_mass_mg}mg/1000000ppm selection:foundry reason:cold-rework-underfills-order] fabrication={}t/{} dynamo-path=treadle-additive-upgrade electrical-charge=[{}t {}nJ body:{}nJ/{}uL] melt=[{}t {} feed:scrap] cast=[{}t {} heat:{}nJ] downstream=[ingot:{order_mass_mg}mg reinforcement:{order_mass_mg}mg cold-work:{}t] installed-recovery=[cold-rework:{}t reinforcement:{}mg chips:{}mg fulfillment:{}ppm foundry-active:{}t reinforcement:{order_mass_mg}mg chips:0mg fulfillment:1000000ppm useful-gain:+{}mg attention-delta:{:+}t] total={}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=full-scrap-recovery",
         case.seed(),
         focused_probe_role_label(case.role()),
         direct_native_ticks,

@@ -1128,7 +1128,7 @@ class LocalCiPlanTests(unittest.TestCase):
         )
 
     def test_focused_gameplay_scopes_use_separate_targets_with_one_library_feature_shape(self) -> None:
-        self.assertEqual(set(ci.GAMEPLAY_TARGETS), set(ci.GAMEPLAY_TESTS))
+        self.assertEqual(set(ci.GAMEPLAY_TARGETS) - {"settlement"}, set(ci.GAMEPLAY_TESTS))
         self.assertEqual(len(set(ci.GAMEPLAY_TARGETS.values())), len(ci.GAMEPLAY_TARGETS))
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         definitions = {definition["name"]: definition for definition in manifest.get("test", [])}
@@ -1136,8 +1136,12 @@ class LocalCiPlanTests(unittest.TestCase):
             command = ci.gameplay_command(scope)
             self.assertEqual(cargo_test_targets(command), [target])
             self.assertIn("test-gameplay", command)
-            self.assertIn(ci.GAMEPLAY_TESTS[scope], command)
-            self.assertIn("--nocapture", command)
+            if test_name := ci.GAMEPLAY_TESTS.get(scope):
+                self.assertIn(test_name, command)
+                self.assertIn("--exact", command)
+            else:
+                self.assertNotIn("--exact", command)
+            self.assertNotIn("--nocapture", command)
             self.assertEqual(definitions[target].get("required-features"), ["test-gameplay"])
         self.assertEqual(
             definitions[ci.GAMEPLAY_CONTRACTS_TARGET].get("required-features"),
@@ -1166,7 +1170,8 @@ class LocalCiPlanTests(unittest.TestCase):
             definition["name"]: ROOT / definition["path"]
             for definition in manifest.get("test", [])
         }
-        for scope, target in ci.GAMEPLAY_TARGETS.items():
+        for scope, module in probe_modules.items():
+            target = ci.GAMEPLAY_TARGETS[scope]
             source = target_paths[target].read_text(encoding="utf-8")
             forbidden = contracts_only | {
                 module for owner, module in probe_modules.items() if owner != scope
@@ -1210,7 +1215,21 @@ class LocalCiPlanTests(unittest.TestCase):
             "ore": "ore_probe",
             "foundry": "foundry_probe",
         }
-        for scope, target in ci.GAMEPLAY_TARGETS.items():
+        owner_contract_prefixes = {
+            "workshop": ("workshop_contract_tests::",),
+            "survival": ("survival_contract_tests::",),
+            "progression": ("progression_contract_tests::",),
+            "woodworking": (
+                "saw_bench_contract_tests::",
+                "woodworking_contract_tests::",
+            ),
+            "fieldwork": ("prospecting_instrument_contract_tests::",),
+            "ore": ("ore_contract_tests::",),
+            "foundry": ("foundry_contract_tests::",),
+        }
+        for scope, target in (
+            (scope, ci.GAMEPLAY_TARGETS[scope]) for scope in ci.GAMEPLAY_TESTS
+        ):
             tests = run_test.source_test_catalog(target, None)
             gate = ci.GAMEPLAY_TESTS[scope]
             self.assertIn(gate, tests)
@@ -1222,12 +1241,30 @@ class LocalCiPlanTests(unittest.TestCase):
                 for name in tests
                 if name not in allowed_root_tests
                 and not name.startswith(f"{probe_modules[scope]}::")
+                and not name.startswith(owner_contract_prefixes.get(scope, ()))
             ]
             self.assertEqual(
                 unrelated,
                 [],
                 f"focused gameplay target {scope} must not compile unrelated tests",
             )
+
+    def test_settlement_target_contains_only_settlement_investment_contracts(self) -> None:
+        catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
+        self.assertEqual(len(catalog), 6)
+        self.assertTrue(
+            all(
+                name.startswith(
+                    (
+                        "settlement_drill_contract_tests::",
+                        "settlement_helve_contract_tests::",
+                        "settlement_machine_contract_tests::",
+                        "settlement_wire_contract_tests::",
+                    )
+                )
+                for name in catalog
+            )
+        )
 
     def test_gameplay_replay_summary_is_compact_for_focused_and_workshop_runs(self) -> None:
         self.assertEqual(
@@ -2390,6 +2427,26 @@ class LocalCiPlanTests(unittest.TestCase):
             )
         )
 
+    def test_generated_workspace_contract_is_not_charged_to_project_cold_start_budget(self) -> None:
+        local = "x" * check_authority_docs.COLD_START_DOCUMENT_MAX_BYTES["AGENTS.md"]
+        generated = "shared-workspace-policy" * 1_000
+        agents = (
+            local
+            + check_authority_docs.WORKSPACE_CONTRACT_BEGIN
+            + generated
+            + check_authority_docs.WORKSPACE_CONTRACT_END
+        )
+        self.assertEqual(
+            check_authority_docs.cold_start_budget_text("AGENTS.md", agents),
+            local,
+        )
+        documents = {
+            relative: ""
+            for relative in check_authority_docs.COLD_START_DOCUMENT_MAX_BYTES
+        }
+        documents["AGENTS.md"] = agents
+        self.assertEqual(check_authority_docs.check_cold_start_context_budget(documents), [])
+
     def test_cold_start_usage_reports_current_cost_and_reserved_headroom(self) -> None:
         documents = {
             relative: "x" * (index + 1)
@@ -2581,6 +2638,14 @@ class ExactTestCommandTests(unittest.TestCase):
             "batch_capped_mining_finishes_the_requested_order": "fieldwork",
             "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": "woodworking",
             "primitive_treadle_requires_meaningful_attention_return": "power-provider",
+            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": "settlement",
+            "settlement_foundry_upgrade_executes_one_eighty_gram_batch_through_canonical_work": "foundry",
+            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": "woodworking",
+            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": "fieldwork",
+            "preservation_storage_routes_are_authored_recoverable_tradeoffs": "survival",
+            "ore_probe_generation_varies_feed_and_operating_state": "ore",
+            "primitive_recovery_and_reinforcement_routes_remain_connected": "progression",
+            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": "workshop",
         }
         for selector, scope in cases.items():
             target, _name = run_test.resolve_automatic_exact_selection(selector, None)
@@ -2754,13 +2819,19 @@ class ExactTestCommandTests(unittest.TestCase):
             "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
             contracts,
         )
-        for scope, target in ci.GAMEPLAY_TARGETS.items():
+        for scope in ci.GAMEPLAY_TESTS:
+            target = ci.GAMEPLAY_TARGETS[scope]
             focused = run_test.source_test_catalog(target, None)
             self.assertIn(
                 ci.GAMEPLAY_TESTS[scope],
                 focused,
                 f"focused gameplay scope {scope} must resolve in its dedicated target",
             )
+        settlement = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
+        self.assertIn(
+            "settlement_wire_contract_tests::flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield",
+            settlement,
+        )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
         self.assertNotIn("agency::gameplay_agency_counterfactuals", workshop)
         self.assertNotIn("scenario_tests::world_seed_never_changes_player_policy", workshop)

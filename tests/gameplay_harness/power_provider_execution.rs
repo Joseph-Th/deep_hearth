@@ -28,7 +28,7 @@ use deep_hearth::registry::Registries;
 use deep_hearth::survival::{SurvivalExertion, assess_survival, project_survival_resource_budget};
 
 use super::super::maintenance_timing::finish_active_equipment_maintenance;
-use super::super::manual_craft_execution::execute_manual_craft_batches;
+use super::super::manual_craft_batches::execute_manual_craft_batches;
 use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::super::manual_power_timing::finish_manual_power_work;
 use super::build::{build_flywheel, build_provider, stockpile_mass};

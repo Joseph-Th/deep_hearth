@@ -56,6 +56,11 @@ path = "tests/gameplay_progression.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_settlement"
+path = "tests/gameplay_settlement.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_woodworking"
 path = "tests/gameplay_woodworking.rs"
 required-features = ["test-gameplay"]
