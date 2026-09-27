@@ -2,11 +2,11 @@
 
 use super::*;
 use crate::content::{
-    EQUIPMENT_STONE_QUARRY_PICK, FORM_CHEST_BODY, FORM_CRUSHED, FORM_HANDLE, FORM_INGOT,
-    FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MATERIAL_WOOD,
-    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER, PROCESS_SHAPE_WOOD_HANDLE,
-    STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
+    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK, FORM_CHEST_BODY, FORM_CRUSHED, FORM_HANDLE,
+    FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_SCRAP, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE,
+    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER,
+    PROCESS_SHAPE_WOOD_HANDLE, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
 use crate::material::CommodityKey;
 
@@ -108,6 +108,24 @@ fn chest_body_handbook_links_storage_construction_and_recovery() {
         source,
         CommoditySource::StorageDismantling { storage, .. }
             if *storage == STORAGE_TIMBER_PROVISIONS_CHEST
+    )));
+}
+
+#[test]
+fn stone_scrap_handbook_includes_worn_component_disassembly() {
+    let registries = build_registries();
+    let scrap = registries
+        .commodity_handbook_entry(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP))
+        .unwrap_or_else(|| panic!("stone scrap handbook entry disappeared"));
+
+    assert!(scrap.sources().iter().any(|source| matches!(
+        source,
+        CommoditySource::EquipmentDisassembly {
+            equipment,
+            recovered_mass,
+            recovery: EquipmentDisassemblyRecovery::WornComponentSpent,
+        } if *equipment == EQUIPMENT_STONE_PICK
+            && *recovered_mass == crate::core::quantity::Mass::from_milligrams(800_000)
     )));
 }
 

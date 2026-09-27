@@ -12,7 +12,7 @@ fn process_registry_domains(
         energy: empty_energy_registry(),
         fluid: fluid::build_fluid_registry(),
         capabilities,
-        crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
+        crafting: crate::crafting::CraftingRegistry::new(std::iter::empty(), std::iter::empty()),
         labor: labor::empty_labor_registry(),
         equipment: empty_equipment_registry(),
         storage: crate::inventory::StorageRegistry::new(std::iter::empty()),

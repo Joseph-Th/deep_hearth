@@ -8,7 +8,7 @@ mod stone;
 mod wood;
 
 pub(crate) fn build_crafting_registry() -> CraftingRegistry {
-    CraftingRegistry::new_with_powered(
+    CraftingRegistry::new(
         stone::definitions()
             .into_iter()
             .chain(wood::definitions())

@@ -15,14 +15,17 @@ fn manual_craft_registry_rejects_output_that_requires_unauthored_particle_state(
         "particulate manual output fixture",
         Vec::new(),
     ));
-    let crafting = CraftingRegistry::new([ManualCraftDefinition::new(
-        process,
-        input,
-        input_mass,
-        TickSpan::new(1),
-        SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
-        vec![ManualCraftOutput::new(output, input_mass)],
-    )]);
+    let crafting = CraftingRegistry::new(
+        [ManualCraftDefinition::new(
+            process,
+            input,
+            input_mass,
+            TickSpan::new(1),
+            SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
+            vec![ManualCraftOutput::new(output, input_mass)],
+        )],
+        std::iter::empty(),
+    );
 
     let result = std::panic::catch_unwind(|| {
         crafting.validate_references(

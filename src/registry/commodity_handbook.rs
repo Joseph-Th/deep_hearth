@@ -4,10 +4,32 @@ use crate::core::quantity::Mass;
 use crate::energy::EnergyStoreDefinitionId;
 use crate::equipment::EquipmentDefinitionId;
 use crate::inventory::StorageDefinitionId;
-use crate::material::{CommodityKey, FormDefinition, MaterialAssemblyProfile, MaterialDefinition};
+use crate::material::{CommodityKey, FormDefinition, MaterialDefinition};
 use crate::production::ProcessId;
 
 use super::Registries;
+
+mod infrastructure;
+mod processing;
+
+use infrastructure::{
+    collect_energy_relationships, collect_equipment_relationships, collect_storage_relationships,
+};
+use processing::{
+    collect_crafting_relationships, collect_ore_processing_relationships,
+    collect_separation_relationships, collect_thermal_relationships,
+};
+
+/// Runtime condition under which an equipment-disassembly source is available.
+///
+/// Pristine disassembly returns the authored assembly commodity unchanged. Worn component
+/// disassembly is available only for component-maintained equipment and reforms the complete worn
+/// component into its authored spent commodity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EquipmentDisassemblyRecovery {
+    PristineExact,
+    WornComponentSpent,
+}
 
 /// One authored way a commodity can enter inventory custody.
 ///
@@ -21,6 +43,7 @@ pub enum CommoditySource {
     EquipmentDisassembly {
         equipment: EquipmentDefinitionId,
         recovered_mass: Mass,
+        recovery: EquipmentDisassemblyRecovery,
     },
     EnergyStoreDisassembly {
         store: EnergyStoreDefinitionId,
@@ -32,7 +55,7 @@ pub enum CommoditySource {
     },
     EquipmentMaintenanceSpent {
         equipment: EquipmentDefinitionId,
-        output_mass: Mass,
+        full_service_mass: Mass,
     },
     OreProcessing {
         process: ProcessId,
@@ -126,261 +149,6 @@ impl<'a> CommodityHandbookEntry<'a> {
     #[must_use]
     pub fn uses(&self) -> &[CommodityUse] {
         &self.uses
-    }
-}
-
-fn profile_mass(profile: &MaterialAssemblyProfile, commodity: CommodityKey) -> Option<Mass> {
-    profile
-        .inputs()
-        .iter()
-        .find(|input| input.commodity() == commodity)
-        .map(|input| input.mass())
-}
-
-fn collect_crafting_relationships(
-    registries: &Registries,
-    commodity: CommodityKey,
-    sources: &mut Vec<CommoditySource>,
-    uses: &mut Vec<CommodityUse>,
-) {
-    for definition in registries.crafting().definitions() {
-        if definition.input() == commodity {
-            uses.push(CommodityUse::ManualCraft {
-                process: definition.process(),
-                required_mass: definition.input_mass(),
-            });
-        }
-        for output in definition.outputs() {
-            if output.commodity() == commodity {
-                sources.push(CommoditySource::ManualCraft {
-                    process: definition.process(),
-                    output_mass: output.mass(),
-                });
-            }
-        }
-    }
-}
-
-fn collect_ore_processing_relationships(
-    registries: &Registries,
-    commodity: CommodityKey,
-    sources: &mut Vec<CommoditySource>,
-    uses: &mut Vec<CommodityUse>,
-) {
-    for definition in registries.ore_processing().manual_comminution_definitions() {
-        if commodity.form() == definition.input_form() {
-            uses.push(CommodityUse::OreProcessing {
-                process: definition.process(),
-            });
-        }
-        if commodity.form() == definition.output_form() {
-            sources.push(CommoditySource::OreProcessing {
-                process: definition.process(),
-            });
-        }
-    }
-    for definition in registries.ore_processing().comminution_definitions() {
-        if commodity.form() == definition.input_form() {
-            uses.push(CommodityUse::OreProcessing {
-                process: definition.process(),
-            });
-        }
-        if commodity.form() == definition.output_form() {
-            sources.push(CommoditySource::OreProcessing {
-                process: definition.process(),
-            });
-        }
-    }
-    for definition in registries.ore_processing().screening_definitions() {
-        if commodity.form() == definition.input_form() {
-            uses.push(CommodityUse::OreProcessing {
-                process: definition.process(),
-            });
-        }
-        if commodity.form() == definition.output_form() {
-            sources.push(CommoditySource::OreProcessing {
-                process: definition.process(),
-            });
-        }
-    }
-}
-
-fn collect_separation_relationships(
-    registries: &Registries,
-    commodity: CommodityKey,
-    sources: &mut Vec<CommoditySource>,
-    uses: &mut Vec<CommodityUse>,
-) {
-    for definition in registries
-        .ore_processing()
-        .manual_constituent_separation_definitions()
-    {
-        if commodity.material() == definition.target_material()
-            && commodity.form() == definition.input_form()
-        {
-            uses.push(CommodityUse::OreProcessing {
-                process: definition.process(),
-            });
-        }
-        if commodity.material() == definition.target_material()
-            && commodity.form() == definition.target_output_form()
-        {
-            sources.push(CommoditySource::OreProcessing {
-                process: definition.process(),
-            });
-        }
-    }
-    for definition in registries
-        .ore_processing()
-        .constituent_separation_definitions()
-    {
-        if commodity.form() == definition.input_form()
-            && (!definition.requires_target_host()
-                || commodity.material() == definition.target_material())
-        {
-            uses.push(CommodityUse::OreProcessing {
-                process: definition.process(),
-            });
-        }
-        if commodity.material() == definition.target_material()
-            && commodity.form() == definition.target_output_form()
-        {
-            sources.push(CommoditySource::OreProcessing {
-                process: definition.process(),
-            });
-        }
-    }
-}
-
-fn collect_thermal_relationships(
-    registries: &Registries,
-    commodity: CommodityKey,
-    sources: &mut Vec<CommoditySource>,
-    uses: &mut Vec<CommodityUse>,
-) {
-    for definition in registries.thermal().melting_definitions() {
-        if commodity.material() == definition.material() {
-            if definition.solid_forms().contains(&commodity.form()) {
-                uses.push(CommodityUse::ThermalPhaseChange {
-                    process: definition.process(),
-                });
-            }
-            if commodity.form() == definition.liquid_form() {
-                sources.push(CommoditySource::ThermalPhaseChange {
-                    process: definition.process(),
-                });
-            }
-        }
-    }
-    for definition in registries.thermal().casting_definitions() {
-        if commodity.material() == definition.material() {
-            if commodity.form() == definition.liquid_form() {
-                uses.push(CommodityUse::ThermalPhaseChange {
-                    process: definition.process(),
-                });
-            }
-            if commodity.form() == definition.solid_form() {
-                sources.push(CommoditySource::ThermalPhaseChange {
-                    process: definition.process(),
-                });
-            }
-        }
-    }
-}
-
-fn collect_equipment_relationships(
-    registries: &Registries,
-    commodity: CommodityKey,
-    sources: &mut Vec<CommoditySource>,
-    uses: &mut Vec<CommodityUse>,
-) {
-    for definition in registries.equipment().definitions() {
-        if let Some(profile) = definition.assembly_profile()
-            && let Some(required_mass) = profile_mass(profile, commodity)
-        {
-            uses.push(CommodityUse::EquipmentAssembly {
-                equipment: definition.id(),
-                required_mass,
-            });
-            sources.push(CommoditySource::EquipmentDisassembly {
-                equipment: definition.id(),
-                recovered_mass: required_mass,
-            });
-        }
-        if let Some(upgrade) = definition.upgrade_profile()
-            && let Some(required_mass) = profile_mass(upgrade.additions(), commodity)
-        {
-            uses.push(CommodityUse::EquipmentUpgrade {
-                from: upgrade.from(),
-                to: definition.id(),
-                required_mass,
-            });
-        }
-        if let Some(maintenance) = definition.maintenance_profile() {
-            if maintenance.replacement() == commodity {
-                uses.push(CommodityUse::EquipmentMaintenance {
-                    equipment: definition.id(),
-                    full_service_mass: maintenance.full_service_replacement_mass(),
-                });
-            }
-            if maintenance.spent() == commodity {
-                sources.push(CommoditySource::EquipmentMaintenanceSpent {
-                    equipment: definition.id(),
-                    output_mass: maintenance.full_service_replacement_mass(),
-                });
-            }
-        }
-    }
-}
-
-fn collect_storage_relationships(
-    registries: &Registries,
-    commodity: CommodityKey,
-    sources: &mut Vec<CommoditySource>,
-    uses: &mut Vec<CommodityUse>,
-) {
-    for definition in registries.storage().definitions() {
-        if let Some(required_mass) = profile_mass(definition.assembly_profile(), commodity) {
-            uses.push(CommodityUse::StorageConstruction {
-                storage: definition.id(),
-                required_mass,
-            });
-            sources.push(CommoditySource::StorageDismantling {
-                storage: definition.id(),
-                recovered_mass: required_mass,
-            });
-        }
-    }
-}
-
-fn collect_energy_relationships(
-    registries: &Registries,
-    commodity: CommodityKey,
-    sources: &mut Vec<CommoditySource>,
-    uses: &mut Vec<CommodityUse>,
-) {
-    for definition in registries.energy().definitions() {
-        if let Some(profile) = definition.assembly_profile()
-            && let Some(required_mass) = profile_mass(profile, commodity)
-        {
-            uses.push(CommodityUse::EnergyStoreAssembly {
-                store: definition.id(),
-                required_mass,
-            });
-            sources.push(CommoditySource::EnergyStoreDisassembly {
-                store: definition.id(),
-                recovered_mass: required_mass,
-            });
-        }
-        if let Some(upgrade) = definition.upgrade_profile()
-            && let Some(required_mass) = profile_mass(upgrade.additions(), commodity)
-        {
-            uses.push(CommodityUse::EnergyStoreUpgrade {
-                from: upgrade.from(),
-                to: definition.id(),
-                required_mass,
-            });
-        }
     }
 }
 

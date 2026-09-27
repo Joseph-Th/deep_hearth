@@ -18,12 +18,7 @@ pub struct CraftingRegistry {
 }
 
 impl CraftingRegistry {
-    #[cfg(test)]
-    pub(crate) fn new(definitions: impl IntoIterator<Item = ManualCraftDefinition>) -> Self {
-        Self::new_with_powered(definitions, std::iter::empty())
-    }
-
-    pub(crate) fn new_with_powered(
+    pub(crate) fn new(
         definitions: impl IntoIterator<Item = ManualCraftDefinition>,
         powered_definitions: impl IntoIterator<Item = PoweredCraftDefinition>,
     ) -> Self {

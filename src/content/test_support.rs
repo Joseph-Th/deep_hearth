@@ -52,7 +52,7 @@ impl TestRegistryDomains {
             energy: empty_energy_registry(),
             fluid: FluidRegistry::new(std::iter::empty()),
             capabilities: CapabilityRegistry::new(),
-            crafting: CraftingRegistry::new(std::iter::empty()),
+            crafting: CraftingRegistry::new(std::iter::empty(), std::iter::empty()),
             labor: labor::empty_labor_registry(),
             equipment: empty_equipment_registry(),
             storage: StorageRegistry::new(std::iter::empty()),

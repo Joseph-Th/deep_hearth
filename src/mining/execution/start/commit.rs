@@ -37,11 +37,6 @@ impl ValidatedMiningStart {
         }
     }
 
-    #[cfg(test)]
-    pub(in crate::mining::execution) const fn player_work(&self) -> &ValidatedPlayerWorkStart {
-        &self.work
-    }
-
     fn precheck_target(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
         if !self.target.still_resolves(state) {
             return Err(MiningStartCommitError::TargetNoLongerResolved);

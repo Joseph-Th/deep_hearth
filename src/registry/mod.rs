@@ -31,7 +31,9 @@ mod validation;
 #[path = "process_topology_tests.rs"]
 mod process_topology_tests;
 
-pub use commodity_handbook::{CommodityHandbookEntry, CommoditySource, CommodityUse};
+pub use commodity_handbook::{
+    CommodityHandbookEntry, CommoditySource, CommodityUse, EquipmentDisassemblyRecovery,
+};
 use process_topology::build_process_topology;
 pub use process_topology::{
     ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily, ProcessTopology,

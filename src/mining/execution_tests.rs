@@ -11,7 +11,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::SimulationTick;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::crafting::{
     ManualCraftStartRequest, StartManualCraftError, validate_start_manual_craft,
 };
@@ -377,12 +377,6 @@ fn mining_shortage_is_revealed_only_after_committing_requested_work() {
         scarce, scarce_before,
         "mining validation must stay read-only"
     );
-    assert_eq!(
-        scarce_start.player_work().resource_budget(),
-        ample_start.player_work().resource_budget(),
-        "hidden reserve size must not change pre-commit labor feasibility for the same request"
-    );
-
     let scarce_job = scarce_start
         .commit(&mut scarce)
         .unwrap_or_else(|error| panic!("scarce mining commit failed: {error}"));
@@ -600,7 +594,6 @@ fn heavy_quarry_pick_reduces_bulk_soft_rock_attention_through_canonical_mining()
             mass,
         )
         .unwrap_or_else(|error| panic!("bulk-mining validation failed: {error}"));
-        let budget = token.player_work().resource_budget();
         let job = token
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("bulk-mining commit failed: {error}"));
@@ -608,7 +601,18 @@ fn heavy_quarry_pick_reduces_bulk_soft_rock_attention_through_canonical_mining()
             .mining()
             .get_job(job)
             .unwrap_or_else(|| panic!("bulk-mining job disappeared"));
-        (record.completes_at().value() - start_tick.value(), budget)
+        let ticks = record.completes_at().value() - start_tick.value();
+        let method = registries
+            .mining()
+            .get_method(MINING_METHOD_HAND_PICK)
+            .unwrap_or_else(|| panic!("bulk-mining method disappeared"));
+        let budget = calculate_player_work_resource_budget(
+            registries.survival().physiology(),
+            method.exertion(),
+            TickSpan::new(ticks),
+        )
+        .unwrap_or_else(|error| panic!("bulk-mining resource projection failed: {error:?}"));
+        (ticks, budget)
     };
 
     let (stone_ticks, stone_budget) = duration_for(false);

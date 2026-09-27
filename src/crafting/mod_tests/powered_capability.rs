@@ -52,7 +52,7 @@ fn augmented_powered_registries(
         powered.specific_energy(),
         powered.condition_wear_ppm_per_active_tick(),
     );
-    let crafting = CraftingRegistry::new_with_powered(
+    let crafting = CraftingRegistry::new(
         base.crafting().definitions().cloned(),
         base.crafting()
             .powered_definitions()
