@@ -1,4 +1,4 @@
-//! Typed failures for committing a previously validated production start.
+//! Typed failures for committing a validated production start.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

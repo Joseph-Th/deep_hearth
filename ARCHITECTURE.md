@@ -1,6 +1,8 @@
 # Architecture
 
-This page owns project-wide implementation rules. Use [`README.md`](README.md) for routing,
+**Role:** Project-wide implementation rules.
+
+Use [`README.md`](README.md) for routing,
 [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for subsystem semantics, [`STATUS.md`](STATUS.md) for runtime
 scope, and [`TESTING.md`](TESTING.md) for verification.
 

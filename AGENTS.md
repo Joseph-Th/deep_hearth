@@ -1,12 +1,12 @@
 # Deep Hearth Agent Guide
 
+**Role:** Project execution card.
 **Profiles:** Universal, Stateful Application, Deterministic System, Automated Behavior Evaluation
 **BCA policy:** ratchet
 
 **Rust agent diagnostics:** advisory. Use bounded, uncertainty-driven commands from [`tools/README.md`](tools/README.md); they are not BCA or completion gates. [`TESTING.md`](TESTING.md) owns verification.
 
-This file owns project execution. Workspace [`../AGENTS.md`](../AGENTS.md) owns coordination;
-[`README.md`](README.md) owns project routing.
+Workspace [`../AGENTS.md`](../AGENTS.md) owns coordination; [`README.md`](README.md) owns project routing.
 
 <!-- workspace-contract:begin (generated from ../AGENTS.md by tools/sync_agent_context.py; edit the source, not this copy) -->
 ## Workspace contract
@@ -68,19 +68,11 @@ Update the single authority for changed behavior. Keep history, session notes, a
 Use repository-owned local build, test, check, and audit commands. Never create, enable, invoke, or push `.github/workflows/`; remove existing workflow files while retaining their local verification equivalent.
 <!-- workspace-contract:end -->
 
-## Cold start
-
-1. Preserve unrelated working-tree changes.
-2. Read [`STATUS.md`](STATUS.md) before making reachability claims.
-3. Use [`README.md`](README.md) to route the task to its owner and contract.
-4. Read the owner, adjacent tests, and only the authority page needed for the question.
-
 ## Operating protocol
 
-Route consequential work by `authority / owner / stage / flow / proof`. Start from the task map in
-[`README.md`](README.md), search by canonical operation or durable identity, and widen only when the crossed
-owner edge or failing proof requires it. Extend an existing owner and operation path instead of introducing a
-parallel state, legality, or test-only surface.
+Use the [`README.md`](README.md) task map to resolve `authority / owner / stage / flow / proof`. Search by
+canonical operation or durable identity and widen only for a crossed owner edge or failing proof. Extend the
+existing owner and operation path instead of creating parallel state, legality, or test-only surfaces.
 
 ## Guardrails
 
@@ -88,7 +80,6 @@ parallel state, legality, or test-only surface.
 - Preserve deterministic continuation, strict trusted-load validation, checked physical arithmetic, typed ownership, and exact represented matter, fluid, and energy accounting.
 - Core systems perform no implicit external IO; adapters own external effects.
 - Remove obsolete code and stale documentation. Do not add compatibility scaffolding, test-only public APIs, fake callers, or broad warning suppressions without an active contract.
-- Rust diagnostics are advisory and routed through [`tools/README.md`](tools/README.md).
 
 ## Completion
 

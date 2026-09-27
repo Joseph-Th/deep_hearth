@@ -1,7 +1,8 @@
 # Gameplay Evaluation
 
-This page owns automated-player information boundaries, gameplay-harness evidence semantics, focused scope
-contracts, and exploration/replay policy. Use [`TESTING.md`](TESTING.md) for test selection and completion,
+**Role:** Automated-player information, evidence, scope, and replay authority.
+
+Use [`TESTING.md`](TESTING.md) for test selection and completion,
 [`STATUS.md`](STATUS.md) for reachability, and [`README.md`](README.md) for project routing.
 
 `tests/gameplay_harness/` evaluates player-facing behavior through production APIs. Controlled setup may create
@@ -133,17 +134,8 @@ exhaustive check establishes that conclusion.
 
 ## Focused scopes
 
-All gameplay test targets use one `test-gameplay` Cargo feature shape so probe, contract, and audit lanes reuse
-the same library artifact. Broad gameplay verification compiles one consolidated `gameplay_audit` harness graph;
-small focused probe and owner-contract targets remain the fast iteration surfaces. Scoped reports reuse ignored
-report tests in those focused binaries where available; cross-system reporting and workshop/agency exploration
-remain explicit examples.
-
-Focused probe targets expose the routine gate/probe without compiling the larger owner contract suites.
-Owner-specific contract targets remain available for exact-test iteration and are selected automatically by
-`tools/run_test.py` when they are the smallest matching Cargo target. Report-capable probe roots add one ignored
-exploratory entry. Generator, topology, counterfactual, and other cross-cutting contracts stay in the broad
-contract/audit targets.
+[`TESTING.md`](TESTING.md) owns Cargo target layout and command selection. This section owns what each gameplay
+scope may establish.
 
 | Scope | Contract |
 | --- | --- |
@@ -158,64 +150,37 @@ contract/audit targets.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Repository-owned gameplay gates and audits run maintained deterministic cases only. They do not consume ambient
-gameplay seed variables, so routine verification is repeatable and cannot silently widen because a previous
-exploration left replay state in the environment. `python ci.py report` uses the same fixed anchors with a bounded
-fresh organic slice. Printed report roots are replay evidence; explicit variation or behavior roots reproduce a
-sample exactly. Maintained anchor/coverage cases prove contracts and must not be read as prevalence. When
-frequency matters, interpret the separately reported organic slice as bounded sampled-world evidence, not as a
-population estimate. Full episodes are reserved for behavior that requires executed cross-system consequences. A
-world may succeed, adapt, or stop at a canonical constraint; every partial or blocked outcome must preserve
-trusted-load validity and relevant conservation.
-Selected-path summaries must never count an unselected coverage branch, diagnostic counterfactual, or forced
-negative control as something the player experienced. Those branches stay explicitly labeled as counterfactual or
-coverage evidence in both verbose narration and concise aggregation.
+Routine gates and audits use maintained deterministic cases. Reports add bounded replayable organic variation.
+Maintained cases prove contracts, not prevalence; organic samples are bounded evidence, not population estimates.
+Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
+must not count counterfactual, coverage-only, or negative-control branches as player experience.
 
 ### Coverage contracts
 
-These contracts state what gameplay evidence must prove; harness module docs own step-by-step execution.
+Harness modules own execution detail. These are the evidence obligations:
 
-- **Liberation frontier:** the maintained anchor bootstraps only raw stone/logs plus the disclosed ore/storage world before actor admission, then canonically picks up, builds, and uses the primitive kit in the same state. Organic worlds that choose the kit must do the same; branch-targeted maintained coverage may use a preassembled ordinary kit but cannot stand in for acquisition continuity. Reporting must distinguish the pre-admission raw-source fixture from runtime same-voxel pickup and from ordinary world gathering; until [`STATUS.md`](STATUS.md) says otherwise, acquisition continuity begins at the disclosed raw world source rather than claiming terrain gathering. Kit construction is legal only when that world's complete disclosed campaign executes through carried machine/provider condition and finite-store loss and clears attention payback; campaign body economics remain visible as supporting evidence. Batch-demand and full-buffer charging run from matched states through the same canonical chain and must show identical recovery, conserved matter, and trusted-load validity. Concentrate remains physically distinct from usable copper, but the authored elemental-copper model gives rich concentrate a finite-recovery mechanical cleanup route to native metal. Separate first-foundry evidence may begin from a disclosed ordinary-material opportunity, but it must label that state boundary explicitly and freeze the recovery requirement before construction. Direct cold rework and foundry recovery are legitimate alternatives: the actor skips the foundry when lossy rework satisfies the disclosed order and builds it only when the material shortfall justifies full recovery. A selected foundry branch must exercise the treadle-to-dynamo conversion and conserve matter/energy ownership across charge, melt, cast, and ingot rework. Industrial foundry reachability is outside this contract and belongs to [`STATUS.md`](STATUS.md).
-- **Catalog continuity:** the authored reinforcement input must reach sampling, woodworking, power, crushing, grinding, and separation equipment. The reinvestment branch executes crusher and separator upgrades, including an above-base separator batch. The same reinforcement raises flywheel capacity through the energy owner without regressing carrier, limits, loss, or recovery, and the expanded envelope funds a larger processing batch.
-- **Woodworking continuity:** hewing, sawing, and turning stay physically distinct. The adze accelerates hewing without changing its recovery stream and cannot satisfy sawing or turning. Handles and timber flywheels keep their hand fallback but gain a dedicated spring-pole lathe route; the lathe improves attention rather than material yield. The frame saw needs its authored blade and frame, has no equipment-free fallback, and its payback includes embodied timber, blade copper, wear, and maintenance. Investment intent freezes before branches run; executed counterfactuals assess but never revise that choice. Exact masses, yields, and timings live in content/production definitions.
-- **Settlement mechanization:** the sash sawmill, helve hammer, timber spindle drill, flywheel lathe, and flywheel toolroom grindstone are additive conversions of workshop investments, not replacement recipes that discard material or machine identity. Each powered process references its manual transform for exact material input/yield authority, consumes finite mechanical work through the energy owner, applies condition-based machine wear, and does not claim player attention during execution. Each maintained conversion must fit its intended finite accumulator through authored energy values. Matched short/project workloads must keep manual precursors rational below disclosed attention crossovers and prove conversion payback above them. Upgraded machines retain manual capability where authored so energy shortage changes the dominant cost instead of changing material transforms.
-- **Preservation continuity:** every authored enclosure stays ordinarily producible and recoverable with a distinct capacity/preservation/material/attention tradeoff. Feasibility precedes ranking; projection, selection, and execution share one finite disclosed opportunity. The actor may decline construction when edible-horizon return does not pay attention cost. Each branch projects its food lot through the survival-owned freshness projection, then proves that forecast against canonical construction and ticks. Dismantling runs through the timed player-work path before salvage; each body exposes a same-material salvage route without creating a cheaper construction cycle.
-- **Maintenance and automation:** stone scrap retains a manual zero-machine recovery path with exact conservation; the dedicated toolroom route may spend its authored consumable and infrastructure investment to improve material efficiency, and its powered upgrade delegates the same recovery through finite mechanical work. Ore grinding capability cannot satisfy the toolroom route. Contaminated or mixed-temperature scrap rejects atomically. The progression pick-vs-crank counterfactual compares only opportunities present in that decision state. Processing decisions compare canonical hand-processing attention with complete mechanized construction and charging attention; overlap-only setup recovery remains diagnostic. Settlement machine conversions use the same rule: setup and charging are priced before selection, powered execution is delegated world time rather than free work, and identical transforms prevent automation-only yield inflation. Autonomous feed work must distinguish a successfully prepared next-cycle buffer from a true destination-capacity blocker; the former is evidence that delegation returned player attention, not evidence of a bottleneck. The stockpiling-plus-forced-service branch is an unselected negative control, not a peer recommendation. Mining may use acquired conservative resource-scale evidence to size investment, but exact hidden reserve never feeds policy. Service occupies exclusive player work and restores condition only at completion.
-- **Demand-sized search investment:** after a known local mining opportunity ends short, survey-capital decisions size their disclosed follow-up horizon from remaining demand and the acquired conservative resource-scale estimate, capped by the bounded candidate-site set. They do not price an upgrade against sites the current order does not plausibly need, and exact hidden reserves never enter the choice.
+- **Liberation frontier:** prove acquisition continuity from the disclosed raw-source boundary through primitive equipment and processing. Keep controlled raw-source setup distinct from terrain gathering, label any first-foundry starting boundary explicitly, and conserve matter and energy across selected foundry work.
+- **Catalog continuity:** exercise reinforcement relationships across sampling, woodworking, power, crushing, grinding, and separation through their owning systems.
+- **Woodworking continuity:** keep hewing, sawing, and turning physically distinct. Tool investment may change attention or recovery, but not invent alternate material transforms. Freeze investment intent before matched branches execute.
+- **Settlement mechanization:** powered conversions preserve manual material/yield authority, consume finite work and wear, return player attention, and show workload-dependent payback without making manual capability irrational at every scale.
+- **Preservation continuity:** enclosure choices remain distinct capacity, preservation, material, and attention tradeoffs. Feasibility precedes ranking; freshness projections agree with canonical execution; dismantling uses timed work and conservative salvage.
+- **Maintenance and automation:** manual recovery remains physically valid while mechanization may improve attention or material efficiency through authored inputs, finite work, wear, and service. Automation does not create yield. Mining policy uses acquired conservative evidence, never exact hidden reserve.
+- **Demand-sized search investment:** survey investment sizes its bounded follow-up horizon from remaining demand and acquired conservative resource-scale evidence. Exact hidden reserve is not an input.
 
 ## Counterfactual and replay discipline
 
-Counterfactual evaluation may compute a shared observation horizon outside actor policy, then replay treatment
+Counterfactual evaluation may compute one shared observation horizon outside actor policy, then replay treatment
 and baseline from the same decision state to that fixed horizon. Future controlled events and branch outcomes
-never become actor inputs. When production treats internal representations as equivalent, compare their
-aggregate observable contract rather than incidental internal identity.
+never become actor inputs. Compare aggregate observable contracts when production treats internal representations
+as equivalent.
 
-`DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` controls report physical-world variation;
-`DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` controls report actor-policy variation where applicable; and
-`DEEP_HEARTH_GAMEPLAY_SEEDS` remains a low-level explicit focused-world replay input. Routine `ci.py` gameplay
-gates and audits clear these variables and execute maintained cases only. `python ci.py report` generates fresh
-variation/behavior roots when none are supplied, keeps the maintained anchors fixed, and bounds every organic
-sample. Report failure and success summaries retain replay input. `--variation-seed <u64>` is report-only;
-report scopes with actor-policy variation also accept `--behavior-seed <u64>`. These flags are the validated CLI
-equivalents of the report environment variables and take precedence over ambient values.
+Routine gates clear ambient replay inputs. Reports add bounded replayable physical and, where applicable, actor
+variation. Explicit replay roots override ambient values, and reports retain enough input to reproduce a sample.
+[`TESTING.md`](TESTING.md) owns command selection; command help owns exact option syntax.
 
-`python ci.py report` is the bounded exploration surface. Its default concise view keeps the measured player
-loop and loop dynamics, one summary per ordinary probe, ordinary integration frontiers exposed by those probes,
-and compact controlled workshop/ore/foundry summaries. It prioritizes lived pacing, repeated-work reuse,
-provisioning/maintenance interruptions, adaptation, delegation, and source-boundary honesty over diagnostic
-provenance labels that do not change the experienced route. Registry inventory and acquisition-edge catalog counts are
-verbose diagnostics rather than default player-experience evidence; ordinary reachability is reported through the
-episodes and explicit frontier summaries that exercise it.
-Controlled summaries stay explicitly labeled and do not imply ordinary reachability. `python ci.py report
---verbose` restores the complete capability diagnostics, blockers, tradeoffs, counterfactuals, per-world
-comparisons, and replay evidence. `DEEP_HEARTH_GAMEPLAY_VERBOSE` remains the environment-level equivalent for
-tooling. Blocked selected continuations retain their actual elapsed time, inventory, and partial upgrades rather
-than rolling back to the decision state.
-`DEEP_HEARTH_GAMEPLAY_TRACE` adds operation-level workshop narration. Increase breadth through explicit
-report/replay inputs.
+Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
+labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their
+actual resulting state rather than a rolled-back decision state.
 
-Agency exploration retains its three unfiltered organic worlds, then searches at most 24 further deterministic
-worlds for up to two with executed policy differences. The report separates unfiltered outcomes, qualified
-worlds, unqualified attempts, and the search bound. Qualification uses diagnostic matched-branch outcomes only
-for evaluator sampling, never actor choice; qualified samples do not estimate prevalence. An incomplete search
-is valid bounded evidence. Routine agency gates do not perform this exploration search.
+Agency exploration may use a bounded deterministic qualification search. Qualification is evaluator sampling
+only, never actor input or prevalence evidence; an incomplete search remains valid bounded evidence.

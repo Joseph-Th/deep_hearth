@@ -1,6 +1,8 @@
 # Status
 
-This page owns current runtime scope and reachability. Use [`README.md`](README.md) for routing,
+**Role:** Current runtime scope and reachability authority.
+
+Use [`README.md`](README.md) for routing,
 [`GAME_DESIGN.md`](GAME_DESIGN.md) for intended experience, and [`DIRECTION.md`](DIRECTION.md) for future
 priority. Source presence and controlled fixtures do not establish ordinary reachability.
 

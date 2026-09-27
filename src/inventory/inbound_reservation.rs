@@ -153,7 +153,7 @@ pub(crate) fn validate_inbound_reservation(
     })
 }
 
-/// Validates returning capacity previously reserved by another authoritative owner.
+/// Validates release of capacity reserved by another authoritative owner.
 ///
 /// The reserving owner supplies the exact mass it still owns. Missing stockpiles or insufficient
 /// reserved mass are invariant failures because trusted-load validation reconciles reservations

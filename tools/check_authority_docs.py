@@ -53,7 +53,7 @@ WORKSPACE_CONTRACT_BEGIN = "<!-- workspace-contract:begin"
 WORKSPACE_CONTRACT_END = "<!-- workspace-contract:end -->"
 
 REQUIRED_AUTHORITY_SECTIONS = {
-    "AGENTS.md": ("Cold start", "Operating protocol", "Guardrails", "Completion"),
+    "AGENTS.md": ("Operating protocol", "Guardrails", "Completion"),
     "README.md": (
         "Orientation",
         "Authority map",

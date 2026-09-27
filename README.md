@@ -1,16 +1,17 @@
 # Deep Hearth
 
+**Role:** Project entry point and task router.
+
 Deep Hearth is a deterministic Rust simulation core for a first-person survival, settlement, and industrialization
 game. It owns headless state, authored definitions, and simulation rules; platform and renderer IO belong to
 adapters.
 
 ## Orientation
 
-1. Read [`AGENTS.md`](AGENTS.md). It contains the project rules and generated workspace contract.
-2. Read [`STATUS.md`](STATUS.md) before assuming a capability is ordinarily reachable.
-3. Use the [task map](#task-map) to find the owner, canonical boundary, and contract.
-4. Read that owner and its adjacent tests; open deeper authority pages only for the question they own.
-5. Verify with the smallest complete lane in [`TESTING.md`](TESTING.md).
+1. Read [`AGENTS.md`](AGENTS.md) once for execution rules.
+2. Use the [task map](#task-map) to find the owner, canonical boundary, and contract.
+3. Read that owner and its adjacent tests. Consult [`STATUS.md`](STATUS.md) when scope or reachability matters.
+4. Verify with the smallest complete lane in [`TESTING.md`](TESTING.md).
 
 For consequential work, identify the owning subsystem, operation stage, crossed flow, and proof before widening
 the search.

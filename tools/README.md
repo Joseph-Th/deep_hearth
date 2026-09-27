@@ -1,5 +1,7 @@
 # Rust diagnostics
 
+**Role:** Optional Rust diagnostics reference.
+
 `rust_diagnostics.py` is the project-owned entry point for optional Rust agent diagnostics. These
 commands answer a named engineering question; they are not completion gates and do not replace the
 proof lanes in [`../TESTING.md`](../TESTING.md).

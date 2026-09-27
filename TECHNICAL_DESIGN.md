@@ -1,6 +1,8 @@
 # Technical Design
 
-This page owns implemented subsystem and physical contracts. Use [`README.md`](README.md) for routing,
+**Role:** Implemented subsystem and physical-contract authority.
+
+Use [`README.md`](README.md) for routing,
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for cross-cutting engineering rules, and [`STATUS.md`](STATUS.md) for
 runtime scope. Source and adjacent tests own concrete edge cases and typed errors.
 
@@ -38,20 +40,9 @@ Implemented systems exchange a small set of authoritative flows:
 Cross-system mechanics should be traced flow-by-flow from owner to owner. Each delayed handoff has an explicit
 custody or schedule owner.
 
-### Truth classes
-
-| Class | Authority |
-| --- | --- |
-| Authored definition | Immutable possibility, identity, limit, or reference. |
-| Runtime fact | Persisted generated state required for continuation. |
-| Projection/assessment | Recomputable read-only interpretation of authoritative facts. |
-| Resolution/plan | Predicted consequence for one request; not mutation authority. |
-| Validated authorization | State-bound proof consumed by one canonical commit/apply path. |
-| Durable work/custody | Persisted in-flight ownership, reservation, provider trace, lifecycle, or schedule. |
-| Evaluation evidence | Diagnostic/report/counterfactual data outside authoritative simulation. |
-
-Do not store one concept in two classes. Definitions do not accumulate runtime progress; projections do not
-become alternate state owners.
+Truth-class vocabulary and the resolve/validate/commit control grammar are owned by
+[`ARCHITECTURE.md`](ARCHITECTURE.md#agent-legible-control-grammar). This page names the concrete owners, flows,
+operations, and persistence obligations that implement those roles.
 
 ### Planning topology
 

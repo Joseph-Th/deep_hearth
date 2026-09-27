@@ -1,6 +1,8 @@
 # Game Design
 
-This page owns intended player experience and progression. It is not implementation evidence. Use
+**Role:** Intended player experience and progression authority.
+
+This page is not implementation evidence. Use
 [`STATUS.md`](STATUS.md) for current capability and [`README.md`](README.md) for project routing.
 
 ## Design map
@@ -86,79 +88,37 @@ should compose them behind one expected action when no meaningful player decisio
 
 ## Control-oriented legibility
 
-Every important mechanic should support the same player/agent reasoning loop:
+Every important mechanic should support one reasoning loop:
 
 `observe -> diagnose -> compare -> act -> verify -> adapt`
 
-A decision surface is strong when the player can determine, at an appropriate precision:
+The player should be able to identify the relevant state, its plausible cause, available levers, important
+tradeoffs, the result of an action, and a recovery path. Better instruments narrow uncertainty; they do not expose
+a separate ruleset or privileged hidden truth.
 
-- the relevant current state and pressure;
-- the causal reason the pressure exists;
-- the legal levers available now;
-- the important predicted tradeoffs of those levers;
-- the committed consequence after acting;
-- the recovery path if the result is poor or conditions change.
+Progression should deepen one causal vocabulary across hand tools, workshops, and automated plants. Matter,
+energy, labor, time, space/support, information, capacity, condition, and risk remain composable planning
+dimensions while technology adds better providers, transformations, routing, sensing, buffering, and scale.
 
-The game should not require privileged hidden-state knowledge, memorized implementation order, or repeated
-trial-and-error to operate a system competently. Better tools and instruments may increase precision, but they
-should refine the same underlying causal model rather than expose a separate ruleset.
+Long-horizon planning should let the player work backward from a desired material, capability, storage function,
+or process through plausible dependencies. Authored possibility, current opportunity, and executable action must
+remain distinguishable. Human UI, workers, automated actors, and evaluators may use different strategy and search
+depth, but should reason from the same observable facts and physical consequences.
 
-Where practical, human UI, automated actors, and behavior evaluation should be able to consume the same
-canonical projections and action semantics. An automation-only shortcut that knows more than the player, or a
-UI-only formula that disagrees with authoritative simulation, weakens both game legibility and system coherence.
-
-### One causal language across scale
-
-Progression should deepen the same control vocabulary rather than replace it with tier-specific rules. A player
-who understands that a process is constrained by feed state, capacity, power, condition, support, time, and
-output custody should be able to carry that model from hand tools to workshops to automated plants. Later
-technology may add sensing precision, routing choices, buffers, controllers, workers, and failure modes, but it
-should not require learning an unrelated legality model for the same physical relationships.
-
-This is also the basis for competent automation. A human, worker AI, planning agent, or evaluator may use
-different policy, memory, and search depth, but should reason from the same observable facts, predictions,
-blockers, action boundaries, and outcomes. Differences in intelligence belong in strategy, not privileged
-simulation semantics.
-
-### Composable planning
-
-Prefer actions whose preconditions and consequences compose through shared physical dimensions: matter,
-energy, labor, time, space/support, information, capacity, condition, and risk. New technology should mostly add
-new providers, transformations, routing, or scale to those dimensions rather than one-off exceptions.
-
-This makes long-horizon planning possible without requiring the player or an automated actor to learn a new
-reasoning model for every machine. The interesting complexity should come from interacting constraints and
-changing circumstances, not from inconsistent control semantics.
-
-Long-horizon causality should be discoverable in the same language. A player who identifies a desired material,
-capability, storage function, or process should be able to work backward through plausible physical providers,
-transformations, construction requirements, and intermediate dependencies. This does not mean every path is
-currently available or fully known: world resources, acquired information, infrastructure, access, and current
-condition may still block it. The design should distinguish "this kind of route exists" from "you can execute
-this route now" rather than hiding both behind trial and error.
-
-Planning tools, worker AI, and automation may search this causal topology more efficiently than a player does,
-but they should not receive a different topology or privileged current-state facts. Better instruments and
-organization improve observation, estimation, search, scheduling, and execution of the same physical world.
-
-### System controllability
-
-An important mechanic should form a closed control loop before additional hidden complexity is layered onto it:
+An important mechanic should close this control loop before gaining more hidden complexity:
 
 | Property | Design requirement |
 | --- | --- |
-| Observability | The player can detect the relevant state or symptom at a precision appropriate to current tools and knowledge. Hidden truth may remain hidden, but actionable evidence must have a legitimate acquisition path. |
-| Causality | The player can connect the important symptom to a bounded set of plausible causes rather than treating outcomes as arbitrary rolls or undocumented exceptions. |
-| Predictability | Before committing scarce matter, energy, time, or risk, the player can estimate the important direction and scale of consequences closely enough to make a reasoned choice. Better instruments may narrow uncertainty. |
-| Intervention | At least one physical, informational, organizational, or strategic lever can materially change the future state. A simulated pressure with no meaningful response path is usually ambient bookkeeping, not gameplay. |
-| Feedback | After intervention, the player can tell what changed and whether the action addressed the intended cause. Delayed effects need readable intermediate state or eventual attribution. |
-| Recovery | Important failures expose repair, replacement, rerouting, fallback, learning, or deliberate abandonment where the physical model permits it. Failure should create a new problem state, not silently erase the decision space. |
-| Delegation | Once a loop is understood and repeated, progression can transfer observation, triggering, execution, or monitoring to tools, workers, controls, or automation while preserving the same physical costs and failure semantics. |
+| Observability | Actionable state has a legitimate signal at the precision supported by current tools and knowledge. |
+| Causality | Symptoms point to a bounded set of plausible causes. |
+| Predictability | Scarce commitments have useful directional and scale estimates before action. |
+| Intervention | At least one meaningful lever can change the future state. |
+| Feedback | The player can identify what changed, including delayed effects where relevant. |
+| Recovery | Important failures support repair, replacement, rerouting, fallback, learning, or deliberate abandonment. |
+| Delegation | Repeated understood work can move to tools, workers, controls, or automation without erasing its physical costs or failure semantics. |
 
-These properties should deepen together. Adding precision without intervention creates surveillance rather than
-agency; adding automation without legible feedback creates opaque optimization; adding failure without recovery
-creates punishment rather than a managed system. The desired progression is from coarse manual control to
-instrumented, buffered, delegated, and eventually automated control of the same causal world.
+These properties deepen together. Precision without intervention is observation without agency; automation
+without feedback is opaque; failure without recovery is punishment rather than a managed system.
 
 ## Player loop
 

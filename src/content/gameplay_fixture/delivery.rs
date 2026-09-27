@@ -66,11 +66,10 @@ pub fn authorize_controlled_material_delivery(
     delivery
 }
 
-/// Applies one previously authorized controlled delivery through canonical inventory validation.
+/// Commits one setup-authorized controlled delivery through canonical inventory validation.
 ///
-/// Keeping the inventory relocation proof private prevents the gameplay harness from manufacturing
-/// arbitrary pathless logistics after actor admission. The scenario controller can only retain and
-/// later consume this opaque authorization created during controlled setup.
+/// The private relocation proof prevents harness code from authorizing pathless logistics after
+/// actor admission. The scenario controller retains only the opaque setup authorization.
 pub fn commit_controlled_material_delivery(
     registries: &Registries,
     state: &mut AppState,

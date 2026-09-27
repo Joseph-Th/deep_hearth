@@ -1,6 +1,8 @@
 # Testing
 
-This page owns local verification and test organization. Use [`README.md`](README.md) for routing,
+**Role:** Local verification and test-organization authority.
+
+Use [`README.md`](README.md) for routing,
 [`STATUS.md`](STATUS.md) for scope, and [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) for automated-player
 evidence semantics.
 

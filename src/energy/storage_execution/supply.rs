@@ -179,7 +179,7 @@ pub fn validate_energy_supply(
     validate_energy_supply_request(access, requested)
 }
 
-/// Binds an exact requested amount to one previously assessed supply envelope.
+/// Binds an exact requested amount to one assessed supply envelope.
 ///
 /// Process resolvers use this after validating process-specific properties such as carrier
 /// compatibility. The resulting proof remains bound to the energy revision captured by the access

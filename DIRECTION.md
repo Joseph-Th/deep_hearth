@@ -1,7 +1,8 @@
 # Direction
 
-This page owns future system-integration priority and accretion strategy. It does not claim that planned
-capabilities are implemented. Use [`STATUS.md`](STATUS.md) for current reality, [`GAME_DESIGN.md`](GAME_DESIGN.md)
+**Role:** Future system-integration priority and accretion strategy.
+
+Planned capabilities are not implementation evidence. Use [`STATUS.md`](STATUS.md) for current reality, [`GAME_DESIGN.md`](GAME_DESIGN.md)
 for intended player experience, [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for implemented contracts, and
 [`README.md`](README.md) for routing.
 
@@ -9,9 +10,8 @@ The objective is not maximum feature count. The objective is a dense, comprehens
 new capability reuses existing physical/state abstractions, closes real control loops, and increases the number
 of meaningful interactions without multiplying rulesets.
 
-This is strategic direction, not an executable task queue. The user's current request and any explicitly
-authorized task remain the work authority. Re-evaluate the sequence against [`STATUS.md`](STATUS.md) after each
-substantial vertical slice rather than preserving stale priority for its own sake.
+This is dependency-oriented guidance, not an executable task queue. Re-evaluate the sequence against
+[`STATUS.md`](STATUS.md) when the integration frontier changes.
 
 ## Planning map
 
@@ -41,32 +41,17 @@ specific vertical slice.
 
 ## Control-surface program
 
-When a slice touches an owner, make the existing control path easier to operate before adding parallel
-abstractions. Legitimate callers should be able to find:
+When a slice touches an owner, improve its existing control path before adding another abstraction. A complete
+control surface exposes the relevant state, typed blockers, useful production-owned projections, canonical
+authorization/mutation, and the committed outcome or continuation identity.
 
-- current relevant state or a canonical assessment;
-- legal action prerequisites and typed blockers;
-- a useful projection for costly choices when production already knows the controlling physics;
-- the canonical authorization/mutation boundary;
-- the committed outcome and stable identity needed to continue, inspect, claim, repair, or reverse work.
+Prefer, in order: reuse an existing projection or receipt; propagate an owner result that is being discarded;
+add a narrow reverse index or semantic projection; expose a production-owned feasible bound; batch canonical
+ticks only for repeated bounded waits; add freshness metadata only for retained read-side state.
 
-Prefer improvements in this order:
-
-1. consume an existing projection/outcome instead of rescanning state;
-2. propagate an owner result that a crossed edge currently discards;
-3. add a typed immutable reverse index or read-side projection for repeated domain reconstruction;
-4. expose a production-owned feasible bound when repeated probing varies only one physical dimension;
-5. batch canonical `advance_tick` calls only when callers repeatedly hand-roll the same bounded wait;
-6. add freshness metadata only when a useful read-side result is actually retained across mutations.
-
-Keep strategy outside production. Candidate ranking, goals, risk tolerance, and search budgets belong to the caller;
-production owns legality, physics, and authoritative outcomes. Do not build a universal action bus, AI facade,
-reflection layer, or mutable availability cache for agent convenience.
-
-Prioritize future slices that close a real current loop, reuse existing owners and physical currencies, replace
-controlled setup or duplicated reasoning with an ordinary path, connect several existing investments, expose
-recoverable failure, and admit a focused proof. Re-evaluate after each substantial slice because closing one edge
-changes the value of the next.
+Strategy remains outside production. Candidate ranking, goals, risk tolerance, and search budgets belong to
+callers; production owns legality, physics, and authoritative outcomes. Avoid generic action buses, AI facades,
+reflection layers, and mutable availability caches.
 
 ## Default integration sequence
 

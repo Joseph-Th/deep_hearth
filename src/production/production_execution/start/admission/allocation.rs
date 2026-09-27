@@ -35,9 +35,8 @@ pub(in super::super) fn validate_job_allocation(
     let next_production_revision = expected_production_revision
         .checked_add(1)
         .ok_or(StartProcessError::ProductionRevisionExhausted)?;
-    // Admission consumes one revision and may add one due bucket. Preserve enough headroom for
-    // every already-scheduled bucket as well as this job so a new start cannot steal revisions
-    // already required by previously admitted work.
+    // Reserve production-revision headroom for this admission, its due bucket, and every scheduled
+    // bucket that remains pending.
     if !state
         .production()
         .has_scheduled_revision_capacity_with_tick_from(next_production_revision, completes_at)
