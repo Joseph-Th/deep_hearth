@@ -174,10 +174,10 @@ pub(super) fn run_focused_probe_with_registries(
     } else {
         GATE_VARIATION_COUNT
     };
-    let variation_raw = (explore || scenario_raw.is_some())
+    let variation_raw = (variation_count > 0 || scenario_raw.is_some())
         .then(|| env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok())
         .flatten();
-    let behavior_raw = (explore || scenario_raw.is_some())
+    let behavior_raw = (variation_count > 0 || scenario_raw.is_some())
         .then(|| {
             uses_behavior_seed
                 .then(|| env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok())

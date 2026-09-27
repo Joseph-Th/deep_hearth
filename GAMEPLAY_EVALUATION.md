@@ -150,8 +150,10 @@ scope may establish.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Routine gates and audits use maintained deterministic cases. Reports add bounded replayable organic variation.
-Maintained cases prove contracts, not prevalence; organic samples are bounded evidence, not population estimates.
+Routine gameplay gates and the broad gameplay audit retain maintained deterministic witnesses and add one bounded
+organic case per play-like probe, including agency counterfactuals. Project-owned CI chooses fresh replay roots
+unless explicit roots are supplied; reports use a broader bounded sample. Maintained cases prove contracts, not
+prevalence; organic samples are bounded evidence, not population estimates.
 Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
 must not count counterfactual, coverage-only, or negative-control branches as player experience.
 
@@ -174,9 +176,10 @@ and baseline from the same decision state to that fixed horizon. Future controll
 never become actor inputs. Compare aggregate observable contracts when production treats internal representations
 as equivalent.
 
-Routine gates clear ambient replay inputs. Reports add bounded replayable physical and, where applicable, actor
-variation. Explicit replay roots override ambient values, and reports retain enough input to reproduce a sample.
-[`TESTING.md`](TESTING.md) owns command selection; command help owns exact option syntax.
+Project-owned gameplay verification ignores ambient replay state, generates fresh physical and, where applicable,
+actor roots, and prints those roots with the result. Explicit command-line roots replay a prior gate, audit, or
+report. Direct test invocation keeps deterministic fallback roots. [`TESTING.md`](TESTING.md) owns command
+selection; command help owns exact option syntax.
 
 Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
 labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their

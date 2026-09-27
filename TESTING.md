@@ -100,10 +100,11 @@ Focused gameplay probe targets are edit-loop compile surfaces. Larger owner cont
 targets so an exact contract test does not compile the play-like probe or the consolidated gameplay audit.
 All gameplay test targets keep one `test-gameplay` Cargo feature shape so moving between probe, contract, and
 audit lanes reuses the same library artifact instead of fragmenting the incremental cache.
-Repository-owned gameplay gates and audits run maintained deterministic cases only. Organic sampling and replay
-roots belong to `python ci.py report`, where the extra work provides exploratory evidence instead of adding
-variance and runtime to verification. Replay options and actor/evidence rules are owned by
-[`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
+Repository-owned gameplay gates and the broad gameplay audit retain maintained witnesses and add one bounded
+organic case per play-like probe. `ci.py` generates fresh replay roots for those cases and prints them with the
+result; pass the printed roots back through `--variation-seed` and, where applicable, `--behavior-seed` to
+reproduce a run. Reports use a broader bounded organic sample. Direct Cargo test invocation keeps deterministic
+fallback roots. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
 
 ## Completion
 

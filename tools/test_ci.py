@@ -1467,6 +1467,30 @@ class LocalCiPlanTests(unittest.TestCase):
             "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
         )
 
+    def test_organic_gameplay_failure_repair_preserves_replay_roots(self) -> None:
+        output = (
+            "PROBE INPUT name=survival-provisioning mode=gate samples=8 organic=1 "
+            "world_root=0xAAAA behavior_root=0xBBBB "
+            "replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+            "failures:\n    gameplay_survival_provisioning_probe\n"
+        )
+        error = "error: test failed, to rerun pass `--test gameplay_survival`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("survival"), output, error),
+            "python tools/run_test.py --target gameplay_survival "
+            "--variation-seed 0xAAAA --behavior-seed 0xBBBB "
+            "gameplay_survival_provisioning_probe",
+        )
+
+        no_name = (
+            "PROBE INPUT name=progression mode=gate samples=4 organic=1 "
+            "world_root=0xCCCC behavior_root=unused replay=anchor:0x1,organic:0x2\n"
+        )
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("progression"), no_name, ""),
+            "python ci.py gate --gameplay progression --variation-seed 0xCCCC",
+        )
+
     def test_failed_stage_prints_one_narrow_action_when_repair_is_known(self) -> None:
         command = ci.gameplay_command("ore")
         output = "failures:\n    gameplay_ore_preparation_probe\n"
@@ -1885,8 +1909,9 @@ class LocalCiPlanTests(unittest.TestCase):
             ),
             ("0x0000000000000099", "unused"),
         )
+        self.assertNotIn("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", fieldwork_environment)
 
-    def test_gameplay_variation_policy_is_exploration_only(self) -> None:
+    def test_gameplay_variation_policy_matches_each_sampling_surface(self) -> None:
         self.assertIs(
             ci.gameplay_variation_behavior(
                 ci.parse_args(["report", "--scope", "fieldwork"])
@@ -1899,21 +1924,41 @@ class LocalCiPlanTests(unittest.TestCase):
             ),
             True,
         )
-        for argv in (
-            ["gate", "--gameplay", "survival"],
-            ["gate", "--gameplay", "progression"],
-            ["gate", "--gameplay", "workshop"],
-            ["audit", "--gameplay"],
-            ["audit", "--all"],
-        ):
+        expectations = (
+            (["gate", "--gameplay", "survival"], True),
+            (["gate", "--gameplay", "progression"], False),
+            (["gate", "--gameplay", "workshop"], True),
+            (["audit", "--gameplay"], True),
+            (["audit", "--all"], True),
+            (["gate", "--gameplay", "contracts"], None),
+            (["audit", "--core"], None),
+        )
+        for argv, expected in expectations:
             with self.subTest(argv=argv):
-                self.assertIsNone(ci.gameplay_variation_behavior(ci.parse_args(argv)))
+                self.assertIs(ci.gameplay_variation_behavior(ci.parse_args(argv)), expected)
 
-    def test_gameplay_gate_and_audit_reject_exploration_roots(self) -> None:
-        for argv in (
-            ["gate", "--gameplay", "progression", "--variation-seed", "0x2A"],
-            ["gate", "--gameplay", "survival", "--behavior-seed", "0x2A"],
-            ["gate", "--gameplay", "contracts", "--variation-seed", "0x2A"],
+    def test_gameplay_gate_and_audit_accept_replay_roots_for_sampling(self) -> None:
+        progression = ci.parse_args(
+            ["gate", "--gameplay", "progression", "--variation-seed", "0x2A"]
+        )
+        self.assertEqual(progression.variation_seed, "0x000000000000002A")
+        self.assertIsNone(progression.behavior_seed)
+
+        survival = ci.parse_args(
+            [
+                "gate",
+                "--gameplay",
+                "survival",
+                "--variation-seed",
+                "0x2A",
+                "--behavior-seed",
+                "0x2B",
+            ]
+        )
+        self.assertEqual(survival.variation_seed, "0x000000000000002A")
+        self.assertEqual(survival.behavior_seed, "0x000000000000002B")
+
+        audit = ci.parse_args(
             [
                 "audit",
                 "--gameplay",
@@ -1921,7 +1966,15 @@ class LocalCiPlanTests(unittest.TestCase):
                 "0x2A",
                 "--behavior-seed",
                 "0x2B",
-            ],
+            ]
+        )
+        self.assertEqual(audit.variation_seed, "0x000000000000002A")
+        self.assertEqual(audit.behavior_seed, "0x000000000000002B")
+
+        for argv in (
+            ["gate", "--gameplay", "contracts", "--variation-seed", "0x2A"],
+            ["gate", "--gameplay", "progression", "--behavior-seed", "0x2A"],
+            ["audit", "--core", "--variation-seed", "0x2A"],
         ):
             with self.subTest(argv=argv):
                 with (
@@ -1930,38 +1983,59 @@ class LocalCiPlanTests(unittest.TestCase):
                 ):
                     ci.parse_args(argv)
 
-    def test_deterministic_gameplay_verification_clears_ambient_seed_state(self) -> None:
-        for argv in (
-            ["gate", "--gameplay", "survival"],
-            ["gate", "--gameplay", "contracts"],
-            ["audit", "--gameplay"],
-            ["audit", "--all"],
-        ):
-            with self.subTest(argv=argv):
-                self.assertTrue(
-                    ci.runs_deterministic_gameplay_verification(ci.parse_args(argv))
-                )
-
+    def test_gameplay_verification_adds_replayable_variation_without_custom_seed_override(self) -> None:
+        args = ci.parse_args(["gate", "--gameplay", "survival"])
         environment = {
             "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
-            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1111",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2222",
             "KEEP": "yes",
         }
-        ci.clear_gameplay_seed_environment(environment)
-        self.assertEqual(environment, {"KEEP": "yes"})
+        rolls = iter((0xAAAA, 0xBBBB))
+        self.assertEqual(
+            ci.configure_gameplay_verification_environment(
+                args, environment, randbits=lambda _bits: next(rolls)
+            ),
+            ("0x000000000000AAAA", "0x000000000000BBBB"),
+        )
+        self.assertEqual(
+            environment,
+            {
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+                "KEEP": "yes",
+            },
+        )
 
-    def test_only_reports_surface_environment_replay_roots(self) -> None:
+        replay = ci.parse_args(
+            ["gate", "--gameplay", "progression", "--variation-seed", "0x1234"]
+        )
+        replay_environment = {
+            "DEEP_HEARTH_GAMEPLAY_SEEDS": "9",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ambient-unused",
+        }
+        self.assertEqual(
+            ci.configure_gameplay_verification_environment(
+                replay,
+                replay_environment,
+                randbits=lambda _bits: self.fail("explicit replay must not draw entropy"),
+            ),
+            ("0x0000000000001234", "unused"),
+        )
+        self.assertNotIn("DEEP_HEARTH_GAMEPLAY_SEEDS", replay_environment)
+        self.assertNotIn("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", replay_environment)
+
+    def test_gameplay_sampling_surfaces_environment_replay_roots(self) -> None:
         environment = {
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
         }
-        self.assertEqual(
-            ci.gameplay_environment_summary("gameplay report progression", environment),
-            "roots=0xAAAA/0xBBBB",
-        )
-        self.assertIsNone(ci.gameplay_environment_summary("gameplay progression", environment))
-        self.assertIsNone(ci.gameplay_environment_summary("gameplay", environment))
+        for label in ("gameplay report progression", "gameplay progression", "gameplay"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    ci.gameplay_environment_summary(label, environment),
+                    "roots=0xAAAA/0xBBBB",
+                )
         self.assertIsNone(ci.gameplay_environment_summary("core", environment))
         self.assertIsNone(ci.gameplay_environment_summary("gameplay contracts", environment))
         self.assertIsNone(ci.gameplay_environment_summary("compile", environment))
@@ -2008,7 +2082,10 @@ class LocalCiPlanTests(unittest.TestCase):
                     self.assertTrue(run.call_args.kwargs["capture_output"])
                     if returncode == 0:
                         self.assertEqual(stderr.getvalue(), "")
-                        self.assertIn("roots=0x111/0x222", stdout.getvalue())
+                        self.assertIn(
+                            "roots=0x0000000000000111/0x0000000000000222",
+                            stdout.getvalue(),
+                        )
                         # Compare the entire body, not only markers that a head/tail limiter keeps.
                         body = "\n".join(stdout.getvalue().splitlines()[1:]) + "\n"
                         if mode is not None:

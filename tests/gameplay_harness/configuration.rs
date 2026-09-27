@@ -3,6 +3,8 @@
 use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
+#[cfg(test)]
+const GATE_VARIATION_SCENARIO_COUNT: usize = 1;
 const EXPLORATORY_VARIATION_SCENARIO_COUNT: usize = 4;
 const SEED_STRIDE: u64 = 0xD1B5_4A32_D192_ED03;
 
@@ -245,7 +247,7 @@ pub(super) fn scenario_seeds_from(
 
     let variation_count = match mode {
         #[cfg(test)]
-        ScenarioPlanMode::Gate => 0,
+        ScenarioPlanMode::Gate => GATE_VARIATION_SCENARIO_COUNT,
         ScenarioPlanMode::Explore => EXPLORATORY_VARIATION_SCENARIO_COUNT,
     };
     let behavior_seed_root = if variation_count == 0 {

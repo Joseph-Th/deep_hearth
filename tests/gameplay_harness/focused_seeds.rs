@@ -3,7 +3,7 @@
 use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
-pub(super) const GATE_VARIATION_COUNT: usize = 0;
+pub(super) const GATE_VARIATION_COUNT: usize = 1;
 pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
 pub(super) fn probe_uses_behavior_seed(name: &str) -> bool {
@@ -74,9 +74,9 @@ impl FocusedProbeCase {
 /// Resolves maintained contract cases plus an optional bounded replayable variation sample.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
-/// focused gates run only maintained deterministic cases; exploratory reports add the bounded
-/// organic sample. A probe-specific salt keeps concerns independent. Physical and actor variation
-/// use independent replay roots so changing a preference cannot silently change the world.
+/// focused gates retain maintained witnesses and add one bounded organic case; exploratory reports
+/// use a broader sample. A probe-specific salt keeps concerns independent. Physical and actor
+/// variation use independent replay roots so changing a preference cannot silently change the world.
 pub(super) fn focused_probe_cases_from(
     plan: FocusedProbeSeedPlan<'_>,
 ) -> Result<Vec<FocusedProbeCase>, FocusedProbeSeedError> {

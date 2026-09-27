@@ -90,11 +90,11 @@ fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
 }
 
 #[test]
-fn default_gate_is_maintained_anchors_only() {
+fn default_gate_keeps_maintained_anchors_and_adds_one_bounded_variation() {
     let plan = plan(ScenarioPlanMode::Gate, None, None, None)
         .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
-    assert_eq!(plan.source_label(), "maintained");
+    assert_eq!(plan.source_label(), "anchor+variation");
     assert_eq!(
         MaintainedAnchor::ALL.map(|anchor| anchor.label()),
         [
@@ -115,15 +115,27 @@ fn default_gate_is_maintained_anchors_only() {
         EXPECTED_MAINTAINED_ANCHORS
     );
     assert_eq!(plan.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
-    assert_eq!(plan.variation_seed_count(), 0);
+    assert_eq!(plan.variation_seed_count(), 1);
     assert_eq!(plan.custom_seed_count(), 0);
-    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len());
-    assert!(plan.cases().iter().all(|case| case.anchor.is_some()));
-    assert_eq!(plan.variation_label(), "n/a");
+    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len() + 1);
+    assert!(
+        plan.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()]
+            .iter()
+            .all(|case| case.anchor.is_some())
+    );
+    assert!(
+        plan.cases()[EXPECTED_MAINTAINED_ANCHORS.len()]
+            .anchor
+            .is_none()
+    );
+    assert_eq!(
+        plan.variation_label(),
+        format!("0x{MAINTAINED_VARIATION_ROOT:016X}")
+    );
 }
 
 #[test]
-fn gate_ignores_organic_roots_and_stays_maintained() {
+fn gate_roots_vary_only_the_bounded_organic_case() {
     let first = scenario_seeds_from(
         ScenarioPlanMode::Gate,
         None,
@@ -142,22 +154,26 @@ fn gate_ignores_organic_roots_and_stays_maintained() {
         0xBBBB,
     )
     .unwrap_or_else(|error| panic!("second gate-default plan failed: {error:?}"));
-    let default = plan(ScenarioPlanMode::Gate, None, None, None)
-        .unwrap_or_else(|error| panic!("default gate plan failed: {error:?}"));
-
     assert_eq!(first.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
     assert_eq!(
         second.anchor_seed_count(),
         EXPECTED_MAINTAINED_ANCHORS.len()
     );
-    assert_eq!(first, second);
-    assert_eq!(first, default);
-    assert_eq!(first.source_label(), "maintained");
-    assert_eq!(first.variation_seed_count(), 0);
-    assert_eq!(first.variation_label(), "n/a");
+    assert_eq!(first.source_label(), "anchor+variation");
+    assert_eq!(first.variation_seed_count(), 1);
+    assert_eq!(first.variation_label(), "0x0000000000001111");
+    assert_eq!(first.behavior_label(), "0x0000000000002222");
+    assert_eq!(second.variation_label(), "0x000000000000AAAA");
+    assert_eq!(second.behavior_label(), "0x000000000000BBBB");
     assert_eq!(
-        first.behavior_label(),
-        format!("0x{MAINTAINED_BEHAVIOR_ROOT:016X}")
+        &first.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()],
+        &second.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()],
+        "organic roots must not perturb maintained physical or policy witnesses"
+    );
+    assert_ne!(
+        first.cases()[EXPECTED_MAINTAINED_ANCHORS.len()],
+        second.cases()[EXPECTED_MAINTAINED_ANCHORS.len()],
+        "different replay roots must vary the supplemental gate case"
     );
 
     let exploratory =
