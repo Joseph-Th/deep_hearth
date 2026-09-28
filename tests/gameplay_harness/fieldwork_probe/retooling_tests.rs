@@ -15,7 +15,7 @@ use super::preparation::{
 };
 use super::retooling::{
     FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, FieldworkSiteToolRequest,
-    prepare_fieldwork_tool_for_site,
+    prepare_fieldwork_tool_for_site, projected_current_material_attention,
 };
 use super::survey::{
     CHANNEL_START_X, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
@@ -95,6 +95,109 @@ fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
     assert_eq!(hard.label, "copper-reinforced-hard-pick");
     assert!(hard.reused_existing);
     assert_eq!(hard.preparation_ticks, 0);
+}
+
+#[test]
+fn equally_fast_owned_tools_prefer_better_condition_over_internal_identity() {
+    let registries = build_registries();
+    let limits = fieldwork_mining_limits(&registries);
+    let setup_mass = limits.base_quarry_batch;
+    let mut world = build_fieldwork_world(&registries, 5, setup_mass, setup_mass);
+    let (hammer, _) =
+        assemble_sampling_hammer(&registries, &mut world.state, world.raw, world.parts);
+    let (worn, _) = assemble_fieldwork_tool(
+        &registries,
+        &mut world.state,
+        world.raw,
+        world.parts,
+        FIELDWORK_TOOLS[0],
+    );
+    let (fresh, _) = assemble_fieldwork_tool(
+        &registries,
+        &mut world.state,
+        world.raw,
+        world.parts,
+        FIELDWORK_TOOLS[0],
+    );
+    assert!(worn.value() < fresh.value());
+
+    let localized = localize_target(
+        &registries,
+        &mut world.state,
+        hammer,
+        world.channel_voxels,
+        CHANNEL_START_X,
+        FieldworkSurveyStrategy::PointSearch,
+    );
+    let tiny_order = Mass::from_milligrams(1);
+    let extraction = execute_fieldwork_extraction(
+        &registries,
+        &mut world.state,
+        FieldworkExtractionOrder {
+            target: localized.target,
+            destination: world.destination,
+            equipment: worn,
+            requested: tiny_order,
+            batch_limit: tiny_order,
+        },
+    );
+    assert_eq!(extraction.extracted, tiny_order);
+    let worn_condition = world
+        .state
+        .equipment()
+        .get_equipment(worn)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("worn fieldwork pick disappeared"));
+    let fresh_condition = world
+        .state
+        .equipment()
+        .get_equipment(fresh)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("fresh fieldwork pick disappeared"));
+    assert!(worn_condition < fresh_condition);
+
+    let worn_attention = projected_current_material_attention(
+        &registries,
+        &world.state,
+        world.raw,
+        world.parts,
+        &[worn],
+        localized.hardness.upper(),
+        tiny_order,
+    )
+    .unwrap_or_else(|| panic!("worn pick lost its tiny-order projection"));
+    let fresh_attention = projected_current_material_attention(
+        &registries,
+        &world.state,
+        world.raw,
+        world.parts,
+        &[fresh],
+        localized.hardness.upper(),
+        tiny_order,
+    )
+    .unwrap_or_else(|| panic!("fresh pick lost its tiny-order projection"));
+    assert_eq!(worn_attention, fresh_attention);
+
+    let choice = prepare_fieldwork_tool_for_site(
+        &registries,
+        &mut world.state,
+        FieldworkSiteToolRequest::new(
+            world.raw,
+            world.parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: world.destination,
+                crushed_destination: world.recovery_crushed,
+                residue_destination: world.recovery_residue,
+            },
+            &[worn, fresh],
+            localized.hardness.upper(),
+            tiny_order,
+        ),
+    )
+    .unwrap_or_else(|| panic!("owned tiny-order portfolio lost a feasible pick"));
+
+    assert_eq!(choice.equipment, fresh);
+    assert!(choice.reused_existing);
 }
 
 #[test]
