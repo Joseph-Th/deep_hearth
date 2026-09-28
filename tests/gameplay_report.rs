@@ -121,6 +121,8 @@ mod woodworking_policy;
 mod woodworking_probe;
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
+#[path = "gameplay_harness/workshop_craft_planning.rs"]
+mod workshop_craft_planning;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
 

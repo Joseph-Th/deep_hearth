@@ -2270,7 +2270,7 @@ unknown_macro!();
             "LIBERATION KIT ACQUISITION seed=0x1 scope=raw-stone+logs->adze+reusable-base-processing-kit raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign=8batches workload-known-before-build=true raw=[stone:8000000mg wood:15400000mg total:23400000mg] built=[adze:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:404t body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
             "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
             "LIBERATION FRONTIER CAPABILITY seed=0x1 sample=anchor cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
-            "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode resource-opportunity=[stone:19200000mg wood:12000000mg native:280000mg] immediate-choice=[order:20000mg direct-native:40t reinforcement:20000mg selection:direct-native reason=cheap-current-order] bootstrap-choice=[remaining-native:260000mg foundry-capital:160000mg cast-ingots:80000mg required:240000mg shortfall:0mg selection:foundry reason=cast-ingot-stock-required-for-next-stage-mold] foundry-build=true fabrication=1090t/65.4m campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:212t autonomous:424t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] copper-after-bootstrap:20000mg total-player-attention:1270t total-elapsed:1694t/101.6m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-foundry",
+            "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
             "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
@@ -2354,13 +2354,16 @@ unknown_macro!();
         self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
         self.assertIn("cleanup-executed=1/1", concise)
         self.assertIn(
-            "probe=foundry-bootstrap samples=1 choice=[build:1 defer:0] copper=[available:260..260g threshold:240..240g shortfall:0..0g]",
+            "probe=foundry-bootstrap choice=[build:1 defer:0] copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
             concise,
         )
         self.assertIn(
-            "mold=[20..20g->80..80g] rhythm=[cooldown:212..212t autonomous:424..424t]",
+            "settlement-batch=[executed:1/1 supply-shortfall:0..0g cooldown:60..60t]",
             concise,
         )
+        self.assertIn("workshop-reuse=[attention-saved:380..380t]", concise)
+        self.assertNotIn("mold=[", concise)
+        self.assertNotIn("investment=[capital:160..160g", concise)
         self.assertNotIn("industrial-foundry-frontier=", concise)
         self.assertIn(
             "kit-decision=[build-and-use:1/1 disclosed-horizon:8..8batches payback-proof:1/1 attention-payback:8..8jobs policy=repeat-work-only;payback-proved-per-build]",
@@ -2434,6 +2437,27 @@ unknown_macro!();
         self.assertNotIn("GAMEPLAY probe=fieldwork samples=", concise)
         self.assertNotIn("GAMEPLAY loop ", concise)
         loop_evidence.assert_not_called()
+
+    def test_gameplay_report_root_includes_established_workshop_planning(self) -> None:
+        report_root = (ROOT / "tests/gameplay_report.rs").read_text(encoding="utf-8")
+        self.assertIn(
+            '#[path = "gameplay_harness/workshop_craft_planning.rs"]',
+            report_root,
+        )
+
+    def test_player_loop_reports_maintenance_attention_share_by_era(self) -> None:
+        detailed = gameplay_report_summary.player_loop_evidence(
+            [
+                "POWER PROVIDER EXPERIENCE seed=0x1 decision=[selected:crank]",
+                "POWER PROJECT EXPERIENCE seed=0x1 era=primitive executed=[active-attention:1000t maintenance=[services:2 preparation:300t service:100t replacement:1mg]]",
+                "POWER PROJECT EXPERIENCE seed=0x2 era=settlement executed=[active-attention:800t maintenance=[services:1 preparation:80t service:40t replacement:1mg]]",
+            ]
+        )
+        self.assertIsNotNone(detailed)
+        self.assertIn(
+            "maintenance-attention=[primitive:40..40% settlement:15..15%]",
+            detailed,
+        )
 
     def test_concise_report_rejects_missing_executed_probe_summary(self) -> None:
         transcript = (
@@ -2516,7 +2540,7 @@ unknown_macro!();
             detailed,
         )
         self.assertIn(
-            "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 mechanized-projects-with-service:0/0 mechanized-service-events:0]",
+            "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 mechanized-projects-with-service:0/0 mechanized-service-events:0 maintenance-attention=[primitive:n/a settlement:n/a]]",
             detailed,
         )
 

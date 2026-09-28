@@ -38,7 +38,7 @@ use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manua
 
 const SHORT_LUMBER_ORDER: u64 = 20;
 const MARGINAL_LUMBER_ORDER: u64 = 38;
-const PROJECT_LUMBER_ORDER: u64 = 40;
+const PROJECT_LUMBER_ORDER: u64 = 64;
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,

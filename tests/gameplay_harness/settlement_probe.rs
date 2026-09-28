@@ -39,7 +39,10 @@ use super::seed::mix64;
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
-const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 40;
+// Keep the maintained mechanized witness materially beyond the crossover instead of pinning the
+// harness to a barely-positive order. Organic 16..40-batch worlds still explore the decision edge;
+// this case demonstrates what the investment feels like once repeated work is genuinely present.
+const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 64;
 const SETTLEMENT_UPGRADE_WOOD_MG: u64 = 10_000_000;
 const SETTLEMENT_UPGRADE_COPPER_MG: u64 = 200_000;
 
@@ -70,7 +73,10 @@ fn declared_lumber_batches(case: FocusedProbeCase) -> u64 {
         FocusedProbeRole::MaintainedAnchor => SETTLEMENT_DIRECT_HORIZON_BATCHES,
         FocusedProbeRole::MaintainedCoverage => SETTLEMENT_MECHANIZE_HORIZON_BATCHES,
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            16 + mix64(case.seed() ^ 0x5345_5454_4C55_4D42) % 25
+            // Span well below and above the capital crossover. Organic settlement play should
+            // sometimes keep using the paid-off frame saw and sometimes have enough disclosed
+            // lumber work to justify converting it into a stationary machine.
+            16 + mix64(case.seed() ^ 0x5345_5454_4C55_4D42) % 49
         }
     }
 }

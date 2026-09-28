@@ -6,6 +6,8 @@
 //! world access/path authorization rather than inventory-level teleportation.
 
 mod access;
+#[cfg(feature = "test-gameplay")]
+mod fixture;
 mod fluid;
 mod ground;
 mod initialization;
@@ -18,6 +20,8 @@ pub use access::{
     validate_player_equipment_access, validate_player_fluid_store_access,
     validate_player_stockpile_access,
 };
+#[cfg(feature = "test-gameplay")]
+pub(crate) use fixture::place_equipment_for_fixture;
 pub use fluid::{
     FluidStorePlacementCommitError, FluidStorePlacementError, ValidatedFluidStorePlacement,
     validate_place_fluid_store,

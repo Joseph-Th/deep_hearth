@@ -234,13 +234,16 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 Mass::from_milligrams(1_600_000),
             ),
         ])),
-        // Several kilograms of stone act as a deliberately finite heat reservoir. The passive
-        // rejection rate makes repeated casts wait for cooldown instead of deleting waste heat.
+        // Several kilograms of stone act as a deliberately finite heat reservoir. Capacity is
+        // deliberately enough for one future four-cavity copper cast, so cast-stock reinvestment
+        // can increase useful batch size before the settlement sink is built. The primitive
+        // 200 W pickup rate remains the throughput constraint, and retained heat still makes
+        // repeated large casts wait for real passive rejection.
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_STONE_THERMAL_SINK,
             "stone foundry heat sink",
             EnergyCarrier::Thermal,
-            Energy::from_nanojoules(15_000_000_000_000),
+            Energy::from_nanojoules(50_000_000_000_000),
             Power::from_microwatts(200_000_000),
             Power::ZERO,
         )
@@ -291,14 +294,15 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 ),
             ]),
         )),
-        // More thermal mass buys four-cavity casting capacity; copper banding improves heat pickup
-        // without creating a generic heat-transfer network. Passive loss does not worsen on upgrade,
-        // so the larger sink retains heat longer and repeated casting still has a real cooldown cost.
+        // Four times the stone thermal mass buys four four-cavity casts of reservoir headroom;
+        // copper banding also doubles heat pickup without creating a generic heat-transfer network.
+        // Passive loss does not improve on upgrade, so sustained casting still accumulates heat and
+        // eventually creates a real recovery interval instead of deleting waste energy.
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_COPPER_BANDED_STONE_THERMAL_SINK,
             "copper-banded stone foundry heat sink",
             EnergyCarrier::Thermal,
-            Energy::from_nanojoules(60_000_000_000_000),
+            Energy::from_nanojoules(200_000_000_000_000),
             Power::from_microwatts(400_000_000),
             Power::ZERO,
         )

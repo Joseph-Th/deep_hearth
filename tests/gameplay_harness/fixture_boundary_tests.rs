@@ -3,10 +3,10 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use deep_hearth::content::gameplay_fixture::{
-    authorize_controlled_material_delivery, commit_controlled_material_delivery, seed_lot,
-    seed_stockpile,
+    authorize_controlled_material_delivery, commit_controlled_material_delivery,
+    seed_assembled_equipment_at, seed_lot, seed_stockpile,
 };
-use deep_hearth::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
+use deep_hearth::content::{EQUIPMENT_STONE_PICK, FORM_LOG, MATERIAL_WOOD, build_registries};
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
@@ -31,6 +31,24 @@ fn seed_delivery_endpoints(
         deep_hearth::core::quantity::Temperature::from_millikelvin(293_150),
     );
     (source, destination)
+}
+
+#[test]
+fn material_backed_equipment_fixture_rejects_post_admission_placement_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fixture-boundary survival setup failed: {error}"));
+
+    assert_fixture_rejected_without_mutation(&mut state, |state| {
+        let _ = seed_assembled_equipment_at(
+            &registries,
+            state,
+            EQUIPMENT_STONE_PICK,
+            StockpileId::new(91),
+            VoxelCoord::new(0, 0, 0),
+        );
+    });
 }
 
 #[test]

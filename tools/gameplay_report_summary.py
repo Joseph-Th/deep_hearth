@@ -84,14 +84,13 @@ _ORDINARY_DIGEST_FIELDS = {
         "choice",
         "demand",
         "attention",
-        "mechanization",
+        "payoff",
     ),
     "foundry-bootstrap": (
-        "samples",
         "choice",
         "copper",
-        "mold",
-        "rhythm",
+        "workshop-reuse",
+        "settlement-batch",
         "attention",
     ),
     "survival": (
@@ -103,6 +102,20 @@ _ORDINARY_DIGEST_FIELDS = {
         "preservation",
         "commitment",
         "work-interlock",
+    ),
+}
+
+_SCOPED_ORDINARY_DIGEST_FIELDS = {
+    "settlement": (*_ORDINARY_DIGEST_FIELDS["settlement"], "mechanization"),
+    "foundry-bootstrap": (
+        "choice",
+        "copper",
+        "investment",
+        "workshop-reuse",
+        "mold",
+        "settlement-batch",
+        "rhythm",
+        "attention",
     ),
 }
 
@@ -172,7 +185,7 @@ def _require_summary_coverage(
         )
 
 
-def _digest_summary(summary: str) -> str:
+def _digest_summary(summary: str, *, scoped: bool = False) -> str:
     if summary.startswith("ORDINARY SUMMARY "):
         probe = field(summary, "probe")
         if probe is None:
@@ -201,7 +214,12 @@ def _digest_summary(summary: str) -> str:
                 + "\n"
                 + f"GAMEPLAY fieldwork-adaptation {adaptation}".rstrip()
             )
-        detail = compact_fields(summary, _ORDINARY_DIGEST_FIELDS.get(probe, ("samples",)))
+        fields = (
+            _SCOPED_ORDINARY_DIGEST_FIELDS.get(probe)
+            if scoped
+            else None
+        ) or _ORDINARY_DIGEST_FIELDS.get(probe, ("samples",))
+        detail = compact_fields(summary, fields)
         return f"GAMEPLAY probe={probe} {detail}".rstrip()
 
     if summary.startswith("PLAYER LOOP EVIDENCE "):
@@ -274,7 +292,8 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ordinary = ordinary_gameplay_summary(lines)
     controlled = controlled_gameplay_summary(lines)
     _require_summary_coverage(lines, ordinary, controlled)
-    selected.extend(_digest_summary(summary) for summary in ordinary)
+    scoped_ordinary = len(ordinary) == 1
+    selected.extend(_digest_summary(summary, scoped=scoped_ordinary) for summary in ordinary)
     # The player-loop digest is cross-system evidence. A scoped report intentionally omits
     # unrelated probe families, so synthesizing the loop from partial evidence would fill it with
     # misleading zero/n/a sections. Emit it only when every ordinary probe family is present.

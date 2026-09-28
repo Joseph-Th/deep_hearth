@@ -1,13 +1,17 @@
 //! Ordinary first-foundry continuation from the already-proven native-copper stage.
 
-use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
+use std::collections::BTreeMap;
+
+use deep_hearth::content::gameplay_fixture::{
+    seed_assembled_equipment_at, seed_lot, seed_stockpile,
+};
 use deep_hearth::content::{
     ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER, ENERGY_STONE_THERMAL_SINK,
     EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
-    FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
-    MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_CAST_PURE_COPPER, PROCESS_MELT_PURE_COPPER,
+    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_TREADLE_DYNAMO, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_INGOT, FORM_LOG,
+    FORM_LUMP, FORM_NATIVE_METAL, FORM_REINFORCEMENT, MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER, PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -28,11 +32,12 @@ use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
-use super::manual_craft_batches::execute_manual_craft_batches;
-use super::manual_craft_planning::manual_craft_plan_for_available_output;
+use super::manual_craft_execution::execute_manual_craft;
 use super::manual_power_timing::finish_manual_power_work;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
+use super::world_admission::STATIONARY_PLAYER_ORIGIN;
 #[path = "first_foundry_probe/casting.rs"]
 mod casting;
 #[path = "first_foundry_probe/planning.rs"]
@@ -44,6 +49,78 @@ use self::planning::{
     foundry_capital_copper, native_copper_opportunity, select_commodity_mass,
     settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
 };
+
+fn seed_prior_settlement_workshop(
+    registries: &Registries,
+    state: &mut AppState,
+) -> (
+    deep_hearth::equipment::EquipmentId,
+    deep_hearth::equipment::EquipmentId,
+    deep_hearth::equipment::EquipmentId,
+) {
+    let definitions = [
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        EQUIPMENT_TIMBER_TREADLE_HAMMER,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    ];
+    let mut requirements = BTreeMap::<CommodityKey, Mass>::new();
+    for definition in definitions {
+        let assembly = registries
+            .equipment()
+            .get_equipment(definition)
+            .and_then(|record| record.assembly_profile())
+            .unwrap_or_else(|| panic!("first foundry prior settlement equipment lost assembly"));
+        for input in assembly.inputs() {
+            let total = requirements.entry(input.commodity()).or_insert(Mass::ZERO);
+            *total = total
+                .checked_add(input.mass())
+                .unwrap_or_else(|| panic!("first foundry prior workshop material overflowed"));
+        }
+    }
+    let capacity = requirements
+        .values()
+        .copied()
+        .try_fold(Mass::ZERO, Mass::checked_add)
+        .unwrap_or_else(|| panic!("first foundry prior workshop capacity overflowed"));
+    let source = seed_stockpile(
+        state,
+        capacity,
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    for (commodity, mass) in requirements {
+        let _ = seed_lot(registries, state, source, commodity, mass, ROOM_TEMPERATURE);
+    }
+    let frame_saw = seed_assembled_equipment_at(
+        registries,
+        state,
+        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+        source,
+        STATIONARY_PLAYER_ORIGIN,
+    );
+    let treadle_hammer = seed_assembled_equipment_at(
+        registries,
+        state,
+        EQUIPMENT_TIMBER_TREADLE_HAMMER,
+        source,
+        STATIONARY_PLAYER_ORIGIN,
+    );
+    let treadle_drive = seed_assembled_equipment_at(
+        registries,
+        state,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        source,
+        STATIONARY_PLAYER_ORIGIN,
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "first foundry inherited workshop must embody its complete disclosed component stock"
+    );
+    (frame_saw, treadle_hammer, treadle_drive)
+}
 
 pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProbeCase) {
     let melting_definition = registries
@@ -68,6 +145,21 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         !first_cast_mass.is_zero(),
         "first foundry authored furnace/mold batch must remain nonzero"
     );
+    let settlement_cast_mass = nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
+        casting_definition.max_batch_mass_capability(),
+    );
+    assert!(
+        settlement_cast_mass > first_cast_mass,
+        "cast-ingot reinvestment must increase the player's available casting batch"
+    );
+    assert!(
+        settlement_cast_mass
+            .milligrams()
+            .is_multiple_of(first_cast_mass.milligrams()),
+        "settlement cast must be an integral number of first-foundry melts"
+    );
 
     let native_opportunity = native_copper_opportunity(case);
     let capital_copper = foundry_capital_copper(registries);
@@ -76,9 +168,13 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let disclosed_stone_opportunity = FOUNDRY_STONE_OPPORTUNITY
         .checked_add(settlement_stone)
         .unwrap_or_else(|| panic!("first foundry disclosed stone opportunity overflowed"));
+    // Machinery should be justified by disclosed work, not merely by enough matter to assemble
+    // the next unlock. Require enough copper to build the first foundry, cast the mold-upgrade
+    // stock, and then actually run one settlement-size batch through that upgraded capability.
     let required_after_current = capital_copper
         .checked_add(settlement_ingots)
-        .unwrap_or_else(|| panic!("first foundry bootstrap copper requirement overflowed"));
+        .and_then(|mass| mass.checked_add(settlement_cast_mass))
+        .unwrap_or_else(|| panic!("first foundry workload-backed copper requirement overflowed"));
 
     let settlement_mold_upgrade = registries
         .equipment()
@@ -92,11 +188,15 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     );
 
     let mut state = AppState::new();
+    let (frame_saw, treadle_hammer, treadle_drive) =
+        seed_prior_settlement_workshop(registries, &mut state);
+    let workshop_tools = [frame_saw, treadle_hammer];
     let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(25_000_000));
     let parts = add_solid_stockpile(&mut state, Mass::from_milligrams(25_000_000));
     let current_output = add_solid_stockpile(&mut state, first_cast_mass);
     let upgrade_source =
         add_solid_stockpile(&mut state, settlement_mold_upgrade.additions().input_mass());
+    let settlement_output = add_solid_stockpile(&mut state, settlement_cast_mass);
     let melting_point = registries
         .materials()
         .get_material(MATERIAL_COPPER)
@@ -104,7 +204,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|| panic!("first foundry copper melting point disappeared"));
     let molten_profile = StockpileStorageProfile::new(false, true, melting_point)
         .unwrap_or_else(|error| panic!("first foundry molten storage profile failed: {error}"));
-    let molten = seed_stockpile(&mut state, first_cast_mass, molten_profile);
+    let molten = seed_stockpile(&mut state, settlement_cast_mass, molten_profile);
 
     for (commodity, mass) in [
         (
@@ -146,7 +246,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     }
     super::world_admission::locate_stationary_endpoints(
         &mut state,
-        &[raw, parts, current_output, upgrade_source, molten],
+        &[
+            raw,
+            parts,
+            current_output,
+            upgrade_source,
+            molten,
+            settlement_output,
+        ],
         &[],
     );
     initialize_player_survival(registries, &mut state)
@@ -163,21 +270,21 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     // route. The foundry is considered only for the next capability step, after the player has paid
     // the current-order cost and can see exactly how much copper remains.
     let reinforcement = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
-    let (current_route, current_batches, current_source) = manual_craft_plan_for_available_output(
+    let (current_request, _current_batches) = manual_craft_plan_with_available_equipment(
         registries,
         &state,
         &[raw],
+        &workshop_tools,
         reinforcement,
         first_cast_mass,
         "first foundry current reinforcement order",
     );
-    let direct_native_ticks = execute_manual_craft_batches(
+    let current_tool = current_request.equipment();
+    let direct_native_ticks = execute_manual_craft(
         registries,
         &mut state,
-        current_route.process(),
-        current_source,
+        current_request,
         current_output,
-        current_batches,
         "first foundry current-order native working",
     )
     .value();
@@ -213,7 +320,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         let survival_after = assess_survival(registries, &state)
             .unwrap_or_else(|| panic!("first foundry deferred player survival disappeared"));
         reviewln!(
-            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode resource-opportunity=[stone:{}mg wood:{}mg native:{}mg] immediate-choice=[order:{}mg direct-native:{}t reinforcement:{}mg selection:direct-native reason=cheap-current-order] bootstrap-choice=[remaining-native:{}mg foundry-capital:{}mg cast-ingots:{}mg required:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=insufficient-copper-to-complete-bootstrap] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
+            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] resource-opportunity=[stone:{}mg wood:{}mg native:{}mg] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=insufficient-copper-for-foundry-plus-first-settlement-batch] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
             case.seed(),
             case.role().label(),
             disclosed_stone_opportunity.milligrams(),
@@ -222,9 +329,17 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             first_cast_mass.milligrams(),
             direct_native_ticks,
             direct_native_reinforcement.milligrams(),
+            if current_tool == Some(treadle_hammer) {
+                "treadle-hammer"
+            } else if current_tool == Some(frame_saw) {
+                "frame-saw"
+            } else {
+                "hand"
+            },
             remaining_native.milligrams(),
             capital_copper.milligrams(),
             settlement_ingots.milligrams(),
+            settlement_cast_mass.milligrams(),
             required_after_current.milligrams(),
             shortfall.milligrams(),
             direct_native_ticks,
@@ -242,18 +357,33 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         return;
     }
 
-    let fabrication_ticks = craft_foundry_components(registries, &mut state, raw, parts);
+    let mut unassisted_fabrication_state = state.clone();
+    let unassisted_fabrication = craft_foundry_components(
+        registries,
+        &mut unassisted_fabrication_state,
+        raw,
+        parts,
+        &[],
+    );
+    let fabrication = craft_foundry_components(registries, &mut state, raw, parts, &workshop_tools);
+    assert!(
+        fabrication.total_ticks < unassisted_fabrication.total_ticks,
+        "inherited settlement workshop must reduce the first-foundry component workload"
+    );
+    let workshop_attention_saved = unassisted_fabrication
+        .total_ticks
+        .checked_sub(fabrication.total_ticks)
+        .unwrap_or_else(|| unreachable!("assisted fabrication was established as faster"));
     let assemble_equipment = |state: &mut AppState, definition| {
         validate_assemble_equipment(registries, state, definition, parts)
             .unwrap_or_else(|error| panic!("first foundry equipment assembly failed: {error}"))
             .commit(state)
             .unwrap_or_else(|error| panic!("first foundry equipment commit failed: {error}"))
     };
-    let treadle = assemble_equipment(&mut state, EQUIPMENT_TIMBER_TREADLE_DRIVE);
     let dynamo = validate_upgrade_equipment(
         registries,
         &state,
-        treadle,
+        treadle_drive,
         EQUIPMENT_TIMBER_TREADLE_DYNAMO,
         parts,
     )
@@ -467,15 +597,6 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         upgraded_mold, mold,
         "settlement casting upgrade must preserve the existing mold identity"
     );
-    let settlement_cast_mass = nominal_equipment_mass_capability(
-        registries,
-        EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
-        casting_definition.max_batch_mass_capability(),
-    );
-    assert!(
-        settlement_cast_mass > first_cast_mass,
-        "cast-ingot reinvestment must increase the player's available casting batch"
-    );
     assert_eq!(
         state
             .inventory()
@@ -484,6 +605,169 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         Some(Mass::ZERO),
         "settlement mold upgrade must consume the disclosed stone and cast-ingot stock"
     );
+
+    // A nominal capability increase is not enough evidence. If this lived world still owns enough
+    // copper, accumulate four primitive melts and prove that the upgraded mold plus the unchanged
+    // first-foundry heat sink can execute one real settlement-size cast. Lower-supply worlds stop
+    // here honestly and expose the local-resource frontier instead of receiving fixture matter.
+    let remaining_before_settlement_cast = state
+        .inventory()
+        .get_stockpile(raw)
+        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)))
+        .unwrap_or_else(|| panic!("first foundry raw stockpile disappeared after mold upgrade"));
+    let settlement_supply_shortfall = settlement_cast_mass
+        .checked_sub(remaining_before_settlement_cast)
+        .unwrap_or(Mass::ZERO);
+    let mut settlement_charge_ticks = 0_u64;
+    let mut settlement_melt_ticks = 0_u64;
+    let mut settlement_cast_ticks = 0_u64;
+    let mut settlement_cooldown_ticks = 0_u64;
+    let mut settlement_released_heat = Energy::ZERO;
+    let settlement_batch_executed = remaining_before_settlement_cast >= settlement_cast_mass;
+    if settlement_batch_executed {
+        let melt_batches = settlement_cast_mass.milligrams() / first_cast_mass.milligrams();
+        for batch_index in 0..melt_batches {
+            let charge = validate_start_manual_power(
+                registries,
+                &state,
+                ManualPowerRequest::new(
+                    MANUAL_POWER_TREADLE_DYNAMO,
+                    dynamo,
+                    electrical,
+                    required_electrical,
+                ),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "first foundry settlement-batch charge {} failed: {error}",
+                    batch_index + 1
+                )
+            });
+            let charge_work = charge.work();
+            charge.commit(&mut state).unwrap_or_else(|error| {
+                panic!(
+                    "first foundry settlement-batch charge {} commit failed: {error}",
+                    batch_index + 1
+                )
+            });
+            settlement_charge_ticks = settlement_charge_ticks
+                .checked_add(finish_manual_power_work(
+                    registries,
+                    &mut state,
+                    charge_work,
+                    "first foundry settlement-batch electrical charging",
+                ))
+                .unwrap_or_else(|| panic!("first foundry settlement charge time overflowed"));
+
+            let native_selection = select_commodity_mass(
+                &state,
+                raw,
+                CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+                first_cast_mass,
+                "first foundry settlement-batch native-copper feed",
+            );
+            let melting = resolve_melting_process(
+                registries,
+                &state,
+                MeltingRequest::new(
+                    PROCESS_MELT_PURE_COPPER,
+                    raw,
+                    native_selection.as_slice(),
+                    furnace,
+                    electrical,
+                ),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "first foundry settlement-batch melt {} resolution failed: {error}",
+                    batch_index + 1
+                )
+            });
+            settlement_melt_ticks = settlement_melt_ticks
+                .checked_add(melting.process_resolution().duration().value())
+                .unwrap_or_else(|| panic!("first foundry settlement melt time overflowed"));
+            let job = validate_start_process(
+                registries,
+                &state,
+                melting.process_resolution(),
+                raw,
+                molten,
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "first foundry settlement-batch melt {} start failed: {error}",
+                    batch_index + 1
+                )
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "first foundry settlement-batch melt {} commit failed: {error}",
+                    batch_index + 1
+                )
+            });
+            finish_uninterrupted_production_job(
+                registries,
+                &mut state,
+                job,
+                "first foundry settlement-batch melt",
+            );
+        }
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(molten)
+                .map(|stockpile| stockpile.stored_mass()),
+            Some(settlement_cast_mass),
+            "four primitive melts must accumulate the exact upgraded-mold batch"
+        );
+        let (casting, waited) = resolve_full_cast_after_cooldown(
+            registries,
+            &mut state,
+            molten,
+            upgraded_mold,
+            heat_sink,
+            settlement_cast_mass,
+        );
+        settlement_cooldown_ticks = waited;
+        settlement_cast_ticks = casting.process_resolution().duration().value();
+        settlement_released_heat = casting.released_energy();
+        let job = validate_start_process(
+            registries,
+            &state,
+            casting.process_resolution(),
+            molten,
+            settlement_output,
+        )
+        .unwrap_or_else(|error| panic!("first foundry settlement-size cast start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("first foundry settlement-size cast commit failed: {error}")
+        });
+        finish_uninterrupted_production_job(
+            registries,
+            &mut state,
+            job,
+            "first foundry settlement-size cast",
+        );
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(settlement_output)
+                .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_INGOT))),
+            Some(settlement_cast_mass),
+            "mold reinvestment must produce one real settlement-size copper ingot batch"
+        );
+    } else {
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(settlement_output)
+                .map(|stockpile| stockpile.stored_mass()),
+            Some(Mass::ZERO),
+            "supply-limited follow-up must not invent settlement cast output"
+        );
+    }
 
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("first foundry final state invalid: {error}"));
@@ -496,15 +780,24 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let survival_after = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("first foundry player survival disappeared after execution"));
     let elapsed = state.tick().value() - started_at;
-    let active_foundry_ticks = fabrication_ticks
+    let active_foundry_ticks = fabrication
+        .total_ticks
         .checked_add(charge_ticks)
+        .and_then(|ticks| ticks.checked_add(settlement_charge_ticks))
         .unwrap_or_else(|| panic!("first foundry active attention overflowed"));
     let total_player_attention = direct_native_ticks
         .checked_add(active_foundry_ticks)
         .unwrap_or_else(|| panic!("first foundry total player attention overflowed"));
-    let autonomous_ticks = melt_ticks
+    let bootstrap_autonomous_ticks = melt_ticks
         .checked_add(cast_ticks)
         .and_then(|ticks| ticks.checked_add(cooldown_ticks))
+        .unwrap_or_else(|| panic!("first foundry bootstrap autonomous window overflowed"));
+    let settlement_autonomous_ticks = settlement_melt_ticks
+        .checked_add(settlement_cast_ticks)
+        .and_then(|ticks| ticks.checked_add(settlement_cooldown_ticks))
+        .unwrap_or_else(|| panic!("first foundry settlement autonomous window overflowed"));
+    let autonomous_ticks = bootstrap_autonomous_ticks
+        .checked_add(settlement_autonomous_ticks)
         .unwrap_or_else(|| panic!("first foundry autonomous window overflowed"));
     let remaining_native_after = state
         .inventory()
@@ -513,7 +806,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|| panic!("first foundry raw stockpile disappeared after bootstrap"));
 
     reviewln!(
-        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode resource-opportunity=[stone:{}mg wood:{}mg native:{}mg] immediate-choice=[order:{}mg direct-native:{}t reinforcement:{}mg selection:direct-native reason=cheap-current-order] bootstrap-choice=[remaining-native:{}mg foundry-capital:{}mg cast-ingots:{}mg required:{}mg shortfall:0mg selection:foundry reason=cast-ingot-stock-required-for-next-stage-mold] foundry-build=true fabrication={}t/{} campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] copper-after-bootstrap:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=settlement-batch-foundry",
+        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] resource-opportunity=[stone:{}mg wood:{}mg native:{}mg] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall:0mg selection=foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:{}t/{} material=[stone:{}t wood:{}t copper:{}t] route=[hand:{}t frame-saw:{}t treadle-hammer:{}t]] workshop-reuse=[hand-only:{}t saved:{}t] campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] settlement-cast=[executed:{} batch:{}mg supply-shortfall:{}mg charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] total-autonomous:{}t copper-after-episode:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation={}",
         case.seed(),
         case.role().label(),
         disclosed_stone_opportunity.milligrams(),
@@ -522,21 +815,47 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         first_cast_mass.milligrams(),
         direct_native_ticks,
         direct_native_reinforcement.milligrams(),
+        if current_tool == Some(treadle_hammer) {
+            "treadle-hammer"
+        } else if current_tool == Some(frame_saw) {
+            "frame-saw"
+        } else {
+            "hand"
+        },
         remaining_native.milligrams(),
         capital_copper.milligrams(),
         settlement_ingots.milligrams(),
+        settlement_cast_mass.milligrams(),
         required_after_current.milligrams(),
-        fabrication_ticks,
-        format_physical_duration(registries, fabrication_ticks),
+        fabrication.total_ticks,
+        format_physical_duration(registries, fabrication.total_ticks),
+        fabrication.stone_ticks,
+        fabrication.wood_ticks,
+        fabrication.copper_ticks,
+        fabrication.hand_ticks,
+        fabrication.frame_saw_ticks,
+        fabrication.treadle_hammer_ticks,
+        unassisted_fabrication.total_ticks,
+        workshop_attention_saved,
         cast_batches,
         charge_ticks,
         melt_ticks,
         cast_ticks,
         cooldown_ticks,
-        autonomous_ticks,
+        bootstrap_autonomous_ticks,
         released_heat.nanojoules(),
         first_cast_mass.milligrams(),
         settlement_cast_mass.milligrams(),
+        settlement_batch_executed,
+        settlement_cast_mass.milligrams(),
+        settlement_supply_shortfall.milligrams(),
+        settlement_charge_ticks,
+        settlement_melt_ticks,
+        settlement_cast_ticks,
+        settlement_cooldown_ticks,
+        settlement_autonomous_ticks,
+        settlement_released_heat.nanojoules(),
+        autonomous_ticks,
         remaining_native_after.milligrams(),
         total_player_attention,
         elapsed,
@@ -551,5 +870,10 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             .checked_sub(survival_after.hydration())
             .unwrap_or_else(|| panic!("first foundry hydration reserve increased"))
             .microliters(),
+        if settlement_batch_executed {
+            "settlement-batch-proven"
+        } else {
+            "settlement-batch-supply"
+        },
     );
 }

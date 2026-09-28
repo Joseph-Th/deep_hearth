@@ -1,8 +1,10 @@
 //! Shared actor policy for attention-return floors on physical capital investment.
 
-// A candidate must beat break-even by a visible fraction of its extra setup cost. This filters
-// token wins near projection crossovers without demanding that the setup cost be repaid twice.
-const CAPITAL_MINIMUM_RETURN_PPM: u64 = 50_000;
+// Capital should feel like a decisive reduction in future player attention, not a technically
+// positive spreadsheet result. Require the disclosed workload to beat break-even by one fifth of
+// the candidate's extra setup attention. This still permits project-scale specialization while
+// rejecting machinery that consumes substantial material and setup for only a few saved ticks.
+const CAPITAL_MINIMUM_RETURN_PPM: u64 = 200_000;
 
 pub(super) fn minimum_attention_return(
     incumbent_setup_attention_ticks: u64,

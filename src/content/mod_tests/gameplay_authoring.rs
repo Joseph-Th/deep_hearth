@@ -202,7 +202,7 @@ fn settlement_batch_foundry_and_channel_sampling_add_distinct_connected_progress
     );
     assert_eq!(
         thermal.capacity(),
-        Energy::from_nanojoules(60_000_000_000_000)
+        Energy::from_nanojoules(200_000_000_000_000)
     );
     assert_eq!(
         thermal.max_input_power(),
@@ -1473,7 +1473,7 @@ fn first_foundry_content_forms_an_ordinary_electrical_casting_chain() {
     assert_eq!(thermal.carrier(), EnergyCarrier::Thermal);
     assert_eq!(
         thermal.capacity(),
-        Energy::from_nanojoules(15_000_000_000_000)
+        Energy::from_nanojoules(50_000_000_000_000)
     );
     assert_eq!(
         thermal.max_input_power(),

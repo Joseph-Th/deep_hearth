@@ -6,17 +6,20 @@ use crate::core::time::SimulationTick;
 use crate::energy::{
     EnergyStoreDefinitionId, EnergyStoreId, add_energy_store_with_initial_for_fixture,
 };
-use crate::equipment::{EquipmentDefinitionId, EquipmentId, add_equipment};
+use crate::equipment::{
+    EquipmentDefinitionId, EquipmentId, add_equipment, validate_assemble_equipment,
+};
 use crate::fluid::{FluidDefinitionId, FluidStoreId, add_fluid_store_with_contents_for_fixture};
 use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
     deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
 };
+use crate::logistics::place_equipment_for_fixture;
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId};
 use crate::registry::Registries;
-use crate::spatial::VoxelBounds;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralElementGeometry, StructuralElementId, StructuralProfileId, add_structural_element,
     bind_structural_construction_selection, resolve_structural_material_requirement,
@@ -39,6 +42,29 @@ pub(super) fn assert_pre_admission(state: &AppState, operation: &str) {
         state.survival().player().is_none() && state.logistics().player().is_none(),
         "gameplay bootstrap {operation} must occur before actor admission"
     );
+}
+
+/// Establishes one material-backed, already-existing equipment instance at a disclosed location.
+///
+/// Assembly itself stays production-owned and consumes the exact authored component traces from
+/// `source`. The fixture contributes only the pre-admission world location that ordinary assembly
+/// would otherwise obtain from an already-admitted player's position. This is therefore suitable
+/// for inherited workshop infrastructure without creating weightless equipment or a post-admission
+/// logistics shortcut.
+pub fn seed_assembled_equipment_at(
+    registries: &Registries,
+    state: &mut AppState,
+    definition: EquipmentDefinitionId,
+    source: StockpileId,
+    position: VoxelCoord,
+) -> EquipmentId {
+    assert_pre_admission(state, "material-backed equipment seed");
+    let equipment = validate_assemble_equipment(registries, state, definition, source)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap equipment assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap equipment commit failed: {error}"));
+    place_equipment_for_fixture(state, equipment, position);
+    equipment
 }
 
 /// Seeds a controlled scenario player at the authored hydration warning boundary.

@@ -15,6 +15,7 @@ use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelBounds;
 
 use super::super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::super::focused_witnesses::FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED;
 use super::super::physical_time::format_physical_duration;
 use super::campaign::{FieldworkSurveyCampaignReview, MINIMUM_SURVEY_INVESTMENT_RETURN_PPM};
 use super::extraction::{
@@ -439,6 +440,23 @@ fn report_known_site_exploitation(
         let fulfillment_delta = i128::from(recovery.fulfilled.milligrams())
             - i128::from(recovery.baseline_fulfilled.milligrams());
         let reroute_proved = !recovery.additional_extracted.is_zero();
+        if review.case.role() == FocusedProbeRole::MaintainedCoverage
+            && review.case.seed() == FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED
+        {
+            assert!(
+                recovery.hardness_tier_changes > 0,
+                "adaptive fieldwork witness must encounter materially different geology"
+            );
+            assert!(
+                recovery.tool_switches > 0 && recovery.salvage_retools > 0,
+                "adaptive fieldwork witness must salvage an obsolete specialization and switch tools"
+            );
+            assert_eq!(
+                recovery.remaining,
+                Mass::ZERO,
+                "adaptive fieldwork witness must complete its disclosed multi-site order"
+            );
+        }
         reviewln!(
             "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved={} evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution={} mining-tool-reused={} survey-base-kit-reused=true strategy={} planned-sites={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t total-attention-delta:{:+}t] adaptation=[hardness-tier-changes:{} tool-builds:{} tool-switches:{} salvage-retools:{} blocked-sites:{} tool-preparation:{}t ore-recovery-events:{} ore-recovery-required-access:{} ore-recovery-payback:{} ore-recovery:{}t ore-feed:{}mg native-recovered:{}mg baseline-fulfilled:{}mg fulfillment-delta:{:+}mg] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
             review.case.seed(),

@@ -86,7 +86,7 @@ def _extract_evidence(fieldwork: list[str], liberation: list[str], extracted: in
 def _thermal_bootstrap_evidence(first_foundry: list[str]) -> str:
     foundry_builds = sum(" foundry-build=true " in line for line in first_foundry)
     batch_foundry = sum(
-        " continuation=settlement-batch-foundry" in line for line in first_foundry
+        " continuation=settlement-batch-proven" in line for line in first_foundry
     )
     return f"thermal-bootstrap={batch_foundry}/{foundry_builds}"
 
@@ -319,16 +319,40 @@ def _maintenance_evidence(
 ) -> str:
     service_counts = [_selected_woodworking_services(line) for line in woodworking]
     power_service_counts = []
+    primitive_attention_share = []
+    settlement_attention_share = []
     for line in power_projects:
         match = re.search(r"maintenance=\[services:(\d+)", line)
         if match is not None:
             power_service_counts.append(int(match.group(1)))
+        attention = re.search(
+            r"\bactive-attention:(\d+)t .*?maintenance=\[services:\d+ "
+            r"preparation:(\d+)t service:(\d+)t",
+            line,
+        )
+        era = re.search(r"\bera=([^\s]+)", line)
+        if attention is None or era is None:
+            continue
+        active, preparation, service = map(int, attention.groups())
+        if active == 0:
+            continue
+        share = ((preparation + service) * 100 + active // 2) // active
+        if era.group(1) == "primitive":
+            primitive_attention_share.append(share)
+        elif era.group(1) == "settlement":
+            settlement_attention_share.append(share)
+
+    def percent_span(values: list[int]) -> str:
+        return f"{min(values)}..{max(values)}%" if values else "n/a"
+
     return (
         "maintain-recover=["
         f"woodworking-service-worlds:{sum(count > 0 for count in service_counts)}/{len(woodworking)} "
         f"woodworking-service-events:{sum(service_counts)} "
         f"mechanized-projects-with-service:{sum(count > 0 for count in power_service_counts)}/{len(power_service_counts)} "
-        f"mechanized-service-events:{sum(power_service_counts)}]"
+        f"mechanized-service-events:{sum(power_service_counts)} "
+        f"maintenance-attention=[primitive:{percent_span(primitive_attention_share)} "
+        f"settlement:{percent_span(settlement_attention_share)}]]"
     )
 
 
