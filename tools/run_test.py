@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Discover, type-check, or run exact Rust tests without paying for selector mistakes."""
+"""Discover or run exact Rust tests without paying for selector mistakes."""
 
 from __future__ import annotations
 
@@ -87,17 +87,6 @@ def cargo_feature_set(target: str, raw: str | None) -> set[str]:
     )
 
 
-def enabled_integration_test_targets(raw_features: str | None) -> list[str]:
-    """Return integration tests Cargo would enable under the library feature set."""
-
-    enabled = cargo_feature_set("lib", raw_features)
-    return [
-        definition["name"]
-        for definition in cargo_manifest().get("test", [])
-        if set(definition.get("required-features", [])) <= enabled
-    ]
-
-
 def cargo_test_target_path(target: str) -> Path:
     return ROOT / cargo_test_target_definition(target)["path"]
 
@@ -154,18 +143,6 @@ def test_targets() -> tuple[str, ...]:
 
 
 @lru_cache(maxsize=None)
-def target_source_weight(target: str, raw_features: str | None) -> int:
-    """Approximate one target's compile surface from its reachable Rust source bytes."""
-
-    features = cargo_feature_set(target, raw_features)
-    root = ROOT / "src" / "lib.rs" if target == "lib" else cargo_test_target_path(target)
-    return sum(
-        path.stat().st_size
-        for path, _prefix in test_catalog.reachable_modules(ROOT, root, features)
-    )
-
-
-@lru_cache(maxsize=None)
 def _all_source_test_locations(raw_features: str | None) -> tuple[tuple[str, str], ...]:
     return tuple(
         (target, name)
@@ -185,15 +162,23 @@ def all_source_test_names(raw_features: str | None) -> list[str]:
 
 
 def preferred_target(targets: set[str], raw_features: str | None) -> str:
-    """Choose the smallest source closure, with target name as a deterministic tie break."""
+    """Prefer purpose-built contract/focused targets over the consolidated audit target."""
 
-    return min(targets, key=lambda target: (target_source_weight(target, raw_features), target))
+    def role_rank(target: str) -> int:
+        if target == "gameplay_audit":
+            return 2
+        if target == "gameplay_contracts" or target.endswith("_contracts"):
+            return 0
+        return 1
+
+    del raw_features
+    return min(targets, key=lambda target: (role_rank(target), target))
 
 
 def resolve_automatic_exact_selection(
     selector: str, raw_features: str | None
 ) -> tuple[str, str]:
-    """Resolve one logical test globally, then choose its cheapest existing Cargo target."""
+    """Resolve one logical test globally, then choose its purpose-built Cargo target."""
 
     locations = all_source_test_locations(raw_features)
     exact = [(target, name) for target, name in locations if name == selector]
@@ -209,7 +194,7 @@ def resolve_automatic_exact_selection(
 
 
 def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> str:
-    """Choose one smallest target that contains the complete globally matched logical suite."""
+    """Choose one purpose-built target containing the complete globally matched logical suite."""
 
     matches_by_target = {
         target: source_test_matches(selector, source_test_catalog(target, raw_features))
@@ -292,32 +277,6 @@ def executed_test_counts(stdout: str) -> tuple[int, int] | None:
     return int(match.group("passed")), int(match.group("ignored"))
 
 
-def cargo_check_command(args: argparse.Namespace) -> list[str]:
-    """Type-check one test crate without code generation or linking."""
-
-    if args.list:
-        raise ValueError("source catalog listing does not invoke Cargo")
-    if args.target is None:
-        raise ValueError("--check requires an explicit test target")
-    # Keep check-only test work on the same profile as `cargo test`/gameplay reports. Using
-    # Cargo's default dev profile here creates a second feature/profile cache for the same target.
-    command = ["cargo", "check", "--quiet", "--locked", "--profile", "test"]
-    if args.target == "lib":
-        enabled_targets = enabled_integration_test_targets(args.features)
-        if enabled_targets:
-            raise ValueError(
-                "lib --check would also enable integration targets: "
-                + ", ".join(enabled_targets)
-            )
-        command.extend(("--lib", "--tests"))
-    else:
-        command.extend(("--test", args.target))
-    requested_features = requested_target_features(args.target, args.features)
-    if requested_features:
-        command.extend(("--features", ",".join(sorted(requested_features))))
-    return command
-
-
 def cargo_lint_command(args: argparse.Namespace) -> list[str]:
     """Clippy one integration-test target without widening to all targets."""
 
@@ -340,7 +299,7 @@ def cargo_lint_command(args: argparse.Namespace) -> list[str]:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run one exact cached Rust test or bounded suite, type-check or lint one test crate, "
+            "Run one exact cached Rust test or bounded suite, lint one integration-test target, "
             "or inspect the build-free source catalog."
         )
     )
@@ -355,11 +314,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="list exact source test names without compiling or linking",
     )
     parser.add_argument(
-        "--check",
-        action="store_true",
-        help="type-check the library test crate or one integration test target without linking",
-    )
-    parser.add_argument(
         "--lint",
         action="store_true",
         help="Clippy one integration test target without widening to all targets",
@@ -372,8 +326,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--target",
         help=(
-            "explicit Cargo test target; exact/list/suite modes otherwise resolve the smallest "
-            "matching source target automatically"
+            "explicit Cargo test target; exact/list/suite modes otherwise resolve the "
+            "purpose-built matching source target automatically"
         ),
     )
     parser.add_argument(
@@ -401,21 +355,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="replay DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED for this test execution",
     )
     args = parser.parse_args(argv)
-    if not args.list and not args.check and not args.lint and not args.name:
+    if not args.list and not args.lint and not args.name:
         parser.error("a test selector is required for test execution")
-    if sum((args.list, args.check, args.lint)) > 1:
-        parser.error("--list, --check, and --lint are mutually exclusive")
-    if args.suite and (args.list or args.check or args.lint):
-        parser.error("--suite is an execution mode and cannot be combined with --list/--check/--lint")
-    if (args.check or args.lint) and args.target is None and not args.name:
-        parser.error("--check/--lint require either a source selector or explicit --target")
-    if (args.check or args.lint) and args.target is not None and args.name:
-        parser.error("with explicit --target, --check/--lint validate the whole target; omit NAME")
+    if args.list and args.lint:
+        parser.error("--list and --lint are mutually exclusive")
+    if args.suite and (args.list or args.lint):
+        parser.error("--suite is an execution mode and cannot be combined with --list/--lint")
+    if args.lint and args.target is None and not args.name:
+        parser.error("--lint requires either a source selector or explicit --target")
+    if args.lint and args.target is not None and args.name:
+        parser.error("with explicit --target, --lint validates the whole target; omit NAME")
     if args.suite and args.ignored:
         parser.error("--ignored requires exact execution; use an exact ignored-test selector")
-    if (args.list or args.check or args.lint) and (args.ignored or args.nocapture or args.verbose):
+    if (args.list or args.lint) and (args.ignored or args.nocapture or args.verbose):
         parser.error("--ignored, --nocapture, and --verbose apply only to execution modes")
-    if (args.list or args.check or args.lint) and (args.variation_seed or args.behavior_seed):
+    if (args.list or args.lint) and (args.variation_seed or args.behavior_seed):
         parser.error("gameplay replay seeds are execution-only options")
     return args
 
@@ -481,8 +435,8 @@ def resolve_automatic_selection(args: argparse.Namespace) -> tuple[str, list[str
         return None
 
 
-def resolve_automatic_validation_target(args: argparse.Namespace) -> bool:
-    """Resolve check/lint to the smallest target containing the complete selected source suite."""
+def resolve_automatic_lint_target(args: argparse.Namespace) -> bool:
+    """Resolve lint to the purpose-built target containing the selected source suite."""
 
     selector = args.name
     assert selector is not None
@@ -598,13 +552,10 @@ def report_cargo_success(
     result: subprocess.CompletedProcess[str],
     elapsed: float,
 ) -> None:
-    if args.check:
-        print(f"PASS check {args.target} ({elapsed:.1f}s)")
-        return
     if getattr(args, "lint", False):
         print(f"PASS lint {args.target} ({elapsed:.1f}s)")
         return
-    if not args.check and (args.nocapture or getattr(args, "verbose", False)) and result.stdout.strip():
+    if (args.nocapture or getattr(args, "verbose", False)) and result.stdout.strip():
         print(result.stdout.rstrip())
     if args.suite:
         print(
@@ -617,22 +568,9 @@ def report_cargo_success(
 
 def main() -> int:
     args = parse_args()
-    if (args.check or args.lint) and args.target is None:
-        if not resolve_automatic_validation_target(args):
+    if args.lint and args.target is None:
+        if not resolve_automatic_lint_target(args):
             return 2
-    if args.check:
-        try:
-            command = cargo_check_command(args)
-        except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-            print(f"FAIL check selection: {error}", file=sys.stderr)
-            return 2
-        result, elapsed = execute_cargo_command(command)
-        if result.returncode != 0:
-            report_cargo_failure(command, result, elapsed)
-            return result.returncode
-        report_cargo_success(args, None, result, elapsed)
-        return 0
-
     if args.lint:
         try:
             command = cargo_lint_command(args)

@@ -12,18 +12,20 @@ mod equipment_support;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
-#[path = "gameplay_harness/manual_craft_batches.rs"]
-mod manual_craft_batches;
-#[path = "gameplay_harness/manual_craft_execution.rs"]
-mod manual_craft_execution;
+#[path = "gameplay_harness/manual_assembly_planning.rs"]
+mod manual_assembly_planning;
 #[path = "gameplay_harness/manual_craft_planning.rs"]
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[path = "gameplay_harness/manual_craft_topology_planning.rs"]
+mod manual_craft_topology_planning;
 #[path = "gameplay_harness/manual_ore_recovery.rs"]
 mod manual_ore_recovery;
 #[path = "gameplay_harness/manual_power_timing.rs"]
@@ -32,18 +34,20 @@ mod manual_power_timing;
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
-#[path = "gameplay_harness/physical_time.rs"]
-mod physical_time;
-#[path = "gameplay_harness/primitive_liberation.rs"]
-mod primitive_liberation;
 #[path = "gameplay_harness/primitive_workload.rs"]
 mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[cfg(test)]
+#[path = "gameplay_harness/progression_episode_contract_tests.rs"]
+mod progression_episode_contract_tests;
+#[allow(
+    dead_code,
+    unused_variables,
+    reason = "focused progression executes the player-facing probe; owner contracts and report examples consume additional diagnostic evidence from the shared evaluator"
+)]
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
-#[path = "gameplay_harness/progression_scope.rs"]
-mod progression_scope;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
 #[path = "gameplay_harness/seed.rs"]
@@ -52,23 +56,11 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-#[path = "gameplay_harness/world_admission.rs"]
-mod world_admission;
-
 #[cfg(test)]
 #[test]
 fn gameplay_primitive_progression_probe() {
     focused_runner::run_focused_probe(
         "primitive-progression",
-        progression_scope::run_primitive_progression_scope,
-    );
-}
-
-#[test]
-#[ignore = "exploratory report; run via python ci.py report --scope progression"]
-fn gameplay_primitive_progression_report() {
-    focused_runner::run_focused_report(
-        "primitive-progression",
-        progression_scope::run_primitive_progression_scope,
+        progression_probe::run_primitive_progression_probe,
     );
 }

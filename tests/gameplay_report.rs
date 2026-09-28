@@ -33,6 +33,8 @@ mod first_foundry_probe;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[path = "gameplay_harness/foundry_probe.rs"]
 mod foundry_probe;
 #[path = "gameplay_harness/foundry_setup.rs"]
@@ -45,6 +47,8 @@ mod industrial_support;
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
+#[path = "gameplay_harness/manual_assembly_planning.rs"]
+mod manual_assembly_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
@@ -53,8 +57,12 @@ mod manual_craft_execution;
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[path = "gameplay_harness/manual_craft_topology_planning.rs"]
+mod manual_craft_topology_planning;
 #[path = "gameplay_harness/manual_ore_recovery.rs"]
 mod manual_ore_recovery;
+#[path = "gameplay_harness/manual_ore_recovery_evaluation.rs"]
+mod manual_ore_recovery_evaluation;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
@@ -83,8 +91,6 @@ mod production_support;
 mod production_timing;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
-#[path = "gameplay_harness/progression_scope.rs"]
-mod progression_scope;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
 #[path = "gameplay_harness/report.rs"]
@@ -97,8 +103,6 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
-#[path = "gameplay_harness/settlement_scope.rs"]
-mod settlement_scope;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/survival_probe.rs"]
@@ -107,6 +111,8 @@ mod survival_probe;
 mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[path = "gameplay_harness/woodworking_policy.rs"]
+mod woodworking_policy;
 #[path = "gameplay_harness/woodworking_probe.rs"]
 mod woodworking_probe;
 #[path = "gameplay_harness/workshop.rs"]
@@ -120,10 +126,12 @@ enum ReportScope {
     Workshop,
     Survival,
     Progression,
+    Liberation,
     Woodworking,
     Fieldwork,
     PowerProvider,
     Settlement,
+    FoundryBootstrap,
     Agency,
     Ore,
     Foundry,
@@ -137,16 +145,18 @@ impl ReportScope {
             Some("workshop") => Self::Workshop,
             Some("survival") => Self::Survival,
             Some("progression") => Self::Progression,
+            Some("liberation") => Self::Liberation,
             Some("woodworking") => Self::Woodworking,
             Some("fieldwork") => Self::Fieldwork,
             Some("power-provider") => Self::PowerProvider,
             Some("settlement") => Self::Settlement,
+            Some("foundry-bootstrap") => Self::FoundryBootstrap,
             Some("agency") => Self::Agency,
             Some("ore") => Self::Ore,
             Some("foundry") => Self::Foundry,
             Some(scope) => {
                 return Err(format!(
-                    "unknown scope {scope:?}; expected all, workshop, survival, progression, woodworking, fieldwork, power-provider, settlement, agency, ore, or foundry"
+                    "unknown scope {scope:?}; expected all, workshop, survival, progression, liberation, woodworking, fieldwork, power-provider, settlement, foundry-bootstrap, agency, ore, or foundry"
                 ));
             }
         };
@@ -195,7 +205,17 @@ fn main() -> ExitCode {
         run_focused_probe_with_registries(
             &registries,
             "settlement",
-            settlement_scope::run_settlement_progression_scope,
+            settlement_probe::run_settlement_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    if scope.includes(ReportScope::FoundryBootstrap) {
+        run_focused_probe_with_registries(
+            &registries,
+            "foundry-bootstrap",
+            first_foundry_probe::run_first_foundry_probe,
             true,
             fallback_variation_root,
             fallback_behavior_root,
@@ -245,7 +265,17 @@ fn main() -> ExitCode {
         run_focused_probe_with_registries(
             &registries,
             "primitive-progression",
-            progression_scope::run_primitive_progression_scope,
+            progression_probe::run_primitive_progression_probe,
+            true,
+            fallback_variation_root,
+            fallback_behavior_root,
+        );
+    }
+    if scope.includes(ReportScope::Liberation) {
+        run_focused_probe_with_registries(
+            &registries,
+            "primitive-liberation",
+            primitive_liberation::run_primitive_liberation_probe,
             true,
             fallback_variation_root,
             fallback_behavior_root,

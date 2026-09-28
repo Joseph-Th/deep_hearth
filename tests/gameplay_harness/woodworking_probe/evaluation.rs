@@ -7,15 +7,9 @@ use super::execution::{
 };
 use super::*;
 
-fn signed_physical_duration(registries: &Registries, ticks: i128) -> String {
-    let magnitude = u64::try_from(ticks.unsigned_abs())
-        .unwrap_or_else(|_| panic!("woodworking signed duration exceeds u64"));
-    format!(
-        "{}{}",
-        if ticks < 0 { "-" } else { "+" },
-        format_physical_duration(registries, magnitude)
-    )
-}
+#[cfg(not(test))]
+#[path = "evaluation/report.rs"]
+mod report;
 
 pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeCase) {
     evaluate_woodworking_probe(registries, case);
@@ -23,6 +17,7 @@ pub(super) fn run_woodworking_probe(registries: &Registries, case: FocusedProbeC
 
 #[derive(Clone, Copy)]
 struct WoodworkingDemandPlan {
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report label"))]
     horizon: &'static str,
     immediate_scale: u64,
     immediate_boards: Mass,
@@ -201,10 +196,13 @@ struct WoodworkingDecisionPlan {
     preference: WoodworkingInvestmentPreference,
     bare_attention: u64,
     bare_projected_boards: Mass,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     adze_budget: u64,
     saw_budget: Option<(u64, Mass)>,
     reserve_safe_now: bool,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     setup_attention_budget_met: bool,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     nominal_timber_balance: WoodworkingTimberBalance,
     invest_in_saw: bool,
     use_bare_hands: bool,
@@ -547,19 +545,30 @@ fn execute_woodworking_lifecycle(
 #[derive(Clone, Copy)]
 struct WoodworkingLifecycleMetrics {
     adze_total_attention: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_total_timber: Option<Mass>,
     saw_total_attention: Option<u64>,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_setup_timber: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_actual_batches: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_fallback_adze_batches: u64,
     saw_fallback_due_to_copper: bool,
     saw_service_count: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_fallback_adze_service_count: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_attention_payback: bool,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     actual_timber_balance: WoodworkingTimberBalance,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_timber_saving: bool,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_timber_neutral: bool,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_copper_consumed: Mass,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     copper_after_saw: Mass,
 }
 
@@ -715,18 +724,30 @@ fn evaluate_woodworking_lifecycle(
 
 struct SelectedWoodworkingRoute {
     choice: &'static str,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     route: WoodworkingRouteOutcome,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     setup_ticks: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     total_timber: Mass,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     boards: Mass,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     chips: Mass,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     board_surplus: Mass,
     attention_ticks: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     attention_delta: i128,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     timber_delta: i128,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     adze_route: WoodworkingRouteOutcome,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     adze_setup: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     bare_immediate_ticks: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report detail"))]
     adze_immediate_ticks: u64,
 }
 
@@ -892,160 +913,6 @@ fn select_and_validate_woodworking_route(
     }
 }
 
-struct WoodworkingReportContext<'a> {
-    registries: &'a Registries,
-    case: FocusedProbeCase,
-    behavior_seed: u64,
-    world: &'a WoodworkingWorld,
-    demand: WoodworkingDemandPlan,
-    decision: WoodworkingDecisionPlan,
-    metrics: WoodworkingLifecycleMetrics,
-    selected: &'a SelectedWoodworkingRoute,
-}
-
-fn woodworking_counterfactual_tradeoff(
-    registries: &Registries,
-    metrics: WoodworkingLifecycleMetrics,
-    adze_timber: Mass,
-) -> String {
-    match (metrics.saw_total_attention, metrics.saw_total_timber) {
-        (Some(saw_attention), Some(saw_timber)) => {
-            let attention_delta =
-                i128::from(saw_attention) - i128::from(metrics.adze_total_attention);
-            let timber_delta =
-                i128::from(saw_timber.milligrams()) - i128::from(adze_timber.milligrams());
-            format!(
-                "attention:{attention_delta:+}t/{} timber:{timber_delta:+}mg",
-                signed_physical_duration(registries, attention_delta)
-            )
-        }
-        _ => "unavailable:copper".to_owned(),
-    }
-}
-
-fn report_woodworking_experience(context: &WoodworkingReportContext<'_>) {
-    let WoodworkingReportContext {
-        registries,
-        case,
-        behavior_seed,
-        world,
-        demand,
-        decision,
-        metrics,
-        selected,
-    } = context;
-    let adze_route_time = format_physical_duration(registries, metrics.adze_total_attention);
-    let saw_route_attention = metrics.saw_total_attention.unwrap_or(0);
-    let saw_route_time = format_physical_duration(registries, saw_route_attention);
-    let selected_setup_time = format_physical_duration(registries, selected.setup_ticks);
-    let selected_active_time = format_physical_duration(registries, selected.route.active_ticks());
-    let selected_total_time = format_physical_duration(registries, selected.attention_ticks);
-    let attention_delta_time = signed_physical_duration(registries, selected.attention_delta);
-    let saw_counterfactual_tradeoff = woodworking_counterfactual_tradeoff(
-        registries,
-        *metrics,
-        selected.adze_route.project_timber,
-    );
-    let selected_condition = selected
-        .route
-        .final_condition_ppm
-        .map_or_else(|| "no-tool".to_owned(), |ppm| format!("{ppm}ppm"));
-    let adze_immediate_total = selected
-        .adze_setup
-        .checked_add(selected.adze_immediate_ticks)
-        .unwrap_or_else(|| panic!("woodworking immediate adze attention overflowed"));
-    let adze_immediate_total_time = format_physical_duration(registries, adze_immediate_total);
-    let bare_immediate_time = format_physical_duration(registries, selected.bare_immediate_ticks);
-    let adze_immediate_time = format_physical_duration(registries, selected.adze_immediate_ticks);
-    let saw_route_timber = metrics.saw_total_timber.map_or(0, Mass::milligrams);
-    reviewln!(
-        "WOODWORKING EXPERIENCE seed=0x{:016X} behavior=0x{behavior_seed:016X} sample={} demand-horizon={} demand=[immediate:{}mg queued:{}mg pipeline:{}mg boards] preference={} policy-basis=pre-action-budget-not-lifecycle-oracle copper-counterfactual=[available:{}mg blade:{}mg protected-reserve:{}mg lifecycle-spend:{}mg after-saw:{}mg] routes=[adze:{}logs timber:{}mg attention:{}t/{adze_route_time} production:{}t maintenance:{}t/{}services final-condition:{}ppm; saw-assisted:min-saw-logs:{} fundable:{} setup-timber:{}mg actual=[saw:{} adze-fallback:{} fallback-copper:{} saw-services:{} adze-services:{}] timber:{}mg attention:{}t/{saw_route_time} attention-payback:{} timber-saving:{} timber-neutral:{} counterfactual-vs-adze=[{saw_counterfactual_tradeoff}]] choice={} reason={} selected=[setup:{}t/{selected_setup_time} active:{}t/{selected_active_time} total:{}t/{selected_total_time} timber:{}mg project-timber:{}mg boards:{}mg surplus:{}mg chips:{}mg condition:{selected_condition}] selected-vs-adze=[attention:{:+}t/{attention_delta_time} timber:{:+}mg] immediate-baseline=[bare:{}t/{bare_immediate_time} adze:{adze_immediate_total}t/{adze_immediate_total_time} adze-work-only:{}t/{adze_immediate_time}] matter=conserved",
-        case.seed(),
-        focused_probe_role_label(case.role()),
-        demand.horizon,
-        demand.immediate_boards.milligrams(),
-        demand
-            .pipeline_boards
-            .checked_sub(demand.immediate_boards)
-            .unwrap_or_else(|| unreachable!("pipeline demand includes immediate demand"))
-            .milligrams(),
-        demand.pipeline_boards.milligrams(),
-        decision.preference.label(),
-        world.copper_available.milligrams(),
-        world.blade_input.milligrams(),
-        world.protected_copper_reserve.milligrams(),
-        metrics.saw_copper_consumed.milligrams(),
-        metrics.copper_after_saw.milligrams(),
-        demand.adze_batches,
-        selected.adze_route.project_timber.milligrams(),
-        metrics.adze_total_attention,
-        selected.adze_route.production_ticks,
-        selected.adze_route.maintenance_ticks,
-        selected.adze_route.maintenance_services,
-        selected.adze_route.final_condition_ppm.unwrap_or(0),
-        demand.saw_batches,
-        world.saw_fundable,
-        metrics.saw_setup_timber,
-        metrics.saw_actual_batches,
-        metrics.saw_fallback_adze_batches,
-        metrics.saw_fallback_due_to_copper,
-        metrics.saw_service_count,
-        metrics.saw_fallback_adze_service_count,
-        saw_route_timber,
-        saw_route_attention,
-        metrics.saw_attention_payback,
-        metrics.saw_timber_saving,
-        metrics.saw_timber_neutral,
-        selected.choice,
-        decision.reason.label(),
-        selected.setup_ticks,
-        selected.route.active_ticks(),
-        selected.attention_ticks,
-        selected.total_timber.milligrams(),
-        selected.route.project_timber.milligrams(),
-        selected.boards.milligrams(),
-        selected.board_surplus.milligrams(),
-        selected.chips.milligrams(),
-        selected.attention_delta,
-        selected.timber_delta,
-        selected.bare_immediate_ticks,
-        selected.adze_immediate_ticks,
-    );
-}
-
-fn report_woodworking_result(
-    context: WoodworkingReportContext<'_>,
-) -> (&'static str, u64, Option<u64>) {
-    let bare_time = format_physical_duration(context.registries, context.decision.bare_attention);
-    let adze_route_time =
-        format_physical_duration(context.registries, context.metrics.adze_total_attention);
-    let selected_total_time =
-        format_physical_duration(context.registries, context.selected.attention_ticks);
-    reviewln!(
-        "WOODWORKING BASELINE seed=0x{:016X} bare={}t/{bare_time} adze={}t/{adze_route_time} selected={}t/{selected_total_time} choice={} basis=full-lifecycle-including-tool-construction",
-        context.case.seed(),
-        context.decision.bare_attention,
-        context.metrics.adze_total_attention,
-        context.selected.attention_ticks,
-        context.selected.choice,
-    );
-    report_woodworking_experience(&context);
-    reviewln!(
-        "WOODWORKING FEEDBACK seed=0x{:016X} basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:{} actual-payback:{}] timber=[nominal:{} actual:{}] selected={} choice-revised-after-outcome=false",
-        context.case.seed(),
-        context.decision.setup_attention_budget_met,
-        context.metrics.saw_attention_payback,
-        context.decision.nominal_timber_balance.label(),
-        context.metrics.actual_timber_balance.label(),
-        context.selected.choice,
-    );
-    (
-        context.selected.choice,
-        context.selected.attention_ticks,
-        context.metrics.saw_total_attention,
-    )
-}
-
 fn evaluate_woodworking_probe(
     registries: &Registries,
     case: FocusedProbeCase,
@@ -1057,14 +924,6 @@ fn evaluate_woodworking_probe(
     let demand = plan_woodworking_demand(registries, seed);
     let world = build_woodworking_world(registries, seed);
     let decision = plan_woodworking_investment(registries, behavior_seed, demand, &world);
-    reviewln!(
-        "WOODWORKING DECISION seed=0x{seed:016X} basis=pre-action-inventory+authored-routes budget=bare-work-at-least-twice-hand-build bare-work={}t adze-build-budget={}t timber=nominal-no-future-service reserve-safe-now={} saw={} bare={} future-outcomes=diagnostic-only",
-        decision.bare_attention,
-        decision.adze_budget,
-        decision.reserve_safe_now,
-        decision.invest_in_saw,
-        decision.use_bare_hands,
-    );
     let lifecycle = execute_woodworking_lifecycle(registries, &world, demand, decision);
     let metrics = evaluate_woodworking_lifecycle(case, &world, decision, &lifecycle);
     let selected = select_and_validate_woodworking_route(
@@ -1077,31 +936,24 @@ fn evaluate_woodworking_probe(
         },
         lifecycle,
     );
-    report_woodworking_result(WoodworkingReportContext {
+    #[cfg(not(test))]
+    report::report_woodworking_result(
         registries,
         case,
         behavior_seed,
-        world: &world,
+        &world,
         demand,
         decision,
         metrics,
-        selected: &selected,
-    })
+        &selected,
+    );
+    (
+        selected.choice,
+        selected.attention_ticks,
+        metrics.saw_total_attention,
+    )
 }
 
 #[cfg(test)]
-#[test]
-fn woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper() {
-    let registries = deep_hearth::content::build_registries();
-    // Fixed replay witness: a finite intermediate order with sufficient copper where the
-    // conservative actor declines setup even though the completed saw route proves cheaper.
-    let (choice, selected_attention, saw_attention) = evaluate_woodworking_probe(
-        &registries,
-        FocusedProbeCase::new(86, Some(2), FocusedProbeRole::OrganicVariation),
-    );
-    assert_eq!(choice, "stone-adze");
-    assert!(
-        saw_attention.is_some_and(|ticks| ticks < selected_attention),
-        "replay witness must keep the pre-action adze choice even when the realized saw route is cheaper"
-    );
-}
+#[path = "evaluation_tests.rs"]
+mod tests;

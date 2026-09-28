@@ -40,7 +40,6 @@ use deep_hearth::survival::{
 };
 
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;

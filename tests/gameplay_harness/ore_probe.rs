@@ -1,8 +1,8 @@
 //! Focused ore-preparation capability probe.
 
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_runner::{ORE_FINITE_ENERGY_COVERAGE_SEED, focused_probe_role_label};
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_witnesses::ORE_FINITE_ENERGY_COVERAGE_SEED;
 use super::material_selection::select_stockpile_mass;
 use super::ore_setup::{OrePreparationProbeIds, OrePreparationSetup, setup_ore_preparation_probe};
 use super::production_support::varied_healthy_condition;
@@ -126,7 +126,7 @@ fn report_ore_energy_stop(
     reviewln!(
         "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=stopped stage={stage} blocker=finite-energy available={}nJ requested={}nJ tick={} retry=stage-input-retained retry-input={}mg matter=conserved",
         case.seed(),
-        focused_probe_role_label(case.role()),
+        case.role().label(),
         available.nanojoules(),
         requested.nanojoules(),
         state.tick().value(),
@@ -160,7 +160,7 @@ fn report_ore_runtime_stop(
     reviewln!(
         "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=stopped stage={stage} blocker={} tick={} matter=conserved",
         case.seed(),
-        focused_probe_role_label(case.role()),
+        case.role().label(),
         reason.label(),
         state.tick().value(),
     );

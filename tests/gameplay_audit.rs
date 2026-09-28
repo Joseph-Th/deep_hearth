@@ -4,9 +4,49 @@
 //! shared harness module graph once here so common support is not repeatedly code-generated and
 //! linked into six separate binaries.
 
+#![allow(
+    dead_code,
+    unused_assignments,
+    unused_imports,
+    unused_variables,
+    reason = "the consolidated audit assembles every gameplay helper while report-only paths are excluded from test builds; focused and owner targets remain warning-clean"
+)]
+
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
+
+macro_rules! include_woodworking_policy_contract_tests {
+    () => {
+        #[path = "woodworking_policy_tests.rs"]
+        mod tests;
+    };
+}
+
+macro_rules! include_fieldwork_contract_tests {
+    () => {
+        #[path = "fieldwork_probe/planning_tests.rs"]
+        mod planning_tests;
+        #[path = "fieldwork_probe/retooling_tests.rs"]
+        mod retooling_tests;
+        #[path = "fieldwork_probe/supply_tests.rs"]
+        mod supply_tests;
+    };
+}
+
+macro_rules! include_fieldwork_campaign_contract_tests {
+    () => {
+        #[path = "campaign_tests.rs"]
+        mod tests;
+    };
+}
+
+macro_rules! include_fieldwork_recovery_contract_tests {
+    () => {
+        #[path = "recovery_tests.rs"]
+        mod tests;
+    };
+}
 
 #[path = "gameplay_harness/agency.rs"]
 mod agency;
@@ -34,6 +74,8 @@ mod first_foundry_probe;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[path = "gameplay_harness/foundry_setup.rs"]
 mod foundry_setup;
 #[path = "gameplay_harness/industrial_support.rs"]
@@ -42,6 +84,8 @@ mod industrial_support;
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
+#[path = "gameplay_harness/manual_assembly_planning.rs"]
+mod manual_assembly_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
@@ -50,8 +94,12 @@ mod manual_craft_execution;
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[path = "gameplay_harness/manual_craft_topology_planning.rs"]
+mod manual_craft_topology_planning;
 #[path = "gameplay_harness/manual_ore_recovery.rs"]
 mod manual_ore_recovery;
+#[path = "gameplay_harness/manual_ore_recovery_evaluation.rs"]
+mod manual_ore_recovery_evaluation;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
@@ -86,8 +134,6 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
-#[path = "gameplay_harness/settlement_scope.rs"]
-mod settlement_scope;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/temporal.rs"]
@@ -117,10 +163,10 @@ mod primitive_workload;
 mod process_catalog_contract_tests;
 #[path = "gameplay_harness/progression_contract_tests.rs"]
 mod progression_contract_tests;
+#[path = "gameplay_harness/progression_episode_contract_tests.rs"]
+mod progression_episode_contract_tests;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
-#[path = "gameplay_harness/progression_scope.rs"]
-mod progression_scope;
 #[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
 mod prospecting_instrument_contract_tests;
 #[path = "gameplay_harness/saw_bench_contract_tests.rs"]
@@ -143,6 +189,8 @@ mod survival_contract_tests;
 mod survival_probe;
 #[path = "gameplay_harness/woodworking_contract_tests.rs"]
 mod woodworking_contract_tests;
+#[path = "gameplay_harness/woodworking_policy.rs"]
+mod woodworking_policy;
 #[path = "gameplay_harness/woodworking_probe.rs"]
 mod woodworking_probe;
 #[path = "gameplay_harness/workshop.rs"]
@@ -167,9 +215,14 @@ fn gameplay_survival_provisioning_probe() {
 
 #[test]
 fn gameplay_settlement_probe() {
+    focused_runner::run_focused_probe("settlement", settlement_probe::run_settlement_probe);
+}
+
+#[test]
+fn gameplay_foundry_bootstrap_probe() {
     focused_runner::run_focused_probe(
-        "settlement",
-        settlement_scope::run_settlement_progression_scope,
+        "foundry-bootstrap",
+        first_foundry_probe::run_first_foundry_probe,
     );
 }
 
@@ -177,7 +230,15 @@ fn gameplay_settlement_probe() {
 fn gameplay_primitive_progression_probe() {
     focused_runner::run_focused_probe(
         "primitive-progression",
-        progression_scope::run_primitive_progression_scope,
+        progression_probe::run_primitive_progression_probe,
+    );
+}
+
+#[test]
+fn gameplay_primitive_liberation_probe() {
+    focused_runner::run_focused_probe(
+        "primitive-liberation",
+        primitive_liberation::run_primitive_liberation_probe,
     );
 }
 

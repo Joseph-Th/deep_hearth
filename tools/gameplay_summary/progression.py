@@ -246,8 +246,7 @@ def _executed_manual_fallback(lines: list[str], progression: list[str]) -> str:
     return (
         "executed-manual-fallback=["
         f"routes:{len(fallbacks)}/{len(progression)} "
-        f"attention:{_span(attention_ticks)} "
-        f"physical:{physical_duration_span(lines, attention_ticks)} "
+        f"duration:{physical_duration_span(lines, attention_ticks)} "
         f"body:{scaled_span(metabolic_nj, 1_000_000_000_000, 'kJ')}/"
         f"{scaled_span(hydration_ul, 1_000, 'mL')} "
         f"recovery:{_span(manual_recovery, unit='ppm')}vs"
@@ -268,8 +267,7 @@ def _next_stage_continuation(lines: list[str], progression: list[str]) -> str:
     return (
         "next-stage-continuation=["
         f"sizing-plate:{len(ticks)}/{len(progression)} "
-        f"attention:{_span(ticks)} "
-        f"physical:{physical_duration_span(lines, ticks)}]"
+        f"duration:{physical_duration_span(lines, ticks)}]"
     )
 
 

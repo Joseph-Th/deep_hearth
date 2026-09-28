@@ -25,7 +25,6 @@ use deep_hearth::registry::Registries;
 use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
@@ -33,13 +32,10 @@ use super::manual_craft_batches::execute_manual_craft_batches;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_craft_selection::select_manual_craft_request;
+#[cfg(not(test))]
 use super::physical_time::format_physical_duration;
 use super::seed::mix64;
-
-#[path = "woodworking_probe/policy.rs"]
-mod policy;
-
-use policy::{
+use super::woodworking_policy::{
     WoodworkingInvestmentPreference, WoodworkingInvestmentReason, WoodworkingTimberBalance,
     woodworking_investment_decision, woodworking_timber_balance,
 };

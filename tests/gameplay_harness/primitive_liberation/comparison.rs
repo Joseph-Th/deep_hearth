@@ -4,7 +4,7 @@ use deep_hearth::core::state::validate_loaded_state;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 
-use super::super::manual_ore_recovery::ManualOreRecoveryReview;
+use super::super::manual_ore_recovery_evaluation::ManualOreRecoveryReview;
 use super::acquisition::RawKitAcquisitionReview;
 use super::cleanup::CleanupOutcome;
 use super::{

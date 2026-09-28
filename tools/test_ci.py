@@ -42,8 +42,6 @@ OWNER_CONTRACT_TARGETS = {
     "ore": "gameplay_ore_contracts",
     "foundry": "gameplay_foundry_contracts",
 }
-
-
 def read_maintained_text(path: Path) -> str:
     """Return cached source text; the working tree is static during one contract run."""
 
@@ -449,6 +447,67 @@ class LocalCiPlanTests(unittest.TestCase):
                 reachable,
                 f"focused gameplay target {scope!r} must not compile report-only catalog code",
             )
+
+    def test_test_targets_exclude_report_only_formatter_modules(self) -> None:
+        cases = {
+            "progression": ROOT
+            / "tests"
+            / "gameplay_harness"
+            / "progression_probe"
+            / "review"
+            / "report.rs",
+            "woodworking": ROOT
+            / "tests"
+            / "gameplay_harness"
+            / "woodworking_probe"
+            / "evaluation"
+            / "report.rs",
+        }
+        for scope, report_only in cases.items():
+            for target in (
+                ci.GAMEPLAY_TARGETS[scope],
+                OWNER_CONTRACT_TARGETS[scope],
+                ci.GAMEPLAY_AUDIT_TARGET,
+            ):
+                features = run_test.cargo_feature_set(target, None)
+                root = run_test.cargo_test_target_path(target)
+                reachable = {
+                    path.resolve()
+                    for path, _prefix in run_test.test_catalog.reachable_modules(
+                        ROOT, root, features
+                    )
+                }
+                self.assertNotIn(
+                    report_only.resolve(),
+                    reachable,
+                    f"test target {target!r} must not parse {scope} report formatting",
+                )
+
+    def test_module_include_macro_expansion_preserves_build_free_test_discovery(self) -> None:
+        source = '''
+macro_rules! include_contract_tests {
+    () => {
+        #[path = "probe/planning_tests.rs"]
+        mod planning_tests;
+        #[path = "probe/supply_tests.rs"]
+        mod supply_tests;
+    };
+}
+
+include_contract_tests!();
+unknown_macro!();
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "root.rs"
+            root.write_text(source, encoding="utf-8")
+            macros = run_test.test_catalog.module_include_macros(root)
+        self.assertEqual(len(macros), 1)
+        expanded = run_test.test_catalog.expand_module_include_macros(source, macros)
+        self.assertIn('#[path = "probe/planning_tests.rs"]', expanded)
+        self.assertIn("mod planning_tests;", expanded)
+        self.assertIn("mod supply_tests;", expanded)
+        self.assertNotIn("include_contract_tests!();", expanded)
+        self.assertIn("unknown_macro!();", expanded)
 
     def test_root_sibling_import_parser_handles_nested_and_grouped_modules(self) -> None:
         self.assertEqual(
@@ -1068,7 +1127,8 @@ class LocalCiPlanTests(unittest.TestCase):
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         profile = manifest["profile"]["test"]
         self.assertEqual(profile.get("debug"), 0)
-        self.assertGreaterEqual(profile.get("codegen-units", 0), 128)
+        self.assertGreaterEqual(profile.get("codegen-units", 0), 16)
+        self.assertLessEqual(profile.get("codegen-units", 0), 64)
         self.assertIs(profile.get("incremental"), True)
 
         cargo_config = tomllib.loads(
@@ -1173,6 +1233,8 @@ class LocalCiPlanTests(unittest.TestCase):
             "workshop": "workshop",
             "survival": "survival_probe",
             "progression": "progression_probe",
+            "liberation": "primitive_liberation",
+            "foundry-bootstrap": "first_foundry_probe",
             "woodworking": "woodworking_probe",
             "fieldwork": "fieldwork_probe",
             "power-provider": "power_provider_probe",
@@ -1255,8 +1317,9 @@ class LocalCiPlanTests(unittest.TestCase):
             gate = ci.GAMEPLAY_TESTS[scope]
             self.assertIn(gate, tests)
             allowed_root_tests = {gate}
-            if report_test := ci.FOCUSED_REPORT_TESTS.get(scope):
-                allowed_root_tests.add(report_test)
+            allowed_test_prefixes = (
+                ("progression_episode_contract_tests::",) if scope == "progression" else ()
+            )
             for prefix in split_contract_prefixes.get(scope, ()):
                 self.assertFalse(
                     any(name.startswith(prefix) for name in tests),
@@ -1267,6 +1330,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 for name in tests
                 if name not in allowed_root_tests
                 and not name.startswith(f"{probe_modules[scope]}::")
+                and not name.startswith(allowed_test_prefixes)
             ]
             self.assertEqual(
                 unrelated,
@@ -1283,7 +1347,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "settlement_machine_contract_tests::",
             "settlement_wire_contract_tests::",
         )
-        expected_probe_names = {"gameplay_settlement_probe", "gameplay_settlement_report"}
+        expected_probe_names = {"gameplay_settlement_probe"}
         self.assertEqual(set(focused), expected_probe_names)
         for prefix in prefixes:
             self.assertTrue(
@@ -1291,11 +1355,27 @@ class LocalCiPlanTests(unittest.TestCase):
                 f"settlement contract target lost owner {prefix.removesuffix('::')}",
             )
         self.assertTrue(all(name.startswith(prefixes) for name in contracts))
-        self.assertLess(
-            run_test.target_source_weight(OWNER_CONTRACT_TARGETS["settlement"], None),
-            run_test.target_source_weight(ci.GAMEPLAY_TARGETS["settlement"], None),
-            "owner contracts must remain narrower than the play-like settlement-to-foundry scope",
+
+    def test_focused_progression_stages_do_not_compile_each_other(self) -> None:
+        pairs = (
+            ("progression", "primitive_liberation.rs"),
+            ("liberation", "progression_probe.rs"),
+            ("settlement", "first_foundry_probe.rs"),
+            ("foundry-bootstrap", "settlement_probe.rs"),
         )
+        for scope, excluded_name in pairs:
+            target = ci.GAMEPLAY_TARGETS[scope]
+            root = run_test.cargo_test_target_path(target)
+            features = run_test.cargo_feature_set(target, None)
+            reachable = {
+                path.name
+                for path, _prefix in run_test.test_catalog.reachable_modules(ROOT, root, features)
+            }
+            self.assertNotIn(
+                excluded_name,
+                reachable,
+                f"focused {scope} target must not rebuild the adjacent progression stage",
+            )
 
     def test_gameplay_replay_summary_is_compact_for_focused_and_workshop_runs(self) -> None:
         self.assertEqual(
@@ -1345,21 +1425,6 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         self.assertIsNone(ci.gameplay_replay_summary("test result: ok. 1 passed"))
 
-    def test_focused_and_owner_contract_targets_stay_below_broad_audit_surface(self) -> None:
-        audit_weight = run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None)
-        targets = {
-            *ci.GAMEPLAY_TARGETS.values(),
-            ci.GAMEPLAY_CONTRACTS_TARGET,
-            *OWNER_CONTRACT_TARGETS.values(),
-        }
-        for target in targets:
-            with self.subTest(target=target):
-                self.assertLess(
-                    run_test.target_source_weight(target, None),
-                    audit_weight,
-                    f"{target} stopped being a bounded iteration surface",
-                )
-
     def test_gate_rejects_complete_core_suite_as_a_repair_loop(self) -> None:
         with self.assertRaisesRegex(ValueError, "audit-only"):
             ci.plan_for(gate_args(core=True))
@@ -1397,6 +1462,7 @@ class LocalCiPlanTests(unittest.TestCase):
         core_alias = config["alias"]["test-core"]
         gameplay = " ".join(ci.gameplay_command("all"))
         self.assertNotIn("--features", core_alias)
+        self.assertEqual(core_alias, "test --quiet --locked --lib")
         self.assertIn(f"--features {ci.GAMEPLAY_FEATURE}", gameplay)
 
     def test_scoped_audits_do_not_build_the_other_broad_surface(self) -> None:
@@ -1642,81 +1708,18 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", command)
         self.assertIn(ci.GAMEPLAY_TARGETS["ore"], command)
 
-    def test_library_check_type_checks_unit_test_code_without_linking(self) -> None:
-        args = run_test.parse_args(["--check", "--target", "lib"])
-        self.assertEqual(run_test.enabled_integration_test_targets(None), [])
-        self.assertEqual(
-            run_test.cargo_check_command(args),
-            [
-                "cargo",
-                "check",
-                "--quiet",
-                "--locked",
-                "--profile",
-                "test",
-                "--lib",
-                "--tests",
-            ],
-        )
-
-    def test_library_check_fails_closed_if_features_enable_integration_tests(self) -> None:
-        args = run_test.parse_args(
-            ["--check", "--target", "lib", "--features", "test-gameplay"]
-        )
-        with self.assertRaisesRegex(ValueError, "integration targets"):
-            run_test.cargo_check_command(args)
-
-    def test_integration_check_command_infers_required_features_without_linking(self) -> None:
-        args = argparse.Namespace(
-            target=ci.GAMEPLAY_CONTRACTS_TARGET,
-            features=None,
-            list=False,
-            suite=False,
-        )
-        self.assertEqual(
-            run_test.cargo_check_command(args),
-            [
-                "cargo",
-                "check",
-                "--quiet",
-                "--locked",
-                "--profile",
-                "test",
-                "--test",
-                ci.GAMEPLAY_CONTRACTS_TARGET,
-                "--features",
-                ci.GAMEPLAY_FEATURE,
-            ],
-        )
-
-    def test_focused_report_uses_the_smallest_declared_report_target(self) -> None:
+    def test_focused_report_uses_explicit_report_examples_not_test_binaries(self) -> None:
         for scope in (*ci.GAMEPLAY_TESTS, "agency"):
             with self.subTest(scope=scope):
                 plan = ci.report_plan(scope)
                 self.assertEqual(plan[0][0], f"gameplay report {scope}")
-                report_test = ci.FOCUSED_REPORT_TESTS.get(scope)
-                if report_test is not None:
-                    target = ci.GAMEPLAY_TARGETS[scope]
-                    self.assertIn(report_test, run_test.source_test_catalog(target, None))
-                    self.assertEqual(
-                        plan[0][1],
-                        ci.gameplay_targets_command(
-                            (target,),
-                            test_filter=report_test,
-                            nocapture=True,
-                            ignored=True,
-                        ),
-                    )
-                else:
-                    dedicated = ci.FOCUSED_REPORT_EXAMPLES.get(scope)
-                    self.assertIsNotNone(dedicated)
-                    self.assertEqual(
-                        plan[0][1],
-                        ci.gameplay_report_example_command(
-                            dedicated,
-                            ci.FOCUSED_REPORT_ARGUMENTS.get(scope, ()),
-                        ),
-                    )
+                example = ci.FOCUSED_REPORT_EXAMPLES.get(scope, ci.GAMEPLAY_REPORT_EXAMPLE)
+                arguments = ci.FOCUSED_REPORT_ARGUMENTS.get(scope, ())
+                if scope != "all" and example == ci.GAMEPLAY_REPORT_EXAMPLE:
+                    arguments = (scope,)
+                self.assertEqual(
+                    plan[0][1], ci.gameplay_report_example_command(example, arguments)
+                )
 
         args = ci.parse_args(["report", "--scope", "fieldwork"])
         self.assertEqual(args.scope, "fieldwork")
@@ -1755,36 +1758,11 @@ class LocalCiPlanTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             ci.parse_args(["quick", "--variation-seed", "0x1234"])
 
-    def test_check_mode_is_target_only_and_needs_no_test_selector(self) -> None:
-        args = run_test.parse_args(["--check", "--target", ci.GAMEPLAY_AUDIT_TARGET])
-        self.assertTrue(args.check)
-        self.assertIsNone(args.name)
-        self.assertEqual(args.target, ci.GAMEPLAY_AUDIT_TARGET)
-
-    def test_check_mode_rejects_a_misleading_test_selector(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                run_test.parse_args(
-                    [
-                        "--check",
-                        "--target",
-                        ci.GAMEPLAY_AUDIT_TARGET,
-                        "gameplay_ore_preparation_probe",
-                    ]
-                )
-
-    def test_check_mode_accepts_selector_for_build_free_target_resolution(self) -> None:
-        args = run_test.parse_args(["--check", "gameplay_fieldwork_probe"])
-        self.assertTrue(args.check)
-        self.assertIsNone(args.target)
-        self.assertTrue(run_test.resolve_automatic_validation_target(args))
-        self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
-
     def test_lint_mode_accepts_selector_for_build_free_target_resolution(self) -> None:
         args = run_test.parse_args(["--lint", "gameplay_fieldwork_probe"])
         self.assertTrue(args.lint)
         self.assertIsNone(args.target)
-        self.assertTrue(run_test.resolve_automatic_validation_target(args))
+        self.assertTrue(run_test.resolve_automatic_lint_target(args))
         self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
 
     def test_run_test_failure_output_is_bounded(self) -> None:
@@ -1984,8 +1962,45 @@ class LocalCiPlanTests(unittest.TestCase):
                 ):
                     ci.parse_args(argv)
 
-    def test_gameplay_verification_adds_replayable_variation_without_custom_seed_override(self) -> None:
+    def test_focused_gameplay_gate_ignores_ambient_sampling_without_explicit_replay(self) -> None:
         args = ci.parse_args(["gate", "--gameplay", "survival"])
+        environment = {
+            "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1111",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2222",
+            "KEEP": "yes",
+        }
+        ci.configure_focused_gameplay_environment(args, environment)
+        self.assertEqual(environment, {"KEEP": "yes"})
+
+    def test_focused_gameplay_gate_preserves_explicit_replay_roots(self) -> None:
+        replay = ci.parse_args(
+            [
+                "gate",
+                "--gameplay",
+                "survival",
+                "--variation-seed",
+                "0x1234",
+                "--behavior-seed",
+                "0x5678",
+            ]
+        )
+        replay_environment = {
+            "DEEP_HEARTH_GAMEPLAY_SEEDS": "9",
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "ambient-world",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ambient-policy",
+        }
+        ci.configure_focused_gameplay_environment(replay, replay_environment)
+        self.assertEqual(
+            replay_environment,
+            {
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000001234",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x0000000000005678",
+            },
+        )
+
+    def test_broad_gameplay_audit_adds_one_fresh_replayable_variation(self) -> None:
+        args = ci.parse_args(["audit", "--gameplay"])
         environment = {
             "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1111",
@@ -2007,25 +2022,6 @@ class LocalCiPlanTests(unittest.TestCase):
                 "KEEP": "yes",
             },
         )
-
-        replay = ci.parse_args(
-            ["gate", "--gameplay", "progression", "--variation-seed", "0x1234"]
-        )
-        replay_environment = {
-            "DEEP_HEARTH_GAMEPLAY_SEEDS": "9",
-            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ambient-unused",
-        }
-        self.assertEqual(
-            ci.configure_gameplay_verification_environment(
-                replay,
-                replay_environment,
-                randbits=lambda _bits: self.fail("explicit replay must not draw entropy"),
-            ),
-            ("0x0000000000001234", "unused"),
-        )
-        self.assertNotIn("DEEP_HEARTH_GAMEPLAY_SEEDS", replay_environment)
-        self.assertNotIn("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", replay_environment)
-
     def test_gameplay_sampling_surfaces_environment_replay_roots(self) -> None:
         environment = {
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
@@ -2281,13 +2277,12 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "probe=primitive-progression samples=1 sample-shape=[anchor:1 coverage:0 organic:0 replay:0]",
+            "probe=primitive-progression sample-shape=[anchor:1 coverage:0 organic:0 replay:0]",
             concise,
         )
-        self.assertIn(
-            "probe=workshop scenarios=1 sample-shape=[",
-            concise,
-        )
+        self.assertNotIn("probe=primitive-progression samples=", concise)
+        self.assertIn("probe=workshop sample-shape=[", concise)
+        self.assertNotIn("probe=workshop scenarios=", concise)
         self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
         self.assertIn("cleanup-executed=1/1", concise)
         self.assertIn(
@@ -2331,9 +2326,11 @@ class LocalCiPlanTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "CAPABILITY probe=ore samples=2 sample-shape=[anchor:1 coverage:1 organic:0 replay:0] completed=1 stopped=1 finite-energy-stops=1 retryable-energy-stops=1 variable-feed=1",
+            "CAPABILITY probe=ore sample-shape=[anchor:1 coverage:1 organic:0 replay:0] completed=1 stopped=1 finite-energy-stops=1 retryable-energy-stops=1 variable-feed=1",
             concise,
         )
+        self.assertNotIn("CAPABILITY probe=ore samples=", concise)
+        self.assertNotIn("CAPABILITY probe=foundry samples=", concise)
         self.assertEqual(
             gameplay_report_summary.concise_gameplay_report(
                 output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}
@@ -2346,7 +2343,10 @@ class LocalCiPlanTests(unittest.TestCase):
             mock.patch.object(
                 gameplay_report_summary,
                 "ordinary_gameplay_summary",
-                return_value=["ORDINARY SUMMARY probe=fieldwork samples=1"],
+                return_value=[
+                    "ORDINARY SUMMARY probe=fieldwork samples=1 "
+                    "sample-shape=[anchor:1 coverage:0 organic:0 replay:0]"
+                ],
             ),
             mock.patch.object(
                 gameplay_report_summary,
@@ -2359,7 +2359,11 @@ class LocalCiPlanTests(unittest.TestCase):
                 {},
             )
 
-        self.assertIn("GAMEPLAY probe=fieldwork samples=1", concise)
+        self.assertIn(
+            "GAMEPLAY probe=fieldwork sample-shape=[anchor:1 coverage:0 organic:0 replay:0]",
+            concise,
+        )
+        self.assertNotIn("GAMEPLAY probe=fieldwork samples=", concise)
         self.assertNotIn("GAMEPLAY loop ", concise)
         loop_evidence.assert_not_called()
 
@@ -2836,7 +2840,7 @@ class ExactTestCommandTests(unittest.TestCase):
         self.assertEqual(target, ci.GAMEPLAY_TARGETS["ore"])
         self.assertEqual(name, ci.GAMEPLAY_TESTS["ore"])
 
-    def test_automatic_selection_prefers_the_smallest_duplicate_test_target(self) -> None:
+    def test_automatic_selection_prefers_the_purpose_built_duplicate_test_target(self) -> None:
         target, name = run_test.resolve_automatic_exact_selection(
             "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
             None,
@@ -2846,14 +2850,10 @@ class ExactTestCommandTests(unittest.TestCase):
             name,
             "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
         )
-        self.assertLess(
-            run_test.target_source_weight(target, None),
-            run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None),
-        )
 
-    def test_automatic_selection_prefers_smallest_owner_gameplay_target(self) -> None:
+    def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
-            "batch_capped_mining_finishes_the_requested_order": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "batch_capped_mining_finishes_the_requested_order": OWNER_CONTRACT_TARGETS["fieldwork"],
             "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": ci.GAMEPLAY_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": OWNER_CONTRACT_TARGETS["settlement"],
@@ -2863,15 +2863,12 @@ class ExactTestCommandTests(unittest.TestCase):
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": OWNER_CONTRACT_TARGETS["survival"],
             "ore_probe_generation_varies_feed_and_operating_state": OWNER_CONTRACT_TARGETS["ore"],
             "primitive_recovery_and_reinforcement_routes_remain_connected": OWNER_CONTRACT_TARGETS["progression"],
+            "progression_generators_cover_distinct_search_and_economic_pressures": ci.GAMEPLAY_TARGETS["progression"],
             "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": OWNER_CONTRACT_TARGETS["workshop"],
         }
         for selector, expected_target in cases.items():
             target, _name = run_test.resolve_automatic_exact_selection(selector, None)
             self.assertEqual(target, expected_target)
-            self.assertLess(
-                run_test.target_source_weight(target, None),
-                run_test.target_source_weight(ci.GAMEPLAY_AUDIT_TARGET, None),
-            )
 
     def test_automatic_selection_keeps_unit_tests_on_the_library_target(self) -> None:
         target, name = run_test.resolve_automatic_exact_selection(
@@ -2887,6 +2884,17 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_global_source_catalog_contains_focused_gameplay_without_target_hint(self) -> None:
         self.assertIn(ci.GAMEPLAY_TESTS["ore"], run_test.all_source_test_names(None))
 
+    def test_public_content_contracts_resolve_to_the_shared_library_target(self) -> None:
+        target, name = run_test.resolve_automatic_exact_selection(
+            "every_declared_primitive_infrastructure_component_has_a_transitive_runtime_route",
+            None,
+        )
+        self.assertEqual(target, "lib")
+        self.assertEqual(
+            name,
+            "content::tests::public_contracts::every_declared_primitive_infrastructure_component_has_a_transitive_runtime_route",
+        )
+
     def test_automatic_suite_resolution_stays_on_one_complete_target(self) -> None:
         self.assertEqual(
             run_test.resolve_automatic_suite_target(
@@ -2896,12 +2904,10 @@ class ExactTestCommandTests(unittest.TestCase):
             "lib",
         )
 
-    def test_check_and_lint_modes_require_a_selector_or_explicit_target(self) -> None:
-        for mode in ("--check", "--lint"):
-            with self.subTest(mode=mode):
-                with contextlib.redirect_stderr(io.StringIO()):
-                    with self.assertRaises(SystemExit):
-                        run_test.parse_args([mode])
+    def test_lint_mode_requires_a_selector_or_explicit_target(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                run_test.parse_args(["--lint"])
 
     def test_source_cfg_evaluation_treats_test_as_enabled_and_expands_local_features(self) -> None:
         declared = {
@@ -3095,7 +3101,7 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_exact_ignored_test_requires_explicit_ignored_execution(self) -> None:
         args = argparse.Namespace(
             target="gameplay_fieldwork",
-            name="gameplay_fieldwork_report",
+            name="synthetic::ignored_contract",
             suite=False,
             ignored=False,
             variation_seed="0x1234",
@@ -3108,9 +3114,9 @@ class ExactTestCommandTests(unittest.TestCase):
         self.assertEqual(
             run_test.execution_error(args, output),
             (
-                "cataloged exact test is ignored: gameplay_fieldwork_report",
+                "cataloged exact test is ignored: synthetic::ignored_contract",
                 "python tools/run_test.py --ignored --target gameplay_fieldwork "
-                "--variation-seed 0x1234 gameplay_fieldwork_report",
+                "--variation-seed 0x1234 synthetic::ignored_contract",
             ),
         )
 

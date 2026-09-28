@@ -30,57 +30,45 @@ GAMEPLAY_FEATURE = "test-gameplay"
 class GameplayScopeSpec:
     target: str
     test: str | None
-    report_test: str | None
     uses_behavior_seed: bool = False
 
 
 GAMEPLAY_SCOPE_SPECS = {
-    "workshop": GameplayScopeSpec(
-        "gameplay_workshop", "gameplay_harness_gate", None, True
-    ),
+    "workshop": GameplayScopeSpec("gameplay_workshop", "gameplay_harness_gate", True),
     "survival": GameplayScopeSpec(
         "gameplay_survival",
         "gameplay_survival_provisioning_probe",
-        "gameplay_survival_provisioning_report",
         True,
     ),
     "progression": GameplayScopeSpec(
         "gameplay_progression",
         "gameplay_primitive_progression_probe",
-        "gameplay_primitive_progression_report",
+    ),
+    "liberation": GameplayScopeSpec(
+        "gameplay_liberation",
+        "gameplay_primitive_liberation_probe",
     ),
     "settlement": GameplayScopeSpec(
         "gameplay_settlement",
         "gameplay_settlement_probe",
-        "gameplay_settlement_report",
+    ),
+    "foundry-bootstrap": GameplayScopeSpec(
+        "gameplay_foundry_bootstrap",
+        "gameplay_foundry_bootstrap_probe",
     ),
     "woodworking": GameplayScopeSpec(
         "gameplay_woodworking",
         "gameplay_woodworking_probe",
-        "gameplay_woodworking_report",
         True,
     ),
-    "fieldwork": GameplayScopeSpec(
-        "gameplay_fieldwork", "gameplay_fieldwork_probe", "gameplay_fieldwork_report"
-    ),
-    "power-provider": GameplayScopeSpec(
-        "gameplay_power", "gameplay_power_provider_probe", "gameplay_power_provider_report"
-    ),
-    "ore": GameplayScopeSpec(
-        "gameplay_ore", "gameplay_ore_preparation_probe", "gameplay_ore_preparation_report"
-    ),
-    "foundry": GameplayScopeSpec(
-        "gameplay_foundry", "gameplay_foundry_probe", "gameplay_foundry_report"
-    ),
+    "fieldwork": GameplayScopeSpec("gameplay_fieldwork", "gameplay_fieldwork_probe"),
+    "power-provider": GameplayScopeSpec("gameplay_power", "gameplay_power_provider_probe"),
+    "ore": GameplayScopeSpec("gameplay_ore", "gameplay_ore_preparation_probe"),
+    "foundry": GameplayScopeSpec("gameplay_foundry", "gameplay_foundry_probe"),
 }
 GAMEPLAY_TARGETS = {scope: spec.target for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
 GAMEPLAY_TESTS = {
     scope: spec.test for scope, spec in GAMEPLAY_SCOPE_SPECS.items() if spec.test is not None
-}
-FOCUSED_REPORT_TESTS = {
-    scope: spec.report_test
-    for scope, spec in GAMEPLAY_SCOPE_SPECS.items()
-    if spec.report_test is not None
 }
 FOCUSED_REPORT_EXAMPLES = {"workshop": "gameplay-workshop-report", "agency": "gameplay-workshop-report"}
 FOCUSED_REPORT_ARGUMENTS = {"agency": ("agency",)}
@@ -164,6 +152,18 @@ def configure_report_replay_environment(
         use_behavior_seed=args.scope in REPORT_BEHAVIOR_SCOPES,
         randbits=randbits,
     )
+
+
+def configure_focused_gameplay_environment(args: argparse.Namespace, environ) -> None:
+    """Keep focused gates deterministic unless one replay variation was requested explicitly."""
+
+    for key in GAMEPLAY_SEED_ENV_KEYS:
+        environ.pop(key, None)
+    if args.variation_seed is None:
+        return
+    environ["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"] = args.variation_seed
+    if args.behavior_seed is not None:
+        environ["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"] = args.behavior_seed
 
 
 def configure_gameplay_verification_environment(
@@ -495,24 +495,15 @@ def gameplay_report_example_command(
 
 
 def report_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
-    """Run one focused exploratory test or the explicit cross-system report binary."""
+    """Run one explicit report binary, optionally restricted to one gameplay scope."""
 
     if scope not in REPORT_SCOPES:
         raise ValueError(f"unknown gameplay report scope: {scope}")
-    report_test = FOCUSED_REPORT_TESTS.get(scope)
-    if report_test is not None:
-        command = gameplay_targets_command(
-            (GAMEPLAY_TARGETS[scope],),
-            test_filter=report_test,
-            nocapture=True,
-            ignored=True,
-        )
-    else:
-        example = FOCUSED_REPORT_EXAMPLES.get(scope, GAMEPLAY_REPORT_EXAMPLE)
-        arguments = FOCUSED_REPORT_ARGUMENTS.get(scope, ())
-        if scope != "all" and example == GAMEPLAY_REPORT_EXAMPLE:
-            arguments = (scope,)
-        command = gameplay_report_example_command(example, arguments)
+    example = FOCUSED_REPORT_EXAMPLES.get(scope, GAMEPLAY_REPORT_EXAMPLE)
+    arguments = FOCUSED_REPORT_ARGUMENTS.get(scope, ())
+    if scope != "all" and example == GAMEPLAY_REPORT_EXAMPLE:
+        arguments = (scope,)
+    command = gameplay_report_example_command(example, arguments)
     label = "gameplay report"
     if scope != "all":
         label = f"gameplay report {scope}"
@@ -919,6 +910,8 @@ def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Name
             parser.error("--variation-seed and --behavior-seed require a gameplay gate, audit, or report")
         if args.behavior_seed is not None and variation_behavior is False:
             parser.error("the selected gameplay scope does not use an actor-policy behavior seed")
+        if args.preset == "gate" and args.behavior_seed is not None and args.variation_seed is None:
+            parser.error("focused gameplay --behavior-seed requires --variation-seed")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -943,6 +936,8 @@ def main() -> int:
         try:
             if args.preset == "report":
                 configure_report_replay_environment(args, os.environ)
+            elif args.preset == "gate":
+                configure_focused_gameplay_environment(args, os.environ)
             else:
                 configure_gameplay_verification_environment(args, os.environ)
         except ValueError as error:

@@ -17,6 +17,7 @@ impl WoodworkingInvestmentPreference {
         }
     }
 
+    #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::ConserveScarceCopper => "conserve-scarce-copper",
@@ -39,6 +40,7 @@ pub(super) enum WoodworkingInvestmentReason {
 }
 
 impl WoodworkingInvestmentReason {
+    #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::BareHandsAvoidsInvestmentCost => "bare-hands-avoids-investment-cost",
@@ -67,6 +69,7 @@ pub(super) enum WoodworkingTimberBalance {
 }
 
 impl WoodworkingTimberBalance {
+    #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::Unavailable => "unavailable",
@@ -154,5 +157,4 @@ fn conserve_timber_decision(
 }
 
 #[cfg(test)]
-#[path = "policy_tests.rs"]
-mod tests;
+include_woodworking_policy_contract_tests!();

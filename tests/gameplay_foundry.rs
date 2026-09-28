@@ -14,6 +14,8 @@ mod equipment_support;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[path = "gameplay_harness/foundry_probe.rs"]
 mod foundry_probe;
 #[path = "gameplay_harness/foundry_setup.rs"]
@@ -43,10 +45,4 @@ mod tick_observation;
 #[test]
 fn gameplay_foundry_probe() {
     focused_runner::run_focused_probe("foundry", foundry_probe::run_foundry_capability_probe);
-}
-
-#[test]
-#[ignore = "exploratory report; run via python ci.py report --scope foundry"]
-fn gameplay_foundry_report() {
-    focused_runner::run_focused_report("foundry", foundry_probe::run_foundry_capability_probe);
 }

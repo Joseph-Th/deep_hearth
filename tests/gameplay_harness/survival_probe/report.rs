@@ -4,7 +4,7 @@ use super::*;
 
 fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
-    let sample = focused_probe_role_label(case.role());
+    let sample = case.role().label();
     let behavior_seed = case
         .behavior_seed()
         .unwrap_or_else(|| panic!("survival probe is missing its actor behavior seed"));

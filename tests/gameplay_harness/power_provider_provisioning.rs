@@ -25,8 +25,20 @@ use super::super::environment::ROOM_TEMPERATURE;
 pub(super) struct PowerProjectProvisions {
     pub(super) food: StockpileId,
     pub(super) water: FluidStoreId,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) food_supply_mg: u64,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) food_preservation_ppm: u32,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) water_supply_ul: u64,
 }
 

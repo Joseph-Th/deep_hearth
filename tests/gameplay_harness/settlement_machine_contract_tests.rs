@@ -56,6 +56,30 @@ fn seed_material(
     )
 }
 
+fn authored_powered_output_mass(
+    registries: &deep_hearth::registry::Registries,
+    process: deep_hearth::production::ProcessId,
+    commodity: CommodityKey,
+    context: &'static str,
+) -> Mass {
+    let powered = registries
+        .crafting()
+        .get_powered(process)
+        .unwrap_or_else(|| panic!("{context} powered craft disappeared"));
+    let transform = registries
+        .crafting()
+        .get_manual(powered.transform())
+        .unwrap_or_else(|| panic!("{context} manual transform disappeared"));
+    transform
+        .outputs()
+        .iter()
+        .filter(|output| output.commodity() == commodity)
+        .map(|output| output.mass())
+        .try_fold(Mass::ZERO, |total, mass| total.checked_add(mass))
+        .filter(|mass| !mass.is_zero())
+        .unwrap_or_else(|| panic!("{context} authored output commodity disappeared"))
+}
+
 #[test]
 fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_repays_attention() {
     let registries = build_registries();
@@ -647,14 +671,21 @@ fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
         .inventory()
         .get_stockpile(output)
         .unwrap_or_else(|| panic!("lathe settlement output disappeared"));
-    assert_eq!(
-        output_stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL)),
-        Mass::from_milligrams(2_000_000)
-    );
-    assert_eq!(
-        output_stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
-        Mass::from_milligrams(400_000)
-    );
+    for commodity in [
+        CommodityKey::new(MATERIAL_WOOD, FORM_FLYWHEEL),
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+    ] {
+        assert_eq!(
+            output_stockpile.get_mass(commodity),
+            authored_powered_output_mass(
+                &registries,
+                PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+                commodity,
+                "lathe settlement",
+            ),
+            "executed flywheel-lathe output must match the authored transform"
+        );
+    }
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("lathe settlement matter audit failed: {error}"))
@@ -798,6 +829,15 @@ fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
         finish_manual_power_work(&registries, &mut state, work, "toolroom settlement charge");
     assert!(charge_attention < treadle_projection.duration().value());
 
+    let powered_projection = project_powered_craft_work(
+        &registries,
+        &state,
+        PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+        toolroom_batch.input_mass,
+        powered,
+        drive,
+    )
+    .unwrap_or_else(|error| panic!("toolroom settlement powered projection failed: {error}"));
     let job = validate_start_powered_craft(
         &registries,
         &state,
@@ -818,8 +858,9 @@ fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
         state
             .production()
             .get_job(job)
-            .map(|record| record.active_duration().value()),
-        Some(7)
+            .map(|record| record.active_duration()),
+        Some(powered_projection.duration()),
+        "committed toolroom duration must match the canonical powered-work projection"
     );
     finish_uninterrupted_production_job(
         &registries,
@@ -832,14 +873,21 @@ fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
         .inventory()
         .get_stockpile(output)
         .unwrap_or_else(|| panic!("toolroom settlement output disappeared"));
-    assert_eq!(
-        output_stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)),
-        Mass::from_milligrams(800_000)
-    );
-    assert_eq!(
-        output_stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)),
-        Mass::from_milligrams(100_000)
-    );
+    for commodity in [
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+    ] {
+        assert_eq!(
+            output_stockpile.get_mass(commodity),
+            authored_powered_output_mass(
+                &registries,
+                PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
+                commodity,
+                "toolroom settlement",
+            ),
+            "executed toolroom output must match the authored transform"
+        );
+    }
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("toolroom settlement matter audit failed: {error}"))

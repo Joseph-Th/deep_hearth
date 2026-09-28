@@ -452,5 +452,4 @@ pub(super) fn execute_initial_shortfall_recovery(
 }
 
 #[cfg(test)]
-#[path = "recovery_tests.rs"]
-mod tests;
+include_fieldwork_recovery_contract_tests!();

@@ -8,24 +8,14 @@ use deep_hearth::registry::Registries;
 
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
-    GATE_VARIATION_COUNT, focused_probe_cases_from, probe_uses_behavior_seed,
+    focused_probe_cases_from, probe_uses_behavior_seed,
 };
-
-pub(super) const PROGRESSION_REFINEMENT_COVERAGE_SEED: u64 = 3;
-pub(super) const PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED: u64 = 4;
-pub(super) const ORE_FINITE_ENERGY_COVERAGE_SEED: u64 = 2;
-pub(super) const FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED: u64 = 2;
+use super::focused_witnesses::{
+    FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED, ORE_FINITE_ENERGY_COVERAGE_SEED,
+    PROGRESSION_REFINEMENT_COVERAGE_SEED, PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
+};
 #[cfg(test)]
-use super::seed::{MAINTAINED_VARIATION_ROOT, mix64};
-
-pub(super) const fn focused_probe_role_label(role: FocusedProbeRole) -> &'static str {
-    match role {
-        FocusedProbeRole::MaintainedAnchor => "anchor",
-        FocusedProbeRole::MaintainedCoverage => "coverage",
-        FocusedProbeRole::OrganicVariation => "organic",
-        FocusedProbeRole::ExplicitReplay => "replay",
-    }
-}
+use super::seed::MAINTAINED_VARIATION_ROOT;
 
 fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u64> {
     match (name, case.role(), case.seed()) {
@@ -65,6 +55,14 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             ],
             0x5052_4F47_5052_4F42,
         ),
+        "primitive-liberation" => (
+            0xD33F_C01D_5052,
+            &[
+                PROGRESSION_REFINEMENT_COVERAGE_SEED,
+                PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
+            ],
+            0x4C49_4245_5052_4F42,
+        ),
         // Coverage spans break-even net-timber investment, setup-budget rejection,
         // outright copper blocking, protected-reserve refusal despite a profitable saw route,
         // a short queued job just below the saw crossover, a long saw-to-adze fallback, and a
@@ -96,6 +94,11 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             &[0x0000_0000_0000_0040],
             0x5345_5454_5052_4F42,
         ),
+        "foundry-bootstrap" => (
+            0xD33F_C01D_5E77,
+            &[0x0000_0000_0000_0040],
+            0x464F_554E_5052_4F42,
+        ),
         "ore-preparation" => (
             0xD33F_C01D_0A11,
             &[ORE_FINITE_ENERGY_COVERAGE_SEED],
@@ -126,33 +129,6 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeC
     );
 }
 
-#[cfg(test)]
-#[allow(
-    dead_code,
-    reason = "broad gameplay audit shares runner but focused report tests live in owner targets"
-)]
-pub(super) fn run_focused_report(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
-    crate::output::set_review_output(true);
-    let registries = build_registries();
-    std::println!(
-        "SIMULATION TIME physical-tick-us={}",
-        registries.core().physical_tick_duration().microseconds()
-    );
-    let (_maintained_seed, _coverage, salt) = probe_seed_spec(name);
-    let variation_root = mix64(MAINTAINED_VARIATION_ROOT ^ salt ^ 0x5245_504F_5254_5F57);
-    let behavior_root =
-        mix64(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x5245_504F_5254_5F42);
-    run_focused_probe_with_registries(
-        &registries,
-        name,
-        probe,
-        true,
-        variation_root,
-        behavior_root,
-    );
-    crate::output::set_review_output(false);
-}
-
 pub(super) fn run_focused_probe_with_registries(
     registries: &Registries,
     name: &str,
@@ -169,13 +145,16 @@ pub(super) fn run_focused_probe_with_registries(
         None
     };
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
+    let requested_variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let variation_count = if explore {
         EXPLORATORY_VARIATION_COUNT
+    } else if requested_variation_raw.is_some() {
+        1
     } else {
-        GATE_VARIATION_COUNT
+        0
     };
-    let variation_raw = (variation_count > 0 || scenario_raw.is_some())
-        .then(|| env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok())
+    let variation_raw = (variation_count > 0)
+        .then_some(requested_variation_raw)
         .flatten();
     let behavior_raw = (variation_count > 0 || scenario_raw.is_some())
         .then(|| {
@@ -213,16 +192,12 @@ pub(super) fn run_focused_probe_with_registries(
                 });
                 format!(
                     "{}:0x{:016X}@0x{:016X}",
-                    focused_probe_role_label(case.role()),
+                    case.role().label(),
                     case.seed(),
                     behavior_seed,
                 )
             } else {
-                format!(
-                    "{}:0x{:016X}",
-                    focused_probe_role_label(case.role()),
-                    case.seed(),
-                )
+                format!("{}:0x{:016X}", case.role().label(), case.seed(),)
             }
         })
         .collect::<Vec<_>>()

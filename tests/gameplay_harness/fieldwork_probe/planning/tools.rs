@@ -293,26 +293,6 @@ pub(in super::super) fn estimate_fieldwork_tool(
     })
 }
 
-#[cfg(test)]
-pub(in super::super) fn choose_fieldwork_tool(
-    registries: &Registries,
-    state: &AppState,
-    raw: StockpileId,
-    parts: StockpileId,
-    observed_upper: Pressure,
-    order: Mass,
-) -> Option<FieldworkToolEstimate> {
-    choose_fieldwork_tool_with_market_phase(
-        registries,
-        state,
-        raw,
-        parts,
-        observed_upper,
-        order,
-        "unspecified",
-    )
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(in super::super) struct FieldworkBulkCrossover {
     pub(in super::super) tool_label: &'static str,

@@ -3,6 +3,10 @@
 use std::collections::BTreeSet;
 
 use super::extraction::FieldworkStop;
+use super::world::{
+    FIELDWORK_BULK_SUPPLY_MIN_MG, FIELDWORK_COMMON_SUPPLY_MAX_MG, FIELDWORK_COMMON_SUPPLY_MIN_MG,
+    FIELDWORK_SHALLOW_SUPPLY_MAX_MG,
+};
 use super::*;
 use deep_hearth::maintenance::Condition;
 
@@ -20,13 +24,19 @@ fn exploratory_supply_spans_shallow_common_and_bulk_opportunities() {
         .map(fieldwork_supply)
         .map(Mass::milligrams)
         .collect::<Vec<_>>();
-    assert!(supplies.iter().any(|&mass| mass < 1_000_000));
     assert!(
         supplies
             .iter()
-            .any(|&mass| (4_000_000..=8_000_000).contains(&mass))
+            .any(|&mass| mass <= FIELDWORK_SHALLOW_SUPPLY_MAX_MG)
     );
-    assert!(supplies.iter().any(|&mass| mass >= 24_000_000));
+    assert!(supplies.iter().any(|&mass| {
+        (FIELDWORK_COMMON_SUPPLY_MIN_MG..=FIELDWORK_COMMON_SUPPLY_MAX_MG).contains(&mass)
+    }));
+    assert!(
+        supplies
+            .iter()
+            .any(|&mass| mass >= FIELDWORK_BULK_SUPPLY_MIN_MG)
+    );
 }
 
 #[test]
@@ -35,9 +45,9 @@ fn exploratory_demand_and_reserve_scale_are_not_coupled() {
     let combinations = (0_u64..256)
         .map(|seed| {
             let supply = fieldwork_supply(seed).milligrams();
-            let supply_class = if supply < 1_000_000 {
+            let supply_class = if supply <= FIELDWORK_SHALLOW_SUPPLY_MAX_MG {
                 "shallow"
-            } else if supply >= 24_000_000 {
+            } else if supply >= FIELDWORK_BULK_SUPPLY_MIN_MG {
                 "bulk"
             } else {
                 "common"
@@ -60,13 +70,19 @@ fn followup_sites_have_independent_reserve_opportunities() {
         .flat_map(super::world::fieldwork_followup_supplies)
         .map(Mass::milligrams)
         .collect::<Vec<_>>();
-    assert!(supplies.iter().any(|&mass| mass < 1_000_000));
     assert!(
         supplies
             .iter()
-            .any(|&mass| (4_000_000..=8_000_000).contains(&mass))
+            .any(|&mass| mass <= FIELDWORK_SHALLOW_SUPPLY_MAX_MG)
     );
-    assert!(supplies.iter().any(|&mass| mass >= 24_000_000));
+    assert!(supplies.iter().any(|&mass| {
+        (FIELDWORK_COMMON_SUPPLY_MIN_MG..=FIELDWORK_COMMON_SUPPLY_MAX_MG).contains(&mass)
+    }));
+    assert!(
+        supplies
+            .iter()
+            .any(|&mass| mass >= FIELDWORK_BULK_SUPPLY_MIN_MG)
+    );
     assert!(
         (0_u64..128).any(|seed| {
             super::world::fieldwork_followup_supplies(seed)

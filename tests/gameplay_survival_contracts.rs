@@ -10,10 +10,8 @@ mod direct_consumption_timing;
 mod environment;
 #[allow(
     dead_code,
-    reason = "survival contracts reuse focused case types without invoking the probe runner"
+    reason = "survival contracts use seed planning directly but not the runner-only behavior-channel classifier"
 )]
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
@@ -28,6 +26,10 @@ mod preservation_route;
 mod production_timing;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
+#[allow(
+    dead_code,
+    reason = "survival contract seed planning uses mixing and collision resolution but not the runner default root"
+)]
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]

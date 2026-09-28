@@ -10,15 +10,12 @@ mod capability_boundary;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
-#[allow(
-    dead_code,
-    unused_imports,
-    reason = "foundry contracts reuse focused case types without invoking the probe runner"
-)]
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
-#[path = "gameplay_harness/focused_seeds.rs"]
+#[allow(dead_code)]
+#[path = "gameplay_harness/focused_case.rs"]
 mod focused_seeds;
+#[allow(dead_code)]
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[allow(
     dead_code,
     unused_imports,
@@ -40,10 +37,8 @@ mod material_selection;
 mod production_support;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
-#[path = "gameplay_harness/seed.rs"]
+#[path = "gameplay_harness/seed_mix.rs"]
 mod seed;
-#[path = "gameplay_harness/seed_input.rs"]
-mod seed_input;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/temporal.rs"]

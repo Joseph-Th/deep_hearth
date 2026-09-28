@@ -26,7 +26,6 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_batches::execute_manual_craft_batches;
@@ -216,7 +215,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         reviewln!(
             "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode resource-opportunity=[stone:{}mg wood:{}mg native:{}mg] immediate-choice=[order:{}mg direct-native:{}t reinforcement:{}mg selection:direct-native reason=cheap-current-order] bootstrap-choice=[remaining-native:{}mg foundry-capital:{}mg cast-ingots:{}mg required:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=insufficient-copper-to-complete-bootstrap] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
             case.seed(),
-            focused_probe_role_label(case.role()),
+            case.role().label(),
             disclosed_stone_opportunity.milligrams(),
             FOUNDRY_WOOD_OPPORTUNITY.milligrams(),
             native_opportunity.milligrams(),
@@ -516,7 +515,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     reviewln!(
         "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode resource-opportunity=[stone:{}mg wood:{}mg native:{}mg] immediate-choice=[order:{}mg direct-native:{}t reinforcement:{}mg selection:direct-native reason=cheap-current-order] bootstrap-choice=[remaining-native:{}mg foundry-capital:{}mg cast-ingots:{}mg required:{}mg shortfall:0mg selection:foundry reason=cast-ingot-stock-required-for-next-stage-mold] foundry-build=true fabrication={}t/{} campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] copper-after-bootstrap:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=settlement-batch-foundry",
         case.seed(),
-        focused_probe_role_label(case.role()),
+        case.role().label(),
         disclosed_stone_opportunity.milligrams(),
         FOUNDRY_WOOD_OPPORTUNITY.milligrams(),
         native_opportunity.milligrams(),

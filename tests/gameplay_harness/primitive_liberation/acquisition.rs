@@ -497,7 +497,7 @@ pub(super) fn acquire_raw_kit<T>(
         .unwrap_or(Mass::ZERO);
 
     let mut state = AppState::new();
-    let player_position = super::super::world_admission::STATIONARY_PLAYER_ORIGIN;
+    let player_position = super::PRIMITIVE_LIBERATION_ORIGIN;
     let ground_raw = validate_allocate_ground_stockpile(&state, player_position, raw_mass)
         .unwrap_or_else(|error| panic!("liberation ground raw allocation failed: {error}"))
         .commit(&mut state)

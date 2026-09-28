@@ -3,7 +3,10 @@
 use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
-pub(super) const GATE_VARIATION_COUNT: usize = 1;
+#[path = "focused_case.rs"]
+mod focused_case;
+pub(super) use focused_case::{FocusedProbeCase, FocusedProbeRole};
+
 pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
 pub(super) fn probe_uses_behavior_seed(name: &str) -> bool {
@@ -15,21 +18,6 @@ pub(super) enum FocusedProbeSeedError {
     InvalidVariationSeed,
     InvalidBehaviorSeed,
     SeedList(SeedListError),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum FocusedProbeRole {
-    MaintainedAnchor,
-    MaintainedCoverage,
-    OrganicVariation,
-    ExplicitReplay,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct FocusedProbeCase {
-    world_seed: u64,
-    behavior_seed: Option<u64>,
-    role: FocusedProbeRole,
 }
 
 pub(super) struct FocusedProbeSeedPlan<'a> {
@@ -44,39 +32,13 @@ pub(super) struct FocusedProbeSeedPlan<'a> {
     pub(super) default_behavior_root: Option<u64>,
 }
 
-impl FocusedProbeCase {
-    pub(super) const fn new(
-        world_seed: u64,
-        behavior_seed: Option<u64>,
-        role: FocusedProbeRole,
-    ) -> Self {
-        Self {
-            world_seed,
-            behavior_seed,
-            role,
-        }
-    }
-
-    /// Physical/scenario variation only. Actor preferences must not feed back into this seed.
-    pub(super) const fn seed(self) -> u64 {
-        self.world_seed
-    }
-
-    pub(super) const fn behavior_seed(self) -> Option<u64> {
-        self.behavior_seed
-    }
-
-    pub(super) const fn role(self) -> FocusedProbeRole {
-        self.role
-    }
-}
-
 /// Resolves maintained contract cases plus an optional bounded replayable variation sample.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
-/// focused gates retain maintained witnesses and add one bounded organic case; exploratory reports
-/// use a broader sample. A probe-specific salt keeps concerns independent. Physical and actor
-/// variation use independent replay roots so changing a preference cannot silently change the world.
+/// focused gates use maintained witnesses only; a supplied variation root adds bounded organic
+/// coverage, and exploratory reports use a broader sample. A probe-specific salt keeps concerns
+/// independent. Physical and actor variation use independent replay roots so changing a preference
+/// cannot silently change the world.
 pub(super) fn focused_probe_cases_from(
     plan: FocusedProbeSeedPlan<'_>,
 ) -> Result<Vec<FocusedProbeCase>, FocusedProbeSeedError> {

@@ -4,6 +4,16 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
+macro_rules! include_fieldwork_contract_tests {
+    () => {};
+}
+macro_rules! include_fieldwork_campaign_contract_tests {
+    () => {};
+}
+macro_rules! include_fieldwork_recovery_contract_tests {
+    () => {};
+}
+
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[allow(
@@ -18,8 +28,12 @@ mod fieldwork_probe;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
+#[path = "gameplay_harness/manual_assembly_planning.rs"]
+mod manual_assembly_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
@@ -28,6 +42,8 @@ mod manual_craft_execution;
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[path = "gameplay_harness/manual_craft_topology_planning.rs"]
+mod manual_craft_topology_planning;
 #[allow(
     dead_code,
     reason = "focused target uses only the execution half of shared ore-recovery support"
@@ -57,10 +73,4 @@ mod tick_observation;
 #[test]
 fn gameplay_fieldwork_probe() {
     focused_runner::run_focused_probe("fieldwork", fieldwork_probe::run_fieldwork_probe);
-}
-
-#[test]
-#[ignore = "exploratory report; run via python ci.py report --scope fieldwork"]
-fn gameplay_fieldwork_report() {
-    focused_runner::run_focused_report("fieldwork", fieldwork_probe::run_fieldwork_probe);
 }

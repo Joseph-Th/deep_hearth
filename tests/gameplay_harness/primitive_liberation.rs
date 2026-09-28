@@ -21,12 +21,13 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::resolve_representable_screening_mass;
 use deep_hearth::registry::Registries;
+use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
-use super::manual_ore_recovery::{ManualOreRecoveryPlan, evaluate_manual_ore_recovery};
+use super::manual_ore_recovery::ManualOreRecoveryPlan;
+use super::manual_ore_recovery_evaluation::evaluate_manual_ore_recovery;
 use super::ore_fixture::copper_ore_composition;
 use super::seed::mix64;
 
@@ -44,6 +45,7 @@ mod scavenging;
 mod support;
 
 const PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES: u64 = 8;
+const PRIMITIVE_LIBERATION_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
 
 #[derive(Clone, Copy)]
 struct PrimitiveLiberationBootstrap {
@@ -64,14 +66,10 @@ struct PrimitiveLiberationBootstrap {
 }
 
 fn allocate_liberation_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
-    validate_allocate_ground_stockpile(
-        state,
-        super::world_admission::STATIONARY_PLAYER_ORIGIN,
-        capacity,
-    )
-    .unwrap_or_else(|error| panic!("liberation stockpile allocation failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("liberation stockpile allocation commit failed: {error}"))
+    validate_allocate_ground_stockpile(state, PRIMITIVE_LIBERATION_ORIGIN, capacity)
+        .unwrap_or_else(|error| panic!("liberation stockpile allocation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("liberation stockpile allocation commit failed: {error}"))
 }
 
 fn bootstrap_liberation_inventory(
@@ -660,7 +658,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     );
     reviewln!(
         "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} cleanup-executed=true reason=required-native-copper-conversion route=treadle+paired-flywheel->crusher->quern->timber-riddle->regrind->separator->tailings-regrind->scavenger->concentrate-cleanup input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] native-copper={}mg cleanup-residue={}mg exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
-        focused_probe_role_label(case.role()),
+        case.role().label(),
         batch_mass.milligrams(),
         copper_ppm,
         clay_share_ppm,
@@ -685,7 +683,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         .min(1_000_000);
     reviewln!(
         "LIBERATION FRONTIER seed=0x{seed:016X} sample={} input=[{}mg {}ppm-Cu] concentrate=[final:{}mg/{}ppm] scavenger=[extra-copper:{}mg share:{}ppm-of-recovered-copper] cleanup=[native-copper:{}mg recovery:{}ppm residue:{}mg] sink=usable-native-copper remaining-frontier=industrial-foundry-scale ordinary-continuation=[first-foundry->80g-batch-upgrades] industrial-foundry-frontier=[{}] reachability-authority=STATUS.md",
-        focused_probe_role_label(case.role()),
+        case.role().label(),
         batch_mass.milligrams(),
         copper_ppm,
         scavenged.concentrate_mass.milligrams(),

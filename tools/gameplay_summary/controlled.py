@@ -15,7 +15,7 @@ def _workshop_summary(lines: list[str]) -> str | None:
         return None
     detail = compact_fields(
         workshop,
-        ("scenarios", "orders", "adaptive", "stops", "maintenance-blockers"),
+        ("orders", "adaptive", "stops", "maintenance-blockers"),
     )
     harness_input = next(
         (line for line in lines if line.startswith("HARNESS INPUT ")), None
@@ -97,7 +97,6 @@ def _ore_summary(lines: list[str]) -> str | None:
     }
     return (
         "ORE CAPABILITY SUMMARY "
-        f"samples={len(ore_completed) + len(ore_stopped)} "
         f"sample-shape=[{sample_shape(ore_lines)}] "
         f"completed={len(ore_completed)} stopped={len(ore_stopped)} "
         f"finite-energy-stops={sum('blocker=finite-energy' in line for line in ore_stopped)} "
@@ -165,7 +164,6 @@ def _foundry_summary(lines: list[str]) -> str | None:
     )
     return (
         "FOUNDRY CAPABILITY SUMMARY "
-        f"samples={len(foundry)} "
         f"sample-shape=[{sample_shape(foundry)}] "
         f"full={sum(' outcome=full-order-' in line for line in foundry)} "
         f"partial={sum(' outcome=partial-order-' in line for line in foundry)} "

@@ -38,7 +38,6 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
 
 _ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
-        "samples",
         "sample-shape",
         "first-copper",
         "processing-crossover",
@@ -50,7 +49,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "next-stage-continuation",
     ),
     "primitive-liberation": (
-        "samples",
         "sample-shape",
         "cleanup-executed",
         "native-copper",
@@ -59,7 +57,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "remaining-frontier",
     ),
     "woodworking": (
-        "samples",
         "sample-shape",
         "choice",
         "decision-coverage",
@@ -68,7 +65,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "lifecycle-feedback",
     ),
     "fieldwork": (
-        "samples",
         "outcomes",
         "reserve-knowledge",
         "orders",
@@ -77,7 +73,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "initial-shortfall-campaign",
     ),
     "power-provider": (
-        "samples",
         "sample-shape",
         "choice",
         "decision-crossover-charges",
@@ -85,7 +80,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "settlement-decision-crossover-charges",
     ),
     "settlement": (
-        "samples",
         "sample-shape",
         "choice",
         "demand",
@@ -101,7 +95,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "attention",
     ),
     "survival": (
-        "samples",
         "sample-shape",
         "pressure",
         "diet",
@@ -114,11 +107,13 @@ _ORDINARY_DIGEST_FIELDS = {
 }
 
 _EXPECTED_ORDINARY_BY_PROBE = {
-    "primitive-progression": {"primitive-progression", "primitive-liberation"},
+    "primitive-progression": {"primitive-progression"},
+    "primitive-liberation": {"primitive-liberation"},
     "woodworking": {"woodworking"},
     "fieldwork": {"fieldwork"},
     "power-provider": {"power-provider"},
-    "settlement": {"settlement", "foundry-bootstrap"},
+    "settlement": {"settlement"},
+    "foundry-bootstrap": {"foundry-bootstrap"},
     "survival-provisioning": {"survival"},
 }
 _EXPECTED_CONTROLLED_BY_PROBE = {
@@ -186,7 +181,6 @@ def _digest_summary(summary: str) -> str:
             experience = compact_fields(
                 summary,
                 (
-                    "samples",
                     "sample-shape",
                     "outcomes",
                     "reserve-knowledge",

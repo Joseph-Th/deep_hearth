@@ -303,5 +303,4 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
 }
 
 #[cfg(test)]
-#[path = "campaign_tests.rs"]
-mod tests;
+include_fieldwork_campaign_contract_tests!();

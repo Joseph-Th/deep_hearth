@@ -14,8 +14,7 @@ use deep_hearth::mining::{
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelBounds;
 
-use super::super::focused_runner::focused_probe_role_label;
-use super::super::focused_seeds::FocusedProbeCase;
+use super::super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::super::physical_time::format_physical_duration;
 use super::campaign::FieldworkSurveyCampaignReview;
 use super::extraction::{
@@ -31,6 +30,15 @@ use super::survey::{
     CHANNEL_COUNT, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
 };
 use super::{FieldworkEpisode, FieldworkResourceKnowledgeEffect};
+
+const fn sample_label(role: FocusedProbeRole) -> &'static str {
+    match role {
+        FocusedProbeRole::MaintainedAnchor => "anchor",
+        FocusedProbeRole::MaintainedCoverage => "coverage",
+        FocusedProbeRole::OrganicVariation => "organic",
+        FocusedProbeRole::ExplicitReplay => "replay",
+    }
+}
 
 pub(super) struct FieldworkEpisodeReview<'a> {
     pub(super) registries: &'a Registries,
@@ -615,7 +623,7 @@ pub(super) fn finalize_fieldwork_episode(review: FieldworkEpisodeReview<'_>) -> 
     reviewln!(
         "FIELDWORK EXPERIENCE seed=0x{:016X} sample={} outcome={} order-horizon={} demand=explicit-extraction-order search=compare-local-transects->cheap-inspection->targeted-survey channels={} transects={} selected-channel=observed-strongest field-inspections={} detailed-surveys={} target=acquired-evidence observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} geology={} tool={} adaptation={} sampling-setup={}t/{} tool-prep={}t/{} copper-opportunity={} starting-native-copper={}mg retained-native-copper={}mg requested={}mg mining={}mg duration={}t/{} condition={}ppm->{}ppm output-grade={}ppm matter=conserved survival=[energy:{}nJ hydration:{}uL]",
         review.case.seed(),
-        focused_probe_role_label(review.case.role()),
+        sample_label(review.case.role()),
         extraction.stop.outcome(),
         review.order_horizon,
         CHANNEL_COUNT,

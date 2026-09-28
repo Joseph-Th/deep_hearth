@@ -90,11 +90,11 @@ fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
 }
 
 #[test]
-fn default_gate_keeps_maintained_anchors_and_adds_one_bounded_variation() {
+fn default_gate_keeps_only_maintained_anchors() {
     let plan = plan(ScenarioPlanMode::Gate, None, None, None)
         .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
-    assert_eq!(plan.source_label(), "anchor+variation");
+    assert_eq!(plan.source_label(), "maintained");
     assert_eq!(
         MaintainedAnchor::ALL.map(|anchor| anchor.label()),
         [
@@ -115,23 +115,11 @@ fn default_gate_keeps_maintained_anchors_and_adds_one_bounded_variation() {
         EXPECTED_MAINTAINED_ANCHORS
     );
     assert_eq!(plan.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
-    assert_eq!(plan.variation_seed_count(), 1);
+    assert_eq!(plan.variation_seed_count(), 0);
     assert_eq!(plan.custom_seed_count(), 0);
-    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len() + 1);
-    assert!(
-        plan.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()]
-            .iter()
-            .all(|case| case.anchor.is_some())
-    );
-    assert!(
-        plan.cases()[EXPECTED_MAINTAINED_ANCHORS.len()]
-            .anchor
-            .is_none()
-    );
-    assert_eq!(
-        plan.variation_label(),
-        format!("0x{MAINTAINED_VARIATION_ROOT:016X}")
-    );
+    assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len());
+    assert!(plan.cases().iter().all(|case| case.anchor.is_some()));
+    assert_eq!(plan.variation_label(), "n/a");
 }
 
 #[test]

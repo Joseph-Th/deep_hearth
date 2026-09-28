@@ -305,7 +305,7 @@ pub(super) fn finalize_completed_ore_probe(
         reviewln!(
             "CAPABILITY ORE_PREP seed=0x{:016X} sample={} outcome=completed reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] attempted={}mg execution=canonical-stage-resolution feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
             episode.case.seed(),
-            focused_probe_role_label(episode.case.role()),
+            episode.case.role().label(),
             episode.batch_mass.milligrams(),
             episode.input_copper_ppm,
             episode.input_stone_ppm,
@@ -333,7 +333,7 @@ pub(super) fn finalize_completed_ore_probe(
         reviewln!(
             "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=completed pipeline=crush->grind->screen->regrind->concentrate attempted={}mg execution=canonical-stage-resolution feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
             episode.case.seed(),
-            focused_probe_role_label(episode.case.role()),
+            episode.case.role().label(),
             episode.batch_mass.milligrams(),
             episode.input_copper_ppm,
             episode.input_stone_ppm,

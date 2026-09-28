@@ -5,18 +5,17 @@ use std::collections::BTreeMap;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::{nominal_equipment_mass_capability, pristine_equipment_capability};
-use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
-use super::manual_craft_planning::{
-    manual_craft_plan_for_available_output, manual_craft_topology_plan_for_output_from_inputs,
-    project_manual_assembly_package,
-};
+use super::manual_assembly_planning::project_manual_assembly_package;
+use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_craft_selection::select_manual_craft_request;
+use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::ore_fixture::copper_ore_composition;
+#[cfg(not(test))]
 use super::physical_time::format_physical_duration;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::production_timing::finish_uninterrupted_production_job;
@@ -566,6 +565,27 @@ struct PrimitiveProgressionExperience {
     stockpiling_reinvestment: PrimitiveReinvestmentOutcome,
     stockpiling_delay_ticks: u64,
     selected_end: PrimitiveSelectedEnd,
+}
+
+#[cfg(test)]
+fn consume_report_only_experience_fields(experience: &PrimitiveProgressionExperience) {
+    let _ = (
+        experience.processing_decision_at,
+        experience.manual_bridge_ready_at,
+        experience.manual_stockpile_breaking_ticks,
+        experience.mechanized_stockpile_player_ticks,
+        experience.manual_bootstrap_pick_ready_ticks,
+        experience.manual_bootstrap_hard_sample_ticks,
+        experience.manual_bootstrap_second_ready_ticks,
+        experience.manual_bootstrap_machine_ready_ticks,
+        experience.manual_bootstrap_selected_hard_feed,
+        experience.charge_ticks,
+        experience.overlap_ticks,
+        experience.hard_ore_mined,
+        experience.total_ore_mined,
+        experience.metabolic_energy_spent_nj,
+        experience.hydration_spent_ul,
+    );
 }
 
 /// Actual primary-state endpoint, never the throughput/service coverage clone.

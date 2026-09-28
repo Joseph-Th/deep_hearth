@@ -2,8 +2,7 @@
 
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeRole, FocusedProbeSeedError, FocusedProbeSeedPlan,
-    GATE_VARIATION_COUNT, focused_probe_cases_from as build_focused_probe_cases,
-    probe_uses_behavior_seed,
+    focused_probe_cases_from as build_focused_probe_cases, probe_uses_behavior_seed,
 };
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
@@ -50,39 +49,28 @@ fn seed_list_reports_empty_and_exact_invalid_position() {
 }
 
 #[test]
-fn focused_gate_keeps_maintained_cases_and_adds_one_bounded_variation() {
-    let first = focused_probe_cases_from(
-        GATE_VARIATION_COUNT,
-        None,
-        None,
-        0x1111,
-        &[0xAAAA, 0xBBBB],
-        0x2222,
-        0x3333,
-    )
-    .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
-    let second = focused_probe_cases_from(
-        GATE_VARIATION_COUNT,
-        None,
-        None,
-        0x1111,
-        &[0xAAAA, 0xBBBB],
-        0x2222,
-        0x4444,
-    )
-    .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
+fn focused_probe_role_labels_are_stable_replay_vocabulary() {
+    assert_eq!(FocusedProbeRole::MaintainedAnchor.label(), "anchor");
+    assert_eq!(FocusedProbeRole::MaintainedCoverage.label(), "coverage");
+    assert_eq!(FocusedProbeRole::OrganicVariation.label(), "organic");
+    assert_eq!(FocusedProbeRole::ExplicitReplay.label(), "replay");
+}
 
-    assert_eq!(GATE_VARIATION_COUNT, 1);
-    assert_eq!(first.len(), 4);
+#[test]
+fn focused_gate_without_replay_root_keeps_only_maintained_cases() {
+    let first = focused_probe_cases_from(0, None, None, 0x1111, &[0xAAAA, 0xBBBB], 0x2222, 0x3333)
+        .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
+    let second = focused_probe_cases_from(0, None, None, 0x1111, &[0xAAAA, 0xBBBB], 0x2222, 0x4444)
+        .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
+
+    assert_eq!(first.len(), 3);
     assert_eq!(first[0].seed(), 0x1111);
     assert_eq!(first[0].role(), FocusedProbeRole::MaintainedAnchor);
     assert_eq!(first[1].seed(), 0xAAAA);
     assert_eq!(first[1].role(), FocusedProbeRole::MaintainedCoverage);
     assert_eq!(first[2].seed(), 0xBBBB);
     assert_eq!(first[2].role(), FocusedProbeRole::MaintainedCoverage);
-    assert_eq!(first[3].role(), FocusedProbeRole::OrganicVariation);
-    assert_eq!(&first[..3], &second[..3]);
-    assert_ne!(first[3].seed(), second[3].seed());
+    assert_eq!(first, second);
 }
 
 #[test]
@@ -320,7 +308,7 @@ fn focused_behavior_seed_channel_exists_only_for_preference_varied_probes() {
 #[test]
 fn focused_plan_without_actor_channel_contains_no_behavior_seed() {
     let cases = build_focused_probe_cases(FocusedProbeSeedPlan {
-        variation_count: GATE_VARIATION_COUNT,
+        variation_count: 1,
         scenario_raw: None,
         variation_raw: Some("0x1111"),
         behavior_raw: None,

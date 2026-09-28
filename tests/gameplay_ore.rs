@@ -14,6 +14,8 @@ mod equipment_support;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]
@@ -43,15 +45,6 @@ mod tick_observation;
 #[test]
 fn gameplay_ore_preparation_probe() {
     focused_runner::run_focused_probe(
-        "ore-preparation",
-        ore_probe::run_ore_preparation_capability_probe,
-    );
-}
-
-#[test]
-#[ignore = "exploratory report; run via python ci.py report --scope ore"]
-fn gameplay_ore_preparation_report() {
-    focused_runner::run_focused_report(
         "ore-preparation",
         ore_probe::run_ore_preparation_capability_probe,
     );

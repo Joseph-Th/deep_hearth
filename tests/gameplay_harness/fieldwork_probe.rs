@@ -21,12 +21,11 @@ use deep_hearth::registry::Registries;
 
 use super::equipment_support::pristine_equipment_capability;
 use super::focused_seeds::FocusedProbeCase;
-use super::manual_craft_planning::{
-    manual_craft_topology_plan_for_output_from_inputs, project_manual_assembly_package,
-};
+use super::manual_assembly_planning::project_manual_assembly_package;
 use super::manual_craft_selection::{
     first_sufficient_pure_temperature, select_manual_craft_request,
 };
+use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
 
@@ -53,10 +52,6 @@ use campaign::{
 mod extraction;
 use extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
 
-#[cfg(test)]
-#[path = "fieldwork_probe/supply_tests.rs"]
-mod supply_tests;
-
 #[path = "fieldwork_probe/planning.rs"]
 mod planning;
 use planning::*;
@@ -68,10 +63,6 @@ use review::{FieldworkEpisodeReview, finalize_fieldwork_episode};
 #[path = "fieldwork_probe/recovery.rs"]
 mod recovery;
 
-#[cfg(test)]
-#[path = "fieldwork_probe/planning_tests.rs"]
-mod planning_tests;
-
 #[path = "fieldwork_probe/preparation.rs"]
 mod preparation;
 use preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
@@ -80,8 +71,7 @@ use preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
 mod retooling;
 
 #[cfg(test)]
-#[path = "fieldwork_probe/retooling_tests.rs"]
-mod retooling_tests;
+include_fieldwork_contract_tests!();
 
 #[path = "fieldwork_probe/survey.rs"]
 mod survey;

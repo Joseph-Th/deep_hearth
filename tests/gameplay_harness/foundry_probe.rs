@@ -7,8 +7,8 @@ mod reporting;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_runner::{FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED, focused_probe_role_label};
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_witnesses::FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED;
 use super::foundry_setup::{FoundryIds, FoundrySetup, setup_foundry_probe};
 use super::material_selection::select_stockpile_mass;
 use super::production_support::varied_healthy_condition;
@@ -573,7 +573,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         );
         reviewln!(
             "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=melt feed-form={} heating-strategy=direct-melt same-source-preheat=counterfactual-only blocker=no-feasible-batch electrical={}nJ matter=conserved",
-            focused_probe_role_label(case.role()),
+            case.role().label(),
             feed_form.value(),
             initial.electrical.nanojoules(),
         );
@@ -610,7 +610,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         );
         reviewln!(
             "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=cast feed-form={} blocker=no-feasible-batch melted={}mg molten={}mg matter=conserved",
-            focused_probe_role_label(case.role()),
+            case.role().label(),
             feed_form.value(),
             processed_mass.milligrams(),
             processed_mass.milligrams(),
@@ -721,7 +721,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     }
     FoundryReport {
         seed,
-        sample: focused_probe_role_label(case.role()),
+        sample: case.role().label(),
         outcome,
         feed_form,
         offered: mass,

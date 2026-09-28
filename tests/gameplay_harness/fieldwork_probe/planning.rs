@@ -9,8 +9,6 @@ pub(super) use materials::{
     equipment_component_requirements, fieldwork_raw_opportunity, multiplied_mass,
     project_sampling_hammer_upgrade_ticks,
 };
-#[cfg(test)]
-pub(super) use tools::choose_fieldwork_tool;
 pub(super) use tools::{
     FIELDWORK_ORDER_MAX_BATCHES, FIELDWORK_TOOLS, FieldworkMiningLimits, FieldworkTool,
     FieldworkToolBlocker, FieldworkToolEstimate, choose_fieldwork_tool_quiet,

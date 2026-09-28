@@ -53,16 +53,26 @@ struct FieldworkGeologyProfile {
 /// worlds are shallow, while a sparse large-reserve tail gives bulk extraction tools a legitimate
 /// organic opportunity instead of making every non-shallow site the same 4-8 kg scale. Exact
 /// reserve stays hidden from the actor and demand never influences which reserve class is generated.
+pub(super) const FIELDWORK_SHALLOW_SUPPLY_MIN_MG: u64 = 600_000;
+pub(super) const FIELDWORK_SHALLOW_SUPPLY_MAX_MG: u64 = 900_000;
+pub(super) const FIELDWORK_COMMON_SUPPLY_MIN_MG: u64 = 4_000_000;
+pub(super) const FIELDWORK_COMMON_SUPPLY_MAX_MG: u64 = 8_000_000;
+pub(super) const FIELDWORK_BULK_SUPPLY_MIN_MG: u64 = 24_000_000;
+pub(super) const FIELDWORK_BULK_SUPPLY_MAX_MG: u64 = 32_000_000;
+
 pub(super) fn fieldwork_supply(seed: u64) -> Mass {
     let variation = mix64(seed ^ 0x4649_454C_4452_5356);
     let shallow = mix64(seed ^ 0x4649_454C_4453_5554) % 4 == 1;
     let bulk = !shallow && mix64(seed ^ 0x4649_454C_4442_554C).is_multiple_of(8);
     let milligrams = if shallow {
-        600_000 + variation % 300_001
+        FIELDWORK_SHALLOW_SUPPLY_MIN_MG
+            + variation % (FIELDWORK_SHALLOW_SUPPLY_MAX_MG - FIELDWORK_SHALLOW_SUPPLY_MIN_MG + 1)
     } else if bulk {
-        24_000_000 + variation % 8_000_001
+        FIELDWORK_BULK_SUPPLY_MIN_MG
+            + variation % (FIELDWORK_BULK_SUPPLY_MAX_MG - FIELDWORK_BULK_SUPPLY_MIN_MG + 1)
     } else {
-        4_000_000 + variation % 4_000_001
+        FIELDWORK_COMMON_SUPPLY_MIN_MG
+            + variation % (FIELDWORK_COMMON_SUPPLY_MAX_MG - FIELDWORK_COMMON_SUPPLY_MIN_MG + 1)
     };
     Mass::from_milligrams(milligrams)
 }

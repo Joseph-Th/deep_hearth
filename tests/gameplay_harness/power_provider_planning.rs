@@ -18,7 +18,7 @@ use deep_hearth::ore_processing::{
 use deep_hearth::registry::Registries;
 
 use super::super::capital_investment_policy::{clears_attention_return, minimum_attention_return};
-use super::super::manual_craft_planning::project_manual_assembly_package;
+use super::super::manual_assembly_planning::project_manual_assembly_package;
 
 #[path = "power_provider_planning/lifecycle.rs"]
 mod lifecycle;
@@ -73,6 +73,7 @@ pub(super) enum PrimitivePowerChoice {
 }
 
 impl PrimitivePowerChoice {
+    #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::Crank => "crank",
@@ -88,6 +89,7 @@ pub(super) enum SettlementPowerChoice {
 }
 
 impl SettlementPowerChoice {
+    #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::Treadle => "treadle",
@@ -109,15 +111,55 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) treadle_build: ShapedBuild,
     pub(super) crank_charge: ManualPowerProjection,
     pub(super) treadle_charge: ManualPowerProjection,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) crank_lifecycle_attention: u64,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) treadle_lifecycle_attention: u64,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) crank_lifecycle_metabolic_nj: u128,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) treadle_lifecycle_metabolic_nj: u128,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) crank_lifecycle_hydration_ul: u64,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) treadle_lifecycle_hydration_ul: u64,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) crank_lifecycle_condition: Condition,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) treadle_lifecycle_condition: Condition,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) minimum_attention_return_ticks: u64,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) decision_crossover_charges: Option<u64>,
 }
 
@@ -148,7 +190,15 @@ pub(super) struct SettlementPowerPlan {
     pub(super) walking_lifecycle_hydration_ul: u64,
     pub(super) treadle_lifecycle_condition: Condition,
     pub(super) walking_lifecycle_condition: Condition,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) minimum_attention_return_ticks: u64,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(super) decision_crossover_charges: Option<u64>,
 }
 

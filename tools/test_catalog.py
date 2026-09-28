@@ -17,6 +17,12 @@ EXTERNAL_MODULE = re.compile(
 PATH_ATTRIBUTE = re.compile(r'^#\[path\s*=\s*"(?P<path>[^"]+)"\]$')
 FEATURE_PREDICATE = re.compile(r'^feature\s*=\s*"(?P<name>[^"]+)"$')
 TOP_LEVEL_USE = re.compile(r"^use\s+(?P<body>.*?);$", re.DOTALL)
+MODULE_INCLUDE_MACRO = re.compile(
+    r"macro_rules!\s+(?P<name>[A-Za-z_]\w*)\s*\{\s*\(\)\s*=>\s*\{"
+    r"(?P<body>[^{}]*)\}\s*;?\s*\}",
+    re.DOTALL,
+)
+MACRO_INVOCATION = re.compile(r"^(?P<indent>\s*)(?P<name>[A-Za-z_]\w*)!\(\);\s*$", re.MULTILINE)
 
 
 _file_text_cache: dict[Path, str] = {}
@@ -28,6 +34,42 @@ def cached_file_text(path: Path) -> str:
     if path not in _file_text_cache:
         _file_text_cache[path] = path.read_text(encoding="utf-8")
     return _file_text_cache[path]
+
+
+@lru_cache(maxsize=None)
+def module_include_macros(root: Path) -> tuple[tuple[str, str], ...]:
+    """Return simple crate-root zero-argument macros that expand to module declarations."""
+
+    return tuple(
+        (match.group("name"), match.group("body"))
+        for match in MODULE_INCLUDE_MACRO.finditer(cached_file_text(root))
+    )
+
+
+def expand_module_include_macros(source: str, macros: tuple[tuple[str, str], ...]) -> str:
+    """Expand the module-only macro pattern used to keep focused and contract targets separate."""
+
+    bodies = dict(macros)
+
+    def replacement(match: re.Match[str]) -> str:
+        body = bodies.get(match.group("name"))
+        if body is None:
+            return match.group(0)
+        lines = body.splitlines()
+        nonempty = [line for line in lines if line.strip()]
+        margin = min((len(line) - len(line.lstrip()) for line in nonempty), default=0)
+        indent = match.group("indent")
+        return "\n".join(indent + line[margin:] for line in lines if line.strip())
+
+    return MACRO_INVOCATION.sub(replacement, source)
+
+
+@lru_cache(maxsize=None)
+def expanded_logical_source_lines(
+    path: Path, macros: tuple[tuple[str, str], ...]
+) -> tuple[str, ...]:
+    source = expand_module_include_macros(cached_file_text(path), macros)
+    return tuple(logical_source_lines(source))
 
 
 def logical_source_lines(source: str) -> list[str]:
@@ -219,11 +261,12 @@ def _external_modules(
     project_root: Path,
     path: Path,
     features: frozenset[str],
+    macros: tuple[tuple[str, str], ...] = (),
 ) -> tuple[tuple[str, Path], ...]:
     modules: list[tuple[str, Path]] = []
     pending_attributes: list[str] = []
 
-    for line in cached_logical_source_lines(path):
+    for line in expanded_logical_source_lines(path, macros):
         stripped = line.strip()
         if line == stripped and ATTRIBUTE.match(line):
             pending_attributes.append(stripped)
@@ -269,6 +312,7 @@ def _reachable_modules(
     modules: list[tuple[Path, tuple[str, ...]]] = []
     pending: list[tuple[Path, tuple[str, ...]]] = [(root, ())]
     visited: set[tuple[Path, tuple[str, ...]]] = set()
+    macros = module_include_macros(root)
     while pending:
         path, prefix = pending.pop()
         key = (path, prefix)
@@ -276,7 +320,7 @@ def _reachable_modules(
             continue
         visited.add(key)
         modules.append((path, prefix))
-        for module, module_path in _external_modules(project_root, path, features):
+        for module, module_path in _external_modules(project_root, path, features, macros):
             pending.append((module_path, (*prefix, module)))
     return tuple(modules)
 

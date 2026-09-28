@@ -12,6 +12,8 @@ mod environment;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]
@@ -41,15 +43,6 @@ mod world_admission;
 #[test]
 fn gameplay_survival_provisioning_probe() {
     focused_runner::run_focused_probe(
-        "survival-provisioning",
-        survival_probe::run_survival_provisioning_probe,
-    );
-}
-
-#[test]
-#[ignore = "exploratory report; run via python ci.py report --scope survival"]
-fn gameplay_survival_provisioning_report() {
-    focused_runner::run_focused_report(
         "survival-provisioning",
         survival_probe::run_survival_provisioning_probe,
     );

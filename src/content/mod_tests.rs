@@ -1,14 +1,12 @@
 //! Built-in registry assembly, reference integrity, and resolver-ownership tests.
 
-use std::collections::BTreeSet;
-
 use super::*;
 use crate::capability::{
     CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityRegistry,
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::core::quantity::{
-    Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power, Temperature, Volume,
+    Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power, Temperature,
 };
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId};
@@ -60,21 +58,6 @@ fn built_in_water_has_an_authoritative_liquid_phase_boundary() {
                 definition.minimum_modeled_temperature(registries.materials())
             }),
         Some(materials::WATER_MELTING_POINT)
-    );
-}
-
-#[test]
-fn built_in_direct_drinking_uses_a_meaningful_serving_floor() {
-    let registries = build_registries();
-
-    assert_eq!(
-        registries
-            .survival()
-            .physiology()
-            .direct_consumption()
-            .minimum_drink_volume(),
-        Volume::from_microliters(250_000),
-        "ordinary drinking should use a cup-sized serving floor rather than threshold-sipping"
     );
 }
 
@@ -170,288 +153,6 @@ fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
     assert!(result.is_err());
 }
 
-fn primitive_commodity_has_root_route(
-    registries: &Registries,
-    commodity: CommodityKey,
-    roots: &BTreeSet<CommodityKey>,
-    visiting: &mut BTreeSet<CommodityKey>,
-) -> bool {
-    if roots.contains(&commodity) {
-        return true;
-    }
-    if !visiting.insert(commodity) {
-        return false;
-    }
-
-    let manual_route = registries
-        .crafting()
-        .definitions()
-        .filter(|definition| {
-            definition
-                .outputs()
-                .iter()
-                .any(|output| output.commodity() == commodity)
-        })
-        .any(|producer| {
-            primitive_commodity_has_root_route(registries, producer.input(), roots, visiting)
-        });
-    let casting_route = !manual_route
-        && registries
-            .thermal()
-            .casting_definitions()
-            .filter(|definition| {
-                definition.material() == commodity.material()
-                    && definition.solid_form() == commodity.form()
-            })
-            .any(|producer| {
-                primitive_commodity_has_root_route(
-                    registries,
-                    CommodityKey::new(commodity.material(), producer.liquid_form()),
-                    roots,
-                    visiting,
-                )
-            });
-    let melting_route = !manual_route
-        && !casting_route
-        && registries
-            .thermal()
-            .melting_definitions()
-            .filter(|definition| {
-                definition.material() == commodity.material()
-                    && definition.liquid_form() == commodity.form()
-            })
-            .any(|producer| {
-                producer.solid_forms().iter().any(|form| {
-                    primitive_commodity_has_root_route(
-                        registries,
-                        CommodityKey::new(commodity.material(), *form),
-                        roots,
-                        visiting,
-                    )
-                })
-            });
-
-    assert!(visiting.remove(&commodity));
-    manual_route || casting_route || melting_route
-}
-
-fn assert_primitive_commodity_reachable(
-    registries: &Registries,
-    commodity: CommodityKey,
-    roots: &BTreeSet<CommodityKey>,
-    visiting: &mut BTreeSet<CommodityKey>,
-) {
-    assert!(
-        primitive_commodity_has_root_route(registries, commodity, roots, visiting),
-        "primitive component commodity {} must have at least one acyclic ordinary material route from an authored primitive root",
-        commodity.value()
-    );
-}
-
-#[test]
-fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_route() {
-    let registries = build_registries();
-    let roots = BTreeSet::from([
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-    ]);
-    let mut required = BTreeSet::new();
-
-    for definition in registries.equipment().definitions() {
-        if !definition.has_authored_acquisition_edge() {
-            continue;
-        }
-        if let Some(assembly) = definition.assembly_profile() {
-            required.extend(assembly.inputs().iter().map(MaterialInputSpec::commodity));
-        }
-        if let Some(upgrade) = definition.upgrade_profile() {
-            let base = registries
-                .equipment()
-                .get_equipment(upgrade.from())
-                .unwrap_or_else(|| unreachable!("registry validation resolves upgrade bases"));
-            assert!(
-                base.has_authored_acquisition_edge(),
-                "equipment upgrade {} starts from base {} with no direct authored acquisition edge",
-                definition.id().value(),
-                base.id().value()
-            );
-            required.extend(
-                upgrade
-                    .additions()
-                    .inputs()
-                    .iter()
-                    .map(MaterialInputSpec::commodity),
-            );
-        }
-    }
-    for definition in registries.energy().definitions() {
-        if let Some(assembly) = definition.assembly_profile() {
-            required.extend(assembly.inputs().iter().map(MaterialInputSpec::commodity));
-        }
-    }
-    for definition in registries.storage().definitions() {
-        required.extend(
-            definition
-                .assembly_profile()
-                .inputs()
-                .iter()
-                .map(MaterialInputSpec::commodity),
-        );
-    }
-
-    for commodity in required {
-        assert_primitive_commodity_reachable(&registries, commodity, &roots, &mut BTreeSet::new());
-    }
-}
-
-#[test]
-fn built_in_missing_acquisition_edges_are_exactly_capability_only_infrastructure() {
-    let registries = build_registries();
-    let equipment_without_acquisition = registries
-        .equipment()
-        .definitions()
-        .filter(|definition| !definition.has_authored_acquisition_edge())
-        .map(|definition| definition.id())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        equipment_without_acquisition,
-        BTreeSet::from([
-            EQUIPMENT_JAW_CRUSHER,
-            EQUIPMENT_ELECTRIC_FURNACE,
-            EQUIPMENT_CASTING_MOLD,
-            EQUIPMENT_DRY_SCREEN,
-            EQUIPMENT_GRINDING_MILL,
-            EQUIPMENT_GRAVITY_SEPARATOR,
-        ]),
-        "only controlled industrial workshop equipment may lack an ordinary acquisition edge"
-    );
-
-    let energy_without_assembly = registries
-        .energy()
-        .definitions()
-        .filter(|definition| !definition.has_authored_assembly_edge())
-        .map(|definition| definition.id())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        energy_without_assembly,
-        BTreeSet::from([
-            ENERGY_MECHANICAL_SMALL_DRIVE,
-            ENERGY_MECHANICAL_LARGE_DRIVE,
-            ENERGY_ELECTRICAL_BUFFER,
-            ENERGY_THERMAL_SINK,
-        ]),
-        "only controlled workshop energy infrastructure may lack an ordinary assembly edge"
-    );
-}
-
-#[test]
-fn primitive_flywheel_loses_stored_rotation_without_erasing_short_work_windows() {
-    let registries = build_registries();
-    for (store, expected_loss) in [
-        (
-            ENERGY_TIMBER_FLYWHEEL_DRIVE,
-            Power::from_microwatts(500_000),
-        ),
-        (
-            ENERGY_STONE_FLYWHEEL_DRIVE,
-            Power::from_microwatts(1_000_000),
-        ),
-        (
-            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
-            Power::from_microwatts(1_000_000),
-        ),
-        (
-            ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
-            Power::from_microwatts(2_000_000),
-        ),
-        (
-            ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
-            Power::from_microwatts(10_000_000),
-        ),
-    ] {
-        let flywheel = registries
-            .energy()
-            .get_store(store)
-            .unwrap_or_else(|| panic!("built-in primitive flywheel definition disappeared"));
-        let loss = flywheel.passive_dissipation_power();
-        assert_eq!(loss, expected_loss);
-        assert!(
-            loss < flywheel.max_input_power() && loss < flywheel.max_output_power(),
-            "passive flywheel drag must remain below active transfer power"
-        );
-        let loss_per_tick = crate::energy::integrate_power(
-            loss,
-            TickSpan::new(1),
-            registries.core().physical_tick_duration(),
-            crate::energy::PowerRemainder::ZERO,
-        )
-        .unwrap_or_else(|error| panic!("primitive flywheel loss integration failed: {error}"));
-        assert_eq!(
-            loss_per_tick.remainder(),
-            crate::energy::PowerRemainder::ZERO
-        );
-        let passive_ticks = flywheel.capacity().nanojoules() / loss_per_tick.energy().nanojoules();
-        assert!(
-            (120..=210).contains(&passive_ticks),
-            "primitive flywheel full-charge coast time must remain a multi-minute work buffer, not long-term storage"
-        );
-    }
-}
-
-#[test]
-fn built_in_workshop_energy_buffers_have_coherent_transfer_and_recovery_rates() {
-    let registries = build_registries();
-    let electrical = registries
-        .energy()
-        .get_store(ENERGY_ELECTRICAL_BUFFER)
-        .unwrap_or_else(|| panic!("built-in electrical buffer disappeared"));
-    let thermal = registries
-        .energy()
-        .get_store(ENERGY_THERMAL_SINK)
-        .unwrap_or_else(|| panic!("built-in thermal sink disappeared"));
-
-    assert_eq!(
-        electrical.max_input_power(),
-        Power::from_microwatts(1_000_000_000_000),
-        "an electrical buffer must accept recharge as well as provide stored power"
-    );
-    assert_eq!(electrical.max_output_power(), electrical.max_input_power());
-    assert_eq!(
-        thermal.max_input_power(),
-        Power::from_microwatts(1_000_000_000_000)
-    );
-    assert_eq!(
-        thermal.passive_dissipation_power(),
-        Power::from_microwatts(100_000_000_000)
-    );
-    assert!(
-        thermal.passive_dissipation_power() < thermal.max_input_power(),
-        "passive heat rejection must recover the finite sink more slowly than active casting can fill it"
-    );
-}
-
-#[test]
-fn built_in_protein_options_trade_immediate_density_for_storage_resilience() {
-    let registries = build_registries();
-    let meat = *registries
-        .survival()
-        .get_food(CommodityKey::new(MATERIAL_MEAT, FORM_FOOD))
-        .unwrap_or_else(|| panic!("built-in meat food definition disappeared"));
-    let legumes = *registries
-        .survival()
-        .get_food(CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD))
-        .unwrap_or_else(|| panic!("built-in legume food definition disappeared"));
-
-    assert_eq!(meat.category(), FoodCategory::Protein);
-    assert_eq!(legumes.category(), FoodCategory::Protein);
-    assert!(meat.dietary_energy() > legumes.dietary_energy());
-    assert!(meat.hydration_multiplier_ppm() > 0);
-    assert!(meat.hydration_multiplier_ppm() < 1_000_000);
-    assert_eq!(legumes.hydration_multiplier_ppm(), 0);
-    assert!(legumes.shelf_life() > meat.shelf_life());
-}
-
 #[test]
 fn built_in_world_time_scale_and_gravity_are_stable() {
     let registries = build_registries();
@@ -474,30 +175,11 @@ fn built_in_world_time_scale_and_gravity_are_stable() {
     );
 }
 
-#[test]
-fn hand_mining_exertion_remains_a_sustained_human_workload() {
-    let registries = build_registries();
-    let method = registries
-        .mining()
-        .get_method(MINING_METHOD_HAND_PICK)
-        .unwrap_or_else(|| panic!("built-in hand-mining method disappeared"));
-    let total_energy_per_tick = registries
-        .survival()
-        .physiology()
-        .basal_energy_cost_per_tick()
-        .checked_add(method.exertion().energy_cost_per_tick())
-        .unwrap_or_else(|| panic!("hand-mining metabolic cost overflowed"));
-
-    // 2.16 kJ over the authoritative 3.6-second tick is 600 W total metabolic demand.
-    assert!(
-        total_energy_per_tick <= Energy::from_nanojoules(2_160_000_000_000),
-        "sustained hand mining must not require implausible kilowatt-scale human metabolism"
-    );
-}
-
 #[path = "mod_tests/gameplay_authoring.rs"]
 mod gameplay_authoring;
 #[path = "mod_tests/presentation.rs"]
 mod presentation;
+#[path = "mod_tests/public_contracts.rs"]
+mod public_contracts;
 #[path = "mod_tests/resolver_contracts.rs"]
 mod resolver_contracts;

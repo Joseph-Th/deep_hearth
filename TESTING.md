@@ -28,12 +28,13 @@ Use the smallest lane that completely proves the changed contract.
 `quick` is build-free. `gate` runs one build-producing lane. `audit` is an explicit broad checkpoint and does
 not belong in the ordinary edit loop.
 
-Use `python tools/run_test.py --list` for build-free discovery. Exact selectors resolve to the smallest suitable
-Cargo target, including owner-specific gameplay contract targets that are kept separate from play-like probe
-binaries. Use `--check` for test-target type checking, `--lint` for focused test-target Clippy, and `--verbose`
-only when captured output is needed. Compile-only checking and executable testing are alternative proof lanes:
-do not run `gate` or `cargo check-fast` merely as a prerequisite to a test, because the extra build does not
-replace that test target's own compilation/linking.
+Use `python tools/run_test.py --list` for build-free discovery. Selectors resolve to the narrowest suitable target.
+Use `--lint` only for focused test-target Clippy and `--verbose` only when output is needed. Do not add a separate
+check-only step before an executable test: Cargo maintains different check/test artifacts, and the extra build can
+cost more than linking the intended target once. Library unit tests share one large Rust test crate, so prefer
+build-free checks while editing and execute the exact test when its behavior is ready to prove. Public built-in
+content contracts share that library-test artifact because a separate content binary measured slower after the
+same production edit.
 
 Specialized gates are `python ci.py gate --shaders`, `python ci.py gate --rustdoc`, and
 `python ci.py gate --soak`. Scoped audits remain available as `python ci.py audit --core` and
@@ -96,15 +97,16 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused gameplay probe targets are edit-loop compile surfaces. Larger owner contract suites use separate narrow
-targets so an exact contract test does not compile the play-like probe or the consolidated gameplay audit.
+Focused gameplay probes and owner contract suites use separate edit-loop targets.
 All gameplay test targets keep one `test-gameplay` Cargo feature shape so moving between probe, contract, and
 audit lanes reuses the same library artifact instead of fragmenting the incremental cache.
-Repository-owned gameplay gates and the broad gameplay audit retain maintained witnesses and add one bounded
-organic case per play-like probe. `ci.py` generates fresh replay roots for those cases and prints them with the
-result; pass the printed roots back through `--variation-seed` and, where applicable, `--behavior-seed` to
-reproduce a run. Reports use a broader bounded organic sample. Direct Cargo test invocation keeps deterministic
-fallback roots. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
+Reports use dedicated example binaries. Focused tests stay quiet; large report-only formatting belongs outside
+test builds only when measurement shows that split improves the edit loop.
+Focused gameplay gates run maintained deterministic witnesses only. The broad gameplay audit adds one bounded
+organic case per play-like probe and prints fresh replay roots; pass those roots back through `--variation-seed`
+and, where applicable, `--behavior-seed` to reproduce a run. Supplying a variation root to a focused gate adds
+one explicit replay variation without changing its maintained witnesses. Reports use a broader bounded organic
+sample. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
 
 ## Completion
 

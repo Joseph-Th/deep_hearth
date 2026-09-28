@@ -39,6 +39,10 @@ pub(in super::super) struct ChargeOutcome {
     pub(in super::super) attention_ticks: u64,
     pub(in super::super) metabolic_nj: u128,
     pub(in super::super) hydration_ul: u128,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
     pub(in super::super) condition_after_ppm: u32,
 }
 
@@ -171,6 +175,13 @@ fn service_consumer_if_critical(
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "focused gate validates project execution internally; detailed fields feed reports"
+    )
+)]
 pub(in super::super) struct SelectedProjectOutcome {
     pub(in super::super) charge_events: u64,
     pub(in super::super) survival_limited_batches: u64,
@@ -196,6 +207,7 @@ pub(in super::super) struct SelectedProjectOutcome {
 }
 
 impl SelectedProjectOutcome {
+    #[cfg(not(test))]
     pub(in super::super) fn active_attention_ticks(self) -> u64 {
         self.provider_attention_ticks
             .checked_add(self.service_preparation_ticks)

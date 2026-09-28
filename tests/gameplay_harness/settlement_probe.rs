@@ -27,7 +27,6 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::capital_investment_policy::{clears_attention_return, minimum_attention_return};
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
@@ -552,7 +551,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     reviewln!(
         "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charge-per-batch:{}t margin:{:+}t] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
         case.seed(),
-        focused_probe_role_label(case.role()),
+        case.role().label(),
         order_batches,
         order_mass.milligrams(),
         choice.label(),

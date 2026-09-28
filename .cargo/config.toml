@@ -15,8 +15,8 @@ check-fast = "check --quiet --locked --profile test --lib"
 # Gameplay/report wrappers are compiled by their focused or audit lanes instead of
 # cloning the same large harness graph under Clippy. It shares the same profile/cache as tests.
 lint-fast = "clippy --quiet --locked --profile test --lib -- -D warnings"
-# Exact unit tests and full core audits share this feature-minimal library-test artifact, so moving
-# between owners reuses the same incremental codegen and linked binary instead of fragmenting cache.
+# Exact unit tests, public content contracts, and broad core audits share this one feature-minimal
+# library-test artifact. The measured local relink is cheaper than maintaining a second content binary.
 test-core = "test --quiet --locked --lib"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak lane pays that cost only on demand.

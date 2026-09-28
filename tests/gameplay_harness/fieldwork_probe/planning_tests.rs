@@ -9,6 +9,25 @@ use super::super::inventory_support::add_solid_stockpile;
 use super::extraction::{FieldworkOrderAdaptation, FieldworkStop};
 use super::*;
 
+fn choose_fieldwork_tool(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    observed_upper: Pressure,
+    order: Mass,
+) -> Option<FieldworkToolEstimate> {
+    choose_fieldwork_tool_with_market_phase(
+        registries,
+        state,
+        raw,
+        parts,
+        observed_upper,
+        order,
+        "contract",
+    )
+}
+
 /// Preserves the executed follow-up order when the selected tool's known batch cap applies.
 ///
 /// The actor already knows the selected tool's batch capacity from its planning frame, so it must

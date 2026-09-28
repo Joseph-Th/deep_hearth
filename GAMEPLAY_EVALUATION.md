@@ -140,9 +140,10 @@ scope may establish.
 | Scope | Contract |
 | --- | --- |
 | `survival` | Hunger, thirst, recovery, preservation investment, storage recovery, and work/provisioning interaction through ordinary runtime paths. |
-| `progression` | Evidence-gated mining, primitive processing, mechanization, maintenance, reinvestment, and first-foundry decision/execution coverage. |
+| `progression` | Evidence-gated mining, primitive processing, mechanization, maintenance, and reinvestment. |
+| `liberation` | Raw-material acquisition, primitive-kit construction, ore processing, and payback through the ordinary native-copper liberation route. |
 | `settlement` | Repeated-work investment contracts for spindle drill, wire drawbench, helve hammer, sawmill, lathe, and grindstone conversions. |
-| report `primitive-liberation` | Raw-material acquisition, primitive-kit construction, ore processing, payback, and first-foundry opportunity evidence. |
+| `foundry-bootstrap` | First-foundry build/defer choice, casting campaign, passive cooldown, and cast-stock reinvestment into settlement batch casting. |
 | report `woodworking` | Bare-hand/adze/frame-saw investment, wear, maintenance, and attention/material payback. |
 | report `fieldwork` | Sampling, bounded search, depletion, retooling, salvage, survey investment, and evidence-driven extraction adaptation. |
 | report `power-provider` | Human-power provider and accumulator investment across primitive and settlement workloads with full lifecycle costs. |
@@ -150,9 +151,9 @@ scope may establish.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Routine gameplay gates and the broad gameplay audit retain maintained deterministic witnesses and add one bounded
-organic case per play-like probe, including agency counterfactuals. Project-owned CI chooses fresh replay roots
-unless explicit roots are supplied; reports use a broader bounded sample. Maintained cases prove contracts, not
+Routine focused gameplay gates use maintained deterministic witnesses only. The broad gameplay audit adds one
+bounded organic case per play-like probe, including agency counterfactuals, and chooses fresh replay roots unless
+explicit roots are supplied. Reports use a broader bounded sample. Maintained cases prove contracts, not
 prevalence; organic samples are bounded evidence, not population estimates.
 Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
 must not count counterfactual, coverage-only, or negative-control branches as player experience.
@@ -176,10 +177,10 @@ and baseline from the same decision state to that fixed horizon. Future controll
 never become actor inputs. Compare aggregate observable contracts when production treats internal representations
 as equivalent.
 
-Project-owned gameplay verification ignores ambient replay state, generates fresh physical and, where applicable,
-actor roots, and prints those roots with the result. Explicit command-line roots replay a prior gate, audit, or
-report. Direct test invocation keeps deterministic fallback roots. [`TESTING.md`](TESTING.md) owns command
-selection; command help owns exact option syntax.
+Project-owned gameplay verification ignores ambient replay state. Focused gates stay on maintained witnesses
+unless explicit command-line roots request one replay variation; broad audits generate fresh physical and, where
+applicable, actor roots and print them with the result. Reports generate broader fresh samples. [`TESTING.md`](TESTING.md)
+owns command selection; command help owns exact option syntax.
 
 Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
 labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their
