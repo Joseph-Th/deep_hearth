@@ -7,7 +7,7 @@ use std::num::NonZeroU64;
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
-use crate::inventory::{MaterialLotId, MaterialLotSelection, StockpileId};
+use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::production::ProcessId;
 use crate::registry::{ProcessEquipmentRole, Registries};
@@ -18,7 +18,6 @@ use super::ManualCraftRequest;
 struct CompatibleInputGroup {
     temperature: Temperature,
     mass: Mass,
-    lots: Vec<(MaterialLotId, Mass)>,
 }
 
 /// How one recipe's material input can be presented to an ordinary inventory caller.
@@ -320,12 +319,10 @@ fn scan_input_groups(
                 .or_insert_with(|| CompatibleInputGroup {
                     temperature,
                     mass: Mass::ZERO,
-                    lots: Vec::new(),
                 });
         group.mass = group.mass.checked_add(lot.mass()).unwrap_or_else(|| {
             panic!("validated stockpile compatible manual-craft mass overflowed")
         });
-        group.lots.push((lot_id, lot.mass()));
     }
     let groups = groups_by_temperature.into_values().collect::<Vec<_>>();
 
@@ -416,14 +413,28 @@ pub fn plan_manual_craft_from_stockpile(
         );
     }
 
+    let expected_composition = MaterialComposition::pure(availability.input().material());
     let mut remaining = required;
     let mut selections = Vec::new();
-    for (lot, mass) in &group.lots {
+    for lot_id in state
+        .inventory()
+        .lot_ids_for_commodity(source, availability.input())
+    {
         if remaining.is_zero() {
             break;
         }
-        let selected = (*mass).min(remaining);
-        selections.push(MaterialLotSelection::new(*lot, selected));
+        let lot = state.inventory().get_lot(lot_id).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: stockpile {} indexes missing lot {}",
+                source.value(),
+                lot_id.value()
+            )
+        });
+        if lot.composition() != &expected_composition || lot.temperature() != group.temperature {
+            continue;
+        }
+        let selected = lot.mass().min(remaining);
+        selections.push(MaterialLotSelection::new(lot_id, selected));
         remaining = remaining.checked_sub(selected).unwrap_or_else(|| {
             unreachable!("selected manual-craft input cannot exceed remaining mass")
         });
