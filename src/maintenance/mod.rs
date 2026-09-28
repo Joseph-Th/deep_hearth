@@ -261,6 +261,9 @@ pub(crate) fn calculate_usable_condition_after_active_ticks(
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-maintenance")
+))]
 #[path = "mod_tests.rs"]
 mod tests;

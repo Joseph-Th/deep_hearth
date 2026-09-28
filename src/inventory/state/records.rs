@@ -354,6 +354,9 @@ impl StockpileRecord {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
+))]
 #[path = "records_tests.rs"]
 mod tests;

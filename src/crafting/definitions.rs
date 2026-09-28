@@ -284,6 +284,9 @@ impl ManualCraftDefinition {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-crafting")
+))]
 #[path = "definitions_tests.rs"]
 mod tests;

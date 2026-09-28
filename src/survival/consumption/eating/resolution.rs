@@ -336,6 +336,9 @@ pub(super) fn resolve_meal_offer(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-survival")
+))]
 #[path = "resolution_tests.rs"]
 mod tests;

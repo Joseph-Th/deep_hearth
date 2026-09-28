@@ -222,6 +222,9 @@ pub fn resolve_comminution_process(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-ore-processing")
+))]
 #[path = "comminution_execution_tests.rs"]
 mod tests;

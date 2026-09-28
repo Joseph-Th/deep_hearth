@@ -33,10 +33,11 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
-    DrinkDefinition, DrinkHydrationProjectionError, DrinkOutcome, EatOutcome, FoodCategory,
-    FoodDefinition, FoodFreshness, assess_food_freshness, assess_survival,
-    initialize_player_survival, project_food_freshness_after_storage_transition,
-    project_minimum_drink_to_hydration_target, validate_drink, validate_eat,
+    DrinkDefinition, DrinkHydrationProjectionError, DrinkOutcome, DrinkStoreToTargetError,
+    EatOutcome, FoodCategory, FoodDefinition, FoodFreshness, ValidatedDrink, assess_food_freshness,
+    assess_survival, initialize_player_survival, project_food_freshness_after_storage_transition,
+    validate_drink, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
+    validate_eat,
 };
 
 use super::environment::ROOM_TEMPERATURE;
@@ -290,7 +291,6 @@ struct DietRecoveryBranch<'a> {
     foods: &'a [FoodDefinition],
     food_store: StockpileId,
     food_lots: &'a [MaterialLotId],
-    drink: DrinkDefinition,
     drink_store: FluidStoreId,
     matter_total: AggregateMass,
     fluid_total: AggregateVolume,
@@ -343,25 +343,11 @@ fn run_diet_recovery_branch(
         ))
         .unwrap_or_else(|| panic!("diet-recovery provisioning duration overflowed"));
 
-    let after_meal = assess_survival(registries, &state)
-        .unwrap_or_else(|| panic!("diet-recovery player disappeared after meal"));
-    let drink_volume = recovery_drink_volume(
-        registries,
-        branch.drink,
-        after_meal.hydration(),
-        "diet-recovery",
-    );
-    if !drink_volume.is_zero() {
-        let drink = validate_drink(registries, &state, branch.drink_store, drink_volume)
-            .unwrap_or_else(|error| panic!("diet-recovery drink validation failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("diet-recovery drink commit failed: {error}"));
+    if let Some((_drink, drink_ticks)) =
+        execute_recovery_drink(registries, &mut state, branch.drink_store)
+    {
         provisioning_elapsed_ticks = provisioning_elapsed_ticks
-            .checked_add(finish_direct_consumption(
-                registries,
-                &mut state,
-                drink.completes_at(),
-            ))
+            .checked_add(drink_ticks)
             .unwrap_or_else(|| panic!("diet-recovery provisioning duration overflowed"));
     }
     let provisioned = assess_survival(registries, &state)
@@ -518,7 +504,6 @@ fn evaluate_diet_recovery_consequence(
         foods: &world.foods,
         food_store,
         food_lots: &food_lots,
-        drink: world.drink,
         drink_store,
         matter_total,
         fluid_total,

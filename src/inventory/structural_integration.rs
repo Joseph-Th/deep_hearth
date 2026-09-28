@@ -321,6 +321,9 @@ pub fn validate_unmount_stockpile(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
+))]
 #[path = "structural_integration_tests.rs"]
 mod tests;

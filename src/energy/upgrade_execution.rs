@@ -222,6 +222,9 @@ pub fn validate_upgrade_energy_store(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
+))]
 #[path = "upgrade_execution_tests.rs"]
 mod tests;

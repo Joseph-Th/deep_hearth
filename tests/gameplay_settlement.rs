@@ -41,6 +41,15 @@ mod tick_observation;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
 
+#[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
+mod settlement_drill_contract_tests;
+#[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
+mod settlement_helve_contract_tests;
+#[path = "gameplay_harness/settlement_machine_contract_tests.rs"]
+mod settlement_machine_contract_tests;
+#[path = "gameplay_harness/settlement_wire_contract_tests.rs"]
+mod settlement_wire_contract_tests;
+
 #[test]
 fn gameplay_settlement_probe() {
     focused_runner::run_focused_probe("settlement", settlement_probe::run_settlement_probe);

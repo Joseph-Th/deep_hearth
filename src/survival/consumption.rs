@@ -51,10 +51,16 @@ pub(crate) fn direct_consumption_survival_revisions(
     Some((expected_revision, next_revision))
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-survival")
+))]
 #[path = "consumption_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-survival")
+))]
 #[path = "direct_use_tests.rs"]
 mod direct_use_tests;

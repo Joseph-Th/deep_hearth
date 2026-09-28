@@ -5,13 +5,12 @@ use std::num::NonZeroU64;
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::crafting::{
-    ManualCraftDefinition, project_manual_craft_hand_work, resolve_manual_craft,
+    ManualCraftDefinition, plan_manual_craft_from_stockpile, project_manual_craft_hand_work,
+    resolve_manual_craft,
 };
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::{ProcessEquipmentRole, Registries};
-
-use super::manual_craft_selection::plan_manual_craft_request;
 
 /// Selects the most attention-efficient equipment-free route whose exact pure homogeneous input is
 /// currently present in at least one declared actor-visible source.
@@ -66,20 +65,20 @@ pub(super) fn manual_craft_plan_for_available_output<'a>(
                 definition.process().value()
             );
             let batches = required.milligrams().div_ceil(per_batch.milligrams());
+            let batches_nonzero = NonZeroU64::new(batches)
+                .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));
             let (source, request) = sources.iter().copied().find_map(|source| {
-                plan_manual_craft_request(
+                plan_manual_craft_from_stockpile(
                     registries,
                     state,
                     definition.process(),
                     source,
-                    batches,
+                    batches_nonzero,
                 )
                 .ok()
                 .map(|request| (source, request))
             })?;
             let resolution = resolve_manual_craft(registries, state, &request).ok()?;
-            let batches_nonzero = NonZeroU64::new(batches)
-                .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));
             let work = project_manual_craft_hand_work(registries, definition.process(), batches_nonzero)
                 .unwrap_or_else(|error| {
                     panic!("gameplay harness {context} hand-work projection failed: {error}")

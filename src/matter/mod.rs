@@ -283,6 +283,9 @@ pub fn calculate_matter_accounting(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-matter")
+))]
 #[path = "mod_tests.rs"]
 mod tests;

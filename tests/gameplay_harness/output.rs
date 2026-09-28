@@ -22,8 +22,8 @@ pub(super) fn has_trace_output() -> bool {
     env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
 }
 
-// Test binaries drop narration at macro expansion time so report-only formatting expressions do not
-// enter the focused test build. Any value needed only for narration belongs behind a report boundary.
+// Test binaries suppress narration while still type-checking format expressions. Large report-only
+// formatters belong behind a report boundary when measurement shows that split improves iteration.
 #[cfg(test)]
 #[allow(unused_macros)]
 macro_rules! println {

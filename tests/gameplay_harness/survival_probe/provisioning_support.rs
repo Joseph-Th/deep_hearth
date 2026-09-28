@@ -8,25 +8,23 @@ pub(super) fn mass_for_target_energy(food: FoodDefinition, target: Energy) -> Ma
         .unwrap_or_else(|| panic!("survival probe meal mass exceeds authoritative range"))
 }
 
-pub(super) fn recovery_drink_volume(
+fn validate_recovery_drink(
     registries: &Registries,
-    drink: DrinkDefinition,
-    current_hydration: Volume,
+    state: &AppState,
+    source: FluidStoreId,
     context: &'static str,
-) -> Volume {
-    let physiology = registries.survival().physiology();
-    match project_minimum_drink_to_hydration_target(
-        physiology,
-        drink,
-        current_hydration,
-        physiology.maximum_hydration(),
-    ) {
-        Ok(Some(projection)) => projection.volume(),
-        Ok(None) => Volume::ZERO,
-        Err(DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
-            maximum_drink_volume,
-        }) => maximum_drink_volume,
-        Err(error) => panic!("{context} drink projection failed: {error}"),
+) -> Option<ValidatedDrink> {
+    match validate_drink_store_to_full(registries, state, source) {
+        Ok(drink) => drink,
+        Err(DrinkStoreToTargetError::Projection(
+            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+                maximum_drink_volume,
+            },
+        )) => Some(
+            validate_drink(registries, state, source, maximum_drink_volume)
+                .unwrap_or_else(|error| panic!("{context} maximum legal drink failed: {error}")),
+        ),
+        Err(error) => panic!("{context} drink-to-full validation failed: {error}"),
     }
 }
 
@@ -52,45 +50,29 @@ pub(super) fn execute_planned_meal(
     (meal, elapsed)
 }
 
-pub(super) fn execute_planned_drink(
+pub(super) fn execute_recovery_drink(
     registries: &Registries,
     state: &mut AppState,
     source: FluidStoreId,
-    volume: Volume,
-) -> (DrinkOutcome, u64) {
-    let drank = validate_drink(registries, state, source, volume)
-        .unwrap_or_else(|error| panic!("survival probe drinking validation failed: {error}"))
+) -> Option<(DrinkOutcome, u64)> {
+    let drank = validate_recovery_drink(registries, state, source, "survival recovery drink")?
         .commit(state)
         .unwrap_or_else(|error| panic!("survival probe drinking commit failed: {error}"));
     let elapsed = finish_direct_consumption(registries, state, drank.completes_at());
-    (drank, elapsed)
+    Some((drank, elapsed))
 }
 
 pub(super) fn execute_provisioning_actions(
     registries: &Registries,
     state: &mut AppState,
     prepared: &PreparedProvisioningWorld,
-    drink: DrinkDefinition,
     selections: &[MaterialLotSelection],
     drink_first: bool,
 ) -> ProvisioningActionOutcome {
     let (meal, drank_volume, hydration_offered, elapsed_ticks, action_order) = if drink_first {
-        let current_hydration = assess_survival(registries, state)
-            .unwrap_or_else(|| panic!("survival provisioning lost the player before drinking"))
-            .hydration();
-        let drink_volume = recovery_drink_volume(
-            registries,
-            drink,
-            current_hydration,
-            "survival drink-first provisioning",
-        );
-        if drink_volume.is_zero() {
-            let (meal, meal_ticks) =
-                execute_planned_meal(registries, state, prepared.ambient_meal, selections);
-            (meal, Volume::ZERO, Volume::ZERO, meal_ticks, "eat-only")
-        } else {
-            let (drank, drink_ticks) =
-                execute_planned_drink(registries, state, prepared.drink_store, drink_volume);
+        if let Some((drank, drink_ticks)) =
+            execute_recovery_drink(registries, state, prepared.drink_store)
+        {
             let (meal, meal_ticks) =
                 execute_planned_meal(registries, state, prepared.ambient_meal, selections);
             (
@@ -102,24 +84,17 @@ pub(super) fn execute_provisioning_actions(
                 }),
                 "drink->eat",
             )
+        } else {
+            let (meal, meal_ticks) =
+                execute_planned_meal(registries, state, prepared.ambient_meal, selections);
+            (meal, Volume::ZERO, Volume::ZERO, meal_ticks, "eat-only")
         }
     } else {
         let (meal, meal_ticks) =
             execute_planned_meal(registries, state, prepared.ambient_meal, selections);
-        let current_hydration = assess_survival(registries, state)
-            .unwrap_or_else(|| panic!("survival provisioning lost the player after eating"))
-            .hydration();
-        let drink_volume = recovery_drink_volume(
-            registries,
-            drink,
-            current_hydration,
-            "survival eat-first provisioning",
-        );
-        if drink_volume.is_zero() {
-            (meal, Volume::ZERO, Volume::ZERO, meal_ticks, "eat-only")
-        } else {
-            let (drank, drink_ticks) =
-                execute_planned_drink(registries, state, prepared.drink_store, drink_volume);
+        if let Some((drank, drink_ticks)) =
+            execute_recovery_drink(registries, state, prepared.drink_store)
+        {
             (
                 meal,
                 drank.volume(),
@@ -129,6 +104,8 @@ pub(super) fn execute_provisioning_actions(
                 }),
                 "eat->drink",
             )
+        } else {
+            (meal, Volume::ZERO, Volume::ZERO, meal_ticks, "eat-only")
         }
     };
     ProvisioningActionOutcome {
@@ -177,16 +154,9 @@ pub(super) fn advance_lived_wait(
         if assessment.hydration() > physiology.thirsty_below() {
             continue;
         }
-        let drink_volume = recovery_drink_volume(
-            registries,
-            world.drink,
-            assessment.hydration(),
-            "survival lived-wait recovery",
-        );
-        if drink_volume.is_zero() {
+        let Some((drank, _)) = execute_recovery_drink(registries, state, drink_store) else {
             continue;
-        }
-        let (drank, _) = execute_planned_drink(registries, state, drink_store, drink_volume);
+        };
         drinks = drinks
             .checked_add(1)
             .unwrap_or_else(|| panic!("survival lived-wait drink count overflowed"));

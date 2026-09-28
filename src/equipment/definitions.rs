@@ -32,7 +32,10 @@ impl EquipmentDefinitionId {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
+))]
 #[path = "definitions_tests.rs"]
 mod tests;
 

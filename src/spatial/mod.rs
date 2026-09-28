@@ -249,6 +249,9 @@ impl Display for VoxelBoundsError {
 
 impl Error for VoxelBoundsError {}
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-spatial")
+))]
 #[path = "mod_tests.rs"]
 mod tests;

@@ -47,7 +47,7 @@ def module_include_macros(root: Path) -> tuple[tuple[str, str], ...]:
 
 
 def expand_module_include_macros(source: str, macros: tuple[tuple[str, str], ...]) -> str:
-    """Expand the module-only macro pattern used to keep focused and contract targets separate."""
+    """Expand the module-only macros used to select contract modules for one gameplay root."""
 
     bodies = dict(macros)
 

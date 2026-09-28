@@ -339,6 +339,9 @@ impl Display for ParticleSizeDistributionError {
 
 impl Error for ParticleSizeDistributionError {}
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-material")
+))]
 #[path = "particle_tests.rs"]
 mod tests;

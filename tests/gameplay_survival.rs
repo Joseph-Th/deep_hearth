@@ -39,6 +39,9 @@ mod tick_observation;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
 
+#[path = "gameplay_harness/survival_contract_tests.rs"]
+mod survival_contract_tests;
+
 #[cfg(test)]
 #[test]
 fn gameplay_survival_provisioning_probe() {

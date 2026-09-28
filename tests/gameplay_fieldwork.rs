@@ -5,13 +5,26 @@
 mod output;
 
 macro_rules! include_fieldwork_contract_tests {
-    () => {};
+    () => {
+        #[path = "fieldwork_probe/planning_tests.rs"]
+        mod planning_tests;
+        #[path = "fieldwork_probe/retooling_tests.rs"]
+        mod retooling_tests;
+        #[path = "fieldwork_probe/supply_tests.rs"]
+        mod supply_tests;
+    };
 }
 macro_rules! include_fieldwork_campaign_contract_tests {
-    () => {};
+    () => {
+        #[path = "campaign_tests.rs"]
+        mod tests;
+    };
 }
 macro_rules! include_fieldwork_recovery_contract_tests {
-    () => {};
+    () => {
+        #[path = "recovery_tests.rs"]
+        mod tests;
+    };
 }
 
 #[path = "gameplay_harness/environment.rs"]
@@ -68,6 +81,9 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+
+#[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
+mod prospecting_instrument_contract_tests;
 
 #[cfg(test)]
 #[test]

@@ -235,6 +235,9 @@ pub fn resolve_constituent_separation_process(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-ore-processing")
+))]
 #[path = "separation_execution_tests.rs"]
 mod tests;

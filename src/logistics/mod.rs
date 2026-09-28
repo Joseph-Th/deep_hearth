@@ -40,6 +40,9 @@ pub use state::{
 pub use validation::LogisticsValidationError;
 pub(crate) use validation::validate_loaded_logistics;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-logistics")
+))]
 #[path = "mod_tests.rs"]
 mod tests;

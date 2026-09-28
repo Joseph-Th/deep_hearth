@@ -26,6 +26,9 @@ pub(crate) use validation::{
     validate_loaded_geological_evidence_against_world, validate_loaded_geological_knowledge,
 };
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
+))]
 #[path = "knowledge_tests.rs"]
 mod tests;

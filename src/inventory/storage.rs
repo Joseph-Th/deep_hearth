@@ -122,7 +122,10 @@ impl StorageDefinition {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
+))]
 #[path = "storage_tests.rs"]
 mod tests;
 

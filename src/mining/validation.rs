@@ -23,6 +23,9 @@ pub(crate) fn validate_loaded_mining_jobs(
 #[cfg(test)]
 use job::validate_mining_equipment_portability;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-mining")
+))]
 #[path = "validation_tests.rs"]
 mod tests;

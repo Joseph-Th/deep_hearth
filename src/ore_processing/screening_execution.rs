@@ -260,6 +260,9 @@ pub fn resolve_screening_process(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-ore-processing")
+))]
 #[path = "screening_execution_tests.rs"]
 mod tests;

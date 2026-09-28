@@ -46,6 +46,9 @@ pub(crate) fn resolve_manual_craft_equipment_physics(
     )
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-crafting")
+))]
 #[path = "physics_tests.rs"]
 mod tests;

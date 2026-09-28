@@ -1,6 +1,7 @@
 //! Headless deterministic simulation core for Deep Hearth.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(feature = "test-unit-shard", allow(dead_code, unused_imports))]
 
 // Foundational vocabulary. Higher-level workflows may depend on these; these stay workflow-agnostic.
 pub mod capability;

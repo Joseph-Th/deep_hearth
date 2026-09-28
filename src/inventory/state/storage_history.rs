@@ -190,6 +190,9 @@ impl MaterialStorageHistory {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
+))]
 #[path = "storage_history_tests.rs"]
 mod tests;

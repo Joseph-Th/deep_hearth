@@ -18,7 +18,10 @@ pub(crate) use relocation::{
     ValidatedMaterialRelocation, validate_material_relocation_from_selection,
 };
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
+))]
 #[path = "transactions_tests.rs"]
 mod tests;
 

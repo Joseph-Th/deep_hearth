@@ -197,6 +197,9 @@ pub(crate) fn validate_player_work_start(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
+))]
 #[path = "lifecycle_tests.rs"]
 mod tests;

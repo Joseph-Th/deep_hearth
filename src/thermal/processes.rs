@@ -16,6 +16,9 @@ pub use registry::{
 pub use validation::ThermalJobValidationError;
 pub(crate) use validation::validate_loaded_thermal_job;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-thermal")
+))]
 #[path = "processes_tests.rs"]
 mod tests;

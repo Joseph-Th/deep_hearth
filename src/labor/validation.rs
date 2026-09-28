@@ -310,6 +310,9 @@ pub(super) fn validate_survival_revision_capacity(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
+))]
 #[path = "validation_tests.rs"]
 mod tests;

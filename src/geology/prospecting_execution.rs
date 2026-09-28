@@ -371,6 +371,9 @@ fn validate_resolution_findings(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
+))]
 #[path = "prospecting_execution_tests.rs"]
 mod tests;

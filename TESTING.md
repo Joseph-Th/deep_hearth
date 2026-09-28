@@ -33,10 +33,9 @@ browsing the full catalog. Selectors resolve to the narrowest suitable target. O
 `repair:` command instead of repeating the broad lane. Use `--lint` only for focused test-target Clippy and
 `--verbose` only when needed. Do not add a separate
 check-only step before an executable test: Cargo maintains different check/test artifacts, and the extra build can
-cost more than linking the intended target once. Library unit tests share one large Rust test crate, so prefer
-build-free checks while editing and execute the exact test when its behavior is ready to prove. Public built-in
-content contracts share that library-test artifact because a separate content binary measured slower after the
-same production edit.
+cost more than linking the intended target once. The full library audit remains one large test crate, but
+`run_test.py` owner-shards exact and single-owner suite repairs so unrelated unit tests are not linked. Prefer
+build-free checks while editing and execute the exact test when its behavior is ready to prove.
 
 Specialized gates are `python ci.py gate --shaders`, `python ci.py gate --rustdoc`, and
 `python ci.py gate --soak`. Scoped audits remain available as `python ci.py audit --core` and
@@ -99,12 +98,12 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused gameplay probes and owner contract suites use separate edit-loop targets.
-All gameplay test targets keep one `test-gameplay` Cargo feature shape so moving between probe, contract, and
-audit lanes reuses the same library artifact instead of fragmenting the incremental cache.
+Focused gameplay probes own contract tests when they already compile nearly the same harness graph. Keep a
+separate contract target only when it is materially narrower. All gameplay targets use one `test-gameplay`
+feature shape so probe, contract, and audit lanes reuse the same library artifact.
 Reports use dedicated example binaries. Focused tests stay quiet; large report-only formatting belongs outside
 test builds only when measurement shows that split improves the edit loop.
-Routine gameplay gates and the broad audit combine maintained witnesses with one fresh replayable organic case;
+Routine gameplay gates, direct focused-probe runs, and the broad audit combine maintained witnesses with one fresh replayable organic case;
 ambient roots are cleared first. Reports use four organic cases plus broader agency search. Failed sampled runs
 print roots for exact replay. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
 

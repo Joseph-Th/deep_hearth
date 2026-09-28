@@ -6,6 +6,9 @@ mod specification;
 pub use input::{MaterialInputSpec, MaterialInputSpecError};
 pub use specification::{MaterialLotSpec, MaterialLotSpecError};
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-material")
+))]
 #[path = "lot_tests.rs"]
 mod tests;

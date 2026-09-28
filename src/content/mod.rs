@@ -220,6 +220,9 @@ pub fn build_registries() -> Registries {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-content")
+))]
 #[path = "mod_tests.rs"]
 mod tests;

@@ -127,6 +127,9 @@ pub(crate) fn validate_empty_stockpile_allocation(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
+))]
 #[path = "allocation_tests.rs"]
 mod tests;

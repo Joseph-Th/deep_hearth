@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import os
 from pathlib import Path
 import re
 import sys
@@ -32,16 +33,17 @@ from tools import (  # noqa: E402
 _source_text_cache: dict[Path, str] = {}
 _maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
 
-OWNER_CONTRACT_TARGETS = {
-    "workshop": "gameplay_workshop_contracts",
-    "survival": "gameplay_survival_contracts",
-    "progression": "gameplay_progression_contracts",
-    "settlement": "gameplay_settlement_contracts",
-    "woodworking": "gameplay_woodworking_contracts",
-    "fieldwork": "gameplay_fieldwork_contracts",
-    "ore": "gameplay_ore_contracts",
-    "foundry": "gameplay_foundry_contracts",
-}
+DEDICATED_OWNER_CONTRACT_SCOPES = frozenset({"progression", "ore"})
+
+
+def owner_contract_target(scope: str) -> str:
+    """Return the cheapest target that owns one scope's gameplay contracts."""
+
+    if scope in DEDICATED_OWNER_CONTRACT_SCOPES:
+        return f"gameplay_{scope}_contracts"
+    return ci.GAMEPLAY_TARGETS[scope]
+
+
 def read_maintained_text(path: Path) -> str:
     """Return cached source text; the working tree is static during one contract run."""
 
@@ -466,7 +468,7 @@ class LocalCiPlanTests(unittest.TestCase):
         for scope, report_only in cases.items():
             for target in (
                 ci.GAMEPLAY_TARGETS[scope],
-                OWNER_CONTRACT_TARGETS[scope],
+                owner_contract_target(scope),
                 ci.GAMEPLAY_AUDIT_TARGET,
             ):
                 features = run_test.cargo_feature_set(target, None)
@@ -1141,6 +1143,44 @@ unknown_macro!();
         self.assertIn("--profile test", cargo_config["alias"]["check-fast"])
         self.assertIn("--profile test", cargo_config["alias"]["lint-fast"])
 
+    def test_unit_test_modules_are_owner_sharded_without_changing_full_test_defaults(self) -> None:
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        declared = {
+            feature
+            for feature in manifest["features"]
+            if feature.startswith("test-unit-") and feature != "test-unit-shard"
+        }
+        sharded_module = re.compile(
+            r'#\[cfg\(all\(\s*test,\s*any\(\s*not\(feature = "test-unit-shard"\),\s*'
+            r'feature = "(?P<feature>test-unit-[^"]+)"\s*\)\s*\)\)\]\s*'
+            r'(?:#\[path = "[^"]+"\]\s*)?mod\s+[A-Za-z0-9_]+\s*;'
+        )
+        support_module = re.compile(
+            r'#\[cfg\(test\)\]\s*(?:#\[path = "[^"]+"\]\s*)?'
+            r'mod\s+(?P<module>[A-Za-z0-9_]+)\s*;'
+        )
+        used: set[str] = set()
+        support_roots: set[str] = set()
+        for path in (ROOT / "src").rglob("*.rs"):
+            source = read_maintained_text(path)
+            for match in support_module.finditer(source):
+                self.assertEqual(match.group("module"), "test_support")
+                support_roots.add(path.relative_to(ROOT).as_posix())
+            expected = f"test-unit-{path.relative_to(ROOT / 'src').parts[0].replace('_', '-')}"
+            for match in sharded_module.finditer(source):
+                self.assertEqual(match.group("feature"), expected)
+                used.add(match.group("feature"))
+        self.assertEqual(used, declared)
+        self.assertEqual(
+            support_roots,
+            {
+                "src/content/mod.rs",
+                "src/inventory/mod.rs",
+                "src/production/mod.rs",
+                "src/structural/mod.rs",
+            },
+        )
+
     def test_gameplay_report_examples_are_executable_only(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         examples = {
@@ -1221,7 +1261,8 @@ unknown_macro!();
             definitions[ci.GAMEPLAY_AUDIT_TARGET].get("required-features"),
             [ci.GAMEPLAY_FEATURE],
         )
-        for target in OWNER_CONTRACT_TARGETS.values():
+        for scope in DEDICATED_OWNER_CONTRACT_SCOPES:
+            target = owner_contract_target(scope)
             self.assertEqual(
                 definitions[target].get("required-features"),
                 [ci.GAMEPLAY_FEATURE],
@@ -1266,7 +1307,7 @@ unknown_macro!();
         fresh_seed = (ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs").resolve()
         routine_targets = (
             *ci.GAMEPLAY_TARGETS.values(),
-            *OWNER_CONTRACT_TARGETS.values(),
+            *(owner_contract_target(scope) for scope in DEDICATED_OWNER_CONTRACT_SCOPES),
             ci.GAMEPLAY_CONTRACTS_TARGET,
             ci.GAMEPLAY_AUDIT_TARGET,
         )
@@ -1287,74 +1328,58 @@ unknown_macro!();
         report = ROOT / "tests" / "gameplay_report.rs"
         self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
 
-    def test_each_focused_gameplay_target_keeps_owner_contract_suites_out_of_probe_builds(self) -> None:
-        probe_modules = {
-            "workshop": "workshop",
-            "survival": "survival_probe",
-            "progression": "progression_probe",
-            "woodworking": "woodworking_probe",
-            "fieldwork": "fieldwork_probe",
-            "power-provider": "power_provider_probe",
-            "ore": "ore_probe",
-            "foundry": "foundry_probe",
+    def test_owner_contract_targets_merge_only_when_the_focused_graph_already_owns_them(self) -> None:
+        merged_contract_prefixes = {
+            "workshop": "workshop_contract_tests::",
+            "survival": "survival_contract_tests::",
+            "settlement": "settlement_wire_contract_tests::",
+            "woodworking": "woodworking_contract_tests::",
+            "fieldwork": "prospecting_instrument_contract_tests::",
+            "foundry": "foundry_contract_tests::",
         }
-        split_contract_prefixes = {
-            "workshop": ("workshop_contract_tests::",),
-            "survival": ("survival_contract_tests::",),
-            "progression": ("progression_contract_tests::",),
-            "woodworking": (
-                "saw_bench_contract_tests::",
-                "woodworking_contract_tests::",
-            ),
-            "fieldwork": ("prospecting_instrument_contract_tests::",),
-            "ore": ("ore_contract_tests::",),
-            "foundry": ("foundry_contract_tests::",),
+        dedicated_contract_prefixes = {
+            "progression": "progression_contract_tests::",
+            "ore": "ore_contract_tests::",
         }
-        for scope, target in (
-            (scope, ci.GAMEPLAY_TARGETS[scope]) for scope in ci.GAMEPLAY_TESTS
-        ):
+
+        for scope, prefix in merged_contract_prefixes.items():
+            target = owner_contract_target(scope)
+            self.assertEqual(target, ci.GAMEPLAY_TARGETS[scope])
             tests = run_test.source_test_catalog(target, None)
-            gate = ci.GAMEPLAY_TESTS[scope]
-            self.assertIn(gate, tests)
-            allowed_root_tests = {gate}
-            allowed_test_prefixes = (
-                ("progression_episode_contract_tests::",) if scope == "progression" else ()
-            )
-            for prefix in split_contract_prefixes.get(scope, ()):
-                self.assertFalse(
-                    any(name.startswith(prefix) for name in tests),
-                    f"focused gameplay target {scope} must not compile owner contract suite {prefix}",
+            self.assertIn(ci.GAMEPLAY_TESTS[scope], tests)
+            self.assertTrue(any(name.startswith(prefix) for name in tests))
+
+        for scope, prefix in dedicated_contract_prefixes.items():
+            focused_target = ci.GAMEPLAY_TARGETS[scope]
+            contract_target = owner_contract_target(scope)
+            self.assertNotEqual(contract_target, focused_target)
+            self.assertFalse(
+                any(
+                    name.startswith(prefix)
+                    for name in run_test.source_test_catalog(focused_target, None)
                 )
-            unrelated = [
-                name
-                for name in tests
-                if name not in allowed_root_tests
-                and not name.startswith(f"{probe_modules[scope]}::")
-                and not name.startswith(allowed_test_prefixes)
-            ]
-            self.assertEqual(
-                unrelated,
-                [],
-                f"focused gameplay target {scope} must not compile unrelated tests",
+            )
+            self.assertTrue(
+                any(
+                    name.startswith(prefix)
+                    for name in run_test.source_test_catalog(contract_target, None)
+                )
             )
 
-    def test_settlement_probe_and_contract_targets_are_separate(self) -> None:
+    def test_settlement_focused_target_keeps_all_machine_contract_families(self) -> None:
         focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
-        contracts = run_test.source_test_catalog(OWNER_CONTRACT_TARGETS["settlement"], None)
         prefixes = (
             "settlement_drill_contract_tests::",
             "settlement_helve_contract_tests::",
             "settlement_machine_contract_tests::",
             "settlement_wire_contract_tests::",
         )
-        expected_probe_names = {"gameplay_settlement_probe"}
-        self.assertEqual(set(focused), expected_probe_names)
+        self.assertIn("gameplay_settlement_probe", focused)
         for prefix in prefixes:
             self.assertTrue(
-                any(name.startswith(prefix) for name in contracts),
-                f"settlement contract target lost owner {prefix.removesuffix('::')}",
+                any(name.startswith(prefix) for name in focused),
+                f"settlement focused target lost owner {prefix.removesuffix('::')}",
             )
-        self.assertTrue(all(name.startswith(prefixes) for name in contracts))
 
     def test_focused_progression_stages_do_not_compile_each_other(self) -> None:
         pairs = (
@@ -1663,17 +1688,80 @@ unknown_macro!();
             },
         )
 
-    def test_run_test_verbose_only_controls_selected_test_output(self) -> None:
+    def test_run_test_focused_probe_gets_fresh_replay_roots_without_explicit_replay(self) -> None:
         args = run_test.parse_args(
             [
                 "--target",
-                ci.GAMEPLAY_TARGETS["foundry"],
+                ci.GAMEPLAY_TARGETS["survival"],
                 "--verbose",
-                ci.GAMEPLAY_TESTS["foundry"],
+                ci.GAMEPLAY_TESTS["survival"],
             ]
         )
         self.assertIn("--nocapture", run_test.cargo_command(args))
-        self.assertEqual(run_test.gameplay_replay_environment(args), {})
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(run_test.secrets, "randbits", side_effect=[0xAAAA, 0xBBBB]),
+        ):
+            self.assertEqual(
+                run_test.gameplay_replay_environment(args),
+                {
+                    "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+                },
+            )
+
+    def test_run_test_non_actor_probe_generates_only_a_world_root(self) -> None:
+        args = run_test.parse_args(
+            ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
+        )
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(run_test.secrets, "randbits", return_value=0xAAAA),
+        ):
+            self.assertEqual(
+                run_test.gameplay_replay_environment(args),
+                {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA"},
+            )
+
+    def test_run_test_organic_roots_produce_a_copyable_replay_command(self) -> None:
+        args = run_test.parse_args(
+            ["--target", ci.GAMEPLAY_TARGETS["survival"], ci.GAMEPLAY_TESTS["survival"]]
+        )
+        self.assertEqual(
+            run_test.replay_command(
+                args,
+                {
+                    "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+                },
+            ),
+            "python tools/run_test.py --target gameplay_survival --variation-seed 0x000000000000AAAA --behavior-seed 0x000000000000BBBB gameplay_survival_provisioning_probe",
+        )
+
+    def test_run_test_preserves_ambient_replay_roots_for_reporting(self) -> None:
+        args = run_test.parse_args(
+            ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
+        )
+        with mock.patch.dict(
+            os.environ,
+            {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1234"},
+            clear=True,
+        ):
+            self.assertEqual(
+                run_test.gameplay_replay_environment(args),
+                {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1234"},
+            )
+
+    def test_run_test_contract_execution_does_not_invent_gameplay_variation(self) -> None:
+        args = run_test.parse_args(
+            [
+                "--target",
+                ci.GAMEPLAY_TARGETS["survival"],
+                "survival_contract_tests::survival_explanation_marks_singleton_enclosure_without_forcing_investment",
+            ]
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(run_test.gameplay_replay_environment(args), {})
 
     def test_unknown_gameplay_failure_falls_back_to_the_broad_gameplay_audit(self) -> None:
         output = "failures:\n    future_contracts::new_global_check\n"
@@ -2479,7 +2567,7 @@ unknown_macro!();
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
                 *ci.GAMEPLAY_TARGETS.values(),
-                *OWNER_CONTRACT_TARGETS.values(),
+                *(owner_contract_target(scope) for scope in DEDICATED_OWNER_CONTRACT_SCOPES),
             },
         )
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
@@ -2826,18 +2914,18 @@ class ExactTestCommandTests(unittest.TestCase):
 
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
-            "batch_capped_mining_finishes_the_requested_order": OWNER_CONTRACT_TARGETS["fieldwork"],
+            "batch_capped_mining_finishes_the_requested_order": owner_contract_target("fieldwork"),
             "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": ci.GAMEPLAY_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
-            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": OWNER_CONTRACT_TARGETS["settlement"],
-            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": OWNER_CONTRACT_TARGETS["foundry"],
-            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": OWNER_CONTRACT_TARGETS["woodworking"],
-            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": OWNER_CONTRACT_TARGETS["fieldwork"],
-            "preservation_storage_routes_are_authored_recoverable_tradeoffs": OWNER_CONTRACT_TARGETS["survival"],
-            "ore_probe_generation_varies_feed_and_operating_state": OWNER_CONTRACT_TARGETS["ore"],
-            "primitive_recovery_and_reinforcement_routes_remain_connected": OWNER_CONTRACT_TARGETS["progression"],
+            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": owner_contract_target("settlement"),
+            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": owner_contract_target("foundry"),
+            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": owner_contract_target("woodworking"),
+            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": owner_contract_target("fieldwork"),
+            "preservation_storage_routes_are_authored_recoverable_tradeoffs": owner_contract_target("survival"),
+            "ore_probe_generation_varies_feed_and_operating_state": owner_contract_target("ore"),
+            "primitive_recovery_and_reinforcement_routes_remain_connected": owner_contract_target("progression"),
             "progression_generators_cover_distinct_search_and_economic_pressures": ci.GAMEPLAY_TARGETS["progression"],
-            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": OWNER_CONTRACT_TARGETS["workshop"],
+            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": owner_contract_target("workshop"),
         }
         for selector, expected_target in cases.items():
             target, _name = run_test.resolve_automatic_exact_selection(selector, None)
@@ -2876,6 +2964,13 @@ class ExactTestCommandTests(unittest.TestCase):
             ),
             "lib",
         )
+        for selector, expected in {
+            "settlement_wire_contract_tests": "gameplay_settlement",
+            "survival_contract_tests": "gameplay_survival",
+            "progression_contract_tests": "gameplay_progression_contracts",
+            "ore_contract_tests": "gameplay_ore_contracts",
+        }.items():
+            self.assertEqual(run_test.resolve_automatic_suite_target(selector, None), expected)
 
     def test_lint_mode_requires_a_selector_or_explicit_target(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()):
@@ -2966,7 +3061,7 @@ class ExactTestCommandTests(unittest.TestCase):
             ],
         )
 
-    def test_exact_unit_command_reuses_shared_library_test_artifact(self) -> None:
+    def test_exact_unit_command_uses_the_matching_owner_shard(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
@@ -2977,11 +3072,15 @@ class ExactTestCommandTests(unittest.TestCase):
             nocapture=False,
         )
         command = run_test.cargo_command(args)
-        self.assertNotIn("--features", command)
+        self.assertIn("--features", command)
+        self.assertIn("test-unit-core", command)
         self.assertIn("--exact", command)
 
     def test_source_catalog_matches_default_library_test_names_without_building(self) -> None:
         catalog = run_test.source_test_catalog("lib", None)
+        features = set(run_test.cargo_manifest()["features"])
+        for owner in {name.partition("::")[0] for name in catalog}:
+            self.assertIn(f"test-unit-{owner.replace('_', '-')}", features)
         self.assertIn(
             "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
             catalog,
@@ -3024,7 +3123,7 @@ class ExactTestCommandTests(unittest.TestCase):
                 focused,
                 f"focused gameplay scope {scope} must resolve in its dedicated target",
             )
-        settlement = run_test.source_test_catalog(OWNER_CONTRACT_TARGETS["settlement"], None)
+        settlement = run_test.source_test_catalog(owner_contract_target("settlement"), None)
         self.assertIn(
             "settlement_wire_contract_tests::flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield",
             settlement,
@@ -3063,9 +3162,24 @@ class ExactTestCommandTests(unittest.TestCase):
             nocapture=False,
         )
         command = run_test.cargo_command(args)
-        self.assertNotIn("--features", command)
+        self.assertIn("--features", command)
+        self.assertIn("test-unit-ore-processing", command)
         self.assertIn(args.name, command)
         self.assertNotIn("--exact", command)
+
+    def test_multi_owner_suite_does_not_activate_one_unit_shard(self) -> None:
+        args = argparse.Namespace(
+            target="lib",
+            features=None,
+            list=False,
+            name="tests::",
+            suite=True,
+            ignored=False,
+            nocapture=False,
+        )
+        command = run_test.cargo_command(args)
+        self.assertNotIn("--features", command)
+        self.assertFalse(any(part.startswith("test-unit-") for part in command))
 
     def test_suite_result_counts_come_from_cargo_execution_not_source_matches(self) -> None:
         output = "test result: ok. 19 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out"

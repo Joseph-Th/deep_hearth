@@ -131,6 +131,9 @@ pub fn project_prospecting_work(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
+))]
 #[path = "prospecting_projection_tests.rs"]
 mod tests;

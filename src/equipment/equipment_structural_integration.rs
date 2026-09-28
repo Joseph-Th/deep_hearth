@@ -348,6 +348,9 @@ pub fn validate_relocate_equipment(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
+))]
 #[path = "equipment_structural_integration_tests.rs"]
 mod tests;

@@ -328,6 +328,9 @@ impl Display for CompositionConstraintError {
 
 impl Error for CompositionConstraintError {}
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-material")
+))]
 #[path = "composition_tests.rs"]
 mod tests;

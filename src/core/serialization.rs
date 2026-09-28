@@ -127,6 +127,9 @@ where
     deserializer.deserialize_map(StrictMapOfSetsVisitor(PhantomData))
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-core")
+))]
 #[path = "serialization_tests.rs"]
 mod tests;

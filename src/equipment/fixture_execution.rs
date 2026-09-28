@@ -132,6 +132,9 @@ pub(crate) fn degrade_equipment_condition_for_test(
         .apply_condition_change(equipment, before, after, next_revision);
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
+))]
 #[path = "fixture_execution_tests.rs"]
 mod tests;

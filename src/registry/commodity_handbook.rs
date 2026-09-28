@@ -199,6 +199,9 @@ impl Registries {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-registry")
+))]
 #[path = "commodity_handbook_tests.rs"]
 mod tests;

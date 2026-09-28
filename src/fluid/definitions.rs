@@ -126,6 +126,9 @@ impl FluidRegistry {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-fluid")
+))]
 #[path = "definitions_tests.rs"]
 mod tests;

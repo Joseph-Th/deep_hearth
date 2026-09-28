@@ -71,6 +71,9 @@ pub fn calculate_weight_force_ceiling(mass: Mass, acceleration: Acceleration) ->
     Force::from_millinewtons(numerator.div_ceil(1_000_000_000))
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-structural")
+))]
 #[path = "load_tests.rs"]
 mod tests;

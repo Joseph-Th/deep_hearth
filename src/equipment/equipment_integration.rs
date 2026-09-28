@@ -14,6 +14,9 @@ pub use provider::{
 };
 pub(crate) use provider::{ValidatedEquipmentUse, resolve_equipment_provider_with_occupancy};
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
+))]
 #[path = "equipment_integration_tests.rs"]
 mod tests;

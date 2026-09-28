@@ -174,6 +174,9 @@ fn collect_dependencies<'registry>(
     assembled.push(definition);
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-shader")
+))]
 #[path = "shader_assembly_tests.rs"]
 mod tests;

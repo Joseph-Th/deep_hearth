@@ -273,6 +273,9 @@ pub fn validate_structural_construction(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-structural")
+))]
 #[path = "construction_execution_tests.rs"]
 mod tests;

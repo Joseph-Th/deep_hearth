@@ -54,6 +54,10 @@ mod tick_observation;
 mod workshop;
 
 #[cfg(test)]
+#[path = "gameplay_harness/workshop_contract_tests.rs"]
+mod workshop_contract_tests;
+
+#[cfg(test)]
 #[test]
 fn gameplay_harness_gate() {
     workshop::run_gameplay_harness(configuration::ScenarioPlanMode::Gate);

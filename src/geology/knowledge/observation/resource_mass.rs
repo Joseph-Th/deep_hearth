@@ -102,7 +102,10 @@ impl Display for ResourceMassEstimateError {
 
 impl Error for ResourceMassEstimateError {}
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
+))]
 #[path = "resource_mass_tests.rs"]
 mod tests;
 

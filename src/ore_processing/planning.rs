@@ -159,6 +159,9 @@ pub(super) fn powered_profile(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-ore-processing")
+))]
 #[path = "planning_tests.rs"]
 mod tests;

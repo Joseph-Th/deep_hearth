@@ -38,6 +38,9 @@ pub use registry::MaterialRegistry;
 pub const COMPOSITION_PARTS_PER_MILLION: u32 =
     crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-material")
+))]
 #[path = "mod_tests.rs"]
 mod tests;

@@ -343,6 +343,9 @@ pub fn validate_assemble_energy_store(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
+))]
 #[path = "construction_execution_tests.rs"]
 mod tests;

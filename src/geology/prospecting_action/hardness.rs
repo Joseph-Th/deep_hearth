@@ -90,6 +90,9 @@ pub(in crate::geology) fn excavation_hardness_band_matches_resolution(
     lower_pa.is_multiple_of(resolution_pa) && upper_pa.is_multiple_of(resolution_pa)
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
+))]
 #[path = "hardness_tests.rs"]
 mod tests;

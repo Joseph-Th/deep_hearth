@@ -9,6 +9,7 @@ from functools import lru_cache
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -29,6 +30,13 @@ TEST_RESULT = re.compile(
 )
 FAILURE_HEAD_LINES = 16
 FAILURE_TAIL_LINES = 64
+GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
+GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
+BEHAVIOR_VARIATION_TESTS = {
+    "gameplay_harness_gate",
+    "gameplay_survival_provisioning_probe",
+    "gameplay_woodworking_probe",
+}
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -240,6 +248,24 @@ def resolve_test_name(selector: str, catalog: list[str]) -> str:
     raise ValueError(f"test selector not found: {selector}")
 
 
+def library_unit_shard_feature(args: argparse.Namespace) -> str | None:
+    """Return the owner shard for one bounded library-test execution when available."""
+
+    if args.target != "lib" or args.name is None:
+        return None
+    names = (
+        source_test_matches(args.name, source_test_catalog("lib", args.features))
+        if args.suite
+        else [args.name]
+    )
+    owners = {name.partition("::")[0] for name in names}
+    if len(owners) != 1:
+        return None
+    owner = next(iter(owners))
+    feature = f"test-unit-{owner.replace('_', '-')}"
+    return feature if feature in cargo_manifest().get("features", {}) else None
+
+
 def cargo_command(args: argparse.Namespace) -> list[str]:
     if args.list:
         raise ValueError("source catalog listing does not invoke Cargo")
@@ -251,6 +277,9 @@ def cargo_command(args: argparse.Namespace) -> list[str]:
     else:
         command.extend(("--test", args.target))
     requested_features = requested_target_features(args.target, args.features)
+    shard = library_unit_shard_feature(args)
+    if shard is not None:
+        requested_features.add(shard)
     if requested_features:
         command.extend(("--features", ",".join(sorted(requested_features))))
     command.append(args.name)
@@ -451,9 +480,34 @@ def resolve_automatic_lint_target(args: argparse.Namespace) -> bool:
 def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
     replay: dict[str, str] = {}
     if args.variation_seed:
-        replay["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"] = args.variation_seed
+        replay[GAMEPLAY_VARIATION_ENV] = args.variation_seed
     if args.behavior_seed:
-        replay["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"] = args.behavior_seed
+        replay[GAMEPLAY_BEHAVIOR_ENV] = args.behavior_seed
+    if replay:
+        return replay
+    for key in (GAMEPLAY_VARIATION_ENV, GAMEPLAY_BEHAVIOR_ENV):
+        if value := os.environ.get(key):
+            replay[key] = value
+    if replay:
+        return replay
+    if (
+        args.target == "lib"
+        or args.target == "gameplay_audit"
+        or args.target.endswith("_contracts")
+        or args.suite
+        or args.name is None
+        or "::" in args.name
+    ):
+        return replay
+    try:
+        target_features = cargo_test_target_definition(args.target).get("required-features", [])
+    except ValueError:
+        return replay
+    if "test-gameplay" not in target_features:
+        return replay
+    replay[GAMEPLAY_VARIATION_ENV] = f"0x{secrets.randbits(64):016X}"
+    if args.name in BEHAVIOR_VARIATION_TESTS:
+        replay[GAMEPLAY_BEHAVIOR_ENV] = f"0x{secrets.randbits(64):016X}"
     return replay
 
 
@@ -477,13 +531,34 @@ def execute_cargo_command(
     return result, time.perf_counter() - started
 
 
+def replay_command(args: argparse.Namespace, replay: dict[str, str]) -> str | None:
+    """Return a copyable focused-test replay command when organic roots were supplied."""
+
+    variation = replay.get(GAMEPLAY_VARIATION_ENV)
+    if variation is None or args.target is None or args.name is None:
+        return None
+    command = ["python", "tools/run_test.py", "--target", args.target]
+    if args.suite:
+        command.append("--suite")
+    if args.ignored:
+        command.append("--ignored")
+    command.extend(("--variation-seed", variation))
+    if behavior := replay.get(GAMEPLAY_BEHAVIOR_ENV):
+        command.extend(("--behavior-seed", behavior))
+    command.append(args.name)
+    return " ".join(command)
+
+
 def report_cargo_failure(
     command: list[str],
     result: subprocess.CompletedProcess[str],
     elapsed: float,
+    replay: str | None = None,
 ) -> None:
     print(f"FAIL ({elapsed:.1f}s)", file=sys.stderr)
     print(f"reproduce: {' '.join(command)}", file=sys.stderr)
+    if replay is not None:
+        print(f"replay: {replay}", file=sys.stderr)
     if result.stdout.strip():
         print(bounded_failure_output(result.stdout), file=sys.stderr)
     if result.stderr.strip():
@@ -551,6 +626,7 @@ def report_cargo_success(
     selector: str | None,
     result: subprocess.CompletedProcess[str],
     elapsed: float,
+    replay: dict[str, str] | None = None,
 ) -> None:
     if getattr(args, "lint", False):
         print(f"PASS lint {args.target} ({elapsed:.1f}s)")
@@ -563,7 +639,12 @@ def report_cargo_success(
             f"({suite_result_detail(result.stdout)}; {elapsed:.1f}s)"
         )
         return
-    print(f"PASS {args.target}::{args.name} ({elapsed:.1f}s)")
+    roots = ""
+    if replay and GAMEPLAY_VARIATION_ENV in replay:
+        roots = f"; roots={replay[GAMEPLAY_VARIATION_ENV]}"
+        if GAMEPLAY_BEHAVIOR_ENV in replay:
+            roots += f"/{replay[GAMEPLAY_BEHAVIOR_ENV]}"
+    print(f"PASS {args.target}::{args.name} ({elapsed:.1f}s{roots})")
 
 
 def main() -> int:
@@ -612,9 +693,10 @@ def main() -> int:
             return 2
 
     command = cargo_command(args)
-    result, elapsed = execute_cargo_command(command, gameplay_replay_environment(args))
+    replay = gameplay_replay_environment(args)
+    result, elapsed = execute_cargo_command(command, replay)
     if result.returncode != 0:
-        report_cargo_failure(command, result, elapsed)
+        report_cargo_failure(command, result, elapsed, replay_command(args, replay))
         return result.returncode
 
     if mismatch := execution_error(args, result.stdout):
@@ -623,7 +705,7 @@ def main() -> int:
         print(f"repair: {repair}", file=sys.stderr)
         return 2
 
-    report_cargo_success(args, selector, result, elapsed)
+    report_cargo_success(args, selector, result, elapsed, replay)
     return 0
 
 

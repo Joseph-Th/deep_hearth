@@ -108,6 +108,9 @@ impl MiningState {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-mining")
+))]
 #[path = "indexes_tests.rs"]
 mod tests;

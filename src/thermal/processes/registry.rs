@@ -219,6 +219,9 @@ impl ThermalRegistry {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-thermal")
+))]
 #[path = "registry_tests.rs"]
 mod tests;

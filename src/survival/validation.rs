@@ -107,6 +107,9 @@ pub(crate) fn validate_loaded_survival(
     validate_pending_consumption(registry, materials, fluids, state, current)
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-survival")
+))]
 #[path = "validation_tests.rs"]
 mod tests;

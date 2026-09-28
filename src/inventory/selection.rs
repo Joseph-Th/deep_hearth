@@ -104,6 +104,9 @@ impl ConsumptionSelection {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
+))]
 #[path = "selection_tests.rs"]
 mod tests;

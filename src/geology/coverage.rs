@@ -86,6 +86,9 @@ fn push_bounds(remainder: &mut Vec<VoxelBounds>, min: VoxelCoord, max: VoxelCoor
     );
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
+))]
 #[path = "coverage_tests.rs"]
 mod tests;

@@ -71,14 +71,8 @@ pub(super) fn run_provisioning_case(
     let diet_quality_before = before.diet_quality_ppm();
     let recovery_rate_before = before.diet_supported_vitality_recovery_ppm_per_tick();
     let mut no_provision_baseline = state.clone();
-    let actions = execute_provisioning_actions(
-        registries,
-        &mut state,
-        prepared,
-        drink,
-        &selections,
-        drink_first,
-    );
+    let actions =
+        execute_provisioning_actions(registries, &mut state, prepared, &selections, drink_first);
     let provisioning_elapsed_ticks = actions.elapsed_ticks;
     let meal = actions.meal;
     let drank_volume = actions.drank_volume;

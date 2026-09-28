@@ -189,6 +189,9 @@ pub(crate) fn validate_inbound_reservation_release(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
+))]
 #[path = "inbound_reservation_tests.rs"]
 mod tests;

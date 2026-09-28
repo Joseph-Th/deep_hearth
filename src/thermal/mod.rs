@@ -35,6 +35,9 @@ pub use processes::{
 
 pub(crate) use processes::validate_loaded_thermal_job;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-thermal")
+))]
 #[path = "mod_tests.rs"]
 mod tests;

@@ -444,6 +444,9 @@ pub use appearance::{
 mod registry;
 pub use registry::TextureRegistry;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-texture")
+))]
 #[path = "definitions_tests.rs"]
 mod tests;

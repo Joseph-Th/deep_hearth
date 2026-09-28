@@ -354,6 +354,9 @@ pub fn validate_assemble_equipment(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
+))]
 #[path = "construction_execution_tests.rs"]
 mod tests;

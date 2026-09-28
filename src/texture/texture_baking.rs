@@ -264,6 +264,9 @@ impl BakedTextureArray {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-texture")
+))]
 #[path = "texture_baking_tests.rs"]
 mod tests;

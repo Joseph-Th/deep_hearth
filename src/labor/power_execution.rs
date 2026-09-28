@@ -76,6 +76,9 @@ pub(super) use start::{
 };
 pub(crate) use tick::{apply_manual_power_tick, decide_manual_power_tick};
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
+))]
 #[path = "power_execution_tests.rs"]
 mod tests;

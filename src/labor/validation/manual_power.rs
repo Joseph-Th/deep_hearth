@@ -233,6 +233,9 @@ fn validate_manual_power_schedule(
     Ok((required_duration, schedule.remaining, required.exertion()))
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
+))]
 #[path = "manual_power_tests.rs"]
 mod tests;

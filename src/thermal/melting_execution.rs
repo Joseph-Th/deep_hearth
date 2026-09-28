@@ -245,6 +245,9 @@ mod validation;
 pub use errors::{MeltingJobValidationError, MeltingResolutionError};
 pub(super) use validation::validate_loaded_melting_job;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-thermal")
+))]
 #[path = "melting_execution_tests.rs"]
 mod tests;

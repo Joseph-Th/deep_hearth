@@ -74,6 +74,9 @@ pub(super) fn resolve_region_resource_mass(
     Some(resource_mass_bucket(deposit.remaining_mass(), resolution))
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
+))]
 #[path = "resource_mass_tests.rs"]
 mod tests;

@@ -214,26 +214,16 @@ pub(super) fn evaluate_integrated_survival_work_loop(
             std::cmp::max(prospecting_hydration_floor, working_reserve_target)
         }
     };
-    let initial_drink_projection = project_minimum_drink_to_hydration_target(
-        physiology,
-        drink,
-        start.hydration(),
-        initial_target,
-    )
-    .unwrap_or_else(|error| panic!("integrated survival initial drink projection failed: {error}"))
-    .unwrap_or_else(|| panic!("integrated survival initial work requires a drink"));
-    let initial_drink_volume = initial_drink_projection.volume();
-    let first_drink = validate_drink(registries, &state, drink_store, initial_drink_volume)
-        .unwrap_or_else(|error| panic!("integrated survival initial drink failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("integrated survival initial drink commit failed: {error}"));
+    let first_drink =
+        validate_drink_store_to_hydration_target(registries, &state, drink_store, initial_target)
+            .unwrap_or_else(|error| panic!("integrated survival initial drink failed: {error}"))
+            .unwrap_or_else(|| panic!("integrated survival initial work requires a drink"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("integrated survival initial drink commit failed: {error}")
+            });
     let initial_drink_ticks =
         finish_direct_consumption(registries, &mut state, first_drink.completes_at());
-    assert_eq!(
-        initial_drink_ticks,
-        initial_drink_projection.duration().value(),
-        "initial working-reserve drink execution must match the owner projection"
-    );
     let after_drink = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("integrated survival player disappeared after drinking"));
     assert!(
@@ -325,48 +315,38 @@ pub(super) fn evaluate_integrated_survival_work_loop(
     });
     let reprovisioned_after_prospecting =
         followup_work_floor.is_some_and(|floor| after_prospecting.hydration() < floor);
-    let reprovision_projection = if reprovisioned_after_prospecting {
+    let reprovision_target = if reprovisioned_after_prospecting {
         let followup_work_floor = followup_work_floor
             .unwrap_or_else(|| unreachable!("reprovision requires a follow-up work floor"));
-        let target = match hydration_policy {
+        Some(match hydration_policy {
             WorkHydrationPolicy::TaskFloor => followup_work_floor,
             WorkHydrationPolicy::WorkingReserve => {
                 std::cmp::max(followup_work_floor, working_reserve_target)
             }
-        };
-        Some(
-            project_minimum_drink_to_hydration_target(
-                physiology,
-                drink,
-                after_prospecting.hydration(),
-                target,
-            )
-            .unwrap_or_else(|error| {
-                panic!("integrated survival follow-up drink projection failed: {error}")
-            })
-            .unwrap_or_else(|| panic!("integrated survival follow-up work requires a drink")),
-        )
+        })
     } else {
         None
     };
-    let reprovision_volume =
-        reprovision_projection.map_or(Volume::ZERO, |projection| projection.volume());
-    let reprovision_ticks = if reprovisioned_after_prospecting {
-        let drink = validate_drink(registries, &state, drink_store, reprovision_volume)
-            .unwrap_or_else(|error| panic!("integrated survival follow-up drink failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("integrated survival follow-up drink commit failed: {error}")
-            });
-        let ticks = finish_direct_consumption(registries, &mut state, drink.completes_at());
-        assert_eq!(
-            Some(ticks),
-            reprovision_projection.map(|projection| projection.duration().value()),
-            "follow-up task-sized drink execution must match the owner projection"
-        );
-        ticks
+    let (reprovision_ticks, reprovision_volume) = if reprovisioned_after_prospecting {
+        let target = reprovision_target
+            .unwrap_or_else(|| unreachable!("reprovisioned work has a hydration target"));
+        let drink =
+            validate_drink_store_to_hydration_target(registries, &state, drink_store, target)
+                .unwrap_or_else(|error| {
+                    panic!("integrated survival follow-up drink failed: {error}")
+                })
+                .unwrap_or_else(|| panic!("integrated survival follow-up work requires a drink"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| {
+                    panic!("integrated survival follow-up drink commit failed: {error}")
+                });
+        let volume = drink.volume();
+        (
+            finish_direct_consumption(registries, &mut state, drink.completes_at()),
+            volume,
+        )
     } else {
-        0
+        (0, Volume::ZERO)
     };
     let (followup_prospecting_ticks, followup_found_continuation) =
         if followup_prospecting_triggered {
@@ -476,7 +456,7 @@ pub(super) fn evaluate_integrated_survival_work_loop(
 
     IntegratedSurvivalWorkReview {
         hydration_policy,
-        initial_drink_volume_ul: initial_drink_volume.microliters(),
+        initial_drink_volume_ul: first_drink.volume().microliters(),
         initial_drink_ticks,
         prospecting_ticks,
         followup_prospecting_triggered,

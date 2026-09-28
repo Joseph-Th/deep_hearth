@@ -6,16 +6,19 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::core::state::AppState;
+use deep_hearth::core::time::TickSpan;
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::inventory::{
-    MaterialLotSelection, StockpileId, StockpileStorageProfile, validate_build_storage_enclosure,
+    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
+    validate_build_storage_enclosure,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::{
-    DrinkHydrationProjectionError, SurvivalExertion, assess_survival,
-    project_minimum_drink_to_hydration_target, project_minimum_meal_to_metabolic_target,
-    project_survival_resource_budget, validate_drink, validate_eat,
+    DrinkHydrationProjectionError, DrinkStoreToTargetError, MealMetabolicProjectionError,
+    SurvivalExertion, assess_survival, project_minimum_meal_to_metabolic_target,
+    project_survival_resource_budget, validate_drink, validate_drink_store_to_hydration_target,
+    validate_eat, validate_eat_lot_to_metabolic_target,
 };
 
 use super::super::direct_consumption_timing::finish_direct_consumption_work;
@@ -40,6 +43,55 @@ pub(super) struct PowerProjectProvisions {
         allow(dead_code, reason = "exploratory power-provider report telemetry")
     )]
     pub(super) water_supply_ul: u64,
+}
+
+#[derive(Clone, Copy)]
+struct GrainMealPlan {
+    mass: Mass,
+    duration: TickSpan,
+    energy_offered: Energy,
+    reaches_target: bool,
+}
+
+fn plan_grain_meal(
+    registries: &Registries,
+    state: &AppState,
+    target: Energy,
+    context: &'static str,
+) -> GrainMealPlan {
+    let physiology = registries.survival().physiology();
+    let grain = *registries
+        .survival()
+        .get_food(CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD))
+        .unwrap_or_else(|| panic!("power project grain lost authored food definition"));
+    let current = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("power project {context} lost player before meal planning"));
+    match project_minimum_meal_to_metabolic_target(
+        physiology,
+        grain,
+        current.metabolic_energy(),
+        target,
+    ) {
+        Ok(Some(projection)) => GrainMealPlan {
+            mass: projection.mass(),
+            duration: projection.duration(),
+            energy_offered: projection.energy_offered(),
+            reaches_target: true,
+        },
+        Ok(None) => unreachable!("meal planning runs only below the metabolic target"),
+        Err(MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit {
+            maximum_meal_mass,
+        }) => GrainMealPlan {
+            mass: maximum_meal_mass,
+            duration: physiology
+                .direct_consumption()
+                .meal_duration(maximum_meal_mass)
+                .unwrap_or_else(|| unreachable!("authored maximum meal has a duration")),
+            energy_offered: grain.dietary_energy_for_mass(maximum_meal_mass),
+            reaches_target: false,
+        },
+        Err(error) => panic!("power project {context} meal target projection failed: {error}"),
+    }
 }
 
 pub(super) fn seed_power_project_provisions(
@@ -166,39 +218,16 @@ impl ProvisioningOutcome {
     }
 }
 
-fn recovery_drink_volume(registries: &Registries, state: &AppState, target: Volume) -> Volume {
-    let current = assess_survival(registries, state)
-        .unwrap_or_else(|| panic!("power project lost player before drink planning"))
-        .hydration();
-    let drink = *registries
-        .survival()
-        .get_drink(FLUID_WATER)
-        .unwrap_or_else(|| panic!("power project water lost authored drink definition"));
-    match project_minimum_drink_to_hydration_target(
-        registries.survival().physiology(),
-        drink,
-        current,
-        target,
-    ) {
-        Ok(Some(projection)) => projection.volume(),
-        Ok(None) => Volume::ZERO,
-        Err(DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
-            maximum_drink_volume,
-        }) => maximum_drink_volume,
-        Err(error) => panic!("power project drink projection failed: {error}"),
-    }
-}
-
-fn grain_selection(state: &AppState, stockpile: StockpileId, mass: Mass) -> MaterialLotSelection {
+fn grain_lot(state: &AppState, stockpile: StockpileId) -> MaterialLotId {
     let grain = CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD);
-    let lot = state
+    state
         .inventory()
         .lot_ids(stockpile)
         .find(|lot| {
             state
                 .inventory()
                 .get_lot(*lot)
-                .is_some_and(|record| record.commodity() == grain && record.mass() >= mass)
+                .is_some_and(|record| record.commodity() == grain)
         })
         .unwrap_or_else(|| {
             let remaining = state
@@ -207,13 +236,11 @@ fn grain_selection(state: &AppState, stockpile: StockpileId, mass: Mass) -> Mate
                 .map(|record| record.get_mass(grain).milligrams())
                 .unwrap_or(0);
             panic!(
-                "power project provisions lack {}mg of grain at tick {} with {}mg remaining",
-                mass.milligrams(),
+                "power project provisions lack a grain stack at tick {} with {}mg remaining",
                 state.tick().value(),
                 remaining,
             )
-        });
-    MaterialLotSelection::new(lot, mass)
+        })
 }
 
 fn drink_to_target(
@@ -229,26 +256,33 @@ fn drink_to_target(
         .hydration()
         < target
     {
-        let volume = recovery_drink_volume(registries, state, target);
-        assert!(!volume.is_zero());
         let current_hydration = assess_survival(registries, state)
             .unwrap_or_else(|| panic!("power project {context} lost player before drinking"))
             .hydration();
-        let drank = validate_drink(registries, state, provisions.water, volume)
-            .unwrap_or_else(|error| {
-                let current = assess_survival(registries, state)
-                    .unwrap_or_else(|| panic!("power project lost player before failed drink"));
-                panic!(
-                    "power project {context} drink validation failed at tick {}: {error}; target={}uL current={}uL requested={}uL reserve=[energy:{}nJ hydration:{}uL vitality:{}ppm]",
-                    state.tick().value(),
-                    target.microliters(),
-                    current_hydration.microliters(),
-                    volume.microliters(),
-                    current.metabolic_energy().nanojoules(),
-                    current.hydration().microliters(),
-                    current.vitality().parts_per_million(),
-                )
-            })
+        let drink = match validate_drink_store_to_hydration_target(
+            registries,
+            state,
+            provisions.water,
+            target,
+        ) {
+            Ok(Some(drink)) => drink,
+            Ok(None) => break,
+            Err(DrinkStoreToTargetError::Projection(
+                DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+                    maximum_drink_volume,
+                },
+            )) => validate_drink(registries, state, provisions.water, maximum_drink_volume)
+                .unwrap_or_else(|error| {
+                    panic!("power project {context} maximum legal drink failed: {error}")
+                }),
+            Err(error) => panic!(
+                "power project {context} drink-to-target failed at tick {}: {error}; target={}uL current={}uL",
+                state.tick().value(),
+                target.microliters(),
+                current_hydration.microliters(),
+            ),
+        };
+        let drank = drink
             .commit(state)
             .unwrap_or_else(|error| panic!("power project drink commit failed: {error}"));
         outcome.attention_ticks = outcome
@@ -352,32 +386,17 @@ pub(super) fn provision_for_project_leg(
         &mut outcome,
     );
 
-    let grain = *registries
-        .survival()
-        .get_food(CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD))
-        .unwrap_or_else(|| panic!("power project grain lost authored food definition"));
-    if assess_survival(registries, state)
+    while assess_survival(registries, state)
         .unwrap_or_else(|| panic!("power project {context} lost player while eating"))
         .metabolic_energy()
         < metabolic_target
     {
-        let current = assess_survival(registries, state)
-            .unwrap_or_else(|| panic!("power project lost player before meal planning"));
-        let mut meal_projection = project_minimum_meal_to_metabolic_target(
-            physiology,
-            grain,
-            current.metabolic_energy(),
-            metabolic_target,
-        )
-        .unwrap_or_else(|error| {
-            panic!("power project {context} meal target projection failed: {error}")
-        })
-        .unwrap_or_else(|| unreachable!("meal planning runs only below the metabolic target"));
+        let mut meal_plan = plan_grain_meal(registries, state, metabolic_target, context);
         loop {
             let meal_hydration = project_survival_resource_budget(
                 physiology,
                 SurvivalExertion::REST,
-                meal_projection.duration(),
+                meal_plan.duration,
             )
             .unwrap_or_else(|error| {
                 panic!("power project {context} meal survival projection failed: {error:?}")
@@ -397,42 +416,43 @@ pub(super) fn provision_for_project_leg(
             );
             let current_after_drink = assess_survival(registries, state)
                 .unwrap_or_else(|| panic!("power project lost player after pre-meal drinking"));
-            let revised = project_minimum_meal_to_metabolic_target(
-                physiology,
-                grain,
-                current_after_drink.metabolic_energy(),
-                metabolic_target,
-            )
-            .unwrap_or_else(|error| {
-                panic!("power project {context} revised meal projection failed: {error}")
-            })
-            .unwrap_or_else(|| {
-                unreachable!("pre-meal drinking cannot increase metabolic energy to target")
-            });
-            let duration_changed = revised.duration() != meal_projection.duration();
-            meal_projection = revised;
+            assert!(
+                current_after_drink.metabolic_energy() < metabolic_target,
+                "pre-meal drinking cannot increase metabolic energy to target"
+            );
+            let revised = plan_grain_meal(registries, state, metabolic_target, context);
+            let duration_changed = revised.duration != meal_plan.duration;
+            meal_plan = revised;
             if !duration_changed {
                 break;
             }
         }
-        let mass = meal_projection.mass();
-        let selection = grain_selection(state, provisions.food, mass);
-        let meal = validate_eat(registries, state, provisions.food, &[selection])
+        let lot = grain_lot(state, provisions.food);
+        let before_meal = assess_survival(registries, state)
+            .unwrap_or_else(|| panic!("power project {context} lost player before eating"));
+        let validated = if meal_plan.reaches_target {
+            validate_eat_lot_to_metabolic_target(registries, state, lot, metabolic_target)
+                .unwrap_or_else(|error| {
+                    panic!("power project {context} selected-stack meal validation failed: {error}")
+                })
+                .unwrap_or_else(|| unreachable!("meal target remains unmet before validation"))
+        } else {
+            validate_eat(
+                registries,
+                state,
+                provisions.food,
+                &[MaterialLotSelection::new(lot, meal_plan.mass)],
+            )
             .unwrap_or_else(|error| {
-                let current = assess_survival(registries, state)
-                    .unwrap_or_else(|| panic!("power project lost player before failed meal"));
-                panic!(
-                    "power project {context} meal validation failed: {error}; reserve=[energy:{}nJ hydration:{}uL vitality:{}ppm]",
-                    current.metabolic_energy().nanojoules(),
-                    current.hydration().microliters(),
-                    current.vitality().parts_per_million(),
-                )
+                panic!("power project {context} maximum legal meal failed: {error}")
             })
+        };
+        let meal = validated
             .commit(state)
             .unwrap_or_else(|error| panic!("power project meal commit failed: {error}"));
         assert_eq!(
             meal.energy_offered(),
-            meal_projection.energy_offered(),
+            meal_plan.energy_offered,
             "power project {context} meal execution diverged from pre-action metabolic projection"
         );
         outcome.attention_ticks = outcome
@@ -451,12 +471,19 @@ pub(super) fn provision_for_project_leg(
             .unwrap_or_else(|| panic!("power project meal mass overflowed"));
         let after_meal = assess_survival(registries, state)
             .unwrap_or_else(|| panic!("power project {context} lost player during planned meal"));
-        assert!(
-            after_meal.metabolic_energy() >= metabolic_target,
-            "power project {context} projected meal missed metabolic target: {}nJ < {}nJ",
-            after_meal.metabolic_energy().nanojoules(),
-            metabolic_target.nanojoules(),
-        );
+        if meal_plan.reaches_target {
+            assert!(
+                after_meal.metabolic_energy() >= metabolic_target,
+                "power project {context} projected meal missed metabolic target: {}nJ < {}nJ",
+                after_meal.metabolic_energy().nanojoules(),
+                metabolic_target.nanojoules(),
+            );
+        } else {
+            assert!(
+                after_meal.metabolic_energy() > before_meal.metabolic_energy(),
+                "power project {context} maximum legal meal made no reserve progress"
+            );
+        }
     }
     drink_to_target(
         registries,
