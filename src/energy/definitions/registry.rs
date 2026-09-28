@@ -73,16 +73,12 @@ impl EnergyRegistry {
         self.passive_dissipation_per_tick
             .get(&definition)
             .copied()
-            .unwrap_or(Energy::ZERO)
-    }
-
-    /// Returns the preintegrated per-tick passive loss for one definition after root registry
-    /// preparation. Presence also proves that the runtime definition ID belongs to this registry.
-    pub(crate) fn prepared_passive_dissipation_per_tick(
-        &self,
-        definition: EnergyStoreDefinitionId,
-    ) -> Option<Energy> {
-        self.passive_dissipation_per_tick.get(&definition).copied()
+            .unwrap_or_else(|| {
+                panic!(
+                    "energy-store definition {} has no prepared passive-dissipation entry",
+                    definition.value()
+                )
+            })
     }
 
     pub(crate) fn validate_references(

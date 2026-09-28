@@ -187,15 +187,7 @@ pub(crate) fn decide_passive_energy_dissipation(
 ) -> PassiveEnergyDissipationPlan {
     let mut plan = PassiveEnergyDissipationPlan::default();
     for (definition, stores) in state.energy().nonempty_store_groups() {
-        let per_tick = registries
-            .energy()
-            .prepared_passive_dissipation_per_tick(definition)
-            .unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: nonempty energy stores reference missing definition {}",
-                    definition.value()
-                )
-            });
+        let per_tick = registries.energy().passive_dissipation_per_tick(definition);
         if per_tick.is_zero() {
             continue;
         }

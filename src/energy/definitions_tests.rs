@@ -58,6 +58,18 @@ fn energy_store_definition_rejects_duplicate_upgrade_profiles() {
 }
 
 #[test]
+fn registry_rejects_unknown_prepared_passive_dissipation_lookup() {
+    let registries = build_registries();
+    let unknown = EnergyStoreDefinitionId::new(999_999);
+
+    let result = std::panic::catch_unwind(|| {
+        let _ = registries.energy().passive_dissipation_per_tick(unknown);
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
 fn registry_rejects_cyclic_energy_upgrade_ancestry() {
     let registries = build_registries();
     let first_id = EnergyStoreDefinitionId::new(930_016);
