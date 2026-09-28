@@ -153,7 +153,7 @@ fn fatal_tick_cancels_unfinished_mining_without_extracting_or_wearing_tool() {
     let outcome = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal mining tick failed: {error}"));
 
-    assert!(outcome.ready_mining_jobs().is_empty());
+    assert_eq!(outcome.ready_mining_job(), None);
     assert!(state.mining().get_job(job).is_none());
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
@@ -280,14 +280,14 @@ fn fatal_tick_allows_mining_due_that_tick_to_finish_work() {
     while state.tick().value() + 1 < completes_at.value() {
         let outcome = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("fatal due mining setup tick failed: {error}"));
-        assert!(outcome.ready_mining_jobs().is_empty());
+        assert_eq!(outcome.ready_mining_job(), None);
     }
     make_next_tick_fatal(&registries, &mut state);
 
     let outcome = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("fatal due mining completion tick failed: {error}"));
 
-    assert_eq!(outcome.ready_mining_jobs(), &[job]);
+    assert_eq!(outcome.ready_mining_job(), Some(job));
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
         state.survival().player().map(|player| player.vitality()),
@@ -531,8 +531,8 @@ fn mining_order_projection_matches_executed_quarry_batches() {
             let outcome = advance_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("order tick failed: {error}"));
             assert_eq!(
-                outcome.ready_mining_jobs().contains(&job),
-                state.tick() == completes
+                outcome.ready_mining_job(),
+                (state.tick() == completes).then_some(job)
             );
         }
         let receipt = validate_claim_mining_output(&registries, &state, job)

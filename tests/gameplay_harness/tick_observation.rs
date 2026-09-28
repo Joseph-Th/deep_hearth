@@ -75,9 +75,8 @@ fn assert_player_work_events_within(
 ) {
     assert!(
         outcome
-            .ready_mining_jobs()
-            .iter()
-            .all(|job| allowance.mining_jobs.contains(job)),
+            .ready_mining_job()
+            .is_none_or(|job| allowance.mining_jobs.contains(&job)),
         "gameplay harness {context} crossed an unrelated mining completion"
     );
     assert!(

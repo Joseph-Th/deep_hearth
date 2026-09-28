@@ -70,13 +70,10 @@ impl TickOutcome {
         &self.production_completions
     }
 
-    /// Returns mining jobs whose labor phase finished this tick and can now be claimed.
+    /// Returns the mining job whose labor phase finished this tick and can now be claimed.
     #[must_use]
-    pub fn ready_mining_jobs(&self) -> &[MiningJobId] {
-        match &self.ready_mining_job {
-            Some(job) => std::slice::from_ref(job),
-            None => &[],
-        }
+    pub const fn ready_mining_job(&self) -> Option<MiningJobId> {
+        self.ready_mining_job
     }
 
     /// Returns direct player-powered energy generation that completed during this tick.

@@ -95,8 +95,8 @@ fn complete_batch(
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("fieldwork mining tick failed: {error}"));
         assert_eq!(
-            outcome.ready_mining_jobs().contains(&job),
-            elapsed == ticks,
+            outcome.ready_mining_job(),
+            (elapsed == ticks).then_some(job),
             "fieldwork readiness diverged from its authoritative schedule"
         );
         assert_tick_events_within(

@@ -1,8 +1,8 @@
 //! Persistent player world location and carried inventory custody.
 //!
 //! Logistics owns *where* the player and carried custody are. Inventory remains authoritative for
-//! the carried stockpile's lots, capacity, temperature, preservation, and matter accounting. This
-//! initial slice intentionally does not expose movement or arbitrary stockpile transfer: those need
+//! the carried stockpile's lots, capacity, temperature, preservation, and matter accounting.
+//! Logistics intentionally does not expose movement or arbitrary stockpile transfer: those need
 //! world access/path authorization rather than inventory-level teleportation.
 
 mod access;

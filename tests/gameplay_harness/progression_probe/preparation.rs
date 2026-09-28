@@ -61,8 +61,9 @@ pub(super) fn finish_mining_work(
             context,
         );
         if elapsed < ticks {
-            assert!(
-                !outcome.ready_mining_jobs().contains(&job),
+            assert_eq!(
+                outcome.ready_mining_job(),
+                None,
                 "primitive progression {context} mining became ready before its validated completion"
             );
             assert_eq!(
@@ -71,8 +72,8 @@ pub(super) fn finish_mining_work(
             );
         } else {
             assert_eq!(
-                outcome.ready_mining_jobs(),
-                &[job],
+                outcome.ready_mining_job(),
+                Some(job),
                 "primitive progression {context} must expose the completed mining job exactly once"
             );
             assert_eq!(state.player_work().active(), None);

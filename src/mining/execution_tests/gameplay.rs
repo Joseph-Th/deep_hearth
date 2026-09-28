@@ -603,8 +603,8 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
         final_tick
             .as_ref()
             .unwrap_or_else(|| panic!("mining work produced no tick outcome"))
-            .ready_mining_jobs(),
-        &[job]
+            .ready_mining_job(),
+        Some(job)
     );
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
@@ -664,7 +664,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     for _ in 0..3 {
         let delayed = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("delayed mining-claim tick failed: {error}"));
-        assert!(delayed.ready_mining_jobs().is_empty());
+        assert_eq!(delayed.ready_mining_job(), None);
         assert!(
             state
                 .mining()
