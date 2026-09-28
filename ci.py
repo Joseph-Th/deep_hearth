@@ -700,25 +700,31 @@ def run_stage(
     )
 
 
-def run_parallel_stages(
+def run_quick_stages(
     stages: list[tuple[str, list[str]]],
-    *,
-    total: int,
-    start_index: int,
 ) -> list[tuple[str, float]] | None:
-    """Run independent build-free stages concurrently and report them in stable plan order."""
+    """Run the independent build-free edit checks with one success line and precise failures."""
 
     with ThreadPoolExecutor(max_workers=len(stages)) as executor:
         executions = list(executor.map(lambda stage: execute_stage(stage[1]), stages))
-    timings: list[tuple[str, float]] = []
-    failed = False
-    for offset, ((label, command), execution) in enumerate(zip(stages, executions, strict=True)):
-        elapsed = report_stage(start_index + offset, total, label, command, execution)
-        if elapsed is None:
-            failed = True
-        else:
-            timings.append((label, elapsed))
-    return None if failed else timings
+    failed = [
+        index
+        for index, (result, _elapsed, start_error) in enumerate(executions)
+        if start_error is not None or result is None or result.returncode != 0
+    ]
+    if not failed:
+        return [
+            (label, elapsed)
+            for (label, _command), (_result, elapsed, _start_error) in zip(
+                stages, executions, strict=True
+            )
+        ]
+
+    print(f"quick ... FAIL ({len(failed)}/{len(stages)} checks)")
+    for offset in failed:
+        label, command = stages[offset]
+        report_stage(offset + 1, len(stages), label, command, executions[offset])
+    return None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -941,23 +947,19 @@ def main() -> int:
         clear_gameplay_seed_environment(os.environ)
 
     started = time.perf_counter()
-    timings: list[tuple[str, float]] = []
-    if len(plan) > 1:
-        print(f"local-ci {args.preset}: {len(plan)} stage(s)")
     try:
-        quick = quick_plan()
-        quick_count = len(quick) if plan[: len(quick)] == quick else 0
-        if quick_count:
-            quick_timings = run_parallel_stages(
-                plan[:quick_count],
-                total=len(plan),
-                start_index=1,
-            )
+        if args.preset == "quick":
+            quick_timings = run_quick_stages(plan)
             if quick_timings is None:
                 return 1
-            timings.extend(quick_timings)
+            total_elapsed = time.perf_counter() - started
+            print(f"quick ... PASS ({total_elapsed:.1f}s; {len(quick_timings)} checks)")
+            return 0
 
-        for index, (label, command) in enumerate(plan[quick_count:], start=quick_count + 1):
+        timings: list[tuple[str, float]] = []
+        if len(plan) > 1:
+            print(f"local-ci {args.preset}: {len(plan)} stage(s)")
+        for index, (label, command) in enumerate(plan, start=1):
             elapsed = run_stage(
                 index,
                 len(plan),

@@ -2,11 +2,7 @@
 
 **Role:** Local verification and test-organization authority.
 
-Use [`README.md`](README.md) for routing,
-[`STATUS.md`](STATUS.md) for scope, and [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) for automated-player
-evidence semantics.
-
-Use the smallest lane that completely proves the changed contract.
+Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, and [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) for automated-player evidence. Use the smallest lane that proves the changed contract.
 
 ## Fast path
 
@@ -15,31 +11,26 @@ Use the smallest lane that completely proves the changed contract.
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
 | CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
-| Compile-only production check | `python ci.py gate` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Gameplay contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
+| Compile-only proof when no executable test fits | `python ci.py gate` |
+
+Routine iteration is `quick` while editing, then **one** build-producing proof. A passing Rust test is compile proof for its target. Use the default `gate` only when no executable test fits or a production-only cfg path changed. Do not stack an exact unit test and focused gameplay for the same claim.
+
+Use `python tools/run_test.py --list <substring>` for build-free discovery and the printed `repair:` command after failures. `run_test.py` owner-shards exact and single-owner suites; switching owners selects another Rust artifact, so keep one repair loop on one owner. Cargo check/test artifacts also differ, so do not precheck an executable test.
+
+## Escalation lanes
+
+| Need | Command |
+| --- | --- |
 | Broad core/gameplay checkpoint | `python ci.py audit --all` |
 | Production Clippy | `python ci.py gate --lint` |
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free. `gate` runs one build-producing lane. `audit` is an explicit broad checkpoint and does
-not belong in the ordinary edit loop.
-
-Use `python tools/run_test.py --list <substring>` for focused build-free discovery; use bare `--list` only when
-browsing the full catalog. Selectors resolve to the narrowest suitable target. On failure, prefer the printed
-`repair:` command instead of repeating the broad lane. Use `--lint` only for focused test-target Clippy and
-`--verbose` only when needed. Do not add a separate
-check-only step before an executable test: Cargo maintains different check/test artifacts, and the extra build can
-cost more than linking the intended target once. The full library audit remains one large test crate, but
-`run_test.py` owner-shards exact and single-owner suite repairs so unrelated unit tests are not linked. Prefer
-build-free checks while editing and execute the exact test when its behavior is ready to prove.
-
-Specialized gates are `python ci.py gate --shaders`, `python ci.py gate --rustdoc`, and
-`python ci.py gate --soak`. Scoped audits remain available as `python ci.py audit --core` and
-`python ci.py audit --gameplay`.
+`quick` is build-free. `gate` runs one build lane. `audit` is a deliberate checkpoint, not an edit-loop step. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`; scoped audits are `audit --core` and `audit --gameplay`.
 
 ## Evidence ladder
 
@@ -51,32 +42,25 @@ Stop at the first level that completely proves the changed claim:
 4. **System/gameplay:** focused interaction proof when behavior depends on several owners.
 5. **Audit/exploration:** broader deterministic checkpoint or bounded sampling for cross-system uncertainty.
 
-A local test does not establish a cross-owner or player-level claim. A projection that replaces caller-side
-reconstruction should cover representative feasible, limiting, infeasible, and stale cases against canonical
-production semantics.
+A local test does not establish a cross-owner or player-level claim. Projection APIs should cover feasible, limiting, infeasible, and stale cases against canonical semantics.
 
 ### Failure triage map
 
 | Failure | Start with |
 | --- | --- |
-| Unexpected rejection or stale commit | Resolver/validator, typed error, and bound revisions/preconditions. |
-| Rejection changed state | Commit boundary plus owned IDs, indexes, reservations, and schedules. |
-| Conservation mismatch | The first crossed custody edge and the corresponding accounting projection. |
-| Trusted-load failure/divergence | `LoadedSaveEnvelope::into_state`, named validator, then the first differing continuation outcome. |
-| Tick/job lifecycle mismatch | Relevant durable work record, schedule, owner state, and `TickOutcome`. |
-| Gameplay choice/no-action changed | Deterministic focused scope first; use report replay roots only when investigating sampled organic behavior. |
-| Capability appears unreachable | [`STATUS.md`](STATUS.md) plus the acquisition path; separate owner capability from ordinary reachability. |
+| Unexpected rejection/stale commit | Resolver, typed error, bound revisions/preconditions. |
+| Rejection changed state | Commit boundary, IDs, indexes, reservations, schedules. |
+| Conservation mismatch | First crossed custody edge and accounting projection. |
+| Trusted-load divergence | `LoadedSaveEnvelope::into_state`, validator, first differing continuation. |
+| Tick/job mismatch | Durable work record, schedule, owner state, `TickOutcome`. |
+| Gameplay choice changed | Focused scope first; replay sampled roots only when needed. |
+| Capability unreachable | [`STATUS.md`](STATUS.md) and the acquisition path. |
 
 Widen only when the evidence crosses another owner or runtime boundary.
 
 ## Complexity review
 
-`bca.toml` and `.bca-baseline.toml` own the cognitive-complexity ratchet used by `python ci.py quick`.
-Use `python ci.py bca` for changed code and `python ci.py bca --hotspots` only when reviewing existing
-concentration. Refactor for ownership and control-flow clarity, not for a score.
-
-Rust diagnostics answer named uncertainties only. [`tools/README.md`](tools/README.md) owns their commands and
-limits.
+`bca.toml` and `.bca-baseline.toml` own the `quick` complexity ratchet. Use `python ci.py bca` for changed code and `--hotspots` only for existing concentration. Refactor for clarity, not a score. [`tools/README.md`](tools/README.md) owns optional diagnostics.
 
 ## Unit tests
 
@@ -98,19 +82,10 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused gameplay probes own contract tests when they already compile nearly the same harness graph. Keep a
-separate contract target only when it is materially narrower. All gameplay targets use one `test-gameplay`
-feature shape so probe, contract, and audit lanes reuse the same library artifact.
-Reports use dedicated example binaries. Focused tests stay quiet; large report-only formatting belongs outside
-test builds only when measurement shows that split improves the edit loop.
-Routine gameplay gates, direct focused-probe runs, and the broad audit combine maintained witnesses with one fresh replayable organic case;
-ambient roots are cleared first. Reports use four organic cases plus broader agency search. Failed sampled runs
-print roots for exact replay. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
+Focused probes own nearby contracts when they compile nearly the same harness graph; use a separate contract target only when materially narrower. Gameplay targets share one `test-gameplay` feature shape. Reports use examples and keep report-only formatting out of tests when measurement justifies the split.
+
+Routine gameplay verification combines maintained witnesses with one fresh replayable organic case. Reports use four organic cases plus broader agency search. Failures print replay roots. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 
-Run only the lane required by the changed contract plus specialized evidence whose contract changed.
-Documentation-only work runs `python tools/check_authority_docs.py`; CI/test-tooling changes also run
-`python -m unittest tools.test_ci -q`. Do not staircase compile-only checks, exact tests, focused gameplay, and
-broad audits after every edit; each additional build must prove a distinct changed contract. Broad audits are
-deliberate checkpoints.
+Run only the lane required by the changed contract. Documentation-only work uses `check_authority_docs.py`; CI/test-tooling changes also run `python -m unittest tools.test_ci -q`. Every additional build must prove a distinct contract.

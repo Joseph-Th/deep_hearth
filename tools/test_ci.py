@@ -379,6 +379,42 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_quick_lane_is_build_free(self) -> None:
         self.assertEqual(cargo_build_commands(ci.quick_plan()), [])
 
+    def test_successful_quick_run_reports_one_compact_result(self) -> None:
+        timings = [(label, 0.1) for label, _command in ci.quick_plan()]
+        with (
+            mock.patch.object(sys, "argv", ["ci.py", "quick"]),
+            mock.patch.object(ci, "run_quick_stages", return_value=timings),
+            mock.patch.object(ci.time, "perf_counter", side_effect=[10.0, 10.5]),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.assertEqual(ci.main(), 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(stdout.getvalue(), "quick ... PASS (0.5s; 3 checks)\n")
+
+    def test_failed_quick_run_reports_only_failed_checks(self) -> None:
+        stages = ci.quick_plan()
+        success = ci.subprocess.CompletedProcess(stages[0][1], 0, "", "")
+        failure = ci.subprocess.CompletedProcess(stages[1][1], 1, "bad complexity", "")
+        executions = [
+            (success, 0.1, None),
+            (failure, 0.2, None),
+            (success, 0.1, None),
+        ]
+        with (
+            mock.patch.object(ci, "execute_stage", side_effect=executions),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.assertIsNone(ci.run_quick_stages(stages))
+        self.assertEqual(
+            stdout.getvalue(),
+            "quick ... FAIL (1/3 checks)\n[2/3] complexity ratchet ... FAIL (0.2s)\n",
+        )
+        self.assertNotIn("format changed Rust", stdout.getvalue())
+        self.assertNotIn("repository contracts", stdout.getvalue())
+        self.assertIn("bad complexity", stderr.getvalue())
+
     def test_quick_lane_formats_only_changed_rust(self) -> None:
         self.assertIn(
             ("format changed Rust", [sys.executable, "tools/check_format.py"]),
