@@ -159,7 +159,8 @@ scope may establish.
 Routine focused gameplay gates and the broad gameplay audit combine maintained deterministic witnesses with one
 fresh replayable organic case per sampled family. Reports use a broader bounded sample and agency qualification
 searches. Maintained cases prove contracts, not prevalence; organic samples are bounded evidence, not population
-estimates.
+estimates. A named qualitative regime must have a maintained witness; organic sampling broadens evidence around
+those anchors instead of making basic coverage depend on luck.
 Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
 must not count counterfactual, coverage-only, or negative-control branches as player experience.
 

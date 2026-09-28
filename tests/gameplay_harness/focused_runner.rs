@@ -78,7 +78,8 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
         // expose both sides of heavy-tool investment: a large visible reserve selects the
         // reinforced quarry, while a small localized reserve cuts the same nominal project back to
         // the lighter hard pick before construction. Seed 5 keeps the short soft-rock stone-pick
-        // baseline visible without relying on organic sampling luck.
+        // baseline visible without relying on organic sampling luck. Seed 7 keeps the ordinary
+        // middle project horizon present between those short and bulk anchors.
         "fieldwork" => (
             1,
             &[0, 2, 3, 5, 6, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED],

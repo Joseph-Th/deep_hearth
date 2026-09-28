@@ -1,5 +1,7 @@
 //! Actor-visible extraction-tool reassessment after new geological evidence.
 
+use std::cmp::Reverse;
+
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::{
     FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
@@ -63,6 +65,7 @@ impl<'a> FieldworkSiteToolRequest<'a> {
 struct ExistingToolProjection {
     batch: Mass,
     order_ticks: u64,
+    condition_ppm: u32,
     label: &'static str,
 }
 
@@ -147,6 +150,7 @@ fn existing_tool_projection(
     Some(ExistingToolProjection {
         batch,
         order_ticks: resolution.duration().value(),
+        condition_ppm: record.condition().parts_per_million(),
         label,
     })
 }
@@ -166,7 +170,13 @@ fn prepare_from_current_materials(
             existing_tool_projection(registries, state, equipment, observed_hardness_upper, order)
                 .map(|projection| (equipment, projection))
         })
-        .min_by_key(|(equipment, projection)| (projection.order_ticks, equipment.value()));
+        .min_by_key(|(_, projection)| {
+            (
+                projection.order_ticks,
+                Reverse(projection.condition_ppm),
+                Reverse(projection.batch.milligrams()),
+            )
+        });
     let fresh = choose_fieldwork_tool_with_market_phase(
         registries,
         state,
