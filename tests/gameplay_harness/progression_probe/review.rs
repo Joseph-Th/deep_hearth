@@ -357,7 +357,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
     let manual_fallback = (case.role() == FocusedProbeRole::MaintainedAnchor)
         .then(|| evaluate_manual_processing_fallback(registries, seed));
     validate_maintained_manual_fallback(seed, manual_fallback);
-    let deferred_trace_refinement = match case.role() {
+    let low_trace_grade_regime = match case.role() {
         FocusedProbeRole::MaintainedAnchor => true,
         FocusedProbeRole::MaintainedCoverage => seed == 3,
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
@@ -374,7 +374,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
         registries,
         seed,
         PrimitivePriority::PickFirst,
-        deferred_trace_refinement,
+        low_trace_grade_regime,
         ore_opportunity_batch_budget,
         true,
     );
@@ -382,7 +382,7 @@ pub(crate) fn evaluate_primitive_progression_probe(
         registries,
         seed,
         PrimitivePriority::CrankFirst,
-        deferred_trace_refinement,
+        low_trace_grade_regime,
         ore_opportunity_batch_budget,
         true,
     );

@@ -9,7 +9,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
-use deep_hearth::crafting::ManualCraftDefinition;
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
@@ -32,31 +31,6 @@ pub(super) fn native_copper_opportunity(case: FocusedProbeCase) -> Mass {
         }
     };
     Mass::from_milligrams(milligrams)
-}
-
-pub(super) fn manual_batches_for_output(
-    definition: &ManualCraftDefinition,
-    commodity: CommodityKey,
-    required: Mass,
-    context: &'static str,
-) -> u64 {
-    let per_batch = definition
-        .outputs()
-        .iter()
-        .find(|output| output.commodity() == commodity)
-        .map(|output| output.mass())
-        .unwrap_or_else(|| {
-            panic!(
-                "first foundry {context} process {} lost output {}",
-                definition.process().value(),
-                commodity.value()
-            )
-        });
-    assert!(
-        !per_batch.is_zero(),
-        "first foundry {context} output must remain nonzero"
-    );
-    required.milligrams().div_ceil(per_batch.milligrams())
 }
 
 pub(super) fn select_commodity_mass(

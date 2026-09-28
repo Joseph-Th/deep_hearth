@@ -14,7 +14,7 @@ pub(super) fn run_primitive_progression_case(
     registries: &Registries,
     seed: u64,
     priority: PrimitivePriority,
-    deferred_trace_refinement: bool,
+    low_trace_grade_regime: bool,
     ore_opportunity_batch_budget: u64,
     emit_detail: bool,
 ) -> PrimitiveProgressionExperience {
@@ -52,7 +52,7 @@ pub(super) fn run_primitive_progression_case(
     } = setup_progression_world(
         registries,
         seed,
-        deferred_trace_refinement,
+        low_trace_grade_regime,
         ore_opportunity_batch_budget,
     );
     let matter_before = calculate_matter_accounting(&state)
@@ -76,6 +76,7 @@ pub(super) fn run_primitive_progression_case(
         hard_clue,
         direct_copper_clue,
         bulk_ore_clue,
+        alternative_clue_request,
         stone_mining_ticks,
         direct_copper_mining_ticks,
         direct_second_upgrade_blocked,
@@ -102,18 +103,31 @@ pub(super) fn run_primitive_progression_case(
             ore_storage,
             refined_clue_storage,
             visible_clue_requests,
-            soft_ore_target,
-            hard_ore_target,
-            native_target,
-            trace_target,
             stone_hardness_limit,
             stone_pick_batch_limit,
             pick_upgrade_native,
             crank_upgrade_native,
             refined_clue_sample_mass,
             mined_mass,
-            deferred_trace_refinement,
         },
+    );
+    // Fixture truth validates the authored world only after the actor has made every geological
+    // choice from acquired evidence. These identities must never become policy inputs.
+    assert_eq!(
+        direct_copper_clue.request, native_target,
+        "strongest player-visible copper evidence no longer identifies the authored direct-copper occurrence"
+    );
+    assert_eq!(
+        bulk_ore_clue.request, soft_ore_target,
+        "best remaining mineable copper evidence no longer identifies the authored bulk processing feed"
+    );
+    assert_eq!(
+        hard_clue.request, hard_ore_target,
+        "actor-visible hardness ranking no longer identifies the authored blocked seam"
+    );
+    assert_eq!(
+        alternative_clue_request, trace_target,
+        "actor-visible lower-priority alternative no longer identifies the authored trace occurrence"
     );
     let natural_priority = observed_primitive_priority(hard_clue, bulk_sample);
     let primitive_sorting = registries

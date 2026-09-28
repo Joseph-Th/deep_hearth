@@ -1,74 +1,15 @@
-//! Shared primitive-liberation harness operations for assembly, charging, and exact stock selection.
+//! Shared primitive-liberation harness operations for charging and exact stock selection.
 
-use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{MANUAL_POWER_FOOT_TREADLE, MATERIAL_COPPER};
 use deep_hearth::core::quantity::Energy;
 use deep_hearth::core::state::AppState;
-use deep_hearth::energy::{EnergyStoreId, validate_assemble_energy_store};
-use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
+use deep_hearth::energy::EnergyStoreId;
+use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::registry::Registries;
 
-use super::super::environment::ROOM_TEMPERATURE;
-use super::super::inventory_support::add_solid_stockpile;
 use super::super::manual_power_timing::finish_manual_power_work;
-
-pub(super) fn assemble_equipment_from_authored_parts(
-    registries: &Registries,
-    state: &mut AppState,
-    definition: deep_hearth::equipment::EquipmentDefinitionId,
-) -> EquipmentId {
-    let (mass, inputs) = registries
-        .equipment()
-        .get_equipment(definition)
-        .and_then(|equipment| equipment.assembly_profile())
-        .map(|profile| (profile.input_mass(), profile.inputs().to_vec()))
-        .unwrap_or_else(|| panic!("primitive liberation equipment lost authored assembly"));
-    let source = add_solid_stockpile(state, mass);
-    for input in inputs {
-        seed_lot(
-            registries,
-            state,
-            source,
-            input.commodity(),
-            input.mass(),
-            ROOM_TEMPERATURE,
-        );
-    }
-    validate_assemble_equipment(registries, state, definition, source)
-        .unwrap_or_else(|error| panic!("primitive liberation equipment assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("primitive liberation equipment commit failed: {error}"))
-}
-
-pub(super) fn assemble_energy_store_from_authored_parts(
-    registries: &Registries,
-    state: &mut AppState,
-    definition: deep_hearth::energy::EnergyStoreDefinitionId,
-) -> EnergyStoreId {
-    let (mass, inputs) = registries
-        .energy()
-        .get_store(definition)
-        .and_then(|store| store.assembly_profile())
-        .map(|profile| (profile.input_mass(), profile.inputs().to_vec()))
-        .unwrap_or_else(|| panic!("primitive liberation drive lost authored assembly"));
-    let source = add_solid_stockpile(state, mass);
-    for input in inputs {
-        seed_lot(
-            registries,
-            state,
-            source,
-            input.commodity(),
-            input.mass(),
-            ROOM_TEMPERATURE,
-        );
-    }
-    validate_assemble_energy_store(registries, state, definition, source)
-        .unwrap_or_else(|error| panic!("primitive liberation drive assembly failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("primitive liberation drive commit failed: {error}"))
-}
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum ChargePolicy {

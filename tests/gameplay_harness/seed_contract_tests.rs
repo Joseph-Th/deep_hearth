@@ -57,7 +57,7 @@ fn focused_probe_role_labels_are_stable_replay_vocabulary() {
 }
 
 #[test]
-fn focused_gate_without_replay_root_keeps_only_maintained_cases() {
+fn focused_seed_plan_without_variation_root_keeps_only_maintained_cases() {
     let first = focused_probe_cases_from(0, None, None, 0x1111, &[0xAAAA, 0xBBBB], 0x2222, 0x3333)
         .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
     let second = focused_probe_cases_from(0, None, None, 0x1111, &[0xAAAA, 0xBBBB], 0x2222, 0x4444)

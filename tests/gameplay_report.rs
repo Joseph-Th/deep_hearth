@@ -51,6 +51,8 @@ mod maintenance_timing;
 mod manual_assembly_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
+#[path = "gameplay_harness/manual_craft_equipment_planning.rs"]
+mod manual_craft_equipment_planning;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
 #[path = "gameplay_harness/manual_craft_planning.rs"]
@@ -198,7 +200,7 @@ fn main() -> ExitCode {
             "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
         );
         std::println!(
-            "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap exact-local=[survival-provisioning,woodworking,power-provider,settlement,primitive-liberation-maintained-anchor,first-foundry] movement-abstracted=[primitive-progression,fieldwork,primitive-liberation-preassembled-variation] movement-authority=absent reachability-authority=STATUS.md"
+            "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap exact-local=[survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] movement-abstracted=[primitive-progression,fieldwork] movement-authority=absent reachability-authority=STATUS.md"
         );
     }
     if scope.includes(ReportScope::Settlement) {

@@ -10,17 +10,12 @@ pub(super) struct ProgressionDiscoveryPlan {
     pub(super) ore_storage: deep_hearth::inventory::StockpileId,
     pub(super) refined_clue_storage: deep_hearth::inventory::StockpileId,
     pub(super) visible_clue_requests: [MiningTargetRequest; 4],
-    pub(super) soft_ore_target: MiningTargetRequest,
-    pub(super) hard_ore_target: MiningTargetRequest,
-    pub(super) native_target: MiningTargetRequest,
-    pub(super) trace_target: MiningTargetRequest,
     pub(super) stone_hardness_limit: Pressure,
     pub(super) stone_pick_batch_limit: Mass,
     pub(super) pick_upgrade_native: Mass,
     pub(super) crank_upgrade_native: Mass,
     pub(super) refined_clue_sample_mass: Mass,
     pub(super) mined_mass: Mass,
-    pub(super) deferred_trace_refinement: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -38,6 +33,7 @@ pub(super) struct ProgressionDiscovery {
     pub(super) hard_clue: ObservedCopperClue,
     pub(super) direct_copper_clue: ObservedCopperClue,
     pub(super) bulk_ore_clue: ObservedCopperClue,
+    pub(super) alternative_clue_request: MiningTargetRequest,
     pub(super) stone_mining_ticks: u64,
     pub(super) direct_copper_mining_ticks: u64,
     pub(super) direct_second_upgrade_blocked: bool,
@@ -68,17 +64,12 @@ pub(super) fn discover_primitive_progression(
         ore_storage,
         refined_clue_storage,
         visible_clue_requests,
-        soft_ore_target,
-        hard_ore_target,
-        native_target,
-        trace_target,
         stone_hardness_limit,
         stone_pick_batch_limit,
         pick_upgrade_native,
         crank_upgrade_native,
         refined_clue_sample_mass,
         mined_mass,
-        deferred_trace_refinement,
     } = plan;
 
     for request in visible_clue_requests {
@@ -169,38 +160,16 @@ pub(super) fn discover_primitive_progression(
             Err(error) => panic!("unexpected surface prospecting outcome: {error}"),
         }
     }
-    let trace_surface_bounds = observed_copper_bounds(state, trace_target);
     let visible_clue_count = u8::try_from(clue_requests.len())
         .unwrap_or_else(|_| panic!("primitive progression visible clue count exceeds u8"));
     let unresolved_clue_count = visible_clue_count
         .checked_sub(surface_resolved_clues)
         .unwrap_or_else(|| panic!("resolved surface clues exceeded visible clues"));
-    // Resolve trace/surface clues from observation; boundary traces may need revisit-after-shortage.
-    if deferred_trace_refinement {
-        assert_eq!(
-            unresolved_clue_count, 1,
-            "maintained information path should leave one low-grade clue unresolved after cheap inspection"
-        );
-        assert_eq!(
-            refinement.map(|(request, _, _)| request),
-            Some(trace_target),
-            "maintained information path lost its deferred trace-copper clue"
-        );
-    } else if let Some((request, _, _)) = refinement {
-        assert_eq!(
-            unresolved_clue_count, 1,
-            "boundary-trace organic information path should leave only the poor trace clue unresolved after cheap inspection"
-        );
-        assert_eq!(
-            request, trace_target,
-            "boundary-trace organic refinement must target the poor trace-copper clue"
-        );
-    } else {
-        assert_eq!(
-            unresolved_clue_count, 0,
-            "surface-resolved organic information path should make every visible clue actionable after cheap inspection"
-        );
-    }
+    assert_eq!(
+        unresolved_clue_count,
+        u8::from(refinement.is_some()),
+        "cheap inspection may leave at most the one actor-observed ambiguous clue selected for later refinement"
+    );
     let information_refinement_required = refinement.is_some();
     let projected_surface_prospecting_ticks = clue_requests
         .iter()
@@ -260,7 +229,7 @@ pub(super) fn discover_primitive_progression(
     let mut mineable_clues = Vec::new();
     let mut hardness_blocked_clues = Vec::new();
     let mut hardness_sampling_ticks = 0_u64;
-    for clue in surface_clues {
+    for clue in surface_clues.iter().copied() {
         let sample_ticks = acquire_copper_evidence_with_equipment(
             registries,
             state,
@@ -292,32 +261,7 @@ pub(super) fn discover_primitive_progression(
         hardness_sampling_ticks > 0,
         "primitive progression must pay physical-sampling work before classifying extraction hardness"
     );
-    assert!(
-        mineable_clues
-            .iter()
-            .any(|clue| clue.request == native_target),
-        "direct-copper target must remain mineable with the stone pick"
-    );
-    assert!(
-        mineable_clues
-            .iter()
-            .any(|clue| clue.request == soft_ore_target),
-        "bulk soft-ore target must remain mineable with the stone pick"
-    );
-    assert_eq!(
-        mineable_clues
-            .iter()
-            .any(|clue| clue.request == trace_target),
-        !information_refinement_required,
-        "trace target visibility must follow the authored information-refinement branch"
-    );
-    let hard_clue = hardness_blocked_clues
-        .iter()
-        .copied()
-        .find(|clue| clue.request == hard_ore_target)
-        .unwrap_or_else(|| {
-            panic!("hard-ore target no longer exposes the intended stone-pick hardness gate")
-        });
+    let hard_clue = strongest_observed_copper_clue(hardness_blocked_clues.iter().copied());
     let direct_copper_clue = strongest_observed_copper_clue(mineable_clues.iter().copied());
     let bulk_ore_clue = strongest_observed_copper_clue(
         mineable_clues
@@ -325,25 +269,34 @@ pub(super) fn discover_primitive_progression(
             .copied()
             .filter(|clue| clue.request != direct_copper_clue.request),
     );
-    assert_eq!(
-        direct_copper_clue.request, native_target,
-        "strongest player-visible copper evidence no longer points at the direct-copper occurrence"
-    );
-    assert_eq!(
-        bulk_ore_clue.request, soft_ore_target,
-        "best remaining mineable copper evidence no longer points at the bulk processing feed"
-    );
-    assert_eq!(
-        hard_clue.request, hard_ore_target,
-        "acquired hardness evidence no longer identifies the intended stone-pick blocker"
-    );
-    if !information_refinement_required {
-        let trace_clue = observed_resolved_copper_clue(state, trace_target);
+    let resolved_alternatives = mineable_clues
+        .iter()
+        .copied()
+        .filter(|clue| {
+            clue.request != direct_copper_clue.request && clue.request != bulk_ore_clue.request
+        })
+        .collect::<Vec<_>>();
+    for alternative in &resolved_alternatives {
         assert!(
-            trace_clue.upper_ppm < bulk_ore_clue.lower_ppm,
-            "surface-resolved low-grade clue must be safely dominated by the player's bulk-ore evidence before the actor skips further investigation"
+            alternative.upper_ppm < bulk_ore_clue.lower_ppm,
+            "every actor-visible unselected mineable clue must be conservatively dominated by the selected bulk feed"
         );
     }
+    let alternative_clue_request = refinement
+        .map(|(request, _, _)| request)
+        .or_else(|| resolved_alternatives.first().map(|clue| clue.request))
+        .unwrap_or_else(|| {
+            panic!("primitive progression requires one observed lower-priority alternative clue")
+        });
+    let alternative_surface_bounds = refinement
+        .map(|(_, lower, upper)| (lower, upper))
+        .or_else(|| {
+            surface_clues
+                .iter()
+                .find(|clue| clue.request == alternative_clue_request)
+                .map(|clue| (clue.lower_ppm, clue.upper_ppm))
+        })
+        .unwrap_or_else(|| panic!("alternative clue lost its actor-visible surface evidence"));
 
     let stone_mining_ticks = mine_and_claim(
         registries,
@@ -514,17 +467,12 @@ pub(super) fn discover_primitive_progression(
             true,
         )
     } else {
-        let trace_clue = observed_resolved_copper_clue(state, trace_target);
-        assert!(
-            trace_clue.upper_ppm < bulk_ore_clue.lower_ppm,
-            "already-resolved alternative must be conservatively worse than the selected bulk feed"
-        );
         (
             0,
-            trace_surface_bounds.0,
-            trace_surface_bounds.1,
-            trace_surface_bounds.0,
-            trace_surface_bounds.1,
+            alternative_surface_bounds.0,
+            alternative_surface_bounds.1,
+            alternative_surface_bounds.0,
+            alternative_surface_bounds.1,
             0,
             false,
             Mass::ZERO,
@@ -553,6 +501,7 @@ pub(super) fn discover_primitive_progression(
         hard_clue,
         direct_copper_clue,
         bulk_ore_clue,
+        alternative_clue_request,
         stone_mining_ticks,
         direct_copper_mining_ticks,
         direct_second_upgrade_blocked,

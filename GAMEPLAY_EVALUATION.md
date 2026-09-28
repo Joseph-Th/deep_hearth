@@ -89,8 +89,8 @@ unless production owns and proves the equivalent authoritative transition.
 
 | Mode | Surface | Supported conclusion |
 | --- | --- | --- |
-| Ordinary/runtime, exact-local | focused `survival`; maintained `primitive-liberation`; report `woodworking`, `power-provider`, first-foundry episode | Automated-player outcomes through ordinary acquisition and the same logistics-locality admission used by the runtime. |
-| Ordinary-system spatial proxy | focused `progression`; report `fieldwork`; preassembled `primitive-liberation` variation | Ordinary geology, production, equipment, survival, evidence, and investment semantics with actor movement intentionally abstracted because the runtime has no movement/path authority yet. These episodes support knowledge/tool/resource-loop conclusions, not travel/locality conclusions. |
+| Ordinary/runtime, exact-local | focused `survival`, `primitive-liberation`; report `woodworking`, `power-provider`, first-foundry episode | Automated-player outcomes through ordinary acquisition and the same logistics-locality admission used by the runtime. |
+| Ordinary-system spatial proxy | focused `progression`; report `fieldwork` | Ordinary geology, production, equipment, survival, evidence, and investment semantics with actor movement intentionally abstracted because the runtime has no movement/path authority yet. These episodes support knowledge/tool/resource-loop conclusions, not travel/locality conclusions. |
 | Controlled capability | `workshop`, `ore`, `foundry` | Canonical mechanics under disclosed prearranged infrastructure, not ordinary reachability. |
 | Counterfactual | matched branches | Action-attributable differences from one actor-visible starting state over one fixed comparison horizon. |
 | Exploratory | `python ci.py report`, explicit replays/sweeps | Bounded discovery and diagnostics; exploration does not create a routine pass/fail requirement. |
@@ -151,10 +151,11 @@ scope may establish.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Routine focused gameplay gates use maintained deterministic witnesses only. The broad gameplay audit adds one
-bounded organic case per play-like probe, including agency counterfactuals, and chooses fresh replay roots unless
-explicit roots are supplied. Reports use a broader bounded sample. Maintained cases prove contracts, not
-prevalence; organic samples are bounded evidence, not population estimates.
+Routine focused gameplay gates combine maintained deterministic witnesses with one fresh bounded organic case.
+That variation is replayable from the printed roots and remains one case so focused iteration stays bounded. The
+broad gameplay audit also adds replayable organic variation across the consolidated checkpoint, including agency
+counterfactuals. Reports use a broader bounded sample. Maintained cases prove contracts, not prevalence; organic
+samples are bounded evidence, not population estimates.
 Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
 must not count counterfactual, coverage-only, or negative-control branches as player experience.
 
@@ -177,10 +178,11 @@ and baseline from the same decision state to that fixed horizon. Future controll
 never become actor inputs. Compare aggregate observable contracts when production treats internal representations
 as equivalent.
 
-Project-owned gameplay verification ignores ambient replay state. Focused gates stay on maintained witnesses
-unless explicit command-line roots request one replay variation; broad audits generate fresh physical and, where
-applicable, actor roots and print them with the result. Reports generate broader fresh samples. [`TESTING.md`](TESTING.md)
-owns command selection; command help owns exact option syntax.
+Project-owned gameplay verification ignores ambient replay state. Focused gates generate one fresh physical and,
+where applicable, actor root in addition to maintained witnesses; explicit command-line roots replay that organic
+case exactly. Broad audits likewise generate fresh replay roots unless explicit roots are supplied. Reports
+generate broader fresh samples. [`TESTING.md`](TESTING.md) owns command selection; command help owns exact option
+syntax.
 
 Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
 labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their

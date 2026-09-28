@@ -1962,7 +1962,7 @@ unknown_macro!();
                 ):
                     ci.parse_args(argv)
 
-    def test_focused_gameplay_gate_ignores_ambient_sampling_without_explicit_replay(self) -> None:
+    def test_focused_gameplay_gate_replaces_ambient_sampling_with_one_fresh_case(self) -> None:
         args = ci.parse_args(["gate", "--gameplay", "survival"])
         environment = {
             "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
@@ -1970,8 +1970,35 @@ unknown_macro!();
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2222",
             "KEEP": "yes",
         }
-        ci.configure_focused_gameplay_environment(args, environment)
-        self.assertEqual(environment, {"KEEP": "yes"})
+        rolls = iter((0xAAAA, 0xBBBB))
+        self.assertEqual(
+            ci.configure_focused_gameplay_environment(
+                args, environment, randbits=lambda _bits: next(rolls)
+            ),
+            ("0x000000000000AAAA", "0x000000000000BBBB"),
+        )
+        self.assertEqual(
+            environment,
+            {
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+                "KEEP": "yes",
+            },
+        )
+
+    def test_focused_gameplay_gate_without_behavior_stream_generates_only_world_root(self) -> None:
+        args = ci.parse_args(["gate", "--gameplay", "progression"])
+        environment = {"DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ambient-policy"}
+        self.assertEqual(
+            ci.configure_focused_gameplay_environment(
+                args, environment, randbits=lambda _bits: 0xAAAA
+            ),
+            ("0x000000000000AAAA", "unused"),
+        )
+        self.assertEqual(
+            environment,
+            {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA"},
+        )
 
     def test_focused_gameplay_gate_preserves_explicit_replay_roots(self) -> None:
         replay = ci.parse_args(
@@ -2295,11 +2322,11 @@ unknown_macro!();
         )
         self.assertNotIn("industrial-foundry-frontier=", concise)
         self.assertIn(
-            "kit-decision=[build-and-use:1/1 disclosed-horizon:8..8batches payback-proof:1/1 attention-payback:8..8jobs policy=repeat-work-only;payback-proved-per-build preassembled:0]",
+            "kit-decision=[build-and-use:1/1 disclosed-horizon:8..8batches payback-proof:1/1 attention-payback:8..8jobs policy=repeat-work-only;payback-proved-per-build]",
             concise,
         )
         self.assertIn(
-            "kit-acquisition=[executed:1 live-routes:1 preassembled:0",
+            "kit-acquisition=[executed:1 live-routes:1",
             concise,
         )
         self.assertIn(
@@ -2405,21 +2432,14 @@ unknown_macro!();
         self.assertIn("report summary: concise gameplay summary lost executed probe evidence", stderr.getvalue())
         self.assertNotIn("PASS", stdout.getvalue())
 
-    def test_liberation_summary_marks_preassembled_routes_as_controlled_evidence(self) -> None:
+    def test_liberation_summary_rejects_preassembled_route_shortcuts(self) -> None:
         lines = [
             "LIBERATION ROUTE TRADEOFF seed=0x2 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches kit-payback:not-applicable economics:not-applicable justified:not-applicable] base-kit=[not-executed-this-sample] continuity=controlled-preassembled-kit",
             "LIBERATION FRONTIER CAPABILITY seed=0x2 cleanup-executed=true reason=required-native-copper-conversion concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "LIBERATION FRONTIER seed=0x2 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]]",
         ]
-        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
-        self.assertIn(
-            "kit-acquisition=[executed:0 live-routes:0 preassembled:1",
-            summary,
-        )
-        self.assertIn(
-            "kit-decision=[build-and-use:0/1 disclosed-horizon:8..8batches payback-proof:0/1 attention-payback:n/a policy=repeat-work-only;payback-proved-per-build preassembled:1]",
-            summary,
-        )
+        with self.assertRaisesRegex(ValueError, "lost runtime kit-acquisition continuity"):
+            gameplay_report_summary.ordinary_gameplay_summary(lines)
 
     def test_progression_summary_preserves_stockpiling_delay_and_supply_blocking(self) -> None:
         lines = [

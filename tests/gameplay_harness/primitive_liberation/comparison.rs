@@ -41,8 +41,8 @@ pub(super) struct LiberationComparison<'a> {
     pub(super) direct_cleanup: &'a PrimitiveLiberationScenario,
     pub(super) direct_cleaned: &'a CleanupOutcome,
     pub(super) manual_recovery: &'a ManualOreRecoveryReview,
-    pub(super) kit_acquisition: Option<&'a RawKitAcquisitionReview>,
-    pub(super) campaign_lifecycle: Option<&'a PrimitiveLiberationCampaignLifecycle>,
+    pub(super) kit_acquisition: &'a RawKitAcquisitionReview,
+    pub(super) campaign_lifecycle: &'a PrimitiveLiberationCampaignLifecycle,
     pub(super) planned_batches: u64,
 }
 
@@ -150,110 +150,90 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
         scavenger_marginal_ticks,
         scavenger_marginal_native.milligrams(),
     );
-    let kit = kit_acquisition.map_or_else(
-        || "not-executed-this-sample".to_owned(),
-        |review| {
-            format!(
-                "executed attention:{}t body:{}nJ/{}uL",
-                review.attention_ticks, review.metabolic_cost_nj, review.hydration_cost_ul
-            )
-        },
+    let kit = format!(
+        "executed attention:{}t body:{}nJ/{}uL",
+        kit_acquisition.attention_ticks,
+        kit_acquisition.metabolic_cost_nj,
+        kit_acquisition.hydration_cost_ul,
     );
-    let continuity = if kit_acquisition.is_some() {
-        "live-kit-used"
-    } else {
-        "controlled-preassembled-kit"
-    };
-    let campaign = kit_acquisition.map_or_else(
-        || format!(
-            "planned:{planned_batches}batches kit-payback:not-applicable economics:not-applicable justified:not-applicable"
+    assert_eq!(
+        campaign_lifecycle.batch_charge_ticks.len() as u64,
+        planned_batches,
+        "executed liberation campaign must cover its complete disclosed horizon"
+    );
+    let manual_campaign_attention = manual_recovery
+        .attention_ticks
+        .checked_mul(planned_batches)
+        .unwrap_or_else(|| panic!("manual liberation campaign attention overflowed"));
+    let mut cumulative_powered_attention = kit_acquisition.attention_ticks;
+    let mut payback = None;
+    for (index, charge_ticks) in campaign_lifecycle
+        .batch_charge_ticks
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        cumulative_powered_attention = cumulative_powered_attention
+            .checked_add(charge_ticks)
+            .unwrap_or_else(|| panic!("powered liberation campaign attention overflowed"));
+        let batches = u64::try_from(index + 1)
+            .unwrap_or_else(|_| panic!("liberation campaign batch index overflowed"));
+        let manual_attention = manual_recovery
+            .attention_ticks
+            .checked_mul(batches)
+            .unwrap_or_else(|| panic!("manual liberation payback attention overflowed"));
+        if payback.is_none() && cumulative_powered_attention <= manual_attention {
+            payback = Some(batches);
+        }
+    }
+    let payback = payback.unwrap_or_else(|| {
+        panic!("primitive processing kit did not repay within the disclosed campaign")
+    });
+    assert!(payback <= planned_batches);
+    let powered_campaign_attention = cumulative_powered_attention;
+    assert!(powered_campaign_attention <= manual_campaign_attention);
+    let manual_campaign_metabolic = manual_recovery
+        .metabolic_cost_nj
+        .checked_mul(u128::from(planned_batches))
+        .unwrap_or_else(|| panic!("manual liberation campaign metabolism overflowed"));
+    let powered_campaign_metabolic = kit_acquisition
+        .metabolic_cost_nj
+        .checked_add(campaign_lifecycle.metabolic_cost_nj)
+        .unwrap_or_else(|| panic!("powered liberation campaign metabolism overflowed"));
+    let manual_campaign_hydration = manual_recovery
+        .hydration_cost_ul
+        .checked_mul(planned_batches)
+        .unwrap_or_else(|| panic!("manual liberation campaign hydration overflowed"));
+    let powered_campaign_hydration = kit_acquisition
+        .hydration_cost_ul
+        .checked_add(campaign_lifecycle.hydration_cost_ul)
+        .unwrap_or_else(|| panic!("powered liberation campaign hydration overflowed"));
+    let campaign = format!(
+        concat!(
+            "planned:{planned_batches}batches executed:{executed_batches} kit-payback:{payback}batches ",
+            "attention:manual:{manual_campaign_attention}t/powered:{powered_campaign_attention}t ",
+            "body:manual:{manual_campaign_metabolic}nJ/{manual_campaign_hydration}uL ",
+            "powered:{powered_campaign_metabolic}nJ/{powered_campaign_hydration}uL ",
+            "elapsed:{elapsed_ticks}t final-condition=[crusher:{crusher} quern:{quern} screen:{screen} separator:{separator} treadle:{treadle}] justified:true"
         ),
-        |review| {
-            let lifecycle = campaign_lifecycle.unwrap_or_else(|| {
-                panic!("executed primitive kit requires an executed campaign lifecycle")
-            });
-            assert_eq!(
-                lifecycle.batch_charge_ticks.len() as u64,
-                planned_batches,
-                "executed liberation campaign must cover its complete disclosed horizon"
-            );
-            let manual_campaign_attention = manual_recovery
-                .attention_ticks
-                .checked_mul(planned_batches)
-                .unwrap_or_else(|| panic!("manual liberation campaign attention overflowed"));
-            let mut cumulative_powered_attention = review.attention_ticks;
-            let mut payback = None;
-            for (index, charge_ticks) in lifecycle.batch_charge_ticks.iter().copied().enumerate() {
-                cumulative_powered_attention = cumulative_powered_attention
-                    .checked_add(charge_ticks)
-                    .unwrap_or_else(|| panic!("powered liberation campaign attention overflowed"));
-                let batches = u64::try_from(index + 1)
-                    .unwrap_or_else(|_| panic!("liberation campaign batch index overflowed"));
-                let manual_attention = manual_recovery
-                    .attention_ticks
-                    .checked_mul(batches)
-                    .unwrap_or_else(|| panic!("manual liberation payback attention overflowed"));
-                if payback.is_none() && cumulative_powered_attention <= manual_attention {
-                    payback = Some(batches);
-                }
-            }
-            let payback = payback.unwrap_or_else(|| {
-                panic!("primitive processing kit did not repay within the disclosed campaign")
-            });
-            assert!(
-                payback <= planned_batches,
-                "primitive processing kit pays back in {payback} batches but only {planned_batches} were disclosed before build"
-            );
-            let powered_campaign_attention = cumulative_powered_attention;
-            assert!(
-                powered_campaign_attention <= manual_campaign_attention,
-                "disclosed primitive campaign must not spend more player attention after its claimed payback"
-            );
-            let planned_batches_u128 = u128::from(planned_batches);
-            let manual_campaign_metabolic = manual_recovery
-                .metabolic_cost_nj
-                .checked_mul(planned_batches_u128)
-                .unwrap_or_else(|| panic!("manual liberation campaign metabolism overflowed"));
-            let powered_campaign_metabolic = review
-                .metabolic_cost_nj
-                .checked_add(lifecycle.metabolic_cost_nj)
-                .unwrap_or_else(|| panic!("powered liberation campaign metabolism overflowed"));
-            let manual_campaign_hydration = manual_recovery
-                .hydration_cost_ul
-                .checked_mul(planned_batches)
-                .unwrap_or_else(|| panic!("manual liberation campaign hydration overflowed"));
-            let powered_campaign_hydration = review
-                .hydration_cost_ul
-                .checked_add(lifecycle.hydration_cost_ul)
-                .unwrap_or_else(|| panic!("powered liberation campaign hydration overflowed"));
-            format!(
-                concat!(
-                    "planned:{planned_batches}batches executed:{executed_batches} kit-payback:{payback}batches ",
-                    "attention:manual:{manual_campaign_attention}t/powered:{powered_campaign_attention}t ",
-                    "body:manual:{manual_campaign_metabolic}nJ/{manual_campaign_hydration}uL ",
-                    "powered:{powered_campaign_metabolic}nJ/{powered_campaign_hydration}uL ",
-                    "elapsed:{elapsed_ticks}t final-condition=[crusher:{crusher} quern:{quern} screen:{screen} separator:{separator} treadle:{treadle}] justified:true"
-                ),
-                planned_batches = planned_batches,
-                executed_batches = lifecycle.batch_charge_ticks.len(),
-                payback = payback,
-                manual_campaign_attention = manual_campaign_attention,
-                powered_campaign_attention = powered_campaign_attention,
-                manual_campaign_metabolic = manual_campaign_metabolic,
-                manual_campaign_hydration = manual_campaign_hydration,
-                powered_campaign_metabolic = powered_campaign_metabolic,
-                powered_campaign_hydration = powered_campaign_hydration,
-                elapsed_ticks = lifecycle.elapsed_ticks,
-                crusher = lifecycle.crusher_condition_ppm,
-                quern = lifecycle.quern_condition_ppm,
-                screen = lifecycle.screen_condition_ppm,
-                separator = lifecycle.separator_condition_ppm,
-                treadle = lifecycle.treadle_condition_ppm,
-            )
-        },
+        planned_batches = planned_batches,
+        executed_batches = campaign_lifecycle.batch_charge_ticks.len(),
+        payback = payback,
+        manual_campaign_attention = manual_campaign_attention,
+        powered_campaign_attention = powered_campaign_attention,
+        manual_campaign_metabolic = manual_campaign_metabolic,
+        manual_campaign_hydration = manual_campaign_hydration,
+        powered_campaign_metabolic = powered_campaign_metabolic,
+        powered_campaign_hydration = powered_campaign_hydration,
+        elapsed_ticks = campaign_lifecycle.elapsed_ticks,
+        crusher = campaign_lifecycle.crusher_condition_ppm,
+        quern = campaign_lifecycle.quern_condition_ppm,
+        screen = campaign_lifecycle.screen_condition_ppm,
+        separator = campaign_lifecycle.separator_condition_ppm,
+        treadle = campaign_lifecycle.treadle_condition_ppm,
     );
     reviewln!(
-        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[{kit}] continuity={continuity} interpretation=manual-is-low-infrastructure-fallback;powered-route-buys-recovery-and-reusable-throughput",
+        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[{kit}] continuity=live-kit-used interpretation=manual-is-low-infrastructure-fallback;powered-route-buys-recovery-and-reusable-throughput",
         manual_recovery.feed_mass.milligrams(),
         manual_recovery.attention_ticks,
         manual_recovery.recovered_native.milligrams(),

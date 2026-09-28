@@ -7,7 +7,7 @@ use deep_hearth::content::{
     EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
     FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
     MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_CAST_PURE_COPPER, PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_MELT_PURE_COPPER,
+    PROCESS_CAST_PURE_COPPER, PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -29,6 +29,7 @@ use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_batches::execute_manual_craft_batches;
+use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_power_timing::finish_manual_power_work;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
@@ -40,8 +41,8 @@ mod planning;
 use self::casting::resolve_full_cast_after_cooldown;
 use self::planning::{
     FOUNDRY_STONE_OPPORTUNITY, FOUNDRY_WOOD_OPPORTUNITY, craft_foundry_components,
-    foundry_capital_copper, manual_batches_for_output, native_copper_opportunity,
-    select_commodity_mass, settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
+    foundry_capital_copper, native_copper_opportunity, select_commodity_mass,
+    settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
 };
 
 pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProbeCase) {
@@ -158,26 +159,25 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .total();
     let started_at = state.tick().value();
 
-    // Fulfill the immediate 20 g reinforcement order through the cheap direct route first. The
-    // foundry is considered only for the next capability step, after the player has paid the
-    // current-order cost and can see exactly how much copper remains.
-    let native_rework = registries
-        .crafting()
-        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
-        .unwrap_or_else(|| panic!("first foundry native-copper rework definition disappeared"));
-    let direct_native_batches = manual_batches_for_output(
-        native_rework,
-        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+    // Fulfill the immediate reinforcement order through the cheapest canonically available manual
+    // route. The foundry is considered only for the next capability step, after the player has paid
+    // the current-order cost and can see exactly how much copper remains.
+    let reinforcement = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let (current_route, current_batches, current_source) = manual_craft_plan_for_available_output(
+        registries,
+        &state,
+        &[raw],
+        reinforcement,
         first_cast_mass,
-        "current reinforcement order",
+        "first foundry current reinforcement order",
     );
     let direct_native_ticks = execute_manual_craft_batches(
         registries,
         &mut state,
-        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-        raw,
+        current_route.process(),
+        current_source,
         current_output,
-        direct_native_batches,
+        current_batches,
         "first foundry current-order native working",
     )
     .value();
@@ -185,7 +185,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .inventory()
         .get_stockpile(current_output)
         .unwrap_or_else(|| panic!("first foundry current-order output disappeared"))
-        .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT));
+        .get_mass(reinforcement);
     assert!(
         direct_native_reinforcement >= first_cast_mass,
         "direct native-copper route must satisfy the immediate reinforcement order"

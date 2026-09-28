@@ -88,6 +88,8 @@ mod maintenance_timing;
 mod manual_assembly_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
+#[path = "gameplay_harness/manual_craft_equipment_planning.rs"]
+mod manual_craft_equipment_planning;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
 #[path = "gameplay_harness/manual_craft_planning.rs"]

@@ -16,7 +16,7 @@ use deep_hearth::spatial::VoxelBounds;
 
 use super::super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::super::physical_time::format_physical_duration;
-use super::campaign::FieldworkSurveyCampaignReview;
+use super::campaign::{FieldworkSurveyCampaignReview, MINIMUM_SURVEY_INVESTMENT_RETURN_PPM};
 use super::extraction::{
     FieldworkExtraction, FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction,
 };
@@ -491,11 +491,12 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
         .projected_indexed_search_ticks
         .map_or_else(|| "unfunded".to_owned(), |ticks| format!("{ticks}t"));
     reviewln!(
-        "FIELDWORK SURVEY CAMPAIGN seed=0x{:016X} planned-sites={} upgrade-available={} selected={} policy=min-expected-search-attention-with-minimum-return minimum-return=100000ppm projected=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
+        "FIELDWORK SURVEY CAMPAIGN seed=0x{:016X} planned-sites={} upgrade-available={} selected={} policy=min-expected-search-attention-with-minimum-return minimum-return={}ppm projected=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
         review.case.seed(),
         campaign.planned_sites,
         campaign.upgrade_available,
         campaign.selected_strategy.label(),
+        MINIMUM_SURVEY_INVESTMENT_RETURN_PPM,
         campaign.projected_point_search_ticks,
         indexed_projection,
         campaign.baseline_search_ticks,

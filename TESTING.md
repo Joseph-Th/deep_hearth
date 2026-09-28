@@ -102,11 +102,11 @@ All gameplay test targets keep one `test-gameplay` Cargo feature shape so moving
 audit lanes reuses the same library artifact instead of fragmenting the incremental cache.
 Reports use dedicated example binaries. Focused tests stay quiet; large report-only formatting belongs outside
 test builds only when measurement shows that split improves the edit loop.
-Focused gameplay gates run maintained deterministic witnesses only. The broad gameplay audit adds one bounded
-organic case per play-like probe and prints fresh replay roots; pass those roots back through `--variation-seed`
-and, where applicable, `--behavior-seed` to reproduce a run. Supplying a variation root to a focused gate adds
-one explicit replay variation without changing its maintained witnesses. Reports use a broader bounded organic
-sample. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
+Focused gameplay gates run maintained deterministic witnesses plus one fresh bounded organic case and print its
+replay roots. Pass those roots back through `--variation-seed` and, where applicable, `--behavior-seed` to
+reproduce that case exactly without changing the maintained witnesses. The broad gameplay audit keeps the same
+replay discipline across the consolidated checkpoint. Reports use a broader bounded organic sample. Actor/evidence
+rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
 
 ## Completion
 

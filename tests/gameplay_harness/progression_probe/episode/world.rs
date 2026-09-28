@@ -38,7 +38,7 @@ pub(super) struct ProgressionWorldSetup {
 pub(super) fn setup_progression_world(
     registries: &Registries,
     seed: u64,
-    deferred_trace_refinement: bool,
+    low_trace_grade_regime: bool,
     ore_opportunity_batch_budget: u64,
 ) -> ProgressionWorldSetup {
     assert!(
@@ -91,13 +91,14 @@ pub(super) fn setup_progression_world(
     let hard_ore_copper_ppm = 500_000 + (mix64(seed ^ 0x4841_5244_5F47_5244) % 400_001) as u32;
     let hard_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x4841_5244_5F47_414E) % 750_001)
         .unwrap_or_else(|_| unreachable!("bounded hard-ore gangue variation fits u32"));
-    let trace_copper_ppm = if deferred_trace_refinement {
+    // Vary trace quality independently of the observation system. The actor may or may not need
+    // detailed refinement depending on the real evidence envelopes produced from this world; setup
+    // never dictates that outcome.
+    let trace_copper_ppm = if low_trace_grade_regime {
         50_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 40_001) as u32
     } else {
-        // A second legitimate information topology for organic worlds: cheap field inspection can
-        // resolve this low-value occurrence immediately, but its entire evidence envelope remains
-        // below the bulk ore's conservative lower bound. The actor can therefore rule it out as a
-        // processing feed without paying for a redundant detailed survey or extraction sample.
+        // A second legitimate trace-grade regime broadens organic coverage without encoding an
+        // expected observation or decision result in the fixture itself.
         125_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 75_001) as u32
     };
     let trace_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x5452_4143_5F47_414E) % 750_001)

@@ -4,11 +4,10 @@ use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_THERMAL_SINK,
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_STONE_CRUSHER,
-    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_SEPARATOR, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
-    MANUAL_POWER_TREADLE_DYNAMO, MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, MANUAL_POWER_FOOT_TREADLE,
+    MANUAL_POWER_HAND_CRANK, MANUAL_POWER_TREADLE_DYNAMO, MANUAL_POWER_WALKING_WHEEL,
+    MATERIAL_COPPER, PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER,
+    PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -22,10 +21,10 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::resolve_representable_screening_mass;
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
-use deep_hearth::survival::{assess_survival, initialize_player_survival};
+use deep_hearth::survival::assess_survival;
 
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_seeds::FocusedProbeCase;
 use super::manual_ore_recovery::ManualOreRecoveryPlan;
 use super::manual_ore_recovery_evaluation::evaluate_manual_ore_recovery;
 use super::ore_fixture::copper_ore_composition;
@@ -300,114 +299,48 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     );
     let copper_ppm = 300_000 + (mix64(seed ^ 0x4C49_4245_5243_5550) % 300_001) as u32;
     let clay_share_ppm = (mix64(seed ^ 0x4C49_4245_5243_4C41) % 650_001) as u32;
-    let (
-        state,
-        crusher,
-        quern,
-        screen,
-        separator,
-        treadle,
-        drive,
-        kit_acquisition,
-        bootstrap,
-        campaign_lifecycle,
-    ) = if matches!(
-        case.role(),
-        FocusedProbeRole::MaintainedAnchor
-            | FocusedProbeRole::OrganicVariation
-            | FocusedProbeRole::ExplicitReplay
-    ) {
-        let (acquired, campaign_bootstraps) = acquisition::acquire_raw_kit(
-            registries,
-            seed,
-            PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
-            |state| {
-                (0..PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES)
-                    .map(|_| {
-                        bootstrap_liberation_inventory(
-                            registries,
-                            state,
-                            batch_mass,
-                            copper_ppm,
-                            clay_share_ppm,
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            },
-        );
-        let bootstrap = *campaign_bootstraps
-            .first()
-            .unwrap_or_else(|| panic!("liberation campaign lost its first batch"));
-        let campaign_lifecycle = run_powered_campaign_lifecycle(
-            registries,
-            acquired.state.clone(),
-            &campaign_bootstraps,
-            PrimitiveLiberationCampaignInfrastructure {
-                crusher: acquired.crusher,
-                quern: acquired.quern,
-                screen: acquired.screen,
-                separator: acquired.separator,
-                treadle: acquired.treadle,
-                drive: acquired.drive,
-            },
-        );
-        (
-            acquired.state,
-            acquired.crusher,
-            acquired.quern,
-            acquired.screen,
-            acquired.separator,
-            acquired.treadle,
-            acquired.drive,
-            Some(acquired.review),
-            bootstrap,
-            Some(campaign_lifecycle),
-        )
-    } else {
-        let mut state = AppState::new();
-        let crusher = support::assemble_equipment_from_authored_parts(
-            registries,
-            &mut state,
-            EQUIPMENT_STONE_CRUSHER,
-        );
-        let quern = support::assemble_equipment_from_authored_parts(
-            registries,
-            &mut state,
-            EQUIPMENT_STONE_ROTARY_QUERN,
-        );
-        let screen = support::assemble_equipment_from_authored_parts(
-            registries,
-            &mut state,
-            EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
-        );
-        let separator = support::assemble_equipment_from_authored_parts(
-            registries,
-            &mut state,
-            EQUIPMENT_STONE_SEPARATOR,
-        );
-        let treadle = support::assemble_equipment_from_authored_parts(
-            registries,
-            &mut state,
-            EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        );
-        let drive = support::assemble_energy_store_from_authored_parts(
-            registries,
-            &mut state,
-            ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
-        );
-        let bootstrap = bootstrap_liberation_inventory(
-            registries,
-            &mut state,
-            batch_mass,
-            copper_ppm,
-            clay_share_ppm,
-        );
-        initialize_player_survival(registries, &mut state)
-            .unwrap_or_else(|error| panic!("primitive liberation survival setup failed: {error}"));
-        (
-            state, crusher, quern, screen, separator, treadle, drive, None, bootstrap, None,
-        )
-    };
+    let (acquired, campaign_bootstraps) = acquisition::acquire_raw_kit(
+        registries,
+        seed,
+        PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
+        |state| {
+            (0..PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES)
+                .map(|_| {
+                    bootstrap_liberation_inventory(
+                        registries,
+                        state,
+                        batch_mass,
+                        copper_ppm,
+                        clay_share_ppm,
+                    )
+                })
+                .collect::<Vec<_>>()
+        },
+    );
+    let bootstrap = *campaign_bootstraps
+        .first()
+        .unwrap_or_else(|| panic!("liberation campaign lost its first batch"));
+    let campaign_lifecycle = run_powered_campaign_lifecycle(
+        registries,
+        acquired.state.clone(),
+        &campaign_bootstraps,
+        PrimitiveLiberationCampaignInfrastructure {
+            crusher: acquired.crusher,
+            quern: acquired.quern,
+            screen: acquired.screen,
+            separator: acquired.separator,
+            treadle: acquired.treadle,
+            drive: acquired.drive,
+        },
+    );
+    let state = acquired.state;
+    let crusher = acquired.crusher;
+    let quern = acquired.quern;
+    let screen = acquired.screen;
+    let separator = acquired.separator;
+    let treadle = acquired.treadle;
+    let drive = acquired.drive;
+    let kit_acquisition = acquired.review;
     let PrimitiveLiberationBootstrap {
         ore,
         crushed,
@@ -511,8 +444,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             direct_cleanup: &direct_cleanup,
             direct_cleaned: &direct_cleaned,
             manual_recovery: &manual_recovery,
-            kit_acquisition: kit_acquisition.as_ref(),
-            campaign_lifecycle: campaign_lifecycle.as_ref(),
+            kit_acquisition: &kit_acquisition,
+            campaign_lifecycle: &campaign_lifecycle,
             planned_batches: PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
         },
     );

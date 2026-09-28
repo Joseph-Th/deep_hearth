@@ -63,7 +63,7 @@ pub(super) struct FieldworkSurveyDecision {
     pub(super) projected_indexed_search_ticks: Option<u64>,
 }
 
-const MINIMUM_SURVEY_INVESTMENT_RETURN_PPM: u128 = 100_000;
+pub(super) const MINIMUM_SURVEY_INVESTMENT_RETURN_PPM: u128 = 100_000;
 
 pub(super) fn planned_future_sites(seed: u64) -> u64 {
     // Keep organic/replay horizons seed-driven while making the maintained fieldwork witnesses

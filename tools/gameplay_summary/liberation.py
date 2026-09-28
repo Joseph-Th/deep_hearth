@@ -95,13 +95,16 @@ def _kit_acquisition(lines: list[str]) -> str:
     ]
     routes = [line for line in lines if line.startswith("LIBERATION ROUTE TRADEOFF ")]
     live_kit_routes = sum(" continuity=live-kit-used" in line for line in routes)
-    preassembled_routes = sum(
-        " continuity=controlled-preassembled-kit" in line for line in routes
-    )
+    if routes and (len(witnesses) != len(routes) or live_kit_routes != len(routes)):
+        raise ValueError(
+            "primitive liberation route lost runtime kit-acquisition continuity"
+        )
     fixture_sources = sum(
         " raw-origin=pre-admission-fixture " in line for line in witnesses
     )
     runtime_pickups = sum(" pickup=same-voxel-runtime " in line for line in witnesses)
+    if witnesses and runtime_pickups != len(witnesses):
+        raise ValueError("primitive liberation kit acquisition bypassed runtime pickup")
     world_gathering = sum(" world-gathering-proved=true " in line for line in witnesses)
     stone: list[int] = []
     wood: list[int] = []
@@ -125,7 +128,7 @@ def _kit_acquisition(lines: list[str]) -> str:
             hydration.append(int(body.group(3)))
     return (
         "kit-acquisition=["
-        f"executed:{len(witnesses)} live-routes:{live_kit_routes} preassembled:{preassembled_routes} "
+        f"executed:{len(witnesses)} live-routes:{live_kit_routes} "
         f"source=[fixture:{fixture_sources}/{len(witnesses)} "
         f"pickup-runtime:{runtime_pickups}/{len(witnesses)} "
         f"world-gathering:{world_gathering}/{len(witnesses)}] "
@@ -221,7 +224,6 @@ def _route_tradeoff(lines: list[str]) -> str:
     acquisition_witnesses = sum(
         line.startswith("LIBERATION KIT ACQUISITION ") for line in lines
     )
-    preassembled_routes = len(routes) - live_kit_routes
     return (
         "route-tradeoff=["
         f"samples:{len(manual_attention)}/{len(routes)} "
@@ -231,8 +233,7 @@ def _route_tradeoff(lines: list[str]) -> str:
         f"powered-elapsed:{_span(powered_elapsed, 't')} "
         f"native-gain:{_span(native_gain, 'mg')} "
         f"evidence-mode=[raw-kit-continuity:{live_kit_routes} "
-        f"acquisition-witnesses:{acquisition_witnesses} "
-        f"controlled-preassembled:{preassembled_routes}] "
+        f"acquisition-witnesses:{acquisition_witnesses}] "
         f"disclosed-campaign:{_span(planned_campaigns, 'batches')} "
         f"executed-campaign:{_span(executed_campaigns, 'batches')} "
         f"live-kit-justified:{live_kit_justified}/{live_kit_routes} "
@@ -274,8 +275,7 @@ def _kit_decision(lines: list[str]) -> str:
         f"disclosed-horizon:{_span(disclosed_horizons, 'batches')} "
         f"payback-proof:{payback_proofs}/{len(routes)} "
         f"attention-payback:{_span(payback_jobs, 'jobs')} "
-        "policy=repeat-work-only;payback-proved-per-build "
-        f"preassembled:{sum(' continuity=controlled-preassembled-kit' in line for line in routes)}]"
+        "policy=repeat-work-only;payback-proved-per-build]"
     )
 
 

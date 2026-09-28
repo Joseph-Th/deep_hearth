@@ -154,16 +154,25 @@ def configure_report_replay_environment(
     )
 
 
-def configure_focused_gameplay_environment(args: argparse.Namespace, environ) -> None:
-    """Keep focused gates deterministic unless one replay variation was requested explicitly."""
+def configure_focused_gameplay_environment(
+    args: argparse.Namespace,
+    environ,
+    *,
+    randbits=secrets.randbits,
+) -> tuple[str, str]:
+    """Add one fresh replayable organic case to the maintained focused witnesses."""
 
+    use_behavior_seed = gameplay_variation_behavior(args)
+    assert use_behavior_seed is not None
     for key in GAMEPLAY_SEED_ENV_KEYS:
         environ.pop(key, None)
-    if args.variation_seed is None:
-        return
-    environ["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"] = args.variation_seed
-    if args.behavior_seed is not None:
-        environ["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"] = args.behavior_seed
+    return configure_gameplay_replay_environment(
+        environ,
+        variation_override=args.variation_seed,
+        behavior_override=args.behavior_seed,
+        use_behavior_seed=use_behavior_seed,
+        randbits=randbits,
+    )
 
 
 def configure_gameplay_verification_environment(
