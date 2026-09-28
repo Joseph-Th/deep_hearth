@@ -47,6 +47,12 @@ mod fieldwork_probe;
 )]
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_seeds;
+#[allow(
+    dead_code,
+    reason = "fieldwork contracts import the shared maintained-witness catalog for one fieldwork seed"
+)]
+#[path = "gameplay_harness/focused_witnesses.rs"]
+mod focused_witnesses;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/manual_assembly_planning.rs"]

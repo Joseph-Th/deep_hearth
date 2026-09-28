@@ -104,10 +104,9 @@ All gameplay test targets keep one `test-gameplay` Cargo feature shape so moving
 audit lanes reuses the same library artifact instead of fragmenting the incremental cache.
 Reports use dedicated example binaries. Focused tests stay quiet; large report-only formatting belongs outside
 test builds only when measurement shows that split improves the edit loop.
-Routine gameplay gates and the broad gameplay audit run maintained deterministic witnesses only and clear ambient
-replay roots before Cargo starts. Bounded organic sampling belongs to `python ci.py report`, where the additional
-runtime is intentional and the printed roots can be passed back to report or an explicit focused `run_test.py`
-replay. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
+Routine gameplay gates and the broad audit combine maintained witnesses with one fresh replayable organic case;
+ambient roots are cleared first. Reports use four organic cases plus broader agency search. Failed sampled runs
+print roots for exact replay. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
 
 ## Completion
 

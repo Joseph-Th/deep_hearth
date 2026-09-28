@@ -30,6 +30,7 @@ use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 const SHORT_WINDING_ORDER: u64 = 8;
 const PROJECT_WINDING_ORDER: u64 = 14;
@@ -301,18 +302,41 @@ fn flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_y
     .try_fold(0_u64, |total, ticks| total.checked_add(ticks))
     .unwrap_or_else(|| panic!("wire automation setup attention overflowed"));
 
-    let charge = validate_start_manual_power(
+    let crank_condition = state
+        .equipment()
+        .get_equipment(crank)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("wire hand crank disappeared before investment decision"));
+    let short_charge_projection = project_manual_power_sequence(
         &registries,
-        &state,
-        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, powered_batch.work),
-    )
-    .unwrap_or_else(|error| panic!("wire automation charge projection failed: {error}"));
-    let charge_ticks = charge.work().completes_at().value() - state.tick().value();
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_STONE_HAND_CRANK,
+            starting_condition: crank_condition,
+            store: ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: powered_batch.work,
+            charges: SHORT_WINDING_ORDER,
+        },
+        "wire short-order charging",
+    );
+    let project_charge_projection = project_manual_power_sequence(
+        &registries,
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_STONE_HAND_CRANK,
+            starting_condition: crank_condition,
+            store: ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: powered_batch.work,
+            charges: PROJECT_WINDING_ORDER,
+        },
+        "wire project charging",
+    );
     assert!(
-        setup_attention + charge_ticks * SHORT_WINDING_ORDER >= short_baseline.duration().value(),
+        setup_attention + short_charge_projection.attention_ticks
+            >= short_baseline.duration().value(),
         "short conductor orders should keep using the already-owned manual drawbench"
     );
-    let project_machine_attention = setup_attention + charge_ticks * PROJECT_WINDING_ORDER;
+    let project_machine_attention = setup_attention + project_charge_projection.attention_ticks;
     assert!(
         project_machine_attention < project_baseline.duration().value(),
         "repeated conductor work should eventually repay the flywheel conversion"
@@ -409,7 +433,15 @@ fn flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_y
         );
     }
 
-    assert_eq!(charge_attention, charge_ticks * PROJECT_WINDING_ORDER);
+    assert_eq!(charge_attention, project_charge_projection.attention_ticks);
+    assert_eq!(
+        powered
+            .equipment()
+            .get_equipment(crank)
+            .map(|record| record.condition()),
+        Some(project_charge_projection.condition_after),
+        "wire projected hand-crank wear must match execution"
+    );
     assert_eq!(executed_setup + charge_attention, project_machine_attention);
     assert!(project_machine_attention < baseline_ticks.value());
 

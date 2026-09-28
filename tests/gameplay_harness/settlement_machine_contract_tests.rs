@@ -34,6 +34,7 @@ use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 const SHORT_LUMBER_ORDER: u64 = 20;
 const MARGINAL_LUMBER_ORDER: u64 = 38;
@@ -278,16 +279,50 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         .duration()
         .value();
     let setup_attention = setup_board_ticks + setup_handle_ticks + setup_copper_ticks;
-    let charge = validate_start_manual_power(
+    let crank_condition = state
+        .equipment()
+        .get_equipment(crank)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("sawmill hand crank disappeared before investment decision"));
+    let short_charge_projection = project_manual_power_sequence(
         &registries,
-        &state,
-        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, sawmill_batch.work),
-    )
-    .unwrap_or_else(|error| panic!("sawmill charge projection failed: {error}"));
-    let charge_ticks = charge.work().completes_at().value() - state.tick().value();
-    let short_machine_attention = setup_attention + charge_ticks * SHORT_LUMBER_ORDER;
-    let marginal_machine_attention = setup_attention + charge_ticks * MARGINAL_LUMBER_ORDER;
-    let project_machine_attention = setup_attention + charge_ticks * PROJECT_LUMBER_ORDER;
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_STONE_HAND_CRANK,
+            starting_condition: crank_condition,
+            store: ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: sawmill_batch.work,
+            charges: SHORT_LUMBER_ORDER,
+        },
+        "sawmill short-order charging",
+    );
+    let marginal_charge_projection = project_manual_power_sequence(
+        &registries,
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_STONE_HAND_CRANK,
+            starting_condition: crank_condition,
+            store: ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: sawmill_batch.work,
+            charges: MARGINAL_LUMBER_ORDER,
+        },
+        "sawmill marginal-order charging",
+    );
+    let project_charge_projection = project_manual_power_sequence(
+        &registries,
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_STONE_HAND_CRANK,
+            starting_condition: crank_condition,
+            store: ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: sawmill_batch.work,
+            charges: PROJECT_LUMBER_ORDER,
+        },
+        "sawmill project charging",
+    );
+    let short_machine_attention = setup_attention + short_charge_projection.attention_ticks;
+    let marginal_machine_attention = setup_attention + marginal_charge_projection.attention_ticks;
+    let project_machine_attention = setup_attention + project_charge_projection.attention_ticks;
     let minimum_attention_return = minimum_attention_return(0, setup_attention);
     assert!(minimum_attention_return > 0);
     assert!(
@@ -422,7 +457,15 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
     }
     assert_eq!(
         executed_charge_attention,
-        charge_ticks * PROJECT_LUMBER_ORDER
+        project_charge_projection.attention_ticks
+    );
+    assert_eq!(
+        powered
+            .equipment()
+            .get_equipment(crank)
+            .map(|record| record.condition()),
+        Some(project_charge_projection.condition_after),
+        "sawmill projected hand-crank wear must match execution"
     );
     assert_eq!(
         executed_setup + executed_charge_attention,

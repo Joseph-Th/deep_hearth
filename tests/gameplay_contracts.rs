@@ -8,6 +8,8 @@ mod catalog;
 mod configuration;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/manual_craft_selection.rs"]
+mod manual_craft_selection;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
@@ -19,6 +21,8 @@ mod capital_investment_policy_tests;
 mod configuration_tests;
 #[path = "gameplay_harness/fixture_boundary_tests.rs"]
 mod fixture_boundary_tests;
+#[path = "gameplay_harness/manual_craft_selection_tests.rs"]
+mod manual_craft_selection_tests;
 #[path = "gameplay_harness/process_catalog_contract_tests.rs"]
 mod process_catalog_contract_tests;
 #[path = "gameplay_harness/seed_contract_tests.rs"]

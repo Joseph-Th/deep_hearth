@@ -29,6 +29,7 @@ use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 const SHORT_PLATE_ORDER: u64 = 8;
 const PROJECT_PLATE_ORDER: u64 = 12;
@@ -269,18 +270,41 @@ fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attent
             .unwrap_or_else(|error| panic!("spindle copper projection failed: {error}"))
             .duration()
             .value();
-    let charge = validate_start_manual_power(
+    let crank_condition = state
+        .equipment()
+        .get_equipment(crank)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("spindle hand crank disappeared before investment decision"));
+    let short_charge_projection = project_manual_power_sequence(
         &registries,
-        &state,
-        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, spindle_batch.work),
-    )
-    .unwrap_or_else(|error| panic!("spindle charge projection failed: {error}"));
-    let charge_ticks = charge.work().completes_at().value() - state.tick().value();
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_STONE_HAND_CRANK,
+            starting_condition: crank_condition,
+            store: ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: spindle_batch.work,
+            charges: SHORT_PLATE_ORDER,
+        },
+        "spindle short-order charging",
+    );
+    let project_charge_projection = project_manual_power_sequence(
+        &registries,
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_STONE_HAND_CRANK,
+            starting_condition: crank_condition,
+            store: ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: spindle_batch.work,
+            charges: PROJECT_PLATE_ORDER,
+        },
+        "spindle project charging",
+    );
     assert!(
-        setup_attention + charge_ticks * SHORT_PLATE_ORDER >= short_baseline.duration().value(),
+        setup_attention + short_charge_projection.attention_ticks
+            >= short_baseline.duration().value(),
         "a short screen-plate order should keep using the already-owned pump drill"
     );
-    let project_machine_attention = setup_attention + charge_ticks * PROJECT_PLATE_ORDER;
+    let project_machine_attention = setup_attention + project_charge_projection.attention_ticks;
     assert!(
         project_machine_attention < project_baseline.duration().value(),
         "repeated screen-plate work should eventually repay the spindle frame in player attention"
@@ -384,7 +408,15 @@ fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attent
             "spindle project unattended drilling",
         );
     }
-    assert_eq!(charge_attention, charge_ticks * PROJECT_PLATE_ORDER);
+    assert_eq!(charge_attention, project_charge_projection.attention_ticks);
+    assert_eq!(
+        powered
+            .equipment()
+            .get_equipment(crank)
+            .map(|record| record.condition()),
+        Some(project_charge_projection.condition_after),
+        "spindle projected hand-crank wear must match execution"
+    );
     assert_eq!(executed_setup + charge_attention, project_machine_attention);
     assert!(project_machine_attention < baseline_ticks.value());
     for commodity in [

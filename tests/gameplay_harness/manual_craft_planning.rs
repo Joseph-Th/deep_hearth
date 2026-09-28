@@ -11,28 +11,7 @@ use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::{ProcessEquipmentRole, Registries};
 
-use super::manual_craft_selection::{
-    first_sufficient_pure_temperature, select_manual_craft_request,
-};
-
-fn has_selectable_manual_craft_input(
-    state: &AppState,
-    source: StockpileId,
-    definition: &ManualCraftDefinition,
-    batches: u64,
-) -> bool {
-    let Some(required_mg) = definition.input_mass().milligrams().checked_mul(batches) else {
-        return false;
-    };
-    first_sufficient_pure_temperature(
-        state,
-        source,
-        definition.input(),
-        Mass::from_milligrams(required_mg),
-        "manual-craft availability",
-    )
-    .is_some()
-}
+use super::manual_craft_selection::plan_manual_craft_request;
 
 /// Selects the most attention-efficient equipment-free route whose exact pure homogeneous input is
 /// currently present in at least one declared actor-visible source.
@@ -87,17 +66,17 @@ pub(super) fn manual_craft_plan_for_available_output<'a>(
                 definition.process().value()
             );
             let batches = required.milligrams().div_ceil(per_batch.milligrams());
-            let source = sources.iter().copied().find(|source| {
-                has_selectable_manual_craft_input(state, *source, definition, batches)
+            let (source, request) = sources.iter().copied().find_map(|source| {
+                plan_manual_craft_request(
+                    registries,
+                    state,
+                    definition.process(),
+                    source,
+                    batches,
+                )
+                .ok()
+                .map(|request| (source, request))
             })?;
-            let request = select_manual_craft_request(
-                registries,
-                state,
-                definition.process(),
-                source,
-                batches,
-                context,
-            );
             let resolution = resolve_manual_craft(registries, state, &request).ok()?;
             let batches_nonzero = NonZeroU64::new(batches)
                 .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));

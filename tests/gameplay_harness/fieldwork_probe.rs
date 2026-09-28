@@ -11,7 +11,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::AppState;
-use deep_hearth::crafting::resolve_manual_craft;
+use deep_hearth::crafting::{assess_manual_craft_inputs, resolve_manual_craft};
 use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::geology::{ExcavationHardnessEstimate, ResourceMassEstimate};
 use deep_hearth::inventory::StockpileId;
@@ -21,10 +21,9 @@ use deep_hearth::registry::Registries;
 
 use super::equipment_support::pristine_equipment_capability;
 use super::focused_seeds::FocusedProbeCase;
+use super::focused_witnesses::FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED;
 use super::manual_assembly_planning::project_manual_assembly_package;
-use super::manual_craft_selection::{
-    first_sufficient_pure_temperature, select_manual_craft_request,
-};
+use super::manual_craft_selection::plan_manual_craft_request;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
@@ -161,6 +160,15 @@ fn fieldwork_order_for_case(registries: &Registries, case: FocusedProbeCase) -> 
             FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES,
             "maintained reserve-scale fieldwork coverage order",
         );
+    }
+    if case.seed() == FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED {
+        let project = fieldwork_order(registries, case.seed());
+        assert_eq!(
+            fieldwork_order_horizon(registries, project),
+            "project",
+            "maintained fieldwork project-horizon witness drifted out of the middle demand regime"
+        );
+        return project;
     }
     fieldwork_order(registries, case.seed())
 }

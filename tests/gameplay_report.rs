@@ -103,6 +103,8 @@ mod scenario;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_power_planning.rs"]
+mod settlement_power_planning;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
 #[path = "gameplay_harness/structural_fixture.rs"]

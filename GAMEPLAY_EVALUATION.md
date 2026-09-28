@@ -34,6 +34,11 @@ throughput, capacity, condition, and acquired evidence. Production owns legality
 candidate generation, ranking, search order, stopping rules, and policy ties. Shared harness helpers may implement
 that evaluation policy but do not gain simulation authority.
 
+When production exposes a player/UI planner for an ordinary choice, the harness uses that planner instead of
+reconstructing its selection rules. Explicit lot selection remains valid only when the physical lot is itself a
+meaningful player choice. Repeated stateful projections carry each production result into the next step; never
+multiply the first-step cost across a lifecycle whose condition, reserves, occupancy, or other state can change.
+
 ### Decision-frame contract
 
 Material choices should be explainable from one bounded frame:
@@ -151,10 +156,10 @@ scope may establish.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Routine focused gameplay gates and the broad gameplay audit use maintained deterministic witnesses only. Reports
-own bounded organic sampling and agency qualification searches. This keeps routine verification fast and stable
-without weakening exploratory evidence. Maintained cases prove contracts, not prevalence; organic samples are
-bounded evidence, not population estimates.
+Routine focused gameplay gates and the broad gameplay audit combine maintained deterministic witnesses with one
+fresh replayable organic case per sampled family. Reports use a broader bounded sample and agency qualification
+searches. Maintained cases prove contracts, not prevalence; organic samples are bounded evidence, not population
+estimates.
 Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
 must not count counterfactual, coverage-only, or negative-control branches as player experience.
 
@@ -177,10 +182,10 @@ and baseline from the same decision state to that fixed horizon. Future controll
 never become actor inputs. Compare aggregate observable contracts when production treats internal representations
 as equivalent.
 
-Project-owned routine gameplay verification ignores ambient replay state and runs maintained witnesses only.
-Reports generate fresh physical and, where applicable, actor roots for bounded exploration. Explicit report roots
-replay the sampled worlds exactly, while `run_test.py` can replay a focused target directly when isolating one
-organic failure. [`TESTING.md`](TESTING.md) owns command selection; command help owns exact option syntax.
+Project-owned routine gameplay verification ignores ambient replay state, generates fresh physical and, where
+applicable, actor roots, and samples one organic case alongside maintained witnesses. Explicit roots replay that
+case exactly. Reports reuse the same replay contract with a broader sample. [`TESTING.md`](TESTING.md) owns command
+selection; command help owns exact option syntax.
 
 Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
 labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their

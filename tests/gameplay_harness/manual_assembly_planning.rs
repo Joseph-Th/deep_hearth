@@ -5,15 +5,15 @@ use std::num::NonZeroU64;
 
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
-use deep_hearth::crafting::{project_manual_craft_hand_work, resolve_manual_craft};
+use deep_hearth::crafting::{
+    assess_manual_craft_inputs, project_manual_craft_hand_work, resolve_manual_craft,
+};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::registry::Registries;
 
 use super::manual_craft_planning::manual_craft_plan_for_available_output;
-use super::manual_craft_selection::{
-    first_sufficient_pure_temperature, select_manual_craft_request,
-};
+use super::manual_craft_selection::select_manual_craft_request;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ManualAssemblyProjection {
@@ -63,7 +63,8 @@ pub(super) fn project_manual_assembly_package(
     let mut input_mass = Mass::ZERO;
     let mut metabolic_nj = 0_u128;
     let mut hydration_ul = 0_u64;
-    let mut source_requirements = BTreeMap::<(StockpileId, CommodityKey), Mass>::new();
+    let mut source_requirements =
+        BTreeMap::<(StockpileId, CommodityKey), (deep_hearth::production::ProcessId, Mass)>::new();
     for (commodity, required) in required_by_commodity {
         let available = destination_record.get_mass(commodity);
         if available >= required {
@@ -119,16 +120,20 @@ pub(super) fn project_manual_assembly_package(
             .unwrap_or_else(|| panic!("gameplay harness {context} raw input total overflowed"));
         let entry = source_requirements
             .entry((source, craft.input()))
-            .or_insert(Mass::ZERO);
-        *entry = entry
+            .or_insert((craft.process(), Mass::ZERO));
+        entry.1 = entry
+            .1
             .checked_add(consumed)
             .unwrap_or_else(|| panic!("gameplay harness {context} source demand overflowed"));
     }
 
-    for ((source, commodity), required) in source_requirements {
+    for ((source, commodity), (process, required)) in source_requirements {
+        let availability = assess_manual_craft_inputs(registries, state, process, source)
+            .unwrap_or_else(|error| {
+                panic!("gameplay harness {context} source availability failed: {error}")
+            });
         assert!(
-            first_sufficient_pure_temperature(state, source, commodity, required, context)
-                .is_some(),
+            availability.largest_compatible_mass() >= required,
             "gameplay harness {context} package projection overbooks homogeneous pure commodity {} in source {}",
             commodity.value(),
             source.value()

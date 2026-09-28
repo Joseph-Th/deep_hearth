@@ -1506,24 +1506,24 @@ unknown_macro!();
             "python ci.py gate --gameplay workshop",
         )
 
-    def test_gameplay_failure_without_test_name_reuses_deterministic_scope(self) -> None:
+    def test_gameplay_failure_without_test_name_reuses_replayable_scope(self) -> None:
         output = (
-            "PROBE INPUT name=woodworking mode=gate samples=8 organic=0 "
-            "world_root=n/a behavior_root=maintained replay=anchor:0x1@0x2\n"
+            "PROBE INPUT name=woodworking mode=gate samples=8 organic=1 "
+            "world_root=0xAAAA behavior_root=0xBBBB replay=anchor:0x1@0x2,organic:0x3@0x4\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("woodworking"), output, ""),
-            "python ci.py gate --gameplay woodworking",
+            "python ci.py gate --gameplay woodworking --variation-seed 0xAAAA --behavior-seed 0xBBBB",
         )
 
-    def test_broad_gameplay_failure_without_test_name_reuses_deterministic_audit(self) -> None:
+    def test_broad_gameplay_failure_without_test_name_reuses_replayable_audit(self) -> None:
         output = (
-            "HARNESS INPUT plan=maintained anchors=7 variation=0 custom=0 "
-            "world_root=n/a behavior_root=maintained replay=0x1@0x2\n"
+            "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
+            "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, ""),
-            "python ci.py audit --gameplay",
+            "python ci.py audit --gameplay --variation-seed 0xAAAA --behavior-seed 0xBBBB",
         )
 
     def test_focused_gameplay_failure_points_to_exact_small_target(self) -> None:
@@ -1532,6 +1532,30 @@ unknown_macro!();
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("ore"), output, error),
             "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
+        )
+
+    def test_organic_gameplay_failure_repair_preserves_replay_roots(self) -> None:
+        output = (
+            "PROBE INPUT name=survival-provisioning mode=gate samples=8 organic=1 "
+            "world_root=0xAAAA behavior_root=0xBBBB "
+            "replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+            "failures:\n    gameplay_survival_provisioning_probe\n"
+        )
+        error = "error: test failed, to rerun pass `--test gameplay_survival`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("survival"), output, error),
+            "python tools/run_test.py --target gameplay_survival "
+            "--variation-seed 0xAAAA --behavior-seed 0xBBBB "
+            "gameplay_survival_provisioning_probe",
+        )
+
+        no_name = (
+            "PROBE INPUT name=progression mode=gate samples=4 organic=1 "
+            "world_root=0xCCCC behavior_root=unused replay=anchor:0x1,organic:0x2\n"
+        )
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("progression"), no_name, ""),
+            "python ci.py gate --gameplay progression --variation-seed 0xCCCC",
         )
 
     def test_failed_stage_prints_one_narrow_action_when_repair_is_known(self) -> None:
@@ -1562,37 +1586,37 @@ unknown_macro!();
 
     def test_broad_focused_failure_stays_on_the_warm_audit_target(self) -> None:
         output = (
-            "PROBE INPUT name=ore-preparation mode=gate samples=2 organic=0 "
-            "world_root=n/a behavior_root=n/a replay=anchor:0x1,coverage:0x2\n"
+            "PROBE INPUT name=ore-preparation mode=gate samples=3 organic=1 "
+            "world_root=0xAAAA behavior_root=unused replay=anchor:0x1,coverage:0x2,organic:0x3\n"
             "failures:\n    gameplay_ore_preparation_probe\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit gameplay_ore_preparation_probe",
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA gameplay_ore_preparation_probe",
         )
 
     def test_agency_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
-            "AGENCY INPUT mode=gate organic=0 variation_root=n/a\n"
+            "AGENCY INPUT mode=gate organic=1 variation_root=0xAAAA\n"
             "failures:\n    agency::gameplay_agency_counterfactuals\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit agency::gameplay_agency_counterfactuals",
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA agency::gameplay_agency_counterfactuals",
         )
 
     def test_workshop_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
-            "HARNESS INPUT plan=maintained anchors=7 variation=0 custom=0 "
-            "world_root=n/a behavior_root=maintained replay=0x1@0x2\n"
+            "HARNESS INPUT plan=anchor+variation anchors=7 variation=1 custom=0 "
+            "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
             "failures:\n    gameplay_harness_gate\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit gameplay_harness_gate",
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA --behavior-seed 0xBBBB gameplay_harness_gate",
         )
 
     def test_process_catalog_failure_reuses_the_warm_audit_target(self) -> None:
@@ -1658,15 +1682,15 @@ unknown_macro!();
             "python ci.py audit --gameplay",
         )
 
-    def test_unknown_gameplay_failure_keeps_deterministic_broad_repair(self) -> None:
+    def test_unknown_gameplay_failure_keeps_replayable_broad_repair(self) -> None:
         output = (
-            "PROBE INPUT name=woodworking mode=gate samples=8 organic=0 "
-            "world_root=n/a behavior_root=maintained replay=anchor:0x1@0x2\n"
+            "PROBE INPUT name=woodworking mode=gate samples=8 organic=1 "
+            "world_root=0xAAAA behavior_root=0xBBBB replay=anchor:0x1@0x2,organic:0x3@0x4\n"
             "failures:\n    future_contracts::new_global_check\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, ""),
-            "python ci.py audit --gameplay",
+            "python ci.py audit --gameplay --variation-seed 0xAAAA --behavior-seed 0xBBBB",
         )
 
     def test_integration_exact_command_infers_target_required_features(self) -> None:
@@ -1866,13 +1890,60 @@ unknown_macro!();
         )
         self.assertNotIn("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", fieldwork_environment)
 
-    def test_routine_gameplay_verification_rejects_replay_roots(self) -> None:
+    def test_gameplay_sampling_policy_matches_each_surface(self) -> None:
+        expectations = (
+            (["report", "--scope", "fieldwork"], False),
+            (["report", "--scope", "woodworking"], True),
+            (["gate", "--gameplay", "survival"], True),
+            (["gate", "--gameplay", "progression"], False),
+            (["gate", "--gameplay", "workshop"], True),
+            (["audit", "--gameplay"], True),
+            (["audit", "--all"], True),
+            (["gate", "--gameplay", "contracts"], None),
+            (["audit", "--core"], None),
+        )
+        for argv, expected in expectations:
+            with self.subTest(argv=argv):
+                self.assertIs(ci.gameplay_sampling_behavior(ci.parse_args(argv)), expected)
+
+    def test_gameplay_gate_and_audit_accept_complete_replay_roots(self) -> None:
+        progression = ci.parse_args(
+            ["gate", "--gameplay", "progression", "--variation-seed", "0x2A"]
+        )
+        self.assertEqual(progression.variation_seed, "0x000000000000002A")
+        self.assertIsNone(progression.behavior_seed)
+
+        survival = ci.parse_args(
+            [
+                "gate",
+                "--gameplay",
+                "survival",
+                "--variation-seed",
+                "0x2A",
+                "--behavior-seed",
+                "0x2B",
+            ]
+        )
+        self.assertEqual(survival.variation_seed, "0x000000000000002A")
+        self.assertEqual(survival.behavior_seed, "0x000000000000002B")
+
+        audit = ci.parse_args(
+            [
+                "audit",
+                "--gameplay",
+                "--variation-seed",
+                "0x2A",
+                "--behavior-seed",
+                "0x2B",
+            ]
+        )
+        self.assertEqual(audit.variation_seed, "0x000000000000002A")
+        self.assertEqual(audit.behavior_seed, "0x000000000000002B")
+
         for argv in (
-            ["gate", "--gameplay", "survival", "--variation-seed", "0x2A"],
-            ["audit", "--gameplay", "--variation-seed", "0x2A"],
-            ["audit", "--all", "--behavior-seed", "0x2A"],
             ["gate", "--gameplay", "contracts", "--variation-seed", "0x2A"],
             ["gate", "--gameplay", "progression", "--behavior-seed", "0x2A"],
+            ["audit", "--all", "--behavior-seed", "0x2A"],
             ["audit", "--core", "--variation-seed", "0x2A"],
         ):
             with self.subTest(argv=argv):
@@ -1882,39 +1953,66 @@ unknown_macro!();
                 ):
                     ci.parse_args(argv)
 
-    def test_routine_gameplay_verification_clears_ambient_sampling_roots(self) -> None:
-        for argv in (
-            ["gate", "--gameplay", "survival"],
-            ["gate", "--gameplay", "contracts"],
-            ["audit", "--gameplay"],
-            ["audit", "--all"],
-        ):
-            with self.subTest(argv=argv):
-                args = ci.parse_args(argv)
-                self.assertTrue(ci.runs_deterministic_gameplay_verification(args))
-                environment = {
-                    "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
-                    "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1111",
-                    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2222",
-                    "KEEP": "yes",
-                }
-                ci.clear_gameplay_seed_environment(environment)
-                self.assertEqual(environment, {"KEEP": "yes"})
-        self.assertFalse(
-            ci.runs_deterministic_gameplay_verification(ci.parse_args(["audit", "--core"]))
+    def test_routine_gameplay_sampling_replaces_ambient_roots_with_one_fresh_case(self) -> None:
+        args = ci.parse_args(["gate", "--gameplay", "survival"])
+        environment = {
+            "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1111",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2222",
+            "KEEP": "yes",
+        }
+        rolls = iter((0xAAAA, 0xBBBB))
+        self.assertEqual(
+            ci.configure_gameplay_verification_environment(
+                args, environment, randbits=lambda _bits: next(rolls)
+            ),
+            ("0x000000000000AAAA", "0x000000000000BBBB"),
+        )
+        self.assertEqual(
+            environment,
+            {
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+                "KEEP": "yes",
+            },
         )
 
-    def test_only_gameplay_reports_surface_environment_replay_roots(self) -> None:
+        replay = ci.parse_args(
+            [
+                "gate",
+                "--gameplay",
+                "survival",
+                "--variation-seed",
+                "0x1234",
+                "--behavior-seed",
+                "0x5678",
+            ]
+        )
+        replay_environment = {
+            "DEEP_HEARTH_GAMEPLAY_SEEDS": "9",
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "ambient-world",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ambient-policy",
+        }
+        ci.configure_gameplay_verification_environment(replay, replay_environment)
+        self.assertEqual(
+            replay_environment,
+            {
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000001234",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x0000000000005678",
+            },
+        )
+
+    def test_gameplay_sampling_surfaces_environment_replay_roots(self) -> None:
         environment = {
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
         }
-        self.assertEqual(
-            ci.gameplay_environment_summary("gameplay report progression", environment),
-            "roots=0xAAAA/0xBBBB",
-        )
-        self.assertIsNone(ci.gameplay_environment_summary("gameplay progression", environment))
-        self.assertIsNone(ci.gameplay_environment_summary("gameplay", environment))
+        for label in ("gameplay report progression", "gameplay progression", "gameplay"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    ci.gameplay_environment_summary(label, environment),
+                    "roots=0xAAAA/0xBBBB",
+                )
         self.assertIsNone(ci.gameplay_environment_summary("core", environment))
         self.assertIsNone(ci.gameplay_environment_summary("gameplay contracts", environment))
         self.assertIsNone(ci.gameplay_environment_summary("compile", environment))

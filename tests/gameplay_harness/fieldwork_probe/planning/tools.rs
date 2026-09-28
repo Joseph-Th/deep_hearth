@@ -202,28 +202,22 @@ fn estimate_tool_preparation(
             "planned cumulative raw input",
         );
         let cumulative = raw_required[&craft.input()];
-        if first_sufficient_pure_temperature(
-            state,
-            raw,
-            craft.input(),
-            cumulative,
-            "fieldwork pre-action raw availability",
-        )
-        .is_none()
-        {
+        let availability = assess_manual_craft_inputs(registries, state, craft.process(), raw)
+            .map_err(|_| FieldworkToolBlocker::RawInput {
+                commodity: craft.input(),
+                required: cumulative,
+            })?;
+        if availability.largest_compatible_mass() < cumulative {
             return Err(FieldworkToolBlocker::RawInput {
                 commodity: craft.input(),
                 required: cumulative,
             });
         }
-        let request = select_manual_craft_request(
-            registries,
-            state,
-            craft.process(),
-            raw,
-            batches,
-            "fieldwork pre-action craft",
-        );
+        let request = plan_manual_craft_request(registries, state, craft.process(), raw, batches)
+            .map_err(|_| FieldworkToolBlocker::RawInput {
+            commodity: craft.input(),
+            required: cumulative,
+        })?;
         let resolution =
             resolve_manual_craft(registries, state, &request).unwrap_or_else(|error| {
                 panic!("fieldwork pre-action craft resolution failed: {error}")

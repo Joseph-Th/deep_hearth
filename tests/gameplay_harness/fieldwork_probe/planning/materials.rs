@@ -207,11 +207,8 @@ pub(in super::super) fn project_sampling_hammer_upgrade_ticks(
         .inventory()
         .get_stockpile(parts)
         .unwrap_or_else(|| panic!("fieldwork parts stockpile disappeared"));
-    let raw_record = state
-        .inventory()
-        .get_stockpile(raw)
-        .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared"));
-    let mut raw_required = BTreeMap::<CommodityKey, Mass>::new();
+    let mut raw_required =
+        BTreeMap::<CommodityKey, (deep_hearth::production::ProcessId, Mass)>::new();
     for input in upgrade.additions().inputs() {
         let available = parts_record.get_mass(input.commodity());
         if available >= input.mass() {
@@ -227,22 +224,25 @@ pub(in super::super) fn project_sampling_hammer_upgrade_ticks(
             &disclosed_raw_inputs(),
             "fieldwork sampling-hammer upgrade projection",
         );
-        add_mass(
-            &mut raw_required,
-            craft.input(),
-            multiplied_mass(
-                craft.input_mass(),
-                batches,
-                "sampling-upgrade projection input",
-            ),
+        plan_manual_craft_request(registries, state, craft.process(), raw, batches).ok()?;
+        let consumed = multiplied_mass(
+            craft.input_mass(),
+            batches,
             "sampling-upgrade projection input",
         );
+        let entry = raw_required
+            .entry(craft.input())
+            .or_insert((craft.process(), Mass::ZERO));
+        entry.1 = entry
+            .1
+            .checked_add(consumed)
+            .unwrap_or_else(|| panic!("sampling-upgrade projection input overflowed"));
     }
-    if raw_required
-        .iter()
-        .any(|(&commodity, &required)| raw_record.get_mass(commodity) < required)
-    {
-        return None;
+    for (_commodity, (process, required)) in raw_required {
+        let availability = assess_manual_craft_inputs(registries, state, process, raw).ok()?;
+        if availability.largest_compatible_mass() < required {
+            return None;
+        }
     }
     Some(
         project_manual_assembly_package(

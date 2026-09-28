@@ -11,8 +11,9 @@ use super::focused_seeds::{
     focused_probe_cases_from, probe_uses_behavior_seed,
 };
 use super::focused_witnesses::{
-    FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED, ORE_FINITE_ENERGY_COVERAGE_SEED,
-    PROGRESSION_REFINEMENT_COVERAGE_SEED, PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
+    FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED, FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED,
+    ORE_FINITE_ENERGY_COVERAGE_SEED, PROGRESSION_REFINEMENT_COVERAGE_SEED,
+    PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
 };
 #[cfg(test)]
 use super::seed::MAINTAINED_VARIATION_ROOT;
@@ -78,7 +79,11 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
         // reinforced quarry, while a small localized reserve cuts the same nominal project back to
         // the lighter hard pick before construction. Seed 5 keeps the short soft-rock stone-pick
         // baseline visible without relying on organic sampling luck.
-        "fieldwork" => (1, &[0, 2, 3, 5, 6], 0x4649_454C_4450_5242),
+        "fieldwork" => (
+            1,
+            &[0, 2, 3, 5, 6, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED],
+            0x4649_454C_4450_5242,
+        ),
         // Keep one long-project coverage world because it crosses repeated crusher service and
         // survival provisioning, which short cycles do not exercise together. Organic variation
         // owns broader provider/workload exploration.

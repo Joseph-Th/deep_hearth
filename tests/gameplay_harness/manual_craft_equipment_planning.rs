@@ -13,9 +13,7 @@ use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 
-use super::manual_craft_selection::{
-    first_sufficient_pure_temperature, select_manual_craft_request,
-};
+use super::manual_craft_selection::plan_manual_craft_request;
 
 fn output_batches(
     definition: &ManualCraftDefinition,
@@ -129,25 +127,11 @@ pub(super) fn manual_craft_plan_with_equipment<'a>(
             let batches = output_batches(definition, commodity, required, context);
             let required_input =
                 Mass::from_milligrams(definition.input_mass().milligrams().checked_mul(batches)?);
-            let source = sources.iter().copied().find(|source| {
-                first_sufficient_pure_temperature(
-                    state,
-                    *source,
-                    definition.input(),
-                    required_input,
-                    context,
-                )
-                .is_some()
+            let (source, request) = sources.iter().copied().find_map(|source| {
+                plan_manual_craft_request(registries, state, definition.process(), source, batches)
+                    .ok()
+                    .map(|request| (source, request.with_equipment(equipment)))
             })?;
-            let request = select_manual_craft_request(
-                registries,
-                state,
-                definition.process(),
-                source,
-                batches,
-                context,
-            )
-            .with_equipment(equipment);
             let resolution = resolve_manual_craft(registries, state, &request).ok()?;
             let work = project_manual_craft_equipment(
                 registries,

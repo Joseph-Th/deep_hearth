@@ -134,6 +134,8 @@ mod scenario;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_power_planning.rs"]
+mod settlement_power_planning;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
 #[path = "gameplay_harness/structural_fixture.rs"]
@@ -153,6 +155,8 @@ mod fixture_boundary_tests;
 mod foundry_contract_tests;
 #[path = "gameplay_harness/foundry_probe.rs"]
 mod foundry_probe;
+#[path = "gameplay_harness/manual_craft_selection_tests.rs"]
+mod manual_craft_selection_tests;
 #[path = "gameplay_harness/ore_contract_tests.rs"]
 mod ore_contract_tests;
 #[path = "gameplay_harness/ore_probe.rs"]

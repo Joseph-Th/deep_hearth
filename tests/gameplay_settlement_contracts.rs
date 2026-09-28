@@ -16,6 +16,8 @@ mod material_selection;
 mod powered_craft_planning;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/settlement_power_planning.rs"]
+mod settlement_power_planning;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 

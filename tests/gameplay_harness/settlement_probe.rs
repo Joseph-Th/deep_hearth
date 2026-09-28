@@ -29,16 +29,19 @@ use super::capital_investment_policy::{clears_attention_return, minimum_attentio
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
-use super::manual_craft_selection::select_manual_craft_request;
+use super::manual_craft_selection::{plan_manual_craft_request, select_manual_craft_request};
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::physical_time::format_physical_duration;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
+use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
 const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 40;
+const SETTLEMENT_UPGRADE_WOOD_MG: u64 = 10_000_000;
+const SETTLEMENT_UPGRADE_COPPER_MG: u64 = 200_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LumberInvestmentChoice {
@@ -155,10 +158,6 @@ fn setup_plans(
     let mut plans = Vec::new();
     let mut attention = 0_u64;
     for input in additions.inputs() {
-        let raw_stockpile = state
-            .inventory()
-            .get_stockpile(raw)
-            .unwrap_or_else(|| panic!("settlement sawmill raw opportunity disappeared"));
         let candidates = registries
             .crafting()
             .manual_producers(input.commodity())
@@ -183,21 +182,17 @@ fn setup_plans(
                         .checked_mul(batches)
                         .unwrap_or_else(|| panic!("settlement sawmill setup input overflowed")),
                 );
-                let has_input = raw_stockpile.get_mass(definition.input()) >= required_input;
                 [None, Some(frame_saw)]
                     .into_iter()
                     .filter_map(move |equipment| {
-                        if !has_input {
-                            return None;
-                        }
-                        let mut request = select_manual_craft_request(
+                        let mut request = plan_manual_craft_request(
                             registries,
                             state,
                             definition.process(),
                             raw,
                             batches,
-                            "settlement sawmill setup projection",
-                        );
+                        )
+                        .ok()?;
                         if let Some(equipment) = equipment {
                             request = request.with_equipment(equipment);
                         }
@@ -297,7 +292,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let bootstrap = seed_prior_workshop(registries, &mut state);
     let upgrade_raw = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(10_200_000),
+        Mass::from_milligrams(SETTLEMENT_UPGRADE_WOOD_MG + SETTLEMENT_UPGRADE_COPPER_MG),
         StockpileStorageProfile::unbounded_solid_only(),
     );
     seed_lot(
@@ -305,7 +300,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         &mut state,
         upgrade_raw,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(10_000_000),
+        Mass::from_milligrams(SETTLEMENT_UPGRADE_WOOD_MG),
         ROOM_TEMPERATURE,
     );
     seed_lot(
@@ -313,7 +308,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         &mut state,
         upgrade_raw,
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        Mass::from_milligrams(200_000),
+        Mass::from_milligrams(SETTLEMENT_UPGRADE_COPPER_MG),
         ROOM_TEMPERATURE,
     );
     let upgrade_parts = seed_stockpile(
@@ -395,19 +390,26 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         .duration()
         .value();
     let (plans, setup_attention) = setup_plans(registries, &state, upgrade_raw, frame_saw);
-    let charge = validate_start_manual_power(
+    let crank_condition = state
+        .equipment()
+        .get_equipment(crank)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("settlement hand crank disappeared before investment decision"));
+    let charge_projection = project_manual_power_sequence(
         registries,
-        &state,
-        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, batch.work),
-    )
-    .unwrap_or_else(|error| panic!("settlement sawmill charge projection failed: {error}"));
-    let charge_ticks = charge.work().completes_at().value() - state.tick().value();
+        ManualPowerSequenceRequest {
+            method: MANUAL_POWER_HAND_CRANK,
+            equipment: EQUIPMENT_STONE_HAND_CRANK,
+            starting_condition: crank_condition,
+            store: ENERGY_STONE_FLYWHEEL_DRIVE,
+            energy_per_charge: batch.work,
+            charges: order_batches,
+        },
+        "settlement sawmill workload",
+    );
+    let charge_ticks = charge_projection.first_charge_ticks;
     let machine_attention = setup_attention
-        .checked_add(
-            charge_ticks
-                .checked_mul(order_batches)
-                .unwrap_or_else(|| panic!("settlement repeated charge attention overflowed")),
-        )
+        .checked_add(charge_projection.attention_ticks)
         .unwrap_or_else(|| panic!("settlement machine attention overflowed"));
     let minimum_attention_return = minimum_attention_return(0, setup_attention);
     let choice = if clears_attention_return(
@@ -514,6 +516,14 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
                     "settlement unattended sawing",
                 );
             }
+            assert_eq!(
+                state
+                    .equipment()
+                    .get_equipment(crank)
+                    .map(|record| record.condition()),
+                Some(charge_projection.condition_after),
+                "settlement projected hand-crank wear must match executed repeated charging"
+            );
             active_attention
         }
     };
@@ -549,7 +559,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         .unwrap_or_else(|| panic!("settlement player survival disappeared after order"));
     let attention_saved = i128::from(baseline_attention) - i128::from(machine_attention);
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charge-per-batch:{}t margin:{:+}t] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         order_batches,
@@ -559,6 +569,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         baseline_attention,
         machine_attention,
         setup_attention,
+        charge_projection.attention_ticks,
         charge_ticks,
         attention_saved,
         active_attention,
@@ -578,5 +589,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             .checked_sub(survival_after.hydration())
             .unwrap_or_else(|| panic!("settlement hydration reserve increased"))
             .microliters(),
+        SETTLEMENT_UPGRADE_WOOD_MG,
+        SETTLEMENT_UPGRADE_COPPER_MG,
     );
 }
