@@ -216,8 +216,8 @@ fn primitive_flywheel_loses_stored_rotation_without_erasing_short_work_windows()
         assert_eq!(integrated.remainder(), PowerRemainder::ZERO);
         assert!(!integrated.energy().is_zero());
         let coast_ticks = flywheel.capacity().nanojoules() / integrated.energy().nanojoules();
-        let coast_microseconds = u128::from(coast_ticks)
-            * u128::from(registries.core().physical_tick_duration().microseconds());
+        let coast_microseconds =
+            coast_ticks * u128::from(registries.core().physical_tick_duration().microseconds());
         assert!(
             (7_u128 * 60 * 1_000_000..=13_u128 * 60 * 1_000_000).contains(&coast_microseconds),
             "primitive flywheel must remain a multi-minute work buffer, not long-term storage"
