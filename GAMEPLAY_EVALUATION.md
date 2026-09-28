@@ -151,11 +151,10 @@ scope may establish.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Routine focused gameplay gates combine maintained deterministic witnesses with one fresh bounded organic case.
-That variation is replayable from the printed roots and remains one case so focused iteration stays bounded. The
-broad gameplay audit also adds replayable organic variation across the consolidated checkpoint, including agency
-counterfactuals. Reports use a broader bounded sample. Maintained cases prove contracts, not prevalence; organic
-samples are bounded evidence, not population estimates.
+Routine focused gameplay gates and the broad gameplay audit use maintained deterministic witnesses only. Reports
+own bounded organic sampling and agency qualification searches. This keeps routine verification fast and stable
+without weakening exploratory evidence. Maintained cases prove contracts, not prevalence; organic samples are
+bounded evidence, not population estimates.
 Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
 must not count counterfactual, coverage-only, or negative-control branches as player experience.
 
@@ -178,11 +177,10 @@ and baseline from the same decision state to that fixed horizon. Future controll
 never become actor inputs. Compare aggregate observable contracts when production treats internal representations
 as equivalent.
 
-Project-owned gameplay verification ignores ambient replay state. Focused gates generate one fresh physical and,
-where applicable, actor root in addition to maintained witnesses; explicit command-line roots replay that organic
-case exactly. Broad audits likewise generate fresh replay roots unless explicit roots are supplied. Reports
-generate broader fresh samples. [`TESTING.md`](TESTING.md) owns command selection; command help owns exact option
-syntax.
+Project-owned routine gameplay verification ignores ambient replay state and runs maintained witnesses only.
+Reports generate fresh physical and, where applicable, actor roots for bounded exploration. Explicit report roots
+replay the sampled worlds exactly, while `run_test.py` can replay a focused target directly when isolating one
+organic failure. [`TESTING.md`](TESTING.md) owns command selection; command help owns exact option syntax.
 
 Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
 labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their

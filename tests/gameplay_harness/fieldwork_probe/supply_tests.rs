@@ -294,31 +294,6 @@ fn world_seeded_shallow_opportunity_reports_partial_order() {
 }
 
 #[test]
-fn acquired_resource_scale_changes_current_project_workload_before_depletion() {
-    let registries = deep_hearth::content::build_registries();
-    let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
-    let demonstrated = (1_u64..=64).find_map(|seed| {
-        let requested = fieldwork_order(&registries, seed);
-        let supply = fieldwork_supply(seed);
-        if requested <= base_batch
-            || supply >= requested
-            || supply >= Mass::from_milligrams(1_000_000)
-        {
-            return None;
-        }
-        let episode = run_fieldwork_order(&registries, replay(seed), requested);
-        (episode.planned_local_mass < requested).then_some(episode)
-    });
-    let episode = demonstrated.unwrap_or_else(|| {
-        panic!("bounded fieldwork variation lost its quantity-informed project workload")
-    });
-    assert!(
-        episode.planned_local_mass <= Mass::from_milligrams(1_000_000),
-        "current shallow opportunity should become actionable through the authored one-kilogram resource-scale band"
-    );
-}
-
-#[test]
 fn maintained_reserve_scale_case_replays_overinvestment_avoidance_from_seed_alone() {
     let registries = deep_hearth::content::build_registries();
     let case = replay(FIELDWORK_RESERVE_SCALE_COVERAGE_SEED);

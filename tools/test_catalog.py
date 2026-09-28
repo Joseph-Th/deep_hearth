@@ -68,6 +68,8 @@ def expand_module_include_macros(source: str, macros: tuple[tuple[str, str], ...
 def expanded_logical_source_lines(
     path: Path, macros: tuple[tuple[str, str], ...]
 ) -> tuple[str, ...]:
+    if not macros:
+        return cached_logical_source_lines(path)
     source = expand_module_include_macros(cached_file_text(path), macros)
     return tuple(logical_source_lines(source))
 
@@ -171,12 +173,8 @@ def attributes_enabled(attributes: list[str], features: set[str]) -> bool:
 
 
 @lru_cache(maxsize=None)
-def _file_test_names(
-    path: Path,
-    prefix: tuple[str, ...],
-    features: frozenset[str],
-) -> tuple[str, ...]:
-    """Read direct #[test] declarations from one rustfmt-formatted source module."""
+def _file_test_suffixes(path: Path, features: frozenset[str]) -> tuple[str, ...]:
+    """Read direct test declarations once, independent of the crate path using the module."""
 
     names: list[str] = []
     pending_attributes: list[str] = []
@@ -202,11 +200,10 @@ def _file_test_names(
         function_match = FUNCTION.match(line)
         if function_match is not None and "#[test]" in pending_attributes:
             if attributes_enabled(pending_attributes, features):
-                components = [*prefix]
-                if inline_test_module is not None:
-                    components.append(inline_test_module)
-                components.append(function_match.group("name"))
-                names.append("::".join(components))
+                name = function_match.group("name")
+                names.append(
+                    f"{inline_test_module}::{name}" if inline_test_module is not None else name
+                )
             pending_attributes.clear()
             continue
 
@@ -219,7 +216,11 @@ def _file_test_names(
 def file_test_names(path: Path, prefix: tuple[str, ...], features: set[str]) -> list[str]:
     """Return cached direct test declarations for one source module."""
 
-    return list(_file_test_names(path, prefix, frozenset(features)))
+    suffixes = _file_test_suffixes(path, frozenset(features))
+    if not prefix:
+        return list(suffixes)
+    base = "::".join(prefix)
+    return [f"{base}::{suffix}" for suffix in suffixes]
 
 
 def explicit_module_source(attributes: list[str]) -> str | None:
@@ -301,6 +302,19 @@ def external_modules(
     return list(_external_modules(project_root, path, frozenset(features)))
 
 
+def relevant_module_include_macros(
+    path: Path, macros: tuple[tuple[str, str], ...]
+) -> tuple[tuple[str, str], ...]:
+    """Keep root macro bodies in cache keys only for files that actually invoke them."""
+
+    if not macros:
+        return ()
+    invoked = {match.group("name") for match in MACRO_INVOCATION.finditer(cached_file_text(path))}
+    if not invoked:
+        return ()
+    return tuple((name, body) for name, body in macros if name in invoked)
+
+
 @lru_cache(maxsize=None)
 def _reachable_modules(
     project_root: Path,
@@ -320,7 +334,10 @@ def _reachable_modules(
             continue
         visited.add(key)
         modules.append((path, prefix))
-        for module, module_path in _external_modules(project_root, path, features, macros):
+        active_macros = relevant_module_include_macros(path, macros)
+        for module, module_path in _external_modules(
+            project_root, path, features, active_macros
+        ):
             pending.append((module_path, (*prefix, module)))
     return tuple(modules)
 

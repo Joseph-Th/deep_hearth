@@ -1,6 +1,7 @@
 //! Matched-world workshop policy counterfactuals and agency evidence.
 
 use std::collections::BTreeSet;
+#[cfg(not(test))]
 use std::env;
 
 use super::configuration::MaintainedAnchor;
@@ -15,6 +16,7 @@ use super::report::{
 use super::scenario::ScenarioVariation;
 use super::seed::MAINTAINED_VARIATION_ROOT;
 use super::seed::mix64;
+#[cfg(not(test))]
 use super::seed_input::parse_seed;
 use super::workshop::runner::run_scenario;
 use deep_hearth::content::build_registries;
@@ -850,6 +852,7 @@ fn exploratory_agency_worlds(variation_root: u64) -> Vec<AgencyWorld> {
     worlds
 }
 
+#[cfg(not(test))]
 fn configured_agency_root() -> Option<u64> {
     env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
         .ok()
@@ -857,12 +860,6 @@ fn configured_agency_root() -> Option<u64> {
             parse_seed(&raw)
                 .unwrap_or_else(|| panic!("agency gameplay variation seed is invalid: {raw:?}"))
         })
-}
-
-#[cfg(test)]
-fn gate_agency_root() -> u64 {
-    configured_agency_root()
-        .unwrap_or_else(|| mix64(MAINTAINED_VARIATION_ROOT ^ 0xA63E_4E43_595F_4741))
 }
 
 #[cfg(not(test))]
@@ -897,18 +894,15 @@ fn maintained_agency_worlds() -> Vec<AgencyWorld> {
 }
 
 #[cfg(test)]
-fn gate_agency_worlds(variation_root: u64) -> Vec<AgencyWorld> {
-    let mut worlds = maintained_agency_worlds();
-    worlds.extend(organic_agency_worlds(variation_root, 1));
-    worlds
+fn gate_agency_worlds() -> Vec<AgencyWorld> {
+    maintained_agency_worlds()
 }
 
 #[cfg(test)]
 pub(super) fn run_gameplay_agency_counterfactuals() {
     let registries = build_registries();
-    let variation_root = gate_agency_root();
-    let worlds = gate_agency_worlds(variation_root);
-    std::println!("AGENCY INPUT mode=gate organic=1 variation_root=0x{variation_root:016X}");
+    let worlds = gate_agency_worlds();
+    std::println!("AGENCY INPUT mode=gate organic=0 variation_root=n/a");
     run_agency_probe(&registries, &worlds);
 }
 
@@ -968,26 +962,16 @@ fn gameplay_agency_bounded_search_preserves_unfiltered_replay() {
 }
 
 #[test]
-fn gameplay_agency_gate_keeps_witnesses_and_varies_one_organic_world() {
-    let first = gate_agency_worlds(0x1111);
-    let second = gate_agency_worlds(0x2222);
-    let maintained_count = maintained_agency_worlds().len();
+fn gameplay_agency_gate_uses_maintained_witnesses_only() {
+    let gate = gate_agency_worlds();
+    let maintained = maintained_agency_worlds();
 
-    assert_eq!(first.len(), maintained_count + 1);
-    assert!(
-        first[..maintained_count]
-            .iter()
-            .zip(&second[..maintained_count])
-            .all(|(left, right)| left.world_seed == right.world_seed
-                && left.focus == right.focus
-                && left.anchor == right.anchor)
-    );
-    assert_eq!(first[maintained_count].focus, AgencyFocus::OrganicVariation);
-    assert_eq!(first[maintained_count].anchor, None);
-    assert_ne!(
-        first[maintained_count].world_seed,
-        second[maintained_count].world_seed
-    );
+    assert_eq!(gate.len(), maintained.len());
+    assert!(gate.iter().zip(&maintained).all(|(left, right)| {
+        left.world_seed == right.world_seed
+            && left.focus == right.focus
+            && left.anchor == right.anchor
+    }));
 }
 
 #[test]

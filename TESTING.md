@@ -28,8 +28,10 @@ Use the smallest lane that completely proves the changed contract.
 `quick` is build-free. `gate` runs one build-producing lane. `audit` is an explicit broad checkpoint and does
 not belong in the ordinary edit loop.
 
-Use `python tools/run_test.py --list` for build-free discovery. Selectors resolve to the narrowest suitable target.
-Use `--lint` only for focused test-target Clippy and `--verbose` only when output is needed. Do not add a separate
+Use `python tools/run_test.py --list <substring>` for focused build-free discovery; use bare `--list` only when
+browsing the full catalog. Selectors resolve to the narrowest suitable target. On failure, prefer the printed
+`repair:` command instead of repeating the broad lane. Use `--lint` only for focused test-target Clippy and
+`--verbose` only when needed. Do not add a separate
 check-only step before an executable test: Cargo maintains different check/test artifacts, and the extra build can
 cost more than linking the intended target once. Library unit tests share one large Rust test crate, so prefer
 build-free checks while editing and execute the exact test when its behavior is ready to prove. Public built-in
@@ -102,11 +104,10 @@ All gameplay test targets keep one `test-gameplay` Cargo feature shape so moving
 audit lanes reuses the same library artifact instead of fragmenting the incremental cache.
 Reports use dedicated example binaries. Focused tests stay quiet; large report-only formatting belongs outside
 test builds only when measurement shows that split improves the edit loop.
-Focused gameplay gates run maintained deterministic witnesses plus one fresh bounded organic case and print its
-replay roots. Pass those roots back through `--variation-seed` and, where applicable, `--behavior-seed` to
-reproduce that case exactly without changing the maintained witnesses. The broad gameplay audit keeps the same
-replay discipline across the consolidated checkpoint. Reports use a broader bounded organic sample. Actor/evidence
-rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
+Routine gameplay gates and the broad gameplay audit run maintained deterministic witnesses only and clear ambient
+replay roots before Cargo starts. Bounded organic sampling belongs to `python ci.py report`, where the additional
+runtime is intentional and the printed roots can be passed back to report or an explicit focused `run_test.py`
+replay. Actor/evidence rules are owned by [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md).
 
 ## Completion
 

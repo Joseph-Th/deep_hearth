@@ -125,18 +125,6 @@ def configure_gameplay_replay_environment(
     return variation, behavior
 
 
-def gameplay_variation_behavior(args: argparse.Namespace) -> bool | None:
-    """Return actor-root usage for gameplay sampling, or None when no sampling is active."""
-
-    if args.preset == "report":
-        return args.scope in REPORT_BEHAVIOR_SCOPES
-    if args.preset == "gate" and args.gameplay not in (None, "contracts"):
-        return GAMEPLAY_SCOPE_SPECS[args.gameplay].uses_behavior_seed
-    if args.preset == "audit" and (args.gameplay is not None or args.all):
-        return True
-    return None
-
-
 def configure_report_replay_environment(
     args: argparse.Namespace,
     environ,
@@ -154,46 +142,19 @@ def configure_report_replay_environment(
     )
 
 
-def configure_focused_gameplay_environment(
-    args: argparse.Namespace,
-    environ,
-    *,
-    randbits=secrets.randbits,
-) -> tuple[str, str]:
-    """Add one fresh replayable organic case to the maintained focused witnesses."""
+def runs_deterministic_gameplay_verification(args: argparse.Namespace) -> bool:
+    """Return whether this invocation owns a maintained-only gameplay gate or audit."""
 
-    use_behavior_seed = gameplay_variation_behavior(args)
-    assert use_behavior_seed is not None
-    for key in GAMEPLAY_SEED_ENV_KEYS:
-        environ.pop(key, None)
-    return configure_gameplay_replay_environment(
-        environ,
-        variation_override=args.variation_seed,
-        behavior_override=args.behavior_seed,
-        use_behavior_seed=use_behavior_seed,
-        randbits=randbits,
+    return (args.preset == "gate" and args.gameplay is not None) or (
+        args.preset == "audit" and (args.gameplay is not None or args.all)
     )
 
 
-def configure_gameplay_verification_environment(
-    args: argparse.Namespace,
-    environ,
-    *,
-    randbits=secrets.randbits,
-) -> tuple[str, str]:
-    """Configure one bounded replayable organic sample alongside maintained gameplay witnesses."""
+def clear_gameplay_seed_environment(environ) -> None:
+    """Prevent ambient report/replay roots from changing routine gameplay verification."""
 
-    use_behavior_seed = gameplay_variation_behavior(args)
-    assert use_behavior_seed is not None
     for key in GAMEPLAY_SEED_ENV_KEYS:
         environ.pop(key, None)
-    return configure_gameplay_replay_environment(
-        environ,
-        variation_override=args.variation_seed,
-        behavior_override=args.behavior_seed,
-        use_behavior_seed=use_behavior_seed,
-        randbits=randbits,
-    )
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)
@@ -290,9 +251,9 @@ def report_repair_hint(label: str, output: str) -> str | None:
 
 
 def gameplay_environment_summary(label: str, environ) -> str | None:
-    """Return replay roots for gameplay sampling whose output stayed captured."""
+    """Return replay roots for exploratory gameplay reports whose output stayed captured."""
 
-    if not label.startswith("gameplay") or label == "gameplay contracts":
+    if not label.startswith("gameplay report"):
         return None
     variation = environ.get("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
     if variation is None:
@@ -335,28 +296,16 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
         if failed:
             rerun_targets = FAILED_RERUN_TARGET.findall(combined)
             if rerun_targets and rerun_targets[-1] == "--lib":
-                return command_with_gameplay_replay(
-                    ["python", "tools/run_test.py"], combined, [failed[-1]]
-                )
+                return f"python tools/run_test.py {failed[-1]}"
             if rerun_targets and rerun_targets[-1].startswith("--test "):
                 target = rerun_targets[-1].removeprefix("--test ")
-                return command_with_gameplay_replay(
-                    ["python", "tools/run_test.py", "--target", target],
-                    combined,
-                    [failed[-1]],
-                )
-            return command_with_gameplay_replay(
-                ["python", "ci.py", "audit", "--gameplay"], combined
-            )
+                return f"python tools/run_test.py --target {target} {failed[-1]}"
+            return "python ci.py audit --gameplay"
         for scope, target in GAMEPLAY_TARGETS.items():
             if target in command:
-                return command_with_gameplay_replay(
-                    ["python", "ci.py", "gate", "--gameplay", scope], combined
-                )
+                return f"python ci.py gate --gameplay {scope}"
         if GAMEPLAY_AUDIT_TARGET in command:
-            return command_with_gameplay_replay(
-                ["python", "ci.py", "audit", "--gameplay"], combined
-            )
+            return "python ci.py audit --gameplay"
     return None
 
 
@@ -384,19 +333,6 @@ def gameplay_replay_flags(output: str) -> str | None:
                 flags.extend(("--behavior-seed", behavior))
             return " ".join(flags)
     return None
-
-
-def command_with_gameplay_replay(
-    prefix: list[str], output: str, suffix: list[str] | None = None
-) -> str:
-    """Render a repair command that preserves captured gameplay replay roots when available."""
-
-    command = list(prefix)
-    if replay_flags := gameplay_replay_flags(output):
-        command.extend(replay_flags.split())
-    if suffix:
-        command.extend(suffix)
-    return " ".join(command)
 
 
 def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
@@ -832,12 +768,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variation-seed",
         type=parse_replay_seed,
-        help="replay one gameplay physical-world variation root (decimal or 0x hex u64)",
+        help="replay one report physical-world variation root (decimal or 0x hex u64)",
     )
     parser.add_argument(
         "--behavior-seed",
         type=parse_replay_seed,
-        help="replay one actor-policy root where the selected gameplay scope uses it",
+        help="replay one report actor-policy root where the selected scope uses it",
     )
     return parser
 
@@ -914,13 +850,8 @@ def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Name
     if args.preset != "report" and args.scope != "all":
         parser.error("--scope is valid only with the report preset")
     if args.variation_seed is not None or args.behavior_seed is not None:
-        variation_behavior = gameplay_variation_behavior(args)
-        if variation_behavior is None:
-            parser.error("--variation-seed and --behavior-seed require a gameplay gate, audit, or report")
-        if args.behavior_seed is not None and variation_behavior is False:
-            parser.error("the selected gameplay scope does not use an actor-policy behavior seed")
-        if args.preset == "gate" and args.behavior_seed is not None and args.variation_seed is None:
-            parser.error("focused gameplay --behavior-seed requires --variation-seed")
+        if args.preset != "report":
+            parser.error("--variation-seed and --behavior-seed are report-only")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -940,18 +871,14 @@ def main() -> int:
         for label, command in plan:
             print(f"{label}: {' '.join(command)}")
         return 0
-    behavior_variation = gameplay_variation_behavior(args)
-    if behavior_variation is not None:
+    if args.preset == "report":
         try:
-            if args.preset == "report":
-                configure_report_replay_environment(args, os.environ)
-            elif args.preset == "gate":
-                configure_focused_gameplay_environment(args, os.environ)
-            else:
-                configure_gameplay_verification_environment(args, os.environ)
+            configure_report_replay_environment(args, os.environ)
         except ValueError as error:
             print(f"gameplay replay: {error}", file=sys.stderr)
             return 2
+    elif runs_deterministic_gameplay_verification(args):
+        clear_gameplay_seed_environment(os.environ)
 
     started = time.perf_counter()
     timings: list[tuple[str, float]] = []
