@@ -27,11 +27,12 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::initialize_player_survival;
 
+use super::capital_investment_policy::CapitalInvestmentPolicy;
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
 #[cfg(not(test))]
 use super::equipment_support::pristine_equipment_capability;
-use super::focused_seeds::FocusedProbeCase;
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
@@ -61,6 +62,18 @@ use planning::{
 };
 use planning::{PrimitivePowerProject, primitive_power_plan, settlement_power_plan};
 use provisioning::seed_power_project_provisions;
+
+fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
+    match case.role() {
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
+            CapitalInvestmentPolicy::baseline()
+        }
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => case
+            .behavior_seed()
+            .map(CapitalInvestmentPolicy::from_behavior_seed)
+            .unwrap_or_else(CapitalInvestmentPolicy::baseline),
+    }
+}
 
 fn declared_primitive_crushing_project(registries: &Registries, seed: u64) -> (Mass, Energy) {
     // Keep this episode in the scale where a portable stone crusher is still a plausible player
@@ -171,6 +184,7 @@ fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyS
 
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
+    let investment_policy = investment_policy(case);
     // Derive the smallest ordinary copper-free accumulator that funds one complete pristine
     // crusher batch from the current content graph. This keeps the player policy stable when
     // crusher energy, batch capacity, or authored storage definitions are retuned.
@@ -265,6 +279,11 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             declared_mass: primitive_project_mass,
             declared_work_nj: primitive_project_work.nanojoules(),
         },
+        investment_policy,
+    );
+    assert_eq!(
+        plan.minimum_return_ppm,
+        investment_policy.minimum_return_ppm()
     );
     let (settlement_project_mass, settlement_project_work) =
         declared_settlement_lumber_project(registries, seed);
@@ -357,6 +376,11 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_shaped,
         settlement_capacity_nj,
         settlement_project_work.nanojoules(),
+        investment_policy,
+    );
+    assert_eq!(
+        settlement_plan.minimum_return_ppm,
+        investment_policy.minimum_return_ppm()
     );
 
     // Experience the complete project through the actor-selected provider. The matched branches
@@ -653,13 +677,14 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{}charges provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
+        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{}charges provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
         case.role().label(),
         settlement_project_mass.milligrams(),
         settlement_project_work.nanojoules(),
         settlement_plan.charge_events,
         settlement_capacity_nj,
         settlement_plan.choice.label(),
+        settlement_plan.minimum_return_ppm,
         settlement_plan.minimum_attention_return_ticks,
         settlement_plan.treadle_lifecycle_attention,
         settlement_plan.walking_lifecycle_attention,
@@ -817,7 +842,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ buffer-lower-bound-charges:{} consumer-projected-charges:{} projected-services:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} wear-aware-decision-crossover:{} provider-lifecycle=consumer-batches+provider-condition] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ buffer-lower-bound-charges:{} consumer-projected-charges:{} projected-services:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} wear-aware-decision-crossover:{} provider-lifecycle=consumer-batches+provider-condition] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
         case.role().label(),
         primitive_project_mass.milligrams(),
         primitive_project_work.nanojoules(),
@@ -826,6 +851,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         plan.consumer_projected_services,
         capacity_nj,
         plan.choice.label(),
+        plan.minimum_return_ppm,
         plan.minimum_attention_return_ticks,
         plan.crank_lifecycle_attention,
         plan.treadle_lifecycle_attention,

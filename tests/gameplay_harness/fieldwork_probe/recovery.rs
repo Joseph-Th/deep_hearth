@@ -367,6 +367,7 @@ pub(super) fn execute_initial_shortfall_recovery(
         review.parts,
         review.channel_voxels,
         planned_sites,
+        review.survey_campaign.investment_policy,
     );
 
     // Freeze policy from the actor-visible projection above. The matched point-search branch below

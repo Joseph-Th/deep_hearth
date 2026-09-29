@@ -51,6 +51,7 @@ GAMEPLAY_SCOPE_SPECS = {
     "settlement": GameplayScopeSpec(
         "gameplay_settlement",
         "gameplay_settlement_probe",
+        True,
     ),
     "foundry-bootstrap": GameplayScopeSpec(
         "gameplay_foundry_bootstrap",
@@ -61,8 +62,10 @@ GAMEPLAY_SCOPE_SPECS = {
         "gameplay_woodworking_probe",
         True,
     ),
-    "fieldwork": GameplayScopeSpec("gameplay_fieldwork", "gameplay_fieldwork_probe"),
-    "power-provider": GameplayScopeSpec("gameplay_power", "gameplay_power_provider_probe"),
+    "fieldwork": GameplayScopeSpec("gameplay_fieldwork", "gameplay_fieldwork_probe", True),
+    "power-provider": GameplayScopeSpec(
+        "gameplay_power", "gameplay_power_provider_probe", True
+    ),
     "ore": GameplayScopeSpec("gameplay_ore", "gameplay_ore_preparation_probe"),
     "foundry": GameplayScopeSpec("gameplay_foundry", "gameplay_foundry_probe"),
 }

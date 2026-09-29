@@ -328,6 +328,11 @@ def _survey_campaign_summary(lines: list[str]) -> str:
         for line in campaigns
         if (match := re.search(r"\bplanned-sites=(\d+)", line)) is not None
     ]
+    policy_returns = [
+        int(match.group(1))
+        for line in campaigns
+        if (match := re.search(r"\bminimum-return=(\d+)ppm", line)) is not None
+    ]
     indexed_realized_deltas = [
         int(match.group(1))
         for line in indexed_campaigns
@@ -335,18 +340,14 @@ def _survey_campaign_summary(lines: list[str]) -> str:
     ]
     return (
         "survey-campaign=["
-        f"point:{sum(' selected=point-search ' in line for line in campaigns)} "
-        f"indexed:{len(indexed_campaigns)} "
-        f"upgrade-fundable:{sum(' upgrade-available=true ' in line for line in campaigns)}/{len(campaigns)} "
-        f"horizons:one{sum(value == 1 for value in campaign_horizons)}"
-        f"/two{sum(value == 2 for value in campaign_horizons)}"
-        f"/three{sum(value == 3 for value in campaign_horizons)} "
-        f"indexed-expected-delta:{_signed_span(indexed_expected_deltas)} "
-        "indexed-realized=["
-        f"positive:{sum(value > 0 for value in indexed_realized_deltas)} "
-        f"negative:{sum(value < 0 for value in indexed_realized_deltas)} "
-        f"flat:{sum(value == 0 for value in indexed_realized_deltas)} "
-        f"delta:{_signed_span(indexed_realized_deltas)}]]"
+        f"choice:point{sum(' selected=point-search ' in line for line in campaigns)}"
+        f"/indexed{len(indexed_campaigns)} "
+        f"fund:{sum(' upgrade-available=true ' in line for line in campaigns)}/{len(campaigns)} "
+        f"policy:{_span(policy_returns, unit='ppm')} "
+        f"h:1x{sum(value == 1 for value in campaign_horizons)}"
+        f"/2x{sum(value == 2 for value in campaign_horizons)}"
+        f"/3x{sum(value == 3 for value in campaign_horizons)} "
+        f"realized:{_signed_span(indexed_realized_deltas)}]"
     )
 
 

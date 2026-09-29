@@ -75,6 +75,7 @@ _ORDINARY_DIGEST_FIELDS = {
     "power-provider": (
         "sample-shape",
         "choice",
+        "investment-policy-return",
         "decision-crossover-charges",
         "settlement-choice",
         "settlement-decision-crossover-charges",
@@ -82,6 +83,7 @@ _ORDINARY_DIGEST_FIELDS = {
     "settlement": (
         "sample-shape",
         "choice",
+        "investment-policy-return",
         "demand",
         "attention",
         "payoff",
@@ -196,8 +198,6 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 (
                     "sample-shape",
                     "outcomes",
-                    "reserve-knowledge",
-                    "orders",
                     "pacing-physical",
                     "reuse-physical",
                 ),
@@ -205,6 +205,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             adaptation = compact_fields(
                 summary,
                 (
+                    "survey-campaign",
                     "heavy-tool-market",
                     "initial-shortfall-campaign",
                 ),

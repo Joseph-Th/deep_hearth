@@ -33,6 +33,7 @@ def settlement_summary(lines: list[str]) -> str | None:
     machine = _values(settlement, r"mechanized:(\d+)t")
     setup = _values(settlement, r"setup:(\d+)t")
     delegated = _values(settlement, r"delegated:(\d+)t")
+    policy_returns = _values(settlement, r"minimum-return:(\d+)ppm")
     builds = sum(" upgraded:true " in line for line in settlement)
     mechanized_lines = [line for line in settlement if "choice:sash-sawmill" in line]
     saved = _values(mechanized_lines, r"margin:\+(\d+)t")
@@ -42,6 +43,7 @@ def settlement_summary(lines: list[str]) -> str | None:
         "ORDINARY SUMMARY probe=settlement "
         f"samples={len(settlement)} sample-shape=[{sample_shape(settlement)}] "
         f"choice=[frame:{direct} sawmill:{mechanized}] "
+        f"investment-policy-return={_span(policy_returns, 'ppm')} "
         f"demand={min(batches)}..{max(batches)}batches "
         f"attention=[baseline:{min(baseline)}..{max(baseline)}t "
         f"mechanized:{min(machine)}..{max(machine)}t "

@@ -25,7 +25,7 @@ use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
-use super::capital_investment_policy::{clears_attention_return, minimum_attention_return};
+use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
@@ -50,6 +50,18 @@ const SETTLEMENT_UPGRADE_COPPER_MG: u64 = 200_000;
 enum LumberInvestmentChoice {
     FrameSaw,
     SashSawmill,
+}
+
+fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
+    match case.role() {
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
+            CapitalInvestmentPolicy::baseline()
+        }
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => case
+            .behavior_seed()
+            .map(CapitalInvestmentPolicy::from_behavior_seed)
+            .unwrap_or_else(CapitalInvestmentPolicy::baseline),
+    }
 }
 
 impl LumberInvestmentChoice {
@@ -281,6 +293,7 @@ fn execute_setup(
 }
 
 pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCase) {
+    let investment_policy = investment_policy(case);
     let batch = authored_batch(
         registries,
         PROCESS_POWER_SAW_WOOD_BOARDS,
@@ -417,7 +430,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let machine_attention = setup_attention
         .checked_add(charge_projection.attention_ticks)
         .unwrap_or_else(|| panic!("settlement machine attention overflowed"));
-    let minimum_attention_return = minimum_attention_return(0, setup_attention);
+    let minimum_attention_return = investment_policy.minimum_attention_return(0, setup_attention);
     let choice = if clears_attention_return(
         baseline_attention,
         machine_attention,
@@ -565,12 +578,13 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         .unwrap_or_else(|| panic!("settlement player survival disappeared after order"));
     let attention_saved = i128::from(baseline_attention) - i128::from(machine_attention);
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         order_batches,
         order_mass.milligrams(),
         choice.label(),
+        investment_policy.minimum_return_ppm(),
         minimum_attention_return,
         baseline_attention,
         machine_attention,

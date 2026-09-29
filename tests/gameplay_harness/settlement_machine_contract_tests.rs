@@ -27,7 +27,7 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::survival::initialize_player_survival;
 
-use super::capital_investment_policy::{clears_attention_return, minimum_attention_return};
+use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
@@ -323,7 +323,8 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
     let short_machine_attention = setup_attention + short_charge_projection.attention_ticks;
     let marginal_machine_attention = setup_attention + marginal_charge_projection.attention_ticks;
     let project_machine_attention = setup_attention + project_charge_projection.attention_ticks;
-    let minimum_attention_return = minimum_attention_return(0, setup_attention);
+    let minimum_attention_return =
+        CapitalInvestmentPolicy::baseline().minimum_attention_return(0, setup_attention);
     assert!(minimum_attention_return > 0);
     assert!(
         !clears_attention_return(

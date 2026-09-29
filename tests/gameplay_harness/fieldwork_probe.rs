@@ -20,7 +20,7 @@ use deep_hearth::mining::{MiningOrderRequest, resolve_mining_order};
 use deep_hearth::registry::Registries;
 
 use super::equipment_support::pristine_equipment_capability;
-use super::focused_seeds::FocusedProbeCase;
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED;
 use super::manual_assembly_planning::project_manual_assembly_package;
 use super::manual_craft_selection::plan_manual_craft_request;
@@ -43,8 +43,8 @@ const FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES: u64 = 64;
 #[path = "fieldwork_probe/campaign.rs"]
 mod campaign;
 use campaign::{
-    FieldworkCampaignSite, FieldworkSurveyCampaignPlan, evaluate_fieldwork_survey_campaign,
-    planned_future_sites,
+    FieldworkCampaignSite, FieldworkSurveyCampaignPlan, FieldworkSurveyPolicy,
+    evaluate_fieldwork_survey_campaign, planned_future_sites,
 };
 
 #[path = "fieldwork_probe/extraction.rs"]
@@ -102,6 +102,18 @@ fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
             STOCKPILE_WORK_ORDER_CYCLES,
             "current primitive processing project",
         ),
+    }
+}
+
+fn survey_investment_policy(case: FocusedProbeCase) -> FieldworkSurveyPolicy {
+    match case.role() {
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
+            FieldworkSurveyPolicy::baseline()
+        }
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => case
+            .behavior_seed()
+            .map(FieldworkSurveyPolicy::from_behavior_seed)
+            .unwrap_or_else(FieldworkSurveyPolicy::baseline),
     }
 }
 
@@ -426,6 +438,7 @@ fn run_fieldwork_with_supply(
             channel_voxels,
             sites: &campaign_sites,
             planned_sites: planned_future_sites(seed),
+            investment_policy: survey_investment_policy(case),
         },
     );
     let extraction = execute_fieldwork_extraction(

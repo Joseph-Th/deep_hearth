@@ -28,6 +28,7 @@ pub(super) struct FieldworkSurveyCampaignPlan<'a> {
     pub(super) channel_voxels: i64,
     pub(super) sites: &'a [FieldworkCampaignSite],
     pub(super) planned_sites: u64,
+    pub(super) investment_policy: FieldworkSurveyPolicy,
 }
 
 struct CampaignExecutionPlan<'a> {
@@ -53,6 +54,7 @@ pub(super) struct FieldworkSurveyCampaignReview {
     pub(super) selected_search_ticks: u64,
     pub(super) realized_attention_delta: i128,
     pub(super) first_search_ticks: u64,
+    pub(super) investment_policy: FieldworkSurveyPolicy,
 }
 
 #[derive(Clone, Copy)]
@@ -64,6 +66,32 @@ pub(super) struct FieldworkSurveyDecision {
 }
 
 pub(super) const MINIMUM_SURVEY_INVESTMENT_RETURN_PPM: u128 = 100_000;
+const ORGANIC_MINIMUM_SURVEY_RETURN_PPM: u128 = 75_000;
+const ORGANIC_MAXIMUM_SURVEY_RETURN_PPM: u128 = 125_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FieldworkSurveyPolicy {
+    minimum_return_ppm: u128,
+}
+
+impl FieldworkSurveyPolicy {
+    pub(super) const fn baseline() -> Self {
+        Self {
+            minimum_return_ppm: MINIMUM_SURVEY_INVESTMENT_RETURN_PPM,
+        }
+    }
+
+    pub(super) const fn from_behavior_seed(seed: u64) -> Self {
+        let span = ORGANIC_MAXIMUM_SURVEY_RETURN_PPM - ORGANIC_MINIMUM_SURVEY_RETURN_PPM;
+        Self {
+            minimum_return_ppm: ORGANIC_MINIMUM_SURVEY_RETURN_PPM + (seed as u128) % (span + 1),
+        }
+    }
+
+    pub(super) const fn minimum_return_ppm(self) -> u128 {
+        self.minimum_return_ppm
+    }
+}
 
 pub(super) fn planned_future_sites(seed: u64) -> u64 {
     // Keep organic/replay horizons seed-driven while making the maintained fieldwork witnesses
@@ -137,6 +165,7 @@ fn indexed_search_ticks(registries: &Registries, channel_voxels: i64) -> u64 {
 fn select_survey_strategy(
     projected_point_search_ticks: u64,
     projected_indexed_search_ticks: Option<u64>,
+    policy: FieldworkSurveyPolicy,
 ) -> FieldworkSurveyStrategy {
     let Some(indexed) = projected_indexed_search_ticks else {
         return FieldworkSurveyStrategy::PointSearch;
@@ -151,7 +180,7 @@ fn select_survey_strategy(
         .checked_mul(1_000_000)
         .and_then(|value| value.checked_div(u128::from(indexed)))
         .unwrap_or_else(|| panic!("fieldwork survey-investment return overflowed"));
-    if return_ppm >= MINIMUM_SURVEY_INVESTMENT_RETURN_PPM {
+    if return_ppm >= policy.minimum_return_ppm() {
         return FieldworkSurveyStrategy::IndexedChannel;
     }
     // The indexed hammer consumes a scarce copper reinforcement parcel. A merely positive
@@ -167,6 +196,7 @@ pub(super) fn decide_fieldwork_survey_strategy(
     parts: StockpileId,
     channel_voxels: i64,
     planned_sites: u64,
+    policy: FieldworkSurveyPolicy,
 ) -> FieldworkSurveyDecision {
     assert!(
         planned_sites > 0,
@@ -189,6 +219,7 @@ pub(super) fn decide_fieldwork_survey_strategy(
         selected_strategy: select_survey_strategy(
             projected_point_search_ticks,
             projected_indexed_search_ticks,
+            policy,
         ),
         projected_upgrade_ticks,
         projected_point_search_ticks,
@@ -252,6 +283,7 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
         plan.parts,
         plan.channel_voxels,
         planned_sites,
+        plan.investment_policy,
     );
     let selected_strategy = decision.selected_strategy;
 
@@ -299,6 +331,7 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
         realized_attention_delta: i128::from(baseline.search_ticks)
             - i128::from(selected_attention),
         first_search_ticks: selected.first_search_ticks,
+        investment_policy: plan.investment_policy,
     }
 }
 

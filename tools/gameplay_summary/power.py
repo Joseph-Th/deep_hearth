@@ -216,6 +216,7 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
 
 def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     organic_power = organic_only(power)
+    policy_returns = _numeric_values(power, r"minimum-return:(\d+)ppm")
     pristine_break_evens = _numeric_values(power, r"pristine-rate-break-even:(\d+)")
     minimum_attention_return = _numeric_values(
         power, r"minimum-attention-return:(\d+)t"
@@ -270,6 +271,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])}] "
         f"decision-crossover-charges={_span(decision_crossovers)} "
         f"pristine-rate-break-even={_span(pristine_break_evens)} "
+        f"investment-policy-return={_span(policy_returns, 'ppm')} "
         f"minimum-investment-return={_span(minimum_attention_return, 't')} "
         f"choice-load=[crank:{scaled_span(crank_load, 1_000_000, 'kg')} "
         f"treadle:{scaled_span(treadle_load, 1_000_000, 'kg')}] "
@@ -313,6 +315,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
 
 def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
     organic_settlement = organic_only(settlement)
+    policy_returns = _numeric_values(settlement, r"minimum-return:(\d+)ppm")
     project_mass = _numeric_values(
         settlement, r"project=\[consumer:powered-saw feed:(\d+)mg"
     )
@@ -352,6 +355,7 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])}] "
         f"settlement-decision-crossover-charges={_span(decision_crossovers)} "
         f"settlement-pristine-rate-break-even={_span(pristine_break_evens)} "
+        f"settlement-investment-policy-return={_span(policy_returns, 'ppm')} "
         f"settlement-load=[treadle:{scaled_span(treadle_load, 1_000_000, 'kg')} "
         f"walking:{scaled_span(walking_load, 1_000_000, 'kg')}] "
         f"settlement-lifecycle-body=[treadle-energy:{scaled_span(lifecycle['treadle']['energy'], 1_000_000_000_000, 'kJ')} "

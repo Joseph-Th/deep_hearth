@@ -1875,7 +1875,7 @@ unknown_macro!();
     def test_report_rejects_behavior_seed_for_scope_that_does_not_use_policy_variation(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             ci.parse_args(
-                ["report", "--scope", "fieldwork", "--behavior-seed", "0x1234"]
+                ["report", "--scope", "progression", "--behavior-seed", "0x1234"]
             )
 
     def test_replay_seed_flags_reject_non_gameplay_lanes(self) -> None:
@@ -2002,21 +2002,21 @@ unknown_macro!();
                 randbits=lambda _bits: self.fail("invalid ambient input must fail before entropy"),
             )
 
-        fieldwork = ci.parse_args(["report", "--scope", "fieldwork"])
-        fieldwork_environment = {"DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ignored-garbage"}
+        progression = ci.parse_args(["report", "--scope", "progression"])
+        progression_environment = {"DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ignored-garbage"}
         self.assertEqual(
             ci.configure_report_replay_environment(
-                fieldwork,
-                fieldwork_environment,
+                progression,
+                progression_environment,
                 randbits=lambda _bits: 0x99,
             ),
             ("0x0000000000000099", "unused"),
         )
-        self.assertNotIn("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", fieldwork_environment)
+        self.assertNotIn("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", progression_environment)
 
     def test_gameplay_sampling_policy_matches_each_surface(self) -> None:
         expectations = (
-            (["report", "--scope", "fieldwork"], False),
+            (["report", "--scope", "fieldwork"], True),
             (["report", "--scope", "woodworking"], True),
             (["gate", "--gameplay", "survival"], True),
             (["gate", "--gameplay", "progression"], False),

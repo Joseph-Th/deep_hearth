@@ -298,9 +298,10 @@ fn focused_behavior_root_is_validated_even_for_explicit_world_replay() {
 fn focused_behavior_seed_channel_exists_only_for_preference_varied_probes() {
     assert!(probe_uses_behavior_seed("survival-provisioning"));
     assert!(probe_uses_behavior_seed("woodworking"));
+    assert!(probe_uses_behavior_seed("fieldwork"));
+    assert!(probe_uses_behavior_seed("power-provider"));
+    assert!(probe_uses_behavior_seed("settlement"));
     assert!(!probe_uses_behavior_seed("primitive-progression"));
-    assert!(!probe_uses_behavior_seed("fieldwork"));
-    assert!(!probe_uses_behavior_seed("power-provider"));
     assert!(!probe_uses_behavior_seed("ore-preparation"));
     assert!(!probe_uses_behavior_seed("foundry"));
 }

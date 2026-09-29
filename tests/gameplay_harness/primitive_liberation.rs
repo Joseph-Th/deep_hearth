@@ -275,8 +275,22 @@ fn state_mass(bootstrap: &PrimitiveLiberationBootstrap, state: &AppState) -> Mas
         .unwrap_or_else(|| panic!("liberation campaign ore lot disappeared"))
 }
 
+fn disclosed_campaign_batches(case: FocusedProbeCase) -> u64 {
+    match case.role() {
+        super::focused_seeds::FocusedProbeRole::MaintainedAnchor
+        | super::focused_seeds::FocusedProbeRole::MaintainedCoverage => {
+            PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES
+        }
+        super::focused_seeds::FocusedProbeRole::OrganicVariation
+        | super::focused_seeds::FocusedProbeRole::ExplicitReplay => {
+            PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES + mix64(case.seed() ^ 0x4C49_4245_5248_4F52) % 2
+        }
+    }
+}
+
 pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
+    let planned_batches = disclosed_campaign_batches(case);
     let requested_batch_mass =
         Mass::from_milligrams(80_000 + mix64(seed ^ 0x4C49_4245_5241_5445) % 40_001);
     let grinding = registries
@@ -299,12 +313,9 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     );
     let copper_ppm = 300_000 + (mix64(seed ^ 0x4C49_4245_5243_5550) % 300_001) as u32;
     let clay_share_ppm = (mix64(seed ^ 0x4C49_4245_5243_4C41) % 650_001) as u32;
-    let (acquired, campaign_bootstraps) = acquisition::acquire_raw_kit(
-        registries,
-        seed,
-        PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
-        |state| {
-            (0..PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES)
+    let (acquired, campaign_bootstraps) =
+        acquisition::acquire_raw_kit(registries, seed, planned_batches, |state| {
+            (0..planned_batches)
                 .map(|_| {
                     bootstrap_liberation_inventory(
                         registries,
@@ -315,8 +326,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
                     )
                 })
                 .collect::<Vec<_>>()
-        },
-    );
+        });
     let bootstrap = *campaign_bootstraps
         .first()
         .unwrap_or_else(|| panic!("liberation campaign lost its first batch"));
@@ -446,7 +456,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             manual_recovery: &manual_recovery,
             kit_acquisition: &kit_acquisition,
             campaign_lifecycle: &campaign_lifecycle,
-            planned_batches: PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES,
+            planned_batches,
         },
     );
     let state = &scenario.state;

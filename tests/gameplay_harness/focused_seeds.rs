@@ -10,7 +10,10 @@ pub(super) use focused_case::{FocusedProbeCase, FocusedProbeRole};
 pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
 pub(super) fn probe_uses_behavior_seed(name: &str) -> bool {
-    matches!(name, "survival-provisioning" | "woodworking")
+    matches!(
+        name,
+        "survival-provisioning" | "woodworking" | "fieldwork" | "power-provider" | "settlement"
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

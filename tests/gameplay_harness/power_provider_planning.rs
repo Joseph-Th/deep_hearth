@@ -17,7 +17,7 @@ use deep_hearth::ore_processing::{
 };
 use deep_hearth::registry::Registries;
 
-use super::super::capital_investment_policy::{clears_attention_return, minimum_attention_return};
+use super::super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::super::manual_assembly_planning::project_manual_assembly_package;
 
 #[path = "power_provider_planning/lifecycle.rs"]
@@ -101,6 +101,7 @@ impl SettlementPowerChoice {
 #[derive(Clone, Copy)]
 pub(super) struct PrimitivePowerPlan {
     pub(super) choice: PrimitivePowerChoice,
+    pub(super) minimum_return_ppm: u64,
     pub(super) store_definition: EnergyStoreDefinitionId,
     pub(super) capacity_nj: u128,
     pub(super) declared_work_nj: u128,
@@ -175,6 +176,7 @@ pub(super) struct PrimitivePowerProject {
 #[derive(Clone, Copy)]
 pub(super) struct SettlementPowerPlan {
     pub(super) choice: SettlementPowerChoice,
+    pub(super) minimum_return_ppm: u64,
     pub(super) capacity_nj: u128,
     pub(super) declared_work_nj: u128,
     pub(super) charge_events: u64,
@@ -209,6 +211,7 @@ pub(super) fn settlement_power_plan(
     shaped: StockpileId,
     capacity_nj: u128,
     declared_work_nj: u128,
+    investment_policy: CapitalInvestmentPolicy,
 ) -> SettlementPowerPlan {
     let treadle_build = project_power_package(
         registries,
@@ -243,8 +246,8 @@ pub(super) fn settlement_power_plan(
         requested,
         "settlement walking wheel",
     );
-    let minimum_attention_return_ticks =
-        minimum_attention_return(treadle_build.attention_ticks, walking_build.attention_ticks);
+    let minimum_attention_return_ticks = investment_policy
+        .minimum_attention_return(treadle_build.attention_ticks, walking_build.attention_ticks);
     let decision_crossover_charges = first_candidate_preferred_charge(
         registries,
         treadle_route,
@@ -295,6 +298,7 @@ pub(super) fn settlement_power_plan(
         } else {
             SettlementPowerChoice::Treadle
         },
+        minimum_return_ppm: investment_policy.minimum_return_ppm(),
         capacity_nj,
         declared_work_nj,
         charge_events,
@@ -367,6 +371,7 @@ pub(super) fn primitive_power_plan(
     raw: StockpileId,
     shaped: StockpileId,
     project: PrimitivePowerProject,
+    investment_policy: CapitalInvestmentPolicy,
 ) -> PrimitivePowerPlan {
     let crank_build = project_power_package(
         registries,
@@ -450,8 +455,8 @@ pub(super) fn primitive_power_plan(
         crank_route.project_lifecycle_batches(registries, consumer_order.batches());
     let treadle_lifecycle =
         treadle_route.project_lifecycle_batches(registries, consumer_order.batches());
-    let minimum_attention_return_ticks =
-        minimum_attention_return(crank_build.attention_ticks, treadle_build.attention_ticks);
+    let minimum_attention_return_ticks = investment_policy
+        .minimum_attention_return(crank_build.attention_ticks, treadle_build.attention_ticks);
     let decision_crossover_charges = first_candidate_preferred_charge(
         registries,
         crank_route,
@@ -495,6 +500,7 @@ pub(super) fn primitive_power_plan(
         } else {
             PrimitivePowerChoice::Crank
         },
+        minimum_return_ppm: investment_policy.minimum_return_ppm(),
         store_definition: project.store_definition,
         capacity_nj: project.capacity_nj,
         declared_work_nj: project.declared_work_nj,

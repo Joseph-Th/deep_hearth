@@ -34,6 +34,11 @@ throughput, capacity, condition, and acquired evidence. Production owns legality
 candidate generation, ranking, search order, stopping rules, and policy ties. Shared harness helpers may implement
 that evaluation policy but do not gain simulation authority.
 
+Choice-rich organic probes keep physical-world and actor-policy roots independent. Maintained witnesses use the
+baseline policy; organic/replay cases may vary bounded preferences such as investment tolerance without changing
+world generation, authored rules, production projections, or action legality. Reports expose the applied policy
+so a cold agent can distinguish world pressure from actor preference.
+
 When production exposes a player/UI planner for an ordinary choice, the harness uses that planner instead of
 reconstructing its selection rules. Explicit lot selection remains valid only when the physical lot is itself a
 meaningful player choice. Repeated stateful projections carry each production result into the next step; never

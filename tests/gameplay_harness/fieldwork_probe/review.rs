@@ -17,7 +17,7 @@ use deep_hearth::spatial::VoxelBounds;
 use super::super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::super::focused_witnesses::FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED;
 use super::super::physical_time::format_physical_duration;
-use super::campaign::{FieldworkSurveyCampaignReview, MINIMUM_SURVEY_INVESTMENT_RETURN_PPM};
+use super::campaign::FieldworkSurveyCampaignReview;
 use super::extraction::{
     FieldworkExtraction, FieldworkExtractionOrder, FieldworkStop, execute_fieldwork_extraction,
 };
@@ -514,7 +514,7 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
         campaign.planned_sites,
         campaign.upgrade_available,
         campaign.selected_strategy.label(),
-        MINIMUM_SURVEY_INVESTMENT_RETURN_PPM,
+        campaign.investment_policy.minimum_return_ppm(),
         campaign.projected_point_search_ticks,
         indexed_projection,
         campaign.baseline_search_ticks,

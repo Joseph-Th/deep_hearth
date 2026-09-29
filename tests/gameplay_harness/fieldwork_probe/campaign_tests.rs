@@ -23,26 +23,43 @@ fn maintained_fieldwork_witnesses_span_campaign_horizons() {
 
 #[test]
 fn survey_investment_requires_a_material_disclosed_attention_payoff() {
+    let policy = FieldworkSurveyPolicy::baseline();
     assert_eq!(
-        select_survey_strategy(102, Some(118)),
+        select_survey_strategy(102, Some(118), policy),
         FieldworkSurveyStrategy::PointSearch
     );
     assert_eq!(
-        select_survey_strategy(204, Some(196)),
+        select_survey_strategy(204, Some(196), policy),
         FieldworkSurveyStrategy::PointSearch,
         "an eight-tick expected gain is too small to justify scarce-copper survey capital"
     );
     assert_eq!(
-        select_survey_strategy(306, Some(274)),
+        select_survey_strategy(306, Some(274), policy),
         FieldworkSurveyStrategy::IndexedChannel,
         "a three-site campaign clears the minimum expected-return threshold"
     );
     assert_eq!(
-        select_survey_strategy(196, Some(196)),
+        select_survey_strategy(196, Some(196), policy),
         FieldworkSurveyStrategy::PointSearch
     );
     assert_eq!(
-        select_survey_strategy(204, None),
+        select_survey_strategy(204, None, policy),
+        FieldworkSurveyStrategy::PointSearch
+    );
+}
+
+#[test]
+fn behavior_seed_varies_survey_investment_tolerance_without_changing_physics() {
+    let eager = FieldworkSurveyPolicy::from_behavior_seed(0);
+    let cautious = FieldworkSurveyPolicy::from_behavior_seed(50_000);
+    assert_eq!(eager.minimum_return_ppm(), 75_000);
+    assert_eq!(cautious.minimum_return_ppm(), 125_000);
+    assert_eq!(
+        select_survey_strategy(306, Some(274), eager),
+        FieldworkSurveyStrategy::IndexedChannel
+    );
+    assert_eq!(
+        select_survey_strategy(306, Some(274), cautious),
         FieldworkSurveyStrategy::PointSearch
     );
 }
@@ -66,6 +83,7 @@ fn three_site_survey_decision_respects_both_expected_return_and_upgrade_supply()
         funded.parts,
         funded.channel_voxels,
         3,
+        FieldworkSurveyPolicy::baseline(),
     );
     assert_eq!(
         funded_decision.selected_strategy,
@@ -92,6 +110,7 @@ fn three_site_survey_decision_respects_both_expected_return_and_upgrade_supply()
         unfunded.parts,
         unfunded.channel_voxels,
         3,
+        FieldworkSurveyPolicy::baseline(),
     );
     assert_eq!(
         unfunded_decision.selected_strategy,
