@@ -1,11 +1,8 @@
 //! Replayable seed selection for anchored plus bounded-variation gameplay probes.
 
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
-
-#[path = "focused_case.rs"]
-mod focused_case;
-pub(super) use focused_case::{FocusedProbeCase, FocusedProbeRole};
 
 pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
@@ -136,9 +133,10 @@ fn behavior_seed(root: u64, probe_salt: u64, index: usize) -> u64 {
         .unwrap_or_else(|_| unreachable!("focused behavior variation index fits u64"));
     let mixed =
         mix64(root ^ probe_salt.rotate_left(31) ^ ordinal.wrapping_mul(0x9E37_79B9_7F4A_7C15));
-    // Keep almost all actor entropy fresh while deliberately stratifying one generic behavior bit.
-    // Exploratory focused probes use a small organic set, so this prevents the bounded sample from
-    // accidentally collapsing to one binary preference without coupling physical world generation
-    // to actor behavior. The root controls which stratum appears first and remains fully replayable.
-    (mixed & !1) | ((root ^ ordinal) & 1)
+    // Keep almost all actor entropy fresh while deliberately stratifying the two low policy bits.
+    // Four-case exploratory reports therefore cover all combinations used by simple binary actor
+    // preferences (for example diet and work-hydration policy) without coupling physical world
+    // generation to actor behavior. The root rotates the stratum order and remains replayable.
+    let stratum = root.wrapping_add(ordinal - 1) & 0b11;
+    (mixed & !0b11) | stratum
 }

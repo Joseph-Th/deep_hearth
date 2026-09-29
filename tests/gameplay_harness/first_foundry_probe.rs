@@ -31,7 +31,7 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_seeds::FocusedProbeCase;
+use super::focused_case::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
@@ -196,8 +196,15 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let (frame_saw, treadle_hammer, treadle_drive) =
         seed_prior_settlement_workshop(registries, &mut state);
     let workshop_tools = [frame_saw, treadle_hammer];
-    let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(25_000_000));
-    let parts = add_solid_stockpile(&mut state, Mass::from_milligrams(25_000_000));
+    let raw_capacity = FOUNDRY_STONE_OPPORTUNITY
+        .checked_add(FOUNDRY_WOOD_OPPORTUNITY)
+        .and_then(|mass| mass.checked_add(native_opportunity))
+        .and_then(|mass| mass.checked_add(inherited_ore.mass))
+        .unwrap_or_else(|| panic!("first foundry disclosed raw opportunity overflowed"));
+    let raw = add_solid_stockpile(&mut state, raw_capacity);
+    // Component fabrication only redistributes finite disclosed raw matter. Keep this plumbing
+    // buffer large enough for any authored component mix without introducing a second hidden cap.
+    let parts = add_solid_stockpile(&mut state, raw_capacity);
     let owned_ore = add_solid_stockpile(&mut state, inherited_ore.mass);
     let recovery_crushed = add_solid_stockpile(&mut state, inherited_ore.mass);
     let recovery_residue = add_solid_stockpile(&mut state, inherited_ore.mass);

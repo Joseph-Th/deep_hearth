@@ -6,6 +6,8 @@ mod capital_investment_policy;
 mod catalog;
 #[path = "gameplay_harness/configuration.rs"]
 mod configuration;
+#[path = "gameplay_harness/focused_case.rs"]
+mod focused_case;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
 #[path = "gameplay_harness/manual_craft_selection.rs"]

@@ -6,9 +6,10 @@ use std::env;
 use deep_hearth::content::build_registries;
 use deep_hearth::registry::Registries;
 
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_seeds::{
-    EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
-    focused_probe_cases_from, probe_uses_behavior_seed,
+    EXPLORATORY_VARIATION_COUNT, FocusedProbeSeedPlan, focused_probe_cases_from,
+    probe_uses_behavior_seed,
 };
 use super::focused_witnesses::{
     FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED,

@@ -24,7 +24,7 @@ use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::assess_survival;
 
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_seeds::FocusedProbeCase;
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_ore_recovery::ManualOreRecoveryPlan;
 use super::manual_ore_recovery_evaluation::evaluate_manual_ore_recovery;
 use super::ore_fixture::copper_ore_composition;
@@ -277,12 +277,10 @@ fn state_mass(bootstrap: &PrimitiveLiberationBootstrap, state: &AppState) -> Mas
 
 fn disclosed_campaign_batches(case: FocusedProbeCase) -> u64 {
     match case.role() {
-        super::focused_seeds::FocusedProbeRole::MaintainedAnchor
-        | super::focused_seeds::FocusedProbeRole::MaintainedCoverage => {
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
             PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES
         }
-        super::focused_seeds::FocusedProbeRole::OrganicVariation
-        | super::focused_seeds::FocusedProbeRole::ExplicitReplay => {
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
             PRIMITIVE_LIBERATION_CAMPAIGN_BATCHES + mix64(case.seed() ^ 0x4C49_4245_5248_4F52) % 2
         }
     }

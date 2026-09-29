@@ -4,10 +4,11 @@ use std::num::NonZeroU64;
 
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
-    EQUIPMENT_STONE_WOODWORKING_ADZE, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, FORM_BOARD, FORM_CHIP,
-    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_COLD_WORK_COPPER_SAW_BLADE, PROCESS_KNAP_STONE_TOOL, PROCESS_SAW_WOOD_BOARDS,
-    PROCESS_SHAPE_WOOD_BOARDS,
+    EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE, EQUIPMENT_STONE_WOODWORKING_ADZE,
+    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, FORM_BOARD, FORM_CHIP, FORM_LOG, FORM_LUMP,
+    FORM_NATIVE_METAL, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_SAW_BLADE,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_BOARDS,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -25,7 +26,7 @@ use deep_hearth::registry::Registries;
 use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
 use super::manual_craft_batches::execute_manual_craft_batches;

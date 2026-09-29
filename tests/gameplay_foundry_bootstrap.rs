@@ -10,6 +10,8 @@ mod environment;
 mod equipment_support;
 #[path = "gameplay_harness/first_foundry_probe.rs"]
 mod first_foundry_probe;
+#[path = "gameplay_harness/focused_case.rs"]
+mod focused_case;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
@@ -77,8 +79,27 @@ fn manual_recovery_planning_respects_runtime_sort_batch_rounding() {
         runtime_batched > single_group,
         "multi-batch planning must not reuse the optimistic one-group recovery bound"
     );
-    assert_eq!(
+    let recovered = manual_ore_recovery_planning::projected_batched_recovery(
+        sorting,
         runtime_batched,
-        deep_hearth::core::quantity::Mass::from_milligrams(288_208)
+        copper_ppm,
+    )
+    .unwrap_or_else(|| panic!("batch-aware recovery projection overflowed"));
+    assert!(
+        recovered >= target,
+        "planned feed must recover the requested copper"
+    );
+    let previous_feed = runtime_batched
+        .checked_sub(deep_hearth::core::quantity::Mass::from_milligrams(1))
+        .unwrap_or_else(|| panic!("nonzero batch-aware feed lost its predecessor"));
+    let previous_recovered = manual_ore_recovery_planning::projected_batched_recovery(
+        sorting,
+        previous_feed,
+        copper_ppm,
+    )
+    .unwrap_or_else(|| panic!("predecessor recovery projection overflowed"));
+    assert!(
+        previous_recovered < target,
+        "batch-aware planner must return the smallest sufficient feed"
     );
 }

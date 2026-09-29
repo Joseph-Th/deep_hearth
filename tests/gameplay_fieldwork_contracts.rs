@@ -1,35 +1,56 @@
-//! Focused fieldwork gameplay target for the fast edit/test loop.
+//! Fieldwork contracts isolated from the play-like probe binary for fast exact reruns.
 
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
 macro_rules! include_fieldwork_contract_tests {
-    () => {};
+    () => {
+        #[path = "fieldwork_probe/planning_tests.rs"]
+        mod planning_tests;
+        #[path = "fieldwork_probe/retooling_tests.rs"]
+        mod retooling_tests;
+        #[path = "fieldwork_probe/supply_tests.rs"]
+        mod supply_tests;
+    };
 }
 macro_rules! include_fieldwork_campaign_contract_tests {
-    () => {};
+    () => {
+        #[path = "campaign_tests.rs"]
+        mod tests;
+    };
 }
 macro_rules! include_fieldwork_recovery_contract_tests {
-    () => {};
+    () => {
+        #[path = "recovery_tests.rs"]
+        mod tests;
+    };
 }
 
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[allow(
     dead_code,
-    reason = "focused target intentionally omits other consumers of shared equipment helpers"
+    reason = "contract target intentionally omits unrelated consumers of shared equipment helpers"
 )]
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
+#[allow(
+    dead_code,
+    reason = "contract target exercises fieldwork internals without invoking the play-like probe entrypoint"
+)]
 #[path = "gameplay_harness/fieldwork_probe.rs"]
 mod fieldwork_probe;
+#[allow(
+    dead_code,
+    reason = "contract cases use explicit replay roles without exercising the full focused sampling vocabulary"
+)]
 #[path = "gameplay_harness/focused_case.rs"]
 mod focused_case;
-#[path = "gameplay_harness/focused_runner.rs"]
-mod focused_runner;
-#[path = "gameplay_harness/focused_seeds.rs"]
-mod focused_seeds;
+#[allow(
+    dead_code,
+    reason = "fieldwork contracts import the maintained witness catalog for explicit contract cases"
+)]
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
 #[path = "gameplay_harness/inventory_support.rs"]
@@ -48,7 +69,7 @@ mod manual_craft_selection;
 mod manual_craft_topology_planning;
 #[allow(
     dead_code,
-    reason = "focused target uses only the execution half of shared ore-recovery support"
+    reason = "contract target uses only the fieldwork execution subset of shared ore-recovery support"
 )]
 #[path = "gameplay_harness/manual_ore_recovery.rs"]
 mod manual_ore_recovery;
@@ -64,15 +85,10 @@ mod primitive_workload;
 mod production_timing;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
-#[path = "gameplay_harness/seed.rs"]
+#[path = "gameplay_harness/seed_mix.rs"]
 mod seed;
-#[path = "gameplay_harness/seed_input.rs"]
-mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 
-#[cfg(test)]
-#[test]
-fn gameplay_fieldwork_probe() {
-    focused_runner::run_focused_probe("fieldwork", fieldwork_probe::run_fieldwork_probe);
-}
+#[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
+mod prospecting_instrument_contract_tests;

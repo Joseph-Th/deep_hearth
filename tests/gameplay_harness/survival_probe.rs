@@ -41,7 +41,7 @@ use deep_hearth::survival::{
 };
 
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_seeds::FocusedProbeCase;
+use super::focused_case::FocusedProbeCase;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::physical_time::format_physical_duration;

@@ -774,7 +774,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=GAMEPLAY_SCOPES,
         metavar="SCOPE",
         help=(
-            "run gameplay verification; gate accepts contracts or one focused scope, while audit "
+            "run gameplay verification; gate accepts shared contracts or one focused scope, while audit "
             "accepts omitted SCOPE/all for every maintained gameplay target"
         ),
     )

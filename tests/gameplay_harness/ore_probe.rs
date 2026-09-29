@@ -1,7 +1,7 @@
 //! Focused ore-preparation capability probe.
 
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::ORE_FINITE_ENERGY_COVERAGE_SEED;
 use super::material_selection::select_stockpile_mass;
 use super::ore_setup::{OrePreparationProbeIds, OrePreparationSetup, setup_ore_preparation_probe};

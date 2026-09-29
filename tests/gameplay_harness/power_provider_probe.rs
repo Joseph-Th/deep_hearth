@@ -32,7 +32,7 @@ use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
 #[cfg(not(test))]
 use super::equipment_support::pristine_equipment_capability;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
@@ -148,7 +148,7 @@ fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyS
         process.specific_energy(),
     );
 
-    registries
+    let candidates = registries
         .energy()
         .definitions()
         .filter(|definition| {
@@ -162,24 +162,40 @@ fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyS
                     })
                 })
         })
-        .min_by_key(|definition| {
-            (
+        .map(|definition| {
+            let key = (
                 definition.capacity().nanojoules(),
                 definition
                     .assembly_profile()
                     .map(|assembly| assembly.input_mass().milligrams())
                     .unwrap_or(u64::MAX),
-                definition.id().value(),
-            )
+            );
+            (definition.id(), key)
         })
-        .map(|definition| definition.id())
+        .collect::<Vec<_>>();
+    let best_key = candidates
+        .iter()
+        .map(|(_, key)| *key)
+        .min()
         .unwrap_or_else(|| {
             panic!(
                 "no ordinary copper-free mechanical accumulator can fund one pristine crusher batch of {}mg requiring {}nJ",
                 maximum_batch.milligrams(),
                 required.nanojoules(),
             )
-        })
+        });
+    let mut best = candidates
+        .into_iter()
+        .filter(|(_, key)| *key == best_key)
+        .map(|(definition, _)| definition);
+    let selected = best
+        .next()
+        .unwrap_or_else(|| unreachable!("best accumulator key came from one candidate"));
+    assert!(
+        best.next().is_none(),
+        "ordinary copper-free accumulators are physically tied at the actor's minimum capacity/material key; author an observable preference instead of using definition identity"
+    );
+    selected
 }
 
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
@@ -194,13 +210,18 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let mut state = AppState::new();
     // Raw gathered nature only: every shaped component below is player-crafted through
     // canonical manual production, so build attention and material costs are earned.
-    let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(60_000_000));
+    let primitive_stone_supply = Mass::from_milligrams(30_000_000);
+    let primitive_wood_supply = Mass::from_milligrams(30_000_000);
+    let primitive_raw_capacity = primitive_stone_supply
+        .checked_add(primitive_wood_supply)
+        .unwrap_or_else(|| panic!("primitive power raw opportunity overflowed"));
+    let raw = add_solid_stockpile(&mut state, primitive_raw_capacity);
     seed_lot(
         registries,
         &mut state,
         raw,
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        Mass::from_milligrams(30_000_000),
+        primitive_stone_supply,
         ROOM_TEMPERATURE,
     );
     seed_lot(
@@ -208,17 +229,15 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &mut state,
         raw,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(30_000_000),
+        primitive_wood_supply,
         ROOM_TEMPERATURE,
     );
     let primitive_feed = add_solid_stockpile(&mut state, primitive_project_mass);
     let primitive_output = add_solid_stockpile(&mut state, primitive_project_mass);
-    let primitive_service_replacement =
-        add_solid_stockpile(&mut state, Mass::from_milligrams(15_000_000));
-    let primitive_service_spent =
-        // Keep the spent sink finite but large enough for the bounded starter-workshop campaign so this probe
-        // measures provider/maintenance lifecycle rather than an unrelated waste-bin ceiling.
-        add_solid_stockpile(&mut state, Mass::from_milligrams(20_000_000));
+    // Service and shaping buffers are not the pressure under test. Bound them by the finite raw
+    // opportunity so authored maintenance/component changes cannot create an unrelated fixture cap.
+    let primitive_service_replacement = add_solid_stockpile(&mut state, primitive_raw_capacity);
+    let primitive_service_spent = add_solid_stockpile(&mut state, primitive_raw_capacity);
     let primitive_provisions = seed_power_project_provisions(registries, &mut state);
     seed_composed_lot(
         registries,
@@ -229,7 +248,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         ROOM_TEMPERATURE,
         copper_ore_composition(350_000, 200_000),
     );
-    let shaped = add_solid_stockpile(&mut state, Mass::from_milligrams(40_000_000));
+    let shaped = add_solid_stockpile(&mut state, primitive_raw_capacity);
     super::world_admission::locate_stationary_endpoints(
         &mut state,
         &[
@@ -288,14 +307,20 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let (settlement_project_mass, settlement_project_work) =
         declared_settlement_lumber_project(registries, seed);
     let mut settlement_state = AppState::new();
-    let settlement_raw =
-        add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(61_000_000));
+    let settlement_stone_supply = Mass::from_milligrams(30_000_000);
+    let settlement_wood_supply = Mass::from_milligrams(30_000_000);
+    let settlement_copper_supply = Mass::from_milligrams(1_000_000);
+    let settlement_raw_capacity = settlement_stone_supply
+        .checked_add(settlement_wood_supply)
+        .and_then(|mass| mass.checked_add(settlement_copper_supply))
+        .unwrap_or_else(|| panic!("settlement power raw opportunity overflowed"));
+    let settlement_raw = add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
     seed_lot(
         registries,
         &mut settlement_state,
         settlement_raw,
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        Mass::from_milligrams(30_000_000),
+        settlement_stone_supply,
         ROOM_TEMPERATURE,
     );
     seed_lot(
@@ -303,7 +328,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &mut settlement_state,
         settlement_raw,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(30_000_000),
+        settlement_wood_supply,
         ROOM_TEMPERATURE,
     );
     seed_lot(
@@ -314,7 +339,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         // Keep sawmill blade-service copper finite but sufficiently funded so this provider probe reaches
         // its bounded settlement workload
         // instead of turning into a separate copper-depletion episode.
-        Mass::from_milligrams(1_000_000),
+        settlement_copper_supply,
         ROOM_TEMPERATURE,
     );
     let settlement_feed = add_solid_stockpile(&mut settlement_state, settlement_project_mass);
@@ -326,13 +351,12 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_project_mass,
         ROOM_TEMPERATURE,
     );
-    let settlement_shaped =
-        add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(50_000_000));
+    let settlement_shaped = add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
     let settlement_output = add_solid_stockpile(&mut settlement_state, settlement_project_mass);
     let settlement_service_replacement =
-        add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(1_000_000));
+        add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
     let settlement_service_spent =
-        add_solid_stockpile(&mut settlement_state, Mass::from_milligrams(1_000_000));
+        add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
     let settlement_provisions = seed_power_project_provisions(registries, &mut settlement_state);
     super::world_admission::locate_stationary_endpoints(
         &mut settlement_state,

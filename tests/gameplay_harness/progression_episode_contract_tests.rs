@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use deep_hearth::content::build_registries;
 
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::progression_probe::{
     DEEP_OPPORTUNITY_MIN_BATCHES, MARGINAL_OPPORTUNITY_MAX_BATCHES,
     MARGINAL_OPPORTUNITY_MIN_BATCHES, PrimitivePriority, PrimitiveReinvestmentOutcome,

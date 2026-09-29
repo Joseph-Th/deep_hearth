@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::{nominal_equipment_mass_capability, pristine_equipment_capability};
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::maintenance_timing::finish_active_equipment_maintenance;
 use super::manual_assembly_planning::project_manual_assembly_package;

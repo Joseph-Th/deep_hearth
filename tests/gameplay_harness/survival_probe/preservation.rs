@@ -210,17 +210,27 @@ pub(super) fn preservation_raw_opportunity(
     }
 
     let choice_rich = timber.len() > 1 && !mix64(seed ^ 0x5052_4553_4348_4F49).is_multiple_of(4);
-    let selected = if choice_rich {
+    let target_raw_mass_mg = if choice_rich {
         timber
-            .into_iter()
-            .max_by_key(|(definition, _, raw_mass, _)| (raw_mass.milligrams(), *definition))
-            .unwrap_or_else(|| unreachable!("timber opportunities are nonempty"))
+            .iter()
+            .map(|(_, _, raw_mass, _)| raw_mass.milligrams())
+            .max()
     } else {
         timber
-            .into_iter()
-            .min_by_key(|(definition, _, raw_mass, _)| (raw_mass.milligrams(), *definition))
-            .unwrap_or_else(|| unreachable!("timber opportunities are nonempty"))
-    };
+            .iter()
+            .map(|(_, _, raw_mass, _)| raw_mass.milligrams())
+            .min()
+    }
+    .unwrap_or_else(|| unreachable!("timber opportunities are nonempty"));
+    let tied = timber
+        .into_iter()
+        .filter(|(_, _, raw_mass, _)| raw_mass.milligrams() == target_raw_mass_mg)
+        .collect::<Vec<_>>();
+    let tie_index = usize::try_from(
+        mix64(seed ^ 0x5052_4553_5449_4542) % u64::try_from(tied.len()).unwrap_or(u64::MAX),
+    )
+    .unwrap_or_else(|_| unreachable!("bounded timber opportunity tie fits usize"));
+    let selected = tied[tie_index];
     let (origin, available, _, _) = selected;
     let opportunity = PreservationRawOpportunity {
         origin: *origin,

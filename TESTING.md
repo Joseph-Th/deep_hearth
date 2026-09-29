@@ -13,13 +13,13 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
-| Gameplay contracts | `python ci.py gate --gameplay contracts` |
+| Shared gameplay contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Compile-only proof when no executable test fits | `python ci.py gate` |
 
 Routine iteration is `quick` while editing, then **one** build-producing proof. A passing Rust test is compile proof for its target. Use the default `gate` only when no executable test fits or a production-only cfg path changed. Do not stack an exact unit test and focused gameplay for the same claim.
 
-Use `python tools/run_test.py --list <substring>` for build-free discovery and the printed `repair:` command after failures. `run_test.py` owner-shards exact and single-owner suites; switching owners selects another Rust artifact, so keep one repair loop on one owner. Cargo check/test artifacts also differ, so do not precheck an executable test.
+Use `python tools/run_test.py --list <substring>` for build-free discovery and the printed `repair:` command after failures. `run_test.py` owner-shards exact and single-owner suites because a one-file local rebuild is materially cheaper than recompiling the complete library test artifact. Switching owners selects another Rust artifact, so keep one repair loop on the owner being changed. Cargo check/test artifacts also differ, so do not precheck an executable test.
 
 ## Escalation lanes
 
@@ -82,7 +82,9 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused probes own nearby contracts when they compile nearly the same harness graph; use a separate contract target only when materially narrower. Gameplay targets share one `test-gameplay` feature shape. Reports use examples and keep report-only formatting out of tests when measurement justifies the split.
+Focused probes own nearby contracts when compiling them does not materially enlarge the common edit artifact. Fieldwork and woodworking keep larger internal contract suites separate so the ordinary player-level probes stay small; progression and ore likewise keep materially narrower contract targets. Gameplay targets share one `test-gameplay` feature shape. Reports use examples and keep report-only formatting out of tests when measurement justifies the split.
+
+`gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 
 Routine gameplay verification combines maintained witnesses with one fresh replayable organic case. Reports use four organic cases plus broader agency search. Failures print replay roots. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 

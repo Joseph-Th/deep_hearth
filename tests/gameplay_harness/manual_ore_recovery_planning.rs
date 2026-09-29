@@ -29,7 +29,7 @@ fn maximum_recoverable_target(
     Mass::from_milligrams(lower)
 }
 
-fn projected_batched_recovery(
+pub(super) fn projected_batched_recovery(
     sorting: ManualConstituentSeparationProcessDefinition,
     feed: Mass,
     constituent_ppm: u32,

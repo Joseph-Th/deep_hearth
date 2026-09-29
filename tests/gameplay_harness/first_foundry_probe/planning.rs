@@ -16,7 +16,7 @@ use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 
-use super::super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::seed::mix64;
 use super::super::workshop_craft_planning::manual_craft_plan_with_available_equipment;

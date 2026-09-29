@@ -4,7 +4,7 @@ use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::survival::initialize_player_survival;
 
 use super::super::environment::ROOM_TEMPERATURE;
-use super::super::focused_seeds::FocusedProbeRole;
+use super::super::focused_case::FocusedProbeRole;
 use super::super::inventory_support::add_solid_stockpile;
 use super::extraction::{FieldworkOrderAdaptation, FieldworkStop};
 use super::*;

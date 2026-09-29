@@ -34,10 +34,18 @@ throughput, capacity, condition, and acquired evidence. Production owns legality
 candidate generation, ranking, search order, stopping rules, and policy ties. Shared harness helpers may implement
 that evaluation policy but do not gain simulation authority.
 
-Choice-rich organic probes keep physical-world and actor-policy roots independent. Maintained witnesses use the
-baseline policy; organic/replay cases may vary bounded preferences such as investment tolerance without changing
-world generation, authored rules, production projections, or action legality. Reports expose the applied policy
-so a cold agent can distinguish world pressure from actor preference.
+Controlled setup owns scenario pressure, not copied game facts. Auxiliary fixture capacities that are not the
+pressure under evaluation derive from the disclosed finite resource/workload envelope or authored definitions;
+they must not become hidden blockers when content is retuned. Scenario generators may vary authored opportunities
+by replayable seed, but equal physical opportunities are not resolved by registry identity when that would change
+the generated world.
+
+Choice-rich organic probes keep physical-world and actor-policy roots independent. Maintained witnesses use a
+stable deterministic policy attached to the maintained case; coverage witnesses may intentionally exercise a
+different bounded preference when the actor-choice boundary is part of the contract. Organic/replay cases derive
+policy from the independent behavior root without changing world generation, authored rules, production
+projections, or action legality. Reports expose the applied policy so a cold agent can distinguish world pressure
+from actor preference.
 
 When production exposes a player/UI planner for an ordinary choice, the harness uses that planner instead of
 reconstructing its selection rules. Explicit lot selection remains valid only when the physical lot is itself a

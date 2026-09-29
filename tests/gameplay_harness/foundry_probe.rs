@@ -7,7 +7,7 @@ mod reporting;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED;
 use super::foundry_setup::{FoundryIds, FoundrySetup, setup_foundry_probe};
 use super::material_selection::select_stockpile_mass;

@@ -5,14 +5,13 @@
 mod output;
 
 macro_rules! include_woodworking_policy_contract_tests {
-    () => {
-        #[path = "woodworking_policy_tests.rs"]
-        mod tests;
-    };
+    () => {};
 }
 
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
+#[path = "gameplay_harness/focused_case.rs"]
+mod focused_case;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
@@ -45,11 +44,6 @@ mod woodworking_policy;
 mod woodworking_probe;
 #[path = "gameplay_harness/world_admission.rs"]
 mod world_admission;
-
-#[path = "gameplay_harness/saw_bench_contract_tests.rs"]
-mod saw_bench_contract_tests;
-#[path = "gameplay_harness/woodworking_contract_tests.rs"]
-mod woodworking_contract_tests;
 
 #[cfg(test)]
 #[test]

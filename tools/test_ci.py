@@ -33,7 +33,9 @@ from tools import (  # noqa: E402
 _source_text_cache: dict[Path, str] = {}
 _maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
 
-DEDICATED_OWNER_CONTRACT_SCOPES = frozenset({"progression", "ore"})
+DEDICATED_OWNER_CONTRACT_SCOPES = frozenset(
+    {"progression", "woodworking", "fieldwork", "ore"}
+)
 
 
 def owner_contract_target(scope: str) -> str:
@@ -1369,12 +1371,12 @@ unknown_macro!();
             "workshop": "workshop_contract_tests::",
             "survival": "survival_contract_tests::",
             "settlement": "settlement_wire_contract_tests::",
-            "woodworking": "woodworking_contract_tests::",
-            "fieldwork": "prospecting_instrument_contract_tests::",
             "foundry": "foundry_contract_tests::",
         }
         dedicated_contract_prefixes = {
             "progression": "progression_contract_tests::",
+            "woodworking": "woodworking_contract_tests::",
+            "fieldwork": "prospecting_instrument_contract_tests::",
             "ore": "ore_contract_tests::",
         }
 

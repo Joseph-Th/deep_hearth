@@ -14,7 +14,7 @@ fn replay(seed: u64) -> FocusedProbeCase {
     FocusedProbeCase::new(
         seed,
         None,
-        super::super::focused_seeds::FocusedProbeRole::ExplicitReplay,
+        super::super::focused_case::FocusedProbeRole::ExplicitReplay,
     )
 }
 
@@ -244,29 +244,18 @@ fn exact_batch_exhaustion_stops_on_canonical_target_refresh() {
 fn exact_hidden_reserve_inside_same_acquired_band_cannot_change_pre_action_plan() {
     let registries = deep_hearth::content::build_registries();
     let requested = Mass::from_milligrams(20_000_000);
-    let lower = run_fieldwork_with_supply(
-        &registries,
-        replay(1),
-        requested,
-        Mass::from_milligrams(4_100_000),
-    );
-    let upper = run_fieldwork_with_supply(
-        &registries,
-        replay(1),
-        requested,
-        Mass::from_milligrams(4_900_000),
-    );
+    let lower_supply = Mass::from_milligrams(4_100_000);
+    let upper_supply = Mass::from_milligrams(4_900_000);
+    let lower = run_fieldwork_with_supply(&registries, replay(1), requested, lower_supply);
+    let upper = run_fieldwork_with_supply(&registries, replay(1), requested, upper_supply);
 
     assert_eq!(lower.observed_resource_mass, upper.observed_resource_mass);
+    assert!(lower.observed_resource_mass.lower() <= lower_supply);
+    assert!(upper_supply <= lower.observed_resource_mass.upper());
     assert_eq!(
-        lower.observed_resource_mass.lower(),
-        Mass::from_milligrams(4_000_000)
+        lower.planned_local_mass,
+        lower.observed_resource_mass.upper()
     );
-    assert_eq!(
-        lower.observed_resource_mass.upper(),
-        Mass::from_milligrams(5_000_000)
-    );
-    assert_eq!(lower.planned_local_mass, Mass::from_milligrams(5_000_000));
     assert_eq!(lower.planned_local_mass, upper.planned_local_mass);
     assert_eq!(lower.observed_hardness, upper.observed_hardness);
     assert_eq!(lower.tool, upper.tool);

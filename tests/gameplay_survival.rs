@@ -8,6 +8,8 @@ mod output;
 mod direct_consumption_timing;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
+#[path = "gameplay_harness/focused_case.rs"]
+mod focused_case;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]

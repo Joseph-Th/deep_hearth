@@ -14,7 +14,7 @@ use deep_hearth::mining::{
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelBounds;
 
-use super::super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::focused_witnesses::FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED;
 use super::super::physical_time::format_physical_duration;
 use super::campaign::FieldworkSurveyCampaignReview;

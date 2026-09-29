@@ -13,8 +13,9 @@ use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::material::CommodityKey;
 
+use super::focused_case::FocusedProbeRole;
 use super::focused_seeds::{
-    EXPLORATORY_VARIATION_COUNT, FocusedProbeRole, FocusedProbeSeedPlan, focused_probe_cases_from,
+    EXPLORATORY_VARIATION_COUNT, FocusedProbeSeedPlan, focused_probe_cases_from,
 };
 use super::preservation_route::{
     is_disclosed_preservation_raw_material, preservation_construction_plan,

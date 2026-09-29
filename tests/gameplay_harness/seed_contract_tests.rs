@@ -1,7 +1,8 @@
 //! Contract tests for replay-seed parsing and focused-probe planning.
 
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_seeds::{
-    EXPLORATORY_VARIATION_COUNT, FocusedProbeRole, FocusedProbeSeedError, FocusedProbeSeedPlan,
+    EXPLORATORY_VARIATION_COUNT, FocusedProbeSeedError, FocusedProbeSeedPlan,
     focused_probe_cases_from as build_focused_probe_cases, probe_uses_behavior_seed,
 };
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
@@ -14,7 +15,7 @@ fn focused_probe_cases_from(
     maintained_coverage_seeds: &[u64],
     probe_salt: u64,
     default_variation_root: u64,
-) -> Result<Vec<super::focused_seeds::FocusedProbeCase>, FocusedProbeSeedError> {
+) -> Result<Vec<FocusedProbeCase>, FocusedProbeSeedError> {
     build_focused_probe_cases(FocusedProbeSeedPlan {
         variation_count,
         scenario_raw,
@@ -325,7 +326,7 @@ fn focused_plan_without_actor_channel_contains_no_behavior_seed() {
 }
 
 #[test]
-fn exploratory_actor_cases_stratify_one_behavior_bit_without_changing_worlds() {
+fn exploratory_actor_cases_stratify_two_behavior_bits_without_changing_worlds() {
     let cases = build_focused_probe_cases(FocusedProbeSeedPlan {
         variation_count: EXPLORATORY_VARIATION_COUNT,
         scenario_raw: None,
@@ -346,15 +347,17 @@ fn exploratory_actor_cases_stratify_one_behavior_bit_without_changing_worlds() {
 
     assert_eq!(organic.len(), EXPLORATORY_VARIATION_COUNT);
     assert_ne!(organic[0].seed(), organic[1].seed());
-    assert_ne!(
-        organic[0]
-            .behavior_seed()
-            .unwrap_or_else(|| panic!("first organic actor seed missing"))
-            & 1,
-        organic[1]
-            .behavior_seed()
-            .unwrap_or_else(|| panic!("second organic actor seed missing"))
-            & 1,
-        "two-case exploratory actor sampling must span both binary behavior strata"
+    let strata = organic
+        .iter()
+        .map(|case| {
+            case.behavior_seed()
+                .unwrap_or_else(|| panic!("organic actor seed missing"))
+                & 0b11
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        strata,
+        std::collections::BTreeSet::from([0, 1, 2, 3]),
+        "four-case exploratory actor sampling must span both low-bit binary policy dimensions"
     );
 }

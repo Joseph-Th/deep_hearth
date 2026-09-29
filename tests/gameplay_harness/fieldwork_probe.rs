@@ -20,7 +20,7 @@ use deep_hearth::mining::{MiningOrderRequest, resolve_mining_order};
 use deep_hearth::registry::Registries;
 
 use super::equipment_support::pristine_equipment_capability;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED;
 use super::manual_assembly_planning::project_manual_assembly_package;
 use super::manual_craft_selection::plan_manual_craft_request;

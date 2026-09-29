@@ -76,8 +76,18 @@ path = "tests/gameplay_woodworking.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_woodworking_contracts"
+path = "tests/gameplay_woodworking_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_fieldwork"
 path = "tests/gameplay_fieldwork.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_fieldwork_contracts"
+path = "tests/gameplay_fieldwork_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]

@@ -27,7 +27,7 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
-use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::{plan_manual_craft_request, select_manual_craft_request};
 use super::manual_power_timing::finish_manual_power_work;
@@ -43,8 +43,10 @@ const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
 // harness to a barely-positive order. Organic 16..40-batch worlds still explore the decision edge;
 // this case demonstrates what the investment feels like once repeated work is genuinely present.
 const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 64;
-const SETTLEMENT_UPGRADE_WOOD_MG: u64 = 10_000_000;
-const SETTLEMENT_UPGRADE_COPPER_MG: u64 = 200_000;
+// Disclosed settlement opportunity rather than copied upgrade requirements. Actual setup inputs are
+// always planned from the authored sash-sawmill upgrade and live crafting routes below.
+const SETTLEMENT_UPGRADE_OPPORTUNITY_WOOD_MG: u64 = 10_000_000;
+const SETTLEMENT_UPGRADE_OPPORTUNITY_COPPER_MG: u64 = 200_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LumberInvestmentChoice {
@@ -309,9 +311,14 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     );
     let mut state = AppState::new();
     let bootstrap = seed_prior_workshop(registries, &mut state);
+    let upgrade_opportunity_capacity = Mass::from_milligrams(
+        SETTLEMENT_UPGRADE_OPPORTUNITY_WOOD_MG
+            .checked_add(SETTLEMENT_UPGRADE_OPPORTUNITY_COPPER_MG)
+            .unwrap_or_else(|| panic!("settlement upgrade opportunity overflowed")),
+    );
     let upgrade_raw = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(SETTLEMENT_UPGRADE_WOOD_MG + SETTLEMENT_UPGRADE_COPPER_MG),
+        upgrade_opportunity_capacity,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     seed_lot(
@@ -319,7 +326,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         &mut state,
         upgrade_raw,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(SETTLEMENT_UPGRADE_WOOD_MG),
+        Mass::from_milligrams(SETTLEMENT_UPGRADE_OPPORTUNITY_WOOD_MG),
         ROOM_TEMPERATURE,
     );
     seed_lot(
@@ -327,12 +334,12 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         &mut state,
         upgrade_raw,
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        Mass::from_milligrams(SETTLEMENT_UPGRADE_COPPER_MG),
+        Mass::from_milligrams(SETTLEMENT_UPGRADE_OPPORTUNITY_COPPER_MG),
         ROOM_TEMPERATURE,
     );
     let upgrade_parts = seed_stockpile(
         &mut state,
-        Mass::from_milligrams(12_000_000),
+        upgrade_opportunity_capacity,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     let work_source = seed_stockpile(
@@ -609,7 +616,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             .checked_sub(survival_after.hydration())
             .unwrap_or_else(|| panic!("settlement hydration reserve increased"))
             .microliters(),
-        SETTLEMENT_UPGRADE_WOOD_MG,
-        SETTLEMENT_UPGRADE_COPPER_MG,
+        SETTLEMENT_UPGRADE_OPPORTUNITY_WOOD_MG,
+        SETTLEMENT_UPGRADE_OPPORTUNITY_COPPER_MG,
     );
 }

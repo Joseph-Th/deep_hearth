@@ -10,9 +10,12 @@ mod capability_boundary;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "ore contracts use explicit cases without exercising the full focused sampling vocabulary"
+)]
 #[path = "gameplay_harness/focused_case.rs"]
-mod focused_seeds;
+mod focused_case;
 #[allow(dead_code)]
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;

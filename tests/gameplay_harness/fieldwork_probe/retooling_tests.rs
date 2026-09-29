@@ -309,6 +309,7 @@ fn owned_ore_specialization_can_pay_back_before_the_current_tool_is_blocked() {
         CHANNEL_START_X,
         FieldworkSurveyStrategy::PointSearch,
     );
+    let seed_extraction_mass = Mass::from_milligrams(300_000);
     let extraction = execute_fieldwork_extraction(
         &registries,
         &mut world.state,
@@ -316,11 +317,11 @@ fn owned_ore_specialization_can_pay_back_before_the_current_tool_is_blocked() {
             target: primary.target,
             destination: world.destination,
             equipment: hard_pick,
-            requested: Mass::from_milligrams(300_000),
-            batch_limit: Mass::from_milligrams(300_000),
+            requested: seed_extraction_mass,
+            batch_limit: seed_extraction_mass,
         },
     );
-    assert_eq!(extraction.extracted, Mass::from_milligrams(300_000));
+    assert_eq!(extraction.extracted, seed_extraction_mass);
     let _ = upgrade_sampling_hammer(
         &registries,
         &mut world.state,

@@ -105,26 +105,87 @@ struct WoodworkingWorld {
     protected_copper_reserve: Mass,
 }
 
+fn protected_future_copper_reserve(registries: &Registries) -> Mass {
+    let upgrade = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE)
+        .and_then(|definition| definition.upgrade_profile())
+        .unwrap_or_else(|| panic!("woodworking reinforced adze lost its authored upgrade route"));
+    assert_eq!(
+        upgrade.from(),
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        "woodworking copper-reserve policy must follow the authored adze upgrade route"
+    );
+    let reinforcement = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let reinforcement_required = upgrade
+        .additions()
+        .inputs()
+        .iter()
+        .filter(|input| input.commodity() == reinforcement)
+        .try_fold(Mass::ZERO, |total, input| total.checked_add(input.mass()))
+        .unwrap_or_else(|| panic!("woodworking adze reinforcement requirement overflowed"));
+    assert!(
+        !reinforcement_required.is_zero(),
+        "woodworking reinforced adze must consume authored copper reinforcement"
+    );
+    let reinforcement_craft = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("woodworking copper reinforcement route disappeared"));
+    assert_eq!(
+        reinforcement_craft.input(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        "woodworking reserve is measured in the native copper available to this episode"
+    );
+    let reinforcement_per_batch = authored_output_mass(reinforcement_craft, reinforcement);
+    let batches = reinforcement_required
+        .milligrams()
+        .div_ceil(reinforcement_per_batch.milligrams());
+    let native_per_upgrade = checked_mass_times(
+        reinforcement_craft.input_mass(),
+        batches,
+        "future adze reinforcement reserve",
+    );
+    checked_mass_times(
+        native_per_upgrade,
+        2,
+        "two future adze reinforcement reserves",
+    )
+}
+
 fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWorld {
     let blade_input = registries
         .crafting()
         .get_manual(PROCESS_COLD_WORK_COPPER_SAW_BLADE)
         .map(|definition| definition.input_mass())
         .unwrap_or_else(|| panic!("woodworking saw-blade process disappeared"));
+    let protected_copper_reserve = protected_future_copper_reserve(registries);
+    let just_reserve_safe = blade_input
+        .checked_add(protected_copper_reserve)
+        .unwrap_or_else(|| panic!("woodworking saw plus reserve opportunity overflowed"));
+    let below_blade = blade_input
+        .checked_sub(Mass::from_milligrams(1))
+        .unwrap_or(Mass::ZERO);
     let copper_available = match mix64(seed ^ 0x574F_4F44_434F_5050) % 4 {
-        0 => Mass::from_milligrams(20_000),
+        0 => below_blade,
         1 => blade_input,
-        2 => Mass::from_milligrams(100_000),
-        _ => Mass::from_milligrams(200_000),
+        2 => just_reserve_safe,
+        _ => checked_mass_times(just_reserve_safe, 2, "abundant copper opportunity"),
     };
+    let stone_supply = Mass::from_milligrams(5_000_000);
+    let wood_supply = Mass::from_milligrams(75_000_000);
+    let raw_capacity = stone_supply
+        .checked_add(wood_supply)
+        .and_then(|mass| mass.checked_add(copper_available))
+        .unwrap_or_else(|| panic!("woodworking disclosed raw supply overflowed"));
     let mut state = AppState::new();
-    let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(80_500_000));
+    let raw = add_solid_stockpile(&mut state, raw_capacity);
     seed_lot(
         registries,
         &mut state,
         raw,
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        Mass::from_milligrams(5_000_000),
+        stone_supply,
         ROOM_TEMPERATURE,
     );
     seed_lot(
@@ -132,7 +193,7 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
         &mut state,
         raw,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(75_000_000),
+        wood_supply,
         ROOM_TEMPERATURE,
     );
     if !copper_available.is_zero() {
@@ -145,13 +206,16 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
             ROOM_TEMPERATURE,
         );
     }
-    let adze_parts = add_solid_stockpile(&mut state, Mass::from_milligrams(2_000_000));
-    let saw_parts = add_solid_stockpile(&mut state, Mass::from_milligrams(8_000_000));
-    let output = add_solid_stockpile(&mut state, Mass::from_milligrams(65_000_000));
-    let adze_replacement = add_solid_stockpile(&mut state, Mass::from_milligrams(2_000_000));
-    let adze_spent = add_solid_stockpile(&mut state, Mass::from_milligrams(5_000_000));
-    let saw_replacement = add_solid_stockpile(&mut state, Mass::from_milligrams(500_000));
-    let saw_spent = add_solid_stockpile(&mut state, Mass::from_milligrams(500_000));
+    // These workshop buffers are scenario plumbing rather than the decision under test. Size them
+    // from the disclosed finite raw opportunity so content tuning cannot turn a stale fixture
+    // capacity into an artificial crafting or maintenance blocker.
+    let adze_parts = add_solid_stockpile(&mut state, raw_capacity);
+    let saw_parts = add_solid_stockpile(&mut state, raw_capacity);
+    let output = add_solid_stockpile(&mut state, raw_capacity);
+    let adze_replacement = add_solid_stockpile(&mut state, raw_capacity);
+    let adze_spent = add_solid_stockpile(&mut state, raw_capacity);
+    let saw_replacement = add_solid_stockpile(&mut state, raw_capacity);
+    let saw_spent = add_solid_stockpile(&mut state, raw_capacity);
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("woodworking initial matter audit failed: {error}"))
         .total();
@@ -186,8 +250,7 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
         blade_input,
         copper_available,
         saw_fundable: copper_available >= blade_input,
-        // Reserve covers two future copper reinforcements; it stands in for opportunity cost.
-        protected_copper_reserve: Mass::from_milligrams(40_000),
+        protected_copper_reserve,
     }
 }
 
