@@ -1,23 +1,25 @@
 //! Matched primitive and settlement human-power comparisons through canonical craft and charging.
 
+use std::collections::BTreeMap;
+
 #[cfg(not(test))]
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
-    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_CRUSHER, FORM_LOG, FORM_LUMP,
-    FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_TIMBER_SASH_SAWMILL, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
     PROCESS_POWER_SAW_WOOD_BOARDS,
 };
 #[cfg(not(test))]
 use deep_hearth::content::{
-    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
-    MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK, MANUAL_POWER_WALKING_WHEEL,
+    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
+    MANUAL_POWER_WALKING_WHEEL,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreDefinitionId;
-#[cfg(not(test))]
 use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 #[cfg(not(test))]
@@ -34,6 +36,7 @@ use super::equipment_support::nominal_equipment_mass_capability;
 use super::equipment_support::pristine_equipment_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
+use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
@@ -75,41 +78,275 @@ fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
     }
 }
 
-fn declared_primitive_crushing_project(registries: &Registries, seed: u64) -> (Mass, Energy) {
-    // Keep this episode in the scale where a portable stone crusher is still a plausible player
-    // choice. Larger ore campaigns belong to settlement-scale machinery/progression probes; this
-    // scope avoids measuring repeated interaction with a starter machine instead of provider choice.
-    let kilograms = 5 + mix64(seed ^ 0x5052_494D_5F4F_5245) % 56;
-    let mass = Mass::from_milligrams(
-        kilograms
-            .checked_mul(1_000_000)
-            .unwrap_or_else(|| panic!("primitive power project mass overflowed")),
+fn add_raw_requirement(
+    requirements: &mut BTreeMap<CommodityKey, Mass>,
+    commodity: CommodityKey,
+    mass: Mass,
+    context: &'static str,
+) {
+    requirements
+        .entry(commodity)
+        .and_modify(|existing| {
+            *existing = existing
+                .checked_add(mass)
+                .unwrap_or_else(|| panic!("{context} raw requirement overflowed"));
+        })
+        .or_insert(mass);
+}
+
+fn add_output_as_raw_requirement(
+    registries: &Registries,
+    requirements: &mut BTreeMap<CommodityKey, Mass>,
+    primitive_roots: &[CommodityKey],
+    commodity: CommodityKey,
+    required: Mass,
+    context: &'static str,
+) {
+    if primitive_roots.contains(&commodity) {
+        add_raw_requirement(requirements, commodity, required, context);
+        return;
+    }
+    let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
+        registries,
+        commodity,
+        required,
+        primitive_roots,
+        context,
     );
+    let raw = Mass::from_milligrams(
+        craft
+            .input_mass()
+            .milligrams()
+            .checked_mul(batches)
+            .unwrap_or_else(|| panic!("{context} topology input overflowed")),
+    );
+    add_raw_requirement(requirements, craft.input(), raw, context);
+}
+
+fn add_equipment_raw_requirements(
+    registries: &Registries,
+    requirements: &mut BTreeMap<CommodityKey, Mass>,
+    primitive_roots: &[CommodityKey],
+    definition: EquipmentDefinitionId,
+    context: &'static str,
+) {
+    let profile = registries
+        .equipment()
+        .get_equipment(definition)
+        .and_then(|equipment| equipment.assembly_profile())
+        .unwrap_or_else(|| panic!("{context} equipment lost authored assembly"));
+    for input in profile.inputs() {
+        add_output_as_raw_requirement(
+            registries,
+            requirements,
+            primitive_roots,
+            input.commodity(),
+            input.mass(),
+            context,
+        );
+    }
+}
+
+fn add_store_raw_requirements(
+    registries: &Registries,
+    requirements: &mut BTreeMap<CommodityKey, Mass>,
+    primitive_roots: &[CommodityKey],
+    definition: EnergyStoreDefinitionId,
+    context: &'static str,
+) {
+    let profile = registries
+        .energy()
+        .get_store(definition)
+        .and_then(|store| store.assembly_profile())
+        .unwrap_or_else(|| panic!("{context} energy store lost authored assembly"));
+    for input in profile.inputs() {
+        add_output_as_raw_requirement(
+            registries,
+            requirements,
+            primitive_roots,
+            input.commodity(),
+            input.mass(),
+            context,
+        );
+    }
+}
+
+fn add_consumer_service_reserve(
+    registries: &Registries,
+    requirements: &mut BTreeMap<CommodityKey, Mass>,
+    primitive_roots: &[CommodityKey],
+    consumer: EquipmentDefinitionId,
+    maximum_services: u64,
+    context: &'static str,
+) {
+    let maintenance = registries
+        .equipment()
+        .get_equipment(consumer)
+        .and_then(|equipment| equipment.maintenance_profile())
+        .unwrap_or_else(|| panic!("{context} consumer lost authored maintenance"));
+    let total_replacement = Mass::from_milligrams(
+        maintenance
+            .full_service_replacement_mass()
+            .milligrams()
+            .checked_mul(maximum_services)
+            .unwrap_or_else(|| panic!("{context} service reserve overflowed")),
+    );
+    add_output_as_raw_requirement(
+        registries,
+        requirements,
+        primitive_roots,
+        maintenance.replacement(),
+        total_replacement,
+        context,
+    );
+}
+
+fn power_raw_opportunity(
+    registries: &Registries,
+    primitive_roots: &[CommodityKey],
+    equipment: &[EquipmentDefinitionId],
+    stores: &[EnergyStoreDefinitionId],
+    serviced_consumer: EquipmentDefinitionId,
+    maximum_services: u64,
+    context: &'static str,
+) -> BTreeMap<CommodityKey, Mass> {
+    let mut requirements = BTreeMap::new();
+    for &definition in equipment {
+        add_equipment_raw_requirements(
+            registries,
+            &mut requirements,
+            primitive_roots,
+            definition,
+            context,
+        );
+    }
+    for &definition in stores {
+        add_store_raw_requirements(
+            registries,
+            &mut requirements,
+            primitive_roots,
+            definition,
+            context,
+        );
+    }
+    add_consumer_service_reserve(
+        registries,
+        &mut requirements,
+        primitive_roots,
+        serviced_consumer,
+        maximum_services,
+        context,
+    );
+    requirements
+}
+
+fn seed_raw_opportunity(
+    registries: &Registries,
+    state: &mut AppState,
+    requirements: BTreeMap<CommodityKey, Mass>,
+    context: &'static str,
+) -> (deep_hearth::inventory::StockpileId, Mass) {
+    let capacity = requirements
+        .values()
+        .copied()
+        .try_fold(Mass::ZERO, Mass::checked_add)
+        .unwrap_or_else(|| panic!("{context} total raw opportunity overflowed"));
+    let raw = add_solid_stockpile(state, capacity);
+    for (commodity, mass) in requirements {
+        seed_lot(registries, state, raw, commodity, mass, ROOM_TEMPERATURE);
+    }
+    (raw, capacity)
+}
+
+pub(super) fn declared_primitive_crushing_project(
+    registries: &Registries,
+    seed: u64,
+    store_definition: EnergyStoreDefinitionId,
+    baseline_crossover_charges: u64,
+) -> (Mass, Energy) {
+    // Center organic work around the current baseline provider crossover. The world seed chooses
+    // the workload while the independent behavior seed still owns the actor's investment policy.
+    // This keeps physical demand stable when only actor preference changes.
     let definition = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
         .unwrap_or_else(|| panic!("primitive power project crusher process disappeared"));
+    let store = registries
+        .energy()
+        .get_store(store_definition)
+        .unwrap_or_else(|| panic!("primitive power project accumulator disappeared"));
+    let mass_per_charge = deep_hearth::energy::calculate_mass_specific_energy_capacity(
+        store.capacity(),
+        definition.specific_energy(),
+    );
+    assert!(
+        !mass_per_charge.is_zero(),
+        "primitive accumulator must fund positive crusher work"
+    );
+    let charges = sampled_workload_units(seed, baseline_crossover_charges, 0x5052_494D_5F4F_5245);
+    let mass = Mass::from_milligrams(
+        mass_per_charge
+            .milligrams()
+            .checked_mul(charges)
+            .unwrap_or_else(|| panic!("primitive power project mass overflowed")),
+    );
     (
         mass,
         deep_hearth::energy::calculate_mass_specific_energy(mass, definition.specific_energy()),
     )
 }
 
-fn declared_settlement_lumber_project(registries: &Registries, seed: u64) -> (Mass, Energy) {
-    let kilograms = 100 + mix64(seed ^ 0x5345_5454_5F4C_554D) % 1_901;
-    let mass = Mass::from_milligrams(
-        kilograms
-            .checked_mul(1_000_000)
-            .unwrap_or_else(|| panic!("settlement power project mass overflowed")),
-    );
+pub(super) fn declared_settlement_lumber_project(
+    registries: &Registries,
+    seed: u64,
+    baseline_crossover_charges: u64,
+) -> (Mass, Energy) {
+    // Settlement demand uses the same world-only crossover-relative sampling discipline as the
+    // primitive project. Each unit is one current full flywheel-bank workload.
+    let store = registries
+        .energy()
+        .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
+        .unwrap_or_else(|| panic!("settlement power flywheel bank disappeared"));
     let definition = registries
         .crafting()
         .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
         .unwrap_or_else(|| panic!("settlement power project saw process disappeared"));
+    let mass_per_bank = deep_hearth::energy::calculate_mass_specific_energy_capacity(
+        store.capacity(),
+        definition.specific_energy(),
+    );
+    assert!(
+        !mass_per_bank.is_zero(),
+        "settlement flywheel bank must fund positive saw work"
+    );
+    let bank_workloads =
+        sampled_workload_units(seed, baseline_crossover_charges, 0x5345_5454_5F4C_554D);
+    let mass = Mass::from_milligrams(
+        mass_per_bank
+            .milligrams()
+            .checked_mul(bank_workloads)
+            .unwrap_or_else(|| panic!("settlement power project mass overflowed")),
+    );
     (
         mass,
         deep_hearth::energy::calculate_mass_specific_energy(mass, definition.specific_energy()),
     )
+}
+
+fn sampled_workload_units(seed: u64, crossover: u64, salt: u64) -> u64 {
+    assert!(crossover > 0, "power-provider crossover must be positive");
+    let spread = (crossover / 2).max(1);
+    let lower = crossover.saturating_sub(spread).max(1);
+    let upper = crossover
+        .checked_add(spread)
+        .unwrap_or_else(|| panic!("power-provider workload range overflowed"));
+    lower + mix64(seed ^ salt) % (upper - lower + 1)
+}
+
+fn maximum_sampled_workload_units(search_limit: u64) -> u64 {
+    search_limit
+        .checked_add((search_limit / 2).max(1))
+        .unwrap_or_else(|| panic!("power-provider maximum workload range overflowed"))
 }
 
 #[cfg(not(test))]
@@ -132,6 +369,10 @@ fn provider_power_microwatts(
         .whole_microwatts()
         .unwrap_or_else(|| panic!("power provider {context} provider power is sub-microwatt"))
 }
+
+#[cfg(test)]
+#[path = "power_provider_probe/generation_tests.rs"]
+mod generation_tests;
 
 fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyStoreDefinitionId {
     let process = registries
@@ -205,35 +446,57 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     // crusher batch from the current content graph. This keeps the player policy stable when
     // crusher energy, batch capacity, or authored storage definitions are retuned.
     let store_definition = primitive_accumulator_for_current_crusher(registries);
-    let (primitive_project_mass, primitive_project_work) =
-        declared_primitive_crushing_project(registries, seed);
     let mut state = AppState::new();
-    // Raw gathered nature only: every shaped component below is player-crafted through
-    // canonical manual production, so build attention and material costs are earned.
-    let primitive_stone_supply = Mass::from_milligrams(30_000_000);
-    let primitive_wood_supply = Mass::from_milligrams(30_000_000);
-    let primitive_raw_capacity = primitive_stone_supply
-        .checked_add(primitive_wood_supply)
-        .unwrap_or_else(|| panic!("primitive power raw opportunity overflowed"));
-    let raw = add_solid_stockpile(&mut state, primitive_raw_capacity);
-    seed_lot(
-        registries,
-        &mut state,
-        raw,
+    // Raw gathered nature only: derive the finite opportunity from every candidate build plus a
+    // conservative service reserve. Shaped components are still earned through canonical manual
+    // production after admission; this raw package is plumbing, not a scarcity pressure.
+    let primitive_roots = [
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        primitive_stone_supply,
-        ROOM_TEMPERATURE,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+    ];
+    let primitive_requirements = power_raw_opportunity(
+        registries,
+        &primitive_roots,
+        &[
+            EQUIPMENT_STONE_CRUSHER,
+            EQUIPMENT_STONE_HAND_CRANK,
+            EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        ],
+        &[store_definition],
+        EQUIPMENT_STONE_CRUSHER,
+        planning::primitive_project_batch_limit(),
+        "primitive power opportunity",
     );
-    seed_lot(
+    let (raw, primitive_raw_capacity) = seed_raw_opportunity(
         registries,
         &mut state,
-        raw,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        primitive_wood_supply,
-        ROOM_TEMPERATURE,
+        primitive_requirements,
+        "primitive power opportunity",
     );
-    let primitive_feed = add_solid_stockpile(&mut state, primitive_project_mass);
-    let primitive_output = add_solid_stockpile(&mut state, primitive_project_mass);
+    let shaped = add_solid_stockpile(&mut state, primitive_raw_capacity);
+    let capacity_nj = registries
+        .energy()
+        .get_store(store_definition)
+        .map(|definition| definition.capacity().nanojoules())
+        .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
+    let primitive_process = registries
+        .ore_processing()
+        .get_comminution(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("primitive power project crusher process disappeared"));
+    let primitive_mass_per_charge = deep_hearth::energy::calculate_mass_specific_energy_capacity(
+        Energy::from_nanojoules(capacity_nj),
+        primitive_process.specific_energy(),
+    );
+    let primitive_available_mass = Mass::from_milligrams(
+        primitive_mass_per_charge
+            .milligrams()
+            .checked_mul(maximum_sampled_workload_units(
+                planning::primitive_crossover_search_limit(),
+            ))
+            .unwrap_or_else(|| panic!("primitive power available workload overflowed")),
+    );
+    let primitive_feed = add_solid_stockpile(&mut state, primitive_available_mass);
+    let primitive_output = add_solid_stockpile(&mut state, primitive_available_mass);
     // Service and shaping buffers are not the pressure under test. Bound them by the finite raw
     // opportunity so authored maintenance/component changes cannot create an unrelated fixture cap.
     let primitive_service_replacement = add_solid_stockpile(&mut state, primitive_raw_capacity);
@@ -244,11 +507,10 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &mut state,
         primitive_feed,
         CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-        primitive_project_mass,
+        primitive_available_mass,
         ROOM_TEMPERATURE,
         copper_ore_composition(350_000, 200_000),
     );
-    let shaped = add_solid_stockpile(&mut state, primitive_raw_capacity);
     super::world_admission::locate_stationary_endpoints(
         &mut state,
         &[
@@ -265,6 +527,22 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("power provider survival setup failed: {error}"));
     super::world_admission::initialize_stationary_player_logistics(&mut state);
+    let baseline_primitive_crossover = planning::primitive_power_decision_crossover_charges(
+        registries,
+        &state,
+        raw,
+        shaped,
+        store_definition,
+        capacity_nj,
+        CapitalInvestmentPolicy::baseline(),
+    );
+    let (primitive_project_mass, primitive_project_work) = declared_primitive_crushing_project(
+        registries,
+        seed,
+        store_definition,
+        baseline_primitive_crossover,
+    );
+    assert!(primitive_project_mass <= primitive_available_mass);
     let primitive_consumer = build_primitive_power_consumer(
         registries,
         &mut state,
@@ -279,11 +557,6 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let fluid_before = calculate_fluid_volume_accounting(&state)
         .unwrap_or_else(|error| panic!("power provider initial fluid audit failed: {error}"))
         .total();
-    let capacity_nj = registries
-        .energy()
-        .get_store(store_definition)
-        .map(|definition| definition.capacity().nanojoules())
-        .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
     // Freeze the actor's investment choice from current authored topology and canonical physical
     // projections before any matched branch is executed.
     let plan = primitive_power_plan(
@@ -304,55 +577,63 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         plan.minimum_return_ppm,
         investment_policy.minimum_return_ppm()
     );
-    let (settlement_project_mass, settlement_project_work) =
-        declared_settlement_lumber_project(registries, seed);
     let mut settlement_state = AppState::new();
-    let settlement_stone_supply = Mass::from_milligrams(30_000_000);
-    let settlement_wood_supply = Mass::from_milligrams(30_000_000);
-    let settlement_copper_supply = Mass::from_milligrams(1_000_000);
-    let settlement_raw_capacity = settlement_stone_supply
-        .checked_add(settlement_wood_supply)
-        .and_then(|mass| mass.checked_add(settlement_copper_supply))
-        .unwrap_or_else(|| panic!("settlement power raw opportunity overflowed"));
-    let settlement_raw = add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
-    seed_lot(
-        registries,
-        &mut settlement_state,
-        settlement_raw,
+    let settlement_roots = [
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        settlement_stone_supply,
-        ROOM_TEMPERATURE,
-    );
-    seed_lot(
-        registries,
-        &mut settlement_state,
-        settlement_raw,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        settlement_wood_supply,
-        ROOM_TEMPERATURE,
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+    ];
+    let settlement_requirements = power_raw_opportunity(
+        registries,
+        &settlement_roots,
+        &[
+            EQUIPMENT_TIMBER_SASH_SAWMILL,
+            EQUIPMENT_TIMBER_TREADLE_DRIVE,
+            EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        ],
+        &[ENERGY_TIMBER_FRAME_FLYWHEEL_BANK],
+        EQUIPMENT_TIMBER_SASH_SAWMILL,
+        maximum_sampled_workload_units(planning::settlement_crossover_search_limit()),
+        "settlement power opportunity",
     );
-    seed_lot(
+    let (settlement_raw, settlement_raw_capacity) = seed_raw_opportunity(
         registries,
         &mut settlement_state,
-        settlement_raw,
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        // Keep sawmill blade-service copper finite but sufficiently funded so this provider probe reaches
-        // its bounded settlement workload
-        // instead of turning into a separate copper-depletion episode.
-        settlement_copper_supply,
-        ROOM_TEMPERATURE,
+        settlement_requirements,
+        "settlement power opportunity",
     );
-    let settlement_feed = add_solid_stockpile(&mut settlement_state, settlement_project_mass);
+    let settlement_shaped = add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
+    let settlement_capacity_nj = registries
+        .energy()
+        .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
+        .map(|definition| definition.capacity().nanojoules())
+        .unwrap_or_else(|| panic!("settlement flywheel bank definition disappeared"));
+    let settlement_process = registries
+        .crafting()
+        .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("settlement power project saw process disappeared"));
+    let settlement_mass_per_charge = deep_hearth::energy::calculate_mass_specific_energy_capacity(
+        Energy::from_nanojoules(settlement_capacity_nj),
+        settlement_process.specific_energy(),
+    );
+    let settlement_available_mass = Mass::from_milligrams(
+        settlement_mass_per_charge
+            .milligrams()
+            .checked_mul(maximum_sampled_workload_units(
+                planning::settlement_crossover_search_limit(),
+            ))
+            .unwrap_or_else(|| panic!("settlement power available workload overflowed")),
+    );
+    let settlement_feed = add_solid_stockpile(&mut settlement_state, settlement_available_mass);
     seed_lot(
         registries,
         &mut settlement_state,
         settlement_feed,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        settlement_project_mass,
+        settlement_available_mass,
         ROOM_TEMPERATURE,
     );
-    let settlement_shaped = add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
-    let settlement_output = add_solid_stockpile(&mut settlement_state, settlement_project_mass);
+    let settlement_output = add_solid_stockpile(&mut settlement_state, settlement_available_mass);
     let settlement_service_replacement =
         add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
     let settlement_service_spent =
@@ -374,6 +655,17 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     initialize_player_survival(registries, &mut settlement_state)
         .unwrap_or_else(|error| panic!("settlement power survival setup failed: {error}"));
     super::world_admission::initialize_stationary_player_logistics(&mut settlement_state);
+    let baseline_settlement_crossover = planning::settlement_power_decision_crossover_charges(
+        registries,
+        &settlement_state,
+        settlement_raw,
+        settlement_shaped,
+        settlement_capacity_nj,
+        CapitalInvestmentPolicy::baseline(),
+    );
+    let (settlement_project_mass, settlement_project_work) =
+        declared_settlement_lumber_project(registries, seed, baseline_settlement_crossover);
+    assert!(settlement_project_mass <= settlement_available_mass);
     let settlement_consumer = build_settlement_power_consumer(
         registries,
         &mut settlement_state,
@@ -388,17 +680,13 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_fluid_before = calculate_fluid_volume_accounting(&settlement_state)
         .unwrap_or_else(|error| panic!("settlement power initial fluid audit failed: {error}"))
         .total();
-    let settlement_capacity_nj = registries
-        .energy()
-        .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
-        .map(|definition| definition.capacity().nanojoules())
-        .unwrap_or_else(|| panic!("settlement flywheel bank definition disappeared"));
     let settlement_plan = settlement_power_plan(
         registries,
         &settlement_state,
         settlement_raw,
         settlement_shaped,
         settlement_capacity_nj,
+        settlement_project_mass,
         settlement_project_work.nanojoules(),
         investment_policy,
     );

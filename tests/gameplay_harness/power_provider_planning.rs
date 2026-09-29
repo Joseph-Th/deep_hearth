@@ -30,6 +30,18 @@ const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
 const MAX_PRIMITIVE_PROJECT_BATCHES: u64 = 1_024;
 const MAX_SETTLEMENT_CROSSOVER_CHARGES: u64 = 160;
 
+pub(super) const fn primitive_crossover_search_limit() -> u64 {
+    MAX_PRIMITIVE_CROSSOVER_CHARGES
+}
+
+pub(super) const fn primitive_project_batch_limit() -> u64 {
+    MAX_PRIMITIVE_PROJECT_BATCHES
+}
+
+pub(super) const fn settlement_crossover_search_limit() -> u64 {
+    MAX_SETTLEMENT_CROSSOVER_CHARGES
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ShapedBuild {
     pub(super) attention_ticks: u64,
@@ -104,6 +116,7 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) minimum_return_ppm: u64,
     pub(super) store_definition: EnergyStoreDefinitionId,
     pub(super) capacity_nj: u128,
+    pub(super) declared_mass: Mass,
     pub(super) declared_work_nj: u128,
     pub(super) charge_events: u64,
     pub(super) consumer_projected_charge_events: u64,
@@ -178,6 +191,7 @@ pub(super) struct SettlementPowerPlan {
     pub(super) choice: SettlementPowerChoice,
     pub(super) minimum_return_ppm: u64,
     pub(super) capacity_nj: u128,
+    pub(super) declared_mass: Mass,
     pub(super) declared_work_nj: u128,
     pub(super) charge_events: u64,
     pub(super) treadle_build: ShapedBuild,
@@ -204,12 +218,73 @@ pub(super) struct SettlementPowerPlan {
     pub(super) decision_crossover_charges: Option<u64>,
 }
 
+pub(super) fn settlement_power_decision_crossover_charges(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    shaped: StockpileId,
+    capacity_nj: u128,
+    investment_policy: CapitalInvestmentPolicy,
+) -> u64 {
+    let treadle_build = project_power_package(
+        registries,
+        state,
+        raw,
+        shaped,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        "settlement treadle crossover build",
+    );
+    let walking_build = project_power_package(
+        registries,
+        state,
+        raw,
+        shaped,
+        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        "settlement walking-wheel crossover build",
+    );
+    let requested = Energy::from_nanojoules(capacity_nj);
+    let treadle_route = ManualPowerRoute::new(
+        MANUAL_POWER_FOOT_TREADLE,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        requested,
+        "settlement treadle crossover",
+    );
+    let walking_route = ManualPowerRoute::new(
+        MANUAL_POWER_WALKING_WHEEL,
+        EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
+        ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
+        requested,
+        "settlement walking-wheel crossover",
+    );
+    let minimum_attention_return_ticks = investment_policy
+        .minimum_attention_return(treadle_build.attention_ticks, walking_build.attention_ticks);
+    first_candidate_preferred_charge(
+        registries,
+        treadle_route,
+        treadle_build,
+        walking_route,
+        walking_build,
+        MAX_SETTLEMENT_CROSSOVER_CHARGES,
+        minimum_attention_return_ticks,
+    )
+    .unwrap_or_else(|| {
+        panic!(
+            "settlement provider investment has no crossover within the maintained {}-charge horizon",
+            MAX_SETTLEMENT_CROSSOVER_CHARGES
+        )
+    })
+}
+
 pub(super) fn settlement_power_plan(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
     shaped: StockpileId,
     capacity_nj: u128,
+    declared_mass: Mass,
     declared_work_nj: u128,
     investment_policy: CapitalInvestmentPolicy,
 ) -> SettlementPowerPlan {
@@ -300,6 +375,7 @@ pub(super) fn settlement_power_plan(
         },
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
         capacity_nj,
+        declared_mass,
         declared_work_nj,
         charge_events,
         treadle_build,
@@ -363,6 +439,67 @@ fn project_power_package(
         metabolic_nj: projection.metabolic_nj,
         hydration_ul: projection.hydration_ul,
     }
+}
+
+pub(super) fn primitive_power_decision_crossover_charges(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    shaped: StockpileId,
+    store_definition: EnergyStoreDefinitionId,
+    capacity_nj: u128,
+    investment_policy: CapitalInvestmentPolicy,
+) -> u64 {
+    let crank_build = project_power_package(
+        registries,
+        state,
+        raw,
+        shaped,
+        EQUIPMENT_STONE_HAND_CRANK,
+        store_definition,
+        "primitive crank crossover build",
+    );
+    let treadle_build = project_power_package(
+        registries,
+        state,
+        raw,
+        shaped,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        store_definition,
+        "primitive treadle crossover build",
+    );
+    let requested = Energy::from_nanojoules(capacity_nj);
+    let crank_route = ManualPowerRoute::new(
+        MANUAL_POWER_HAND_CRANK,
+        EQUIPMENT_STONE_HAND_CRANK,
+        store_definition,
+        requested,
+        "primitive crank crossover",
+    );
+    let treadle_route = ManualPowerRoute::new(
+        MANUAL_POWER_FOOT_TREADLE,
+        EQUIPMENT_TIMBER_TREADLE_DRIVE,
+        store_definition,
+        requested,
+        "primitive treadle crossover",
+    );
+    let minimum_attention_return_ticks = investment_policy
+        .minimum_attention_return(crank_build.attention_ticks, treadle_build.attention_ticks);
+    first_candidate_preferred_charge(
+        registries,
+        crank_route,
+        crank_build,
+        treadle_route,
+        treadle_build,
+        MAX_PRIMITIVE_CROSSOVER_CHARGES,
+        minimum_attention_return_ticks,
+    )
+    .unwrap_or_else(|| {
+        panic!(
+            "primitive provider investment has no crossover within the maintained {}-charge horizon",
+            MAX_PRIMITIVE_CROSSOVER_CHARGES
+        )
+    })
 }
 
 pub(super) fn primitive_power_plan(
@@ -503,6 +640,7 @@ pub(super) fn primitive_power_plan(
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
         store_definition: project.store_definition,
         capacity_nj: project.capacity_nj,
+        declared_mass: project.declared_mass,
         declared_work_nj: project.declared_work_nj,
         charge_events,
         consumer_projected_charge_events,

@@ -1,29 +1,77 @@
 //! Material opportunity, capital demand, and manual component preparation for the first foundry.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 use deep_hearth::content::{
-    ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER, EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
-    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
-    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
-    EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_INGOT, FORM_LUMP, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD,
+    ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER, ENERGY_STONE_THERMAL_SINK,
+    EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+    EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
+    FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
-use deep_hearth::equipment::EquipmentId;
+use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
+use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::StockpileId;
+use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
+use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
+use deep_hearth::survival::project_survival_resource_budget;
 
 use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::manual_craft_execution::execute_manual_craft;
+use super::super::manual_ore_recovery_planning::minimum_manual_ore_feed_for_target_recovery;
 use super::super::material_selection::select_stockpile_commodity_mass;
 use super::super::seed::mix64;
 use super::super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 
-pub(super) const FOUNDRY_STONE_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
-pub(super) const FOUNDRY_WOOD_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
+const FOUNDRY_RAW_INPUTS: [CommodityKey; 3] = [
+    CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+    CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+    CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ProjectedWorkshopTool {
+    definition: EquipmentDefinitionId,
+    condition: Condition,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ProjectedFoundryCraftRoute {
+    pub(super) process: ProcessId,
+    pub(super) input: CommodityKey,
+    pub(super) input_mass: Mass,
+    pub(super) batches: u64,
+    pub(super) equipment: Option<EquipmentDefinitionId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FoundryBootstrapRoutePlan {
+    pub(super) immediate: ProjectedFoundryCraftRoute,
+    pub(super) fabrication_raw: BTreeMap<CommodityKey, Mass>,
+    pub(super) capital_raw: BTreeMap<CommodityKey, Mass>,
+}
+
+impl FoundryBootstrapRoutePlan {
+    pub(super) fn capital_native_copper(&self) -> Mass {
+        self.capital_raw
+            .get(&CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL))
+            .copied()
+            .unwrap_or(Mass::ZERO)
+    }
+
+    pub(super) fn capital_raw_mass(&self) -> Mass {
+        self.capital_raw
+            .values()
+            .copied()
+            .try_fold(Mass::ZERO, Mass::checked_add)
+            .unwrap_or_else(|| panic!("first foundry raw component mass overflowed"))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct FoundryOwnedOreOpportunity {
@@ -31,31 +79,12 @@ pub(super) struct FoundryOwnedOreOpportunity {
     pub(super) copper_ppm: u32,
 }
 
-pub(super) fn inherited_owned_ore_opportunity(
-    case: FocusedProbeCase,
-) -> FoundryOwnedOreOpportunity {
-    let (mass_mg, copper_ppm) = match case.role() {
-        // The anchor already has enough native copper to build. Keep a modest leftover ore parcel
-        // visible so continuity with primitive processing remains explicit without affecting the
-        // maintained build witness.
-        FocusedProbeRole::MaintainedAnchor => (180_000, 450_000),
-        // The maintained shortage witness owns useful assayed ore, but not enough to close the
-        // complete foundry + mold + first-settlement-batch requirement. This protects an honest
-        // defer outcome after the actor checks its existing fallback instead of stopping at a raw
-        // native-copper threshold.
-        FocusedProbeRole::MaintainedCoverage => (160_000, 350_000),
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            let mass_mg = 120_000 + mix64(case.seed() ^ 0x4F52_455F_4C45_4654) % 400_001;
-            let copper_ppm = 300_000
-                + u32::try_from(mix64(case.seed() ^ 0x4F52_455F_4752_4144) % 400_001)
-                    .unwrap_or_else(|_| unreachable!("bounded foundry ore grade fits u32"));
-            (mass_mg, copper_ppm)
-        }
-    };
-    FoundryOwnedOreOpportunity {
-        mass: Mass::from_milligrams(mass_mg),
-        copper_ppm,
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FoundryResourceOpportunity {
+    pub(super) native: Mass,
+    pub(super) owned_ore: FoundryOwnedOreOpportunity,
+    pub(super) immediate_native_input: Mass,
+    pub(super) required_after_current: Mass,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -69,19 +98,408 @@ pub(super) struct FoundryFabrication {
     pub(super) treadle_hammer_ticks: u64,
 }
 
-pub(super) fn native_copper_opportunity(case: FocusedProbeCase) -> Mass {
-    let milligrams = match case.role() {
-        // The anchor carries enough local copper to prove that cast-stock reinvestment produces a
-        // real larger batch after the first foundry is built. Coverage retains the below-threshold
-        // world, while organic worlds can land on either side of the workload-backed build decision.
-        FocusedProbeRole::MaintainedAnchor => 360_000,
-        FocusedProbeRole::MaintainedCoverage if case.seed().is_multiple_of(2) => 240_000,
-        FocusedProbeRole::MaintainedCoverage => 300_000,
+fn scaled_mass(mass: Mass, ppm: u32, context: &'static str) -> Mass {
+    let milligrams = u128::from(mass.milligrams())
+        .checked_mul(u128::from(ppm))
+        .and_then(|value| value.checked_div(1_000_000))
+        .and_then(|value| u64::try_from(value).ok())
+        .unwrap_or_else(|| panic!("first foundry {context} scaling overflowed"));
+    Mass::from_milligrams(milligrams)
+}
+
+fn project_foundry_craft_route(
+    registries: &Registries,
+    commodity: CommodityKey,
+    required: Mass,
+    tools: &mut [ProjectedWorkshopTool],
+    context: &'static str,
+) -> ProjectedFoundryCraftRoute {
+    let mut candidates = Vec::new();
+    for definition in registries.crafting().manual_producers(commodity) {
+        if !FOUNDRY_RAW_INPUTS.contains(&definition.input()) {
+            continue;
+        }
+        let output = definition
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == commodity)
+            .map(|output| output.mass())
+            .unwrap_or_else(|| {
+                panic!(
+                    "first foundry {context} producer {} lost requested output {}",
+                    definition.process().value(),
+                    commodity.value()
+                )
+            });
+        let batches = required.milligrams().div_ceil(output.milligrams());
+        let batches_nonzero = NonZeroU64::new(batches)
+            .unwrap_or_else(|| unreachable!("nonzero foundry demand yields nonzero batches"));
+        let input_mass = Mass::from_milligrams(
+            definition
+                .input_mass()
+                .milligrams()
+                .checked_mul(batches)
+                .unwrap_or_else(|| panic!("first foundry {context} input mass overflowed")),
+        );
+
+        if let Ok(work) =
+            project_manual_craft_hand_work(registries, definition.process(), batches_nonzero)
+        {
+            candidates.push((
+                ProjectedFoundryCraftRoute {
+                    process: definition.process(),
+                    input: definition.input(),
+                    input_mass,
+                    batches,
+                    equipment: None,
+                },
+                (
+                    work.duration().value(),
+                    input_mass.milligrams(),
+                    work.resource_budget().metabolic_energy().nanojoules(),
+                    work.resource_budget().hydration().microliters(),
+                    0_usize,
+                ),
+                None,
+            ));
+        }
+        for (tool_index, tool) in tools.iter().copied().enumerate() {
+            let Ok(projection) = project_manual_craft_equipment(
+                registries,
+                definition.process(),
+                batches_nonzero,
+                tool.definition,
+                tool.condition,
+            ) else {
+                continue;
+            };
+            let body = project_survival_resource_budget(
+                registries.survival().physiology(),
+                definition.exertion(),
+                projection.duration(),
+            )
+            .unwrap_or_else(|error| {
+                panic!("first foundry {context} survival projection failed: {error:?}")
+            });
+            candidates.push((
+                ProjectedFoundryCraftRoute {
+                    process: definition.process(),
+                    input: definition.input(),
+                    input_mass,
+                    batches,
+                    equipment: Some(tool.definition),
+                },
+                (
+                    projection.duration().value(),
+                    input_mass.milligrams(),
+                    body.metabolic_energy().nanojoules(),
+                    body.hydration().microliters(),
+                    tool_index + 1,
+                ),
+                Some((tool_index, projection.condition_after())),
+            ));
+        }
+    }
+    let best_key = candidates
+        .iter()
+        .map(|(_, key, _)| *key)
+        .min()
+        .unwrap_or_else(|| {
+            panic!(
+                "first foundry {context} has no ordinary route from disclosed raw material to {}",
+                commodity.value()
+            )
+        });
+    let mut best = candidates
+        .into_iter()
+        .filter(|(_, key, _)| *key == best_key);
+    let (route, _, condition_update) = best
+        .next()
+        .unwrap_or_else(|| unreachable!("foundry route best key came from a candidate"));
+    assert!(
+        best.next().is_none(),
+        "first foundry {context} has equally efficient projected routes to {}; add an explicit actor preference instead of relying on catalog identity",
+        commodity.value()
+    );
+    if let Some((tool_index, condition_after)) = condition_update {
+        tools[tool_index].condition = condition_after;
+    }
+    route
+}
+
+pub(super) fn foundry_bootstrap_route_plan(
+    registries: &Registries,
+    immediate_reinforcement: Mass,
+) -> FoundryBootstrapRoutePlan {
+    let mut tools = [
+        ProjectedWorkshopTool {
+            definition: EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+            condition: Condition::PRISTINE,
+        },
+        ProjectedWorkshopTool {
+            definition: EQUIPMENT_TIMBER_TREADLE_HAMMER,
+            condition: Condition::PRISTINE,
+        },
+    ];
+    let immediate = project_foundry_craft_route(
+        registries,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        immediate_reinforcement,
+        &mut tools,
+        "immediate reinforcement",
+    );
+    assert_eq!(
+        immediate.input,
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        "first foundry immediate route must begin from disclosed native copper"
+    );
+    let mut fabrication_raw = BTreeMap::new();
+    for (commodity, required) in foundry_component_requirements(registries) {
+        let route = project_foundry_craft_route(
+            registries,
+            commodity,
+            required,
+            &mut tools,
+            "component preparation",
+        );
+        let total = fabrication_raw
+            .get(&route.input)
+            .copied()
+            .unwrap_or(Mass::ZERO)
+            .checked_add(route.input_mass)
+            .unwrap_or_else(|| panic!("first foundry component raw demand overflowed"));
+        fabrication_raw.insert(route.input, total);
+    }
+    let mut capital_raw = fabrication_raw.clone();
+    let thermal_sink = registries
+        .energy()
+        .get_store(ENERGY_STONE_THERMAL_SINK)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("first foundry thermal sink lost its ordinary assembly profile"));
+    for input in thermal_sink.inputs() {
+        assert!(
+            FOUNDRY_RAW_INPUTS.contains(&input.commodity()),
+            "first foundry direct thermal-sink input {} is outside the disclosed raw-material family",
+            input.commodity().value()
+        );
+        let total = capital_raw
+            .get(&input.commodity())
+            .copied()
+            .unwrap_or(Mass::ZERO)
+            .checked_add(input.mass())
+            .unwrap_or_else(|| panic!("first foundry direct raw demand overflowed"));
+        capital_raw.insert(input.commodity(), total);
+    }
+    FoundryBootstrapRoutePlan {
+        immediate,
+        fabrication_raw,
+        capital_raw,
+    }
+}
+
+fn native_with_shortfall(
+    immediate_native_input: Mass,
+    required_after_current: Mass,
+    shortfall: Mass,
+) -> Mass {
+    immediate_native_input
+        .checked_add(
+            required_after_current
+                .checked_sub(shortfall)
+                .unwrap_or_else(|| unreachable!("foundry shortfall is bounded by required copper")),
+        )
+        .unwrap_or_else(|| panic!("first foundry native opportunity overflowed"))
+}
+
+fn insufficient_feed(required_feed: Mass, seed: u64) -> Mass {
+    if required_feed.milligrams() <= 1 {
+        return Mass::ZERO;
+    }
+    let fraction_ppm = 350_000
+        + u32::try_from(mix64(seed ^ 0x464F_554E_4452_494E) % 500_001)
+            .unwrap_or_else(|_| unreachable!("bounded foundry feed fraction fits u32"));
+    let proposed = scaled_mass(required_feed, fraction_ppm, "insufficient ore");
+    Mass::from_milligrams(
+        proposed
+            .milligrams()
+            .max(1)
+            .min(required_feed.milligrams() - 1),
+    )
+}
+
+/// Builds disclosed copper opportunities around the current authored foundry workload threshold.
+///
+/// The actor never receives the generated regime. It sees only the resulting inventory and applies
+/// the ordinary native-working and manual-recovery paths. Keeping the generator relative to current
+/// authored demand prevents content retuning from collapsing organic samples into one stale outcome.
+pub(super) fn foundry_resource_opportunity(
+    registries: &Registries,
+    case: FocusedProbeCase,
+    route_plan: &FoundryBootstrapRoutePlan,
+    settlement_ingots: Mass,
+    settlement_cast_mass: Mass,
+) -> FoundryResourceOpportunity {
+    let immediate_native_input = route_plan.immediate.input_mass;
+    let required_after_current = route_plan
+        .capital_native_copper()
+        .checked_add(settlement_ingots)
+        .and_then(|mass| mass.checked_add(settlement_cast_mass))
+        .unwrap_or_else(|| panic!("first foundry workload-backed copper requirement overflowed"));
+    assert!(
+        !required_after_current.is_zero(),
+        "first foundry workload threshold must remain positive"
+    );
+
+    let grade = || {
+        300_000
+            + u32::try_from(mix64(case.seed() ^ 0x4F52_455F_4752_4144) % 400_001)
+                .unwrap_or_else(|_| unreachable!("bounded foundry ore grade fits u32"))
+    };
+    let make_shortfall = |salt: u64| {
+        let fraction_ppm = 200_000
+            + u32::try_from(mix64(case.seed() ^ salt) % 350_001)
+                .unwrap_or_else(|_| unreachable!("bounded foundry shortfall fraction fits u32"));
+        let milligrams = scaled_mass(required_after_current, fraction_ppm, "organic shortfall")
+            .milligrams()
+            .max(1)
+            .min(required_after_current.milligrams());
+        Mass::from_milligrams(milligrams)
+    };
+    let opportunity = match case.role() {
+        FocusedProbeRole::MaintainedAnchor => {
+            let surplus = scaled_mass(required_after_current, 125_000, "anchor surplus");
+            FoundryResourceOpportunity {
+                native: immediate_native_input
+                    .checked_add(required_after_current)
+                    .and_then(|mass| mass.checked_add(surplus))
+                    .unwrap_or_else(|| panic!("first foundry anchor opportunity overflowed")),
+                owned_ore: FoundryOwnedOreOpportunity {
+                    mass: scaled_mass(required_after_current, 500_000, "anchor owned ore"),
+                    copper_ppm: 450_000,
+                },
+                immediate_native_input,
+                required_after_current,
+            }
+        }
+        FocusedProbeRole::MaintainedCoverage => {
+            let shortfall = scaled_mass(required_after_current, 350_000, "coverage shortfall");
+            let copper_ppm = 350_000;
+            let required_feed =
+                minimum_manual_ore_feed_for_target_recovery(registries, shortfall, copper_ppm)
+                    .unwrap_or_else(|| {
+                        panic!("first foundry coverage recovery projection overflowed")
+                    });
+            FoundryResourceOpportunity {
+                native: native_with_shortfall(
+                    immediate_native_input,
+                    required_after_current,
+                    shortfall,
+                ),
+                owned_ore: FoundryOwnedOreOpportunity {
+                    mass: insufficient_feed(required_feed, case.seed()),
+                    copper_ppm,
+                },
+                immediate_native_input,
+                required_after_current,
+            }
+        }
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            220_000 + mix64(case.seed() ^ 0x464F_554E_4452_5943) % 180_001
+            let copper_ppm = grade();
+            match mix64(case.seed() ^ 0x464F_554E_4452_5247) % 3 {
+                0 => {
+                    let surplus_ppm = 25_000
+                        + u32::try_from(mix64(case.seed() ^ 0x464F_554E_4452_5355) % 175_001)
+                            .unwrap_or_else(|_| unreachable!("bounded foundry surplus fits u32"));
+                    FoundryResourceOpportunity {
+                        native: immediate_native_input
+                            .checked_add(required_after_current)
+                            .and_then(|mass| {
+                                mass.checked_add(scaled_mass(
+                                    required_after_current,
+                                    surplus_ppm,
+                                    "organic surplus",
+                                ))
+                            })
+                            .unwrap_or_else(|| {
+                                panic!("first foundry organic native opportunity overflowed")
+                            }),
+                        owned_ore: FoundryOwnedOreOpportunity {
+                            mass: scaled_mass(
+                                required_after_current,
+                                500_000,
+                                "organic unused ore",
+                            ),
+                            copper_ppm,
+                        },
+                        immediate_native_input,
+                        required_after_current,
+                    }
+                }
+                1 => {
+                    let shortfall = make_shortfall(0x464F_554E_4452_5243);
+                    let required_feed = minimum_manual_ore_feed_for_target_recovery(
+                        registries, shortfall, copper_ppm,
+                    )
+                    .unwrap_or_else(|| {
+                        panic!("first foundry organic recovery projection overflowed")
+                    });
+                    let extra_ppm =
+                        u32::try_from(mix64(case.seed() ^ 0x464F_554E_4452_4558) % 250_001)
+                            .unwrap_or_else(|_| {
+                                unreachable!("bounded foundry ore surplus fits u32")
+                            });
+                    FoundryResourceOpportunity {
+                        native: native_with_shortfall(
+                            immediate_native_input,
+                            required_after_current,
+                            shortfall,
+                        ),
+                        owned_ore: FoundryOwnedOreOpportunity {
+                            mass: required_feed
+                                .checked_add(scaled_mass(
+                                    required_feed,
+                                    extra_ppm,
+                                    "recoverable ore surplus",
+                                ))
+                                .unwrap_or_else(|| {
+                                    panic!("first foundry recoverable ore opportunity overflowed")
+                                }),
+                            copper_ppm,
+                        },
+                        immediate_native_input,
+                        required_after_current,
+                    }
+                }
+                _ => {
+                    let shortfall = make_shortfall(0x464F_554E_4452_5348);
+                    let required_feed = minimum_manual_ore_feed_for_target_recovery(
+                        registries, shortfall, copper_ppm,
+                    )
+                    .unwrap_or_else(|| {
+                        panic!("first foundry organic shortage projection overflowed")
+                    });
+                    FoundryResourceOpportunity {
+                        native: native_with_shortfall(
+                            immediate_native_input,
+                            required_after_current,
+                            shortfall,
+                        ),
+                        owned_ore: FoundryOwnedOreOpportunity {
+                            mass: insufficient_feed(required_feed, case.seed()),
+                            copper_ppm,
+                        },
+                        immediate_native_input,
+                        required_after_current,
+                    }
+                }
+            }
         }
     };
-    Mass::from_milligrams(milligrams)
+    assert!(
+        opportunity.native >= opportunity.immediate_native_input,
+        "first foundry world must fund the disclosed immediate reinforcement order"
+    );
+    opportunity
 }
 
 pub(super) fn select_commodity_mass(
@@ -237,15 +655,6 @@ pub(super) fn craft_foundry_components(
         "first foundry tool-route fabrication accounting must cover every component job"
     );
     fabrication
-}
-
-pub(super) fn foundry_capital_copper(registries: &Registries) -> Mass {
-    foundry_component_requirements(registries)
-        .into_iter()
-        .filter(|(commodity, _)| commodity.material() == MATERIAL_COPPER)
-        .map(|(_, mass)| mass)
-        .try_fold(Mass::ZERO, Mass::checked_add)
-        .unwrap_or_else(|| panic!("first foundry copper capital overflowed"))
 }
 
 fn settlement_mold_addition_mass(

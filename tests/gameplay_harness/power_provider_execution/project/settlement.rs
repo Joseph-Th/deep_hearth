@@ -77,6 +77,11 @@ pub(in super::super::super) fn execute_selected_settlement_project(
     let mut service_ticks = 0_u64;
     let mut replacement_mass_mg = 0_u64;
     let mut provisioning = ProvisioningOutcome::default();
+    let initial_source_mass = stockpile_mass(&selected_state, consumer.source());
+    assert!(
+        plan.declared_mass <= initial_source_mass,
+        "declared settlement project exceeds actor-visible feed opportunity"
+    );
     while remaining_nj > 0 {
         if let Some(service) = service_consumer_if_critical(
             registries,
@@ -206,7 +211,13 @@ pub(in super::super::super) fn execute_selected_settlement_project(
     assert_eq!(provider_attention_ticks, expected_attention);
     assert_eq!(provider_metabolic_nj, expected_metabolic_nj);
     assert_eq!(provider_hydration_ul, u128::from(expected_hydration_ul));
-    assert!(stockpile_mass(&selected_state, consumer.source()).is_zero());
+    assert_eq!(
+        stockpile_mass(&selected_state, consumer.source()),
+        initial_source_mass
+            .checked_sub(plan.declared_mass)
+            .unwrap_or_else(|| unreachable!("declared settlement project was bounded by feed")),
+        "settlement project must consume only the actor's declared workload"
+    );
     let provider_condition_ppm = selected_state
         .equipment()
         .get_equipment(provider)

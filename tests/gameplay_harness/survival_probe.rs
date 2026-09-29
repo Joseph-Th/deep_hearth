@@ -88,6 +88,9 @@ pub(super) use report::run_survival_provisioning_probe;
 #[path = "survival_probe/provisioning_support.rs"]
 pub(super) mod provisioning_support;
 use provisioning_support::*;
+#[cfg(test)]
+#[path = "survival_probe/provisioning_support_tests.rs"]
+mod provisioning_support_tests;
 
 #[path = "survival_probe/provisioning_world.rs"]
 pub(super) mod provisioning_world;
@@ -308,24 +311,12 @@ fn run_diet_recovery_branch(
     let before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("diet-recovery player disappeared before provisioning"));
     let selected_indices = selected_food_indices(branch.foods, policy);
-    let energy_deficit = physiology
-        .maximum_metabolic_energy()
-        .checked_sub(before.metabolic_energy())
-        .unwrap_or_else(|| panic!("diet-recovery metabolic reserve exceeded authored maximum"));
-    let per_category_target = Energy::from_nanojoules(
-        energy_deficit
-            .nanojoules()
-            .div_ceil(selected_indices.len() as u128)
-            .max(1),
+    assert!(
+        before.metabolic_energy() <= physiology.maximum_metabolic_energy(),
+        "diet-recovery metabolic reserve exceeded authored maximum"
     );
-    let desired_masses = selected_indices
-        .iter()
-        .map(|index| mass_for_target_energy(branch.foods[*index], per_category_target))
-        .collect::<Vec<_>>();
-    let selected_masses = bound_meal_masses_to_direct_limit(
-        &desired_masses,
-        physiology.direct_consumption().maximum_meal_mass(),
-    );
+    let selected_masses =
+        desired_policy_meal_masses(registries, &state, branch.foods, &selected_indices);
     let selections = selected_indices
         .iter()
         .zip(&selected_masses)

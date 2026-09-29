@@ -185,6 +185,12 @@ pub(in super::super::super) fn execute_selected_primitive_project(
     let mut service_ticks = 0_u64;
     let mut replacement_mass_mg = 0_u64;
     let mut provisioning = ProvisioningOutcome::default();
+    let initial_source_mass = stockpile_mass(&selected_state, consumer.source());
+    assert!(
+        plan.declared_mass <= initial_source_mass,
+        "declared primitive project exceeds actor-visible feed opportunity"
+    );
+    let mut remaining_project_mass = plan.declared_mass;
     let route = PrimitiveProjectRoute {
         plan,
         consumer,
@@ -192,7 +198,7 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         method,
         drive,
     };
-    while !stockpile_mass(&selected_state, consumer.source()).is_zero() {
+    while !remaining_project_mass.is_zero() {
         if let Some(service) = service_consumer_if_critical(
             registries,
             &mut selected_state,
@@ -221,7 +227,9 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         )
         .unwrap_or_else(|error| panic!("selected primitive batch planning failed: {error}"));
         let remaining_mass = stockpile_mass(&selected_state, consumer.source());
-        let upper_batch_mass = remaining_mass.min(envelope.maximum_mass_with_replenished_energy());
+        let upper_batch_mass = remaining_project_mass
+            .min(remaining_mass)
+            .min(envelope.maximum_mass_with_replenished_energy());
         assert!(
             !upper_batch_mass.is_zero(),
             "selected primitive crusher has remaining feed but no positive feasible batch"
@@ -268,6 +276,11 @@ pub(in super::super::super) fn execute_selected_primitive_project(
         consumer_ticks = consumer_ticks
             .checked_add(executed_consumer_ticks)
             .unwrap_or_else(|| panic!("selected primitive consumer duration overflowed"));
+        remaining_project_mass = remaining_project_mass
+            .checked_sub(leg.batch_mass)
+            .unwrap_or_else(|| {
+                unreachable!("primitive leg is bounded by remaining declared project mass")
+            });
         charge_events += 1;
     }
     assert!(
@@ -292,7 +305,14 @@ pub(in super::super::super) fn execute_selected_primitive_project(
             "without survival batch splitting, lived service count must match the consumer-aware projection"
         );
     }
-    assert!(stockpile_mass(&selected_state, consumer.source()).is_zero());
+    assert!(remaining_project_mass.is_zero());
+    assert_eq!(
+        stockpile_mass(&selected_state, consumer.source()),
+        initial_source_mass
+            .checked_sub(plan.declared_mass)
+            .unwrap_or_else(|| unreachable!("declared primitive project was bounded by feed")),
+        "primitive project must consume only the actor's declared workload"
+    );
     let provider_condition_ppm = selected_state
         .equipment()
         .get_equipment(provider)

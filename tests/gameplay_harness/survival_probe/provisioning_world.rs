@@ -251,30 +251,25 @@ pub(super) fn provisioning_plan(
         .unwrap_or_else(|| panic!("survival provisioning plan lost the player"));
     let selected_indices = selected_food_indices(foods, policy);
     assert!(!selected_indices.is_empty());
-    let energy_deficit = physiology
-        .maximum_metabolic_energy()
-        .checked_sub(before.metabolic_energy())
-        .unwrap_or_else(|| panic!("survival provisioning energy exceeded authored maximum"));
-    let category_target = Energy::from_nanojoules(
-        energy_deficit
-            .nanojoules()
-            .div_ceil(selected_indices.len() as u128)
-            .max(1),
+    assert!(
+        before.metabolic_energy() <= physiology.maximum_metabolic_energy(),
+        "survival provisioning energy exceeded authored maximum"
     );
-    let desired_masses = selected_indices
+    let desired_masses =
+        desired_policy_meal_masses(registries, &prepared.state, foods, &selected_indices);
+    let selected_masses = selected_indices
         .iter()
-        .map(|index| mass_for_target_energy(foods[*index], category_target))
+        .zip(desired_masses)
+        .map(|(index, desired)| desired.min(world.offered_masses[*index]))
         .collect::<Vec<_>>();
-    let selected_masses = bound_meal_masses_to_direct_limit(
-        &desired_masses,
-        physiology.direct_consumption().maximum_meal_mass(),
+    let selected_total = selected_masses
+        .iter()
+        .try_fold(Mass::ZERO, |total, mass| total.checked_add(*mass))
+        .unwrap_or_else(|| panic!("survival selected meal mass overflowed"));
+    assert!(
+        selected_total >= physiology.direct_consumption().minimum_meal_mass(),
+        "generated survival food opportunity must still support one legal policy meal"
     );
-    for (index, selected_mass) in selected_indices.iter().zip(&selected_masses) {
-        assert!(
-            *selected_mass <= world.offered_masses[*index],
-            "survival probe offered food must cover every matched-policy portion"
-        );
-    }
     ProvisioningPlan {
         selected_indices,
         selected_masses,

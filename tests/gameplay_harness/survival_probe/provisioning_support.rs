@@ -8,6 +8,102 @@ pub(super) fn mass_for_target_energy(food: FoodDefinition, target: Energy) -> Ma
         .unwrap_or_else(|| panic!("survival probe meal mass exceeds authoritative range"))
 }
 
+/// Plans one policy-selected meal against authoritative eating-time metabolism.
+///
+/// A single-food policy delegates directly to the production target planner. Multi-food policy
+/// owns only the category mix: the fixed-point uses the public survival budget and authored meal
+/// duration so it cannot undercount the energy spent while the player is eating.
+pub(super) fn desired_policy_meal_masses(
+    registries: &Registries,
+    state: &AppState,
+    foods: &[FoodDefinition],
+    selected_indices: &[usize],
+) -> Vec<Mass> {
+    assert!(
+        !selected_indices.is_empty(),
+        "survival meal policy must select at least one food"
+    );
+    let physiology = registries.survival().physiology();
+    let current = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("survival meal planning lost the player"))
+        .metabolic_energy();
+    let target = physiology.maximum_metabolic_energy();
+    if selected_indices.len() == 1 {
+        let food = foods[selected_indices[0]];
+        return vec![
+            match deep_hearth::survival::project_minimum_meal_to_metabolic_target(
+                physiology,
+                food,
+                current,
+                target,
+            ) {
+                Ok(Some(projection)) => projection.mass(),
+                Ok(None) => physiology.direct_consumption().minimum_meal_mass(),
+                Err(
+                    deep_hearth::survival::MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit {
+                        maximum_meal_mass,
+                    },
+                ) => maximum_meal_mass,
+                Err(error) => panic!("survival meal target projection failed: {error}"),
+            },
+        ];
+    }
+
+    let reserve_gap = target
+        .checked_sub(current)
+        .unwrap_or_else(|| unreachable!("survival reserve cannot exceed authored maximum"));
+    let direct = physiology.direct_consumption();
+    let mut required_offer = reserve_gap;
+    let mut prior_masses: Option<Vec<Mass>> = None;
+    loop {
+        let per_category_target = Energy::from_nanojoules(
+            required_offer
+                .nanojoules()
+                .div_ceil(selected_indices.len() as u128)
+                .max(1),
+        );
+        let desired = selected_indices
+            .iter()
+            .map(|index| mass_for_target_energy(foods[*index], per_category_target))
+            .collect::<Vec<_>>();
+        let mut masses = bound_meal_masses_to_direct_limit(&desired, direct.maximum_meal_mass());
+        let total = masses
+            .iter()
+            .try_fold(Mass::ZERO, |sum, mass| sum.checked_add(*mass))
+            .unwrap_or_else(|| panic!("survival meal-plan total mass overflowed"));
+        if total < direct.minimum_meal_mass() {
+            let missing = direct
+                .minimum_meal_mass()
+                .checked_sub(total)
+                .unwrap_or_else(|| unreachable!("minimum-meal shortfall was established"));
+            masses[0] = masses[0]
+                .checked_add(missing)
+                .unwrap_or_else(|| panic!("survival minimum meal adjustment overflowed"));
+        }
+        if prior_masses.as_ref() == Some(&masses) {
+            return masses;
+        }
+        let total = masses
+            .iter()
+            .try_fold(Mass::ZERO, |sum, mass| sum.checked_add(*mass))
+            .unwrap_or_else(|| panic!("survival meal-plan total mass overflowed"));
+        let duration = direct
+            .meal_duration(total)
+            .unwrap_or_else(|| unreachable!("bounded policy meal has an authored duration"));
+        let meal_cost = deep_hearth::survival::project_survival_resource_budget(
+            physiology,
+            deep_hearth::survival::SurvivalExertion::REST,
+            duration,
+        )
+        .unwrap_or_else(|error| panic!("survival meal-time resource projection failed: {error:?}"))
+        .metabolic_energy();
+        required_offer = reserve_gap
+            .checked_add(meal_cost)
+            .unwrap_or_else(|| panic!("survival meal target energy overflowed"));
+        prior_masses = Some(masses);
+    }
+}
+
 fn validate_recovery_drink(
     registries: &Registries,
     state: &AppState,

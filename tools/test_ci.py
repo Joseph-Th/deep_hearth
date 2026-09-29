@@ -957,6 +957,15 @@ unknown_macro!();
         ]
         self.assertEqual(offenders, [])
 
+    def test_gameplay_harness_never_reads_authoritative_hidden_geology(self) -> None:
+        forbidden = re.compile(r"\.(?:geology|geology_mut)\s*\(")
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in maintained_rust_files(ROOT / "tests" / "gameplay_harness")
+            if forbidden.search(read_maintained_text(path))
+        ]
+        self.assertEqual(offenders, [])
+
     def test_gameplay_feature_public_surface_is_explicitly_bounded(self) -> None:
         exposed: set[tuple[str, str]] = set()
         for path in maintained_rust_files(ROOT / "src"):

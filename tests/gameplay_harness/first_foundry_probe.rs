@@ -44,13 +44,15 @@ use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 use super::world_admission::STATIONARY_PLAYER_ORIGIN;
 #[path = "first_foundry_probe/casting.rs"]
 mod casting;
+#[cfg(test)]
+#[path = "first_foundry_probe/generation_tests.rs"]
+mod generation_tests;
 #[path = "first_foundry_probe/planning.rs"]
 mod planning;
 
 use self::casting::resolve_full_cast_after_cooldown;
 use self::planning::{
-    FOUNDRY_STONE_OPPORTUNITY, FOUNDRY_WOOD_OPPORTUNITY, craft_foundry_components,
-    foundry_capital_copper, inherited_owned_ore_opportunity, native_copper_opportunity,
+    craft_foundry_components, foundry_bootstrap_route_plan, foundry_resource_opportunity,
     select_commodity_mass, settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
 };
 
@@ -165,21 +167,36 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         "settlement cast must be an integral number of first-foundry melts"
     );
 
-    let native_opportunity = native_copper_opportunity(case);
-    let inherited_ore = inherited_owned_ore_opportunity(case);
-    let capital_copper = foundry_capital_copper(registries);
+    let route_plan = foundry_bootstrap_route_plan(registries, first_cast_mass);
+    let capital_copper = route_plan.capital_native_copper();
     let settlement_ingots = settlement_mold_ingot_requirement(registries);
     let settlement_stone = settlement_mold_stone_requirement(registries);
-    let disclosed_stone_opportunity = FOUNDRY_STONE_OPPORTUNITY
+    let component_stone = route_plan
+        .capital_raw
+        .get(&CommodityKey::new(MATERIAL_STONE, FORM_LUMP))
+        .copied()
+        .unwrap_or(Mass::ZERO);
+    let component_wood = route_plan
+        .capital_raw
+        .get(&CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
+        .copied()
+        .unwrap_or(Mass::ZERO);
+    let disclosed_stone_opportunity = component_stone
         .checked_add(settlement_stone)
         .unwrap_or_else(|| panic!("first foundry disclosed stone opportunity overflowed"));
     // Machinery should be justified by disclosed work, not merely by enough matter to assemble
     // the next unlock. Require enough copper to build the first foundry, cast the mold-upgrade
     // stock, and then actually run one settlement-size batch through that upgraded capability.
-    let required_after_current = capital_copper
-        .checked_add(settlement_ingots)
-        .and_then(|mass| mass.checked_add(settlement_cast_mass))
-        .unwrap_or_else(|| panic!("first foundry workload-backed copper requirement overflowed"));
+    let resource_opportunity = foundry_resource_opportunity(
+        registries,
+        case,
+        &route_plan,
+        settlement_ingots,
+        settlement_cast_mass,
+    );
+    let native_opportunity = resource_opportunity.native;
+    let inherited_ore = resource_opportunity.owned_ore;
+    let required_after_current = resource_opportunity.required_after_current;
 
     let settlement_mold_upgrade = registries
         .equipment()
@@ -196,14 +213,18 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let (frame_saw, treadle_hammer, treadle_drive) =
         seed_prior_settlement_workshop(registries, &mut state);
     let workshop_tools = [frame_saw, treadle_hammer];
-    let raw_capacity = FOUNDRY_STONE_OPPORTUNITY
-        .checked_add(FOUNDRY_WOOD_OPPORTUNITY)
-        .and_then(|mass| mass.checked_add(native_opportunity))
+    let non_copper_component_raw = route_plan
+        .capital_raw_mass()
+        .checked_sub(capital_copper)
+        .unwrap_or_else(|| unreachable!("component copper is part of total component raw mass"));
+    let raw_capacity = non_copper_component_raw
+        .checked_add(native_opportunity)
         .and_then(|mass| mass.checked_add(inherited_ore.mass))
         .unwrap_or_else(|| panic!("first foundry disclosed raw opportunity overflowed"));
     let raw = add_solid_stockpile(&mut state, raw_capacity);
-    // Component fabrication only redistributes finite disclosed raw matter. Keep this plumbing
-    // buffer large enough for any authored component mix without introducing a second hidden cap.
+    // Component fabrication only redistributes finite disclosed raw matter. The extra ore-sized
+    // capacity is inbound headroom for native copper recovered from the separate owned-ore
+    // stockpile; no additional matter is seeded into the raw store.
     let parts = add_solid_stockpile(&mut state, raw_capacity);
     let owned_ore = add_solid_stockpile(&mut state, inherited_ore.mass);
     let recovery_crushed = add_solid_stockpile(&mut state, inherited_ore.mass);
@@ -221,20 +242,10 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|error| panic!("first foundry molten storage profile failed: {error}"));
     let molten = seed_stockpile(&mut state, settlement_cast_mass, molten_profile);
 
-    for (commodity, mass) in [
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            FOUNDRY_STONE_OPPORTUNITY,
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            FOUNDRY_WOOD_OPPORTUNITY,
-        ),
-        (
-            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-            native_opportunity,
-        ),
-    ] {
+    for (&commodity, &mass) in &route_plan.capital_raw {
+        if commodity == CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL) {
+            continue;
+        }
         let _ = seed_lot(
             registries,
             &mut state,
@@ -244,6 +255,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             ROOM_TEMPERATURE,
         );
     }
+    let _ = seed_lot(
+        registries,
+        &mut state,
+        raw,
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        native_opportunity,
+        ROOM_TEMPERATURE,
+    );
     seed_composed_lot(
         registries,
         &mut state,
@@ -305,6 +324,31 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         reinforcement,
         first_cast_mass,
         "first foundry current reinforcement order",
+    );
+    let current_input = current_request
+        .selections()
+        .iter()
+        .map(|selection| selection.mass())
+        .try_fold(Mass::ZERO, Mass::checked_add)
+        .unwrap_or_else(|| panic!("first foundry current-order input mass overflowed"));
+    let current_tool_definition = current_request.equipment().and_then(|equipment| {
+        state
+            .equipment()
+            .get_equipment(equipment)
+            .map(|record| record.definition())
+    });
+    assert_eq!(
+        (
+            current_request.process(),
+            current_input,
+            current_tool_definition
+        ),
+        (
+            route_plan.immediate.process,
+            route_plan.immediate.input_mass,
+            route_plan.immediate.equipment
+        ),
+        "first foundry pre-action route projection must match the live current-order planner"
     );
     let current_tool = current_request.equipment();
     let direct_native_ticks = execute_manual_craft(
@@ -404,7 +448,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             case.seed(),
             case.role().label(),
             disclosed_stone_opportunity.milligrams(),
-            FOUNDRY_WOOD_OPPORTUNITY.milligrams(),
+            component_wood.milligrams(),
             native_opportunity.milligrams(),
             inherited_ore.mass.milligrams(),
             inherited_ore.copper_ppm,
@@ -452,6 +496,18 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         return;
     }
 
+    let component_raw_before = route_plan
+        .fabrication_raw
+        .iter()
+        .map(|(&commodity, &required)| {
+            let available = state
+                .inventory()
+                .get_stockpile(raw)
+                .map(|stockpile| stockpile.get_mass(commodity))
+                .unwrap_or_else(|| panic!("first foundry raw stockpile disappeared"));
+            (commodity, required, available)
+        })
+        .collect::<Vec<_>>();
     let mut unassisted_fabrication_state = state.clone();
     let unassisted_fabrication = craft_foundry_components(
         registries,
@@ -461,6 +517,22 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         &[],
     );
     let fabrication = craft_foundry_components(registries, &mut state, raw, parts, &workshop_tools);
+    for (commodity, expected, before) in component_raw_before {
+        let after = state
+            .inventory()
+            .get_stockpile(raw)
+            .map(|stockpile| stockpile.get_mass(commodity))
+            .unwrap_or_else(|| panic!("first foundry raw stockpile disappeared after fabrication"));
+        let consumed = before
+            .checked_sub(after)
+            .unwrap_or_else(|| panic!("first foundry component fabrication created raw material"));
+        assert_eq!(
+            consumed,
+            expected,
+            "first foundry projected raw component cost diverged from live production for commodity {}",
+            commodity.value()
+        );
+    }
     assert!(
         fabrication.total_ticks < unassisted_fabrication.total_ticks,
         "inherited settlement workshop must reduce the first-foundry component workload"
@@ -906,7 +978,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         case.seed(),
         case.role().label(),
         disclosed_stone_opportunity.milligrams(),
-        FOUNDRY_WOOD_OPPORTUNITY.milligrams(),
+        component_wood.milligrams(),
         native_opportunity.milligrams(),
         inherited_ore.mass.milligrams(),
         inherited_ore.copper_ppm,

@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use super::extraction::FieldworkStop;
 use super::world::{
-    FIELDWORK_BULK_SUPPLY_MIN_MG, FIELDWORK_COMMON_SUPPLY_MAX_MG, FIELDWORK_COMMON_SUPPLY_MIN_MG,
-    FIELDWORK_SHALLOW_SUPPLY_MAX_MG,
+    FIELDWORK_BULK_SUPPLY_MIN_PPM, FIELDWORK_COMMON_SUPPLY_MAX_PPM,
+    FIELDWORK_COMMON_SUPPLY_MIN_PPM, FIELDWORK_SHALLOW_SUPPLY_MAX_PPM, scaled_fieldwork_supply,
 };
 use super::*;
 use deep_hearth::maintenance::Condition;
@@ -20,34 +20,41 @@ fn replay(seed: u64) -> FocusedProbeCase {
 
 #[test]
 fn exploratory_supply_spans_shallow_common_and_bulk_opportunities() {
+    let registries = deep_hearth::content::build_registries();
+    let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
+    let shallow_max =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_SHALLOW_SUPPLY_MAX_PPM).milligrams();
+    let common_min =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_COMMON_SUPPLY_MIN_PPM).milligrams();
+    let common_max =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_COMMON_SUPPLY_MAX_PPM).milligrams();
+    let bulk_min = scaled_fieldwork_supply(base_batch, FIELDWORK_BULK_SUPPLY_MIN_PPM).milligrams();
     let supplies = (0_u64..256)
-        .map(fieldwork_supply)
+        .map(|seed| fieldwork_supply(&registries, seed))
         .map(Mass::milligrams)
         .collect::<Vec<_>>();
+    assert!(supplies.iter().any(|&mass| mass <= shallow_max));
     assert!(
         supplies
             .iter()
-            .any(|&mass| mass <= FIELDWORK_SHALLOW_SUPPLY_MAX_MG)
+            .any(|&mass| (common_min..=common_max).contains(&mass))
     );
-    assert!(supplies.iter().any(|&mass| {
-        (FIELDWORK_COMMON_SUPPLY_MIN_MG..=FIELDWORK_COMMON_SUPPLY_MAX_MG).contains(&mass)
-    }));
-    assert!(
-        supplies
-            .iter()
-            .any(|&mass| mass >= FIELDWORK_BULK_SUPPLY_MIN_MG)
-    );
+    assert!(supplies.iter().any(|&mass| mass >= bulk_min));
 }
 
 #[test]
 fn exploratory_demand_and_reserve_scale_are_not_coupled() {
     let registries = deep_hearth::content::build_registries();
+    let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
+    let shallow_max =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_SHALLOW_SUPPLY_MAX_PPM).milligrams();
+    let bulk_min = scaled_fieldwork_supply(base_batch, FIELDWORK_BULK_SUPPLY_MIN_PPM).milligrams();
     let combinations = (0_u64..256)
         .map(|seed| {
-            let supply = fieldwork_supply(seed).milligrams();
-            let supply_class = if supply <= FIELDWORK_SHALLOW_SUPPLY_MAX_MG {
+            let supply = fieldwork_supply(&registries, seed).milligrams();
+            let supply_class = if supply <= shallow_max {
                 "shallow"
-            } else if supply >= FIELDWORK_BULK_SUPPLY_MIN_MG {
+            } else if supply >= bulk_min {
                 "bulk"
             } else {
                 "common"
@@ -66,8 +73,17 @@ fn exploratory_demand_and_reserve_scale_are_not_coupled() {
 
 #[test]
 fn followup_sites_have_independent_reserve_opportunities() {
+    let registries = deep_hearth::content::build_registries();
+    let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
+    let shallow_max =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_SHALLOW_SUPPLY_MAX_PPM).milligrams();
+    let common_min =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_COMMON_SUPPLY_MIN_PPM).milligrams();
+    let common_max =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_COMMON_SUPPLY_MAX_PPM).milligrams();
+    let bulk_min = scaled_fieldwork_supply(base_batch, FIELDWORK_BULK_SUPPLY_MIN_PPM).milligrams();
     let opportunities = (0_u64..128)
-        .flat_map(super::world::fieldwork_followup_opportunities)
+        .flat_map(|seed| super::world::fieldwork_followup_opportunities(&registries, seed))
         .collect::<Vec<_>>();
     let supplies = opportunities
         .iter()
@@ -75,22 +91,16 @@ fn followup_sites_have_independent_reserve_opportunities() {
         .flatten()
         .map(Mass::milligrams)
         .collect::<Vec<_>>();
+    assert!(supplies.iter().any(|&mass| mass <= shallow_max));
     assert!(
         supplies
             .iter()
-            .any(|&mass| mass <= FIELDWORK_SHALLOW_SUPPLY_MAX_MG)
+            .any(|&mass| (common_min..=common_max).contains(&mass))
     );
-    assert!(supplies.iter().any(|&mass| {
-        (FIELDWORK_COMMON_SUPPLY_MIN_MG..=FIELDWORK_COMMON_SUPPLY_MAX_MG).contains(&mass)
-    }));
-    assert!(
-        supplies
-            .iter()
-            .any(|&mass| mass >= FIELDWORK_BULK_SUPPLY_MIN_MG)
-    );
+    assert!(supplies.iter().any(|&mass| mass >= bulk_min));
     assert!(
         (0_u64..128).any(|seed| {
-            super::world::fieldwork_followup_opportunities(seed)
+            super::world::fieldwork_followup_opportunities(&registries, seed)
                 .windows(2)
                 .any(|pair| pair[0] != pair[1])
         }),
@@ -119,7 +129,7 @@ fn maintained_bulk_order_replays_quarry_investment_from_seed_alone() {
             "bulk-investment coverage expectation",
         )
     );
-    assert!(fieldwork_supply_for_case(case) > requested);
+    assert!(fieldwork_supply_for_case(&registries, case) > requested);
 
     let episode = run_fieldwork_order(&registries, case, requested);
     assert_eq!(episode.full_order_tool, Some(EQUIPMENT_STONE_QUARRY_PICK));
@@ -145,7 +155,7 @@ fn maintained_reinforcement_bulk_order_selects_reinforced_quarry_from_visible_sc
             "reinforced bulk-investment coverage expectation",
         )
     );
-    assert!(fieldwork_supply_for_case(case) > requested);
+    assert!(fieldwork_supply_for_case(&registries, case) > requested);
 
     let episode = run_fieldwork_order(&registries, case, requested);
     assert_eq!(
@@ -281,7 +291,7 @@ fn exact_hidden_reserve_inside_same_acquired_band_cannot_change_pre_action_plan(
 fn world_seeded_shallow_opportunity_reports_partial_order() {
     let registries = deep_hearth::content::build_registries();
     let requested = fieldwork_order(&registries, 6);
-    let reserve = fieldwork_supply(6);
+    let reserve = fieldwork_supply(&registries, 6);
     assert!(reserve < requested);
     let episode = run_fieldwork_order(&registries, replay(6), requested);
     assert!(episode.observed_resource_mass.lower() <= reserve);
@@ -308,7 +318,7 @@ fn maintained_reserve_scale_case_replays_overinvestment_avoidance_from_seed_alon
             "reserve-scale coverage expectation",
         )
     );
-    assert!(fieldwork_supply(case.seed()) < requested);
+    assert!(fieldwork_supply(&registries, case.seed()) < requested);
 
     let episode = run_fieldwork_order(&registries, case, requested);
     assert_eq!(

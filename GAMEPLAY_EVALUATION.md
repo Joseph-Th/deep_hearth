@@ -179,7 +179,10 @@ Routine focused gameplay gates and the broad gameplay audit combine maintained d
 fresh replayable organic case per sampled family. Reports use a broader bounded sample and agency qualification
 searches. Maintained cases prove contracts, not prevalence; organic samples are bounded evidence, not population
 estimates. A named qualitative regime must have a maintained witness; organic sampling broadens evidence around
-those anchors instead of making basic coverage depend on luck.
+those anchors instead of making basic coverage depend on luck. Organic generator ranges that are intended to
+straddle an authored threshold, equipment scale, storage capacity, or production crossover derive that scale from
+the current production definitions/projections. Fixed numeric pressure is appropriate only when the number itself
+is the disclosed world condition or player goal, not when it is standing in for an authored requirement.
 Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
 must not count counterfactual, coverage-only, or negative-control branches as player experience.
 

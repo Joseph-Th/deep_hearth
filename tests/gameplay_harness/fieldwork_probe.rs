@@ -33,10 +33,10 @@ const FIELDWORK_BULK_ORDER_BATCHES: u64 = 48;
 const FIELDWORK_BULK_ORDER_MIN_BATCHES: u64 = 32;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_SEED: u64 = 0;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_BATCHES: u64 = 64;
-const FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_MG: u64 = 40_000_000;
+const FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_BATCHES: u64 = 80;
 const FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED: u64 = 2;
 const FIELDWORK_BULK_INVESTMENT_COVERAGE_BATCHES: u64 = 40;
-const FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_MG: u64 = 28_000_000;
+const FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_BATCHES: u64 = 56;
 const FIELDWORK_RESERVE_SCALE_COVERAGE_SEED: u64 = 6;
 const FIELDWORK_RESERVE_SCALE_COVERAGE_BATCHES: u64 = 64;
 
@@ -185,14 +185,23 @@ fn fieldwork_order_for_case(registries: &Registries, case: FocusedProbeCase) -> 
     fieldwork_order(registries, case.seed())
 }
 
-fn fieldwork_supply_for_case(case: FocusedProbeCase) -> Mass {
+fn fieldwork_supply_for_case(registries: &Registries, case: FocusedProbeCase) -> Mass {
+    let base_batch = fieldwork_mining_limits(registries).base_quarry_batch;
     if case.seed() == FIELDWORK_REINFORCED_BULK_COVERAGE_SEED {
-        return Mass::from_milligrams(FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_MG);
+        return multiplied_mass(
+            base_batch,
+            FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_BATCHES,
+            "maintained reinforced bulk-investment fieldwork coverage supply",
+        );
     }
     if case.seed() == FIELDWORK_BULK_INVESTMENT_COVERAGE_SEED {
-        return Mass::from_milligrams(FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_MG);
+        return multiplied_mass(
+            base_batch,
+            FIELDWORK_BULK_INVESTMENT_COVERAGE_SUPPLY_BATCHES,
+            "maintained bulk-investment fieldwork coverage supply",
+        );
     }
-    fieldwork_supply(case.seed())
+    fieldwork_supply(registries, case.seed())
 }
 
 fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
@@ -246,7 +255,7 @@ fn run_fieldwork_order(
         registries,
         case,
         requested_mine_mass,
-        fieldwork_supply_for_case(case),
+        fieldwork_supply_for_case(registries, case),
     )
 }
 

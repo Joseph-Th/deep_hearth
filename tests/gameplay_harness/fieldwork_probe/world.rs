@@ -49,32 +49,42 @@ struct FieldworkGeologyProfile {
     clay_share_ppm: u32,
 }
 
-/// Controlled world generation, independent of demand and tool capabilities. One quarter of mixed
-/// worlds are shallow, while a sparse large-reserve tail gives bulk extraction tools a legitimate
-/// organic opportunity without collapsing non-shallow sites to one reserve scale. Exact reserve
-/// stays hidden from the actor and demand never influences which reserve class is generated.
-pub(super) const FIELDWORK_SHALLOW_SUPPLY_MIN_MG: u64 = 600_000;
-pub(super) const FIELDWORK_SHALLOW_SUPPLY_MAX_MG: u64 = 900_000;
-pub(super) const FIELDWORK_COMMON_SUPPLY_MIN_MG: u64 = 4_000_000;
-pub(super) const FIELDWORK_COMMON_SUPPLY_MAX_MG: u64 = 8_000_000;
-pub(super) const FIELDWORK_BULK_SUPPLY_MIN_MG: u64 = 24_000_000;
-pub(super) const FIELDWORK_BULK_SUPPLY_MAX_MG: u64 = 32_000_000;
+/// Controlled world generation, independent of demand and actor policy. Reserve classes are scaled
+/// from the current ordinary quarry batch so retuning extraction capacity does not silently turn
+/// every organic site into the same tool regime. Exact reserve stays hidden from the actor.
+pub(super) const FIELDWORK_SHALLOW_SUPPLY_MIN_PPM: u64 = 1_200_000;
+pub(super) const FIELDWORK_SHALLOW_SUPPLY_MAX_PPM: u64 = 1_800_000;
+pub(super) const FIELDWORK_COMMON_SUPPLY_MIN_PPM: u64 = 8_000_000;
+pub(super) const FIELDWORK_COMMON_SUPPLY_MAX_PPM: u64 = 16_000_000;
+pub(super) const FIELDWORK_BULK_SUPPLY_MIN_PPM: u64 = 48_000_000;
+pub(super) const FIELDWORK_BULK_SUPPLY_MAX_PPM: u64 = 64_000_000;
 
-pub(super) fn fieldwork_supply(seed: u64) -> Mass {
+pub(super) fn scaled_fieldwork_supply(base_batch: Mass, scale_ppm: u64) -> Mass {
+    Mass::from_milligrams(
+        u128::from(base_batch.milligrams())
+            .checked_mul(u128::from(scale_ppm))
+            .map(|scaled| scaled / 1_000_000)
+            .and_then(|scaled| u64::try_from(scaled).ok())
+            .unwrap_or_else(|| panic!("fieldwork reserve scale overflowed")),
+    )
+}
+
+pub(super) fn fieldwork_supply(registries: &Registries, seed: u64) -> Mass {
+    let base_batch = fieldwork_mining_limits(registries).base_quarry_batch;
     let variation = mix64(seed ^ 0x4649_454C_4452_5356);
     let shallow = mix64(seed ^ 0x4649_454C_4453_5554) % 4 == 1;
     let bulk = !shallow && mix64(seed ^ 0x4649_454C_4442_554C).is_multiple_of(8);
-    let milligrams = if shallow {
-        FIELDWORK_SHALLOW_SUPPLY_MIN_MG
-            + variation % (FIELDWORK_SHALLOW_SUPPLY_MAX_MG - FIELDWORK_SHALLOW_SUPPLY_MIN_MG + 1)
+    let scale_ppm = if shallow {
+        FIELDWORK_SHALLOW_SUPPLY_MIN_PPM
+            + variation % (FIELDWORK_SHALLOW_SUPPLY_MAX_PPM - FIELDWORK_SHALLOW_SUPPLY_MIN_PPM + 1)
     } else if bulk {
-        FIELDWORK_BULK_SUPPLY_MIN_MG
-            + variation % (FIELDWORK_BULK_SUPPLY_MAX_MG - FIELDWORK_BULK_SUPPLY_MIN_MG + 1)
+        FIELDWORK_BULK_SUPPLY_MIN_PPM
+            + variation % (FIELDWORK_BULK_SUPPLY_MAX_PPM - FIELDWORK_BULK_SUPPLY_MIN_PPM + 1)
     } else {
-        FIELDWORK_COMMON_SUPPLY_MIN_MG
-            + variation % (FIELDWORK_COMMON_SUPPLY_MAX_MG - FIELDWORK_COMMON_SUPPLY_MIN_MG + 1)
+        FIELDWORK_COMMON_SUPPLY_MIN_PPM
+            + variation % (FIELDWORK_COMMON_SUPPLY_MAX_PPM - FIELDWORK_COMMON_SUPPLY_MIN_PPM + 1)
     };
-    Mass::from_milligrams(milligrams)
+    scaled_fieldwork_supply(base_batch, scale_ppm)
 }
 
 const FOLLOWUP_SITE_SALTS: [u64; 6] = [
@@ -90,13 +100,16 @@ fn followup_site_seeds(seed: u64) -> [u64; 6] {
     FOLLOWUP_SITE_SALTS.map(|salt| mix64(seed ^ salt))
 }
 
-pub(super) fn fieldwork_followup_opportunities(seed: u64) -> [Option<Mass>; 6] {
+pub(super) fn fieldwork_followup_opportunities(
+    registries: &Registries,
+    seed: u64,
+) -> [Option<Mass>; 6] {
     followup_site_seeds(seed).map(|site_seed| {
         // Neighboring search areas are not guaranteed to contain the requested resource. Keep the
         // outcome independent of demand, equipment, and actor policy so paid fieldwork can reveal
         // a real dead end without turning the primary known opportunity into a lottery.
         (!mix64(site_seed ^ 0x4241_5252_454E_5349).is_multiple_of(4))
-            .then(|| fieldwork_supply(site_seed))
+            .then(|| fieldwork_supply(registries, site_seed))
     })
 }
 
@@ -291,7 +304,7 @@ pub(super) fn build_fieldwork_world(
         profile,
     );
     let followup_seeds = followup_site_seeds(seed);
-    let followup_opportunities = fieldwork_followup_opportunities(seed);
+    let followup_opportunities = fieldwork_followup_opportunities(registries, seed);
     // Follow-up search areas are independent geological opportunities. Some contain no copper at
     // all; productive areas vary reserve, hardness, and grade. Search therefore reveals the world
     // instead of receiving a harness guarantee that every reroute is productive.

@@ -1,6 +1,7 @@
 //! Ordinary settlement lumber investment episode over disclosed prior workshop infrastructure.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
@@ -11,7 +12,8 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
-    PoweredCraftRequest, resolve_manual_craft, validate_start_powered_craft,
+    PoweredCraftRequest, project_manual_craft_equipment, resolve_manual_craft,
+    validate_start_powered_craft,
 };
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{
@@ -30,6 +32,7 @@ use super::environment::ROOM_TEMPERATURE;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::{plan_manual_craft_request, select_manual_craft_request};
+use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::physical_time::format_physical_duration;
@@ -39,14 +42,14 @@ use super::seed::mix64;
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
-// Keep the maintained mechanized witness materially beyond the crossover instead of pinning the
-// harness to a barely-positive order. Organic 16..40-batch worlds still explore the decision edge;
-// this case demonstrates what the investment feels like once repeated work is genuinely present.
+// Keep the maintained mechanized witness materially beyond the current crossover instead of
+// pinning the harness to a barely-positive order. Organic worlds derive their demand from the
+// live production crossover below, so content retuning cannot silently move every sample to one
+// side of the investment decision.
 const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 64;
-// Disclosed settlement opportunity rather than copied upgrade requirements. Actual setup inputs are
-// always planned from the authored sash-sawmill upgrade and live crafting routes below.
-const SETTLEMENT_UPGRADE_OPPORTUNITY_WOOD_MG: u64 = 10_000_000;
-const SETTLEMENT_UPGRADE_OPPORTUNITY_COPPER_MG: u64 = 200_000;
+const SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES: u64 = 128;
+const SETTLEMENT_OPPORTUNITY_BATCHES: u64 =
+    SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES + SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES / 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LumberInvestmentChoice {
@@ -82,15 +85,17 @@ struct SetupPlan {
     equipment: Option<EquipmentId>,
 }
 
-fn declared_lumber_batches(case: FocusedProbeCase) -> u64 {
+fn declared_lumber_batches(case: FocusedProbeCase, baseline_crossover_batches: u64) -> u64 {
     match case.role() {
         FocusedProbeRole::MaintainedAnchor => SETTLEMENT_DIRECT_HORIZON_BATCHES,
         FocusedProbeRole::MaintainedCoverage => SETTLEMENT_MECHANIZE_HORIZON_BATCHES,
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            // Span well below and above the capital crossover. Organic settlement play should
-            // sometimes keep using the paid-off frame saw and sometimes have enough disclosed
-            // lumber work to justify converting it into a stationary machine.
-            16 + mix64(case.seed() ^ 0x5345_5454_4C55_4D42) % 49
+            let spread = (baseline_crossover_batches / 2).max(1);
+            let lower = baseline_crossover_batches.saturating_sub(spread).max(1);
+            let upper = baseline_crossover_batches
+                .checked_add(spread)
+                .unwrap_or_else(|| panic!("settlement organic order range overflowed"));
+            lower + mix64(case.seed() ^ 0x5345_5454_4C55_4D42) % (upper - lower + 1)
         }
     }
 }
@@ -161,6 +166,43 @@ fn seed_prior_workshop(
         );
     }
     stockpile
+}
+
+fn settlement_upgrade_raw_requirements(registries: &Registries) -> BTreeMap<CommodityKey, Mass> {
+    let additions = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_TIMBER_SASH_SAWMILL)
+        .and_then(|definition| definition.upgrade_profile())
+        .map(|upgrade| upgrade.additions())
+        .unwrap_or_else(|| panic!("settlement sash sawmill lost upgrade additions"));
+    let primitive_roots = [
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+    ];
+    let mut requirements = BTreeMap::new();
+    for input in additions.inputs() {
+        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
+            registries,
+            input.commodity(),
+            input.mass(),
+            &primitive_roots,
+            "settlement sash-sawmill raw opportunity",
+        );
+        let consumed = Mass::from_milligrams(
+            craft
+                .input_mass()
+                .milligrams()
+                .checked_mul(batches)
+                .unwrap_or_else(|| panic!("settlement upgrade raw requirement overflowed")),
+        );
+        add_requirement(
+            &mut requirements,
+            craft.input(),
+            consumed,
+            "upgrade-opportunity",
+        );
+    }
+    requirements
 }
 
 fn setup_plans(
@@ -294,6 +336,78 @@ fn execute_setup(
         .unwrap_or_else(|| panic!("settlement executed setup attention overflowed"))
 }
 
+fn baseline_lumber_crossover_batches(
+    registries: &Registries,
+    state: &AppState,
+    raw: deep_hearth::inventory::StockpileId,
+    frame_saw: EquipmentId,
+    crank: EquipmentId,
+    work_per_batch: deep_hearth::core::quantity::Energy,
+) -> u64 {
+    let (_, setup_attention) = setup_plans(registries, state, raw, frame_saw);
+    let manual_process = registries
+        .crafting()
+        .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
+        .and_then(|powered| registries.crafting().get_manual(powered.transform()))
+        .map(|manual| manual.process())
+        .unwrap_or_else(|| panic!("settlement sawmill lost its manual transform"));
+    let frame_condition = state
+        .equipment()
+        .get_equipment(frame_saw)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("settlement frame saw disappeared before crossover planning"));
+    let crank_condition = state
+        .equipment()
+        .get_equipment(crank)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("settlement hand crank disappeared before crossover planning"));
+    let minimum_attention_return =
+        CapitalInvestmentPolicy::baseline().minimum_attention_return(0, setup_attention);
+
+    for batches in 1..=SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES {
+        let batches_nonzero = NonZeroU64::new(batches).unwrap_or_else(|| {
+            unreachable!("positive settlement crossover batch count is nonzero")
+        });
+        let baseline_attention = project_manual_craft_equipment(
+            registries,
+            manual_process,
+            batches_nonzero,
+            EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
+            frame_condition,
+        )
+        .unwrap_or_else(|error| panic!("settlement frame-saw crossover projection failed: {error}"))
+        .duration()
+        .value();
+        let machine_attention = setup_attention
+            .checked_add(
+                project_manual_power_sequence(
+                    registries,
+                    ManualPowerSequenceRequest {
+                        method: MANUAL_POWER_HAND_CRANK,
+                        equipment: EQUIPMENT_STONE_HAND_CRANK,
+                        starting_condition: crank_condition,
+                        store: ENERGY_STONE_FLYWHEEL_DRIVE,
+                        energy_per_charge: work_per_batch,
+                        charges: batches,
+                    },
+                    "settlement sawmill crossover",
+                )
+                .attention_ticks,
+            )
+            .unwrap_or_else(|| panic!("settlement crossover machine attention overflowed"));
+        if clears_attention_return(
+            baseline_attention,
+            machine_attention,
+            minimum_attention_return,
+        ) {
+            return batches;
+        }
+    }
+    panic!(
+        "settlement sawmill investment has no baseline crossover within {SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES} batches"
+    );
+}
+
 pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCase) {
     let investment_policy = investment_policy(case);
     let batch = authored_batch(
@@ -301,42 +415,44 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         PROCESS_POWER_SAW_WOOD_BOARDS,
         "settlement lumber investment",
     );
-    let order_batches = declared_lumber_batches(case);
-    let order_mass = Mass::from_milligrams(
+    let opportunity_mass = Mass::from_milligrams(
         batch
             .input_mass
             .milligrams()
-            .checked_mul(order_batches)
-            .unwrap_or_else(|| panic!("settlement lumber order mass overflowed")),
+            .checked_mul(SETTLEMENT_OPPORTUNITY_BATCHES)
+            .unwrap_or_else(|| panic!("settlement lumber opportunity mass overflowed")),
     );
     let mut state = AppState::new();
     let bootstrap = seed_prior_workshop(registries, &mut state);
-    let upgrade_opportunity_capacity = Mass::from_milligrams(
-        SETTLEMENT_UPGRADE_OPPORTUNITY_WOOD_MG
-            .checked_add(SETTLEMENT_UPGRADE_OPPORTUNITY_COPPER_MG)
-            .unwrap_or_else(|| panic!("settlement upgrade opportunity overflowed")),
-    );
+    let upgrade_requirements = settlement_upgrade_raw_requirements(registries);
+    let upgrade_wood_mass = upgrade_requirements
+        .get(&CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
+        .copied()
+        .unwrap_or(Mass::ZERO);
+    let upgrade_copper_mass = upgrade_requirements
+        .get(&CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL))
+        .copied()
+        .unwrap_or(Mass::ZERO);
+    let upgrade_opportunity_capacity = upgrade_requirements
+        .values()
+        .copied()
+        .try_fold(Mass::ZERO, Mass::checked_add)
+        .unwrap_or_else(|| panic!("settlement upgrade opportunity overflowed"));
     let upgrade_raw = seed_stockpile(
         &mut state,
         upgrade_opportunity_capacity,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    seed_lot(
-        registries,
-        &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(SETTLEMENT_UPGRADE_OPPORTUNITY_WOOD_MG),
-        ROOM_TEMPERATURE,
-    );
-    seed_lot(
-        registries,
-        &mut state,
-        upgrade_raw,
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-        Mass::from_milligrams(SETTLEMENT_UPGRADE_OPPORTUNITY_COPPER_MG),
-        ROOM_TEMPERATURE,
-    );
+    for (commodity, mass) in upgrade_requirements {
+        seed_lot(
+            registries,
+            &mut state,
+            upgrade_raw,
+            commodity,
+            mass,
+            ROOM_TEMPERATURE,
+        );
+    }
     let upgrade_parts = seed_stockpile(
         &mut state,
         upgrade_opportunity_capacity,
@@ -344,7 +460,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     );
     let work_source = seed_stockpile(
         &mut state,
-        order_mass,
+        opportunity_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     seed_lot(
@@ -352,12 +468,12 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         &mut state,
         work_source,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        order_mass,
+        opportunity_mass,
         ROOM_TEMPERATURE,
     );
     let output = seed_stockpile(
         &mut state,
-        order_mass,
+        opportunity_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
     super::world_admission::locate_stationary_endpoints(
@@ -397,6 +513,26 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         "settlement disclosed prior-workshop package must be exact"
     );
 
+    let baseline_crossover_batches = baseline_lumber_crossover_batches(
+        registries,
+        &state,
+        upgrade_raw,
+        frame_saw,
+        crank,
+        batch.work,
+    );
+    let order_batches = declared_lumber_batches(case, baseline_crossover_batches);
+    assert!(
+        order_batches <= SETTLEMENT_OPPORTUNITY_BATCHES,
+        "settlement declared order exceeds disclosed lumber opportunity"
+    );
+    let order_mass = Mass::from_milligrams(
+        batch
+            .input_mass
+            .milligrams()
+            .checked_mul(order_batches)
+            .unwrap_or_else(|| panic!("settlement lumber order mass overflowed")),
+    );
     let baseline_request = select_manual_craft_request(
         registries,
         &state,
@@ -616,7 +752,7 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             .checked_sub(survival_after.hydration())
             .unwrap_or_else(|| panic!("settlement hydration reserve increased"))
             .microliters(),
-        SETTLEMENT_UPGRADE_OPPORTUNITY_WOOD_MG,
-        SETTLEMENT_UPGRADE_OPPORTUNITY_COPPER_MG,
+        upgrade_wood_mass.milligrams(),
+        upgrade_copper_mass.milligrams(),
     );
 }
