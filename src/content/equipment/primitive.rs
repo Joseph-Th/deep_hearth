@@ -20,12 +20,14 @@ mod woodworking;
 pub(super) fn definitions() -> Vec<EquipmentDefinition> {
     vec![
         dressing::stone_cobbing_hammer(),
+        dressing::stone_mortar_and_pestle(),
         dressing::timber_dressing_bench(),
         metalworking::timber_treadle_hammer(),
         metalworking::timber_helve_hammer(),
         metalworking::timber_wire_drawbench(),
         metalworking::flywheel_wire_drawbench(),
         mining::stone_pick(),
+        mining::stone_digging_shovel(),
         power::stone_hand_crank(),
         mining::copper_reinforced_pick(),
         power::copper_reinforced_hand_crank(),

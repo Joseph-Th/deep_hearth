@@ -39,6 +39,10 @@ pub(crate) const CAPABILITY_POWERED_STONE_GRINDING_FLOW: CapabilityId = Capabili
 pub(crate) const CAPABILITY_TREADLE_DYNAMO_OUTPUT: CapabilityId = CapabilityId::new(32);
 pub(crate) const CAPABILITY_COPPER_WIRE_DRAWING_FLOW: CapabilityId = CapabilityId::new(33);
 pub(crate) const CAPABILITY_POWERED_COPPER_WIRE_DRAWING_FLOW: CapabilityId = CapabilityId::new(34);
+pub(crate) const CAPABILITY_EARTHWORK_FLOW: CapabilityId = CapabilityId::new(35);
+pub(crate) const CAPABILITY_EARTHWORK_MAX_BATCH: CapabilityId = CapabilityId::new(36);
+pub(crate) const CAPABILITY_EARTHWORK_MAX_HARDNESS: CapabilityId = CapabilityId::new(37);
+pub(crate) const CAPABILITY_MORTAR_GRINDING_FLOW: CapabilityId = CapabilityId::new(38);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -219,6 +223,26 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
         higher_is_better(
             CAPABILITY_POWERED_COPPER_WIRE_DRAWING_FLOW,
             "mechanically powered copper wire-drawing throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_EARTHWORK_FLOW,
+            "earthwork material throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_EARTHWORK_MAX_BATCH,
+            "earthwork maximum batch mass",
+            CapabilityValueKind::Mass,
+        ),
+        higher_is_better(
+            CAPABILITY_EARTHWORK_MAX_HARDNESS,
+            "earthwork maximum excavation hardness",
+            CapabilityValueKind::Pressure,
+        ),
+        higher_is_better(
+            CAPABILITY_MORTAR_GRINDING_FLOW,
+            "manual mortar grinding throughput",
             CapabilityValueKind::MassFlow,
         ),
     ] {

@@ -7,10 +7,11 @@ use crate::capability::{
 };
 use crate::content::{
     ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-    EQUIPMENT_STONE_COBBING_HAMMER, EQUIPMENT_STONE_CRUSHER, FORM_CONCENTRATE, FORM_CRUSHED,
-    FORM_HANDLE, FORM_INGOT, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
-    MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
-    build_registries, make_test_registries_with_comminution,
+    EQUIPMENT_STONE_COBBING_HAMMER, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_MORTAR_AND_PESTLE,
+    FORM_CONCENTRATE, FORM_CRUSHED, FORM_HANDLE, FORM_INGOT, FORM_ORE, FORM_REINFORCEMENT,
+    FORM_TOOL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
+    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE, build_registries,
+    make_test_registries_with_comminution,
 };
 use crate::core::quantity::{AggregateMass, Length, Mass, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -65,6 +66,40 @@ fn crushed_particle_size() -> ParticleSizeRange {
     }
 }
 
+fn assemble_stone_mortar(registries: &Registries, state: &mut AppState) -> EquipmentId {
+    let assembly = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("mortar assembly stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            registries,
+            state,
+            assembly,
+            commodity,
+            mass,
+            INPUT_TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("mortar assembly material failed: {error}"));
+    }
+    validate_assemble_equipment(
+        registries,
+        state,
+        EQUIPMENT_STONE_MORTAR_AND_PESTLE,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("mortar assembly failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("mortar assembly commit failed: {error}"))
+}
+
 fn assemble_stone_cobbing_hammer(fixture: &mut ManualComminutionFixture) -> EquipmentId {
     let assembly = add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(800_000))
         .unwrap_or_else(|error| panic!("cobbing-hammer assembly stockpile failed: {error}"));
@@ -97,6 +132,141 @@ fn assemble_stone_cobbing_hammer(fixture: &mut ManualComminutionFixture) -> Equi
     .unwrap_or_else(|error| panic!("cobbing-hammer assembly failed: {error}"))
     .commit(&mut fixture.state)
     .unwrap_or_else(|error| panic!("cobbing-hammer assembly commit failed: {error}"))
+}
+
+#[test]
+fn mortar_grinding_bridges_coarse_hand_broken_ore_to_liberated_fines_without_changing_composition()
+{
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("mortar grinding survival setup failed: {error}"));
+    let mass = Mass::from_milligrams(100_000);
+    let source = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("mortar grinding source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("mortar grinding destination failed: {error}"));
+    let definition = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_GRIND_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("manual mortar grinding definition disappeared"));
+    let coarse = definition
+        .input_particle_size_range()
+        .unwrap_or_else(|| panic!("manual mortar grinding lost its coarse-feed range"));
+    let input = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        mass,
+        INPUT_TEMPERATURE,
+        mixed_ore_composition(),
+        coarse,
+    )
+    .unwrap_or_else(|error| panic!("mortar grinding input failed: {error}"));
+    let lot = deposit_lot_spec_for_test(&registries, &mut state, source, input)
+        .unwrap_or_else(|error| panic!("mortar grinding lot failed: {error}"));
+    let mortar = assemble_stone_mortar(&registries, &mut state);
+    let selection = [MaterialLotSelection::new(lot, mass)];
+
+    let unaided = resolve_manual_comminution_process(
+        &registries,
+        &state,
+        ManualComminutionRequest::new(PROCESS_HAND_GRIND_CRUSHED_ORE, source, &selection),
+    )
+    .unwrap_or_else(|error| panic!("unaided mortar-route projection failed: {error}"));
+    let assisted = resolve_manual_comminution_process(
+        &registries,
+        &state,
+        ManualComminutionRequest::new(PROCESS_HAND_GRIND_CRUSHED_ORE, source, &selection)
+            .with_equipment(mortar),
+    )
+    .unwrap_or_else(|error| panic!("mortar-assisted grinding resolution failed: {error}"));
+    assert!(assisted.duration() < unaided.duration());
+    assert_eq!(
+        assisted.processing_rate(),
+        MassFlow::from_milligrams_per_second(600)
+    );
+    let outputs = assisted.process_resolution().outputs();
+    assert_eq!(outputs.len(), 1);
+    assert_eq!(
+        outputs[0].commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)
+    );
+    assert_eq!(outputs[0].mass(), mass);
+    assert_eq!(outputs[0].composition(), &mixed_ore_composition());
+    assert_eq!(
+        outputs[0].particle_size(),
+        Some(definition.output_particle_size())
+    );
+    assert!(definition.output_particle_size().maximum_diameter() < coarse.maximum_diameter());
+
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("mortar grinding matter setup failed: {error}"))
+        .total();
+    let duration = assisted.duration();
+    let _job =
+        validate_start_manual_comminution(&registries, &state, &assisted, source, destination)
+            .unwrap_or_else(|error| panic!("mortar grinding start failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("mortar grinding commit failed: {error}"));
+    for _ in 0..duration.value() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mortar grinding tick failed: {error}"));
+    }
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(mass)
+    );
+    let output_lot_id = state
+        .inventory()
+        .lot_ids(destination)
+        .next()
+        .unwrap_or_else(|| panic!("mortar grinding output lot disappeared"));
+    let output_lot = state
+        .inventory()
+        .get_lot(output_lot_id)
+        .unwrap_or_else(|| panic!("mortar grinding output lot disappeared"));
+    assert_eq!(
+        output_lot.commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)
+    );
+    assert_eq!(output_lot.mass(), mass);
+    assert_eq!(output_lot.composition(), &mixed_ore_composition());
+    assert_eq!(
+        output_lot.particle_size(),
+        Some(definition.output_particle_size())
+    );
+    let before_retry = state.clone();
+    assert_eq!(
+        resolve_manual_comminution_process(
+            &registries,
+            &state,
+            ManualComminutionRequest::new(
+                PROCESS_HAND_GRIND_CRUSHED_ORE,
+                destination,
+                &[MaterialLotSelection::new(output_lot_id, mass)],
+            ),
+        )
+        .err(),
+        Some(ManualComminutionResolutionError::Batch(
+            ComminutionBatchError::InputParticleSizeOutsideOperatingRange {
+                required: coarse,
+                found: definition.output_particle_size(),
+            }
+        )),
+        "fine mortar output must not re-enter the same grinding route"
+    );
+    assert_eq!(state, before_retry);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("mortar grinding matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("mortar grinding state audit failed: {error}"));
 }
 
 #[test]

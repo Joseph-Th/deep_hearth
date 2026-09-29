@@ -6,6 +6,7 @@ use crate::equipment::EquipmentDefinition;
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use crate::content::capabilities::{
+    CAPABILITY_EARTHWORK_FLOW, CAPABILITY_EARTHWORK_MAX_BATCH, CAPABILITY_EARTHWORK_MAX_HARDNESS,
     CAPABILITY_MINING_FLOW, CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS,
 };
 use crate::content::materials::{FORM_HANDLE, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD};
@@ -16,8 +17,8 @@ use super::super::authoring::{
 };
 use super::super::{
     EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, EQUIPMENT_COPPER_REINFORCED_PICK,
-    EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK, EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
-    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK, EQUIPMENT_STONE_DIGGING_SHOVEL,
+    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK,
 };
 use super::{copper_reinforcement_input, copper_upgrade};
 
@@ -54,6 +55,48 @@ pub(super) fn stone_pick() -> EquipmentDefinition {
             CAPABILITY_MINING_FLOW,
             500_000,
             MassFlow::from_milligrams_per_second(10_000),
+        )],
+    )
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+}
+
+/// Broad stone blade for loose earth, clay, and other soft geological bodies.
+///
+/// The shovel deliberately owns a separate capability family from picks. It moves soft material
+/// quickly in larger bites but cannot substitute for a rock tool against hard seams.
+pub(super) fn stone_digging_shovel() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_STONE_DIGGING_SHOVEL,
+        "knapped stone digging shovel",
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(300_000),
+            ),
+        ]),
+        profile([
+            (
+                CAPABILITY_EARTHWORK_FLOW,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(45_000)),
+            ),
+            (
+                CAPABILITY_EARTHWORK_MAX_BATCH,
+                CapabilityValue::Mass(Mass::from_milligrams(500_000)),
+            ),
+            (
+                CAPABILITY_EARTHWORK_MAX_HARDNESS,
+                CapabilityValue::Pressure(Pressure::from_pascals(100_000_000)),
+            ),
+        ]),
+        thresholds(),
+        vec![mass_flow_condition_curve(
+            CAPABILITY_EARTHWORK_FLOW,
+            500_000,
+            MassFlow::from_milligrams_per_second(22_500),
         )],
     )
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))

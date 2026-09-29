@@ -1,5 +1,6 @@
 //! Content-catalog evidence rendering for exploratory gameplay reports.
 
+use deep_hearth::capability::CapabilityValue;
 use deep_hearth::energy::EnergyCarrier;
 use deep_hearth::registry::{ProcessEnergyRole, ProcessEquipmentRole, Registries};
 
@@ -245,6 +246,56 @@ pub(crate) fn print_content_summary(registries: &Registries, include_catalog: bo
     })
     .collect::<Vec<_>>()
     .join(",");
+    let mining = registries
+        .mining()
+        .definitions()
+        .map(|method| {
+            let providers = registries
+                .equipment()
+                .definitions()
+                .filter_map(|equipment| {
+                    let Some(CapabilityValue::MassFlow(flow)) = equipment
+                        .capabilities()
+                        .get_capability(method.mass_flow_capability())
+                    else {
+                        return None;
+                    };
+                    let Some(CapabilityValue::Mass(batch)) = equipment
+                        .capabilities()
+                        .get_capability(method.max_batch_mass_capability())
+                    else {
+                        return None;
+                    };
+                    let Some(CapabilityValue::Pressure(hardness)) = equipment
+                        .capabilities()
+                        .get_capability(method.max_hardness_capability())
+                    else {
+                        return None;
+                    };
+                    Some(format!(
+                        "{}:{}:flow={}mg/s:batch={}mg:hardness={}Pa",
+                        equipment.id().value(),
+                        equipment.name(),
+                        flow.milligrams_per_second(),
+                        batch.milligrams(),
+                        hardness.pascals(),
+                    ))
+                })
+                .collect::<Vec<_>>()
+                .join("|");
+            let exertion = method.exertion();
+            format!(
+                "{}:{}:wear={}ppm/t:exertion={}nJ+{}uL/t:providers=[{}]",
+                method.id().value(),
+                method.name(),
+                method.condition_wear_ppm_per_active_tick(),
+                exertion.energy_cost_per_tick().nanojoules(),
+                exertion.hydration_loss_per_tick().microliters(),
+                providers,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     let foods = registries
         .survival()
         .foods()
@@ -288,6 +339,7 @@ pub(crate) fn print_content_summary(registries: &Registries, include_catalog: bo
         })
         .collect::<Vec<_>>()
         .join(",");
+    std::println!("CONTENT MINING [{mining}]");
     std::println!("CONTENT PROSPECTING [{prospecting}]");
     std::println!("CONTENT SURVIVAL foods=[{foods}] drinks=[{drinks}]");
     let process_routes = process_catalog

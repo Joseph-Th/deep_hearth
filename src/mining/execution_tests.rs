@@ -2,12 +2,13 @@
 
 use super::*;
 use crate::content::{
-    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    EQUIPMENT_STONE_QUARRY_PICK, FORM_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP,
-    FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE,
-    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
-    STORAGE_TIMBER_PROVISIONS_CHEST, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_DIGGING_SHOVEL, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_QUARRY_PICK, FORM_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE,
+    FORM_LOG, FORM_LUMP, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_DIGGING, MINING_METHOD_HAND_PICK,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY,
+    PROSPECTING_FIELD_INSPECTION, STORAGE_TIMBER_PROVISIONS_CHEST,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
@@ -62,6 +63,127 @@ fn deposit_spec() -> GeneratedDepositSpec {
     deposit_spec_with_mass(Mass::from_milligrams(1_000_000))
 }
 
+fn clay_earth_deposit_spec(mass: Mass, hardness: Pressure) -> GeneratedDepositSpec {
+    let bounds = VoxelBounds::new(VoxelCoord::new(0, -2, 0), VoxelCoord::new(4, 0, 4))
+        .unwrap_or_else(|error| panic!("clay-earth mining bounds failed: {error}"));
+    GeneratedDepositSpec::new(
+        bounds,
+        CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+        mass,
+        Temperature::from_millikelvin(288_150),
+        hardness,
+        MaterialComposition::pure(MATERIAL_CLAY),
+    )
+    .unwrap_or_else(|error| panic!("clay-earth mining deposit failed: {error}"))
+}
+
+#[test]
+fn hand_digging_extracts_soft_clay_without_blurring_pick_and_shovel_roles() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("clay digging survival setup failed: {error}"));
+    let shovel = assemble_shovel_for_test(&registries, &mut state);
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(500_000))
+        .unwrap_or_else(|error| panic!("clay digging destination failed: {error}"));
+    let deposit = insert_known_deposit(
+        &registries,
+        &mut state,
+        clay_earth_deposit_spec(
+            Mass::from_milligrams(500_000),
+            Pressure::from_pascals(50_000_000),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("clay digging deposit failed: {error}"));
+
+    let digging = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_DIGGING)
+        .unwrap_or_else(|| panic!("hand digging method disappeared"));
+    let picking = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("hand pick method disappeared"));
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_DIGGING,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::MissingCapability {
+            capability: digging.mass_flow_capability(),
+        })
+    );
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            shovel,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::MissingCapability {
+            capability: picking.mass_flow_capability(),
+        })
+    );
+
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("clay digging matter setup failed: {error}"))
+        .total();
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_DIGGING,
+        deposit,
+        destination,
+        shovel,
+        Mass::from_milligrams(200_000),
+    )
+    .unwrap_or_else(|error| panic!("clay digging start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("clay digging commit failed: {error}"));
+    let completes_at = state
+        .mining()
+        .get_job(job)
+        .map(MiningJobRecord::completes_at)
+        .unwrap_or_else(|| panic!("clay digging job disappeared"));
+    while state.tick() < completes_at {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("clay digging tick failed: {error}"));
+    }
+    let receipt = validate_claim_mining_output(&registries, &state, job)
+        .unwrap_or_else(|error| panic!("clay digging claim validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("clay digging claim failed: {error}"));
+    assert_eq!(
+        receipt.output().commodity(),
+        CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)
+    );
+    assert_eq!(receipt.output().mass(), Mass::from_milligrams(200_000));
+    assert_eq!(
+        state
+            .geology()
+            .get_deposit(deposit)
+            .map(|record| record.remaining_mass()),
+        Some(Mass::from_milligrams(300_000))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("clay digging matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+}
+
 fn deposit_spec_with_mass(mass: Mass) -> GeneratedDepositSpec {
     let bounds = VoxelBounds::new(VoxelCoord::new(0, -8, 0), VoxelCoord::new(4, -4, 4))
         .unwrap_or_else(|error| panic!("mining test bounds failed: {error}"));
@@ -74,6 +196,35 @@ fn deposit_spec_with_mass(mass: Mass) -> GeneratedDepositSpec {
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("mining test deposit failed: {error}"))
+}
+
+fn assemble_shovel_for_test(registries: &Registries, state: &mut AppState) -> EquipmentId {
+    let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(900_000))
+        .unwrap_or_else(|error| panic!("shovel assembly source failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(600_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(300_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("shovel assembly material failed: {error}"));
+    }
+    validate_assemble_equipment(registries, state, EQUIPMENT_STONE_DIGGING_SHOVEL, source)
+        .unwrap_or_else(|error| panic!("shovel assembly validation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("shovel assembly commit failed: {error}"))
 }
 
 fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {

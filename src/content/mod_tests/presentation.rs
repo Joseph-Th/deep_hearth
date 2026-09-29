@@ -270,6 +270,11 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_STONE_WOODWORKING_ADZE,
         ),
         (EQUIPMENT_STONE_COBBING_HAMMER, OBJECT_STONE_COBBING_HAMMER),
+        (EQUIPMENT_STONE_DIGGING_SHOVEL, OBJECT_STONE_DIGGING_SHOVEL),
+        (
+            EQUIPMENT_STONE_MORTAR_AND_PESTLE,
+            OBJECT_STONE_MORTAR_AND_PESTLE,
+        ),
         (
             EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
             OBJECT_STONE_FLYWHEEL_PUMP_DRILL,

@@ -18,9 +18,9 @@ use crate::ore_processing::{
 
 use super::capabilities::{
     CAPABILITY_COBBING_FLOW, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
-    CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_ORE_PICKING_FLOW,
-    CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
-    CAPABILITY_SEPARATOR_FLOW,
+    CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_MORTAR_GRINDING_FLOW,
+    CAPABILITY_ORE_PICKING_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
+    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
 use super::materials::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_EXHAUSTED_TAILINGS, FORM_NATIVE_METAL, FORM_ORE,
@@ -29,8 +29,9 @@ use super::materials::{
 use super::processes::{
     PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
     PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_REGRIND_COPPER_TAILINGS,
-    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_HAND_GRIND_CRUSHED_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_SEPARATE_NATIVE_COPPER,
 };
 use crate::survival::SurvivalExertion;
 
@@ -110,7 +111,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 FORM_CRUSHED,
                 FORM_CRUSHED,
                 screen_oversize_range,
-                fine_particle_size,
+                fine_particle_size.clone(),
                 PoweredOreProcessProfile::new(
                     CAPABILITY_GRINDER_FLOW,
                     CAPABILITY_GRINDER_BATCH,
@@ -213,21 +214,45 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 ),
             ),
         ],
-        [ManualComminutionProcessDefinition::new(
-            PROCESS_HAND_BREAK_ORE,
-            FORM_ORE,
-            FORM_CRUSHED,
-            hand_sortable_particle_size,
-            ManualOreProcessProfile::new(
-                MassFlow::from_milligrams_per_second(250),
-                Mass::from_milligrams(100_000),
-                SurvivalExertion::new(
-                    Energy::from_nanojoules(1_000_000_000_000),
-                    Volume::from_microliters(250),
-                ),
-            )
-            .with_equipment_profile(ManualOreEquipmentProfile::new(CAPABILITY_COBBING_FLOW, 750)),
-        )],
+        [
+            ManualComminutionProcessDefinition::new(
+                PROCESS_HAND_BREAK_ORE,
+                FORM_ORE,
+                FORM_CRUSHED,
+                hand_sortable_particle_size,
+                ManualOreProcessProfile::new(
+                    MassFlow::from_milligrams_per_second(250),
+                    Mass::from_milligrams(100_000),
+                    SurvivalExertion::new(
+                        Energy::from_nanojoules(1_000_000_000_000),
+                        Volume::from_microliters(250),
+                    ),
+                )
+                .with_equipment_profile(ManualOreEquipmentProfile::new(
+                    CAPABILITY_COBBING_FLOW,
+                    750,
+                )),
+            ),
+            ManualComminutionProcessDefinition::new_with_input_particle_size_range(
+                PROCESS_HAND_GRIND_CRUSHED_ORE,
+                FORM_CRUSHED,
+                FORM_CRUSHED,
+                hand_sortable_particle_size,
+                fine_particle_size,
+                ManualOreProcessProfile::new(
+                    MassFlow::from_milligrams_per_second(100),
+                    Mass::from_milligrams(100_000),
+                    SurvivalExertion::new(
+                        Energy::from_nanojoules(1_000_000_000_000),
+                        Volume::from_microliters(250),
+                    ),
+                )
+                .with_equipment_profile(ManualOreEquipmentProfile::new(
+                    CAPABILITY_MORTAR_GRINDING_FLOW,
+                    600,
+                )),
+            ),
+        ],
         [ManualConstituentSeparationProcessDefinition::new_sorting(
             PROCESS_HAND_SORT_NATIVE_COPPER,
             FORM_CRUSHED,

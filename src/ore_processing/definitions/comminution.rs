@@ -105,6 +105,32 @@ impl ManualComminutionProcessDefinition {
         }
     }
 
+    /// Authors direct-labor reduction that accepts only particulate feed inside one complete size
+    /// envelope. This is the hand-work counterpart of a bounded powered mill pass.
+    #[must_use]
+    pub fn new_with_input_particle_size_range<P>(
+        process: ProcessId,
+        input_form: FormId,
+        output_form: FormId,
+        input_particle_size_range: ParticleSizeRange,
+        output_particle_size: P,
+        operating: ManualOreProcessProfile,
+    ) -> Self
+    where
+        P: Into<ParticleSizeDistribution>,
+    {
+        Self {
+            process,
+            physics: ComminutionPhysics::new_with_input_particle_size_range(
+                input_form,
+                output_form,
+                input_particle_size_range,
+                output_particle_size,
+            ),
+            operating,
+        }
+    }
+
     #[must_use]
     pub const fn process(&self) -> ProcessId {
         self.process

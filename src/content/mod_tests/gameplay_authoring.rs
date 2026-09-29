@@ -590,8 +590,10 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_GRAVITY_SEPARATOR,
         EQUIPMENT_GRINDING_MILL,
         EQUIPMENT_STONE_CRUSHER,
+        EQUIPMENT_STONE_DIGGING_SHOVEL,
         EQUIPMENT_STONE_SEPARATOR,
         EQUIPMENT_STONE_ROTARY_QUERN,
+        EQUIPMENT_STONE_MORTAR_AND_PESTLE,
         EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
         EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
         EQUIPMENT_TIMBER_SPINDLE_DRILL,
@@ -954,6 +956,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_SHAPE_TIMBER_RIDDLE_PANEL,
         PROCESS_HEAT_MATERIAL_BATCH,
         PROCESS_HAND_BREAK_ORE,
+        PROCESS_HAND_GRIND_CRUSHED_ORE,
         PROCESS_HAND_SORT_NATIVE_COPPER,
         PROCESS_SEPARATE_NATIVE_COPPER,
         PROCESS_CONCENTRATE_COPPER,
@@ -994,6 +997,12 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         registries
             .ore_processing()
             .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_manual_comminution(PROCESS_HAND_GRIND_CRUSHED_ORE)
             .is_some()
     );
     assert!(

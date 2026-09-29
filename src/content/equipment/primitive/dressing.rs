@@ -5,7 +5,9 @@ use crate::core::quantity::{Mass, MassFlow};
 use crate::equipment::EquipmentDefinition;
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
-use crate::content::capabilities::{CAPABILITY_COBBING_FLOW, CAPABILITY_ORE_PICKING_FLOW};
+use crate::content::capabilities::{
+    CAPABILITY_COBBING_FLOW, CAPABILITY_MORTAR_GRINDING_FLOW, CAPABILITY_ORE_PICKING_FLOW,
+};
 use crate::content::materials::{
     FORM_BOARD, FORM_HANDLE, FORM_TOOL, MATERIAL_STONE, MATERIAL_WOOD,
 };
@@ -14,7 +16,10 @@ use super::super::authoring::{
     EquipmentDefinitionAuthoringExt, assembled_definition_with_condition_curves,
     mass_flow_condition_curve, profile, thresholds,
 };
-use super::super::{EQUIPMENT_STONE_COBBING_HAMMER, EQUIPMENT_TIMBER_DRESSING_BENCH};
+use super::super::{
+    EQUIPMENT_STONE_COBBING_HAMMER, EQUIPMENT_STONE_MORTAR_AND_PESTLE,
+    EQUIPMENT_TIMBER_DRESSING_BENCH,
+};
 
 /// Portable cobbing hammer for breaking selected ore lumps on a hard surface without building a
 /// powered crusher. It improves attention cost only; particle-size and recovery physics remain
@@ -42,6 +47,39 @@ pub(super) fn stone_cobbing_hammer() -> EquipmentDefinition {
             CAPABILITY_COBBING_FLOW,
             500_000,
             MassFlow::from_milligrams_per_second(375),
+        )],
+    )
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+}
+
+/// Hand mortar for reducing selected coarse ore after cobbing but before powered milling.
+///
+/// It does not change recovery or chemistry. The manual comminution process owns particle-size
+/// transformation and player exertion; this durable stone tool only repays its material cost by
+/// increasing hand-grinding throughput.
+pub(super) fn stone_mortar_and_pestle() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_STONE_MORTAR_AND_PESTLE,
+        "stone ore mortar and pestle",
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ]),
+        profile([(
+            CAPABILITY_MORTAR_GRINDING_FLOW,
+            CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(600)),
+        )]),
+        thresholds(),
+        vec![mass_flow_condition_curve(
+            CAPABILITY_MORTAR_GRINDING_FLOW,
+            500_000,
+            MassFlow::from_milligrams_per_second(300),
         )],
     )
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))

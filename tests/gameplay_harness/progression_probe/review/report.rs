@@ -1,6 +1,65 @@
 //! Report-only formatting for primitive progression. Excluded from test targets.
 
+use deep_hearth::capability::CapabilityValue;
+use deep_hearth::content::{
+    EQUIPMENT_STONE_MORTAR_AND_PESTLE, PROCESS_CONCENTRATE_COPPER, PROCESS_HAND_GRIND_CRUSHED_ORE,
+};
+
 use super::*;
+
+fn report_manual_preparation_branch(registries: &Registries) {
+    let breaking = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("progression report lost manual ore breaking"));
+    let sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("progression report lost manual native-copper sorting"));
+    let grinding = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_GRIND_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("progression report lost manual mortar grinding"));
+    let concentration = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+        .unwrap_or_else(|| panic!("progression report lost copper concentration"));
+    let coarse = grinding
+        .input_particle_size_range()
+        .unwrap_or_else(|| panic!("manual mortar grinding lost its coarse-feed range"));
+    assert_eq!(coarse, breaking.output_particle_size());
+    assert_eq!(sorting.input_particle_size_range(), coarse);
+    assert_eq!(
+        concentration.input_particle_size_range(),
+        Some(grinding.output_particle_size())
+    );
+    let mortar_capability = grinding
+        .operating_profile()
+        .equipment_profile()
+        .unwrap_or_else(|| panic!("manual mortar grinding lost its optional provider"))
+        .mass_flow_capability();
+    let mortar = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_MORTAR_AND_PESTLE)
+        .unwrap_or_else(|| panic!("progression report lost stone mortar and pestle"));
+    let Some(CapabilityValue::MassFlow(mortar_rate)) =
+        mortar.capabilities().get_capability(mortar_capability)
+    else {
+        panic!("stone mortar lost its authored grinding throughput")
+    };
+    let fine = grinding.output_particle_size();
+    reviewln!(
+        "PROGRESSION PREPARATION BRANCH coarse={}..{}um choices=[hand-sort:recovery:{}ppm machinery:none; mortar-liberate:rate:{}->{}mg/s fine:{}..{}um then-concentrate:recovery:{}ppm separator:required] read=manual-grinding-can-replace-liberation-machine-but-not-downstream-separation",
+        coarse.minimum_diameter().micrometers(),
+        coarse.maximum_diameter().micrometers(),
+        sorting.target_recovery_ppm(),
+        grinding.processing_rate().milligrams_per_second(),
+        mortar_rate.milligrams_per_second(),
+        fine.minimum_diameter().micrometers(),
+        fine.maximum_diameter().micrometers(),
+        concentration.target_recovery_ppm(),
+    );
+}
 
 fn report_maintained_manual_fallback(
     seed: u64,
@@ -438,6 +497,9 @@ pub(super) fn report_primitive_progression_review(
         selected.hydration_spent_ul,
     );
     report_maintained_manual_fallback(seed, manual_fallback);
+    if sample == "anchor" {
+        report_manual_preparation_branch(registries);
+    }
     reviewln!(
         "PROGRESSION BUFFER seed=0x{seed:016X} evidence=stockpiling-coverage-counterfactual selected=false policy=two-upcoming-batches work-order={}cycles mining=[steady:{}jobs feed-ready:{}cycles capacity-blocked:{}cycles] machine={}t productive-attention=[feed:{}t maintenance-prep:{}t] returned-attention={}t payback=not-established outcome=stockpile-order demand=[{stockpile_demand}]",
         STOCKPILE_WORK_ORDER_CYCLES,

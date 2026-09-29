@@ -137,6 +137,8 @@ pub const OBJECT_FLYWHEEL_WIRE_DRAWBENCH: ObjectAppearanceId = ObjectAppearanceI
 pub const OBJECT_CLAY_FACED_STONE_CASTING_BED: ObjectAppearanceId = ObjectAppearanceId::new(83);
 pub const OBJECT_PACKED_CLAY_BINDER: ObjectAppearanceId = ObjectAppearanceId::new(84);
 pub const OBJECT_CLAY_EARTH_LUMP: ObjectAppearanceId = ObjectAppearanceId::new(85);
+pub const OBJECT_STONE_DIGGING_SHOVEL: ObjectAppearanceId = ObjectAppearanceId::new(86);
+pub const OBJECT_STONE_MORTAR_AND_PESTLE: ObjectAppearanceId = ObjectAppearanceId::new(87);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

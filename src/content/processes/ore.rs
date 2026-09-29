@@ -11,12 +11,12 @@ use super::super::capabilities::{
 use super::{
     PROCESS_CLEAN_NATIVE_COPPER_CONCENTRATE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
     PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_REGRIND_COPPER_TAILINGS,
-    PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
-    mass_flow_resolver_requirements,
+    PROCESS_HAND_GRIND_CRUSHED_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_REGRIND_COPPER_TAILINGS, PROCESS_SCAVENGE_COPPER_TAILINGS, PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_SEPARATE_NATIVE_COPPER, mass_flow_resolver_requirements,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 11] {
+pub(super) fn definitions() -> [ProcessDefinition; 12] {
     [
         ProcessDefinition::new(
             PROCESS_CRUSH_ORE,
@@ -44,6 +44,11 @@ pub(super) fn definitions() -> [ProcessDefinition; 11] {
             Vec::new(),
         ),
         ProcessDefinition::new(PROCESS_HAND_BREAK_ORE, "hand break ore", Vec::new()),
+        ProcessDefinition::new(
+            PROCESS_HAND_GRIND_CRUSHED_ORE,
+            "hand grind coarse crushed ore",
+            Vec::new(),
+        ),
         ProcessDefinition::new(
             PROCESS_SEPARATE_NATIVE_COPPER,
             "separate native copper from crushed ore",

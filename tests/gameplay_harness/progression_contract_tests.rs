@@ -12,9 +12,10 @@ use deep_hearth::content::{
     FORM_BOARD, FORM_CHIP, FORM_INGOT, FORM_LOG, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
     FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
     PROCESS_COLD_WORK_COPPER_INGOT_REINFORCEMENT, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_HAND_BREAK_ORE,
-    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL,
-    PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
+    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_CONCENTRATE_COPPER,
+    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
@@ -58,6 +59,48 @@ fn bootstrap_planning_excludes_faster_required_equipment_producers() {
             .unwrap_or_else(|| panic!("selected bootstrap route lost process topology"))
             .equipment_role(),
         ProcessEquipmentRole::Required
+    );
+}
+
+#[test]
+fn coarse_manual_ore_work_branches_between_visible_sorting_and_mortar_liberation() {
+    let registries = build_registries();
+    let breaking = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("manual ore breaking disappeared"));
+    let sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("manual native-copper sorting disappeared"));
+    let grinding = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_GRIND_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("manual mortar grinding disappeared"));
+    let concentration = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+        .unwrap_or_else(|| panic!("copper concentration disappeared"));
+
+    assert_eq!(grinding.input_form(), breaking.output_form());
+    assert_eq!(
+        grinding.input_particle_size_range(),
+        Some(breaking.output_particle_size())
+    );
+    assert_eq!(
+        sorting.input_particle_size_range(),
+        breaking.output_particle_size(),
+        "coarse broken ore must remain directly hand-sortable"
+    );
+    assert_eq!(grinding.output_form(), concentration.input_form());
+    assert_eq!(
+        concentration.input_particle_size_range(),
+        Some(grinding.output_particle_size()),
+        "mortar work should replace the liberation step, not the downstream separator"
+    );
+    assert!(
+        grinding.processing_rate() < breaking.processing_rate(),
+        "fine hand grinding should remain more attention-intensive than initial cobbing"
     );
 }
 
