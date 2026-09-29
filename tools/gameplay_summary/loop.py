@@ -198,7 +198,7 @@ def _prepare_invest_evidence(
     settlement_builds = sum(" upgraded:true " in line for line in settlement)
     return (
         "prepare-invest=["
-        f"primitive-kit:{len(liberation_kit)} "
+        f"primitive-kit-executed:{len(liberation_kit)} "
         f"woodworking-tool:{invested_woodworking}/{len(woodworking)} "
         f"power-market:{len(power)}/{len(power)} "
         f"settlement-machine:{settlement_builds}/{len(settlement)} "

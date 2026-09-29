@@ -2402,7 +2402,7 @@ unknown_macro!();
         self.assertNotIn("investment=[capital:160..160g", concise)
         self.assertNotIn("industrial-foundry-frontier=", concise)
         self.assertIn(
-            "kit-decision=[build-and-use:1/1 disclosed-horizon:8..8batches payback-proof:1/1 attention-payback:8..8jobs policy=repeat-work-only;payback-proved-per-build]",
+            "kit-lifecycle=[executed-builds:1/1 disclosed-horizon:8..8batches repaid-within-horizon:1/1 observed-attention-payback:8..8jobs evidence=post-build-lifecycle-not-preaction-choice]",
             concise,
         )
         self.assertIn(

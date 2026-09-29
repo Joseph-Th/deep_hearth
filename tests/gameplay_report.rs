@@ -65,6 +65,8 @@ mod manual_craft_topology_planning;
 mod manual_ore_recovery;
 #[path = "gameplay_harness/manual_ore_recovery_evaluation.rs"]
 mod manual_ore_recovery_evaluation;
+#[path = "gameplay_harness/manual_ore_recovery_planning.rs"]
+mod manual_ore_recovery_planning;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
@@ -103,10 +105,18 @@ mod scenario;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
+mod settlement_drill_contract_tests;
+#[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
+mod settlement_helve_contract_tests;
+#[path = "gameplay_harness/settlement_machine_contract_tests.rs"]
+mod settlement_machine_contract_tests;
 #[path = "gameplay_harness/settlement_power_planning.rs"]
 mod settlement_power_planning;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
+#[path = "gameplay_harness/settlement_wire_contract_tests.rs"]
+mod settlement_wire_contract_tests;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/survival_probe.rs"]
@@ -216,6 +226,11 @@ fn main() -> ExitCode {
             fallback_variation_root,
             fallback_behavior_root,
         );
+        settlement_drill_contract_tests::run_spindle_drill_investment_experience();
+        settlement_wire_contract_tests::run_wire_drawbench_investment_experience();
+        settlement_helve_contract_tests::run_helve_hammer_investment_experience();
+        settlement_machine_contract_tests::run_timbershop_lathe_delegation_experience();
+        settlement_machine_contract_tests::run_toolroom_grindstone_delegation_experience();
     }
     if scope.includes(ReportScope::FoundryBootstrap) {
         run_focused_probe_with_registries(

@@ -4,14 +4,17 @@ use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
-    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_SASH_SAWMILL,
     EQUIPMENT_TIMBER_SPRING_POLE_LATHE, EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_BOARD, FORM_CHIP,
-    FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_HANDLE, FORM_LOG, FORM_NATIVE_METAL,
-    FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_TOOL, MANUAL_POWER_HAND_CRANK,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_HANDLE, FORM_LOG, FORM_REINFORCEMENT, FORM_SCRAP,
+    FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
     PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
-    PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_POWER_TURN_TIMBER_FLYWHEEL, PROCESS_SAW_WOOD_BOARDS,
-    PROCESS_SHAPE_TIMBER_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+    PROCESS_POWER_TURN_TIMBER_FLYWHEEL, PROCESS_SHAPE_TIMBER_FLYWHEEL, build_registries,
+};
+#[cfg(test)]
+use deep_hearth::content::{
+    EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_NATIVE_METAL,
+    FORM_SAW_BLADE, PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_POWER_SAW_WOOD_BOARDS,
+    PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -27,17 +30,23 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::survival::initialize_player_survival;
 
+#[cfg(test)]
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
+#[cfg(test)]
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::powered_craft_planning::authored_batch;
 use super::production_timing::finish_uninterrupted_production_job;
+#[cfg(test)]
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
+#[cfg(test)]
 const SHORT_LUMBER_ORDER: u64 = 20;
+#[cfg(test)]
 const MARGINAL_LUMBER_ORDER: u64 = 38;
+#[cfg(test)]
 const PROJECT_LUMBER_ORDER: u64 = 64;
 
 fn seed_material(
@@ -513,8 +522,7 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         .unwrap_or_else(|error| panic!("sawmill project final state invalid: {error}"));
 }
 
-#[test]
-fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
+pub(super) fn run_timbershop_lathe_delegation_experience() {
     let registries = build_registries();
     let lathe_batch = authored_batch(
         &registries,
@@ -738,10 +746,22 @@ fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("lathe settlement final state invalid: {error}"));
+    reviewln!(
+        "SETTLEMENT DELEGATION EXPERIENCE family=flywheel-lathe transform=timber-flywheel prior=spring-pole-lathe direct=[hand:{}t assisted:{}t] stored-work=[charge:{}t autonomous:{}t active-saving:{}t] identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved scope=delegation-not-capital-crossover",
+        hand.duration().value(),
+        pole.duration().value(),
+        charge_attention,
+        powered_ticks,
+        pole.duration().value() - charge_attention,
+    );
 }
 
 #[test]
-fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
+fn timber_lathe_upgrade_converts_direct_turning_into_finite_work_delegation() {
+    run_timbershop_lathe_delegation_experience();
+}
+
+pub(super) fn run_toolroom_grindstone_delegation_experience() {
     let registries = build_registries();
     let toolroom_batch = authored_batch(
         &registries,
@@ -940,4 +960,16 @@ fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("toolroom settlement final state invalid: {error}"));
+    reviewln!(
+        "SETTLEMENT DELEGATION EXPERIENCE family=flywheel-grindstone transform=service-stock prior=treadle-grindstone direct=[assisted:{}t] stored-work=[charge:{}t autonomous:{}t active-saving:{}t] identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved scope=delegation-not-capital-crossover",
+        treadle_projection.duration().value(),
+        charge_attention,
+        powered_projection.duration().value(),
+        treadle_projection.duration().value() - charge_attention,
+    );
+}
+
+#[test]
+fn toolroom_grindstone_upgrade_turns_worn_stone_into_delegated_service_stock() {
+    run_toolroom_grindstone_delegation_experience();
 }

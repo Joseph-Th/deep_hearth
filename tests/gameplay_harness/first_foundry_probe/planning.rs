@@ -24,6 +24,39 @@ use super::super::workshop_craft_planning::manual_craft_plan_with_available_equi
 pub(super) const FOUNDRY_STONE_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
 pub(super) const FOUNDRY_WOOD_OPPORTUNITY: Mass = Mass::from_milligrams(12_000_000);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FoundryOwnedOreOpportunity {
+    pub(super) mass: Mass,
+    pub(super) copper_ppm: u32,
+}
+
+pub(super) fn inherited_owned_ore_opportunity(
+    case: FocusedProbeCase,
+) -> FoundryOwnedOreOpportunity {
+    let (mass_mg, copper_ppm) = match case.role() {
+        // The anchor already has enough native copper to build. Keep a modest leftover ore parcel
+        // visible so continuity with primitive processing remains explicit without affecting the
+        // maintained build witness.
+        FocusedProbeRole::MaintainedAnchor => (180_000, 450_000),
+        // The maintained shortage witness owns useful assayed ore, but not enough to close the
+        // complete foundry + mold + first-settlement-batch requirement. This protects an honest
+        // defer outcome after the actor checks its existing fallback instead of stopping at a raw
+        // native-copper threshold.
+        FocusedProbeRole::MaintainedCoverage => (160_000, 350_000),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            let mass_mg = 120_000 + mix64(case.seed() ^ 0x4F52_455F_4C45_4654) % 400_001;
+            let copper_ppm = 300_000
+                + u32::try_from(mix64(case.seed() ^ 0x4F52_455F_4752_4144) % 400_001)
+                    .unwrap_or_else(|_| unreachable!("bounded foundry ore grade fits u32"));
+            (mass_mg, copper_ppm)
+        }
+    };
+    FoundryOwnedOreOpportunity {
+        mass: Mass::from_milligrams(mass_mg),
+        copper_ppm,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct FoundryFabrication {
     pub(super) total_ticks: u64,

@@ -29,6 +29,7 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
     available = _values(witnesses, r"\bremaining-native:(\d+)mg")
     required = _values(witnesses, r"\brequired:(\d+)mg")
     shortfall = _values(witnesses, r"\bshortfall:(\d+)mg")
+    shortfall_before = _values(witnesses, r"\bshortfall-before:(\d+)mg")
     capital = _values(witnesses, r"\bfoundry-capital:(\d+)mg")
     ingots = _values(witnesses, r"\bcast-ingots:(\d+)mg")
     fabrication = _values(builds, r"\bfabrication=\[total:(\d+)t/")
@@ -52,6 +53,27 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
     build_attention = _values(builds, r"\btotal-player-attention:(\d+)t")
     defer_attention = _values(deferred, r"\bepisode-attention:(\d+)t")
     separate_episode = sum(" continuity=separate-episode " in line for line in witnesses)
+    recovery_lines = [line for line in witnesses if " owned-ore-recovery=[" in line]
+    recovery_needed = [line for line in recovery_lines if re.search(r"\bshortfall-before:[1-9]\d*mg", line)]
+    recovery_executed = [line for line in recovery_lines if " executed:true " in line]
+    recovery_closed = [
+        line
+        for line in recovery_executed
+        if re.search(r"\bshortfall:0mg", line) is not None
+    ]
+    recovery_feed = _values(recovery_executed, r"\bfeed:(\d+)mg")
+    recovery_native = _values(recovery_executed, r"\brecovered:(\d+)mg")
+    recovery_attention = _values(recovery_executed, r"\brecovery-attention:(\d+)t")
+    recovery_summary = ""
+    if shortfall_before:
+        recovery_summary = (
+            " recovery=["
+            f"needed:{len(recovery_needed)} executed:{len(recovery_executed)} "
+            f"closed:{len(recovery_closed)} insufficient:{len(recovery_needed) - len(recovery_executed)} "
+            f"feed:{scaled_span(recovery_feed, 1_000, 'g')} "
+            f"native:{scaled_span(recovery_native, 1_000, 'g')} "
+            f"attention:{_span(recovery_attention, 't')}]"
+        )
 
     return (
         "ORDINARY SUMMARY probe=foundry-bootstrap "
@@ -60,6 +82,7 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         f"copper=[available:{scaled_span(available, 1_000, 'g')} "
         f"threshold:{scaled_span(required, 1_000, 'g')} "
         f"shortfall:{scaled_span(shortfall, 1_000, 'g')}] "
+        f"{recovery_summary.strip()} "
         f"investment=[capital:{scaled_span(capital, 1_000, 'g')} "
         f"cast-stock:{scaled_span(ingots, 1_000, 'g')} setup:{_span(fabrication, 't')} "
         f"fabrication=[stone:{_span(stone_fabrication, 't')} "

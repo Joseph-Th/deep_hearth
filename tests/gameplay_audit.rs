@@ -101,6 +101,8 @@ mod manual_craft_topology_planning;
 mod manual_ore_recovery;
 #[path = "gameplay_harness/manual_ore_recovery_evaluation.rs"]
 mod manual_ore_recovery_evaluation;
+#[path = "gameplay_harness/manual_ore_recovery_planning.rs"]
+mod manual_ore_recovery_planning;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]

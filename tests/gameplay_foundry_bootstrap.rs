@@ -20,8 +20,16 @@ mod focused_witnesses;
 mod inventory_support;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
+#[path = "gameplay_harness/manual_ore_recovery.rs"]
+mod manual_ore_recovery;
+#[path = "gameplay_harness/manual_ore_recovery_planning.rs"]
+mod manual_ore_recovery_planning;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
+#[path = "gameplay_harness/material_selection.rs"]
+mod material_selection;
+#[path = "gameplay_harness/ore_fixture.rs"]
+mod ore_fixture;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/production_timing.rs"]
@@ -42,5 +50,35 @@ fn gameplay_foundry_bootstrap_probe() {
     focused_runner::run_focused_probe(
         "foundry-bootstrap",
         first_foundry_probe::run_first_foundry_probe,
+    );
+}
+
+#[test]
+fn manual_recovery_planning_respects_runtime_sort_batch_rounding() {
+    let registries = deep_hearth::content::build_registries();
+    let sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(deep_hearth::content::PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("manual native-copper sorting definition disappeared"));
+    let target = deep_hearth::core::quantity::Mass::from_milligrams(110_297);
+    let copper_ppm = 588_771;
+    let single_group = sorting
+        .minimum_homogeneous_feed_mass_for_target_recovery(target, copper_ppm)
+        .unwrap_or_else(|| panic!("single-group recovery projection disappeared"));
+    let runtime_batched =
+        manual_ore_recovery_planning::minimum_manual_ore_feed_for_target_recovery(
+            &registries,
+            target,
+            copper_ppm,
+        )
+        .unwrap_or_else(|| panic!("batch-aware recovery projection disappeared"));
+
+    assert!(
+        runtime_batched > single_group,
+        "multi-batch planning must not reuse the optimistic one-group recovery bound"
+    );
+    assert_eq!(
+        runtime_batched,
+        deep_hearth::core::quantity::Mass::from_milligrams(288_208)
     );
 }

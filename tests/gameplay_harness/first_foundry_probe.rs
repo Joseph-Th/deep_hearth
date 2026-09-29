@@ -3,15 +3,16 @@
 use std::collections::BTreeMap;
 
 use deep_hearth::content::gameplay_fixture::{
-    seed_assembled_equipment_at, seed_lot, seed_stockpile,
+    seed_assembled_equipment_at, seed_composed_lot, seed_lot, seed_stockpile,
 };
 use deep_hearth::content::{
     ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER, ENERGY_STONE_THERMAL_SINK,
     EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
     EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_TREADLE_DRIVE,
     EQUIPMENT_TIMBER_TREADLE_DYNAMO, EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_INGOT, FORM_LOG,
-    FORM_LUMP, FORM_NATIVE_METAL, FORM_REINFORCEMENT, MANUAL_POWER_TREADLE_DYNAMO, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER, PROCESS_MELT_PURE_COPPER,
+    FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, MANUAL_POWER_TREADLE_DYNAMO,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CAST_PURE_COPPER,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -33,7 +34,10 @@ use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_seeds::FocusedProbeCase;
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft;
+use super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
+use super::manual_ore_recovery_planning::minimum_manual_ore_feed_for_target_recovery;
 use super::manual_power_timing::finish_manual_power_work;
+use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
@@ -46,8 +50,8 @@ mod planning;
 use self::casting::resolve_full_cast_after_cooldown;
 use self::planning::{
     FOUNDRY_STONE_OPPORTUNITY, FOUNDRY_WOOD_OPPORTUNITY, craft_foundry_components,
-    foundry_capital_copper, native_copper_opportunity, select_commodity_mass,
-    settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
+    foundry_capital_copper, inherited_owned_ore_opportunity, native_copper_opportunity,
+    select_commodity_mass, settlement_mold_ingot_requirement, settlement_mold_stone_requirement,
 };
 
 fn seed_prior_settlement_workshop(
@@ -162,6 +166,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     );
 
     let native_opportunity = native_copper_opportunity(case);
+    let inherited_ore = inherited_owned_ore_opportunity(case);
     let capital_copper = foundry_capital_copper(registries);
     let settlement_ingots = settlement_mold_ingot_requirement(registries);
     let settlement_stone = settlement_mold_stone_requirement(registries);
@@ -193,6 +198,9 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     let workshop_tools = [frame_saw, treadle_hammer];
     let raw = add_solid_stockpile(&mut state, Mass::from_milligrams(25_000_000));
     let parts = add_solid_stockpile(&mut state, Mass::from_milligrams(25_000_000));
+    let owned_ore = add_solid_stockpile(&mut state, inherited_ore.mass);
+    let recovery_crushed = add_solid_stockpile(&mut state, inherited_ore.mass);
+    let recovery_residue = add_solid_stockpile(&mut state, inherited_ore.mass);
     let current_output = add_solid_stockpile(&mut state, first_cast_mass);
     let upgrade_source =
         add_solid_stockpile(&mut state, settlement_mold_upgrade.additions().input_mass());
@@ -229,6 +237,15 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             ROOM_TEMPERATURE,
         );
     }
+    seed_composed_lot(
+        registries,
+        &mut state,
+        owned_ore,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        inherited_ore.mass,
+        ROOM_TEMPERATURE,
+        copper_ore_composition(inherited_ore.copper_ppm, 200_000),
+    );
     for input in settlement_mold_upgrade
         .additions()
         .inputs()
@@ -249,6 +266,9 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         &[
             raw,
             parts,
+            owned_ore,
+            recovery_crushed,
+            recovery_residue,
             current_output,
             upgrade_source,
             molten,
@@ -298,15 +318,68 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         "direct native-copper route must satisfy the immediate reinforcement order"
     );
 
-    let remaining_native = state
+    let remaining_native_before_recovery = state
         .inventory()
         .get_stockpile(raw)
         .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)))
         .unwrap_or_else(|| panic!("first foundry raw stockpile disappeared"));
-    if remaining_native < required_after_current {
-        let shortfall = required_after_current
-            .checked_sub(remaining_native)
-            .unwrap_or_else(|| unreachable!("remaining copper is below the bootstrap requirement"));
+    let shortfall_before_recovery = required_after_current
+        .checked_sub(remaining_native_before_recovery)
+        .unwrap_or(Mass::ZERO);
+    let sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("first foundry inherited-ore sorting route disappeared"));
+    let recovery_required_feed = minimum_manual_ore_feed_for_target_recovery(
+        registries,
+        shortfall_before_recovery,
+        inherited_ore.copper_ppm,
+    )
+    .unwrap_or_else(|| panic!("first foundry assayed owned ore recovery planning overflowed"));
+    let recovery_available =
+        !shortfall_before_recovery.is_zero() && recovery_required_feed <= inherited_ore.mass;
+    let mut recovery_feed = Mass::ZERO;
+    let mut recovery_attention = 0_u64;
+    let mut recovered_native = Mass::ZERO;
+    let mut manual_recovery_ppm = sorting.target_recovery_ppm();
+    let mut powered_recovery_ppm = registries
+        .ore_processing()
+        .get_constituent_separation(deep_hearth::content::PROCESS_SEPARATE_NATIVE_COPPER)
+        .map(|definition| definition.target_recovery_ppm())
+        .unwrap_or_else(|| panic!("first foundry powered copper recovery reference disappeared"));
+    if recovery_available {
+        let recovery = execute_manual_ore_recovery(
+            registries,
+            &mut state,
+            ManualOreRecoveryPlan {
+                ore_source: owned_ore,
+                crushed_destination: recovery_crushed,
+                native_destination: raw,
+                residue_destination: recovery_residue,
+                feed_mass: recovery_required_feed,
+            },
+        );
+        recovery_feed = recovery_required_feed;
+        recovery_attention = recovery.attention_ticks;
+        recovered_native = recovery.recovered_native;
+        manual_recovery_ppm = recovery.manual_recovery_ppm;
+        powered_recovery_ppm = recovery.powered_recovery_ppm;
+        assert!(
+            recovered_native >= shortfall_before_recovery,
+            "foundry recovery chosen to close the shortfall must recover enough native copper"
+        );
+    }
+    let remaining_native = state
+        .inventory()
+        .get_stockpile(raw)
+        .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)))
+        .unwrap_or_else(|| {
+            panic!("first foundry raw stockpile disappeared after recovery decision")
+        });
+    let shortfall_after_recovery = required_after_current
+        .checked_sub(remaining_native)
+        .unwrap_or(Mass::ZERO);
+    if !shortfall_after_recovery.is_zero() {
         validate_loaded_state(registries, &state)
             .unwrap_or_else(|error| panic!("first foundry deferred state invalid: {error}"));
         assert_eq!(
@@ -320,12 +393,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         let survival_after = assess_survival(registries, &state)
             .unwrap_or_else(|| panic!("first foundry deferred player survival disappeared"));
         reviewln!(
-            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] resource-opportunity=[stone:{}mg wood:{}mg native:{}mg] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=insufficient-copper-for-foundry-plus-first-settlement-batch] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
+            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=owned-copper-cannot-fund-foundry-plus-first-settlement-batch] owned-ore-recovery=[required-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg recovery-attention:{}t manual-recovery:{}ppm powered-reference:{}ppm] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
             case.seed(),
             case.role().label(),
             disclosed_stone_opportunity.milligrams(),
             FOUNDRY_WOOD_OPPORTUNITY.milligrams(),
             native_opportunity.milligrams(),
+            inherited_ore.mass.milligrams(),
+            inherited_ore.copper_ppm,
             first_cast_mass.milligrams(),
             direct_native_ticks,
             direct_native_reinforcement.milligrams(),
@@ -336,13 +411,26 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             } else {
                 "hand"
             },
-            remaining_native.milligrams(),
+            remaining_native_before_recovery.milligrams(),
             capital_copper.milligrams(),
             settlement_ingots.milligrams(),
             settlement_cast_mass.milligrams(),
             required_after_current.milligrams(),
-            shortfall.milligrams(),
-            direct_native_ticks,
+            shortfall_before_recovery.milligrams(),
+            remaining_native.milligrams(),
+            shortfall_after_recovery.milligrams(),
+            recovery_required_feed.milligrams(),
+            inherited_ore.mass.milligrams(),
+            recovery_available,
+            recovery_feed > Mass::ZERO,
+            recovery_feed.milligrams(),
+            recovered_native.milligrams(),
+            recovery_attention,
+            manual_recovery_ppm,
+            powered_recovery_ppm,
+            direct_native_ticks
+                .checked_add(recovery_attention)
+                .unwrap_or_else(|| panic!("first foundry deferred attention overflowed")),
             survival_before
                 .metabolic_energy()
                 .checked_sub(survival_after.metabolic_energy())
@@ -786,7 +874,8 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .and_then(|ticks| ticks.checked_add(settlement_charge_ticks))
         .unwrap_or_else(|| panic!("first foundry active attention overflowed"));
     let total_player_attention = direct_native_ticks
-        .checked_add(active_foundry_ticks)
+        .checked_add(recovery_attention)
+        .and_then(|ticks| ticks.checked_add(active_foundry_ticks))
         .unwrap_or_else(|| panic!("first foundry total player attention overflowed"));
     let bootstrap_autonomous_ticks = melt_ticks
         .checked_add(cast_ticks)
@@ -806,12 +895,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|| panic!("first foundry raw stockpile disappeared after bootstrap"));
 
     reviewln!(
-        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] resource-opportunity=[stone:{}mg wood:{}mg native:{}mg] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall:0mg selection=foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:{}t/{} material=[stone:{}t wood:{}t copper:{}t] route=[hand:{}t frame-saw:{}t treadle-hammer:{}t]] workshop-reuse=[hand-only:{}t saved:{}t] campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] settlement-cast=[executed:{} batch:{}mg supply-shortfall:{}mg charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] total-autonomous:{}t copper-after-episode:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation={}",
+        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:0mg selection=foundry reason=disclosed-followup-work-justifies-bootstrap] owned-ore-recovery=[required-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg recovery-attention:{}t manual-recovery:{}ppm powered-reference:{}ppm] foundry-build=true fabrication=[total:{}t/{} material=[stone:{}t wood:{}t copper:{}t] route=[hand:{}t frame-saw:{}t treadle-hammer:{}t]] workshop-reuse=[hand-only:{}t saved:{}t] campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] settlement-cast=[executed:{} batch:{}mg supply-shortfall:{}mg charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] total-autonomous:{}t copper-after-episode:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation={}",
         case.seed(),
         case.role().label(),
         disclosed_stone_opportunity.milligrams(),
         FOUNDRY_WOOD_OPPORTUNITY.milligrams(),
         native_opportunity.milligrams(),
+        inherited_ore.mass.milligrams(),
+        inherited_ore.copper_ppm,
         first_cast_mass.milligrams(),
         direct_native_ticks,
         direct_native_reinforcement.milligrams(),
@@ -822,11 +913,22 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         } else {
             "hand"
         },
-        remaining_native.milligrams(),
+        remaining_native_before_recovery.milligrams(),
         capital_copper.milligrams(),
         settlement_ingots.milligrams(),
         settlement_cast_mass.milligrams(),
         required_after_current.milligrams(),
+        shortfall_before_recovery.milligrams(),
+        remaining_native.milligrams(),
+        recovery_required_feed.milligrams(),
+        inherited_ore.mass.milligrams(),
+        recovery_available,
+        recovery_feed > Mass::ZERO,
+        recovery_feed.milligrams(),
+        recovered_native.milligrams(),
+        recovery_attention,
+        manual_recovery_ppm,
+        powered_recovery_ppm,
         fabrication.total_ticks,
         format_physical_duration(registries, fabrication.total_ticks),
         fabrication.stone_ticks,

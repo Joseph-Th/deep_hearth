@@ -53,7 +53,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "cleanup-executed",
         "native-copper",
         "kit-acquisition",
-        "kit-decision",
+        "kit-lifecycle",
         "remaining-frontier",
     ),
     "woodworking": (
@@ -85,12 +85,14 @@ _ORDINARY_DIGEST_FIELDS = {
         "choice",
         "investment-policy-return",
         "demand",
-        "attention",
         "payoff",
+        "portfolio",
+        "stored-work",
     ),
     "foundry-bootstrap": (
         "choice",
         "copper",
+        "recovery",
         "workshop-reuse",
         "settlement-batch",
         "attention",
@@ -108,10 +110,15 @@ _ORDINARY_DIGEST_FIELDS = {
 }
 
 _SCOPED_ORDINARY_DIGEST_FIELDS = {
-    "settlement": (*_ORDINARY_DIGEST_FIELDS["settlement"], "mechanization"),
+    "settlement": (
+        *_ORDINARY_DIGEST_FIELDS["settlement"],
+        "attention",
+        "mechanization",
+    ),
     "foundry-bootstrap": (
         "choice",
         "copper",
+        "recovery",
         "investment",
         "workshop-reuse",
         "mold",

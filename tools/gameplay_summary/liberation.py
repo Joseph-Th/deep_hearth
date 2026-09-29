@@ -248,7 +248,7 @@ def _route_tradeoff(lines: list[str]) -> str:
     )
 
 
-def _kit_decision(lines: list[str]) -> str:
+def _kit_lifecycle(lines: list[str]) -> str:
     routes = [line for line in lines if line.startswith("LIBERATION ROUTE TRADEOFF ")]
     live_builds = sum(" continuity=live-kit-used" in line for line in routes)
     payback_jobs: list[int] = []
@@ -270,12 +270,12 @@ def _kit_decision(lines: list[str]) -> str:
         if (match := re.search(r"campaign=\[planned:(\d+)batches", line)) is not None
     ]
     return (
-        "kit-decision=["
-        f"build-and-use:{live_builds}/{len(routes)} "
+        "kit-lifecycle=["
+        f"executed-builds:{live_builds}/{len(routes)} "
         f"disclosed-horizon:{_span(disclosed_horizons, 'batches')} "
-        f"payback-proof:{payback_proofs}/{len(routes)} "
-        f"attention-payback:{_span(payback_jobs, 'jobs')} "
-        "policy=repeat-work-only;payback-proved-per-build]"
+        f"repaid-within-horizon:{payback_proofs}/{len(routes)} "
+        f"observed-attention-payback:{_span(payback_jobs, 'jobs')} "
+        "evidence=post-build-lifecycle-not-preaction-choice]"
     )
 
 
@@ -312,7 +312,7 @@ def liberation_summary(lines: list[str]) -> str | None:
         f"scavenger-copper={scavenged_span} "
         f"scavenger-marginal=[attention:{marginal_attention} native:{marginal_native}] "
         f"{_kit_acquisition(lines)} "
-        f"{_kit_decision(lines)} "
+        f"{_kit_lifecycle(lines)} "
         f"{_route_tradeoff(lines)} "
         f"conserved={sum('matter=conserved' in line for line in liberation)} "
         f"ordinary-loop=[concentrate-reachable:{len(liberation)}/{len(liberation)} "

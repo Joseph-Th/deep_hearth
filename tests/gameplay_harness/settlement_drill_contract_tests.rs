@@ -22,6 +22,7 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::survival::initialize_player_survival;
 
+use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::select_manual_craft_request;
@@ -32,7 +33,7 @@ use super::production_timing::finish_uninterrupted_production_job;
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 const SHORT_PLATE_ORDER: u64 = 8;
-const PROJECT_PLATE_ORDER: u64 = 12;
+const PROJECT_PLATE_ORDER: u64 = 14;
 
 fn seed_material(
     registries: &deep_hearth::registry::Registries,
@@ -51,8 +52,7 @@ fn seed_material(
     );
 }
 
-#[test]
-fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attention() {
+pub(super) fn run_spindle_drill_investment_experience() {
     let registries = build_registries();
     let spindle_batch = authored_batch(
         &registries,
@@ -299,15 +299,25 @@ fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attent
         },
         "spindle project charging",
     );
+    let policy = CapitalInvestmentPolicy::baseline();
+    let minimum_attention_return = policy.minimum_attention_return(0, setup_attention);
+    let short_machine_attention = setup_attention + short_charge_projection.attention_ticks;
     assert!(
-        setup_attention + short_charge_projection.attention_ticks
-            >= short_baseline.duration().value(),
+        !clears_attention_return(
+            short_baseline.duration().value(),
+            short_machine_attention,
+            minimum_attention_return,
+        ),
         "a short screen-plate order should keep using the already-owned pump drill"
     );
     let project_machine_attention = setup_attention + project_charge_projection.attention_ticks;
     assert!(
-        project_machine_attention < project_baseline.duration().value(),
-        "repeated screen-plate work should eventually repay the spindle frame in player attention"
+        clears_attention_return(
+            project_baseline.duration().value(),
+            project_machine_attention,
+            minimum_attention_return,
+        ),
+        "repeated screen-plate work should repay the spindle frame by the shared capital-return floor"
     );
 
     let decision_state = state.clone();
@@ -368,6 +378,7 @@ fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attent
     );
 
     let mut charge_attention = 0_u64;
+    let mut delegated_ticks = 0_u64;
     for _ in 0..PROJECT_PLATE_ORDER {
         let charge = validate_start_manual_power(
             &registries,
@@ -401,6 +412,15 @@ fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attent
         .commit(&mut powered)
         .unwrap_or_else(|error| panic!("spindle project commit failed: {error}"));
         assert_eq!(powered.player_work().active(), None);
+        delegated_ticks = delegated_ticks
+            .checked_add(
+                powered
+                    .production()
+                    .get_job(job)
+                    .map(|record| record.active_duration().value())
+                    .unwrap_or_else(|| panic!("spindle project job disappeared before completion")),
+            )
+            .unwrap_or_else(|| panic!("spindle delegated duration overflowed"));
         finish_uninterrupted_production_job(
             &registries,
             &mut powered,
@@ -449,4 +469,24 @@ fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attent
     );
     validate_loaded_state(&registries, &powered)
         .unwrap_or_else(|error| panic!("spindle investment final state invalid: {error}"));
+    reviewln!(
+        "SETTLEMENT MACHINE EXPERIENCE family=spindle-drill transform=screen-plate prior=pump-drill upgrade=spindle-drill policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t short=[batches:{} baseline:{}t machine:{}t choice:keep-prior] project=[batches:{} baseline:{}t setup:{}t charging:{}t machine:{}t attention-saved:{}t delegated:{}t choice:upgrade] used-identity-preserved=true exact-yield-preserved=true finite-stored-work=true matter=conserved",
+        policy.minimum_return_ppm(),
+        minimum_attention_return,
+        SHORT_PLATE_ORDER,
+        short_baseline.duration().value(),
+        short_machine_attention,
+        PROJECT_PLATE_ORDER,
+        project_baseline.duration().value(),
+        setup_attention,
+        project_charge_projection.attention_ticks,
+        project_machine_attention,
+        project_baseline.duration().value() - project_machine_attention,
+        delegated_ticks,
+    );
+}
+
+#[test]
+fn spindle_drill_converts_used_pump_drill_when_repeated_plate_work_repays_attention() {
+    run_spindle_drill_investment_experience();
 }
