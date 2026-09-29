@@ -49,6 +49,8 @@ mod settlement_helve_contract_tests;
 mod settlement_machine_contract_tests;
 #[path = "gameplay_harness/settlement_wire_contract_tests.rs"]
 mod settlement_wire_contract_tests;
+#[path = "gameplay_harness/settlement_workshop_investment.rs"]
+mod settlement_workshop_investment;
 
 #[test]
 fn gameplay_settlement_probe() {

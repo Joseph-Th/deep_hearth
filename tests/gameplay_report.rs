@@ -109,14 +109,14 @@ mod seed_input;
 mod settlement_drill_contract_tests;
 #[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
 mod settlement_helve_contract_tests;
-#[path = "gameplay_harness/settlement_machine_contract_tests.rs"]
-mod settlement_machine_contract_tests;
 #[path = "gameplay_harness/settlement_power_planning.rs"]
 mod settlement_power_planning;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
 #[path = "gameplay_harness/settlement_wire_contract_tests.rs"]
 mod settlement_wire_contract_tests;
+#[path = "gameplay_harness/settlement_workshop_investment.rs"]
+mod settlement_workshop_investment;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/survival_probe.rs"]
@@ -229,8 +229,8 @@ fn main() -> ExitCode {
         settlement_drill_contract_tests::run_spindle_drill_investment_experience();
         settlement_wire_contract_tests::run_wire_drawbench_investment_experience();
         settlement_helve_contract_tests::run_helve_hammer_investment_experience();
-        settlement_machine_contract_tests::run_timbershop_lathe_delegation_experience();
-        settlement_machine_contract_tests::run_toolroom_grindstone_delegation_experience();
+        settlement_workshop_investment::run_lathe_investment_experience();
+        settlement_workshop_investment::run_toolroom_investment_experience();
     }
     if scope.includes(ReportScope::FoundryBootstrap) {
         run_focused_probe_with_registries(
