@@ -105,7 +105,6 @@ use provisioning_evaluation::{
 };
 
 const DIET_RECOVERY_TARGET_VITALITY_PPM: u32 = 950_000;
-const DIET_RECOVERY_OBSERVATION_TICKS: u64 = 1_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum SurvivalStartProfile {
@@ -301,6 +300,7 @@ fn run_diet_recovery_branch(
     branch: &DietRecoveryBranch<'_>,
     policy: DietProvisioningPolicy,
     comparison_horizon_ticks: u64,
+    observation_ticks: u64,
 ) -> (u32, u32) {
     let mut state = branch.prepared.clone();
     let mut provisioning_elapsed_ticks = 0_u64;
@@ -376,7 +376,7 @@ fn run_diet_recovery_branch(
     advance_idle_ticks(
         registries,
         &mut state,
-        DIET_RECOVERY_OBSERVATION_TICKS,
+        observation_ticks,
         "diet-recovery observation",
     );
     let recovered = assess_survival(registries, &state)
@@ -522,18 +522,24 @@ fn evaluate_diet_recovery_consequence(
                 .value(),
         )
         .unwrap_or_else(|| panic!("diet-recovery comparison horizon overflowed"));
+    // Nutrition is a long-horizon recovery lever, not an immediate consumption bonus. Observe an
+    // eighth of one authored day so the harness measures a player-relevant multi-hour recovery
+    // window without making exploratory reports pay for an unnecessarily long idle simulation.
+    let observation_ticks = (registries.core().calendar().ticks_per_day() / 8).max(1);
 
     let (compact_diet_quality_ppm, compact_vitality_after_ppm) = run_diet_recovery_branch(
         registries,
         &branch,
         DietProvisioningPolicy::CompactCalories,
         comparison_horizon_ticks,
+        observation_ticks,
     );
     let (balanced_diet_quality_ppm, balanced_vitality_after_ppm) = run_diet_recovery_branch(
         registries,
         &branch,
         DietProvisioningPolicy::BalancedRecovery,
         comparison_horizon_ticks,
+        observation_ticks,
     );
     assert!(
         balanced_diet_quality_ppm > compact_diet_quality_ppm,
@@ -547,7 +553,7 @@ fn evaluate_diet_recovery_consequence(
         actionable: true,
         deprivation_ticks,
         provisioning_horizon_ticks: comparison_horizon_ticks,
-        observation_ticks: DIET_RECOVERY_OBSERVATION_TICKS,
+        observation_ticks,
         vitality_before_ppm,
         compact_vitality_after_ppm,
         balanced_vitality_after_ppm,

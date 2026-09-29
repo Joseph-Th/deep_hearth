@@ -394,75 +394,36 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
         and int(match.group(1)) > 0
         for line in shortfall_recoveries
     )
-    shortfall_salvaged = sum(
-        (match := re.search(r"\bsalvage-retools:(\d+)", line)) is not None
-        and int(match.group(1)) > 0
-        for line in shortfall_recoveries
-    )
-    blocked_sites = sum(
+    barren_sites = sum(
         int(match.group(1))
         for line in shortfall_recoveries
-        if (match := re.search(r"\bblocked-sites:(\d+)", line)) is not None
+        if (match := re.search(r"\bbarren-sites:(\d+)", line)) is not None
     )
-    shortfall_ore_funded = sum(
-        (match := re.search(r"\bore-recovery-events:(\d+)", line)) is not None
-        and int(match.group(1)) > 0
+    shortfall_horizon_exhausted = sum(
+        " terminal=planned-search-horizon-exhausted" in line
         for line in shortfall_recoveries
     )
-    shortfall_ore_payback = sum(
-        int(match.group(1))
-        for line in shortfall_recoveries
-        if (match := re.search(r"\bore-recovery-payback:(\d+)", line)) is not None
-    )
-    shortfall_ore_required = sum(
-        int(match.group(1))
-        for line in shortfall_recoveries
-        if (match := re.search(r"\bore-recovery-required-access:(\d+)", line)) is not None
+    shortfall_local_exhausted = sum(
+        " terminal=local-search-area-exhausted" in line for line in shortfall_recoveries
     )
     depletion_retooled = sum(
         line.startswith("FIELDWORK DEPLETION RECOVERY ")
         and " mining-tool-reused=false " in line
         for line in lines
     )
-    depletion_salvaged = sum(
-        line.startswith("FIELDWORK DEPLETION RECOVERY ") and " salvage=true " in line
-        for line in lines
-    )
-    depletion_ore_funded = sum(
-        line.startswith("FIELDWORK DEPLETION RECOVERY ")
-        and (match := re.search(r"\bore-recovery=\[reason:[^\s]+ ticks:(\d+)", line))
-        is not None
-        and int(match.group(1)) > 0
-        for line in lines
-    )
-    depletion_ore_payback = sum(
-        line.startswith("FIELDWORK DEPLETION RECOVERY ")
-        and " ore-recovery=[reason:payback " in line
-        for line in lines
-    )
-    depletion_ore_required = sum(
-        line.startswith("FIELDWORK DEPLETION RECOVERY ")
-        and " ore-recovery=[reason:required-access " in line
-        for line in lines
-    )
+    search_ended = shortfall_horizon_exhausted + shortfall_local_exhausted
     return (
         "world-feedback=["
-        f"initial-short:{initial_supply_ended}/{len(fieldwork)} "
-        f"shortfall-rerouted:{initial_reroute_proved}/{initial_supply_ended} "
-        f"knowledge-upgraded:{indexed_shortfall}/{len(shortfall_recoveries)} "
-        f"geology-changed:{geology_changed}/{len(shortfall_recoveries)} "
+        f"shortfall:{initial_supply_ended}/{len(fieldwork)} "
+        f"rerouted:{initial_reroute_proved}/{initial_supply_ended} "
+        f"indexed:{indexed_shortfall}/{len(shortfall_recoveries)} "
+        f"geology-shift:{geology_changed}/{len(shortfall_recoveries)} "
         f"retooled:{retooled}/{len(shortfall_recoveries)} "
-        f"salvaged:{shortfall_salvaged}/{len(shortfall_recoveries)} "
-        f"ore-funded:{shortfall_ore_funded}/{len(shortfall_recoveries)}"
-        f"(payback:{shortfall_ore_payback}/access:{shortfall_ore_required}) "
-        f"blocked-sites:{blocked_sites} "
+        f"barren:{barren_sites} "
+        f"search-ended:{search_ended}/{len(shortfall_recoveries)} "
         f"depleted:{depleted}/{len(eligible)} "
-        f"dep-rerouted:{reroute_proved}/{depleted} "
-        f"dep-retooled:{depletion_retooled}/{depleted} "
-        f"dep-salvaged:{depletion_salvaged}/{depleted} "
-        f"dep-ore-funded:{depletion_ore_funded}/{depleted}"
-        f"(payback:{depletion_ore_payback}/access:{depletion_ore_required}) "
-        f"horizon-live:{sum(' terminal=horizon-live-target ' in line for line in eligible)}/{len(eligible)}]"
+        f"depletion-rerouted:{reroute_proved}/{depleted} "
+        f"depletion-retooled:{depletion_retooled}/{depleted}]"
     )
 
 

@@ -66,8 +66,13 @@ fn exploratory_demand_and_reserve_scale_are_not_coupled() {
 
 #[test]
 fn followup_sites_have_independent_reserve_opportunities() {
-    let supplies = (0_u64..128)
-        .flat_map(super::world::fieldwork_followup_supplies)
+    let opportunities = (0_u64..128)
+        .flat_map(super::world::fieldwork_followup_opportunities)
+        .collect::<Vec<_>>();
+    let supplies = opportunities
+        .iter()
+        .copied()
+        .flatten()
         .map(Mass::milligrams)
         .collect::<Vec<_>>();
     assert!(
@@ -85,11 +90,19 @@ fn followup_sites_have_independent_reserve_opportunities() {
     );
     assert!(
         (0_u64..128).any(|seed| {
-            super::world::fieldwork_followup_supplies(seed)
+            super::world::fieldwork_followup_opportunities(seed)
                 .windows(2)
                 .any(|pair| pair[0] != pair[1])
         }),
-        "follow-up sites must not copy one reserve value across the local search area"
+        "follow-up sites must not copy one geological outcome across the local search area"
+    );
+    assert!(
+        opportunities.iter().any(Option::is_none),
+        "follow-up fieldwork must include searched areas with no localized copper opportunity"
+    );
+    assert!(
+        opportunities.iter().any(Option::is_some),
+        "follow-up fieldwork must retain productive neighboring opportunities"
     );
 }
 

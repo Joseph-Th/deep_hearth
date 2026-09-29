@@ -40,6 +40,12 @@ they must not become hidden blockers when content is retuned. Scenario generator
 by replayable seed, but equal physical opportunities are not resolved by registry identity when that would change
 the generated world.
 
+World feedback may also be negative. A paid search, survey, or reroute is allowed to reveal that a bounded area
+contains no useful target; ordinary evaluation represents that as acquired evidence and a recoverable stop or
+continued search, not a panic or a hidden guarantee that the next area is productive. Primary maintained
+opportunities may remain deliberate starting conditions, but unexplored follow-up space does not owe the player a
+resource merely because an order remains unfinished.
+
 Choice-rich organic probes keep physical-world and actor-policy roots independent. Maintained witnesses use a
 stable deterministic policy attached to the maintained case; coverage witnesses may intentionally exercise a
 different bounded preference when the actor-choice boundary is part of the contract. Organic/replay cases derive

@@ -38,18 +38,12 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
 
 _ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
-        "sample-shape",
         "first-copper",
         "processing-crossover",
         "disclosed-order-attention",
         "parallel-work",
-        "executed-manual-fallback",
-        "integrated-campaign",
-        "reinvestment",
-        "next-stage-continuation",
     ),
     "primitive-liberation": (
-        "sample-shape",
         "cleanup-executed",
         "native-copper",
         "kit-acquisition",
@@ -57,7 +51,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "remaining-frontier",
     ),
     "woodworking": (
-        "sample-shape",
         "choice",
         "decision-coverage",
         "attention-payback",
@@ -73,7 +66,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "initial-shortfall-campaign",
     ),
     "power-provider": (
-        "sample-shape",
         "choice",
         "investment-policy-return",
         "decision-crossover-charges",
@@ -81,7 +73,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "settlement-decision-crossover-charges",
     ),
     "settlement": (
-        "sample-shape",
         "choice",
         "investment-policy-return",
         "demand",
@@ -98,18 +89,23 @@ _ORDINARY_DIGEST_FIELDS = {
         "attention",
     ),
     "survival": (
-        "sample-shape",
         "pressure",
         "diet",
         "provisioning",
         "balanced-diet-counterfactual",
         "preservation",
         "commitment",
-        "work-interlock",
     ),
 }
 
 _SCOPED_ORDINARY_DIGEST_FIELDS = {
+    "primitive-progression": (
+        *_ORDINARY_DIGEST_FIELDS["primitive-progression"],
+        "executed-manual-fallback",
+        "integrated-campaign",
+        "reinvestment",
+        "next-stage-continuation",
+    ),
     "settlement": (
         *_ORDINARY_DIGEST_FIELDS["settlement"],
         "attention",
@@ -126,6 +122,7 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
         "rhythm",
         "attention",
     ),
+    "survival": (*_ORDINARY_DIGEST_FIELDS["survival"], "work-interlock"),
 }
 
 _EXPECTED_ORDINARY_BY_PROBE = {
@@ -200,14 +197,16 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         if probe is None:
             return summary
         if probe == "fieldwork":
+            experience_fields = [
+                "outcomes",
+                "pacing-physical",
+                "reuse-physical",
+            ]
+            if scoped:
+                experience_fields.insert(0, "sample-shape")
             experience = compact_fields(
                 summary,
-                (
-                    "sample-shape",
-                    "outcomes",
-                    "pacing-physical",
-                    "reuse-physical",
-                ),
+                experience_fields,
             )
             adaptation = compact_fields(
                 summary,
@@ -227,6 +226,8 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             if scoped
             else None
         ) or _ORDINARY_DIGEST_FIELDS.get(probe, ("samples",))
+        if scoped and "sample-shape" not in fields and field(summary, "sample-shape") is not None:
+            fields = ("sample-shape", *fields)
         detail = compact_fields(summary, fields)
         return f"GAMEPLAY probe={probe} {detail}".rstrip()
 
@@ -301,6 +302,8 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     controlled = controlled_gameplay_summary(lines)
     _require_summary_coverage(lines, ordinary, controlled)
     scoped_ordinary = len(ordinary) == 1
+    if len(ordinary) == len(_ORDINARY_DIGEST_FIELDS):
+        selected.extend(line for line in lines if line.startswith("PLAYER FANTASY "))
     selected.extend(_digest_summary(summary, scoped=scoped_ordinary) for summary in ordinary)
     # The player-loop digest is cross-system evidence. A scoped report intentionally omits
     # unrelated probe families, so synthesizing the loop from partial evidence would fill it with

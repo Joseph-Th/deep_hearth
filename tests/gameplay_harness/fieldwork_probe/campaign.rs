@@ -14,7 +14,7 @@ use deep_hearth::spatial::VoxelBounds;
 use super::super::seed::mix64;
 use super::planning::project_sampling_hammer_upgrade_ticks;
 use super::preparation::upgrade_sampling_hammer;
-use super::survey::{CHANNEL_COUNT, FieldworkSurveyStrategy, horizontal_region, localize_target};
+use super::survey::{CHANNEL_COUNT, FieldworkSurveyStrategy, horizontal_region, search_target};
 
 #[derive(Clone, Copy)]
 pub(super) struct FieldworkCampaignSite {
@@ -41,6 +41,8 @@ struct CampaignExecutionPlan<'a> {
 struct CampaignRun {
     search_ticks: u64,
     first_search_ticks: u64,
+    first_site_localized: bool,
+    localized_sites: u64,
 }
 
 pub(super) struct FieldworkSurveyCampaignReview {
@@ -54,6 +56,9 @@ pub(super) struct FieldworkSurveyCampaignReview {
     pub(super) selected_search_ticks: u64,
     pub(super) realized_attention_delta: i128,
     pub(super) first_search_ticks: u64,
+    pub(super) first_site_localized: bool,
+    pub(super) localized_sites: u64,
+    pub(super) barren_sites: u64,
     pub(super) investment_policy: FieldworkSurveyPolicy,
 }
 
@@ -235,9 +240,11 @@ fn run_sites(
 ) -> CampaignRun {
     let mut search_ticks = 0_u64;
     let mut first_search_ticks = None;
+    let mut first_site_localized = None;
+    let mut localized_sites = 0_u64;
     for (index, site) in plan.sites.iter().enumerate() {
         let search_started_at = state.tick().value();
-        let _localized = localize_target(
+        let localized = search_target(
             registries,
             state,
             plan.hammer,
@@ -245,12 +252,14 @@ fn run_sites(
             site.start_x,
             strategy,
         );
+        localized_sites += u64::from(localized.is_some());
         let site_search_ticks = state.tick().value() - search_started_at;
         search_ticks = search_ticks
             .checked_add(site_search_ticks)
             .unwrap_or_else(|| panic!("fieldwork campaign search duration overflowed"));
         if index == 0 {
             first_search_ticks = Some(site_search_ticks);
+            first_site_localized = Some(localized.is_some());
         }
     }
     validate_loaded_state(registries, state)
@@ -259,6 +268,9 @@ fn run_sites(
         search_ticks,
         first_search_ticks: first_search_ticks
             .unwrap_or_else(|| unreachable!("fieldwork campaign has at least one site")),
+        first_site_localized: first_site_localized
+            .unwrap_or_else(|| unreachable!("fieldwork campaign has at least one site")),
+        localized_sites,
     }
 }
 
@@ -319,6 +331,14 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
         .search_ticks
         .checked_add(upgrade_ticks)
         .unwrap_or_else(|| panic!("fieldwork selected campaign attention overflowed"));
+    assert_eq!(
+        baseline.localized_sites, selected.localized_sites,
+        "fieldwork survey strategies must agree on whether each searched area contains a resolvable target"
+    );
+    assert_eq!(
+        baseline.first_site_localized, selected.first_site_localized,
+        "fieldwork survey strategies must agree on whether the first future area contains a resolvable target"
+    );
     FieldworkSurveyCampaignReview {
         planned_sites,
         selected_strategy,
@@ -331,6 +351,13 @@ pub(super) fn evaluate_fieldwork_survey_campaign(
         realized_attention_delta: i128::from(baseline.search_ticks)
             - i128::from(selected_attention),
         first_search_ticks: selected.first_search_ticks,
+        first_site_localized: selected.first_site_localized,
+        localized_sites: selected.localized_sites,
+        barren_sites: planned_sites
+            .checked_sub(selected.localized_sites)
+            .unwrap_or_else(|| {
+                unreachable!("localized campaign sites cannot exceed planned sites")
+            }),
         investment_policy: plan.investment_policy,
     }
 }

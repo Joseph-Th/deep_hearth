@@ -5,8 +5,6 @@
 // the candidate's extra setup attention. This still permits project-scale specialization while
 // rejecting machinery that consumes substantial material and setup for only a few saved ticks.
 const CAPITAL_MINIMUM_RETURN_PPM: u64 = 200_000;
-const ORGANIC_MINIMUM_RETURN_PPM: u64 = 150_000;
-const ORGANIC_MAXIMUM_RETURN_PPM: u64 = 250_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CapitalInvestmentPolicy {
@@ -20,7 +18,13 @@ impl CapitalInvestmentPolicy {
         }
     }
 
+    #[allow(
+        dead_code,
+        reason = "focused targets may use the shared baseline policy without actor-policy variation"
+    )]
     pub(super) const fn from_behavior_seed(seed: u64) -> Self {
+        const ORGANIC_MINIMUM_RETURN_PPM: u64 = 150_000;
+        const ORGANIC_MAXIMUM_RETURN_PPM: u64 = 250_000;
         let span = ORGANIC_MAXIMUM_RETURN_PPM - ORGANIC_MINIMUM_RETURN_PPM;
         Self {
             minimum_return_ppm: ORGANIC_MINIMUM_RETURN_PPM + seed % (span + 1),

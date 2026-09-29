@@ -105,14 +105,14 @@ fn run_survey(
     outcome
 }
 
-pub(super) fn localize_target(
+pub(super) fn search_target(
     registries: &Registries,
     state: &mut AppState,
     hammer: EquipmentId,
     channel_voxels: i64,
     channel_start_x: i64,
     strategy: FieldworkSurveyStrategy,
-) -> FieldworkLocalization {
+) -> Option<FieldworkLocalization> {
     let mut selected_channel = None::<(i64, u32, u32)>;
     let mut transects = 0_u64;
     for channel_index in 0..CHANNEL_COUNT {
@@ -186,7 +186,7 @@ pub(super) fn localize_target(
                 MiningTargetRequest::new(record.region(), MATERIAL_COPPER),
             )
             .unwrap_or_else(|error| panic!("indexed evidence did not resolve target: {error}"));
-            return FieldworkLocalization {
+            return Some(FieldworkLocalization {
                 target,
                 hardness,
                 resource_mass,
@@ -194,9 +194,9 @@ pub(super) fn localize_target(
                 field_inspections: 0,
                 detailed_surveys: 0,
                 indexed_surveys: 1,
-            };
+            });
         }
-        panic!("fieldwork indexed search exhausted the promising channel without a target");
+        return None;
     }
 
     let mut detailed_surveys = 0_u64;
@@ -255,7 +255,7 @@ pub(super) fn localize_target(
             .unwrap_or_else(|error| {
                 panic!("positive detailed evidence did not resolve target: {error}")
             });
-        return FieldworkLocalization {
+        return Some(FieldworkLocalization {
             target,
             hardness,
             resource_mass,
@@ -263,7 +263,28 @@ pub(super) fn localize_target(
             field_inspections,
             detailed_surveys,
             indexed_surveys: 0,
-        };
+        });
     }
-    panic!("fieldwork coarse-to-fine search exhausted the promising channel without a target")
+    None
+}
+
+pub(super) fn localize_target(
+    registries: &Registries,
+    state: &mut AppState,
+    hammer: EquipmentId,
+    channel_voxels: i64,
+    channel_start_x: i64,
+    strategy: FieldworkSurveyStrategy,
+) -> FieldworkLocalization {
+    search_target(
+        registries,
+        state,
+        hammer,
+        channel_voxels,
+        channel_start_x,
+        strategy,
+    )
+    .unwrap_or_else(|| {
+        panic!("fieldwork expected a known geological opportunity but search found none")
+    })
 }

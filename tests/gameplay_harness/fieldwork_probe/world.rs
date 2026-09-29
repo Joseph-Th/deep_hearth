@@ -90,8 +90,14 @@ fn followup_site_seeds(seed: u64) -> [u64; 6] {
     FOLLOWUP_SITE_SALTS.map(|salt| mix64(seed ^ salt))
 }
 
-pub(super) fn fieldwork_followup_supplies(seed: u64) -> [Mass; 6] {
-    followup_site_seeds(seed).map(fieldwork_supply)
+pub(super) fn fieldwork_followup_opportunities(seed: u64) -> [Option<Mass>; 6] {
+    followup_site_seeds(seed).map(|site_seed| {
+        // Neighboring search areas are not guaranteed to contain the requested resource. Keep the
+        // outcome independent of demand, equipment, and actor policy so paid fieldwork can reveal
+        // a real dead end without turning the primary known opportunity into a lottery.
+        (!mix64(site_seed ^ 0x4241_5252_454E_5349).is_multiple_of(4))
+            .then(|| fieldwork_supply(site_seed))
+    })
 }
 
 fn hidden_location(
@@ -285,15 +291,18 @@ pub(super) fn build_fieldwork_world(
         profile,
     );
     let followup_seeds = followup_site_seeds(seed);
-    let followup_supplies = fieldwork_followup_supplies(seed);
-    // Each follow-up site is an independent geological opportunity, so paid search can reveal new
-    // hardness or grade rather than only more quantity. The bounded site set is large enough for
-    // the ordinary bulk-order scenario without making success depend on a fixture cap.
-    for ((start_x, site_seed), supply) in FOLLOWUP_CHANNEL_STARTS
+    let followup_opportunities = fieldwork_followup_opportunities(seed);
+    // Follow-up search areas are independent geological opportunities. Some contain no copper at
+    // all; productive areas vary reserve, hardness, and grade. Search therefore reveals the world
+    // instead of receiving a harness guarantee that every reroute is productive.
+    for ((start_x, site_seed), opportunity) in FOLLOWUP_CHANNEL_STARTS
         .into_iter()
         .zip(followup_seeds)
-        .zip(followup_supplies)
+        .zip(followup_opportunities)
     {
+        let Some(supply) = opportunity else {
+            continue;
+        };
         let hidden = hidden_location(
             site_seed,
             channel_voxels,

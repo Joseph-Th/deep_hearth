@@ -13,7 +13,7 @@ use super::retooling::{
     prepare_fieldwork_tool_for_site,
 };
 use super::review::FieldworkEpisodeReview;
-use super::survey::{FOLLOWUP_CHANNEL_STARTS, FieldworkSurveyStrategy, localize_target};
+use super::survey::{FOLLOWUP_CHANNEL_STARTS, FieldworkSurveyStrategy, search_target};
 
 pub(super) struct InitialShortfallRecovery {
     pub(super) strategy: FieldworkSurveyStrategy,
@@ -31,6 +31,7 @@ pub(super) struct InitialShortfallRecovery {
     pub(super) extraction_ticks: u64,
     pub(super) tool_builds: u64,
     pub(super) tool_switches: u64,
+    pub(super) barren_sites: u64,
     pub(super) blocked_sites: u64,
     pub(super) hardness_tier_changes: u64,
     pub(super) salvage_retools: u64,
@@ -66,6 +67,16 @@ fn demand_sized_followup_sites(
         .clamp(1, available_sites)
 }
 
+fn shortfall_terminal(remaining: Mass, sites_visited: u64, available_sites: u64) -> &'static str {
+    if remaining.is_zero() {
+        "order-complete"
+    } else if sites_visited >= available_sites {
+        "local-search-area-exhausted"
+    } else {
+        "planned-search-horizon-exhausted"
+    }
+}
+
 #[derive(Clone, Copy)]
 struct InitialShortfallRun {
     sites_visited: u64,
@@ -74,6 +85,7 @@ struct InitialShortfallRun {
     extraction_ticks: u64,
     tool_builds: u64,
     tool_switches: u64,
+    barren_sites: u64,
     blocked_sites: u64,
     hardness_tier_changes: u64,
     salvage_retools: u64,
@@ -96,6 +108,7 @@ struct RecoveryProgress {
     extraction_ticks: u64,
     tool_builds: u64,
     tool_switches: u64,
+    barren_sites: u64,
     blocked_sites: u64,
     hardness_tier_changes: u64,
     salvage_retools: u64,
@@ -131,6 +144,7 @@ impl RecoveryProgress {
             extraction_ticks: 0,
             tool_builds: 0,
             tool_switches: 0,
+            barren_sites: 0,
             blocked_sites: 0,
             hardness_tier_changes: 0,
             salvage_retools: 0,
@@ -211,6 +225,7 @@ impl RecoveryProgress {
             extraction_ticks: self.extraction_ticks,
             tool_builds: self.tool_builds,
             tool_switches: self.tool_switches,
+            barren_sites: self.barren_sites,
             blocked_sites: self.blocked_sites,
             hardness_tier_changes: self.hardness_tier_changes,
             salvage_retools: self.salvage_retools,
@@ -249,7 +264,7 @@ fn recover_site(
     progress: &mut RecoveryProgress,
 ) {
     let search_started_at = state.tick().value();
-    let localization = localize_target(
+    let localization = search_target(
         review.registries,
         state,
         review.sampling_hammer,
@@ -262,6 +277,10 @@ fn recover_site(
         .checked_add(state.tick().value() - search_started_at)
         .unwrap_or_else(|| panic!("fieldwork multi-site recovery search time overflowed"));
     progress.sites_visited += 1;
+    let Some(localization) = localization else {
+        progress.barren_sites += 1;
+        return;
+    };
 
     let site_hardness_tier = hardness_tier(review.registries, localization.hardness.upper());
     if site_hardness_tier != progress.previous_hardness_tier {
@@ -332,9 +351,16 @@ fn run_initial_shortfall_sites(
     review: &FieldworkEpisodeReview<'_>,
     state: &mut AppState,
     strategy: FieldworkSurveyStrategy,
+    planned_sites: u64,
 ) -> InitialShortfallRun {
     let mut progress = RecoveryProgress::new(review);
-    for start_x in FOLLOWUP_CHANNEL_STARTS {
+    let site_count = usize::try_from(planned_sites)
+        .unwrap_or_else(|_| unreachable!("bounded fieldwork recovery horizon fits usize"));
+    assert!(
+        (1..=FOLLOWUP_CHANNEL_STARTS.len()).contains(&site_count),
+        "fieldwork recovery must execute the actor's bounded nonzero follow-up horizon"
+    );
+    for &start_x in &FOLLOWUP_CHANNEL_STARTS[..site_count] {
         if progress.remaining.is_zero() {
             break;
         }
@@ -377,6 +403,7 @@ pub(super) fn execute_initial_shortfall_recovery(
         review,
         &mut baseline_state,
         FieldworkSurveyStrategy::PointSearch,
+        planned_sites,
     );
     let (selected, upgrade_ticks) =
         if survey_decision.selected_strategy == FieldworkSurveyStrategy::IndexedChannel {
@@ -394,6 +421,7 @@ pub(super) fn execute_initial_shortfall_recovery(
                     review,
                     &mut selected_state,
                     FieldworkSurveyStrategy::IndexedChannel,
+                    planned_sites,
                 ),
                 actual,
             )
@@ -432,6 +460,7 @@ pub(super) fn execute_initial_shortfall_recovery(
         extraction_ticks: selected.extraction_ticks,
         tool_builds: selected.tool_builds,
         tool_switches: selected.tool_switches,
+        barren_sites: selected.barren_sites,
         blocked_sites: selected.blocked_sites,
         hardness_tier_changes: selected.hardness_tier_changes,
         salvage_retools: selected.salvage_retools,
@@ -444,11 +473,7 @@ pub(super) fn execute_initial_shortfall_recovery(
         additional_extracted: selected.additional_extracted,
         fulfilled: selected.fulfilled,
         remaining: selected.remaining,
-        terminal: if selected.remaining.is_zero() {
-            "order-complete"
-        } else {
-            "local-search-area-exhausted"
-        },
+        terminal: shortfall_terminal(selected.remaining, selected.sites_visited, available_sites),
     }
 }
 

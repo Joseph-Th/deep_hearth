@@ -267,6 +267,7 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
     hardness_changes = values(r"\bhardness-tier-changes:(\d+)")
     tool_builds = values(r"\btool-builds:(\d+)")
     salvage_retools = values(r"\bsalvage-retools:(\d+)")
+    barren_sites = values(r"\bbarren-sites:(\d+)")
     blocked_sites = values(r"\bblocked-sites:(\d+)")
     ore_recovery_events = values(r"\bore-recovery-events:(\d+)")
     ore_recovery_required = values(r"\bore-recovery-required-access:(\d+)")
@@ -297,9 +298,11 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
         f"salvaged:{sum(value > 0 for value in salvage_retools)}/{len(recoveries)} "
         f"ore-funded:{sum(value > 0 for value in ore_recovery_events)}/{len(recoveries)}"
         f"(payback:{sum(ore_recovery_payback)}/access:{sum(ore_recovery_required)}) "
+        f"barren-sites:{_span(barren_sites, unit='')} "
         f"blocked-sites:{_span(blocked_sites, unit='')} "
         f"fulfillment-delta:{_signed_span(fulfillment_delta).replace('t', 'mg')}] "
         f"completed:{sum(' terminal=order-complete' in line for line in recoveries)} "
+        f"planned-horizon-exhausted:{sum(' terminal=planned-search-horizon-exhausted' in line for line in recoveries)} "
         f"local-area-exhausted:{sum(' terminal=local-search-area-exhausted' in line for line in recoveries)} "
         f"sites:{_span(values(r'\bsites-visited=(\d+)'), unit='')} "
         f"fulfillment:{_span(values(r'\bfulfillment=(\d+)ppm'), unit='ppm')} "
@@ -338,6 +341,11 @@ def _survey_campaign_summary(lines: list[str]) -> str:
         for line in indexed_campaigns
         if (match := re.search(r"\battention-delta:([+-]\d+)t", line)) is not None
     ]
+    barren_sites = [
+        int(match.group(1))
+        for line in campaigns
+        if (match := re.search(r"\bbarren-sites=(\d+)", line)) is not None
+    ]
     return (
         "survey-campaign=["
         f"choice:point{sum(' selected=point-search ' in line for line in campaigns)}"
@@ -347,6 +355,7 @@ def _survey_campaign_summary(lines: list[str]) -> str:
         f"h:1x{sum(value == 1 for value in campaign_horizons)}"
         f"/2x{sum(value == 2 for value in campaign_horizons)}"
         f"/3x{sum(value == 3 for value in campaign_horizons)} "
+        f"barren:{_span(barren_sites, unit='')} "
         f"realized:{_signed_span(indexed_realized_deltas)}]"
     )
 

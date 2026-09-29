@@ -28,7 +28,7 @@ use super::retooling::{
     prepare_fieldwork_tool_for_site,
 };
 use super::survey::{
-    CHANNEL_COUNT, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, localize_target,
+    CHANNEL_COUNT, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, search_target,
 };
 use super::{FieldworkEpisode, FieldworkResourceKnowledgeEffect};
 
@@ -209,6 +209,7 @@ fn execute_known_site_exploitation(
 
 struct SiteReroute {
     search_ticks: u64,
+    target_found: bool,
     tool_preparation_ticks: u64,
     tool_reused: bool,
     tool_label: Option<&'static str>,
@@ -226,7 +227,7 @@ fn execute_site_reroute(
 ) -> SiteReroute {
     let mut state = source_state.clone();
     let search_started_at = state.tick().value();
-    let localization = localize_target(
+    let localization = search_target(
         review.registries,
         &mut state,
         review.sampling_hammer,
@@ -235,6 +236,23 @@ fn execute_site_reroute(
         FieldworkSurveyStrategy::PointSearch,
     );
     let search_ticks = state.tick().value() - search_started_at;
+    let Some(localization) = localization else {
+        validate_loaded_state(review.registries, &state)
+            .unwrap_or_else(|error| panic!("barren fieldwork reroute state invalid: {error}"));
+        return SiteReroute {
+            search_ticks,
+            target_found: false,
+            tool_preparation_ticks: 0,
+            tool_reused: false,
+            tool_label: None,
+            ore_recovery_ticks: 0,
+            ore_feed_mass: Mass::ZERO,
+            recovered_native: Mass::ZERO,
+            ore_recovery_reason: None,
+            salvaged: false,
+            extraction: None,
+        };
+    };
     let requested = review.requested.min(localization.resource_mass.upper());
     assert!(
         !requested.is_zero(),
@@ -260,6 +278,7 @@ fn execute_site_reroute(
             .unwrap_or_else(|error| panic!("blocked fieldwork reroute state invalid: {error}"));
         return SiteReroute {
             search_ticks,
+            target_found: true,
             tool_preparation_ticks: 0,
             tool_reused: false,
             tool_label: None,
@@ -290,6 +309,7 @@ fn execute_site_reroute(
         .unwrap_or_else(|error| panic!("fieldwork reroute state invalid: {error}"));
     SiteReroute {
         search_ticks,
+        target_found: true,
         tool_preparation_ticks: tool.preparation_ticks,
         tool_reused: tool.reused_existing,
         tool_label: Some(tool.label),
@@ -414,10 +434,15 @@ fn report_known_site_exploitation(
                 );
             } else {
                 reviewln!(
-                    "FIELDWORK DEPLETION RECOVERY seed=0x{:016X} depletion-observed=true reroute-proved=false evidence=executed-search-from-depleted-state post-depletion-execution=false mining-tool-reused=false selected-tool=none retool=0t salvage=false survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search={}t/{} reason=no-feasible-extraction-tool",
+                    "FIELDWORK DEPLETION RECOVERY seed=0x{:016X} depletion-observed=true reroute-proved=false evidence=executed-search-from-depleted-state post-depletion-execution=false mining-tool-reused=false selected-tool=none retool=0t salvage=false survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search={}t/{} reason={}",
                     review.case.seed(),
                     reroute.search_ticks,
                     format_physical_duration(review.registries, reroute.search_ticks),
+                    if reroute.target_found {
+                        "no-feasible-extraction-tool"
+                    } else {
+                        "no-localized-target"
+                    },
                 );
             }
         }
@@ -451,14 +476,13 @@ fn report_known_site_exploitation(
                 recovery.tool_switches > 0 && recovery.salvage_retools > 0,
                 "adaptive fieldwork witness must salvage an obsolete specialization and switch tools"
             );
-            assert_eq!(
-                recovery.remaining,
-                Mass::ZERO,
-                "adaptive fieldwork witness must complete its disclosed multi-site order"
+            assert!(
+                !recovery.additional_extracted.is_zero(),
+                "adaptive fieldwork witness must turn new evidence and retooling into productive recovery"
             );
         }
         reviewln!(
-            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved={} evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution={} mining-tool-reused={} survey-base-kit-reused=true strategy={} planned-sites={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t total-attention-delta:{:+}t] adaptation=[hardness-tier-changes:{} tool-builds:{} tool-switches:{} salvage-retools:{} blocked-sites:{} tool-preparation:{}t ore-recovery-events:{} ore-recovery-required-access:{} ore-recovery-payback:{} ore-recovery:{}t ore-feed:{}mg native-recovered:{}mg baseline-fulfilled:{}mg fulfillment-delta:{:+}mg] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved={} evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution={} mining-tool-reused={} survey-base-kit-reused=true strategy={} planned-sites={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t total-attention-delta:{:+}t] adaptation=[hardness-tier-changes:{} tool-builds:{} tool-switches:{} salvage-retools:{} barren-sites:{} blocked-sites:{} tool-preparation:{}t ore-recovery-events:{} ore-recovery-required-access:{} ore-recovery-payback:{} ore-recovery:{}t ore-feed:{}mg native-recovered:{}mg baseline-fulfilled:{}mg fulfillment-delta:{:+}mg] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
             review.case.seed(),
             reroute_proved,
             reroute_proved,
@@ -477,6 +501,7 @@ fn report_known_site_exploitation(
             recovery.tool_builds,
             recovery.tool_switches,
             recovery.salvage_retools,
+            recovery.barren_sites,
             recovery.blocked_sites,
             recovery.tool_preparation_ticks,
             recovery.ore_recovery_events,
@@ -509,9 +534,11 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
         .projected_indexed_search_ticks
         .map_or_else(|| "unfunded".to_owned(), |ticks| format!("{ticks}t"));
     reviewln!(
-        "FIELDWORK SURVEY CAMPAIGN seed=0x{:016X} planned-sites={} upgrade-available={} selected={} policy=min-expected-search-attention-with-minimum-return minimum-return={}ppm projected=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
+        "FIELDWORK SURVEY CAMPAIGN seed=0x{:016X} planned-sites={} localized-sites={} barren-sites={} upgrade-available={} selected={} policy=min-expected-search-attention-with-minimum-return minimum-return={}ppm projected=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
         review.case.seed(),
         campaign.planned_sites,
+        campaign.localized_sites,
+        campaign.barren_sites,
         campaign.upgrade_available,
         campaign.selected_strategy.label(),
         campaign.investment_policy.minimum_return_ppm(),
@@ -523,8 +550,9 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
         campaign.realized_attention_delta,
     );
     reviewln!(
-        "FIELDWORK SITE REUSE seed=0x{:016X} available=true kit-reused=true knowledge-reused=false strategy={} search={}t/{} first-expedition-kit={}t/{} scope=new-site-search-only extraction-evaluated-by-lived-reroute=true upgrade-cost-reported-separately=true",
+        "FIELDWORK SITE REUSE seed=0x{:016X} available={} kit-reused=true knowledge-reused=false strategy={} search={}t/{} first-expedition-kit={}t/{} scope=new-site-search-only extraction-evaluated-by-lived-reroute=true upgrade-cost-reported-separately=true reason={}",
         review.case.seed(),
+        campaign.first_site_localized,
         campaign.selected_strategy.label(),
         campaign.first_search_ticks,
         format_physical_duration(review.registries, campaign.first_search_ticks),
@@ -533,6 +561,11 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
             review.registries,
             review.sampling_setup_ticks + review.tool_prep_ticks,
         ),
+        if campaign.first_site_localized {
+            "localized-target"
+        } else {
+            "no-localized-target"
+        },
     );
 }
 
