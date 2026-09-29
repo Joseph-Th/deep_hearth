@@ -168,18 +168,6 @@ pub fn validate_build_storage_enclosure(
     })
 }
 
-fn logistics_stockpile_position(
-    state: &AppState,
-    stockpile: StockpileId,
-) -> Option<crate::spatial::VoxelCoord> {
-    if let Some(player) = state.logistics().player()
-        && player.carried_stockpile() == stockpile
-    {
-        return Some(player.position());
-    }
-    state.logistics().stationary_stockpile_position(stockpile)
-}
-
 fn validate_world_location(
     state: &AppState,
     target: StockpileId,
@@ -188,7 +176,7 @@ fn validate_world_location(
     let Some(target_position) = state.logistics().stationary_stockpile_position(target) else {
         return Ok(());
     };
-    let Some(source_position) = logistics_stockpile_position(state, source) else {
+    let Some(source_position) = state.logistics().stockpile_position(source) else {
         return Err(
             StorageEnclosureConstructionError::LocatedTargetSourceUnlocated {
                 target,
