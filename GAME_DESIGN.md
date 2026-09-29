@@ -226,11 +226,10 @@ decisions or world coherence.
 
 ## Development direction
 
-Prefer a dense connected simulation: close useful control loops before multiplying disconnected content, and
-prefer reusable physical dimensions over feature-specific exceptions. [`DIRECTION.md`](DIRECTION.md) owns the
-integration sequence and slice completion criteria.
+Prefer a dense connected simulation over disconnected feature count. [`DIRECTION.md`](DIRECTION.md) owns
+integration priority and slice completion criteria.
 
 ## Boundary
 
-This page does not own architecture, runtime scheduling, persistence, rendering implementation, networking,
-or verification policy. Use [`README.md`](README.md) for those contracts.
+This page owns intended player experience, not implementation or current capability. Use [`README.md`](README.md)
+to route implementation, scope, and verification questions.

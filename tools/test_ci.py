@@ -2920,6 +2920,39 @@ unknown_macro!();
         self.assertEqual(broken_checked, 2)
         self.assertTrue(any("tests/boundary.rs" in error for error in broken))
 
+    def test_comment_contract_checker_rejects_debt_and_history_not_domain_time(self) -> None:
+        path = ROOT / "src" / "owner.rs"
+        self.assertEqual(
+            check_authority_docs.comment_contract_errors(
+                path,
+                "// A later tick consumes the persisted reservation.\n"
+                "/// Previously extracted matter remains in mining custody until claim.\n",
+            ),
+            [],
+        )
+        errors = check_authority_docs.comment_contract_errors(
+            path,
+            "// TODO remove this after the old implementation is gone.\n",
+        )
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(any("planning/debt marker" in error for error in errors))
+        self.assertTrue(any("implementation history" in error for error in errors))
+
+    def test_document_history_checker_rejects_war_stories_not_domain_progression(self) -> None:
+        self.assertEqual(
+            check_authority_docs.document_history_errors(
+                "GAME_DESIGN.md",
+                "Earlier infrastructure remains useful at lower scale.\n",
+            ),
+            [],
+        )
+        errors = check_authority_docs.document_history_errors(
+            "ARCHITECTURE.md",
+            "We used a legacy implementation before this change.\n",
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertIn("narrates implementation history", errors[0])
+
     def test_documentation_routes_resolve_from_nested_document_location(self) -> None:
         nested = ROOT / "assets" / "shaders" / "README.md"
         self.assertEqual(

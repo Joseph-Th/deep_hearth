@@ -64,8 +64,8 @@ use provisioning::seed_power_project_provisions;
 
 fn declared_primitive_crushing_project(registries: &Registries, seed: u64) -> (Mass, Energy) {
     // Keep this episode in the scale where a portable stone crusher is still a plausible player
-    // choice. Larger ore campaigns belong to the settlement-scale machinery/progression probes;
-    // feeding 100+ kg through a 1 kg-batch starter crusher mostly measures repeated interaction.
+    // choice. Larger ore campaigns belong to settlement-scale machinery/progression probes; this
+    // scope avoids measuring repeated interaction with a starter machine instead of provider choice.
     let kilograms = 5 + mix64(seed ^ 0x5052_494D_5F4F_5245) % 56;
     let mass = Mass::from_milligrams(
         kilograms

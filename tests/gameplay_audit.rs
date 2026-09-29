@@ -1,8 +1,7 @@
 //! Consolidated gameplay checkpoint.
 //!
-//! Focused edit loops keep their smaller integration-test crates. Broad checkpoints compile the
-//! shared harness module graph once here so common support is not repeatedly code-generated and
-//! linked into six separate binaries.
+//! Focused edit loops use smaller integration-test crates. Broad checkpoints compile the shared
+//! harness graph once here rather than rebuilding common support across focused targets.
 
 #![allow(
     dead_code,

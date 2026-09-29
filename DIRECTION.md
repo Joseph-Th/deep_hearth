@@ -2,16 +2,10 @@
 
 **Role:** Future system-integration priority and accretion strategy.
 
-Planned capabilities are not implementation evidence. Use [`STATUS.md`](STATUS.md) for current reality, [`GAME_DESIGN.md`](GAME_DESIGN.md)
-for intended player experience, [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for implemented contracts, and
-[`README.md`](README.md) for routing.
-
-The objective is not maximum feature count. The objective is a dense, comprehensible simulation graph in which
-new capability reuses existing physical/state abstractions, closes real control loops, and increases the number
-of meaningful interactions without multiplying rulesets.
-
-This is dependency-oriented guidance, not an executable task queue. Re-evaluate the sequence against
-[`STATUS.md`](STATUS.md) when the integration frontier changes.
+This page owns future integration priority, not current capability. Use [`STATUS.md`](STATUS.md) for implemented
+scope, [`GAME_DESIGN.md`](GAME_DESIGN.md) for intended experience, and [`README.md`](README.md) for routing.
+Prefer a dense, comprehensible simulation graph over feature count. The sequence is dependency guidance, not a
+task queue; re-evaluate it when the integration frontier changes.
 
 ## Planning map
 
@@ -25,15 +19,10 @@ This is dependency-oriented guidance, not an executable task queue. Re-evaluate 
 
 ## Accretion objective
 
-Prefer work with high connective leverage:
-
-1. closes a missing edge between existing authoritative owners;
-2. turns controlled setup or an implicit assumption into an ordinary canonical path;
-3. exposes a missing observation, blocker, projection, or outcome needed to control an existing system;
-4. lets one existing resource, capability, or infrastructure investment participate in more systems;
-5. replaces repeated direct attention with physical logistics, delegation, storage, maintenance, or automation;
-6. creates a recoverable feedback loop rather than a terminal special case;
-7. can be proved locally at its owner boundaries before requiring broad scenario evidence.
+Prefer work that closes an existing owner edge, turns controlled setup into an ordinary path, exposes a missing
+control surface, reuses existing infrastructure across more systems, replaces repetitive attention with physical
+delegation, or closes a recoverable feedback loop. Favor slices that can be proved at owner boundaries before
+requiring broad scenario evidence.
 
 Prefer a smaller connected graph over a larger disconnected catalog. A feature that adds many definitions but
 no new owner interaction, decision surface, or recovery path has low priority unless it is required to close a
@@ -41,13 +30,12 @@ specific vertical slice.
 
 ## Control-surface program
 
-When a slice touches an owner, improve its existing control path before adding another abstraction. A complete
-control surface exposes the relevant state, typed blockers, useful production-owned projections, canonical
 authorization/mutation, and the committed outcome or continuation identity.
-
-Prefer, in order: reuse an existing projection or receipt; propagate an owner result that is being discarded;
-add a narrow reverse index or semantic projection; expose a production-owned feasible bound; batch canonical
 ticks only for repeated bounded waits; add freshness metadata only for retained read-side state.
+When a slice touches an owner, improve its existing control path before adding another abstraction. Prefer, in
+order: reuse an existing projection or receipt; propagate a discarded owner result; add a narrow reverse index or
+semantic projection; expose a production-owned feasible bound; batch canonical ticks only for bounded repeated
+waits; add freshness metadata only for retained read-side state.
 
 Strategy remains outside production. Candidate ranking, goals, risk tolerance, and search budgets belong to
 callers; production owns legality, physics, and authoritative outcomes. Avoid generic action buses, AI facades,
@@ -55,45 +43,30 @@ reflection layers, and mutable availability caches.
 
 ## Default integration sequence
 
-This is a dependency-oriented planning order, not a release promise. A smaller vertical slice may move earlier
-when it closes a stronger loop with less machinery.
-
-Agent-operability is not a separate roadmap phase. Apply the control-surface and semantic-entropy programs inside
 each slice when concrete friction is exposed, so the repository becomes easier to extend as the graph grows.
+This is a dependency order, not a release promise. A smaller slice may move earlier when it closes a stronger
+loop with less machinery. Improve control surfaces within each slice rather than as a separate phase.
 
 ### 1. Close existing control loops
 
-Before opening major domains, finish ordinary authorization around implemented physical transitions when a small
-missing edge blocks use. Typical high-value slices include ordinary acquisition, player-authorized
-construction/deconstruction or recovery, and production read surfaces that replace controlled setup or caller
-reconstruction. Preserve meaningful scale boundaries: portable generation should not stand in for industrial
-power infrastructure, and chemical reduction should enter only when authored material chemistry requires a
-reductant/byproduct model.
+Close small authorization or acquisition gaps around implemented physical transitions before opening major new
+domains. Typical slices are ordinary acquisition, player-authorized construction/recovery, and production read
+surfaces that replace controlled setup or caller reconstruction. Preserve scale boundaries: portable generation
+does not substitute for industrial power, and chemical reduction requires an explicit reductant/byproduct model.
 
 Completion criterion: the capability can move from controlled/capability-only evidence toward ordinary play
 without adding an alternate semantic path.
 
 ### 2. Establish world-space action and logistics
 
-Build world-space action and logistics on the persistent custody/location semantics defined in
-[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md). Logistics should own placement, carrying/haulage, delivery, access,
-path cost, and transport time/energy/labor without turning inventory into a movement authority. Extend the same
-model to movement/path authorization, ordinary source acquisition, mounted-production site/contact geometry,
-fluid transport/pumping, and explicit mounted-to-mounted equipment transport. Prefer physical placement and
-transport over generic proximity predicates.
+Build world-space action on the existing custody/location model. Logistics owns placement, carrying/haulage,
+delivery, access, path cost, and transport resource cost while inventory retains matter custody. Use the same
+model for movement, source acquisition, mounted-production geometry, fluid transport, and equipment transport.
 
-Its direct-player surface should deliberately use familiar block-survival grammar: an active hotbar item,
-primary break/use-tool action, secondary place/interact/consume action, ordinary pickup/drop, and slot/container
-transfer semantics. The logistics owner may still charge exact mass, volume, encumbrance, path, time, exertion,
-temperature, spoilage, and preservation consequences underneath those interactions. Internal lot selection,
-reservations, claims, and commit boundaries should be composed behind the familiar action unless an intermediate
-choice is itself meaningful gameplay.
-
-This layer should connect geology, stockpiles, structures, production, maintenance, and later settlement labor.
-It should reuse persistent spatial identity/bounds rather than introducing a parallel coordinate model. Carried
-inventory should be a real custody/location state with explicit capacity rather than an unbounded alias for every
-nearby stockpile; world containers should reuse the same underlying material/storage facts while presenting
-familiar inventory slots and quick-transfer operations.
+The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
+secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,
+encumbrance, path, exertion, temperature, spoilage, reservations, and commit boundaries remain underneath those
+interactions. Reuse persistent spatial identity and make carried inventory explicit finite custody.
 
 Completion criterion: important material transitions can state not only what moves between owners, but how the
 world authorizes and pays for that movement, while ordinary direct manipulation still feels like a conventional
@@ -101,16 +74,12 @@ block-survival inventory and interaction loop.
 
 ### 3. Close the familiar wilderness shell
 
-Once direct world interaction and carrying exist, prioritize the ordinary first-session survival loop before
-adding more industrial-network depth. A fresh player should be able to acquire visibly available wood/stone and
-forage, carry them through the hotbar/inventory shell, make the first primitive tools, place and open basic
-storage, establish simple shelter/light/fire, eat/drink, and recover from ordinary early mistakes without
-controlled delivery or hidden-state tooling.
-
-This slice should reuse the existing material, crafting, equipment, storage, survival, fluid, thermal, and
-structural owners. Familiar direct actions should be the entry point; deeper properties such as exact mass,
-spoilage, temperature, hydration, tool wear, structure load, and fuel/heat should become consequences of those
 actions rather than prerequisites for learning a special interaction language.
+After direct world interaction and carrying exist, close the ordinary first-session survival loop before adding
+more industrial-network depth. A fresh player should acquire visible wood/stone/forage, carry them through the
+normal inventory shell, make primitive tools, use basic storage, establish shelter/light/fire, eat/drink, and
+recover from ordinary mistakes without controlled delivery or hidden-state tooling. Reuse existing material,
+crafting, equipment, storage, survival, fluid, thermal, and structural owners.
 
 Completion criterion: from a fresh ordinary world and empty carried inventory, the player can complete a
 recognizable block-survival first-day loop through canonical world actions, including basic acquisition, tool

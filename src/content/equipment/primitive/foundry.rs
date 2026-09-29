@@ -99,10 +99,9 @@ pub(super) fn timber_treadle_dynamo() -> EquipmentDefinition {
 
 /// Geared treadle generator wound with purpose-made conductor stock.
 ///
-/// The first dynamo deliberately remains cheap and crude. This additive conversion is the point
-/// where repeated electrical charging becomes worth another copper investment: it raises both the
-/// treadle's useful mechanical transfer and electrical output to the 150 W metabolic ceiling of
-/// the authored dynamo method instead of inventing free power.
+/// This additive conversion makes repeated electrical charging a copper-backed investment. It
+/// raises useful mechanical transfer and electrical output to the authored human-power ceiling
+/// instead of inventing free power.
 pub(super) fn double_wound_treadle_dynamo() -> EquipmentDefinition {
     let winding_mass = Mass::from_milligrams(
         COPPER_ELECTRICAL_WINDING_MASS
@@ -180,9 +179,8 @@ pub(super) fn double_wound_treadle_dynamo() -> EquipmentDefinition {
 
 /// Small stone crucible furnace heated by an electrical arc between replaceable copper electrodes.
 ///
-/// The 20 g batch is intentionally tiny compared with the industrial furnace. At the first
-/// dynamo's 100 W transfer rate one melt is measured in minutes, so this opens casting without
-/// erasing the later industrial power and throughput problem.
+/// Its deliberately small batch and primitive electrical transfer open casting while preserving
+/// the industrial power and throughput frontier.
 pub(super) fn stone_arc_crucible_furnace() -> EquipmentDefinition {
     assembled_definition_with_condition_curves(
         EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,

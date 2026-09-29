@@ -98,9 +98,8 @@ pub(super) fn seed_power_project_provisions(
     registries: &Registries,
     state: &mut AppState,
 ) -> PowerProjectProvisions {
-    // This is an onsite project cache, not an encumbrance model. Prefer the double-wall chest for
-    // long mechanized campaigns: its 20 kg capacity is materially more useful than the stronger
-    // but only 8 kg insulated pantry, while 3x preservation still covers the generated horizons.
+    // This is an onsite project cache, not an encumbrance model. The double-wall chest favors
+    // campaign capacity over maximum preservation while still covering the generated horizons.
     let physiology = registries.survival().physiology();
     let cache = registries
         .storage()

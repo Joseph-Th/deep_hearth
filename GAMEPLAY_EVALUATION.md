@@ -41,7 +41,7 @@ multiply the first-step cost across a lifecycle whose condition, reserves, occup
 
 ### Decision-frame contract
 
-Material choices should be explainable from one bounded frame:
+Material choices use one bounded decision frame:
 
 ```text
 observable state -> bounded candidates -> production resolution/blocker
@@ -107,7 +107,7 @@ evaluated worlds and horizons.
 
 ## Decision evidence
 
-A material automated decision should be explainable from one coherent frame: world/variation seed, behavior
+A material automated decision records one coherent frame: world/variation seed, behavior
 seed where applicable, tick, actor perspective, important legitimate observations, bounded candidate set,
 representative production blockers, selected action or explicit no-action, policy rationale, typed result, and
 important immediate/delayed consequences.
@@ -115,7 +115,7 @@ important immediate/delayed consequences.
 Diagnostic truth may explain a decision after the fact but must not feed back into that decision. Keep committed
 runtime values distinct from projected next-decision values.
 
-Decision diagnostics should preserve the control coordinate of the choice: owning authority/contract,
+Decision diagnostics preserve the control coordinate of the choice: owning authority/contract,
 authoritative owner or crossed edge, operation stage reached, relevant flow/currency, and evidence mode. This
 lets failures route back to production semantics instead of becoming actor-specific archaeology.
 

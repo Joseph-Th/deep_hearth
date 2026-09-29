@@ -1,9 +1,8 @@
 //! Conserved equipment-maintenance transaction boundary.
 //!
-//! Maintenance resolution is read-only and lives in `maintenance_resolution`. This module consumes
-//! that opaque result, validates every mutable owner, performs the authored exact material service,
-//! and admits the material exchange plus durable player work atomically. Condition recovery occurs
-//! only when the authored service interval completes.
+//! It consumes read-only maintenance resolution, validates mutable owners, and atomically admits the
+//! authored material exchange plus durable player work. Condition recovery occurs only when the
+//! service interval completes.
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;

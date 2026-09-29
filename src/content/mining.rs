@@ -19,8 +19,8 @@ pub(crate) fn build_mining_registry() -> MiningRegistry {
         CAPABILITY_MINING_MAX_HARDNESS,
         250,
         SurvivalExertion::new(
-            // Hard sustained hand mining: 1.5 kJ of incremental metabolic work per 3.6 s tick
-            // (about 417 W above basal metabolism).
+            // Hand mining is sustained high-exertion labor; the method owns its incremental
+            // physiological cost rather than hiding it in extraction throughput.
             Energy::from_nanojoules(1_500_000_000_000),
             Volume::from_microliters(750),
         ),

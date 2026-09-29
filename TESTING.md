@@ -42,7 +42,7 @@ Stop at the first level that completely proves the changed claim:
 4. **System/gameplay:** focused interaction proof when behavior depends on several owners.
 5. **Audit/exploration:** broader deterministic checkpoint or bounded sampling for cross-system uncertainty.
 
-A local test does not establish a cross-owner or player-level claim. Projection APIs should cover feasible, limiting, infeasible, and stale cases against canonical semantics.
+A local test does not establish a cross-owner or player-level claim. Projection APIs cover feasible, limiting, infeasible, and stale cases against canonical semantics.
 
 ### Failure triage map
 
@@ -67,7 +67,7 @@ Widen only when the evidence crosses another owner or runtime boundary.
 Keep unit tests with or adjacent to the owner in `*_tests.rs` or `mod_tests.rs`. Prefer the smallest
 deterministic fixture and the production operation being proved.
 
-Assertions should establish durable semantics:
+Assertions establish durable semantics:
 
 - exact typed rejection and unchanged authoritative state where atomicity matters;
 - resulting identity, quantity, lifecycle, ownership, or relationship on success;

@@ -1,9 +1,8 @@
 //! Timed player dismantling of material-backed storage enclosures.
 //!
-//! Dismantling is careful uninstallation: completion returns the exact embodied body to a distinct
-//! recovery stockpile, so a build/dismantle cycle preserves matter by design and charges only
-//! authored labor time plus survival exertion. Destructive reconfiguration is the separate manual
-//! salvage route, which conserves mass as boards plus represented chips instead.
+//! Completion returns exact embodied matter to a recovery stockpile, preserving matter while
+//! charging authored labor and survival cost. Destructive reconfiguration is a separate salvage
+//! route with its own conserved outputs.
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;

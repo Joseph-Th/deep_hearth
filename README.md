@@ -13,8 +13,8 @@ adapters.
 3. Read that owner and its adjacent tests. Consult [`STATUS.md`](STATUS.md) when scope or reachability matters.
 4. Verify with the smallest complete lane in [`TESTING.md`](TESTING.md).
 
-For consequential work, identify the owning subsystem, operation stage, crossed flow, and proof before widening
-the search.
+Do not read every authority page up front. Follow links only when the task crosses that authority. For
+consequential work, identify the owner, operation stage, crossed flow, and proof before widening the search.
 
 ## Authority map
 

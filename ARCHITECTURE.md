@@ -78,7 +78,7 @@ failure, and continuation remain unambiguous. Do not add a generic command bus a
 
 ### Read-side contracts
 
-Read surfaces should expose domain meaning at the narrowest owner that knows it:
+Read surfaces expose domain meaning at the narrowest owner that knows it:
 
 - **Exact read:** use a known record or definition by stable identity when its field is already the authoritative
   answer.
@@ -137,30 +137,8 @@ Lower layers define vocabulary and invariants; higher layers coordinate them. A 
 dependency on a higher-level workflow merely to make one feature convenient. Cross-owner coordinators depend on
 owner APIs, not owner internals. Derived projections depend on authoritative state, never the reverse.
 
-When a new feature does not fit this direction, first ask whether a missing primitive, owner operation, or
-projection should be added lower in the tower. Avoid generic coordination layers that merely hide unresolved
-ownership.
-
-### Accretion path
-
-Prefer extending the tower in this order:
-
-```text
-reuse vocabulary
-    -> extend one owner or definition
-    -> reuse or add one explicit cross-owner edge
-    -> expose the narrow observation/resolution/blocker/outcome needed to control it
-    -> integrate continuation/orchestration only when future state requires it
-    -> add the cheapest distinguishing proof
-    -> update the single authority page whose truth changed
-```
-
-A change that requires a new owner, new generic action shape, new cache, new status vocabulary, new harness legality
-model, and new broad test lane for one local behavior is probably attached at the wrong abstraction level.
-
-Accretive work should leave the next change cheaper to understand than an equivalent change would have been
-before it. Useful signs include a reusable typed edge, a canonical projection replacing repeated reconstruction,
-a more local failure diagnostic, or a proof that future work can invoke instead of rebuilding a scenario.
+When a feature does not fit this direction, resolve whether the missing concept is a lower-level primitive,
+owner operation, or projection. Avoid generic coordination layers that hide unresolved ownership.
 
 ### Where a new concept belongs
 
@@ -189,16 +167,6 @@ authorization are four different facts even when one gameplay action uses all fo
 - Cross-owner work coordinates owner APIs; it does not patch another owner's storage.
 - Persist generated IDs, ownership relationships, schedules, and other facts that affect continuation.
 - Tests and tools follow production ownership rules; they do not introduce alternate mutation paths.
-
-### Accretive ownership
-
-Prefer extending an existing owner with one new durable fact or operation over introducing a neighboring owner
-for the same concept. Create a new owner only when the fact has an independent lifecycle, identity, persistence,
-or invariant boundary that cannot be maintained coherently by an existing owner.
-
-Every new persisted fact should have one obvious answer to each question: who creates it, who may change it,
-who may destroy or release it, how it is reconstructed or validated on load, and which public projection is safe
-for callers. If two modules can both answer those questions, ownership is not yet resolved.
 
 ## Mutation and failure
 
@@ -298,9 +266,8 @@ For every consequential edge:
   enough for legitimate continuation rather than forcing callers to rediscover it by scanning the destination;
 - validate the edge from both owners at trusted load when continuation depends on it.
 
-This is the preferred way to analyze a new mechanic or bug: trace the affected edges first, then inspect the
-owners at their endpoints. It is usually cheaper and more reliable than reading every module involved in the
-broader feature area.
+Analyze cross-system behavior by tracing affected edges first, then inspect the endpoint owners. This avoids
+repository-wide reading for a local ownership problem.
 
 ## API and representation rules
 
@@ -321,24 +288,9 @@ broader feature area.
 - Return stable domain identity and consequential deltas/outcomes when callers otherwise would need to infer
   success by rescanning unrelated state.
 
-### Semantic locality and control-surface debt
-
-Keep rules close to the fact that makes them authoritative. A legitimate caller should normally need only the
-owner, the explicit crossed edge, and their adjacent proofs to answer a control question. Cross-owner work can
-span several modules, but the reason for each hop should be an ownership handoff, not duplicated derivation.
-
-Treat the following as concrete control-surface debt signals when they recur:
-
-- multiple callers copy the same threshold, provider selection, physical formula, or legality rule;
-- callers need privileged mutable access or hidden state to answer an ordinary planning question;
-- success or failure is inferred from a whole-state diff instead of a typed result;
-- a durable operation lacks one stable identity for continuation, inspection, claim, cancellation, or recovery;
-- a typed error identifies only a generic failure while the owner already knows the actionable blocker;
-- a local contract routinely requires a broad gameplay/audit run to diagnose because no focused proof exists;
-- tests or harnesses use a second mutation path because the production boundary is too awkward to reuse.
-
-Repair the narrowest owner or edge that removes the repeated reconstruction. Do not answer these signals with a
-universal reflection API or generic command bus.
+Keep rules close to the fact that makes them authoritative. Cross-owner calls correspond to ownership handoffs
+rather than duplicated derivation. [`DIRECTION.md`](DIRECTION.md#control-surface-program) owns the
+priority and refinement strategy for missing projections, blockers, receipts, and other control-surface debt.
 
 ## Naming
 
@@ -355,19 +307,11 @@ destruction and `delete_*` for literal external deletion.
 
 ## Source and comment contracts
 
-Use established role suffixes such as `_execution`, `_integration`, `_loader`, `_ui`, and `_adapter` when a
-subsystem spans files. Every maintained Rust module under `src/` or `tests/` starts with a concise `//!` statement
-of purpose or ownership. Unit-test bodies live in adjacent test files as defined by [`TESTING.md`](TESTING.md).
-
-Treat an owner or overlay entry module as a local semantic index. It should make the outward control surface and
-major internal roles discoverable through concise module purpose, deliberate re-exports, and role-oriented
-submodules. When a file becomes unwieldy, split by ownership concern, operation stage, durable lifecycle, or
-independent physical derivation rather than arbitrary line count. Keep orchestration at the entry point only
-when seeing that sequence is itself part of the contract; move dense implementation behind named roles.
-
-Avoid catch-all `utils`, `helpers`, `common`, or generic `manager` modules for domain behavior. A reusable helper
-belongs with the smallest vocabulary/owner whose invariant explains it. A caller should have one obvious import
-and search route for a canonical operation instead of several equivalent aliases spread across the tree.
+Every maintained Rust module under `src/` or `tests/` starts with a concise `//!` purpose or ownership statement.
+Use role-oriented modules and established suffixes such as `_execution`, `_integration`, `_loader`, `_ui`, and
+`_adapter`. Entry modules expose the owner/control surface and major internal roles without becoming dense
+implementation files. Split by ownership concern, operation stage, durable lifecycle, or independent physical
+derivation, not arbitrary size. Avoid catch-all `utils`, `helpers`, `common`, and generic `manager` modules.
 
 Keep a comment only when it preserves information the code does not state clearly on its own, such as:
 
@@ -376,9 +320,9 @@ Keep a comment only when it preserves information the code does not state clearl
 - safety assumptions and invariant dependencies;
 - durable model boundaries or tradeoffs that explain why a simpler implementation would be wrong.
 
-Write comments and authority prose in present-tense contract language. Do not restate syntax, narrate project
-chronology, preserve superseded approaches, record debugging sessions, or leave commented-out production code.
-History belongs in version control. Describe the invariant, ownership rule, or design constraint that applies now.
+Write comments and authority prose as present-tense contracts. Do not restate syntax, record chronology or
+debugging sessions, preserve superseded approaches, leave TODO-style planning notes, or keep commented-out code.
+Version control owns history; [`DIRECTION.md`](DIRECTION.md) owns future integration strategy.
 
 Do not duplicate tunable authored values in comments or authority prose unless the exact value is itself part of
 the documented contract. Prefer naming the owning definition, projection, or validation rule so content tuning

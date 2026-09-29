@@ -1,9 +1,8 @@
 //! Controlled inventory-fixture admission shared by tests and external gameplay setup.
 //!
-//! This module does not own alternate inventory behavior. It allocates empty bootstrap storage,
-//! constructs explicit starting matter, and delegates material admission and load updates to the same
-//! canonical owner paths used by runtime systems. The gameplay harness reaches it only through
-//! `content::gameplay_fixture`.
+//! It allocates bootstrap storage and starting matter, then delegates admission and load updates to
+//! canonical inventory paths. The gameplay harness reaches it only through
+//! `content::gameplay_fixture`; it does not define alternate inventory behavior.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

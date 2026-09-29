@@ -183,6 +183,20 @@ PUBLIC_MUT_SELF = re.compile(
     re.MULTILINE,
 )
 LEVEL_TWO_HEADING = re.compile(r"^## ([^\r\n]+?)\s*$", re.MULTILINE)
+COMMENT_DEBT_MARKER = re.compile(r"\b(?:TODO|FIXME|HACK|XXX)\b")
+COMMENT_HISTORY_LANGUAGE = re.compile(
+    r"\b(?:previous implementation|old implementation|used to be|"
+    r"we (?:used|tried|added|changed|removed)|temporary workaround|"
+    r"remove (?:this )?after|superseded (?:path|implementation)|"
+    r"legacy (?:path|implementation))\b",
+    re.IGNORECASE,
+)
+DOCUMENT_HISTORY_LANGUAGE = re.compile(
+    r"\b(?:previously|formerly|recently|this change|old implementation|"
+    r"legacy implementation|temporary workaround|"
+    r"we (?:used|tried|added|changed|removed))\b",
+    re.IGNORECASE,
+)
 
 
 def local_link_parts(raw: str) -> tuple[str, str | None] | None:
@@ -500,6 +514,16 @@ def inspect_markdown_links(relative: str, text: str) -> tuple[list[str], set[str
     return errors, links, checked
 
 
+def document_history_errors(relative: str, text: str) -> list[str]:
+    """Reject diary-style implementation history in maintained project documentation."""
+
+    return [
+        f"{relative}:{line_number}: current documentation narrates implementation history"
+        for line_number, line in enumerate(text.splitlines(), start=1)
+        if DOCUMENT_HISTORY_LANGUAGE.search(line)
+    ]
+
+
 def inspect_repository_routes(relative: str, text: str) -> tuple[list[str], set[str], int]:
     """Check repository paths and collect local-CI commands named by one document."""
 
@@ -603,6 +627,7 @@ def check_authority_graph() -> list[str]:
     documented_ci_commands: dict[str, set[str]] = {}
 
     for relative, text in documents.items():
+        errors.extend(document_history_errors(relative, text))
         link_errors, links, link_count = inspect_markdown_links(relative, text)
         errors.extend(link_errors)
         checked_links += link_count
@@ -669,12 +694,56 @@ def check_source_module_docs() -> tuple[list[str], int]:
     return errors, len(sources)
 
 
+def comment_contract_errors(path: Path, text: str) -> list[str]:
+    """Reject source comments that record debt or implementation history instead of current contracts."""
+
+    errors: list[str] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.lstrip()
+        if path.suffix == ".rs":
+            if not stripped.startswith("//"):
+                continue
+            comment = stripped.removeprefix("//").lstrip("!/").strip()
+        elif path.suffix in {".py", ".toml"}:
+            if not stripped.startswith("#") or stripped.startswith("#!"):
+                continue
+            comment = stripped.removeprefix("#").strip()
+        else:
+            continue
+        if COMMENT_DEBT_MARKER.search(comment):
+            errors.append(
+                f"{project_relative(path)}:{line_number}: source comment contains a planning/debt marker"
+            )
+        if COMMENT_HISTORY_LANGUAGE.search(comment):
+            errors.append(
+                f"{project_relative(path)}:{line_number}: source comment narrates implementation history"
+            )
+    return errors
+
+
+def check_source_comment_contracts() -> tuple[list[str], int]:
+    """Check maintained code/config comments for present-tense contract hygiene."""
+
+    candidates = [ROOT / "ci.py", ROOT / "Cargo.toml", ROOT / "bca.toml"]
+    candidates.extend((ROOT / ".cargo").glob("*.toml"))
+    for root in (ROOT / "src", ROOT / "tests", ROOT / "tools"):
+        candidates.extend(path for path in root.rglob("*") if path.suffix in {".rs", ".py"})
+    sources = sorted(path for path in candidates if path.is_file())
+    errors: list[str] = []
+    for path in sources:
+        errors.extend(comment_contract_errors(path, path.read_text(encoding="utf-8")))
+    return errors, len(sources)
+
+
 def main() -> int:
     errors = check_authority_graph()
     source_errors, checked_sources = check_source_module_docs()
     errors.extend(source_errors)
+    comment_errors, checked_comment_sources = check_source_comment_contracts()
+    errors.extend(comment_errors)
     if not errors:
         print(f"source-module-docs: PASS ({checked_sources} Rust files)")
+        print(f"source-comment-contracts: PASS ({checked_comment_sources} files)")
         return 0
     for error in sorted(set(errors)):
         print(f"documentation-contracts: {error}", file=sys.stderr)

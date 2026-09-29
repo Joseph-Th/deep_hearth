@@ -1,9 +1,8 @@
 //! Shared high-fidelity admission for stationary ordinary-play episodes.
 //!
-//! Gameplay fixtures may seed a disclosed pre-existing world before the actor exists. Once an
-//! ordinary-play episode begins, however, runtime access must use the same logistics-locality
-//! rules as the game. This helper binds pre-existing stationary endpoints to one workshop voxel
-//! and creates the real player logistics record; it does not move the player or bypass transport.
+//! Fixtures may seed disclosed pre-existing state before the actor exists. Admission binds stationary
+//! endpoints to one workshop voxel and creates the real player logistics record; runtime access then
+//! uses ordinary locality rules without moving the player or bypassing transport.
 
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;

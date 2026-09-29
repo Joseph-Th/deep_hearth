@@ -1,9 +1,8 @@
 //! Fixture-only geometry-constrained materialization of planned structural members.
 //!
-//! Member geometry and material density determine the exact conservative solid-mass requirement. This
-//! module exists to create physically valid controlled test/gameplay-audit starting states. It is not a
-//! player construction system and does not authorize labor, tools, joints, cutting/placement waste, or
-//! build duration.
+//! Geometry and material density determine exact conservative solid mass for controlled starting
+//! states. This is not player construction and does not authorize labor, tools, joints, placement
+//! waste, or build duration.
 
 use crate::core::quantity::{AggregateMass, Force, Mass};
 use crate::core::state::AppState;

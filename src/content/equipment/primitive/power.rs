@@ -119,13 +119,10 @@ pub(super) fn timber_treadle_drive() -> EquipmentDefinition {
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE))
 }
 
-/// A large human-powered wheel for settlement workshops. It uses the operator's full body and a
-/// much larger timber frame to match the compact copper crank's peak 150 W without consuming copper.
-/// The price is 6.4 kilograms of worked timber and substantially more shaping and assembly work.
-/// Primitive equipment intentionally remains structurally portable until ordinary installation is a
-/// reachable player operation, so bulk and setup cost are the represented disadvantages here. Its
-/// separate labor method keeps the improved full-body transmission efficiency from leaking back into
-/// the lighter treadle or hand-crank providers.
+/// A large human-powered wheel for settlement workshops. Full-body operation and a large timber
+/// frame match the compact copper crank's peak output without consuming copper. Bulk and setup cost
+/// are the represented disadvantages while primitive equipment remains portable; a distinct labor
+/// method keeps the improved transmission efficiency from leaking into lighter providers.
 pub(super) fn timber_walking_wheel_drive() -> EquipmentDefinition {
     assembled_definition_with_condition_curves(
         EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,

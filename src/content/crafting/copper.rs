@@ -57,11 +57,9 @@ fn cold_work_cast_copper() -> ManualCraftDefinition {
 
 /// Draws prepared copper stock through a reusable stone die instead of trimming a hammered bundle.
 ///
-/// This is a specialist settlement route, not a replacement for the first electrical craft. The
-/// general hammer route remains available before the drawbench exists and can later run unattended
-/// on stored mechanical work. The manual drawbench initially pays player attention to preserve all
-/// 60 g of worked copper as useful conductor; its later flywheel upgrade delegates that same
-/// lossless transform rather than introducing a new yield rule.
+/// This specialist settlement route complements the general hammer route. The manual drawbench
+/// trades player attention for lossless conductor forming; its powered counterpart delegates the
+/// same transform rather than introducing a different yield rule.
 fn draw_copper_electrical_winding() -> ManualCraftDefinition {
     ManualCraftDefinition::new(
         PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
@@ -82,10 +80,9 @@ fn draw_copper_electrical_winding() -> ManualCraftDefinition {
 
 /// Draws and folds broad reinforcement stock into a compact conductor winding bundle.
 ///
-/// This stage is intentionally introduced only when the player wants higher-current electrical
-/// infrastructure. The first dynamo still accepts ordinary reinforcement, so early copper does not
-/// acquire another mandatory microcrafting step. Later settlement machinery can delegate the same
-/// learned transform to the helve hammer.
+/// This stage serves higher-current electrical infrastructure. The primitive dynamo still accepts
+/// ordinary reinforcement, so conductor stock is not a mandatory prerequisite for first electrical
+/// generation. Settlement machinery can delegate the same learned transform.
 fn cold_work_copper_electrical_winding() -> ManualCraftDefinition {
     ManualCraftDefinition::new(
         PROCESS_COLD_WORK_COPPER_ELECTRICAL_WINDING,

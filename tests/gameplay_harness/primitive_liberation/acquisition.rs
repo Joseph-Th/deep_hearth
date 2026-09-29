@@ -1,11 +1,8 @@
 //! Executed raw-material-to-kit fabrication witness for the reusable primitive liberation kit.
 //!
-//! Raw stone and logs are disclosed pre-admission fixture state because ordinary world gathering and
-//! haulage do not yet have production owners. They begin in a logistics-owned ground stockpile at
-//! the player's persistent voxel, then cross the ordinary same-voxel pickup boundary into finite
-//! carried custody after admission. Everything after the raw world-source bootstrap crosses the
-//! canonical logistics, crafting, equipment, energy-store, labor, survival, and conservation
-//! boundaries.
+//! Raw stone and logs are disclosed fixture state because ordinary world gathering and haulage have
+//! no production owner. After admission they cross ordinary same-voxel pickup into finite carried
+//! custody; all subsequent work uses canonical runtime boundaries.
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;

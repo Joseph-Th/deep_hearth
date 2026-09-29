@@ -37,7 +37,7 @@ Implemented systems exchange a small set of authoritative flows:
 | Support/load | Structures own support; endpoint owners contribute source-separated load. |
 | Capacity/time | Reservations, occupancy, and persisted schedules protect delayed work from double booking. |
 
-Cross-system mechanics should be traced flow-by-flow from owner to owner. Each delayed handoff has an explicit
+Trace cross-system mechanics flow-by-flow from owner to owner. Each delayed handoff has an explicit
 custody or schedule owner.
 
 Truth-class vocabulary and the resolve/validate/commit control grammar are owned by
@@ -58,7 +58,7 @@ Keep these claims separate:
 3. **Current opportunity:** request-scoped production resolution over legitimate observable state.
 4. **Authorization:** validation against the current mutable dependencies.
 
-Topology queries should be exhaustive and stably ordered for their declared narrow key. A bounded current-state
+Topology queries are exhaustive and stably ordered for their declared narrow key. A bounded current-state
 search must expose its bound and must not turn an incomplete search into a claim of unavailability. Derived
 topology rebuilds from validated definitions and is not persisted as world truth.
 
@@ -77,8 +77,7 @@ separate authoritative transition with proved equivalence across every skipped p
 
 ### Cross-owner edge contract
 
-For a materially new handoff, make these facts discoverable in source and this document where they affect the
-system contract:
+Each implemented cross-owner handoff has these contract elements where applicable:
 
 - source and destination owners plus stable identities;
 - canonical admission boundary;
@@ -88,24 +87,14 @@ system contract:
 - custody/schedule owner while delayed;
 - atomic rejection boundary, typed committed outcome, and trusted-load obligation.
 
-The [cross-owner edge atlas](#cross-owner-edge-atlas) records implemented edge families. Add a row for new
-ownership semantics, not every operation over an existing edge.
+The [cross-owner edge atlas](#cross-owner-edge-atlas) records implemented edge families rather than every
+operation over an existing edge.
 
 ## Subsystem contract card
 
-A subsystem should make these facts obvious without repository-wide search:
-
-1. immutable definitions and authoritative runtime owner;
-2. observable read/projection surface;
-3. resolution and validation boundary;
-4. canonical mutation and any durable work identity;
-5. crossed matter/energy/fluid/labor/information/support/capacity/time flows;
-6. persistence and trusted-load obligations;
-7. typed outcome or continuation identity;
-8. smallest focused proof.
-
-Add feasibility, freshness, or query-completeness surfaces only when the subsystem actually needs them. Source and
-adjacent tests own concrete edge cases and typed error variants.
+The control index below routes each subsystem through immutable definitions, authoritative reads, planning or
+resolution, and canonical mutation/continuation. Source and adjacent tests own concrete edge cases and typed
+errors.
 
 ### Subsystem control index
 
@@ -134,19 +123,17 @@ then read the owning section/source for exact semantics and errors.
 | Persistence | current save schema + registry schema | `SaveEnvelope` for output, decoded `LoadedSaveEnvelope` before trust | exact-version admission plus deterministic index rebuild/graph validation | `LoadedSaveEnvelope::into_state`; adapters own bytes/storage, not state promotion |
 | Presentation definitions | texture/shader registries and authored assets | immutable definition access and deterministic bake/assembly results | deterministic renderer-neutral assembly | graphics resources/frame effects belong to adapters, outside `AppState` |
 
-If a caller appears to need a surface not shown here, first determine whether it is a missing canonical
-projection/command or whether the caller is trying to cross an ownership boundary it should not control.
+If a caller needs a surface not shown here, determine whether the missing surface belongs to the canonical owner
+or whether the caller is crossing an ownership boundary it does not control.
 
 ## Global runtime facts
 
 - `SimulationTick` is absolute world time; `TickSpan` is relative duration.
 - The built-in calendar maps 24,000 ticks to 86,400 seconds; one tick is 3.6 seconds.
 - Rate-authored physics integrate against physical tick duration. Per-tick gameplay costs use world ticks.
-- No runtime stochastic owner is currently implemented. Add persisted random state only with a concrete system
-  whose outcomes require authoritative stochastic continuation.
+- Runtime has no stochastic owner; authoritative results derive from persisted state and explicit inputs.
 - Implemented authoritative physical calculations use checked integer arithmetic, not floating point.
-- Dynamic scheduled work persists as explicit records. Add static clock-derived schedule machinery only when an
-  implemented owner has a concrete recurring-phase contract that requires it.
+- Dynamic scheduled work persists as explicit records.
 - Known due ticks may bound batched caller stepping, but do not authorize skipping intervening canonical tick
   semantics.
 - `advance_tick` decides all fallible phase work against one pre-tick snapshot. Its application stage
@@ -207,8 +194,9 @@ structure -> support assignment -> source-separated load -> availability/failure
 survival reserves + PlayerWorkState -> timed direct labor -> physical operation consequence
 ```
 
-These are control paths as well as accounting paths. Planning code should inspect the canonical projection at
-each edge when the owner exposes one and invoke the canonical transition, not reach through to a later owner.
+These are control paths as well as accounting paths. Planning code inspects the canonical projection at
+each edge when the owner exposes one and invokes the canonical transition rather than reaching through to a
+later owner.
 If a legitimate caller lacks the read surface needed to control an edge without reconstructing private domain
 meaning, treat that as control-surface debt under [`DIRECTION.md`](DIRECTION.md), not permission for a parallel
 rules implementation.
@@ -237,9 +225,7 @@ semantic entry point; inspect its implementation and adjacent tests before readi
 | Inventory/fluid -> survival consumption | `validate_eat` / `validate_drink` -> tick | Accepted matter/fluid enters pending survival custody; timed installments grant physiological benefit and terminal totals retain represented consumed custody. |
 | Authoritative owners -> accounting | matter/energy/fluid accounting functions | Read-only reconciliation derives totals from owners and never authorizes or stores custody. |
 
-If a new feature creates a materially new row, first decide whether it is a new owner edge or merely another
-operation over an existing edge. Prefer reusing an existing edge contract when ownership, custody, and failure
-semantics are genuinely the same.
+Operations that share ownership, custody, and failure semantics reuse the same edge contract.
 
 #### Destination landing identity
 
@@ -252,7 +238,7 @@ Production completion composes those receipts into `ProcessOutputLanding` values
 each `ProcessParcelLanding` pairs the exact `MaterialLotSpec` contribution with the surviving lot identity.
 Mining claim likewise returns its exact claimed `MaterialLotSpec` plus one merge-aware surviving identity in
 `MiningClaimReceipt`. A landing identity may therefore refer to an existing lot when compatible matter
-coalesced. Other delayed custody edges needing the same answer should propagate this inventory-owned result
+coalesced. Other delayed custody edges needing the same answer propagate this inventory-owned result
 rather than infer a new lot from pre/post stockpile contents or mint a coordinator-owned identity.
 
 For multi-stream/multi-parcel production, preserve correspondence between `(job, stream, parcel contribution)`
@@ -553,7 +539,3 @@ Cross-owner validation covers, as applicable:
 - structural topology, embodiment, damage, and source-owned load channels;
 - support assignments and independently recomputed loads;
 - persisted schedules and operation-specific physical replay.
-
-New systems define an immutable authored contract where appropriate, one owner for each consequential
-fact, one canonical mutation path, persistence semantics, typed failures, and invariant coverage before
-`STATUS.md` lists the capability as implemented.

@@ -2,8 +2,7 @@
 //!
 //! Source systems normalize both single-lot and multi-lot transfers into `MaterialIngressEntry`
 //! values. Validation allocates destination lot identities and binds one inventory revision; apply
-//! performs the corresponding owner mutation exactly once. No alternate single-lot ingress path is
-//! retained.
+//! performs the corresponding owner mutation exactly once. Single-lot ingress uses this same path.
 
 use std::collections::BTreeSet;
 

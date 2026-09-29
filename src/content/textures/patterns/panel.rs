@@ -50,7 +50,7 @@ fn panel_scratch_texel(x: usize, y: usize) -> Option<PackedTexel> {
 }
 
 fn panel_overlay_texel(x: usize, y: usize) -> Option<PackedTexel> {
-    // Preserve the original overlay precedence while avoiding work for layers that will be hidden.
+    // Preserve overlay precedence while avoiding work for layers that will be hidden.
     panel_scratch_texel(x, y)
         .or_else(|| panel_seam_texel(x))
         .or_else(|| panel_rivet_texel(x, y))

@@ -128,9 +128,9 @@ pub(super) fn component_maintenance(
 }
 
 pub(super) fn industrial_maintenance(equipment_mass: Mass) -> EquipmentMaintenanceProfile {
-    // A failed-to-target overhaul represents replacement of one tenth of one percent of machine
-    // mass in wear components. Runtime maintenance scales this full-service stock by the actual
-    // condition restored, so preventive service consumes less material than deep repair.
+    // A full overhaul replaces a small mass-proportional stock of wear components. Runtime
+    // maintenance scales that stock by condition restored, so preventive service consumes less
+    // material than deep repair.
     let replacement_mass = Mass::from_milligrams(
         equipment_mass
             .milligrams()

@@ -42,11 +42,8 @@ const WORKSHOP_THERMAL_SINK_CAPACITY: Energy = Energy::from_nanojoules(20_000_00
 const WORKSHOP_THERMAL_SINK_INPUT_POWER: Power = Power::from_microwatts(1_000_000_000_000);
 const WORKSHOP_THERMAL_SINK_PASSIVE_DISSIPATION_POWER: Power =
     Power::from_microwatts(100_000_000_000);
-/// Low but nonzero bearing/windage loss for the crude mechanical accumulator.
-///
-/// At the authoritative 3.6-second tick a single flywheel rejects exactly 3.6 J. A full 500 J
-/// stone flywheel therefore coasts for a little over eight minutes without load: long enough to
-/// buffer nearby primitive work, but short enough that crude bearings cannot act like a battery.
+/// Low but nonzero bearing/windage loss keeps the crude flywheel a short-term work buffer rather
+/// than a long-duration battery.
 const STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(1_000_000);
 const PAIRED_STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(2_000_000);
 const TIMBER_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(500_000);
@@ -180,11 +177,9 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 Mass::from_milligrams(400_000),
             ),
         ])),
-        // Ten stone rotors retain the established 500 J per 900 g stone-flywheel relation. The
-        // timber frame and shafting add a large construction bill without inventing a new material
-        // tier. At 10 W drag, full-charge coast time remains in the same deliberately short window
-        // as the smaller primitive flywheels, so this is a workshop work buffer rather than a
-        // long-duration battery.
+        // The bank scales primitive flywheel storage through more stone, framing, and shafting
+        // without introducing a new material tier. Passive drag keeps it a workshop work buffer
+        // rather than long-duration storage.
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
             "timber-framed stone flywheel bank",
@@ -213,9 +208,8 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 Mass::from_milligrams(800_000),
             ),
         ])),
-        // A small workshop capacitor/bus rather than an industrial battery. Its 15 kJ capacity is
-        // just enough for one 20 g copper melt, forcing repeated player charging for continued
-        // casting while preserving a real finite electrical carrier in the runtime model.
+        // This is a small workshop buffer, not industrial storage. It supports a primitive melt
+        // while repeated casting still requires repeated finite charging.
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
             "copper-plate electrical buffer",
@@ -234,11 +228,8 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 Mass::from_milligrams(1_600_000),
             ),
         ])),
-        // Several kilograms of stone act as a deliberately finite heat reservoir. Capacity is
-        // deliberately enough for one future four-cavity copper cast, so cast-stock reinvestment
-        // can increase useful batch size before the settlement sink is built. The primitive
-        // 200 W pickup rate remains the throughput constraint, and retained heat still makes
-        // repeated large casts wait for real passive rejection.
+        // The stone sink provides finite thermal headroom for a larger cast while its pickup rate
+        // and passive rejection keep repeated casting constrained by real heat accumulation.
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_STONE_THERMAL_SINK,
             "stone foundry heat sink",
@@ -252,9 +243,8 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             Mass::from_milligrams(4_000_000),
         )])),
-        // A rack of parallel copper plates and one purpose-made conductor winding. The fourfold
-        // energy capacity matches the settlement foundry's four-pot batch while transfer limits
-        // remain low enough that charging and melting still consume visible player time.
+        // Parallel copper plates and a purpose-made winding support settlement foundry batches
+        // while transfer limits keep charging and melting visible player-time costs.
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_COPPER_RACK_ELECTRICAL_BUFFER,
             "copper-rack electrical buffer",
@@ -294,10 +284,9 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
                 ),
             ]),
         )),
-        // Four times the stone thermal mass buys four four-cavity casts of reservoir headroom;
-        // copper banding also doubles heat pickup without creating a generic heat-transfer network.
-        // Passive loss does not improve on upgrade, so sustained casting still accumulates heat and
-        // eventually creates a real recovery interval instead of deleting waste energy.
+        // Added thermal mass and copper banding increase reservoir headroom and heat pickup without
+        // creating a generic heat-transfer network. Unchanged passive loss preserves a recovery
+        // interval under sustained casting instead of deleting waste energy.
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_COPPER_BANDED_STONE_THERMAL_SINK,
             "copper-banded stone foundry heat sink",

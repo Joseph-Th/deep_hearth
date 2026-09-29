@@ -30,8 +30,8 @@ pub(super) fn definitions() -> [PoweredCraftDefinition; 11] {
             PROCESS_SAW_WOOD_BOARDS,
             CAPABILITY_POWERED_SAWING_FLOW,
             EnergyCarrier::Mechanical,
-            // 250 J/kg: low enough that even the first 500 J flywheel can run one log, while
-            // larger accumulators buy fewer charging interruptions rather than a hidden yield buff.
+            // Primitive stored work can power sawing; larger accumulators reduce charging
+            // interruptions without changing the manual transform's material yield.
             MassSpecificEnergy::from_nanojoules_per_milligram(250_000),
             800,
         ),
@@ -72,8 +72,8 @@ pub(super) fn definitions() -> [PoweredCraftDefinition; 11] {
             PROCESS_DRAW_COPPER_ELECTRICAL_WINDING,
             CAPABILITY_POWERED_COPPER_WIRE_DRAWING_FLOW,
             EnergyCarrier::Mechanical,
-            // One 60 g winding consumes 300 J, so the first 500 J flywheel can delegate one batch
-            // but cannot turn the drawbench into free continuous production.
+            // One conductor batch fits primitive stored work, while repeated drawing remains a
+            // finite-energy operation rather than free continuous production.
             MassSpecificEnergy::from_nanojoules_per_milligram(5_000_000),
             180,
         ),
@@ -82,8 +82,8 @@ pub(super) fn definitions() -> [PoweredCraftDefinition; 11] {
             PROCESS_PIERCE_COPPER_SCREEN_PLATE,
             CAPABILITY_POWERED_COPPER_PIERCING_FLOW,
             EnergyCarrier::Mechanical,
-            // One 20 g plate consumes 50 J. At the settlement spindle's 1.5 g/s throughput,
-            // material feed remains the limiting schedule on the first primitive flywheel.
+            // Screen-plate drilling leaves machine feed rate as the useful schedule constraint
+            // instead of making primitive stored-work capacity the dominant blocker.
             MassSpecificEnergy::from_nanojoules_per_milligram(2_500_000),
             250,
         ),
@@ -92,8 +92,8 @@ pub(super) fn definitions() -> [PoweredCraftDefinition; 11] {
             PROCESS_SHAPE_WOOD_HANDLE,
             CAPABILITY_POWERED_WOOD_TURNING_FLOW,
             EnergyCarrier::Mechanical,
-            // 200 J/kg makes one handle billet a noticeable draw on the first flywheel without
-            // hiding material yield or making repetitive turning free once it is mechanized.
+            // Mechanized handle turning spends finite stored work while preserving the manual
+            // transform's material yield.
             MassSpecificEnergy::from_nanojoules_per_milligram(200_000),
             400,
         ),
@@ -102,8 +102,8 @@ pub(super) fn definitions() -> [PoweredCraftDefinition; 11] {
             PROCESS_SHAPE_TIMBER_FLYWHEEL,
             CAPABILITY_POWERED_WOOD_TURNING_FLOW,
             EnergyCarrier::Mechanical,
-            // A 2.4 kg flywheel billet consumes 480 J, intentionally fitting one first-generation
-            // 500 J stone flywheel charge while leaving almost no work for another operation.
+            // A flywheel billet fits primitive stored work but consumes most of that buffer, making
+            // delegated shaping a visible investment rather than free workshop capacity.
             MassSpecificEnergy::from_nanojoules_per_milligram(200_000),
             400,
         ),
@@ -112,8 +112,8 @@ pub(super) fn definitions() -> [PoweredCraftDefinition; 11] {
             PROCESS_GRIND_STONE_SCRAP_TOOL,
             CAPABILITY_POWERED_STONE_GRINDING_FLOW,
             EnergyCarrier::Mechanical,
-            // The 900 g service-stock batch costs 270 J: a visible draw that still fits the first
-            // stone flywheel, turning maintenance preparation into finite delegated work.
+            // Service-stock grinding fits primitive stored work while keeping maintenance
+            // preparation a finite delegated-work cost.
             MassSpecificEnergy::from_nanojoules_per_milligram(300_000),
             300,
         ),

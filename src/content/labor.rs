@@ -157,11 +157,10 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel)
             .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
             .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
-            // A gridded sampling frame buys a different information product rather than simply
-            // replacing the geological hammer. It screens a broad 16-voxel exposure at half the
-            // indexed survey's abundance uncertainty, but deliberately produces one composite
-            // observation with no hardness or reserve-size estimate. Promising regions still need
-            // localized hammer work before tool selection and extraction planning.
+            // A gridded sampling frame buys a different information product rather than replacing
+            // the geological hammer. It screens a broader exposure with tighter abundance
+            // uncertainty but produces one composite observation with no hardness or resource-scale
+            // estimate. Promising regions still need localized work before extraction planning.
             ProspectingDefinition::new_with_equipment(
                 PROSPECTING_CHANNEL_COMPOSITE_SURVEY,
                 GeologicalEvidenceKind::ChannelComposite,

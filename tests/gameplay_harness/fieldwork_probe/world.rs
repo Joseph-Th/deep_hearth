@@ -51,8 +51,8 @@ struct FieldworkGeologyProfile {
 
 /// Controlled world generation, independent of demand and tool capabilities. One quarter of mixed
 /// worlds are shallow, while a sparse large-reserve tail gives bulk extraction tools a legitimate
-/// organic opportunity instead of making every non-shallow site the same 4-8 kg scale. Exact
-/// reserve stays hidden from the actor and demand never influences which reserve class is generated.
+/// organic opportunity without collapsing non-shallow sites to one reserve scale. Exact reserve
+/// stays hidden from the actor and demand never influences which reserve class is generated.
 pub(super) const FIELDWORK_SHALLOW_SUPPLY_MIN_MG: u64 = 600_000;
 pub(super) const FIELDWORK_SHALLOW_SUPPLY_MAX_MG: u64 = 900_000;
 pub(super) const FIELDWORK_COMMON_SUPPLY_MIN_MG: u64 = 4_000_000;
@@ -286,10 +286,9 @@ pub(super) fn build_fieldwork_world(
     );
     let followup_seeds = followup_site_seeds(seed);
     let followup_supplies = fieldwork_followup_supplies(seed);
-    // Each new site is an independent geological opportunity. Reusing the primary profile here
-    // made depletion look like a quantity-only problem and prevented the actor from encountering
-    // a new hardness or grade after paying to search elsewhere. Six bounded follow-up sites keep
-    // the ordinary 24 kg bulk order from being mechanically doomed by a three-site fixture cap.
+    // Each follow-up site is an independent geological opportunity, so paid search can reveal new
+    // hardness or grade rather than only more quantity. The bounded site set is large enough for
+    // the ordinary bulk-order scenario without making success depend on a fixture cap.
     for ((start_x, site_seed), supply) in FOLLOWUP_CHANNEL_STARTS
         .into_iter()
         .zip(followup_seeds)

@@ -1,9 +1,8 @@
 //! Mature primitive reinvestment after the first pick/crank convergence.
 //!
-//! This subepisode branches from an ordinary player-visible decision state and spends only matter,
-//! evidence, equipment, and stored work already owned there. It proves that later copper is not a
-//! flat stat bump: crusher throughput, accumulator capacity, residual stored work, survival cost,
-//! and batch sizing constrain one another through the canonical runtime APIs.
+//! This subepisode branches from player-visible state and spends only already-owned matter, evidence,
+//! equipment, and stored work. Crusher throughput, storage, survival cost, and batch sizing interact
+//! through canonical runtime APIs rather than a flat upgrade modifier.
 
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::*;
