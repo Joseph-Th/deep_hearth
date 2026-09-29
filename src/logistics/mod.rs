@@ -21,7 +21,7 @@ pub use access::{
     validate_player_stockpile_access,
 };
 #[cfg(feature = "test-gameplay")]
-pub(crate) use fixture::place_equipment_for_fixture;
+pub(crate) use fixture::{place_energy_store_for_fixture, place_equipment_for_fixture};
 pub use fluid::{
     FluidStorePlacementCommitError, FluidStorePlacementError, ValidatedFluidStorePlacement,
     validate_place_fluid_store,

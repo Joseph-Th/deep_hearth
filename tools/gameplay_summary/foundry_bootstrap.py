@@ -63,7 +63,26 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
     ]
     recovery_feed = _values(recovery_executed, r"\bfeed:(\d+)mg")
     recovery_native = _values(recovery_executed, r"\brecovered:(\d+)mg")
-    recovery_attention = _values(recovery_executed, r"\brecovery-attention:(\d+)t")
+    recovery_attention = _values(
+        recovery_executed,
+        r"\bowned-ore-recovery=\[[^\]]*\battention:(\d+)t",
+    )
+    recovery_autonomous = _values(
+        recovery_executed,
+        r"\bowned-ore-recovery=\[[^\]]*\bautonomous:(\d+)t",
+    )
+    recovery_elapsed = _values(
+        recovery_executed,
+        r"\bowned-ore-recovery=\[[^\]]*\belapsed:(\d+)t",
+    )
+    recovery_batches = _values(
+        recovery_executed,
+        r"\bowned-ore-recovery=\[[^\]]*\bbatches:(\d+)",
+    )
+    powered_recovery = sum(
+        " owned-ore-recovery=[route:powered-inherited-line " in line
+        for line in recovery_executed
+    )
     recovery_summary = ""
     if shortfall_before:
         recovery_summary = (
@@ -72,7 +91,11 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
             f"closed:{len(recovery_closed)} insufficient:{len(recovery_needed) - len(recovery_executed)} "
             f"feed:{scaled_span(recovery_feed, 1_000, 'g')} "
             f"native:{scaled_span(recovery_native, 1_000, 'g')} "
-            f"attention:{_span(recovery_attention, 't')}]"
+            f"powered:{powered_recovery}/{len(recovery_executed)} "
+            f"attention:{_span(recovery_attention, 't')} "
+            f"autonomous:{_span(recovery_autonomous, 't')} "
+            f"elapsed:{_span(recovery_elapsed, 't')} "
+            f"batches:{_span(recovery_batches, '')}]"
         )
 
     return (

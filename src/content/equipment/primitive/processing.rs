@@ -10,10 +10,13 @@ use crate::content::capabilities::{
     CAPABILITY_GRINDER_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
-use crate::content::crafted_parts::{COPPER_SCREEN_PLATE_MASS, TIMBER_RIDDLE_PANEL_MASS};
+use crate::content::crafted_parts::{
+    COPPER_SCREEN_PLATE_MASS, STONE_CRUSHER_BLOCK_MASS, STONE_CRUSHER_JAW_FACE_MASS,
+    TIMBER_RIDDLE_PANEL_MASS,
+};
 use crate::content::materials::{
-    FORM_HANDLE, FORM_SCREEN_PLATE, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_HANDLE, FORM_SCREEN_PLATE,
+    FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 use super::super::authoring::{
@@ -37,8 +40,12 @@ pub(super) fn stone_crusher() -> EquipmentDefinition {
         "stone toggle crusher",
         MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                Mass::from_milligrams(1_600_000),
+                CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK),
+                STONE_CRUSHER_BLOCK_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
+                STONE_CRUSHER_JAW_FACE_MASS,
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
@@ -69,7 +76,7 @@ pub(super) fn stone_crusher() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE))
 }
 
 pub(super) fn stone_separator() -> EquipmentDefinition {
@@ -256,8 +263,12 @@ pub(super) fn copper_reinforced_stone_crusher() -> EquipmentDefinition {
         "copper-reinforced stone toggle crusher",
         MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                Mass::from_milligrams(1_600_000),
+                CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK),
+                STONE_CRUSHER_BLOCK_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
+                STONE_CRUSHER_JAW_FACE_MASS,
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
@@ -289,7 +300,7 @@ pub(super) fn copper_reinforced_stone_crusher() -> EquipmentDefinition {
             ),
         ],
     )
-    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE))
     .with_upgrade_profile(copper_upgrade(EQUIPMENT_STONE_CRUSHER))
 }
 

@@ -2607,8 +2607,24 @@ unknown_macro!();
         )
         self.assertIsNotNone(detailed)
         self.assertIn(
-            "maintenance-share=[active=[primitive:40..40% settlement:15..15%] elapsed=[primitive:8..8% settlement:3..3%]]",
+            "power-market-maintenance-share=[active=[primitive:40..40% settlement:15..15%] elapsed=[primitive:8..8% settlement:3..3%]]",
             detailed,
+        )
+
+    def test_foundry_summary_preserves_powered_recovery_attention_and_autonomy(self) -> None:
+        line = (
+            "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=organic continuity=separate-episode "
+            "bootstrap-choice=[remaining-native:1mg required:2mg shortfall-before:1000mg shortfall:0mg] "
+            "owned-ore-recovery=[route:powered-inherited-line required-feed:3000mg available:4000mg "
+            "sufficient:true executed:true feed:3000mg recovered:1000mg attention:2t autonomous:55t "
+            "elapsed:57t batches:1 powered-recovery:900000ppm manual-fallback:650000ppm] "
+            "foundry-build=true"
+        )
+        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary([line]))
+        self.assertIn(
+            "recovery=[needed:1 executed:1 closed:1 insufficient:0 feed:3..3g native:1..1g "
+            "powered:1/1 attention:2..2t autonomous:55..55t elapsed:57..57t batches:1..1]",
+            summary,
         )
 
     def test_concise_report_rejects_missing_executed_probe_summary(self) -> None:
@@ -2696,7 +2712,7 @@ unknown_macro!();
             detailed,
         )
         self.assertIn(
-            "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 mechanized-projects-with-service:0/0 mechanized-service-events:0 maintenance-share=[active=[primitive:n/a settlement:n/a] elapsed=[primitive:n/a settlement:n/a]]]",
+            "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 power-market-projects-with-service:0/0 power-market-service-events:0 power-market-maintenance-share=[active=[primitive:n/a settlement:n/a] elapsed=[primitive:n/a settlement:n/a]]]",
             detailed,
         )
 

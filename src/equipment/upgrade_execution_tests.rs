@@ -260,16 +260,18 @@ fn equipment_upgrade_reports_the_exact_missing_addition() {
 #[test]
 fn primitive_processing_upgrades_preserve_identity_wear_matter_and_replay() {
     let registries = build_registries();
-    for (base, upgraded, expected_mass) in [
+    for (base, upgraded, expected_mass, expected_components) in [
         (
             EQUIPMENT_STONE_CRUSHER,
             EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
             Mass::from_milligrams(2_020_000),
+            4,
         ),
         (
             EQUIPMENT_STONE_SEPARATOR,
             EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
             Mass::from_milligrams(1_220_000),
+            3,
         ),
     ] {
         let mut state = AppState::new();
@@ -304,7 +306,7 @@ fn primitive_processing_upgrades_preserve_identity_wear_matter_and_replay() {
         assert_eq!(record.condition(), condition_before);
         assert_eq!(record.created_at(), created_at_before);
         assert_eq!(record.embodied_mass(), expected_mass);
-        assert_eq!(record.embodied_material().len(), 3);
+        assert_eq!(record.embodied_material().len(), expected_components);
         assert_eq!(
             calculate_matter_accounting(&state)
                 .unwrap_or_else(|error| panic!(

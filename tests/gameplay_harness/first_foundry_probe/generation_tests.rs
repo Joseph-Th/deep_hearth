@@ -60,7 +60,7 @@ fn classify(
         .required_after_current
         .checked_sub(remaining_after_immediate)
         .unwrap_or_else(|| unreachable!("foundry shortfall was established"));
-    let needed_feed = minimum_manual_ore_feed_for_target_recovery(
+    let needed_feed = recovery::minimum_powered_ore_feed_for_target_recovery(
         registries,
         shortfall,
         opportunity.owned_ore.copper_ppm,

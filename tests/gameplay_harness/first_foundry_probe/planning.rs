@@ -23,10 +23,10 @@ use deep_hearth::survival::project_survival_resource_budget;
 
 use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::manual_craft_execution::execute_manual_craft;
-use super::super::manual_ore_recovery_planning::minimum_manual_ore_feed_for_target_recovery;
 use super::super::material_selection::select_stockpile_commodity_mass;
 use super::super::seed::mix64;
 use super::super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
+use super::recovery::minimum_powered_ore_feed_for_target_recovery;
 
 const FOUNDRY_RAW_INPUTS: [CommodityKey; 3] = [
     CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
@@ -330,8 +330,11 @@ fn insufficient_feed(required_feed: Mass, seed: u64) -> Mass {
 /// Builds disclosed copper opportunities around the current authored foundry workload threshold.
 ///
 /// The actor never receives the generated regime. It sees only the resulting inventory and applies
-/// the ordinary native-working and manual-recovery paths. Keeping the generator relative to current
-/// authored demand prevents content retuning from collapsing organic samples into one stale outcome.
+/// ordinary native working plus its inherited powered ore-dressing capability. Keeping the
+/// generator relative to current authored demand prevents content retuning from collapsing organic
+/// samples into one stale outcome.
+/// Recoverable worlds size owned ore against the already-earned powered dressing line rather than
+/// pretending the player forgot that infrastructure at the foundry frontier.
 pub(super) fn foundry_resource_opportunity(
     registries: &Registries,
     case: FocusedProbeCase,
@@ -385,7 +388,7 @@ pub(super) fn foundry_resource_opportunity(
             let shortfall = scaled_mass(required_after_current, 350_000, "coverage shortfall");
             let copper_ppm = 350_000;
             let required_feed =
-                minimum_manual_ore_feed_for_target_recovery(registries, shortfall, copper_ppm)
+                minimum_powered_ore_feed_for_target_recovery(registries, shortfall, copper_ppm)
                     .unwrap_or_else(|| {
                         panic!("first foundry coverage recovery projection overflowed")
                     });
@@ -437,7 +440,7 @@ pub(super) fn foundry_resource_opportunity(
                 }
                 1 => {
                     let shortfall = make_shortfall(0x464F_554E_4452_5243);
-                    let required_feed = minimum_manual_ore_feed_for_target_recovery(
+                    let required_feed = minimum_powered_ore_feed_for_target_recovery(
                         registries, shortfall, copper_ppm,
                     )
                     .unwrap_or_else(|| {
@@ -472,7 +475,7 @@ pub(super) fn foundry_resource_opportunity(
                 }
                 _ => {
                     let shortfall = make_shortfall(0x464F_554E_4452_5348);
-                    let required_feed = minimum_manual_ore_feed_for_target_recovery(
+                    let required_feed = minimum_powered_ore_feed_for_target_recovery(
                         registries, shortfall, copper_ppm,
                     )
                     .unwrap_or_else(|| {

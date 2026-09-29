@@ -5,6 +5,7 @@ use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::SimulationTick;
 use crate::energy::{
     EnergyStoreDefinitionId, EnergyStoreId, add_energy_store_with_initial_for_fixture,
+    validate_assemble_energy_store,
 };
 use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, add_equipment, validate_assemble_equipment,
@@ -15,7 +16,7 @@ use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
     deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
 };
-use crate::logistics::place_equipment_for_fixture;
+use crate::logistics::{place_energy_store_for_fixture, place_equipment_for_fixture};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId};
 use crate::registry::Registries;
@@ -65,6 +66,28 @@ pub fn seed_assembled_equipment_at(
         .unwrap_or_else(|error| panic!("gameplay bootstrap equipment commit failed: {error}"));
     place_equipment_for_fixture(state, equipment, position);
     equipment
+}
+
+/// Establishes one material-backed, already-existing finite-energy store at a disclosed location.
+///
+/// Assembly consumes the authored component traces. The fixture adds only the pre-admission
+/// location needed for later ordinary player access.
+pub fn seed_assembled_energy_store_at(
+    registries: &Registries,
+    state: &mut AppState,
+    definition: EnergyStoreDefinitionId,
+    source: StockpileId,
+    position: VoxelCoord,
+) -> EnergyStoreId {
+    assert_pre_admission(state, "material-backed energy-store seed");
+    let store = validate_assemble_energy_store(registries, state, definition, source)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap energy-store assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap energy-store assembly commit failed: {error}")
+        });
+    place_energy_store_for_fixture(state, store, position);
+    store
 }
 
 /// Seeds a controlled scenario player at the authored hydration warning boundary.

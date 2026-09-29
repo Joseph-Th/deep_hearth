@@ -8,24 +8,29 @@ use crate::survival::SurvivalExertion;
 
 use crate::content::capabilities::CAPABILITY_STONE_GRINDING_FLOW;
 use crate::content::crafted_parts::{
-    STONE_DRAWPLATE_MASS, STONE_DRILL_BIT_MASS, STONE_FLYWHEEL_MASS, STONE_GRINDSTONE_WHEEL_MASS,
+    STONE_CRUSHER_BLOCK_MASS, STONE_CRUSHER_JAW_FACE_MASS, STONE_DRAWPLATE_MASS,
+    STONE_DRILL_BIT_MASS, STONE_FLYWHEEL_MASS, STONE_GRINDSTONE_WHEEL_MASS,
     STONE_PROVISIONS_CROCK_BODY_MASS,
 };
 use crate::content::materials::{
-    FORM_CHIP, FORM_DRAWPLATE, FORM_DRILL_BIT, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_LUMP,
-    FORM_SCRAP, FORM_STONE_CROCK_BODY, FORM_TOOL, MATERIAL_STONE,
+    FORM_CHIP, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_DRAWPLATE, FORM_DRILL_BIT,
+    FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_LUMP, FORM_SCRAP, FORM_STONE_CROCK_BODY, FORM_TOOL,
+    MATERIAL_STONE,
 };
 use crate::content::processes::{
     PROCESS_DRESS_STONE_CHIP_DRILL_BIT, PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
-    PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_KNAP_STONE_DRILL_BIT, PROCESS_KNAP_STONE_TOOL,
-    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
+    PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_KNAP_STONE_CRUSHER_JAW_FACE,
+    PROCESS_KNAP_STONE_DRILL_BIT, PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL,
+    PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY, PROCESS_SHAPE_STONE_CRUSHER_BLOCK,
     PROCESS_SHAPE_STONE_DRAWPLATE, PROCESS_SHAPE_STONE_FLYWHEEL,
     PROCESS_SHAPE_STONE_GRINDSTONE_WHEEL, PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 11] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 13] {
     [
         knap_stone_tool(),
+        shape_stone_crusher_block(),
+        knap_stone_crusher_jaw_face(),
         knap_stone_drill_bit(),
         dress_stone_chip_drill_bit(),
         reknap_stone_scrap_tool(),
@@ -37,6 +42,46 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 11] {
         shape_stone_provisions_crock(),
         salvage_stone_provisions_crock_body(),
     ]
+}
+
+fn knap_stone_crusher_jaw_face() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_KNAP_STONE_CRUSHER_JAW_FACE,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(500_000),
+        TickSpan::new(20),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
+                STONE_CRUSHER_JAW_FACE_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(100_000),
+            ),
+        ],
+    )
+}
+
+fn shape_stone_crusher_block() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_SHAPE_STONE_CRUSHER_BLOCK,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(1_500_000),
+        TickSpan::new(60),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK),
+                STONE_CRUSHER_BLOCK_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(300_000),
+            ),
+        ],
+    )
 }
 
 fn grinding_profile() -> ManualCraftEquipmentProfile {

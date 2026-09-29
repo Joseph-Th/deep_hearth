@@ -22,8 +22,6 @@ mod focused_witnesses;
 mod inventory_support;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
-#[path = "gameplay_harness/manual_ore_recovery.rs"]
-mod manual_ore_recovery;
 #[path = "gameplay_harness/manual_ore_recovery_planning.rs"]
 mod manual_ore_recovery_planning;
 #[path = "gameplay_harness/manual_power_timing.rs"]

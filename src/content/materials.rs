@@ -53,6 +53,8 @@ pub const FORM_GRINDSTONE_WHEEL: FormId = FormId::new(29);
 pub const FORM_ELECTRICAL_WINDING: FormId = FormId::new(30);
 pub const FORM_DRAWPLATE: FormId = FormId::new(31);
 pub const FORM_PACKED_CLAY_BINDER: FormId = FormId::new(32);
+pub const FORM_CRUSHER_JAW_FACE: FormId = FormId::new(33);
+pub const FORM_CRUSHER_BLOCK: FormId = FormId::new(34);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -119,6 +121,8 @@ fn register_forms(registry: &mut MaterialRegistry) {
         consolidated_form(FORM_ELECTRICAL_WINDING, "electrical winding"),
         consolidated_form(FORM_DRAWPLATE, "polished stone drawplate"),
         consolidated_form(FORM_PACKED_CLAY_BINDER, "packed clay binder"),
+        consolidated_form(FORM_CRUSHER_JAW_FACE, "crusher jaw face"),
+        consolidated_form(FORM_CRUSHER_BLOCK, "crusher structural block"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
         loose_form(
@@ -360,6 +364,14 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         (
             CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
             "knapped stone tool",
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
+            "knapped stone crusher jaw face",
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK),
+            "shaped stone crusher block",
         ),
         (
             CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT),

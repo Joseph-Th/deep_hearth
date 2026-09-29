@@ -5,8 +5,8 @@ use crate::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_PICK,
     EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    EQUIPMENT_STONE_SEPARATOR, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, FORM_BOARD, FORM_FLYWHEEL,
-    FORM_HANDLE, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_TOOL,
+    EQUIPMENT_STONE_SEPARATOR, EQUIPMENT_TIMBER_FRAME_SAW_BENCH, FORM_BOARD, FORM_CRUSHER_BLOCK,
+    FORM_FLYWHEEL, FORM_HANDLE, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_TOOL,
     MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Energy, Temperature};
@@ -248,7 +248,12 @@ fn worn_reinforced_processing_machines_preserve_unworn_components() {
             .unwrap_or_else(|error| panic!("processing disassembly commit failed: {error}"));
 
         assert!(state.equipment().get_equipment(equipment).is_none());
-        assert_eq!(outcome.recovered_lots().len(), 3);
+        let expected_lot_count = if base == EQUIPMENT_STONE_CRUSHER {
+            4
+        } else {
+            3
+        };
+        assert_eq!(outcome.recovered_lots().len(), expected_lot_count);
         let recovered = outcome
             .recovered_lots()
             .iter()
@@ -260,8 +265,23 @@ fn worn_reinforced_processing_machines_preserve_unworn_components() {
                 (lot.commodity(), lot.mass())
             })
             .collect::<std::collections::BTreeMap<_, _>>();
-        assert_eq!(
-            recovered,
+        let expected = if base == EQUIPMENT_STONE_CRUSHER {
+            std::collections::BTreeMap::from([
+                (
+                    CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK),
+                    Mass::from_milligrams(1_200_000),
+                ),
+                (
+                    CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+                    Mass::from_milligrams(400_000),
+                ),
+                (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), wood_mass),
+                (
+                    CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                    Mass::from_milligrams(20_000),
+                ),
+            ])
+        } else {
             std::collections::BTreeMap::from([
                 (CommodityKey::new(MATERIAL_STONE, FORM_SCRAP), stone_mass),
                 (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), wood_mass),
@@ -270,7 +290,8 @@ fn worn_reinforced_processing_machines_preserve_unworn_components() {
                     Mass::from_milligrams(20_000),
                 ),
             ])
-        );
+        };
+        assert_eq!(recovered, expected);
         assert_eq!(
             calculate_matter_accounting(&state)
                 .unwrap_or_else(|error| panic!(

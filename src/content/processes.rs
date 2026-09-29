@@ -71,6 +71,8 @@ pub const PROCESS_POWER_DRAW_COPPER_ELECTRICAL_WINDING: ProcessId = ProcessId::n
 pub const PROCESS_PACK_CLAY_BINDER: ProcessId = ProcessId::new(61);
 pub const PROCESS_RECONDITION_CLAY_BINDER: ProcessId = ProcessId::new(62);
 pub const PROCESS_HAND_GRIND_CRUSHED_ORE: ProcessId = ProcessId::new(63);
+pub const PROCESS_KNAP_STONE_CRUSHER_JAW_FACE: ProcessId = ProcessId::new(64);
+pub const PROCESS_SHAPE_STONE_CRUSHER_BLOCK: ProcessId = ProcessId::new(65);
 
 mod fabrication;
 mod ore;

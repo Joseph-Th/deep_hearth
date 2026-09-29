@@ -8,10 +8,10 @@ use crate::capability::{
 use crate::content::{
     ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
     EQUIPMENT_STONE_COBBING_HAMMER, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_MORTAR_AND_PESTLE,
-    FORM_CONCENTRATE, FORM_CRUSHED, FORM_HANDLE, FORM_INGOT, FORM_ORE, FORM_REINFORCEMENT,
-    FORM_TOOL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
-    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_GRIND_CRUSHED_ORE, build_registries,
-    make_test_registries_with_comminution,
+    FORM_CONCENTRATE, FORM_CRUSHED, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_HANDLE,
+    FORM_INGOT, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_SLAG,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
+    PROCESS_HAND_GRIND_CRUSHED_ORE, build_registries, make_test_registries_with_comminution,
 };
 use crate::core::quantity::{AggregateMass, Length, Mass, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -291,8 +291,12 @@ fn copper_reinforced_stone_crusher_increases_real_throughput_and_single_batch_ca
         .unwrap_or_else(|error| panic!("reinforced crusher assembly source failed: {error}"));
     for (commodity, mass) in [
         (
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK),
+            Mass::from_milligrams(1_200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
+            Mass::from_milligrams(400_000),
         ),
         (
             CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),

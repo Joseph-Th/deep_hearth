@@ -20,9 +20,9 @@ use crate::content::capabilities::{
     CAPABILITY_WOOD_TURNING_FLOW, CAPABILITY_WOODWORKING_FLOW,
 };
 use crate::content::materials::{
-    FORM_BOARD, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT,
-    FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE, FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL,
+    FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT, FORM_SAW_BLADE, FORM_SCRAP, FORM_SCREEN_PLATE,
+    FORM_TIMBER_RIDDLE_PANEL, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::Condition;
@@ -116,8 +116,8 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
         ),
         (
             EQUIPMENT_STONE_CRUSHER,
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
+            Mass::from_milligrams(400_000),
         ),
         (
             EQUIPMENT_STONE_SEPARATOR,
@@ -141,8 +141,8 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
         ),
         (
             EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(1_600_000),
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
+            Mass::from_milligrams(400_000),
         ),
         (
             EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
@@ -638,6 +638,56 @@ fn every_builtin_equipment_definition_has_authored_maintenance() {
             definition.id().value()
         );
     }
+}
+
+#[test]
+fn primitive_crusher_service_replaces_a_wear_face_not_the_structural_stone_block() {
+    let registry = build_equipment_registry();
+    let structural_stone = CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK);
+    let jaw_face = CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE);
+    let mut replacement_masses = Vec::new();
+    for equipment in [
+        EQUIPMENT_STONE_CRUSHER,
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+    ] {
+        let definition = registry
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("primitive crusher definition disappeared"));
+        let structural_stone_mass = definition
+            .assembly_profile()
+            .and_then(|assembly| {
+                assembly
+                    .inputs()
+                    .iter()
+                    .find(|input| input.commodity() == structural_stone)
+            })
+            .map(MaterialInputSpec::mass)
+            .unwrap_or_else(|| panic!("primitive crusher lost its structural stone component"));
+        let jaw_face_mass = definition
+            .assembly_profile()
+            .and_then(|assembly| {
+                assembly
+                    .inputs()
+                    .iter()
+                    .find(|input| input.commodity() == jaw_face)
+            })
+            .map(MaterialInputSpec::mass)
+            .unwrap_or_else(|| panic!("primitive crusher lost its replaceable jaw face"));
+        let maintenance = definition
+            .maintenance_profile()
+            .unwrap_or_else(|| panic!("primitive crusher lost its maintenance route"));
+        assert_eq!(maintenance.replacement(), jaw_face);
+        assert_eq!(maintenance.full_service_replacement_mass(), jaw_face_mass);
+        assert!(
+            jaw_face_mass < structural_stone_mass,
+            "routine crusher service must localize wear instead of rebuilding the structural stone block"
+        );
+        replacement_masses.push(maintenance.full_service_replacement_mass());
+    }
+    assert_eq!(
+        replacement_masses[0], replacement_masses[1],
+        "copper reinforcement must not enlarge the unchanged stone wear-face obligation"
+    );
 }
 
 #[test]
