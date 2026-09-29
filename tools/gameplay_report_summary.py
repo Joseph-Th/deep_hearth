@@ -202,6 +202,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 "outcomes",
                 "pacing-physical",
                 "reuse-physical",
+                "depletion-adaptation",
             ]
             if scoped:
                 experience_fields.insert(0, "sample-shape")
@@ -236,6 +237,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         core = compact_fields(
             summary,
             (
+                "bootstrap-boundary",
                 "observe-infer",
                 "prepare-invest",
                 "extract",

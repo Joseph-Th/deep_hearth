@@ -36,14 +36,55 @@ pub(super) struct IntegratedSurvivalWorkReview {
     pub(super) followup_prospecting_ticks: u64,
     pub(super) followup_found_continuation: bool,
     pub(super) power_triggered_by_observation: bool,
-    pub(super) reprovisioned_after_prospecting: bool,
-    pub(super) reprovision_volume_ul: u64,
-    pub(super) reprovision_ticks: u64,
+    pub(super) followup_reprovisioned: bool,
+    pub(super) followup_reprovision_volume_ul: u64,
+    pub(super) followup_reprovision_ticks: u64,
+    pub(super) power_reprovisioned: bool,
+    pub(super) power_reprovision_volume_ul: u64,
+    pub(super) power_reprovision_ticks: u64,
     pub(super) manual_power_ticks: u64,
     pub(super) stored_work_nj: u128,
     pub(super) energy_deficit_ppm: u32,
     pub(super) hydration_deficit_ppm: u32,
     pub(super) hydration_warning_safe: bool,
+}
+
+fn hydration_target_for_policy(
+    policy: WorkHydrationPolicy,
+    task_floor: Volume,
+    working_reserve_target: Volume,
+) -> Volume {
+    match policy {
+        WorkHydrationPolicy::TaskFloor => task_floor,
+        WorkHydrationPolicy::WorkingReserve => std::cmp::max(task_floor, working_reserve_target),
+    }
+}
+
+fn provision_hydration_if_needed(
+    registries: &Registries,
+    state: &mut AppState,
+    drink_store: FluidStoreId,
+    target: Volume,
+    context: &'static str,
+) -> (bool, u64, Volume) {
+    let current = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("integrated survival player disappeared before {context}"));
+    if current.hydration() >= target {
+        return (false, 0, Volume::ZERO);
+    }
+    let drink = validate_drink_store_to_hydration_target(registries, state, drink_store, target)
+        .unwrap_or_else(|error| panic!("integrated survival {context} drink failed: {error}"))
+        .unwrap_or_else(|| panic!("integrated survival {context} requires a drink"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("integrated survival {context} drink commit failed: {error}")
+        });
+    let volume = drink.volume();
+    (
+        true,
+        finish_direct_consumption(registries, state, drink.completes_at()),
+        volume,
+    )
 }
 
 pub(super) fn evaluate_integrated_survival_work_loop(
@@ -63,17 +104,17 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         .copied()
         .unwrap_or_else(|| panic!("integrated survival work loop requires one authored drink"));
     let maximum_drink_volume = direct.maximum_drink_volume();
+    let integrated_drink_supply = maximum_drink_volume
+        .checked_add(maximum_drink_volume)
+        .and_then(|volume| volume.checked_add(maximum_drink_volume))
+        .unwrap_or_else(|| panic!("integrated survival drink supply overflowed"));
     let mut state = AppState::new();
     let drink_store = seed_fluid_store(
         registries,
         &mut state,
-        maximum_drink_volume
-            .checked_add(maximum_drink_volume)
-            .unwrap_or_else(|| panic!("integrated survival drink capacity overflowed")),
+        integrated_drink_supply,
         drink.fluid(),
-        maximum_drink_volume
-            .checked_add(maximum_drink_volume)
-            .unwrap_or_else(|| panic!("integrated survival drink supply overflowed")),
+        integrated_drink_supply,
         ROOM_TEMPERATURE,
     );
 
@@ -218,12 +259,11 @@ pub(super) fn evaluate_integrated_survival_work_loop(
     // prospecting requirement and reassess after observing whether follow-up work exists.
     let working_reserve_target =
         Volume::from_microliters(physiology.maximum_hydration().microliters() / 2);
-    let initial_target = match hydration_policy {
-        WorkHydrationPolicy::TaskFloor => prospecting_hydration_floor,
-        WorkHydrationPolicy::WorkingReserve => {
-            std::cmp::max(prospecting_hydration_floor, working_reserve_target)
-        }
-    };
+    let initial_target = hydration_target_for_policy(
+        hydration_policy,
+        prospecting_hydration_floor,
+        working_reserve_target,
+    );
     let first_drink =
         validate_drink_store_to_hydration_target(registries, &state, drink_store, initial_target)
             .unwrap_or_else(|error| panic!("integrated survival initial drink failed: {error}"))
@@ -274,32 +314,8 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         "integrated survival actor-visible finding must distinguish the disclosed opportunity"
     );
 
-    let requested_energy = registries
-        .energy()
-        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
-        .map(|definition| definition.capacity())
-        .unwrap_or_else(|| panic!("integrated survival flywheel definition disappeared"));
-    let power_request =
-        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested_energy);
     let after_prospecting = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("integrated survival player disappeared after prospecting"));
-    let power_projection = followup_prospecting_triggered.then(|| {
-        let crank_record = state
-            .equipment()
-            .get_equipment(crank)
-            .unwrap_or_else(|| panic!("integrated survival hand crank disappeared"));
-        project_manual_power(
-            registries,
-            MANUAL_POWER_HAND_CRANK,
-            crank_record.definition(),
-            crank_record.condition(),
-            ENERGY_STONE_FLYWHEEL_DRIVE,
-            requested_energy,
-        )
-        .unwrap_or_else(|error| {
-            panic!("integrated survival manual-power projection failed: {error}")
-        })
-    });
     let followup_projection = followup_prospecting_triggered.then(|| {
         project_prospecting_work(
             registries,
@@ -312,52 +328,29 @@ pub(super) fn evaluate_integrated_survival_work_loop(
     });
     let followup_work_floor = followup_projection.map(|projection| {
         let followup_hydration = projection.resource_budget().hydration();
-        let possible_power_hydration = power_projection
-            .map(|power| power.resource_budget().hydration())
-            .unwrap_or(Volume::ZERO);
         physiology
             .thirsty_below()
             .checked_add(followup_hydration)
-            .and_then(|target| target.checked_add(possible_power_hydration))
             .unwrap_or_else(|| {
                 panic!("integrated survival follow-up work hydration target overflowed")
             })
     });
-    let reprovisioned_after_prospecting =
-        followup_work_floor.is_some_and(|floor| after_prospecting.hydration() < floor);
-    let reprovision_target = if reprovisioned_after_prospecting {
-        let followup_work_floor = followup_work_floor
-            .unwrap_or_else(|| unreachable!("reprovision requires a follow-up work floor"));
-        Some(match hydration_policy {
-            WorkHydrationPolicy::TaskFloor => followup_work_floor,
-            WorkHydrationPolicy::WorkingReserve => {
-                std::cmp::max(followup_work_floor, working_reserve_target)
-            }
-        })
-    } else {
-        None
-    };
-    let (reprovision_ticks, reprovision_volume) = if reprovisioned_after_prospecting {
-        let target = reprovision_target
-            .unwrap_or_else(|| unreachable!("reprovisioned work has a hydration target"));
-        let drink =
-            validate_drink_store_to_hydration_target(registries, &state, drink_store, target)
-                .unwrap_or_else(|error| {
-                    panic!("integrated survival follow-up drink failed: {error}")
-                })
-                .unwrap_or_else(|| panic!("integrated survival follow-up work requires a drink"))
-                .commit(&mut state)
-                .unwrap_or_else(|error| {
-                    panic!("integrated survival follow-up drink commit failed: {error}")
-                });
-        let volume = drink.volume();
-        (
-            finish_direct_consumption(registries, &mut state, drink.completes_at()),
-            volume,
-        )
-    } else {
-        (0, Volume::ZERO)
-    };
+    let followup_target = followup_work_floor
+        .map(|floor| hydration_target_for_policy(hydration_policy, floor, working_reserve_target));
+    let (followup_reprovisioned, followup_reprovision_ticks, followup_reprovision_volume) =
+        followup_target.map_or((false, 0, Volume::ZERO), |target| {
+            provision_hydration_if_needed(
+                registries,
+                &mut state,
+                drink_store,
+                target,
+                "follow-up prospecting",
+            )
+        });
+    debug_assert_eq!(
+        after_prospecting.hydration() < followup_target.unwrap_or(Volume::ZERO),
+        followup_reprovisioned
+    );
     let (followup_prospecting_ticks, followup_found_continuation) =
         if followup_prospecting_triggered {
             let followup_request = FieldProspectingRequest::new(
@@ -401,6 +394,47 @@ pub(super) fn evaluate_integrated_survival_work_loop(
             (0, false)
         };
     let power_triggered_by_observation = followup_found_continuation;
+    let requested_energy = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .map(|definition| definition.capacity())
+        .unwrap_or_else(|| panic!("integrated survival flywheel definition disappeared"));
+    let power_request =
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested_energy);
+    let power_projection = power_triggered_by_observation.then(|| {
+        let crank_record = state
+            .equipment()
+            .get_equipment(crank)
+            .unwrap_or_else(|| panic!("integrated survival hand crank disappeared"));
+        project_manual_power(
+            registries,
+            MANUAL_POWER_HAND_CRANK,
+            crank_record.definition(),
+            crank_record.condition(),
+            ENERGY_STONE_FLYWHEEL_DRIVE,
+            requested_energy,
+        )
+        .unwrap_or_else(|error| {
+            panic!("integrated survival manual-power projection failed: {error}")
+        })
+    });
+    let power_target = power_projection.map(|projection| {
+        let floor = physiology
+            .thirsty_below()
+            .checked_add(projection.resource_budget().hydration())
+            .unwrap_or_else(|| panic!("integrated survival power hydration target overflowed"));
+        hydration_target_for_policy(hydration_policy, floor, working_reserve_target)
+    });
+    let (power_reprovisioned, power_reprovision_ticks, power_reprovision_volume) = power_target
+        .map_or((false, 0, Volume::ZERO), |target| {
+            provision_hydration_if_needed(
+                registries,
+                &mut state,
+                drink_store,
+                target,
+                "observed power opportunity",
+            )
+        });
     let manual_power_ticks = if power_triggered_by_observation {
         let power = validate_start_manual_power(registries, &state, power_request).unwrap_or_else(
             |error| panic!("integrated survival manual-power start failed: {error}"),
@@ -473,9 +507,12 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         followup_prospecting_ticks,
         followup_found_continuation,
         power_triggered_by_observation,
-        reprovisioned_after_prospecting,
-        reprovision_volume_ul: reprovision_volume.microliters(),
-        reprovision_ticks,
+        followup_reprovisioned,
+        followup_reprovision_volume_ul: followup_reprovision_volume.microliters(),
+        followup_reprovision_ticks,
+        power_reprovisioned,
+        power_reprovision_volume_ul: power_reprovision_volume.microliters(),
+        power_reprovision_ticks,
         manual_power_ticks,
         stored_work_nj: stored_work.nanojoules(),
         energy_deficit_ppm,

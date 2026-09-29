@@ -51,6 +51,20 @@ def _collect_loop_evidence(lines: list[str]) -> _LoopEvidenceLines:
     )
 
 
+def _bootstrap_boundary_evidence(liberation_kit: list[str]) -> str:
+    fixture_source = sum(
+        " raw-origin=pre-admission-fixture " in line for line in liberation_kit
+    )
+    runtime_pickup = sum(" pickup=same-voxel-runtime " in line for line in liberation_kit)
+    world_gathering = sum(" world-gathering-proved=true " in line for line in liberation_kit)
+    return (
+        "bootstrap-boundary=["
+        f"fixture-source:{fixture_source}/{len(liberation_kit)} "
+        f"runtime-pickup:{runtime_pickup}/{len(liberation_kit)} "
+        f"world-gathering:{world_gathering}/{len(liberation_kit)}]"
+    )
+
+
 def _evidence_shape(evidence: _LoopEvidenceLines) -> str:
     single_state = sum(
         " continuity=single-state " in line for line in evidence.progression_reviews
@@ -256,7 +270,10 @@ def _delegate_reinvest_evidence(
 def _survival_adaptation_evidence(
     survival: list[str], power_projects: list[str]
 ) -> str:
-    follow_up = sum(" reprovision:true:" in line for line in survival)
+    followup_surveys = sum(" followup-survey:true:" in line for line in survival)
+    continuations = sum(" continuation:true " in line for line in survival)
+    followup_drinks = sum(" followup-drink:true:" in line for line in survival)
+    power_drinks = sum(" power-drink:true:" in line for line in survival)
     task_floor = sum("hydration-policy:task-floor " in line for line in survival)
     working_reserve = sum("hydration-policy:working-reserve " in line for line in survival)
     opportunity_power = sum(" opportunity-power:true " in line for line in survival)
@@ -293,10 +310,14 @@ def _survival_adaptation_evidence(
     )
     return (
         "survive-adapt=["
-        f"short-loop-serving-floor:{serving_floor} "
-        f"short-loop-reprovision:{follow_up}/{len(survival)} "
-        f"hydration-policy:task-floor{task_floor}/working-reserve{working_reserve} "
-        f"opportunistic-power:{executed_power}/{opportunity_power} "
+        "short-expedition=["
+        f"serving-floor:{serving_floor} "
+        f"followup-surveys:{followup_surveys}/{len(survival)} "
+        f"continuations:{continuations}/{followup_surveys} "
+        f"followup-drinks:{followup_drinks}/{followup_surveys} "
+        f"stored-work:{executed_power}/{opportunity_power} "
+        f"power-drinks:{power_drinks}/{opportunity_power} "
+        f"policy:task-floor{task_floor}/working-reserve{working_reserve}] "
         f"sustained-project-provisioning=[breaks:{sum(value > 0 for value in project_breaks)}/{len(project_breaks)} "
         f"events:{sum(project_breaks)} drinks:{sum(project_drinks)} meals:{sum(project_meals)}] "
         f"warning-safe:{sum(' warning-safe:true' in line for line in survival)}/{len(survival)}]"
@@ -319,8 +340,10 @@ def _maintenance_evidence(
 ) -> str:
     service_counts = [_selected_woodworking_services(line) for line in woodworking]
     power_service_counts = []
-    primitive_attention_share = []
-    settlement_attention_share = []
+    primitive_active_share = []
+    settlement_active_share = []
+    primitive_elapsed_share = []
+    settlement_elapsed_share = []
     for line in power_projects:
         match = re.search(r"maintenance=\[services:(\d+)", line)
         if match is not None:
@@ -334,13 +357,23 @@ def _maintenance_evidence(
         if attention is None or era is None:
             continue
         active, preparation, service = map(int, attention.groups())
+        maintenance = preparation + service
         if active == 0:
             continue
-        share = ((preparation + service) * 100 + active // 2) // active
+        active_share = (maintenance * 100 + active // 2) // active
+        elapsed = re.search(r"\belapsed:(\d+)t", line)
+        elapsed_share = None
+        if elapsed is not None and int(elapsed.group(1)) > 0:
+            elapsed_ticks = int(elapsed.group(1))
+            elapsed_share = (maintenance * 100 + elapsed_ticks // 2) // elapsed_ticks
         if era.group(1) == "primitive":
-            primitive_attention_share.append(share)
+            primitive_active_share.append(active_share)
+            if elapsed_share is not None:
+                primitive_elapsed_share.append(elapsed_share)
         elif era.group(1) == "settlement":
-            settlement_attention_share.append(share)
+            settlement_active_share.append(active_share)
+            if elapsed_share is not None:
+                settlement_elapsed_share.append(elapsed_share)
 
     def percent_span(values: list[int]) -> str:
         return f"{min(values)}..{max(values)}%" if values else "n/a"
@@ -351,8 +384,10 @@ def _maintenance_evidence(
         f"woodworking-service-events:{sum(service_counts)} "
         f"mechanized-projects-with-service:{sum(count > 0 for count in power_service_counts)}/{len(power_service_counts)} "
         f"mechanized-service-events:{sum(power_service_counts)} "
-        f"maintenance-attention=[primitive:{percent_span(primitive_attention_share)} "
-        f"settlement:{percent_span(settlement_attention_share)}]]"
+        f"maintenance-share=[active=[primitive:{percent_span(primitive_active_share)} "
+        f"settlement:{percent_span(settlement_active_share)}] "
+        f"elapsed=[primitive:{percent_span(primitive_elapsed_share)} "
+        f"settlement:{percent_span(settlement_elapsed_share)}]]]"
     )
 
 
@@ -451,6 +486,7 @@ def player_loop_evidence(lines: list[str]) -> str | None:
     return (
         "PLAYER LOOP EVIDENCE "
         f"{_evidence_shape(evidence)} "
+        f"{_bootstrap_boundary_evidence(evidence.liberation_kit)} "
         f"{_observe_infer_evidence(evidence.fieldwork, extracted)} "
         f"{_prepare_invest_evidence(evidence.woodworking, evidence.power, evidence.settlement, evidence.liberation_kit, evidence.survey_campaigns, evidence.shortfall_recoveries)} "
         f"{_extract_evidence(evidence.fieldwork, evidence.liberation, extracted)} "

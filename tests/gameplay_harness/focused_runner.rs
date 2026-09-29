@@ -14,6 +14,7 @@ use super::focused_witnesses::{
     FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED,
     FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED, ORE_FINITE_ENERGY_COVERAGE_SEED,
     PROGRESSION_REFINEMENT_COVERAGE_SEED, PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
+    SURVIVAL_CONTINUATION_COVERAGE_SEED,
 };
 #[cfg(not(test))]
 use super::fresh_seed::fresh_root;
@@ -49,11 +50,20 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
     match name {
         // Stable survival coverage protects pressure response plus preservation choice shape:
         // cheapest/strongest endpoints, one true intermediate value-frontier choice, explicit
-        // decline, and the distinct stone-only crock opportunity. Organic variation still owns
-        // broad exploration.
+        // decline, the distinct stone-only crock opportunity, and one lived observation chain in
+        // which a neighboring geological continuation justifies stored-work preparation. Organic
+        // variation still owns broad exploration.
         "survival-provisioning" => (
             0xD33F_C01D_5A70,
-            &[1, 2, 5, 6, 0x043C_561D_398D_32BA, 0xF495_6470_1464_3BC2],
+            &[
+                1,
+                2,
+                5,
+                6,
+                0x043C_561D_398D_32BA,
+                0xF495_6470_1464_3BC2,
+                SURVIVAL_CONTINUATION_COVERAGE_SEED,
+            ],
             0x5355_5256_5052_4F42,
         ),
         "primitive-progression" => (

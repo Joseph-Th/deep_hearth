@@ -2192,7 +2192,7 @@ unknown_macro!();
         self.assertIsNone(ci.gameplay_environment_summary("compile", environment))
 
     def test_report_cli_preserves_large_success_evidence_but_bounds_failures(self) -> None:
-        opening = "PLAYER FANTASY scope=current-ordinary fixture=opening"
+        opening = "PLAYER FANTASY scope=ordinary-after-disclosed-bootstrap fixture=opening"
         replay = (
             "PROBE INPUT name=transport-fixture mode=explore samples=2 organic=1 "
             "world_root=0x111 behavior_root=0x222 replay=anchor:0xA@0x1,organic:0xB@0x2"
@@ -2263,8 +2263,8 @@ unknown_macro!();
 
     def test_survival_summary_counts_selected_preservation_policy_only(self) -> None:
         lines = [
-            "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery meal:1000000mg drink:1250000uL] raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none commitment-reason:return-does-not-clear-threshold minimum-return:3000000ppm best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t] work-interlock=[integrated=[hydration-policy:task-floor drink:6000uL/1t prospect:24t opportunity-power:true reprovision:true:800uL/1t power:3t stored:100nJ final-reserve:900000ppmE/750000ppmH warning-safe:true]]",
-            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy choice=[state:policy-sensitive diet:compact-calories meal:500000mg drink:0uL] raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 commitment-reason:return-clears-threshold minimum-return:1000000ppm best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t] work-interlock=[integrated=[hydration-policy:working-reserve drink:12000uL/1t prospect:48t opportunity-power:false reprovision:false:0uL/0t power:0t stored:0nJ final-reserve:950000ppmE/875000ppmH warning-safe:true]]",
+            "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery meal:1000000mg drink:1250000uL] raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none commitment-reason:return-does-not-clear-threshold minimum-return:3000000ppm best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t] work-interlock=[integrated=[hydration-policy:task-floor initial-drink:6000uL/1t prospect:24t followup-survey:true:48t followup-drink:true:800uL/1t continuation:true opportunity-power:true power-drink:false:0uL/0t power:3t stored:100nJ final-reserve:900000ppmE/750000ppmH warning-safe:true]]",
+            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy choice=[state:policy-sensitive diet:compact-calories meal:500000mg drink:0uL] raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 commitment-reason:return-clears-threshold minimum-return:1000000ppm best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t] work-interlock=[integrated=[hydration-policy:working-reserve initial-drink:12000uL/1t prospect:48t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:950000ppmE/875000ppmH warning-safe:true]]",
             "SURVIVAL REVIEW seed=0x1 diet-evidence=[matched-counterfactual=[horizon:130t] tradeoff=[meal-mass-delta:+200000mg water-saved-delta:+0uL diet-quality-delta:+80000ppm recovery-delta:+1ppm/t] recovery-consequence=[choice:actionable deprivation:33000t provisioning-horizon:130t observe:1000t vitality:950000->[compact:953000 balanced:959000 delta:+6000ppm]]]",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
@@ -2282,9 +2282,9 @@ unknown_macro!();
         self.assertIn("commitment=[cleared:1 declined-return:1]", summary)
         self.assertIn(
             "work-interlock=[serving-floor:n/a policy=[task-floor:1 working-reserve:1] "
-            "followup-survey:0 continuation-found:0 opportunity-power:1 "
-            "follow-up-needed:1 single-provision-sufficient:1/2 initial-drink:6..12mL "
-            "follow-up-drink:0..0.8mL prospect:24..48t power:0..3t "
+            "followup-survey:1 continuation-found:1 opportunity-power:1 "
+            "followup-drinks:1/1 power-drinks:0/1 initial-drink:6..12mL "
+            "followup-drink:0..0.8mL power-drink:0..0mL prospect:24..48t power:0..3t "
             "final-hydration:750000..875000ppm warning-safe:2/2]",
             summary,
         )
@@ -2294,7 +2294,9 @@ unknown_macro!();
             "FIELDWORK EXPERIENCE seed=0x1 sample=anchor outcome=completed order-horizon=short field-inspections=1 geology=quarry-soft full-order-tool=copper-reinforced-hard-pick tool=stone-quarry copper-opportunity=absent requested=100mg planned-local-work=100mg mining=100mg resource-knowledge-effect=same-tool",
             "FIELDWORK EXPERIENCE seed=0x2 sample=coverage outcome=known-target-supply order-horizon=project field-inspections=3 geology=quarry-reinforcement full-order-tool=stone-pick tool=copper-reinforced-quarry copper-opportunity=available requested=200mg planned-local-work=80mg mining=50mg resource-knowledge-effect=changed-tool",
             "FIELDWORK EXPERIENCE seed=0x3 sample=organic outcome=completed order-horizon=project field-inspections=2 geology=hard-pick-specialist full-order-tool=stone-quarry tool=copper-reinforced-hard-pick copper-opportunity=available requested=300mg planned-local-work=300mg mining=300mg resource-knowledge-effect=same-tool",
-            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x2 initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=false survey-base-kit-reused=true strategy=indexed-channel survey-upgrade=40t projected-search=[point:234t indexed:202t] realized=[baseline-search:228t selected-search:162t upgrade:40t attention-delta:+26t total-attention-delta:+16t] adaptation=[hardness-tier-changes:2 tool-builds:1 tool-switches:1 blocked-sites:1 tool-preparation:10t ore-recovery-events:1 ore-recovery-required-access:0 ore-recovery-payback:1 ore-recovery:8t ore-feed:30mg native-recovered:20mg baseline-fulfilled:140mg fulfillment-delta:+10mg] sites-visited=3 search=162t/9.7m extraction=12t/43.2s initial-extracted=50mg additional-extracted=100mg fulfilled=150mg requested=200mg fulfillment=750000ppm remaining=50mg terminal=local-search-area-exhausted",
+            "FIELDWORK DEPLETION seed=0x2 eligible=true repeat-orders=[complete:1 partial:1 horizon:2] extracted=50mg attention=20t/1.2m supply-ended=true terminal=known-target-supply condition-after=900000ppm body=[energy:1000nJ hydration:10uL] scope=matched-orders-on-known-site no-search=true no-new-tool=true diagnostic-only=true",
+            "FIELDWORK DEPLETION RECOVERY seed=0x2 depletion-observed=true reroute-proved=true evidence=executed-from-depleted-state post-depletion-execution=true mining-tool-reused=false selected-tool=copper-reinforced-hard-pick retool=20t salvage=false ore-recovery=[reason:required-access ticks:8 feed:30mg native:20mg] survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search=10t/36s extraction=4t/14.4s extracted=40mg stop=short-claim",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x2 initial-supply-ended=true reroute-proved=true evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution=true mining-tool-reused=false survey-base-kit-reused=true strategy=indexed-channel survey-upgrade=40t projected-search=[point:234t indexed:202t] realized=[baseline-search:228t selected-search:162t upgrade:40t attention-delta:+26t total-attention-delta:+16t] adaptation=[hardness-tier-changes:2 tool-builds:1 tool-switches:1 blocked-sites:1 tool-preparation:10t ore-recovery-events:1 ore-recovery-required-access:0 ore-recovery-payback:1 ore-recovery:8t ore-feed:30mg native-recovered:20mg point-baseline-fulfilled:140mg survey-fulfillment-delta:+10mg] sites-visited=3 search=162t/9.7m extraction=12t/43.2s initial-extracted=50mg additional-extracted=100mg fulfilled=150mg requested=200mg fulfillment=750000ppm remaining=50mg terminal=local-search-area-exhausted",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn("sample-shape=[anchor:1 coverage:1 organic:1 replay:0]", summary)
@@ -2316,14 +2318,19 @@ unknown_macro!();
             "initial-shortfall-campaign=[cases:1 strategy:point0/indexed1 survey-upgrade:40..40t "
             "realized-search=[positive:1 negative:0 flat:0 delta:+26..+26t] "
             "realized-total=[positive:1 negative:0 flat:0 delta:+16..+16t] "
-            "adaptation=[geology-changed:1/1 retooled:1/1 salvaged:0/1 ore-funded:1/1(payback:1/access:0) "
-            "barren-sites:n/a blocked-sites:1..1 fulfillment-delta:+10..+10mg] "
+            "adaptation=[productive-reroute:1/1 additional-extracted:100..100mg geology-changed:1/1 "
+            "retooled:1/1 salvaged:0/1 ore-funded:1/1(payback:1/access:0) "
+            "barren-sites:n/a blocked-sites:1..1] "
             "completed:0 planned-horizon-exhausted:0 local-area-exhausted:1 sites:3..3 "
             "fulfillment:750000..750000ppm remaining:50..50mg]",
             summary,
         )
         self.assertIn(
             "geology=[soft:1 reinforcement:1 hard-specialist:1]", summary
+        )
+        self.assertIn(
+            "depletion-adaptation=[supply-ended:1/1 rerouted:1/1 retooled:1 salvaged:0 ore-funded:1(payback:0/access:1)]",
+            summary,
         )
         self.assertIn("copper=[available:2 absent:1]", summary)
         self.assertIn(
@@ -2340,7 +2347,7 @@ unknown_macro!();
     def test_default_gameplay_report_keeps_compact_semantic_summaries_only(self) -> None:
         lines = [
             "SIMULATION TIME physical-tick-us=3600000",
-            "PLAYER FANTASY scope=current-ordinary",
+            "PLAYER FANTASY scope=ordinary-after-disclosed-bootstrap",
             "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
             "CONTENT registry_schema=64 equipment=[authored:12]",
             "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4]",
@@ -2436,6 +2443,10 @@ unknown_macro!();
         self.assertNotIn("probe=workshop scenarios=", concise)
         self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
         self.assertIn("cleanup-executed=1/1", concise)
+        self.assertIn(
+            "bootstrap-boundary=[fixture-source:1/1 runtime-pickup:1/1 world-gathering:0/1]",
+            concise,
+        )
         self.assertIn(
             "probe=foundry-bootstrap choice=[build:1 defer:0] copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
             concise,
@@ -2555,13 +2566,13 @@ unknown_macro!();
         detailed = gameplay_report_summary.player_loop_evidence(
             [
                 "POWER PROVIDER EXPERIENCE seed=0x1 decision=[selected:crank]",
-                "POWER PROJECT EXPERIENCE seed=0x1 era=primitive executed=[active-attention:1000t maintenance=[services:2 preparation:300t service:100t replacement:1mg]]",
-                "POWER PROJECT EXPERIENCE seed=0x2 era=settlement executed=[active-attention:800t maintenance=[services:1 preparation:80t service:40t replacement:1mg]]",
+                "POWER PROJECT EXPERIENCE seed=0x1 era=primitive executed=[active-attention:1000t maintenance=[services:2 preparation:300t service:100t replacement:1mg] elapsed:5000t]",
+                "POWER PROJECT EXPERIENCE seed=0x2 era=settlement executed=[active-attention:800t maintenance=[services:1 preparation:80t service:40t replacement:1mg] elapsed:4000t]",
             ]
         )
         self.assertIsNotNone(detailed)
         self.assertIn(
-            "maintenance-attention=[primitive:40..40% settlement:15..15%]",
+            "maintenance-share=[active=[primitive:40..40% settlement:15..15%] elapsed=[primitive:8..8% settlement:3..3%]]",
             detailed,
         )
 
@@ -2637,8 +2648,8 @@ unknown_macro!();
     def test_player_loop_summary_distinguishes_survival_and_selected_maintenance(self) -> None:
         output = "\n".join(
             (
-                "SURVIVAL EXPERIENCE seed=0x1 work-interlock=[integrated=[hydration-policy:task-floor drink:10uL/1t prospect:48t opportunity-power:true reprovision:true:10uL/1t power:3t stored:500000000000nJ final-reserve:250000ppmE/250000ppmH warning-safe:true]]",
-                "SURVIVAL EXPERIENCE seed=0x2 work-interlock=[integrated=[hydration-policy:working-reserve drink:20uL/2t prospect:12t opportunity-power:false reprovision:false:0uL/0t power:0t stored:0nJ final-reserve:500000ppmE/500000ppmH warning-safe:true]]",
+                "SURVIVAL EXPERIENCE seed=0x1 work-interlock=[integrated=[hydration-policy:task-floor initial-drink:10uL/1t prospect:48t followup-survey:true:48t followup-drink:true:10uL/1t continuation:true opportunity-power:true power-drink:false:0uL/0t power:3t stored:500000000000nJ final-reserve:250000ppmE/250000ppmH warning-safe:true]]",
+                "SURVIVAL EXPERIENCE seed=0x2 work-interlock=[integrated=[hydration-policy:working-reserve initial-drink:20uL/2t prospect:12t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:500000ppmE/500000ppmH warning-safe:true]]",
                 "WOODWORKING EXPERIENCE seed=0x1 choice=stone-adze routes=[adze:10logs timber:100mg attention:100t production:20t maintenance:80t/1services final-condition:900000ppm; saw-assisted:min-saw-logs:0 fundable:false actual=[saw:0 adze-fallback:0 fallback-copper:false saw-services:0 adze-services:0]]",
                 "WOODWORKING EXPERIENCE seed=0x2 choice=frame-saw routes=[adze:10logs timber:100mg attention:100t production:20t maintenance:80t/1services final-condition:900000ppm; saw-assisted:min-saw-logs:9 fundable:true actual=[saw:9 adze-fallback:1 fallback-copper:false saw-services:1 adze-services:1]]",
             )
@@ -2646,11 +2657,11 @@ unknown_macro!();
         detailed = gameplay_report_summary.player_loop_evidence(output.splitlines())
         self.assertIsNotNone(detailed)
         self.assertIn(
-            "survive-adapt=[short-loop-serving-floor:n/a short-loop-reprovision:1/2 hydration-policy:task-floor1/working-reserve1 opportunistic-power:1/1 sustained-project-provisioning=[breaks:0/0 events:0 drinks:0 meals:0] warning-safe:2/2]",
+            "survive-adapt=[short-expedition=[serving-floor:n/a followup-surveys:1/2 continuations:1/1 followup-drinks:1/1 stored-work:1/1 power-drinks:0/1 policy:task-floor1/working-reserve1] sustained-project-provisioning=[breaks:0/0 events:0 drinks:0 meals:0] warning-safe:2/2]",
             detailed,
         )
         self.assertIn(
-            "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 mechanized-projects-with-service:0/0 mechanized-service-events:0 maintenance-attention=[primitive:n/a settlement:n/a]]",
+            "maintain-recover=[woodworking-service-worlds:2/2 woodworking-service-events:3 mechanized-projects-with-service:0/0 mechanized-service-events:0 maintenance-share=[active=[primitive:n/a settlement:n/a] elapsed=[primitive:n/a settlement:n/a]]]",
             detailed,
         )
 

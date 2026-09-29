@@ -68,23 +68,26 @@ def survival_summary(lines: list[str]) -> str | None:
         if (match := re.search(r"\bcandidates:(\d+)", line)) is not None
     ]
     initial_work_drinks = []
-    follow_up_work_drinks = []
+    followup_work_drinks = []
+    power_work_drinks = []
     prospecting_ticks = []
     power_ticks = []
     final_hydration_ppm = []
     for line in survival:
         integrated = re.search(
-            r"integrated=\[hydration-policy:([^\s]+) drink:(\d+)uL/\d+t "
-            r"prospect:(\d+)t .*?reprovision:(?:true|false):(\d+)uL/\d+t "
-            r"power:(\d+)t .*?final-reserve:\d+ppmE/(\d+)ppmH",
+            r"integrated=\[hydration-policy:([^\s]+) initial-drink:(\d+)uL/\d+t "
+            r"prospect:(\d+)t .*?followup-drink:(?:true|false):(\d+)uL/\d+t "
+            r".*?power-drink:(?:true|false):(\d+)uL/\d+t power:(\d+)t "
+            r".*?final-reserve:\d+ppmE/(\d+)ppmH",
             line,
         )
         if integrated is not None:
             initial_work_drinks.append(int(integrated.group(2)))
             prospecting_ticks.append(int(integrated.group(3)))
-            follow_up_work_drinks.append(int(integrated.group(4)))
-            power_ticks.append(int(integrated.group(5)))
-            final_hydration_ppm.append(int(integrated.group(6)))
+            followup_work_drinks.append(int(integrated.group(4)))
+            power_work_drinks.append(int(integrated.group(5)))
+            power_ticks.append(int(integrated.group(6)))
+            final_hydration_ppm.append(int(integrated.group(7)))
     return (
         "ORDINARY SUMMARY probe=survival "
         f"samples={len(survival)} sample-shape=[{sample_shape(survival)}] "
@@ -109,10 +112,11 @@ def survival_summary(lines: list[str]) -> str | None:
         f"followup-survey:{count('followup-survey:true:')} "
         f"continuation-found:{count('continuation:true')} "
         f"opportunity-power:{count('opportunity-power:true')} "
-        f"follow-up-needed:{count('reprovision:true:')} "
-        f"single-provision-sufficient:{count('reprovision:false:')}/{len(survival)} "
+        f"followup-drinks:{count('followup-drink:true:')}/{count('followup-survey:true:')} "
+        f"power-drinks:{count('power-drink:true:')}/{count('opportunity-power:true')} "
         f"initial-drink:{scaled_span(initial_work_drinks, 1_000, 'mL')} "
-        f"follow-up-drink:{scaled_span(follow_up_work_drinks, 1_000, 'mL')} "
+        f"followup-drink:{scaled_span(followup_work_drinks, 1_000, 'mL')} "
+        f"power-drink:{scaled_span(power_work_drinks, 1_000, 'mL')} "
         f"prospect:{_span(prospecting_ticks, 't')} power:{_span(power_ticks, 't')} "
         f"final-hydration:{_span(final_hydration_ppm, 'ppm')} "
         f"warning-safe:{count('warning-safe:true')}/{len(survival)}] "

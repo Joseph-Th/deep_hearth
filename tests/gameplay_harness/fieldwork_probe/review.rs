@@ -462,7 +462,7 @@ fn report_known_site_exploitation(
             .checked_mul(1_000_000)
             .unwrap_or_else(|| panic!("fieldwork recovery fulfillment ratio overflowed"))
             / review.requested.milligrams();
-        let fulfillment_delta = i128::from(recovery.fulfilled.milligrams())
+        let survey_fulfillment_delta = i128::from(recovery.fulfilled.milligrams())
             - i128::from(recovery.baseline_fulfilled.milligrams());
         let reroute_proved = !recovery.additional_extracted.is_zero();
         if review.case.role() == FocusedProbeRole::MaintainedCoverage
@@ -482,7 +482,7 @@ fn report_known_site_exploitation(
             );
         }
         reviewln!(
-            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved={} evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution={} mining-tool-reused={} survey-base-kit-reused=true strategy={} planned-sites={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t total-attention-delta:{:+}t] adaptation=[hardness-tier-changes:{} tool-builds:{} tool-switches:{} salvage-retools:{} barren-sites:{} blocked-sites:{} tool-preparation:{}t ore-recovery-events:{} ore-recovery-required-access:{} ore-recovery-payback:{} ore-recovery:{}t ore-feed:{}mg native-recovered:{}mg baseline-fulfilled:{}mg fulfillment-delta:{:+}mg] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved={} evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution={} mining-tool-reused={} survey-base-kit-reused=true strategy={} planned-sites={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t total-attention-delta:{:+}t] adaptation=[hardness-tier-changes:{} tool-builds:{} tool-switches:{} salvage-retools:{} barren-sites:{} blocked-sites:{} tool-preparation:{}t ore-recovery-events:{} ore-recovery-required-access:{} ore-recovery-payback:{} ore-recovery:{}t ore-feed:{}mg native-recovered:{}mg point-baseline-fulfilled:{}mg survey-fulfillment-delta:{:+}mg] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
             review.case.seed(),
             reroute_proved,
             reroute_proved,
@@ -511,7 +511,7 @@ fn report_known_site_exploitation(
             recovery.ore_feed_mass.milligrams(),
             recovery.recovered_native.milligrams(),
             recovery.baseline_fulfilled.milligrams(),
-            fulfillment_delta,
+            survey_fulfillment_delta,
             recovery.sites_visited,
             recovery.search_ticks,
             format_physical_duration(review.registries, recovery.search_ticks),

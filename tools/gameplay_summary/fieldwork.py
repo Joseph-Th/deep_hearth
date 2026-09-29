@@ -176,7 +176,7 @@ def _reuse_summary(lines: list[str]) -> str:
     )
 
 
-def _depletion_summary(lines: list[str]) -> str:
+def _depletion_summary(lines: list[str]) -> tuple[str, str]:
     depletion = [
         line
         for line in lines
@@ -219,7 +219,7 @@ def _depletion_summary(lines: list[str]) -> str:
     ore_payback = sum(" ore-recovery=[reason:payback " in line for line in recovery)
     ore_required = sum(" ore-recovery=[reason:required-access " in line for line in recovery)
     supply_ended = sum(" supply-ended=true " in line for line in eligible)
-    return (
+    detailed = (
         "known-site-horizon=["
         f"eligible:{len(eligible)}/{len(depletion)} "
         f"supply-ended:{supply_ended} "
@@ -238,6 +238,16 @@ def _depletion_summary(lines: list[str]) -> str:
         f"{scaled_span(hydration, 1_000, 'mL')} "
         f"condition:{_span(condition, unit='ppm')}]"
     )
+    adaptation = (
+        "depletion-adaptation=["
+        f"supply-ended:{supply_ended}/{len(eligible)} "
+        f"rerouted:{len(recovery)}/{supply_ended} "
+        f"retooled:{sum(value > 0 for value in retool_ticks)} "
+        f"salvaged:{salvaged} "
+        f"ore-funded:{sum(value > 0 for value in ore_recovery_ticks)}"
+        f"(payback:{ore_payback}/access:{ore_required})]"
+    )
+    return detailed, adaptation
 
 
 def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
@@ -272,11 +282,7 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
     ore_recovery_events = values(r"\bore-recovery-events:(\d+)")
     ore_recovery_required = values(r"\bore-recovery-required-access:(\d+)")
     ore_recovery_payback = values(r"\bore-recovery-payback:(\d+)")
-    fulfillment_delta = [
-        int(match.group(1))
-        for line in recoveries
-        if (match := re.search(r"\bfulfillment-delta:([+-]\d+)mg", line)) is not None
-    ]
+    additional_extracted = values(r"\badditional-extracted=(\d+)mg")
 
     return (
         "initial-shortfall-campaign=["
@@ -293,14 +299,15 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
         f"flat:{sum(value == 0 for value in realized_total_deltas)} "
         f"delta:{_signed_span(realized_total_deltas)}] "
         "adaptation=["
+        f"productive-reroute:{sum(value > 0 for value in additional_extracted)}/{len(recoveries)} "
+        f"additional-extracted:{_span(additional_extracted, unit='mg')} "
         f"geology-changed:{sum(value > 0 for value in hardness_changes)}/{len(recoveries)} "
         f"retooled:{sum(value > 0 for value in tool_builds)}/{len(recoveries)} "
         f"salvaged:{sum(value > 0 for value in salvage_retools)}/{len(recoveries)} "
         f"ore-funded:{sum(value > 0 for value in ore_recovery_events)}/{len(recoveries)}"
         f"(payback:{sum(ore_recovery_payback)}/access:{sum(ore_recovery_required)}) "
         f"barren-sites:{_span(barren_sites, unit='')} "
-        f"blocked-sites:{_span(blocked_sites, unit='')} "
-        f"fulfillment-delta:{_signed_span(fulfillment_delta).replace('t', 'mg')}] "
+        f"blocked-sites:{_span(blocked_sites, unit='')}] "
         f"completed:{sum(' terminal=order-complete' in line for line in recoveries)} "
         f"planned-horizon-exhausted:{sum(' terminal=planned-search-horizon-exhausted' in line for line in recoveries)} "
         f"local-area-exhausted:{sum(' terminal=local-search-area-exhausted' in line for line in recoveries)} "
@@ -446,6 +453,7 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         for line in fieldwork
     )
     organic_fieldwork = organic_only(fieldwork)
+    depletion_horizon, depletion_adaptation = _depletion_summary(lines)
     inspection_span, fulfillment_span, resource_capped, organic_resource_capped = (
         _outcome_metrics(fieldwork)
     )
@@ -465,7 +473,8 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         f"bulk:{count('order-horizon=bulk')}] "
         f"{_pacing_summary(lines, fieldwork)} "
         f"{_reuse_summary(lines)} "
-        f"{_depletion_summary(lines)} "
+        f"{depletion_horizon} "
+        f"{depletion_adaptation} "
         f"{_initial_shortfall_recovery_summary(lines)} "
         f"{_survey_campaign_summary(lines)} "
         f"{_heavy_tool_market_summary(lines)} "

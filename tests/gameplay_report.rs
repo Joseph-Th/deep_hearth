@@ -159,7 +159,7 @@ fn main() {
     let fallback_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
     let fallback_behavior_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245);
     std::println!(
-        "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
+        "PLAYER FANTASY scope=ordinary-after-disclosed-bootstrap loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
     );
     std::println!(
         "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap exact-local=[survival-provisioning,woodworking,power-provider,settlement,primitive-liberation,first-foundry] movement-abstracted=[primitive-progression,fieldwork] movement-authority=absent reachability-authority=STATUS.md"

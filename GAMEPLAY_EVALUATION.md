@@ -188,6 +188,7 @@ must not count counterfactual, coverage-only, or negative-control branches as pl
 Harness modules own execution detail. These are the evidence obligations:
 
 - **Liberation frontier:** prove acquisition continuity from the disclosed raw-source boundary through primitive equipment and processing. Keep controlled raw-source setup distinct from terrain gathering. Report executed-kit payback as later lifecycle feedback, not as a pre-action investment decision reconstructed from comparison outcomes. Label any first-foundry starting boundary explicitly, and conserve matter and energy across selected foundry work.
+- **Ordinary-scope boundary:** until world-source acquisition is ordinarily reachable, aggregate player-fantasy reporting must say that its ordinary evidence begins after the disclosed bootstrap and must report fixture sourcing, runtime pickup, and world gathering separately. Runtime pickup does not prove ordinary gathering.
 - **Catalog continuity:** exercise reinforcement relationships across sampling, woodworking, power, crushing, grinding, and separation through their owning systems.
 - **Woodworking continuity:** keep hewing, sawing, and turning physically distinct. Tool investment may change attention or recovery, but not invent alternate material transforms. Freeze investment intent before matched branches execute.
 - **Settlement mechanization:** powered conversions preserve manual material/yield authority, consume finite work and wear, return player attention, and show workload-dependent payback without making manual capability irrational at every scale. Capital conversions use one shared minimum-return policy; delegation-only witnesses stay labeled separately when they do not establish a capital crossover.
@@ -202,6 +203,11 @@ Counterfactual evaluation may compute one shared observation horizon outside act
 and baseline from the same decision state to that fixed horizon. Future controlled events and branch outcomes
 never become actor inputs. Compare aggregate observable contracts when production treats internal representations
 as equivalent.
+
+Actor provisioning follows the same information boundary. A current task may budget its known survival cost,
+but a possible follow-up action discovered only after prospecting or another observation cannot influence an
+earlier provisioning choice. After new evidence arrives, reassess the newly disclosed work and provision from
+that state if needed.
 
 Project-owned routine gameplay verification ignores ambient replay state, generates fresh physical and, where
 applicable, actor roots, and samples one organic case alongside maintained witnesses. Explicit roots replay that
