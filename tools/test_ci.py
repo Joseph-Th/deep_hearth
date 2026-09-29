@@ -1835,7 +1835,7 @@ unknown_macro!();
         self.assertIn("test-gameplay", command)
         self.assertIn(ci.GAMEPLAY_TARGETS["ore"], command)
 
-    def test_scoped_reports_reuse_focused_targets_except_workshop_and_agency(self) -> None:
+    def test_scoped_reports_use_the_configured_smallest_surface(self) -> None:
         for scope in ci.SCOPED_TEST_REPORTS:
             with self.subTest(scope=scope):
                 plan = ci.report_plan(scope)

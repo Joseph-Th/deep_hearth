@@ -510,7 +510,7 @@ def gameplay_report_example_command(
 
 
 def report_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
-    """Run one report surface, reusing focused test artifacts for scoped exploration."""
+    """Run the smallest faithful report surface for one gameplay scope."""
 
     if scope not in REPORT_SCOPES:
         raise ValueError(f"unknown gameplay report scope: {scope}")

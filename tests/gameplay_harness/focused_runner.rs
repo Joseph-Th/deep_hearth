@@ -38,6 +38,13 @@ fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u6
     }
 }
 
+fn print_simulation_time(registries: &Registries) {
+    std::println!(
+        "SIMULATION TIME physical-tick-us={}",
+        registries.core().physical_tick_duration().microseconds()
+    );
+}
+
 fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
     match name {
         // Stable survival coverage protects pressure response plus preservation choice shape:
@@ -137,6 +144,9 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeC
     let variation_root = MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4741_5445_5F57_4F52;
     let behavior_root = MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x4741_5445_5F42_4856;
     let explore = env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some();
+    if explore {
+        print_simulation_time(&registries);
+    }
     run_focused_probe_with_registries(
         &registries,
         name,
@@ -148,8 +158,13 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeC
 }
 
 #[cfg(not(test))]
+#[allow(
+    dead_code,
+    reason = "owner-specific report examples use this convenience entrypoint; the cross-system report reuses one registry through run_focused_probe_with_registries"
+)]
 pub(super) fn run_focused_report(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
     let registries = build_registries();
+    print_simulation_time(&registries);
     let (_maintained_seed, _coverage, salt) = probe_seed_spec(name);
     let variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4558_504C_5F57_4F52);
     let behavior_root =
