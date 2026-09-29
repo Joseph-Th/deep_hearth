@@ -30,12 +30,13 @@ specific vertical slice.
 
 ## Control-surface program
 
-authorization/mutation, and the committed outcome or continuation identity.
-ticks only for repeated bounded waits; add freshness metadata only for retained read-side state.
-When a slice touches an owner, improve its existing control path before adding another abstraction. Prefer, in
-order: reuse an existing projection or receipt; propagate a discarded owner result; add a narrow reverse index or
-semantic projection; expose a production-owned feasible bound; batch canonical ticks only for bounded repeated
-waits; add freshness metadata only for retained read-side state.
+A usable owner control path exposes current relevant state or a canonical assessment, legal prerequisites and
+typed blockers, useful production-owned projections for costly choices, the canonical authorization/mutation
+boundary, and the committed outcome or continuation identity. When a slice touches an owner, improve that path
+before adding another abstraction. Prefer, in order: reuse an existing projection or receipt; propagate a
+discarded owner result; add a narrow reverse index or semantic projection; expose a production-owned feasible
+bound; batch canonical ticks only for bounded repeated waits; add freshness metadata only for retained read-side
+state.
 
 Strategy remains outside production. Candidate ranking, goals, risk tolerance, and search budgets belong to
 callers; production owns legality, physics, and authoritative outcomes. Avoid generic action buses, AI facades,
@@ -43,9 +44,9 @@ reflection layers, and mutable availability caches.
 
 ## Default integration sequence
 
-each slice when concrete friction is exposed, so the repository becomes easier to extend as the graph grows.
 This is a dependency order, not a release promise. A smaller slice may move earlier when it closes a stronger
-loop with less machinery. Improve control surfaces within each slice rather than as a separate phase.
+loop with less machinery. Improve control surfaces within each slice when concrete friction is exposed, so the
+repository becomes easier to extend as the graph grows rather than treating operability as a separate phase.
 
 ### 1. Close existing control loops
 
@@ -74,12 +75,13 @@ block-survival inventory and interaction loop.
 
 ### 3. Close the familiar wilderness shell
 
-actions rather than prerequisites for learning a special interaction language.
 After direct world interaction and carrying exist, close the ordinary first-session survival loop before adding
 more industrial-network depth. A fresh player should acquire visible wood/stone/forage, carry them through the
 normal inventory shell, make primitive tools, use basic storage, establish shelter/light/fire, eat/drink, and
 recover from ordinary mistakes without controlled delivery or hidden-state tooling. Reuse existing material,
-crafting, equipment, storage, survival, fluid, thermal, and structural owners.
+crafting, equipment, storage, survival, fluid, thermal, and structural owners. Familiar direct actions should be
+the entry point; exact physical consequences should remain consequences of those actions rather than
+prerequisites for learning a special interaction language.
 
 Completion criterion: from a fresh ordinary world and empty carried inventory, the player can complete a
 recognizable block-survival first-day loop through canonical world actions, including basic acquisition, tool

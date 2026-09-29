@@ -285,7 +285,7 @@ impl StockpileRecord {
         }
     }
 
-    /// Returns the structural member currently carrying this stockpile's stored matter, if assigned.
+    /// Returns the structural member carrying this stockpile's stored matter and enclosure, if assigned.
     #[must_use]
     pub const fn supported_by(&self) -> Option<StructuralElementId> {
         self.supported_by
