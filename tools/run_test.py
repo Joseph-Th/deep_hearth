@@ -32,6 +32,7 @@ FAILURE_HEAD_LINES = 16
 FAILURE_TAIL_LINES = 64
 GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
 GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
+GAMEPLAY_REPORT_MODE_ENV = "DEEP_HEARTH_GAMEPLAY_REPORT"
 BEHAVIOR_VARIATION_TESTS = {
     "gameplay_harness_gate",
     "gameplay_survival_provisioning_probe",
@@ -545,6 +546,7 @@ def execute_cargo_command(
 ) -> tuple[subprocess.CompletedProcess[str], float]:
     environment = os.environ.copy()
     environment["CARGO_TERM_COLOR"] = "never"
+    environment.pop(GAMEPLAY_REPORT_MODE_ENV, None)
     if environment_overrides:
         environment.update(environment_overrides)
     started = time.perf_counter()

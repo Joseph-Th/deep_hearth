@@ -73,7 +73,13 @@ GAMEPLAY_TARGETS = {scope: spec.target for scope, spec in GAMEPLAY_SCOPE_SPECS.i
 GAMEPLAY_TESTS = {
     scope: spec.test for scope, spec in GAMEPLAY_SCOPE_SPECS.items() if spec.test is not None
 }
-FOCUSED_REPORT_EXAMPLES = {"workshop": "gameplay-workshop-report", "agency": "gameplay-workshop-report"}
+FOCUSED_REPORT_EXAMPLES = {
+    "workshop": "gameplay-workshop-report",
+    "agency": "gameplay-workshop-report",
+    "progression": "gameplay-progression-report",
+    "woodworking": "gameplay-woodworking-report",
+    "power-provider": "gameplay-power-report",
+}
 FOCUSED_REPORT_ARGUMENTS = {"agency": ("agency",)}
 GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_AUDIT_TARGET,)
 REPORT_BEHAVIOR_SCOPES = {
@@ -85,6 +91,8 @@ GAMEPLAY_SEED_ENV_KEYS = (
     "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
     "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED",
 )
+GAMEPLAY_REPORT_MODE_ENV = "DEEP_HEARTH_GAMEPLAY_REPORT"
+SCOPED_TEST_REPORTS = frozenset(GAMEPLAY_SCOPE_SPECS) - frozenset(FOCUSED_REPORT_EXAMPLES)
 
 
 def configure_gameplay_replay_environment(
@@ -145,6 +153,15 @@ def configure_report_replay_environment(
     )
 
 
+def configure_report_mode_environment(args: argparse.Namespace, environ) -> None:
+    """Enable expanded sampling only when a scoped report reuses a focused test target."""
+
+    if args.scope in SCOPED_TEST_REPORTS:
+        environ[GAMEPLAY_REPORT_MODE_ENV] = "1"
+    else:
+        environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
+
+
 def gameplay_sampling_behavior(args: argparse.Namespace) -> bool | None:
     """Return actor-root usage for bounded gameplay sampling, or None when sampling is inactive."""
 
@@ -174,6 +191,7 @@ def configure_gameplay_verification_environment(
 
     use_behavior_seed = gameplay_sampling_behavior(args)
     assert use_behavior_seed is not None
+    environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
     clear_gameplay_seed_environment(environ)
     return configure_gameplay_replay_environment(
         environ,
@@ -492,15 +510,21 @@ def gameplay_report_example_command(
 
 
 def report_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
-    """Run one explicit report binary, optionally restricted to one gameplay scope."""
+    """Run one report surface, reusing focused test artifacts for scoped exploration."""
 
     if scope not in REPORT_SCOPES:
         raise ValueError(f"unknown gameplay report scope: {scope}")
-    example = FOCUSED_REPORT_EXAMPLES.get(scope, GAMEPLAY_REPORT_EXAMPLE)
-    arguments = FOCUSED_REPORT_ARGUMENTS.get(scope, ())
-    if scope != "all" and example == GAMEPLAY_REPORT_EXAMPLE:
-        arguments = (scope,)
-    command = gameplay_report_example_command(example, arguments)
+    if scope in SCOPED_TEST_REPORTS:
+        spec = GAMEPLAY_SCOPE_SPECS[scope]
+        command = gameplay_targets_command(
+            (spec.target,),
+            test_filter=spec.test,
+            nocapture=True,
+        )
+    else:
+        example = FOCUSED_REPORT_EXAMPLES.get(scope, GAMEPLAY_REPORT_EXAMPLE)
+        arguments = FOCUSED_REPORT_ARGUMENTS.get(scope, ())
+        command = gameplay_report_example_command(example, arguments)
     label = "gameplay report"
     if scope != "all":
         label = f"gameplay report {scope}"
@@ -935,6 +959,7 @@ def main() -> int:
             print(f"{label}: {' '.join(command)}")
         return 0
     if args.preset == "report":
+        configure_report_mode_environment(args, os.environ)
         try:
             configure_report_replay_environment(args, os.environ)
         except ValueError as error:
@@ -947,6 +972,7 @@ def main() -> int:
             print(f"gameplay replay: {error}", file=sys.stderr)
             return 2
     elif args.preset == "gate" and args.gameplay == "contracts":
+        os.environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
         clear_gameplay_seed_environment(os.environ)
 
     started = time.perf_counter()

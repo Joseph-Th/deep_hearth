@@ -82,7 +82,7 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused probes own nearby contracts only when those contracts do not materially enlarge the edit artifact. Workshop, survival, settlement, foundry, woodworking, fieldwork, progression planning, and ore keep dedicated contract targets; progression episode contracts stay with the progression probe because they require its full evaluator. Gameplay targets share one `test-gameplay` feature shape. Reports use examples and keep report-only formatting out of tests when measurement justifies the split.
+Focused probes own nearby contracts only when those contracts do not materially enlarge the edit artifact. Workshop, survival, settlement, foundry, woodworking, fieldwork, progression planning, and ore keep dedicated contract targets; progression episode contracts stay with the progression probe because they require its full evaluator. Gameplay targets share one `test-gameplay` feature shape. Scoped reports reuse the focused test artifact when that target already contains its summary path. Formatter-heavy progression, woodworking, and power reports use small owner-specific examples; workshop/agency share their focused example, and only the cross-system report compiles the complete report graph.
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 

@@ -1,5 +1,6 @@
 //! Focused power-provider gameplay target for the fast edit/test loop.
 
+#[cfg(test)]
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
@@ -24,6 +25,9 @@ mod focused_runner;
 mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
+#[cfg(not(test))]
+#[path = "gameplay_harness/fresh_seed.rs"]
+mod fresh_seed;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
@@ -44,6 +48,9 @@ mod manual_power_timing;
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
+#[cfg(not(test))]
+#[path = "gameplay_harness/physical_time.rs"]
+mod physical_time;
 #[path = "gameplay_harness/power_provider_probe.rs"]
 mod power_provider_probe;
 #[path = "gameplay_harness/production_timing.rs"]
@@ -61,6 +68,14 @@ mod world_admission;
 #[test]
 fn gameplay_power_provider_probe() {
     focused_runner::run_focused_probe(
+        "power-provider",
+        power_provider_probe::run_power_provider_probe,
+    );
+}
+
+#[cfg(not(test))]
+pub(super) fn run_report() {
+    focused_runner::run_focused_report(
         "power-provider",
         power_provider_probe::run_power_provider_probe,
     );

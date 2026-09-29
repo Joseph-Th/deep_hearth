@@ -22,13 +22,19 @@ pub(super) fn has_trace_output() -> bool {
     env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
 }
 
-// Test binaries suppress narration while still type-checking format expressions. Large report-only
-// formatters belong behind a report boundary when measurement shows that split improves iteration.
+// Test binaries stay quiet during routine gates. Explicit scoped reports reuse the same artifact;
+// review output is enabled below, while narration still requires trace mode.
 #[cfg(test)]
 #[allow(unused_macros)]
 macro_rules! println {
     ($($argument:tt)*) => {{
-        let _ = std::format_args!($($argument)*);
+        if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some()
+            && std::env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
+        {
+            std::println!($($argument)*);
+        } else {
+            let _ = std::format_args!($($argument)*);
+        }
     }};
 }
 
@@ -47,7 +53,11 @@ macro_rules! println {
 #[allow(unused_macros)]
 macro_rules! reviewln {
     ($($argument:tt)*) => {{
-        let _ = std::format_args!($($argument)*);
+        if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
+            std::println!($($argument)*);
+        } else {
+            let _ = std::format_args!($($argument)*);
+        }
     }};
 }
 

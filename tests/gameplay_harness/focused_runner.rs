@@ -2,7 +2,6 @@
 
 use std::env;
 
-#[cfg(test)]
 use deep_hearth::content::build_registries;
 use deep_hearth::registry::Registries;
 
@@ -16,7 +15,8 @@ use super::focused_witnesses::{
     FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED, ORE_FINITE_ENERGY_COVERAGE_SEED,
     PROGRESSION_REFINEMENT_COVERAGE_SEED, PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
 };
-#[cfg(test)]
+#[cfg(not(test))]
+use super::fresh_seed::fresh_root;
 use super::seed::MAINTAINED_VARIATION_ROOT;
 
 fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u64> {
@@ -136,11 +136,29 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeC
     let (_maintained_seed, _coverage, salt) = probe_seed_spec(name);
     let variation_root = MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4741_5445_5F57_4F52;
     let behavior_root = MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x4741_5445_5F42_4856;
+    let explore = env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some();
     run_focused_probe_with_registries(
         &registries,
         name,
         probe,
-        false,
+        explore,
+        variation_root,
+        behavior_root,
+    );
+}
+
+#[cfg(not(test))]
+pub(super) fn run_focused_report(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
+    let registries = build_registries();
+    let (_maintained_seed, _coverage, salt) = probe_seed_spec(name);
+    let variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4558_504C_5F57_4F52);
+    let behavior_root =
+        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x4558_504C_5F42_4856);
+    run_focused_probe_with_registries(
+        &registries,
+        name,
+        probe,
+        true,
         variation_root,
         behavior_root,
     );

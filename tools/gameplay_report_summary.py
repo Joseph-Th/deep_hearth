@@ -288,14 +288,34 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
     return summary
 
 
+def _without_cargo_test_wrapper(stdout: str) -> str:
+    """Remove Cargo test-runner boilerplate while retaining gameplay evidence verbatim."""
+
+    lines = stdout.splitlines()
+    if not any(line.strip().startswith("test result: ") for line in lines):
+        return stdout.rstrip()
+
+    def is_wrapper_line(line: str) -> bool:
+        stripped = line.strip()
+        if stripped.startswith("test result: "):
+            return True
+        if stripped.startswith("running "):
+            count, separator, noun = stripped.removeprefix("running ").partition(" ")
+            if separator and count.isdecimal() and noun in {"test", "tests"}:
+                return True
+        return bool(stripped) and set(stripped) == {"."}
+
+    return "\n".join(line for line in lines if not is_wrapper_line(line)).strip()
+
+
 def concise_gameplay_report(stdout: str, environ=None) -> str:
-    """Return a decision-oriented digest; verbose retains every detailed evidence line."""
+    """Return a decision-oriented digest; verbose retains every gameplay evidence line."""
 
     environment = os.environ if environ is None else environ
     if environment.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is not None or environment.get(
         "DEEP_HEARTH_GAMEPLAY_TRACE"
     ) is not None:
-        return stdout.rstrip()
+        return _without_cargo_test_wrapper(stdout)
     lines = stdout.splitlines()
     selected = [line for line in lines if line.startswith("SIMULATION TIME ")]
     ordinary = ordinary_gameplay_summary(lines)

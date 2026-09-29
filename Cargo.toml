@@ -30,6 +30,24 @@ path = "tests/gameplay_workshop_report.rs"
 required-features = ["test-gameplay"]
 test = false
 
+[[example]]
+name = "gameplay-progression-report"
+path = "tests/gameplay_progression_report.rs"
+required-features = ["test-gameplay"]
+test = false
+
+[[example]]
+name = "gameplay-woodworking-report"
+path = "tests/gameplay_woodworking_report.rs"
+required-features = ["test-gameplay"]
+test = false
+
+[[example]]
+name = "gameplay-power-report"
+path = "tests/gameplay_power_report.rs"
+required-features = ["test-gameplay"]
+test = false
+
 [[test]]
 name = "gameplay_contracts"
 path = "tests/gameplay_contracts.rs"
@@ -46,8 +64,18 @@ path = "tests/gameplay_workshop.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_workshop_contracts"
+path = "tests/gameplay_workshop_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_survival"
 path = "tests/gameplay_survival.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_survival_contracts"
+path = "tests/gameplay_survival_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
@@ -118,6 +146,11 @@ required-features = ["test-gameplay"]
 [[test]]
 name = "gameplay_foundry"
 path = "tests/gameplay_foundry.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_foundry_contracts"
+path = "tests/gameplay_foundry_contracts.rs"
 required-features = ["test-gameplay"]
 
 [features]

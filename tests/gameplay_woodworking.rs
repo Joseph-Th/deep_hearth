@@ -1,9 +1,11 @@
 //! Focused woodworking gameplay target for the fast edit/test loop.
 
+#[cfg(test)]
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
+#[cfg(test)]
 macro_rules! include_woodworking_policy_contract_tests {
     () => {};
 }
@@ -18,6 +20,9 @@ mod focused_runner;
 mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
+#[cfg(not(test))]
+#[path = "gameplay_harness/fresh_seed.rs"]
+mod fresh_seed;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
@@ -30,6 +35,9 @@ mod manual_craft_execution;
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[cfg(not(test))]
+#[path = "gameplay_harness/physical_time.rs"]
+mod physical_time;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
@@ -49,4 +57,9 @@ mod world_admission;
 #[test]
 fn gameplay_woodworking_probe() {
     focused_runner::run_focused_probe("woodworking", woodworking_probe::run_woodworking_probe);
+}
+
+#[cfg(not(test))]
+pub(super) fn run_report() {
+    focused_runner::run_focused_report("woodworking", woodworking_probe::run_woodworking_probe);
 }

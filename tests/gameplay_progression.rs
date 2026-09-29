@@ -1,5 +1,6 @@
 //! Focused primitive-progression gameplay target for the fast edit/test loop.
 
+#[cfg(test)]
 #[macro_use]
 #[path = "gameplay_harness/output.rs"]
 mod output;
@@ -16,6 +17,9 @@ mod focused_runner;
 mod focused_seeds;
 #[path = "gameplay_harness/focused_witnesses.rs"]
 mod focused_witnesses;
+#[cfg(not(test))]
+#[path = "gameplay_harness/fresh_seed.rs"]
+mod fresh_seed;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
@@ -36,6 +40,9 @@ mod manual_power_timing;
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
+#[cfg(not(test))]
+#[path = "gameplay_harness/physical_time.rs"]
+mod physical_time;
 #[path = "gameplay_harness/primitive_workload.rs"]
 mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
@@ -62,6 +69,14 @@ mod tick_observation;
 #[test]
 fn gameplay_primitive_progression_probe() {
     focused_runner::run_focused_probe(
+        "primitive-progression",
+        progression_probe::run_primitive_progression_probe,
+    );
+}
+
+#[cfg(not(test))]
+pub(super) fn run_report() {
+    focused_runner::run_focused_report(
         "primitive-progression",
         progression_probe::run_primitive_progression_probe,
     );

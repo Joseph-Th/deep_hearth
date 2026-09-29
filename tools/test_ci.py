@@ -34,7 +34,16 @@ _source_text_cache: dict[Path, str] = {}
 _maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
 
 DEDICATED_OWNER_CONTRACT_SCOPES = frozenset(
-    {"progression", "settlement", "woodworking", "fieldwork", "ore"}
+    {
+        "workshop",
+        "survival",
+        "progression",
+        "settlement",
+        "woodworking",
+        "fieldwork",
+        "ore",
+        "foundry",
+    }
 )
 
 
@@ -1367,25 +1376,16 @@ unknown_macro!();
         self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
 
     def test_owner_contract_targets_split_when_the_contract_graph_is_materially_distinct(self) -> None:
-        merged_contract_prefixes = {
+        dedicated_contract_prefixes = {
             "workshop": "workshop_contract_tests::",
             "survival": "survival_contract_tests::",
-            "foundry": "foundry_contract_tests::",
-        }
-        dedicated_contract_prefixes = {
             "progression": "progression_contract_tests::",
             "settlement": "settlement_wire_contract_tests::",
             "woodworking": "woodworking_contract_tests::",
             "fieldwork": "prospecting_instrument_contract_tests::",
             "ore": "ore_contract_tests::",
+            "foundry": "foundry_contract_tests::",
         }
-
-        for scope, prefix in merged_contract_prefixes.items():
-            target = owner_contract_target(scope)
-            self.assertEqual(target, ci.GAMEPLAY_TARGETS[scope])
-            tests = run_test.source_test_catalog(target, None)
-            self.assertIn(ci.GAMEPLAY_TESTS[scope], tests)
-            self.assertTrue(any(name.startswith(prefix) for name in tests))
 
         for scope, prefix in dedicated_contract_prefixes.items():
             focused_target = ci.GAMEPLAY_TARGETS[scope]
@@ -1835,18 +1835,35 @@ unknown_macro!();
         self.assertIn("test-gameplay", command)
         self.assertIn(ci.GAMEPLAY_TARGETS["ore"], command)
 
-    def test_focused_report_uses_explicit_report_examples_not_test_binaries(self) -> None:
-        for scope in (*ci.GAMEPLAY_TESTS, "agency"):
+    def test_scoped_reports_reuse_focused_targets_except_workshop_and_agency(self) -> None:
+        for scope in ci.SCOPED_TEST_REPORTS:
             with self.subTest(scope=scope):
                 plan = ci.report_plan(scope)
                 self.assertEqual(plan[0][0], f"gameplay report {scope}")
-                example = ci.FOCUSED_REPORT_EXAMPLES.get(scope, ci.GAMEPLAY_REPORT_EXAMPLE)
-                arguments = ci.FOCUSED_REPORT_ARGUMENTS.get(scope, ())
-                if scope != "all" and example == ci.GAMEPLAY_REPORT_EXAMPLE:
-                    arguments = (scope,)
                 self.assertEqual(
-                    plan[0][1], ci.gameplay_report_example_command(example, arguments)
+                    plan[0][1],
+                    ci.gameplay_targets_command(
+                        (ci.GAMEPLAY_TARGETS[scope],),
+                        test_filter=ci.GAMEPLAY_TESTS[scope],
+                        nocapture=True,
+                    ),
                 )
+                self.assertEqual(plan[0][1].count("--test"), 1)
+                self.assertIn("--exact", plan[0][1])
+                self.assertIn("--nocapture", plan[0][1])
+
+        for scope, example in ci.FOCUSED_REPORT_EXAMPLES.items():
+            with self.subTest(scope=scope):
+                arguments = ci.FOCUSED_REPORT_ARGUMENTS.get(scope, ())
+                self.assertEqual(
+                    ci.report_plan(scope)[0][1],
+                    ci.gameplay_report_example_command(example, arguments),
+                )
+
+        self.assertEqual(
+            ci.report_plan("all")[0][1],
+            ci.gameplay_report_example_command(ci.GAMEPLAY_REPORT_EXAMPLE),
+        )
 
         args = ci.parse_args(["report", "--scope", "fieldwork"])
         self.assertEqual(args.scope, "fieldwork")
@@ -1884,6 +1901,36 @@ unknown_macro!();
     def test_replay_seed_flags_reject_non_gameplay_lanes(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             ci.parse_args(["quick", "--variation-seed", "0x1234"])
+
+    def test_scoped_report_mode_is_explicit_and_routine_verification_clears_it(self) -> None:
+        report = ci.parse_args(["report", "--scope", "fieldwork"])
+        report_environment = {ci.GAMEPLAY_REPORT_MODE_ENV: "stale"}
+        ci.configure_report_mode_environment(report, report_environment)
+        self.assertEqual(report_environment[ci.GAMEPLAY_REPORT_MODE_ENV], "1")
+
+        all_report = ci.parse_args(["report"])
+        ci.configure_report_mode_environment(all_report, report_environment)
+        self.assertNotIn(ci.GAMEPLAY_REPORT_MODE_ENV, report_environment)
+
+        gate = ci.parse_args(["gate", "--gameplay", "fieldwork"])
+        gate_environment = {ci.GAMEPLAY_REPORT_MODE_ENV: "1"}
+        with mock.patch.object(ci.secrets, "randbits", return_value=1):
+            ci.configure_gameplay_verification_environment(gate, gate_environment)
+        self.assertNotIn(ci.GAMEPLAY_REPORT_MODE_ENV, gate_environment)
+
+    def test_run_test_never_inherits_scoped_report_mode(self) -> None:
+        command = [
+            sys.executable,
+            "-c",
+            "import os; print(os.getenv('DEEP_HEARTH_GAMEPLAY_REPORT'))",
+        ]
+        with mock.patch.dict(
+            os.environ,
+            {run_test.GAMEPLAY_REPORT_MODE_ENV: "1"},
+            clear=False,
+        ):
+            result, _elapsed = run_test.execute_cargo_command(command)
+        self.assertEqual(result.stdout.strip(), "None")
 
     def test_lint_mode_accepts_selector_for_build_free_target_resolution(self) -> None:
         args = run_test.parse_args(["--lint", "gameplay_fieldwork_probe"])
@@ -2444,6 +2491,28 @@ unknown_macro!();
                 output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}
             ),
             output,
+        )
+
+    def test_verbose_scoped_report_removes_only_cargo_test_wrapper(self) -> None:
+        output = "\n".join(
+            (
+                "",
+                "running 1 test",
+                "PROBE INPUT name=settlement mode=explore samples=1 organic=0",
+                "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:20 mass:1mg]",
+                ".",
+                "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+                "",
+            )
+        )
+        verbose = gameplay_report_summary.concise_gameplay_report(
+            output,
+            {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"},
+        )
+        self.assertEqual(
+            verbose,
+            "PROBE INPUT name=settlement mode=explore samples=1 organic=0\n"
+            "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:20 mass:1mg]",
         )
 
     def test_scoped_gameplay_report_omits_cross_system_loop_digest(self) -> None:
@@ -3059,10 +3128,12 @@ class ExactTestCommandTests(unittest.TestCase):
             "lib",
         )
         for selector, expected in {
+            "workshop_contract_tests": "gameplay_workshop_contracts",
             "settlement_wire_contract_tests": "gameplay_settlement_contracts",
-            "survival_contract_tests": "gameplay_survival",
+            "survival_contract_tests": "gameplay_survival_contracts",
             "progression_contract_tests": "gameplay_progression_contracts",
             "ore_contract_tests": "gameplay_ore_contracts",
+            "foundry_contract_tests": "gameplay_foundry_contracts",
         }.items():
             self.assertEqual(run_test.resolve_automatic_suite_target(selector, None), expected)
 
