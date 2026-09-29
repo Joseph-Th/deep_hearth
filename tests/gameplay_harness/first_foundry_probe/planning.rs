@@ -12,12 +12,13 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::equipment::EquipmentId;
-use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 
 use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::manual_craft_execution::execute_manual_craft;
+use super::super::material_selection::select_stockpile_commodity_mass;
 use super::super::seed::mix64;
 use super::super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 
@@ -89,37 +90,8 @@ pub(super) fn select_commodity_mass(
     commodity: CommodityKey,
     mass: Mass,
     context: &'static str,
-) -> Vec<MaterialLotSelection> {
-    let mut remaining = mass;
-    let mut selections = Vec::new();
-    for lot in state.inventory().lot_ids(stockpile) {
-        if remaining.is_zero() {
-            break;
-        }
-        let record = state
-            .inventory()
-            .get_lot(lot)
-            .unwrap_or_else(|| panic!("first foundry {context} lot disappeared"));
-        if record.commodity() != commodity {
-            continue;
-        }
-        let selected =
-            Mass::from_milligrams(record.mass().milligrams().min(remaining.milligrams()));
-        if selected.is_zero() {
-            continue;
-        }
-        selections.push(MaterialLotSelection::new(lot, selected));
-        remaining = remaining
-            .checked_sub(selected)
-            .unwrap_or_else(|| unreachable!("selected commodity mass is bounded by demand"));
-    }
-    assert!(
-        remaining.is_zero(),
-        "first foundry {context} is missing {}mg of commodity {}",
-        remaining.milligrams(),
-        commodity.value(),
-    );
-    selections
+) -> Vec<deep_hearth::inventory::MaterialLotSelection> {
+    select_stockpile_commodity_mass(state, stockpile, commodity, mass, context)
 }
 
 fn foundry_component_requirements(registries: &Registries) -> BTreeMap<CommodityKey, Mass> {

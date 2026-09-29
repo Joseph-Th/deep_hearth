@@ -2617,8 +2617,8 @@ unknown_macro!();
             "PROGRESSION EXPERIENCE seed=0x1 local-copper-sequence=pick-first selected-reinvestment=[completed]",
             "PROGRESSION EXPERIENCE seed=0x2 local-copper-sequence=crank-first selected-reinvestment=[blocked:known-target-supply]",
             "PROGRESSION EXPERIENCE seed=0x3 local-copper-sequence=pick-first selected-reinvestment=[blocked:crushed-storage available:10mg requires-more-than:20mg]",
-            "PROGRESSION GOAL seed=0x1 immediate=264t delayed=747t chosen=immediate",
-            "PROGRESSION GOAL seed=0x2 immediate=267t delayed=blocked:target-supply chosen=immediate",
+            "PROGRESSION GOAL seed=0x1 immediate=264t delayed=747t buffered-feed=20mg@400000ppm future-feed=600000ppm chosen=immediate",
+            "PROGRESSION GOAL seed=0x2 immediate=267t delayed=blocked:target-supply buffered-feed=10mg@700000ppm future-feed=500000ppm chosen=immediate",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
         self.assertIn(
@@ -2627,6 +2627,10 @@ unknown_macro!();
         )
         self.assertIn(
             "reinvestment-timing=[selected-immediate:2/0 stockpile-first-counterfactual:1/1 delay-avoided:483..483t]",
+            summary,
+        )
+        self.assertIn(
+            "feed-adaptation=[same:0 upshift:1 downshift:1 buffered:400000..700000ppm future:500000..600000ppm]",
             summary,
         )
 

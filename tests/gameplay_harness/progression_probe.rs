@@ -13,7 +13,7 @@ use super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
 use super::manual_power_timing::finish_manual_power_work;
-use super::material_selection::select_stockpile_mass;
+use super::material_selection::observable_material_cohorts;
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
@@ -53,6 +53,7 @@ use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceConsistency, assess_geological_knowledge,
     validate_start_field_prospecting,
 };
+use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::labor::{
     ManualPowerError, ManualPowerRequest, ProspectingMethodId, project_manual_power,
     project_prospecting_work, validate_start_manual_power,
@@ -617,6 +618,8 @@ pub(super) enum PrimitiveReinvestmentOutcome {
 pub(super) struct PrimitiveReinvestmentExperience {
     pub(crate) elapsed_ticks: u64,
     pub(crate) stockpile_demand_executed: bool,
+    pub(crate) stockpile_feed_copper_ppm: u32,
+    pub(crate) future_feed_copper_ppm: u32,
     pub(crate) stockpile_before_demand: Mass,
     pub(crate) stockpile_after_demand: Mass,
     pub(crate) stockpile_demand_feed: Mass,

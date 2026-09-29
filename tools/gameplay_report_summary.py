@@ -39,6 +39,7 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
 _ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
         "first-copper",
+        "feed-adaptation",
         "processing-crossover",
         "disclosed-order-attention",
         "parallel-work",

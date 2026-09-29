@@ -121,6 +121,30 @@ fn verify_sizing_plate_continuation(
     duration(started_at, continuation.tick().value())
 }
 
+fn best_owned_reinvestment_feed(
+    registries: &Registries,
+    state: &AppState,
+    crushed_storage: deep_hearth::inventory::StockpileId,
+    reinforcement_mass: Mass,
+) -> Option<(u32, Mass)> {
+    let separation = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("primitive reinvestment separator process disappeared"));
+    let mut grades = std::collections::BTreeSet::new();
+    for lot_id in state.inventory().lot_ids(crushed_storage) {
+        let lot = state.inventory().get_lot(lot_id)?;
+        grades.insert(lot.composition().parts_per_million(MATERIAL_COPPER));
+    }
+    grades.into_iter().rev().find_map(|grade| {
+        let available = observed_copper_grade_mass(state, crushed_storage, grade);
+        let feed_mass = separation
+            .minimum_homogeneous_feed_mass_for_target_recovery(reinforcement_mass, grade)?;
+        let two_recoveries = multiply_mass(feed_mass, 2, "reinvestment owned crushed feed");
+        (available >= two_recoveries).then_some((grade, feed_mass))
+    })
+}
+
 fn run_reinvestment_separation(
     registries: &Registries,
     state: &mut AppState,
@@ -133,6 +157,7 @@ fn run_reinvestment_separation(
         residue_storage,
         machine,
         feed_mass,
+        feed_copper_ppm,
         expected_target: _,
     } = plan;
     let definition = registries
@@ -142,7 +167,8 @@ fn run_reinvestment_separation(
     let required_energy = calculate_mass_specific_energy(feed_mass, definition.specific_energy());
     let charge_ticks = fill_primitive_accumulator(registries, state, machine, required_energy)
         .unwrap_or_else(|error| panic!("primitive reinvestment {context} charge failed: {error}"));
-    let selections = select_stockpile_mass(state, crushed_storage, feed_mass, context);
+    let selections =
+        select_observed_copper_grade(state, crushed_storage, feed_mass, feed_copper_ppm, context);
     let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
     let target_before = state
         .inventory()
@@ -218,7 +244,10 @@ struct ReinvestmentCapacityEnvelope {
     desired_expanded_batch: CrushingBatch,
 }
 
-fn reinvestment_capacity_envelope(registries: &Registries) -> ReinvestmentCapacityEnvelope {
+fn reinvestment_capacity_envelope(
+    registries: &Registries,
+    feed_copper_ppm: u32,
+) -> ReinvestmentCapacityEnvelope {
     let base_drive = registries
         .energy()
         .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
@@ -268,6 +297,7 @@ fn reinvestment_capacity_envelope(registries: &Registries) -> ReinvestmentCapaci
         desired_expanded_batch: CrushingBatch {
             mass: crush_mass_for_exact_energy(registries, desired_energy),
             expected_energy: desired_energy,
+            copper_ppm: feed_copper_ppm,
         },
     }
 }
@@ -310,14 +340,10 @@ fn ensure_reinvestment_ore(
     mining_target: MiningTargetRequest,
     ore_storage: deep_hearth::inventory::StockpileId,
     pick: deep_hearth::equipment::EquipmentId,
+    feed_copper_ppm: u32,
     required: Mass,
 ) -> Result<u64, AutonomousWorkStop> {
-    let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
-    let available = state
-        .inventory()
-        .get_stockpile(ore_storage)
-        .map(|stockpile| stockpile.get_mass(ore))
-        .unwrap_or_else(|| panic!("primitive reinvestment ore stockpile disappeared"));
+    let available = observed_copper_grade_mass(state, ore_storage, feed_copper_ppm);
     if available >= required {
         return Ok(0);
     }
@@ -333,11 +359,7 @@ fn ensure_reinvestment_ore(
         shortfall,
         reinforced_pick_mining_batch_limit(registries),
     )?;
-    let after = state
-        .inventory()
-        .get_stockpile(ore_storage)
-        .map(|stockpile| stockpile.get_mass(ore))
-        .unwrap_or_else(|| panic!("primitive reinvestment ore stockpile disappeared after mining"));
+    let after = observed_copper_grade_mass(state, ore_storage, feed_copper_ppm);
     assert!(
         after >= required,
         "reinvestment mining must cover only the observed ore shortfall"
@@ -351,6 +373,7 @@ fn require_reinvestment_ore(
     mining_target: MiningTargetRequest,
     ore_storage: deep_hearth::inventory::StockpileId,
     pick: deep_hearth::equipment::EquipmentId,
+    feed_copper_ppm: u32,
     required: Mass,
     context: &'static str,
 ) -> Result<(), ReinvestmentBlocker> {
@@ -360,6 +383,7 @@ fn require_reinvestment_ore(
         mining_target,
         ore_storage,
         pick,
+        feed_copper_ppm,
         required,
     ) {
         Ok(_) => Ok(()),
@@ -427,6 +451,7 @@ fn decide_expanded_batch(
     ExpandedBatchDecision::Ready(CrushingBatch {
         mass,
         expected_energy,
+        copper_ppm: envelope.desired_expanded_batch.copper_ppm,
     })
 }
 
@@ -464,7 +489,7 @@ fn try_run_mature_reinvestment(
         pick,
         mining_target,
         primary_batch_mass,
-        separation_feed_mass,
+        feed_copper_ppm,
         reinforcement_mass,
     } = plan;
     let started_at = state.tick().value();
@@ -477,7 +502,28 @@ fn try_run_mature_reinvestment(
     // evidence no longer resolves a live target, the actor has already observed that this local
     // supply opportunity ended and must not advertise further investment against hidden reserve.
     require_current_reinvestment_target(state, mining_target)?;
-    let capacity_envelope = reinvestment_capacity_envelope(registries);
+    let (stockpile_feed_copper_ppm, stockpile_separation_feed_mass) =
+        best_owned_reinvestment_feed(
+            registries,
+            state,
+            crushed_storage,
+            reinforcement_mass,
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "primitive reinvestment reached its upgrade decision without enough homogeneous owned crushed feed for the first two recoveries"
+            )
+        });
+    let separation = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("primitive reinvestment separator process disappeared"));
+    let future_separation_feed_mass = separation
+        .minimum_homogeneous_feed_mass_for_target_recovery(reinforcement_mass, feed_copper_ppm)
+        .unwrap_or_else(|| {
+            panic!("selected future reinvestment feed cannot recover one reinforcement")
+        });
+    let capacity_envelope = reinvestment_capacity_envelope(registries, feed_copper_ppm);
     let base_drive_capacity = capacity_envelope.base_drive;
     let upgraded_drive_capacity = capacity_envelope.upgraded_drive;
     let base_separator_batch_capacity = capacity_envelope.base_separator_batch;
@@ -488,6 +534,7 @@ fn try_run_mature_reinvestment(
         mining_target,
         ore_storage,
         pick,
+        feed_copper_ppm,
         primary_batch_mass,
         "baseline",
     )?;
@@ -511,19 +558,20 @@ fn try_run_mature_reinvestment(
         machine,
         primary_batch_mass,
         primary_energy,
+        feed_copper_ppm,
         "base crusher comparison",
     );
 
     // These first two upgrade parcels consume the owned stockpile before this branch
     // executes any new crushing. Keep that actual demand separate from later comparison batches.
-    let remaining_primary_crushed = state
-        .inventory()
-        .get_stockpile(crushed_storage)
-        .map(|stockpile| stockpile.stored_mass())
-        .unwrap_or_else(|| panic!("primitive reinvestment crushed stockpile disappeared"));
+    let remaining_primary_crushed =
+        observed_copper_grade_mass(state, crushed_storage, stockpile_feed_copper_ppm);
     assert!(
-        multiply_mass(separation_feed_mass, 2, "reinvestment separation feed")
-            <= remaining_primary_crushed,
+        multiply_mass(
+            stockpile_separation_feed_mass,
+            2,
+            "reinvestment separation feed"
+        ) <= remaining_primary_crushed,
         "primary crushed output must retain enough same-feed material for two later reinvestments"
     );
     let first_recovery = separate_native_copper(
@@ -534,7 +582,8 @@ fn try_run_mature_reinvestment(
             native_storage,
             residue_storage,
             machine,
-            feed_mass: separation_feed_mass,
+            feed_mass: stockpile_separation_feed_mass,
+            feed_copper_ppm: stockpile_feed_copper_ppm,
             expected_target: reinforcement_mass,
         },
     );
@@ -587,7 +636,8 @@ fn try_run_mature_reinvestment(
             native_storage,
             residue_storage,
             machine,
-            feed_mass: separation_feed_mass,
+            feed_mass: stockpile_separation_feed_mass,
+            feed_copper_ppm: stockpile_feed_copper_ppm,
             expected_target: reinforcement_mass,
         },
     );
@@ -602,11 +652,8 @@ fn try_run_mature_reinvestment(
             .unwrap_or_else(|| panic!("primitive reinvestment reinforcement mass overflowed"))
     );
 
-    let stockpile_after_demand = state
-        .inventory()
-        .get_stockpile(crushed_storage)
-        .unwrap_or_else(|| panic!("primitive reinvestment stockpile disappeared after demand"))
-        .stored_mass();
+    let stockpile_after_demand =
+        observed_copper_grade_mass(state, crushed_storage, stockpile_feed_copper_ppm);
     let stockpile_demand_feed = first_recovery
         .feed_mass
         .checked_add(second_recovery.feed_mass)
@@ -642,6 +689,7 @@ fn try_run_mature_reinvestment(
             machine,
             mass: primary_batch_mass,
             expected_energy: primary_energy,
+            feed_copper_ppm,
             context: "reinforced crusher comparison",
         },
     );
@@ -663,7 +711,8 @@ fn try_run_mature_reinvestment(
             native_storage,
             residue_storage,
             machine,
-            feed_mass: separation_feed_mass,
+            feed_mass: future_separation_feed_mass,
+            feed_copper_ppm,
             expected_target: reinforcement_mass,
         },
         "separator-upgrade copper recovery",
@@ -712,7 +761,8 @@ fn try_run_mature_reinvestment(
         native_storage,
         residue_storage,
         machine,
-        feed_mass: separation_feed_mass,
+        feed_mass: future_separation_feed_mass,
+        feed_copper_ppm,
         expected_target: reinforcement_mass,
     };
     let base_separator_work = run_reinvestment_separation(
@@ -792,6 +842,7 @@ fn try_run_mature_reinvestment(
                 mining_target,
                 ore_storage,
                 pick,
+                feed_copper_ppm,
                 drain_mass,
                 "residual-work",
             )?;
@@ -822,6 +873,7 @@ fn try_run_mature_reinvestment(
                     machine,
                     mass: drain_mass,
                     expected_energy: drain_energy,
+                    feed_copper_ppm,
                     context: "useful stored-work drain before flywheel upgrade",
                 },
             );
@@ -918,6 +970,7 @@ fn try_run_mature_reinvestment(
         mining_target,
         ore_storage,
         pick,
+        feed_copper_ppm,
         expanded_batch_mass,
         "expanded-batch",
     )?;
@@ -932,6 +985,7 @@ fn try_run_mature_reinvestment(
             machine,
             mass: expanded_batch_mass,
             expected_energy: expanded_batch_energy,
+            feed_copper_ppm,
             context: "expanded flywheel-funded crusher batch",
         },
     );
@@ -953,6 +1007,7 @@ fn try_run_mature_reinvestment(
             residue_storage,
             machine,
             feed_mass: expanded_batch_mass,
+            feed_copper_ppm,
             expected_target: Mass::ZERO,
         },
         "expanded reinforced-separator batch",
@@ -983,6 +1038,8 @@ fn try_run_mature_reinvestment(
     Ok(PrimitiveReinvestmentExperience {
         elapsed_ticks: duration(started_at, state.tick().value()),
         stockpile_demand_executed: true,
+        stockpile_feed_copper_ppm,
+        future_feed_copper_ppm: feed_copper_ppm,
         stockpile_before_demand: remaining_primary_crushed,
         stockpile_after_demand,
         stockpile_demand_feed,

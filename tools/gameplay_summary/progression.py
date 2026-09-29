@@ -43,6 +43,31 @@ def _continuation_summary(lines: list[str]) -> str:
     )
 
 
+def _feed_adaptation_evidence(lines: list[str]) -> str:
+    pairs: list[tuple[int, int]] = []
+    for line in lines:
+        if not line.startswith("PROGRESSION GOAL "):
+            continue
+        match = re.search(
+            r"\bbuffered-feed=\d+mg@(\d+)ppm future-feed=(\d+)ppm",
+            line,
+        )
+        if match is not None:
+            pairs.append((int(match.group(1)), int(match.group(2))))
+    if not pairs:
+        return ""
+    buffered = [current for current, _future in pairs]
+    future = [future for _current, future in pairs]
+    return (
+        "feed-adaptation=["
+        f"same:{sum(current == next_grade for current, next_grade in pairs)} "
+        f"upshift:{sum(next_grade > current for current, next_grade in pairs)} "
+        f"downshift:{sum(next_grade < current for current, next_grade in pairs)} "
+        f"buffered:{_span(buffered, unit='ppm')} "
+        f"future:{_span(future, unit='ppm')}]"
+    )
+
+
 def _stockpiling_evidence(progression: list[str]) -> tuple[str, str]:
     def values(pattern: str) -> list[int]:
         return [
@@ -291,6 +316,7 @@ def progression_summary(lines: list[str]) -> str | None:
     organic_progression = organic_only(progression)
     hard_span, stockpiling = _stockpiling_evidence(progression)
     frozen_choices, preaction, disclosed_order = _investment_evidence(lines, progression)
+    feed_adaptation = _feed_adaptation_evidence(lines)
     processing_recovery, processing_crossover, bridge_body = _bridge_tradeoff_evidence(
         lines,
         progression,
@@ -301,6 +327,7 @@ def progression_summary(lines: list[str]) -> str | None:
         f"samples={len(progression)} sample-shape=[{sample_shape(progression)}] "
         f"first-copper=[pick:{sum('local-copper-sequence=pick-first' in line for line in progression)} "
         f"crank:{sum('local-copper-sequence=crank-first' in line for line in progression)}] "
+        f"{feed_adaptation + ' ' if feed_adaptation else ''}"
         f"organic-first-copper=[pick:{sum('local-copper-sequence=pick-first' in line for line in organic_progression)} "
         f"crank:{sum('local-copper-sequence=crank-first' in line for line in organic_progression)}] "
         f"scarcity-bridge=[direct-second-blocked:{sum('direct-second-upgrade-blocked:true' in line for line in progression)} "

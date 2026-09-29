@@ -432,6 +432,7 @@ pub(super) fn run_primitive_progression_case(
                 CrushingBatch {
                     mass: mined_mass,
                     expected_energy: machine.required_energy,
+                    copper_ppm: selected_processing_feed_copper_ppm,
                 },
                 ConcurrentMiningPlan {
                     target: bulk_ore_clue.request,
@@ -496,6 +497,7 @@ pub(super) fn run_primitive_progression_case(
                 CrushingBatch {
                     mass: mined_mass,
                     expected_energy: machine.required_energy,
+                    copper_ppm: bulk_sample.copper_ppm,
                 },
                 ConcurrentMiningPlan {
                     target: bulk_ore_clue.request,
@@ -554,6 +556,7 @@ pub(super) fn run_primitive_progression_case(
             residue_storage: separation_residue_storage,
             machine,
             feed_mass: selected_separation_feed_mass,
+            feed_copper_ppm: selected_processing_feed_copper_ppm,
             expected_target: crank_upgrade_native,
         },
     );
@@ -644,11 +647,16 @@ pub(super) fn run_primitive_progression_case(
     let hard_sample_copper_ppm = hard_sample_copper_ppm
         .unwrap_or_else(|| panic!("primitive progression never observed its accessible hard seam"));
     let post_convergence_mining_target_is_hard = hard_sample_copper_ppm > bulk_sample.copper_ppm;
-    let post_convergence_mining_target = if post_convergence_mining_target_is_hard {
-        hard_clue.request
-    } else {
-        bulk_ore_clue.request
-    };
+    let (post_convergence_mining_target, post_convergence_feed_copper_ppm) =
+        if post_convergence_mining_target_is_hard {
+            (hard_clue.request, hard_sample_copper_ppm)
+        } else {
+            (bulk_ore_clue.request, bulk_sample.copper_ppm)
+        };
+    let reserve_feed_copper_ppm =
+        best_owned_copper_grade_for_mass(&state, ore_storage, machine.reserve_mass).unwrap_or_else(
+            || panic!("primitive reserve crushing has no homogeneous owned feed batch"),
+        );
     let banked_energy = state
         .energy()
         .get_store(machine.drive)
@@ -699,6 +707,7 @@ pub(super) fn run_primitive_progression_case(
         CrushingBatch {
             mass: machine.reserve_mass,
             expected_energy: planned_reserve_energy,
+            copper_ppm: reserve_feed_copper_ppm,
         },
         ConcurrentMiningPlan {
             target: post_convergence_mining_target,
@@ -750,10 +759,12 @@ pub(super) fn run_primitive_progression_case(
         pick,
         mining_target: post_convergence_mining_target,
         primary_batch_mass: mined_mass,
-        separation_feed_mass: selected_separation_feed_mass,
+        feed_copper_ppm: post_convergence_feed_copper_ppm,
         reinforcement_mass: crank_upgrade_native,
     };
-    // Freeze the authored three-upgrade goal and observed feed sizing before either continuation runs.
+    // Freeze the authored three-upgrade goal and refreshed post-convergence mining choice before
+    // either continuation runs. Each branch still chooses upgrade feed from the crushed matter it
+    // actually owns at that decision state.
     let mut stockpiling_state = state.clone();
     let reinvestment = run_mature_reinvestment(registries, &mut state, reinvestment_plan);
     let selected_survival = assess_survival(registries, &state)

@@ -249,6 +249,16 @@ pub(super) fn run_steady_state_crushing(
             .charge_ticks
             .checked_add(charge_ticks)
             .unwrap_or_else(|| panic!("primitive steady-state charge duration overflowed"));
+        let feed_copper_ppm = best_owned_copper_grade_for_mass(
+            state,
+            ore_storage,
+            concurrent.mass,
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "primitive steady-state crushing has enough aggregate feed but no observable homogeneous grade for one batch"
+            )
+        });
         let work = match crush_while_mining(
             registries,
             state,
@@ -258,6 +268,7 @@ pub(super) fn run_steady_state_crushing(
             CrushingBatch {
                 mass: concurrent.mass,
                 expected_energy: machine.required_energy,
+                copper_ppm: feed_copper_ppm,
             },
             concurrent,
         ) {
@@ -353,6 +364,95 @@ pub(super) fn run_steady_state_crushing(
     totals
 }
 
+pub(super) fn best_owned_copper_grade_for_mass(
+    state: &AppState,
+    stockpile: deep_hearth::inventory::StockpileId,
+    mass: Mass,
+) -> Option<u32> {
+    let mut by_grade = std::collections::BTreeMap::<u32, (usize, Mass)>::new();
+    for cohort in observable_material_cohorts(state, stockpile) {
+        let grade = cohort
+            .profile()
+            .composition()
+            .parts_per_million(MATERIAL_COPPER);
+        let entry = by_grade.entry(grade).or_insert((0, Mass::ZERO));
+        entry.0 += 1;
+        entry.1 = entry
+            .1
+            .checked_add(cohort.mass())
+            .unwrap_or_else(|| panic!("primitive progression grade inventory overflowed"));
+    }
+    by_grade.into_iter().rev().find_map(|(grade, (cohorts, available))| {
+        assert_eq!(
+            cohorts, 1,
+            "primitive progression observed copper grade {grade}ppm spans multiple physical cohorts; actor policy must choose one explicitly"
+        );
+        (available >= mass).then_some(grade)
+    })
+}
+
+pub(super) fn observed_copper_grade_mass(
+    state: &AppState,
+    stockpile: deep_hearth::inventory::StockpileId,
+    copper_ppm: u32,
+) -> Mass {
+    let cohorts = observable_material_cohorts(state, stockpile)
+        .into_iter()
+        .filter(|cohort| {
+            cohort
+                .profile()
+                .composition()
+                .parts_per_million(MATERIAL_COPPER)
+                == copper_ppm
+        })
+        .collect::<Vec<_>>();
+    match cohorts.as_slice() {
+        [] => Mass::ZERO,
+        [cohort] => cohort.mass(),
+        _ => panic!(
+            "primitive progression observed copper grade {copper_ppm}ppm spans {} physical cohorts; actor policy must choose one explicitly",
+            cohorts.len()
+        ),
+    }
+}
+
+pub(super) fn select_observed_copper_grade(
+    state: &AppState,
+    stockpile: deep_hearth::inventory::StockpileId,
+    mass: Mass,
+    copper_ppm: u32,
+    context: &'static str,
+) -> Vec<MaterialLotSelection> {
+    assert!(
+        !mass.is_zero(),
+        "primitive progression {context} requires positive feed mass"
+    );
+    let cohorts = observable_material_cohorts(state, stockpile)
+        .into_iter()
+        .filter(|cohort| {
+            cohort
+                .profile()
+                .composition()
+                .parts_per_million(MATERIAL_COPPER)
+                == copper_ppm
+        })
+        .collect::<Vec<_>>();
+    let [cohort] = cohorts.as_slice() else {
+        panic!(
+            "primitive progression {context} observed copper grade {copper_ppm}ppm maps to {} physical cohorts; actor policy must choose one explicitly",
+            cohorts.len()
+        );
+    };
+    assert!(
+        cohort.mass() >= mass,
+        "primitive progression {context} needs {}mg at observed copper grade {}ppm but only {}mg is owned",
+        mass.milligrams(),
+        copper_ppm,
+        cohort.mass().milligrams(),
+    );
+    cohort.select_mass(state, mass, context)
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct ConcurrentMachineWork {
     pub(super) job: ProductionJobId,
@@ -435,6 +535,7 @@ pub(super) struct PrimitiveSeparationPlan {
     pub(super) residue_storage: deep_hearth::inventory::StockpileId,
     pub(super) machine: PrimitiveMachine,
     pub(super) feed_mass: Mass,
+    pub(super) feed_copper_ppm: u32,
     pub(super) expected_target: Mass,
 }
 
@@ -449,6 +550,7 @@ pub(super) fn separate_native_copper(
         residue_storage,
         machine,
         feed_mass,
+        feed_copper_ppm,
         expected_target,
     } = plan;
     let charge_ticks = fill_primitive_accumulator(
@@ -458,10 +560,11 @@ pub(super) fn separate_native_copper(
         machine.separation_required_energy,
     )
     .unwrap_or_else(|error| panic!("primitive separation recharge failed: {error}"));
-    let selections = select_stockpile_mass(
+    let selections = select_observed_copper_grade(
         state,
         crushed_storage,
         feed_mass,
+        feed_copper_ppm,
         "primitive separation feed",
     );
     let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
@@ -543,7 +646,7 @@ pub(super) struct MatureReinvestmentPlan {
     pub(super) pick: deep_hearth::equipment::EquipmentId,
     pub(super) mining_target: MiningTargetRequest,
     pub(super) primary_batch_mass: Mass,
-    pub(super) separation_feed_mass: Mass,
+    pub(super) feed_copper_ppm: u32,
     pub(super) reinforcement_mass: Mass,
 }
 
@@ -568,9 +671,10 @@ pub(super) fn resolve_crush_ticks(
     machine: PrimitiveMachine,
     mass: Mass,
     expected_energy: Energy,
+    feed_copper_ppm: u32,
     context: &'static str,
 ) -> u64 {
-    let selection = select_stockpile_mass(state, source, mass, context);
+    let selection = select_observed_copper_grade(state, source, mass, feed_copper_ppm, context);
     let resolved = resolve_comminution_process(
         registries,
         state,
@@ -594,6 +698,7 @@ pub(super) struct UninterruptedCrushPlan {
     pub(super) machine: PrimitiveMachine,
     pub(super) mass: Mass,
     pub(super) expected_energy: Energy,
+    pub(super) feed_copper_ppm: u32,
     pub(super) context: &'static str,
 }
 
@@ -608,9 +713,10 @@ pub(super) fn run_uninterrupted_crush(
         machine,
         mass,
         expected_energy,
+        feed_copper_ppm,
         context,
     } = plan;
-    let selection = select_stockpile_mass(state, source, mass, context);
+    let selection = select_observed_copper_grade(state, source, mass, feed_copper_ppm, context);
     let resolved = resolve_comminution_process(
         registries,
         state,
@@ -672,6 +778,7 @@ pub(super) fn charge_exact_reinvestment_energy(
 pub(super) struct CrushingBatch {
     pub(super) mass: Mass,
     pub(super) expected_energy: Energy,
+    pub(super) copper_ppm: u32,
 }
 
 pub(super) fn crush_while_mining(
@@ -686,9 +793,16 @@ pub(super) fn crush_while_mining(
     let CrushingBatch {
         mass: crush_mass,
         expected_energy,
+        copper_ppm,
     } = batch;
     let machine_started_at = state.tick().value();
-    let selection = select_stockpile_mass(state, ore_storage, crush_mass, "primitive crusher feed");
+    let selection = select_observed_copper_grade(
+        state,
+        ore_storage,
+        crush_mass,
+        copper_ppm,
+        "primitive crusher feed",
+    );
     let resolved = resolve_comminution_process(
         registries,
         state,
@@ -700,6 +814,17 @@ pub(super) fn crush_while_mining(
             machine.drive,
         ),
     )?;
+    let output_stream = resolved
+        .process_resolution()
+        .single_output_stream()
+        .unwrap_or_else(|| panic!("primitive crusher resolution lost its single output stream"));
+    assert!(
+        output_stream.outputs().iter().all(|output| {
+            output.composition().parts_per_million(MATERIAL_COPPER) == copper_ppm
+        }),
+        "primitive crusher resolver must preserve the actor-selected {}ppm feed grade",
+        copper_ppm,
+    );
     assert_eq!(resolved.required_energy(), expected_energy);
     let crush_ticks = resolved.process_resolution().duration().value();
     let crush_job = validate_start_process(

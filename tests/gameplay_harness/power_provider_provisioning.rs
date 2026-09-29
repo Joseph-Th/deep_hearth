@@ -15,10 +15,10 @@ use deep_hearth::inventory::{
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::{
-    DrinkHydrationProjectionError, DrinkStoreToTargetError, MealMetabolicProjectionError,
-    SurvivalExertion, assess_survival, project_minimum_meal_to_metabolic_target,
-    project_survival_resource_budget, validate_drink, validate_drink_store_to_hydration_target,
-    validate_eat, validate_eat_lot_to_metabolic_target,
+    DrinkHydrationProjectionError, DrinkStoreToTargetError, FoodFreshness,
+    MealMetabolicProjectionError, SurvivalExertion, assess_food_freshness, assess_survival,
+    project_minimum_meal_to_metabolic_target, project_survival_resource_budget, validate_drink,
+    validate_drink_store_to_hydration_target, validate_eat, validate_eat_lot_to_metabolic_target,
 };
 
 use super::super::direct_consumption_timing::finish_direct_consumption_work;
@@ -217,17 +217,26 @@ impl ProvisioningOutcome {
     }
 }
 
-fn grain_lot(state: &AppState, stockpile: StockpileId) -> MaterialLotId {
+fn grain_lot(registries: &Registries, state: &AppState, stockpile: StockpileId) -> MaterialLotId {
     let grain = CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD);
     state
         .inventory()
         .lot_ids(stockpile)
-        .find(|lot| {
-            state
-                .inventory()
-                .get_lot(*lot)
-                .is_some_and(|record| record.commodity() == grain)
+        .filter_map(|lot| {
+            let record = state.inventory().get_lot(lot)?;
+            if record.commodity() != grain {
+                return None;
+            }
+            let remaining = match assess_food_freshness(registries, state, lot)
+                .unwrap_or_else(|error| panic!("power project grain freshness failed: {error:?}"))
+            {
+                FoodFreshness::Fresh { remaining, .. } => remaining,
+                FoodFreshness::Spoiled { .. } => return None,
+            };
+            Some((remaining.value(), lot))
         })
+        .min_by_key(|(remaining, lot)| (*remaining, *lot))
+        .map(|(_, lot)| lot)
         .unwrap_or_else(|| {
             let remaining = state
                 .inventory()
@@ -426,7 +435,7 @@ pub(super) fn provision_for_project_leg(
                 break;
             }
         }
-        let lot = grain_lot(state, provisions.food);
+        let lot = grain_lot(registries, state, provisions.food);
         let before_meal = assess_survival(registries, state)
             .unwrap_or_else(|| panic!("power project {context} lost player before eating"));
         let validated = if meal_plan.reaches_target {

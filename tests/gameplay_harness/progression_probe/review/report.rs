@@ -157,8 +157,10 @@ fn concise_reinvestment_summary(outcome: &PrimitiveReinvestmentOutcome) -> Strin
 fn stockpile_demand_summary(outcome: &PrimitiveReinvestmentOutcome) -> String {
     match outcome {
         PrimitiveReinvestmentOutcome::Completed(work) => format!(
-            "executed:{} basis:post-order-reinvestment-counterfactual purpose:upgrade-copper feed:{}mg stockpile:{}->{}mg recovered:{}mg separation:{}t charge:{}t process-energy:{}nJ scope:first-two-recoveries-before-new-crushing",
+            "executed:{} basis:post-order-reinvestment-counterfactual purpose:upgrade-copper owned-grade:{}ppm future-grade:{}ppm feed:{}mg stockpile:{}->{}mg recovered:{}mg separation:{}t charge:{}t process-energy:{}nJ scope:first-two-recoveries-before-new-crushing",
             work.stockpile_demand_executed,
+            work.stockpile_feed_copper_ppm,
+            work.future_feed_copper_ppm,
             work.stockpile_demand_feed.milligrams(),
             work.stockpile_before_demand.milligrams(),
             work.stockpile_after_demand.milligrams(),
@@ -450,11 +452,13 @@ pub(super) fn report_primitive_progression_review(
             }
         };
         reviewln!(
-            "PROGRESSION GOAL seed=0x{seed:016X} basis=matched-start-completion-cost goal=three-machine-upgrades+expanded-batch immediate={}t ({}) delayed={} buffered-feed={}mg consumed-before-new-crushing={}mg invested-copper={}mg stockpiling-delay={}t terminal-reserves=unequal chosen=immediate execution=primary-state selected-maintenance=none comparison=stockpiling-plus-forced-service read=use-existing-feed-before-speculative-stockpiling",
+            "PROGRESSION GOAL seed=0x{seed:016X} basis=matched-start-completion-cost goal=three-machine-upgrades+expanded-batch immediate={}t ({}) delayed={} buffered-feed={}mg@{}ppm future-feed={}ppm consumed-before-new-crushing={}mg invested-copper={}mg stockpiling-delay={}t terminal-reserves=unequal chosen=immediate execution=primary-state selected-maintenance=none comparison=stockpiling-plus-forced-service read=use-existing-feed-before-speculative-stockpiling",
             immediate.elapsed_ticks,
             format_physical_duration(registries, immediate.elapsed_ticks),
             delayed_ticks,
             immediate.stockpile_before_demand.milligrams(),
+            immediate.stockpile_feed_copper_ppm,
+            immediate.future_feed_copper_ppm,
             immediate.stockpile_demand_feed.milligrams(),
             immediate.invested_copper_mass.milligrams(),
             review.stockpiling_delay_ticks,
