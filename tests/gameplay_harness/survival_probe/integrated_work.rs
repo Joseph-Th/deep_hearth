@@ -157,6 +157,10 @@ pub(super) fn evaluate_integrated_survival_work_loop(
     .unwrap_or_else(|error| {
         panic!("integrated survival follow-up prospecting bounds failed: {error}")
     });
+    let primary_copper_ppm = 450_000 + (mix64(seed ^ 0x494E_5445_4750_4355) % 300_001) as u32;
+    let primary_clay_share_ppm = 100_000 + (mix64(seed ^ 0x494E_5445_4750_434C) % 800_001) as u32;
+    let followup_copper_ppm = 450_000 + (mix64(seed ^ 0x494E_5445_4746_4355) % 300_001) as u32;
+    let followup_clay_share_ppm = 100_000 + (mix64(seed ^ 0x494E_5445_4746_434C) % 800_001) as u32;
     let opportunity_present = mix64(seed ^ 0x494E_5445_4752_4F50) & 1 == 0;
     if opportunity_present {
         seed_geological_deposit(
@@ -168,7 +172,10 @@ pub(super) fn evaluate_integrated_survival_work_loop(
                 Mass::from_milligrams(4_000_000),
                 ROOM_TEMPERATURE,
                 Pressure::from_pascals(350_000_000),
-                MaterialComposition::pure(MATERIAL_COPPER),
+                super::super::ore_fixture::copper_ore_composition(
+                    primary_copper_ppm,
+                    primary_clay_share_ppm,
+                ),
             ),
         );
         if mix64(seed ^ 0x494E_5445_4743_4F4E) & 1 == 0 {
@@ -181,7 +188,10 @@ pub(super) fn evaluate_integrated_survival_work_loop(
                     Mass::from_milligrams(8_000_000),
                     ROOM_TEMPERATURE,
                     Pressure::from_pascals(350_000_000),
-                    MaterialComposition::pure(MATERIAL_COPPER),
+                    super::super::ore_fixture::copper_ore_composition(
+                        followup_copper_ppm,
+                        followup_clay_share_ppm,
+                    ),
                 ),
             );
         }

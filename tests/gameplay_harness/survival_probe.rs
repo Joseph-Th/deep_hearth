@@ -27,7 +27,7 @@ use deep_hearth::labor::{
     ManualPowerRequest, PlayerWork, ProspectingMethodId, project_manual_power,
     project_prospecting_work, validate_start_manual_power,
 };
-use deep_hearth::material::{CommodityKey, MaterialComposition};
+use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;

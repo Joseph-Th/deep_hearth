@@ -20,6 +20,8 @@ mod focused_witnesses;
 mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
+#[path = "gameplay_harness/ore_fixture.rs"]
+mod ore_fixture;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/preservation_route.rs"]

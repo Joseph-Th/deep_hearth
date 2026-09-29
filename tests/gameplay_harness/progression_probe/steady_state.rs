@@ -1,5 +1,6 @@
 //! Steady-state overlap, separation, and autonomous processing support for primitive progression.
 
+use super::super::material_selection::ObservableMaterialCohort;
 use super::super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 use super::*;
 
@@ -369,26 +370,54 @@ pub(super) fn best_owned_copper_grade_for_mass(
     stockpile: deep_hearth::inventory::StockpileId,
     mass: Mass,
 ) -> Option<u32> {
-    let mut by_grade = std::collections::BTreeMap::<u32, (usize, Mass)>::new();
-    for cohort in observable_material_cohorts(state, stockpile) {
-        let grade = cohort
+    preferred_progression_feed_cohort(state, stockpile, None, mass).map(|cohort| {
+        cohort
             .profile()
             .composition()
-            .parts_per_million(MATERIAL_COPPER);
-        let entry = by_grade.entry(grade).or_insert((0, Mass::ZERO));
-        entry.0 += 1;
-        entry.1 = entry
-            .1
-            .checked_add(cohort.mass())
-            .unwrap_or_else(|| panic!("primitive progression grade inventory overflowed"));
-    }
-    by_grade.into_iter().rev().find_map(|(grade, (cohorts, available))| {
-        assert_eq!(
-            cohorts, 1,
-            "primitive progression observed copper grade {grade}ppm spans multiple physical cohorts; actor policy must choose one explicitly"
-        );
-        (available >= mass).then_some(grade)
+            .parts_per_million(MATERIAL_COPPER)
     })
+}
+
+fn compare_progression_feed_cohorts(
+    left: &ObservableMaterialCohort,
+    right: &ObservableMaterialCohort,
+) -> std::cmp::Ordering {
+    let left_grade = left
+        .profile()
+        .composition()
+        .parts_per_million(MATERIAL_COPPER);
+    let right_grade = right
+        .profile()
+        .composition()
+        .parts_per_million(MATERIAL_COPPER);
+    left_grade
+        .cmp(&right_grade)
+        .then_with(|| left.mass().cmp(&right.mass()))
+        // Canonical physical profile is only a deterministic tie-break after the downstream value
+        // modeled by this actor (grade and usable cohort mass) is equal. Stable lot identity never
+        // participates.
+        .then_with(|| right.profile().cmp(left.profile()))
+}
+
+fn preferred_progression_feed_cohort(
+    state: &AppState,
+    stockpile: deep_hearth::inventory::StockpileId,
+    copper_ppm: Option<u32>,
+    minimum_mass: Mass,
+) -> Option<ObservableMaterialCohort> {
+    observable_material_cohorts(state, stockpile)
+        .into_iter()
+        .filter(|cohort| {
+            cohort.mass() >= minimum_mass
+                && copper_ppm.is_none_or(|grade| {
+                    cohort
+                        .profile()
+                        .composition()
+                        .parts_per_million(MATERIAL_COPPER)
+                        == grade
+                })
+        })
+        .max_by(compare_progression_feed_cohorts)
 }
 
 pub(super) fn observed_copper_grade_mass(
@@ -396,7 +425,7 @@ pub(super) fn observed_copper_grade_mass(
     stockpile: deep_hearth::inventory::StockpileId,
     copper_ppm: u32,
 ) -> Mass {
-    let cohorts = observable_material_cohorts(state, stockpile)
+    observable_material_cohorts(state, stockpile)
         .into_iter()
         .filter(|cohort| {
             cohort
@@ -405,15 +434,9 @@ pub(super) fn observed_copper_grade_mass(
                 .parts_per_million(MATERIAL_COPPER)
                 == copper_ppm
         })
-        .collect::<Vec<_>>();
-    match cohorts.as_slice() {
-        [] => Mass::ZERO,
-        [cohort] => cohort.mass(),
-        _ => panic!(
-            "primitive progression observed copper grade {copper_ppm}ppm spans {} physical cohorts; actor policy must choose one explicitly",
-            cohorts.len()
-        ),
-    }
+        .map(|cohort| cohort.mass())
+        .max()
+        .unwrap_or(Mass::ZERO)
 }
 
 pub(super) fn select_observed_copper_grade(
@@ -427,29 +450,14 @@ pub(super) fn select_observed_copper_grade(
         !mass.is_zero(),
         "primitive progression {context} requires positive feed mass"
     );
-    let cohorts = observable_material_cohorts(state, stockpile)
-        .into_iter()
-        .filter(|cohort| {
-            cohort
-                .profile()
-                .composition()
-                .parts_per_million(MATERIAL_COPPER)
-                == copper_ppm
-        })
-        .collect::<Vec<_>>();
-    let [cohort] = cohorts.as_slice() else {
-        panic!(
-            "primitive progression {context} observed copper grade {copper_ppm}ppm maps to {} physical cohorts; actor policy must choose one explicitly",
-            cohorts.len()
-        );
-    };
-    assert!(
-        cohort.mass() >= mass,
-        "primitive progression {context} needs {}mg at observed copper grade {}ppm but only {}mg is owned",
-        mass.milligrams(),
-        copper_ppm,
-        cohort.mass().milligrams(),
-    );
+    let cohort = preferred_progression_feed_cohort(state, stockpile, Some(copper_ppm), mass)
+        .unwrap_or_else(|| {
+            panic!(
+                "primitive progression {context} needs one homogeneous {}mg cohort at observed copper grade {}ppm",
+                mass.milligrams(),
+                copper_ppm,
+            )
+        });
     cohort.select_mass(state, mass, context)
 }
 
@@ -484,34 +492,19 @@ pub(super) fn observe_material_sample(
     stockpile: deep_hearth::inventory::StockpileId,
     context: &'static str,
 ) -> ObservedMaterialSample {
-    let mut lots = state.inventory().lot_ids(stockpile);
-    let first = lots
-        .next()
-        .unwrap_or_else(|| panic!("primitive progression {context} has no extracted material"));
-    let first_record = state
-        .inventory()
-        .get_lot(first)
-        .unwrap_or_else(|| panic!("primitive progression {context} sample disappeared"));
-    let commodity = first_record.commodity();
-    let composition = first_record.composition();
-    for lot in lots {
-        let record = state.inventory().get_lot(lot).unwrap_or_else(|| {
-            panic!("primitive progression {context} sample fragment disappeared")
-        });
-        assert_eq!(
-            record.commodity(),
-            commodity,
-            "primitive progression {context} contains physically different commodities and is not one observable sample"
+    let cohorts = observable_material_cohorts(state, stockpile);
+    let [cohort] = cohorts.as_slice() else {
+        panic!(
+            "primitive progression {context} contains {} observable material cohorts and cannot be treated as one assay",
+            cohorts.len()
         );
-        assert_eq!(
-            record.composition(),
-            composition,
-            "primitive progression {context} contains compositionally different lots and cannot be treated as one assay"
-        );
-    }
+    };
     ObservedMaterialSample {
-        commodity,
-        copper_ppm: composition.parts_per_million(MATERIAL_COPPER),
+        commodity: cohort.profile().commodity(),
+        copper_ppm: cohort
+            .profile()
+            .composition()
+            .parts_per_million(MATERIAL_COPPER),
     }
 }
 
