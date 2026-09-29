@@ -110,9 +110,6 @@ pub(crate) fn add_energy_store_with_initial_for_fixture(
     allocate_energy_store(registries, state, definition, initial)
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
-))]
+#[cfg(test)]
 #[path = "fixture_execution_tests.rs"]
 mod tests;

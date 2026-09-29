@@ -265,9 +265,6 @@ pub fn validate_disassemble_energy_store(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
-))]
+#[cfg(test)]
 #[path = "disassembly_execution_tests.rs"]
 mod tests;

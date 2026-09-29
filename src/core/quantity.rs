@@ -442,9 +442,6 @@ impl Temperature {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-core")
-))]
+#[cfg(test)]
 #[path = "quantity_tests.rs"]
 mod tests;

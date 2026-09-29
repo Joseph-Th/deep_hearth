@@ -277,9 +277,6 @@ impl SimulationTick {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-core")
-))]
+#[cfg(test)]
 #[path = "time_tests.rs"]
 mod tests;

@@ -225,9 +225,6 @@ impl Display for CapabilityProfileError {
 
 impl Error for CapabilityProfileError {}
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-capability")
-))]
+#[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

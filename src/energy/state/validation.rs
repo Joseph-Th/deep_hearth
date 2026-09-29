@@ -289,9 +289,6 @@ fn validate_energy_store_identity(
     Ok(())
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
-))]
+#[cfg(test)]
 #[path = "validation_tests.rs"]
 mod tests;

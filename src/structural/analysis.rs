@@ -359,9 +359,6 @@ pub(crate) fn analyze_structure_components_with_overlay(
     cascade::analyze_structure_scoped(profiles, materials, state, &overlay, &scope)
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-structural")
-))]
+#[cfg(test)]
 #[path = "analysis_tests.rs"]
 mod tests;

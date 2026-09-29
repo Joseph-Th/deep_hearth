@@ -141,9 +141,6 @@ impl ValidatedStorageEnclosureDismantlingStart {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
-))]
+#[cfg(test)]
 #[path = "enclosure_dismantling_tests.rs"]
 mod tests;

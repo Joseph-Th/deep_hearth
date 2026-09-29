@@ -111,10 +111,7 @@ impl StructuralProfileDefinition {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-structural")
-))]
+#[cfg(test)]
 #[path = "definitions_tests.rs"]
 mod tests;
 

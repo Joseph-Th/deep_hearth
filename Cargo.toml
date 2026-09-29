@@ -64,18 +64,8 @@ path = "tests/gameplay_workshop.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
-name = "gameplay_workshop_contracts"
-path = "tests/gameplay_workshop_contracts.rs"
-required-features = ["test-gameplay"]
-
-[[test]]
 name = "gameplay_survival"
 path = "tests/gameplay_survival.rs"
-required-features = ["test-gameplay"]
-
-[[test]]
-name = "gameplay_survival_contracts"
-path = "tests/gameplay_survival_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
@@ -139,18 +129,8 @@ path = "tests/gameplay_ore.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
-name = "gameplay_ore_contracts"
-path = "tests/gameplay_ore_contracts.rs"
-required-features = ["test-gameplay"]
-
-[[test]]
 name = "gameplay_foundry"
 path = "tests/gameplay_foundry.rs"
-required-features = ["test-gameplay"]
-
-[[test]]
-name = "gameplay_foundry_contracts"
-path = "tests/gameplay_foundry_contracts.rs"
 required-features = ["test-gameplay"]
 
 [features]
@@ -158,33 +138,6 @@ default = []
 test-gameplay = []
 test-shader-validation = ["dep:naga"]
 test-soak = []
-test-unit-shard = []
-test-unit-capability = ["test-unit-shard"]
-test-unit-content = ["test-unit-shard"]
-test-unit-core = ["test-unit-shard"]
-test-unit-crafting = ["test-unit-shard"]
-test-unit-energy = ["test-unit-shard"]
-test-unit-equipment = ["test-unit-shard"]
-test-unit-fluid = ["test-unit-shard"]
-test-unit-geology = ["test-unit-shard"]
-test-unit-inventory = ["test-unit-shard"]
-test-unit-labor = ["test-unit-shard"]
-test-unit-logistics = ["test-unit-shard"]
-test-unit-maintenance = ["test-unit-shard"]
-test-unit-material = ["test-unit-shard"]
-test-unit-matter = ["test-unit-shard"]
-test-unit-mining = ["test-unit-shard"]
-test-unit-ore-processing = ["test-unit-shard"]
-test-unit-persistence = ["test-unit-shard"]
-test-unit-production = ["test-unit-shard"]
-test-unit-registry = ["test-unit-shard"]
-test-unit-shader = ["test-unit-shard"]
-test-unit-simulation = ["test-unit-shard"]
-test-unit-spatial = ["test-unit-shard"]
-test-unit-structural = ["test-unit-shard"]
-test-unit-survival = ["test-unit-shard"]
-test-unit-texture = ["test-unit-shard"]
-test-unit-thermal = ["test-unit-shard"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

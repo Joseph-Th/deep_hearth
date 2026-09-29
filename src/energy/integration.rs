@@ -218,9 +218,6 @@ pub(crate) fn integrate_power_or_saturate(
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
-))]
+#[cfg(test)]
 #[path = "integration_tests.rs"]
 mod tests;

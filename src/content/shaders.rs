@@ -173,9 +173,6 @@ pub(crate) fn build_shader_registry() -> ShaderRegistry {
     ])
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-content")
-))]
+#[cfg(test)]
 #[path = "shaders_tests.rs"]
 mod tests;

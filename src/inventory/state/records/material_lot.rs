@@ -234,10 +234,7 @@ impl MaterialLotProvenance {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
-))]
+#[cfg(test)]
 #[path = "material_lot_tests.rs"]
 mod tests;
 

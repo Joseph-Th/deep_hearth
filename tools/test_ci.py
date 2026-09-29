@@ -35,14 +35,10 @@ _maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
 
 DEDICATED_OWNER_CONTRACT_SCOPES = frozenset(
     {
-        "workshop",
-        "survival",
         "progression",
         "settlement",
         "woodworking",
         "fieldwork",
-        "ore",
-        "foundry",
     }
 )
 
@@ -1190,34 +1186,17 @@ unknown_macro!();
         self.assertIn("--profile test", cargo_config["alias"]["check-fast"])
         self.assertIn("--profile test", cargo_config["alias"]["lint-fast"])
 
-    def test_unit_test_modules_are_owner_sharded_without_changing_full_test_defaults(self) -> None:
+    def test_unit_tests_use_one_normal_library_cache_shape(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
-        declared = {
-            feature
-            for feature in manifest["features"]
-            if feature.startswith("test-unit-") and feature != "test-unit-shard"
-        }
-        sharded_module = re.compile(
-            r'#\[cfg\(all\(\s*test,\s*any\(\s*not\(feature = "test-unit-shard"\),\s*'
-            r'feature = "(?P<feature>test-unit-[^"]+)"\s*\)\s*\)\)\]\s*'
-            r'(?:#\[path = "[^"]+"\]\s*)?mod\s+[A-Za-z0-9_]+\s*;'
+        self.assertFalse(
+            any(feature.startswith("test-unit-") for feature in manifest["features"])
         )
-        support_module = re.compile(
-            r'#\[cfg\(test\)\]\s*(?:#\[path = "[^"]+"\]\s*)?'
-            r'mod\s+(?P<module>[A-Za-z0-9_]+)\s*;'
-        )
-        used: set[str] = set()
         support_roots: set[str] = set()
         for path in (ROOT / "src").rglob("*.rs"):
             source = read_maintained_text(path)
-            for match in support_module.finditer(source):
-                self.assertEqual(match.group("module"), "test_support")
+            self.assertNotIn("test-unit-shard", source)
+            if re.search(r'#\[cfg\(test\)\]\s*mod\s+test_support\s*;', source):
                 support_roots.add(path.relative_to(ROOT).as_posix())
-            expected = f"test-unit-{path.relative_to(ROOT / 'src').parts[0].replace('_', '-')}"
-            for match in sharded_module.finditer(source):
-                self.assertEqual(match.group("feature"), expected)
-                used.add(match.group("feature"))
-        self.assertEqual(used, declared)
         self.assertEqual(
             support_roots,
             {
@@ -1375,16 +1354,12 @@ unknown_macro!();
         report = ROOT / "tests" / "gameplay_report.rs"
         self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
 
-    def test_owner_contract_targets_split_when_the_contract_graph_is_materially_distinct(self) -> None:
+    def test_contract_targets_split_only_when_the_contract_graph_is_materially_distinct(self) -> None:
         dedicated_contract_prefixes = {
-            "workshop": "workshop_contract_tests::",
-            "survival": "survival_contract_tests::",
             "progression": "progression_contract_tests::",
             "settlement": "settlement_wire_contract_tests::",
             "woodworking": "woodworking_contract_tests::",
             "fieldwork": "prospecting_instrument_contract_tests::",
-            "ore": "ore_contract_tests::",
-            "foundry": "foundry_contract_tests::",
         }
 
         for scope, prefix in dedicated_contract_prefixes.items():
@@ -1401,6 +1376,21 @@ unknown_macro!();
                 any(
                     name.startswith(prefix)
                     for name in run_test.source_test_catalog(contract_target, None)
+                )
+            )
+        merged_contract_prefixes = {
+            "workshop": "workshop_contract_tests::",
+            "survival": "survival_contract_tests::",
+            "ore": "ore_contract_tests::",
+            "foundry": "foundry_contract_tests::",
+        }
+        for scope, prefix in merged_contract_prefixes.items():
+            target = ci.GAMEPLAY_TARGETS[scope]
+            self.assertEqual(owner_contract_target(scope), target)
+            self.assertTrue(
+                any(
+                    name.startswith(prefix)
+                    for name in run_test.source_test_catalog(target, None)
                 )
             )
 
@@ -1489,6 +1479,42 @@ unknown_macro!();
         )
         self.assertIsNone(ci.gameplay_replay_summary("test result: ok. 1 passed"))
 
+    def test_successful_gameplay_gate_reports_counts_without_replay_noise(self) -> None:
+        command = ci.gameplay_command("survival")
+        result = ci.subprocess.CompletedProcess(
+            command,
+            0,
+            "PROBE INPUT name=survival-provisioning mode=gate samples=3 organic=1 "
+            "world_root=0x111 behavior_root=0x222 replay=ignored\n"
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n",
+            "",
+        )
+        with (
+            mock.patch.dict(
+                ci.os.environ,
+                {
+                    "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x111",
+                    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x222",
+                },
+                clear=True,
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.assertEqual(
+                ci.report_stage(
+                    1,
+                    1,
+                    "gameplay survival",
+                    command,
+                    (result, 0.25, None),
+                    announced=True,
+                ),
+                0.25,
+            )
+        self.assertEqual(stdout.getvalue(), "PASS (0.2s; 1 test)\n")
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_gate_rejects_complete_core_suite_as_a_repair_loop(self) -> None:
         with self.assertRaisesRegex(ValueError, "audit-only"):
             ci.plan_for(gate_args(core=True))
@@ -1552,7 +1578,7 @@ unknown_macro!();
         output = "failures:\n    mining::execution::tests::missing_capability\n"
         self.assertEqual(
             ci.repair_hint(["cargo", "test-core"], output, ""),
-            "python tools/run_test.py --target lib mining::execution::tests::missing_capability",
+            "python tools/run_test.py mining::execution::tests::missing_capability",
         )
 
     def test_gameplay_contract_failure_reuses_the_already_built_contract_target(self) -> None:
@@ -3143,12 +3169,12 @@ class ExactTestCommandTests(unittest.TestCase):
             "lib",
         )
         for selector, expected in {
-            "workshop_contract_tests": "gameplay_workshop_contracts",
+            "workshop_contract_tests": ci.GAMEPLAY_TARGETS["workshop"],
             "settlement_wire_contract_tests": "gameplay_settlement_contracts",
-            "survival_contract_tests": "gameplay_survival_contracts",
+            "survival_contract_tests": ci.GAMEPLAY_TARGETS["survival"],
             "progression_contract_tests": "gameplay_progression_contracts",
-            "ore_contract_tests": "gameplay_ore_contracts",
-            "foundry_contract_tests": "gameplay_foundry_contracts",
+            "ore_contract_tests": ci.GAMEPLAY_TARGETS["ore"],
+            "foundry_contract_tests": ci.GAMEPLAY_TARGETS["foundry"],
         }.items():
             self.assertEqual(run_test.resolve_automatic_suite_target(selector, None), expected)
 
@@ -3217,7 +3243,7 @@ class ExactTestCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous.*2 matches"):
             run_test.resolve_test_name("preserves_mass", catalog)
 
-    def test_unknown_unit_owner_falls_back_to_the_normal_library_shape(self) -> None:
+    def test_library_exact_command_uses_the_stable_feature_minimal_shape(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
@@ -3241,37 +3267,6 @@ class ExactTestCommandTests(unittest.TestCase):
             ],
         )
 
-    def test_exact_unit_command_uses_the_matching_owner_shard(self) -> None:
-        args = argparse.Namespace(
-            target="lib",
-            target_explicit=False,
-            features=None,
-            list=False,
-            name="core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
-            suite=False,
-            ignored=False,
-            nocapture=False,
-        )
-        command = run_test.cargo_command(args)
-        self.assertIn("--features", command)
-        self.assertIn("test-unit-core", command)
-        self.assertIn("--exact", command)
-
-    def test_explicit_library_target_reuses_the_unsharded_core_artifact(self) -> None:
-        args = run_test.parse_args(
-            [
-                "--target",
-                "lib",
-                "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
-            ]
-        )
-        catalog = run_test.source_test_catalog("lib", None)
-        self.assertIsNotNone(run_test.resolve_requested_selection(args, catalog))
-        command = run_test.cargo_command(args)
-        self.assertNotIn("--features", command)
-        self.assertFalse(any(part.startswith("test-unit-") for part in command))
-        self.assertIn("--exact", command)
-
     def test_qualified_unit_selection_does_not_scan_gameplay_targets(self) -> None:
         with mock.patch.object(
             run_test,
@@ -3288,31 +3283,30 @@ class ExactTestCommandTests(unittest.TestCase):
             "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
         )
 
-    def test_production_owner_prefixes_are_reserved_to_library_tests(self) -> None:
-        features = set(run_test.cargo_manifest()["features"])
-        owners = {
-            feature.removeprefix("test-unit-").replace("-", "_")
-            for feature in features
-            if feature.startswith("test-unit-") and feature != "test-unit-shard"
+    def test_gameplay_test_namespaces_do_not_collide_with_library_owners(self) -> None:
+        library_owners = {
+            name.partition("::")[0] for name in run_test.source_test_catalog("lib", None)
         }
         collisions = [
             (target, name)
             for target in run_test.test_targets()
             if target != "lib"
             for name in run_test.source_test_catalog(target, None)
-            if name.partition("::")[0] in owners
+            if name.partition("::")[0] in library_owners
         ]
-        self.assertEqual(
-            collisions,
-            [],
-            "qualified production-owner selectors may skip global target scanning only while those prefixes remain library-only",
+        self.assertEqual(collisions, [])
+
+    def test_qualified_gameplay_selector_keeps_its_purpose_built_target(self) -> None:
+        selector = (
+            "fieldwork_probe::campaign::tests::"
+            "survey_investment_requires_a_material_disclosed_attention_payoff"
         )
+        target, name = run_test.resolve_automatic_exact_selection(selector, None)
+        self.assertEqual(target, "gameplay_fieldwork_contracts")
+        self.assertEqual(name, selector)
 
     def test_source_catalog_matches_default_library_test_names_without_building(self) -> None:
         catalog = run_test.source_test_catalog("lib", None)
-        features = set(run_test.cargo_manifest()["features"])
-        for owner in {name.partition("::")[0] for name in catalog}:
-            self.assertIn(f"test-unit-{owner.replace('_', '-')}", features)
         self.assertIn(
             "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
             catalog,
@@ -3387,6 +3381,24 @@ class ExactTestCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not invoke Cargo"):
             run_test.cargo_command(args)
 
+    def test_broad_source_catalog_listing_is_bounded_and_reports_omitted_count(self) -> None:
+        args = argparse.Namespace(name=None)
+        catalog = [
+            f"module::tests::case_{index:03}"
+            for index in range(run_test.CATALOG_DISPLAY_LIMIT + 7)
+        ]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            run_test.print_source_catalog(args, catalog)
+        lines = output.getvalue().splitlines()
+
+        self.assertEqual(
+            lines[: run_test.CATALOG_DISPLAY_LIMIT],
+            catalog[: run_test.CATALOG_DISPLAY_LIMIT],
+        )
+        self.assertEqual(lines[-2], "... 7 more; refine the selector")
+        self.assertEqual(lines[-1], f"{len(catalog)} test(s)")
+
     def test_suite_command_runs_one_catalog_group_without_exact_filtering(self) -> None:
         args = argparse.Namespace(
             target="lib",
@@ -3398,24 +3410,9 @@ class ExactTestCommandTests(unittest.TestCase):
             nocapture=False,
         )
         command = run_test.cargo_command(args)
-        self.assertIn("--features", command)
-        self.assertIn("test-unit-ore-processing", command)
+        self.assertNotIn("--features", command)
         self.assertIn(args.name, command)
         self.assertNotIn("--exact", command)
-
-    def test_multi_owner_suite_does_not_activate_one_unit_shard(self) -> None:
-        args = argparse.Namespace(
-            target="lib",
-            features=None,
-            list=False,
-            name="tests::",
-            suite=True,
-            ignored=False,
-            nocapture=False,
-        )
-        command = run_test.cargo_command(args)
-        self.assertNotIn("--features", command)
-        self.assertFalse(any(part.startswith("test-unit-") for part in command))
 
     def test_suite_result_counts_come_from_cargo_execution_not_source_matches(self) -> None:
         output = "test result: ok. 19 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out"

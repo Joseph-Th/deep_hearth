@@ -28,9 +28,6 @@ pub(crate) use supply::{
 #[cfg(test)]
 use sink::project_energy_sink_stored_at_release;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
-))]
+#[cfg(test)]
 #[path = "storage_execution_tests.rs"]
 mod tests;

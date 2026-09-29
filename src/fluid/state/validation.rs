@@ -163,9 +163,6 @@ fn validate_fluid_support_index(state: &FluidState) -> Result<(), FluidValidatio
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-fluid")
-))]
+#[cfg(test)]
 #[path = "validation_tests.rs"]
 mod tests;

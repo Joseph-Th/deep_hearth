@@ -298,9 +298,6 @@ fn apply_reserved_deposits_ref(
     receipts
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
-))]
+#[cfg(test)]
 #[path = "reserved_ingress_tests.rs"]
 mod tests;

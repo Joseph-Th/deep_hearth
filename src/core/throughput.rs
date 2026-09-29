@@ -67,9 +67,6 @@ pub fn calculate_mass_flow_capacity(
     Mass::from_milligrams(u64::try_from(milligrams).unwrap_or(u64::MAX))
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-core")
-))]
+#[cfg(test)]
 #[path = "throughput_tests.rs"]
 mod tests;

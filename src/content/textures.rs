@@ -381,9 +381,6 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
     ]
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-content")
-))]
+#[cfg(test)]
 #[path = "textures_tests.rs"]
 mod tests;

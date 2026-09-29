@@ -233,9 +233,6 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
     ])
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-content")
-))]
+#[cfg(test)]
 #[path = "storage_tests.rs"]
 mod tests;

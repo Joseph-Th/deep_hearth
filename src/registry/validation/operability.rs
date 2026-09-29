@@ -57,9 +57,6 @@ use manual_power::best_operable_manual_power_full_charge_duration;
 #[cfg(test)]
 use mining::best_operable_mining_duration;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-registry")
-))]
+#[cfg(test)]
 #[path = "operability_tests.rs"]
 mod tests;

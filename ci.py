@@ -330,7 +330,7 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
     if command == cargo("test-core"):
         failed = FAILED_TEST.findall(combined)
         if failed:
-            return f"python tools/run_test.py --target lib {failed[-1]}"
+            return f"python tools/run_test.py {failed[-1]}"
     gameplay_targets = (
         GAMEPLAY_CONTRACTS_TARGET,
         *GAMEPLAY_AUDIT_TARGETS,
@@ -678,11 +678,12 @@ def report_stage(
                 return None
         detail = None if label.startswith("gameplay report") else rust_test_summary(result.stdout)
         details = [detail] if detail is not None else []
-        replay = gameplay_environment_summary(label, os.environ)
-        if replay is None:
-            replay = gameplay_replay_summary(result.stdout)
-        if replay is not None:
-            details.append(replay)
+        if label.startswith("gameplay report"):
+            replay = gameplay_environment_summary(label, os.environ)
+            if replay is None:
+                replay = gameplay_replay_summary(result.stdout)
+            if replay is not None:
+                details.append(replay)
         suffix = f"; {'; '.join(details)}" if details else ""
         print(f"PASS ({elapsed:.1f}s{suffix})")
         if output:

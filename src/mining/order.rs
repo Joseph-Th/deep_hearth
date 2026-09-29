@@ -188,9 +188,6 @@ pub fn resolve_mining_order(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-mining")
-))]
+#[cfg(test)]
 #[path = "order_tests.rs"]
 mod tests;

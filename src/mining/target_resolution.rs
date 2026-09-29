@@ -312,9 +312,6 @@ pub fn resolve_mining_target(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-mining")
-))]
+#[cfg(test)]
 #[path = "target_resolution_tests.rs"]
 mod tests;

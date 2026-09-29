@@ -80,10 +80,7 @@ pub(super) fn validate_equipment_upgrade_references(
     );
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
-))]
+#[cfg(test)]
 #[path = "upgrade_tests.rs"]
 mod tests;
 

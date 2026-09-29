@@ -212,9 +212,6 @@ impl AppState {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-core")
-))]
+#[cfg(test)]
 #[path = "headroom_tests.rs"]
 mod tests;

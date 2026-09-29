@@ -280,9 +280,6 @@ pub(crate) fn apply_material_ingress(
     resulting_lots
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
-))]
+#[cfg(test)]
 #[path = "ingress_tests.rs"]
 mod tests;

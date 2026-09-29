@@ -67,9 +67,6 @@ pub(crate) fn project_fluid_material_mass(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-fluid")
-))]
+#[cfg(test)]
 #[path = "physics_tests.rs"]
 mod tests;

@@ -217,9 +217,6 @@ impl EnergyStoreDefinition {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
-))]
+#[cfg(test)]
 #[path = "definitions_tests.rs"]
 mod tests;

@@ -14,9 +14,6 @@ pub use physiology::{
 };
 pub use registry::SurvivalRegistry;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-survival")
-))]
+#[cfg(test)]
 #[path = "definitions_tests.rs"]
 mod tests;

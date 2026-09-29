@@ -102,9 +102,6 @@ pub(in crate::geology) fn resolve_historical_region_excavation_hardness(
     )
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
-))]
+#[cfg(test)]
 #[path = "hardness_tests.rs"]
 mod tests;

@@ -62,9 +62,6 @@ pub use screening_execution::{
 
 pub(crate) use screening_execution::validate_loaded_screening_job;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-ore-processing")
-))]
+#[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

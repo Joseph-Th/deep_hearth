@@ -330,30 +330,18 @@ pub fn validate_start_manual_craft(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-crafting")
-))]
+#[cfg(test)]
 #[path = "index_tests.rs"]
 mod index_tests;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-crafting")
-))]
+#[cfg(test)]
 #[path = "input_planning_tests.rs"]
 mod input_planning_tests;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-crafting")
-))]
+#[cfg(test)]
 #[path = "wood_recovery_tests.rs"]
 mod wood_recovery_tests;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-crafting")
-))]
+#[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

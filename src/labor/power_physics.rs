@@ -165,9 +165,6 @@ pub(crate) fn resolve_manual_power_schedule(
     Ok(ManualPowerSchedule { duration, exertion })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
-))]
+#[cfg(test)]
 #[path = "power_physics_tests.rs"]
 mod tests;

@@ -91,9 +91,6 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     )
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-content")
-))]
+#[cfg(test)]
 #[path = "equipment_tests.rs"]
 mod tests;

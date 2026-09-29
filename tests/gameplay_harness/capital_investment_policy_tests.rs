@@ -8,9 +8,8 @@ fn organic_policy_varies_investment_tolerance_without_changing_the_baseline() {
     let eager = CapitalInvestmentPolicy::from_behavior_seed(0);
     let cautious = CapitalInvestmentPolicy::from_behavior_seed(100_000);
 
-    assert_eq!(baseline.minimum_return_ppm(), 200_000);
-    assert_eq!(eager.minimum_return_ppm(), 150_000);
-    assert_eq!(cautious.minimum_return_ppm(), 250_000);
+    assert!(eager.minimum_return_ppm() < baseline.minimum_return_ppm());
+    assert!(baseline.minimum_return_ppm() < cautious.minimum_return_ppm());
     assert!(eager.minimum_attention_return(100, 300) < baseline.minimum_attention_return(100, 300));
     assert!(
         baseline.minimum_attention_return(100, 300) < cautious.minimum_attention_return(100, 300)

@@ -424,9 +424,6 @@ impl ShaderDefinition {
 mod registry;
 pub use registry::ShaderRegistry;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-shader")
-))]
+#[cfg(test)]
 #[path = "definitions_tests.rs"]
 mod tests;

@@ -176,9 +176,6 @@ pub fn calculate_explicit_energy_accounting(
     Ok(accounting)
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
-))]
+#[cfg(test)]
 #[path = "accounting_tests.rs"]
 mod tests;

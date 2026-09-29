@@ -234,9 +234,6 @@ pub fn assess_melting_lot_mass_envelope(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-thermal")
-))]
+#[cfg(test)]
 #[path = "melting_tests.rs"]
 mod tests;

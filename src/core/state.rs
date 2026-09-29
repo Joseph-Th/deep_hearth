@@ -311,9 +311,6 @@ pub(crate) fn apply_clock_advance(state: &mut AppState, next_tick: SimulationTic
     state.clock.tick = next_tick;
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-core")
-))]
+#[cfg(test)]
 #[path = "state_tests.rs"]
 mod tests;

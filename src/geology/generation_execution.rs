@@ -158,9 +158,6 @@ pub(crate) fn insert_generated_deposit(
     Ok(id)
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
-))]
+#[cfg(test)]
 #[path = "generation_execution_tests.rs"]
 mod tests;

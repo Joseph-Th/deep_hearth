@@ -100,9 +100,6 @@ fn validate_dimensions(cross_section: Area, length: Length) -> Result<(), Struct
     Ok(())
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-structural")
-))]
+#[cfg(test)]
 #[path = "geometry_tests.rs"]
 mod tests;

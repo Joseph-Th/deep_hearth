@@ -123,9 +123,6 @@ impl ValidatedEquipmentMaintenance {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
-))]
+#[cfg(test)]
 #[path = "maintenance_execution_tests.rs"]
 mod tests;

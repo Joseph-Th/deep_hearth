@@ -54,9 +54,6 @@ pub(crate) fn calculate_player_work_resource_budget(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
-))]
+#[cfg(test)]
 #[path = "work_resources_tests.rs"]
 mod tests;

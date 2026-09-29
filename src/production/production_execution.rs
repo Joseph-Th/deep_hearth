@@ -18,9 +18,6 @@ pub(crate) use completion::{
 };
 pub(crate) use start::{validate_start_manual_process, validate_start_manual_process_routed};
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-production")
-))]
+#[cfg(test)]
 #[path = "production_execution_tests.rs"]
 mod tests;

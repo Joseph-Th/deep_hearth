@@ -176,9 +176,6 @@ pub(crate) fn resolve_survival_tick_resource_cost(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-survival")
-))]
+#[cfg(test)]
 #[path = "resource_cost_tests.rs"]
 mod tests;

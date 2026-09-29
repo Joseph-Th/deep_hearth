@@ -194,9 +194,6 @@ impl MaterialAssemblyProfile {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-material")
-))]
+#[cfg(test)]
 #[path = "assembly_tests.rs"]
 mod tests;

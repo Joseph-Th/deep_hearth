@@ -154,9 +154,6 @@ impl ValidatedEquipmentDisassembly {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
-))]
+#[cfg(test)]
 #[path = "disassembly_execution_tests.rs"]
 mod tests;

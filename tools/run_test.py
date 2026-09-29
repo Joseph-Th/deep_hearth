@@ -30,6 +30,7 @@ TEST_RESULT = re.compile(
 )
 FAILURE_HEAD_LINES = 16
 FAILURE_TAIL_LINES = 64
+CATALOG_DISPLAY_LIMIT = 40
 GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
 GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
 GAMEPLAY_REPORT_MODE_ENV = "DEEP_HEARTH_GAMEPLAY_REPORT"
@@ -189,8 +190,8 @@ def resolve_automatic_exact_selection(
 ) -> tuple[str, str]:
     """Resolve one logical test globally, then choose its purpose-built Cargo target."""
 
-    if library_owner_feature_for_selector(selector) is not None:
-        library_catalog = source_test_catalog("lib", raw_features)
+    library_catalog = source_test_catalog("lib", raw_features)
+    if selector_uses_library_owner(selector, library_catalog):
         library_matches = source_test_matches(selector, library_catalog)
         if len(library_matches) == 1:
             return "lib", library_matches[0]
@@ -211,10 +212,9 @@ def resolve_automatic_exact_selection(
 def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> str:
     """Choose one purpose-built target containing the complete globally matched logical suite."""
 
-    if library_owner_feature_for_selector(selector) is not None:
-        library_matches = source_test_matches(
-            selector, source_test_catalog("lib", raw_features)
-        )
+    library_catalog = source_test_catalog("lib", raw_features)
+    if selector_uses_library_owner(selector, library_catalog):
+        library_matches = source_test_matches(selector, library_catalog)
         if library_matches:
             return "lib"
 
@@ -251,14 +251,14 @@ def source_test_matches(selector: str, catalog: list[str]) -> list[str]:
     return [name for name in catalog if selector in name]
 
 
-def library_owner_feature_for_selector(selector: str) -> str | None:
-    """Return the unit-test shard implied by one qualified production-owner selector."""
+def selector_uses_library_owner(selector: str, library_catalog: list[str]) -> bool:
+    """Return whether a qualified selector starts in a library-owned test namespace."""
 
     owner, separator, _remainder = selector.partition("::")
     if not separator:
-        return None
-    feature = f"test-unit-{owner.replace('_', '-')}"
-    return feature if feature in cargo_manifest().get("features", {}) else None
+        return False
+    prefix = f"{owner}::"
+    return any(name.startswith(prefix) for name in library_catalog)
 
 
 def resolve_test_name(selector: str, catalog: list[str]) -> str:
@@ -272,28 +272,6 @@ def resolve_test_name(selector: str, catalog: list[str]) -> str:
     raise ValueError(f"test selector not found: {selector}")
 
 
-def library_unit_shard_feature(args: argparse.Namespace) -> str | None:
-    """Return the owner shard for one bounded library-test execution when available."""
-
-    if (
-        args.target != "lib"
-        or args.name is None
-        or getattr(args, "target_explicit", False)
-    ):
-        return None
-    names = (
-        source_test_matches(args.name, source_test_catalog("lib", args.features))
-        if args.suite
-        else [args.name]
-    )
-    owners = {name.partition("::")[0] for name in names}
-    if len(owners) != 1:
-        return None
-    owner = next(iter(owners))
-    feature = f"test-unit-{owner.replace('_', '-')}"
-    return feature if feature in cargo_manifest().get("features", {}) else None
-
-
 def cargo_command(args: argparse.Namespace) -> list[str]:
     if args.list:
         raise ValueError("source catalog listing does not invoke Cargo")
@@ -305,9 +283,6 @@ def cargo_command(args: argparse.Namespace) -> list[str]:
     else:
         command.extend(("--test", args.target))
     requested_features = requested_target_features(args.target, args.features)
-    shard = library_unit_shard_feature(args)
-    if shard is not None:
-        requested_features.add(shard)
     if requested_features:
         command.extend(("--features", ",".join(sorted(requested_features))))
     command.append(args.name)
@@ -412,7 +387,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="replay DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED for this test execution",
     )
     args = parser.parse_args(argv)
-    args.target_explicit = args.target is not None
     if not args.list and not args.lint and not args.name:
         parser.error("a test selector is required for test execution")
     if args.list and args.lint:
@@ -444,8 +418,11 @@ def load_source_catalog(args: argparse.Namespace) -> list[str] | None:
 
 def print_source_catalog(args: argparse.Namespace, catalog: list[str]) -> None:
     names = catalog if not args.name else [name for name in catalog if args.name in name]
-    for name in names:
+    shown = names[:CATALOG_DISPLAY_LIMIT]
+    for name in shown:
         print(name)
+    if len(names) > len(shown):
+        print(f"... {len(names) - len(shown)} more; refine the selector")
     print(f"{len(names)} test(s)")
 
 
@@ -656,7 +633,6 @@ def report_cargo_success(
     selector: str | None,
     result: subprocess.CompletedProcess[str],
     elapsed: float,
-    replay: dict[str, str] | None = None,
 ) -> None:
     if getattr(args, "lint", False):
         print(f"PASS lint {args.target} ({elapsed:.1f}s)")
@@ -669,12 +645,7 @@ def report_cargo_success(
             f"({suite_result_detail(result.stdout)}; {elapsed:.1f}s)"
         )
         return
-    roots = ""
-    if replay and GAMEPLAY_VARIATION_ENV in replay:
-        roots = f"; roots={replay[GAMEPLAY_VARIATION_ENV]}"
-        if GAMEPLAY_BEHAVIOR_ENV in replay:
-            roots += f"/{replay[GAMEPLAY_BEHAVIOR_ENV]}"
-    print(f"PASS {args.target}::{args.name} ({elapsed:.1f}s{roots})")
+    print(f"PASS {args.target}::{args.name} ({elapsed:.1f}s)")
 
 
 def main() -> int:
@@ -735,7 +706,7 @@ def main() -> int:
         print(f"repair: {repair}", file=sys.stderr)
         return 2
 
-    report_cargo_success(args, selector, result, elapsed, replay)
+    report_cargo_success(args, selector, result, elapsed)
     return 0
 
 

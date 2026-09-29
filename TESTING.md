@@ -19,7 +19,7 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 
 Routine iteration is `quick` while editing, then **one** build-producing proof. A passing Rust test is compile proof for its target. Use the default `gate` only when no executable test fits or a production-only cfg path changed. Do not stack an exact unit test and focused gameplay for the same claim.
 
-Use `python tools/run_test.py --list <substring>` for build-free discovery and the printed `repair:` command after failures. Automatic exact and single-owner suite selection owner-shards library tests because a one-file local rebuild is materially cheaper than recompiling the complete library test artifact. A broad core-audit failure instead pins `--target lib` so its exact repair reuses the already-built unsharded artifact. Switching ordinary owner shards selects another Rust artifact, so keep one repair loop on the owner being changed. Cargo check/test artifacts also differ, so do not precheck an executable test.
+Use `python tools/run_test.py --list <substring>` for build-free discovery and the printed `repair:` command after failures. Exact and suite unit tests intentionally reuse the same feature-minimal library-test artifact as the broad core audit. This makes owner switches cheap and lets later core verification reuse the executable proof you already built. Cargo check/test artifacts still differ, so do not precheck an executable test.
 
 ## Escalation lanes
 
@@ -82,11 +82,11 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused probes own nearby contracts only when those contracts do not materially enlarge the edit artifact. Workshop, survival, settlement, foundry, woodworking, fieldwork, progression planning, and ore keep dedicated contract targets; progression episode contracts stay with the progression probe because they require its full evaluator. Gameplay targets share one `test-gameplay` feature shape. Scoped reports reuse the focused test artifact when that target already contains its summary path. Formatter-heavy progression, woodworking, and power reports use small owner-specific examples; workshop/agency share their focused example, and only the cross-system report compiles the complete report graph.
+Focused probes own nearby contracts when doing so avoids another nearly identical Cargo artifact. Progression, settlement, woodworking, and fieldwork keep dedicated contract targets because those targets materially isolate a smaller or distinct graph; workshop, survival, ore, and foundry keep their contracts in the focused target because a second target would duplicate almost the same modules. Progression episode contracts stay with the progression probe because they require its full evaluator. Gameplay targets share one `test-gameplay` feature shape. Scoped reports reuse the focused test artifact when that target already contains its summary path. Formatter-heavy progression, woodworking, and power reports use small owner-specific examples; workshop/agency share their focused example, and only the cross-system report compiles the complete report graph.
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 
-Routine gameplay verification combines maintained witnesses with one fresh replayable organic case. Reports use four organic cases plus broader agency search. Failures print replay roots. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Routine gameplay verification combines maintained witnesses with one fresh replayable organic case. Successful gates print only the useful test count and elapsed time; failures print replay roots, and reports retain replay inputs as evidence. Reports use four organic cases plus broader agency search. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 

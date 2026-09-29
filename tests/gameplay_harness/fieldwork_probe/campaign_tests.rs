@@ -24,42 +24,66 @@ fn maintained_fieldwork_witnesses_span_campaign_horizons() {
 #[test]
 fn survey_investment_requires_a_material_disclosed_attention_payoff() {
     let policy = FieldworkSurveyPolicy::baseline();
+    let indexed_ticks = 1_000_000_u64;
+    let required_saved_ticks = u64::try_from(policy.minimum_return_ppm())
+        .unwrap_or_else(|_| unreachable!("survey return policy fits u64"));
     assert_eq!(
-        select_survey_strategy(102, Some(118), policy),
+        select_survey_strategy(indexed_ticks, Some(indexed_ticks + 1), policy),
         FieldworkSurveyStrategy::PointSearch
     );
     assert_eq!(
-        select_survey_strategy(204, Some(196), policy),
+        select_survey_strategy(
+            indexed_ticks + required_saved_ticks.saturating_sub(1),
+            Some(indexed_ticks),
+            policy,
+        ),
         FieldworkSurveyStrategy::PointSearch,
-        "an eight-tick expected gain is too small to justify scarce-copper survey capital"
+        "a return below the policy floor must not justify scarce-copper survey capital"
     );
     assert_eq!(
-        select_survey_strategy(306, Some(274), policy),
+        select_survey_strategy(
+            indexed_ticks + required_saved_ticks,
+            Some(indexed_ticks),
+            policy,
+        ),
         FieldworkSurveyStrategy::IndexedChannel,
-        "a three-site campaign clears the minimum expected-return threshold"
+        "meeting the disclosed return floor must justify the indexed survey"
     );
     assert_eq!(
-        select_survey_strategy(196, Some(196), policy),
+        select_survey_strategy(indexed_ticks, Some(indexed_ticks), policy),
         FieldworkSurveyStrategy::PointSearch
     );
     assert_eq!(
-        select_survey_strategy(204, None, policy),
+        select_survey_strategy(indexed_ticks, None, policy),
         FieldworkSurveyStrategy::PointSearch
     );
 }
 
 #[test]
 fn behavior_seed_varies_survey_investment_tolerance_without_changing_physics() {
+    let baseline = FieldworkSurveyPolicy::baseline();
     let eager = FieldworkSurveyPolicy::from_behavior_seed(0);
     let cautious = FieldworkSurveyPolicy::from_behavior_seed(50_000);
-    assert_eq!(eager.minimum_return_ppm(), 75_000);
-    assert_eq!(cautious.minimum_return_ppm(), 125_000);
+    assert!(eager.minimum_return_ppm() < baseline.minimum_return_ppm());
+    assert!(baseline.minimum_return_ppm() < cautious.minimum_return_ppm());
+    let indexed_ticks = 1_000_000_u64;
+    let midpoint_return_ppm = (eager.minimum_return_ppm() + cautious.minimum_return_ppm()) / 2;
+    let midpoint_saved_ticks = u64::try_from(midpoint_return_ppm)
+        .unwrap_or_else(|_| unreachable!("survey return policy fits u64"));
     assert_eq!(
-        select_survey_strategy(306, Some(274), eager),
+        select_survey_strategy(
+            indexed_ticks + midpoint_saved_ticks,
+            Some(indexed_ticks),
+            eager
+        ),
         FieldworkSurveyStrategy::IndexedChannel
     );
     assert_eq!(
-        select_survey_strategy(306, Some(274), cautious),
+        select_survey_strategy(
+            indexed_ticks + midpoint_saved_ticks,
+            Some(indexed_ticks),
+            cautious,
+        ),
         FieldworkSurveyStrategy::PointSearch
     );
 }

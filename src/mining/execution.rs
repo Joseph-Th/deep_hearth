@@ -18,9 +18,6 @@ pub use errors::{MiningStartCommitError, MiningStartError};
 pub use start::{ValidatedMiningStart, validate_start_mining};
 pub(crate) use tick::{apply_mining_tick, decide_mining_tick};
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-mining")
-))]
+#[cfg(test)]
 #[path = "execution_tests.rs"]
 mod tests;

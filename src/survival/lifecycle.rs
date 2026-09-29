@@ -107,9 +107,6 @@ pub(crate) fn initialize_player_survival_at_hunger_warning_boundary_for_fixture(
     )
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-survival")
-))]
+#[cfg(test)]
 #[path = "lifecycle_tests.rs"]
 mod tests;

@@ -226,9 +226,6 @@ pub fn validate_unmount_fluid_store(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-fluid")
-))]
+#[cfg(test)]
 #[path = "structural_integration_tests.rs"]
 mod tests;

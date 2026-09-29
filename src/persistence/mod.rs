@@ -131,9 +131,6 @@ impl Error for LoadError {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-persistence")
-))]
+#[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

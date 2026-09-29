@@ -163,9 +163,6 @@ pub(crate) fn scaled_ratio_floor_saturating(
         .map_or(u128::MAX, |(whole, _remainder)| whole)
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-core")
-))]
+#[cfg(test)]
 #[path = "arithmetic_tests.rs"]
 mod tests;

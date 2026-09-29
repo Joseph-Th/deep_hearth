@@ -275,9 +275,6 @@ mod validation;
 pub use errors::{CastingJobValidationError, CastingResolutionError};
 pub(super) use validation::validate_loaded_casting_job;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-thermal")
-))]
+#[cfg(test)]
 #[path = "casting_execution_tests.rs"]
 mod tests;

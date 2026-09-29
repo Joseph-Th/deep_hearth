@@ -262,9 +262,6 @@ pub(crate) fn apply_passive_energy_dissipation(
     energy.apply_revision(next_revision);
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-energy")
-))]
+#[cfg(test)]
 #[path = "passive_dissipation_tests.rs"]
 mod tests;

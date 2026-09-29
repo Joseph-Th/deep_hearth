@@ -52,6 +52,9 @@ mod tick_observation;
 
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
+#[cfg(test)]
+#[path = "gameplay_harness/workshop_contract_tests.rs"]
+mod workshop_contract_tests;
 
 #[cfg(test)]
 #[test]

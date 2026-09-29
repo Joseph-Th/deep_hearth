@@ -94,10 +94,7 @@ impl MiningMethodDefinition {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-mining")
-))]
+#[cfg(test)]
 #[path = "definitions_tests.rs"]
 mod tests;
 

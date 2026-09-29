@@ -395,9 +395,6 @@ mod validation;
 pub use validation::GeologyValidationError;
 pub(crate) use validation::validate_loaded_geology;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
-))]
+#[cfg(test)]
 #[path = "state_tests.rs"]
 mod tests;

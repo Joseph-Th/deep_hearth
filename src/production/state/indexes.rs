@@ -85,10 +85,7 @@ impl ProductionAvailabilityDependencyRevisions {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-production")
-))]
+#[cfg(test)]
 #[path = "indexes_tests.rs"]
 mod tests;
 

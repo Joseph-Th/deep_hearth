@@ -360,9 +360,6 @@ fn plan_enclosure_materials(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
-))]
+#[cfg(test)]
 #[path = "enclosure_execution_tests.rs"]
 mod tests;

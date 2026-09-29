@@ -319,9 +319,6 @@ fn energy_for_mass(unit_energy: Energy, mass: Mass) -> Energy {
     )
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-thermal")
-))]
+#[cfg(test)]
 #[path = "casting_tests.rs"]
 mod tests;

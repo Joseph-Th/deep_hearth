@@ -224,10 +224,7 @@ fn validate_mining_job_schedule(
     Ok(())
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-mining")
-))]
+#[cfg(test)]
 #[path = "validation_tests.rs"]
 mod tests;
 

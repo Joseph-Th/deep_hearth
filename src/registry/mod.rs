@@ -27,10 +27,7 @@ mod commodity_handbook;
 mod process_topology;
 mod validation;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-registry")
-))]
+#[cfg(test)]
 #[path = "process_topology_tests.rs"]
 mod process_topology_tests;
 

@@ -294,9 +294,6 @@ pub fn validate_claim_mining_output(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-mining")
-))]
+#[cfg(test)]
 #[path = "claim_tests.rs"]
 mod tests;

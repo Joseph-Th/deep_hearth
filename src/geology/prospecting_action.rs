@@ -19,9 +19,6 @@ pub(crate) use tick::{
     FieldProspectingTickError, apply_field_prospecting_tick, decide_field_prospecting_tick,
 };
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-geology")
-))]
+#[cfg(test)]
 #[path = "prospecting_action_tests.rs"]
 mod tests;

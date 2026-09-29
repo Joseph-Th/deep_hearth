@@ -199,9 +199,6 @@ pub fn project_prismatic_member_load(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-structural")
-))]
+#[cfg(test)]
 #[path = "member_projection_tests.rs"]
 mod tests;

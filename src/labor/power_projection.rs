@@ -221,9 +221,6 @@ pub(crate) fn project_manual_power_configuration(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
-))]
+#[cfg(test)]
 #[path = "power_projection_tests.rs"]
 mod tests;

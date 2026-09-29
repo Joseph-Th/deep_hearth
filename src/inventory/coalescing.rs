@@ -55,9 +55,6 @@ pub(in crate::inventory) fn lots_are_merge_compatible(
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-inventory")
-))]
+#[cfg(test)]
 #[path = "coalescing_tests.rs"]
 mod tests;

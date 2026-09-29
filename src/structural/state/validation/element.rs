@@ -87,10 +87,7 @@ fn validate_element_geometry_shape(
     Ok(())
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-structural")
-))]
+#[cfg(test)]
 #[path = "element_tests.rs"]
 mod tests;
 

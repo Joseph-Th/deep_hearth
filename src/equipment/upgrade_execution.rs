@@ -269,9 +269,6 @@ pub fn validate_upgrade_equipment(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-equipment")
-))]
+#[cfg(test)]
 #[path = "upgrade_execution_tests.rs"]
 mod tests;

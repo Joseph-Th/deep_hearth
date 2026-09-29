@@ -12,9 +12,6 @@ pub use prospecting::{
 };
 pub use registry::LaborRegistry;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-shard"), feature = "test-unit-labor")
-))]
+#[cfg(test)]
 #[path = "definitions_tests.rs"]
 mod tests;
