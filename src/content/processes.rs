@@ -68,6 +68,8 @@ pub const PROCESS_POWER_HAMMER_COPPER_ELECTRICAL_WINDING: ProcessId = ProcessId:
 pub const PROCESS_SHAPE_STONE_DRAWPLATE: ProcessId = ProcessId::new(58);
 pub const PROCESS_DRAW_COPPER_ELECTRICAL_WINDING: ProcessId = ProcessId::new(59);
 pub const PROCESS_POWER_DRAW_COPPER_ELECTRICAL_WINDING: ProcessId = ProcessId::new(60);
+pub const PROCESS_PACK_CLAY_BINDER: ProcessId = ProcessId::new(61);
+pub const PROCESS_RECONDITION_CLAY_BINDER: ProcessId = ProcessId::new(62);
 
 mod fabrication;
 mod ore;

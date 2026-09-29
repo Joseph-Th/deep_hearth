@@ -15,8 +15,8 @@ use super::crafted_parts::{
 };
 use super::{
     FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_DOUBLE_WALL_CHEST_BODY, FORM_INSULATED_PANTRY_BODY,
-    FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, FORM_STONE_CROCK_BODY, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_PACKED_CLAY_BINDER, FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, FORM_STONE_CROCK_BODY,
+    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const STORAGE_TIMBER_PROVISIONS_CHEST: StorageDefinitionId = StorageDefinitionId::new(1);
@@ -28,6 +28,8 @@ pub const STORAGE_ROUGH_TIMBER_FIELD_BOX: StorageDefinitionId = StorageDefinitio
 pub const STORAGE_CARVED_STONE_PROVISIONS_CROCK: StorageDefinitionId = StorageDefinitionId::new(6);
 pub const STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK: StorageDefinitionId =
     StorageDefinitionId::new(7);
+pub const STORAGE_CLAY_DAUBED_TIMBER_PROVISIONS_BIN: StorageDefinitionId =
+    StorageDefinitionId::new(8);
 const PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE: Temperature = Temperature::from_millikelvin(333_150);
 const STORAGE_DISMANTLE_MILLIGRAMS_PER_TICK: u64 = 100_000;
 
@@ -120,6 +122,13 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
     .unwrap_or_else(|error| {
         panic!("copper-banded stone provisions crock storage profile failed: {error}")
     });
+    let clay_daubed_bin_preservation = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE,
+        2_500_000,
+    )
+    .unwrap_or_else(|error| panic!("clay-daubed provisions bin storage profile failed: {error}"));
     StorageRegistry::new([
         storage_definition(
             STORAGE_ROUGH_TIMBER_FIELD_BOX,
@@ -160,6 +169,27 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
                 CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
                 BULK_TIMBER_PROVISIONS_CRATE_BODY_MASS,
             )]),
+        ),
+        // Clay daub seals the gaps of the slatted bulk crate without pretending unfired clay is
+        // ceramic. It gives staple-scale stores a middle preservation option: less capacity than
+        // the open crate and less shelf-life extension than a double-wall chest, but it converts a
+        // locally dug earth material into settlement infrastructure instead of demanding more
+        // finished timber or scarce copper.
+        storage_definition(
+            STORAGE_CLAY_DAUBED_TIMBER_PROVISIONS_BIN,
+            "clay-daubed timber provisions bin",
+            Mass::from_milligrams(40_000_000),
+            clay_daubed_bin_preservation,
+            MaterialAssemblyProfile::new(vec![
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+                    BULK_TIMBER_PROVISIONS_CRATE_BODY_MASS,
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+                    Mass::from_milligrams(4_000_000),
+                ),
+            ]),
         ),
         storage_definition(
             STORAGE_INSULATED_TIMBER_PANTRY,

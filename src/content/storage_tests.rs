@@ -5,15 +5,15 @@ use std::collections::BTreeMap;
 use super::*;
 use crate::content::{
     FORM_BOARD, FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_CHIP, FORM_DOUBLE_WALL_CHEST_BODY,
-    FORM_INSULATED_PANTRY_BODY, FORM_LOG, FORM_LUMP, FORM_ROUGH_BOX_BODY, FORM_SCRAP,
-    FORM_STONE_CROCK_BODY, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_BULK_TIMBER_CRATE,
-    PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST, PROCESS_ASSEMBLE_INSULATED_TIMBER_PANTRY,
-    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_ASSEMBLE_TIMBER_CHEST,
-    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SALVAGE_BULK_TIMBER_CRATE_BODY,
-    PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY, PROCESS_SALVAGE_INSULATED_TIMBER_PANTRY_BODY,
-    PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY, PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY,
-    PROCESS_SALVAGE_TIMBER_CHEST_BODY, PROCESS_SHAPE_STONE_PROVISIONS_CROCK,
-    PROCESS_SHAPE_WOOD_BOARDS, build_registries,
+    FORM_INSULATED_PANTRY_BODY, FORM_LOG, FORM_LUMP, FORM_PACKED_CLAY_BINDER, FORM_ROUGH_BOX_BODY,
+    FORM_SCRAP, FORM_STONE_CROCK_BODY, MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_ASSEMBLE_BULK_TIMBER_CRATE, PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
+    PROCESS_ASSEMBLE_INSULATED_TIMBER_PANTRY, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    PROCESS_ASSEMBLE_TIMBER_CHEST, PROCESS_REKNAP_STONE_SCRAP_TOOL,
+    PROCESS_SALVAGE_BULK_TIMBER_CRATE_BODY, PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
+    PROCESS_SALVAGE_INSULATED_TIMBER_PANTRY_BODY, PROCESS_SALVAGE_ROUGH_TIMBER_FIELD_BOX_BODY,
+    PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY, PROCESS_SALVAGE_TIMBER_CHEST_BODY,
+    PROCESS_SHAPE_STONE_PROVISIONS_CROCK, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::TickSpan;
@@ -39,6 +39,55 @@ fn storage_dismantle_duration_is_derived_from_embodied_assembly_mass() {
             definition.id().value()
         );
     }
+}
+
+#[test]
+fn clay_daubed_bulk_bin_turns_local_clay_into_mid_bulk_preservation() {
+    let registries = build_registries();
+    let bulk = registries
+        .storage()
+        .get(STORAGE_BULK_TIMBER_PROVISIONS_CRATE)
+        .unwrap_or_else(|| panic!("bulk timber provisions crate disappeared"));
+    let daubed = registries
+        .storage()
+        .get(STORAGE_CLAY_DAUBED_TIMBER_PROVISIONS_BIN)
+        .unwrap_or_else(|| panic!("clay-daubed provisions bin disappeared"));
+    let double_wall = registries
+        .storage()
+        .get(STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| panic!("double-wall provisions chest disappeared"));
+
+    assert_eq!(
+        daubed.maximum_stockpile_capacity(),
+        Mass::from_milligrams(40_000_000)
+    );
+    assert!(daubed.maximum_stockpile_capacity() < bulk.maximum_stockpile_capacity());
+    assert!(daubed.maximum_stockpile_capacity() > double_wall.maximum_stockpile_capacity());
+    assert_eq!(
+        daubed.storage_profile().preservation_multiplier_ppm(),
+        2_500_000
+    );
+    assert!(
+        daubed.storage_profile().preservation_multiplier_ppm()
+            > bulk.storage_profile().preservation_multiplier_ppm()
+    );
+    assert!(
+        daubed.storage_profile().preservation_multiplier_ppm()
+            < double_wall.storage_profile().preservation_multiplier_ppm()
+    );
+    assert_eq!(
+        daubed.assembly_profile().inputs(),
+        &[
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BULK_CRATE_BODY),
+                Mass::from_milligrams(3_200_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+                Mass::from_milligrams(4_000_000),
+            ),
+        ]
+    );
 }
 
 fn transitive_manual_recovery_upper_bounds(

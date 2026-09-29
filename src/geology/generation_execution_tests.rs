@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::content::{
-    FORM_CRUSHED, FORM_LOG, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
-    build_registries,
+    FORM_CRUSHED, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_STONE, build_registries,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::material::{
@@ -14,6 +14,36 @@ use crate::spatial::{VoxelBounds, VoxelCoord};
 fn bounds(x: i64) -> VoxelBounds {
     VoxelBounds::new(VoxelCoord::new(x, -12, 0), VoxelCoord::new(x + 4, -8, 4))
         .unwrap_or_else(|error| panic!("geological generation bounds failed: {error}"))
+}
+
+#[test]
+fn clay_rich_earth_is_an_ordinary_finite_geological_resource() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let commodity = CommodityKey::new(MATERIAL_CLAY, FORM_LUMP);
+    let mass = Mass::from_milligrams(12_000_000);
+    let spec = GeneratedDepositSpec::new(
+        bounds(8),
+        commodity,
+        mass,
+        Temperature::from_millikelvin(288_150),
+        Pressure::from_pascals(50_000_000),
+        MaterialComposition::pure(MATERIAL_CLAY),
+    )
+    .unwrap_or_else(|error| panic!("clay-earth geological specification failed: {error}"));
+
+    let deposit = insert_generated_deposit(&registries, &mut state, spec)
+        .unwrap_or_else(|error| panic!("clay-earth geological insertion failed: {error}"));
+    let record = state
+        .geology()
+        .get_deposit(deposit)
+        .unwrap_or_else(|| panic!("inserted clay-earth deposit disappeared"));
+    assert_eq!(record.commodity(), commodity);
+    assert_eq!(record.remaining_mass(), mass);
+    assert_eq!(
+        record.composition(),
+        &MaterialComposition::pure(MATERIAL_CLAY)
+    );
 }
 
 #[test]

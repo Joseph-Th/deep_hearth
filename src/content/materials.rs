@@ -52,6 +52,7 @@ pub const FORM_DRILL_BIT: FormId = FormId::new(28);
 pub const FORM_GRINDSTONE_WHEEL: FormId = FormId::new(29);
 pub const FORM_ELECTRICAL_WINDING: FormId = FormId::new(30);
 pub const FORM_DRAWPLATE: FormId = FormId::new(31);
+pub const FORM_PACKED_CLAY_BINDER: FormId = FormId::new(32);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -117,6 +118,7 @@ fn register_forms(registry: &mut MaterialRegistry) {
         consolidated_form(FORM_GRINDSTONE_WHEEL, "abrasive grindstone wheel"),
         consolidated_form(FORM_ELECTRICAL_WINDING, "electrical winding"),
         consolidated_form(FORM_DRAWPLATE, "polished stone drawplate"),
+        consolidated_form(FORM_PACKED_CLAY_BINDER, "packed clay binder"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
         loose_form(
@@ -394,12 +396,28 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             "crushed clay",
         ),
         (
+            CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+            "clay-rich earth lump",
+        ),
+        (
             CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
             "clay tailings",
         ),
         (
             CommodityKey::new(MATERIAL_CLAY, FORM_EXHAUSTED_TAILINGS),
             "exhausted clay tailings",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+            "packed clay binder",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_SCRAP),
+            "spent clay binder",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_CHIP),
+            "spent clay grit",
         ),
     ] {
         registry.register_commodity(commodity, name);

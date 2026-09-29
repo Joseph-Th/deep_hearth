@@ -84,6 +84,110 @@ fn phase_change_definitions_require_authored_phase_directions() {
 }
 
 #[test]
+fn clay_infrastructure_adds_copper_sparing_storage_and_casting_with_reclaimable_upkeep() {
+    let registries = build_registries();
+
+    let casting_bed = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_CLAY_FACED_STONE_CASTING_BED)
+        .unwrap_or_else(|| panic!("clay-faced stone casting bed disappeared"));
+    let copper_mold = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD)
+        .unwrap_or_else(|| panic!("four-cavity stone ingot mold disappeared"));
+    assert_eq!(
+        casting_bed
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_THERMAL_BATCH),
+        Some(CapabilityValue::Mass(Mass::from_milligrams(80_000)))
+    );
+    assert_eq!(
+        casting_bed
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_COOLING_POWER),
+        Some(CapabilityValue::Power(Power::from_microwatts(250_000_000)))
+    );
+    assert_eq!(
+        copper_mold
+            .capabilities()
+            .get_capability(capabilities::CAPABILITY_COOLING_POWER),
+        Some(CapabilityValue::Power(Power::from_microwatts(400_000_000)))
+    );
+    let casting_assembly = casting_bed
+        .assembly_profile()
+        .unwrap_or_else(|| panic!("clay-faced casting bed lost its assembly profile"));
+    assert!(
+        casting_assembly
+            .inputs()
+            .iter()
+            .all(|input| { input.commodity().material() != MATERIAL_COPPER })
+    );
+    assert!(casting_assembly.inputs().iter().any(|input| {
+        input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+            && input.mass() == Mass::from_milligrams(6_000_000)
+    }));
+    assert!(casting_assembly.inputs().iter().any(|input| {
+        input.commodity() == CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER)
+            && input.mass() == Mass::from_milligrams(2_000_000)
+    }));
+    let casting_service = casting_bed
+        .maintenance_profile()
+        .unwrap_or_else(|| panic!("clay-faced casting bed lost its binder service"));
+    assert!(casting_service.is_component_replacement());
+    assert_eq!(
+        casting_service.replacement(),
+        CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER)
+    );
+    assert_eq!(
+        casting_service.full_service_replacement_mass(),
+        Mass::from_milligrams(2_000_000)
+    );
+    assert_eq!(
+        casting_service.spent(),
+        CommodityKey::new(MATERIAL_CLAY, FORM_SCRAP)
+    );
+
+    let binder = registries
+        .crafting()
+        .get_manual(PROCESS_PACK_CLAY_BINDER)
+        .unwrap_or_else(|| panic!("packed clay binder preparation disappeared"));
+    assert_eq!(binder.input(), CommodityKey::new(MATERIAL_CLAY, FORM_LUMP));
+    assert_eq!(binder.input_mass(), Mass::from_milligrams(500_000));
+    assert_eq!(
+        binder.outputs(),
+        &[crate::crafting::ManualCraftOutput::new(
+            CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+            Mass::from_milligrams(500_000),
+        )]
+    );
+    let reclaim = registries
+        .crafting()
+        .get_manual(PROCESS_RECONDITION_CLAY_BINDER)
+        .unwrap_or_else(|| panic!("spent clay binder reclamation disappeared"));
+    assert_eq!(
+        reclaim.input(),
+        CommodityKey::new(MATERIAL_CLAY, FORM_SCRAP)
+    );
+    assert_eq!(reclaim.input_mass(), Mass::from_milligrams(1_000_000));
+    assert_eq!(
+        reclaim
+            .outputs()
+            .iter()
+            .map(|output| output.mass().milligrams())
+            .sum::<u64>(),
+        1_000_000
+    );
+    assert!(reclaim.outputs().iter().any(|output| {
+        output.commodity() == CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER)
+            && output.mass() == Mass::from_milligrams(900_000)
+    }));
+    assert!(reclaim.outputs().iter().any(|output| {
+        output.commodity() == CommodityKey::new(MATERIAL_CLAY, FORM_CHIP)
+            && output.mass() == Mass::from_milligrams(100_000)
+    }));
+}
+
+#[test]
 fn settlement_batch_foundry_and_channel_sampling_add_distinct_connected_progression() {
     let registries = build_registries();
 

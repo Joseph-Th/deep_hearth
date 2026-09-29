@@ -65,6 +65,11 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_TAILINGS,
         ),
         (
+            CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+            None,
+            OBJECT_CLAY_EARTH_LUMP,
+        ),
+        (
             CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
             None,
             OBJECT_TAILINGS,
@@ -76,6 +81,21 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         ),
         (
             CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
+            None,
+            OBJECT_TAILINGS,
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+            None,
+            OBJECT_PACKED_CLAY_BINDER,
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_SCRAP),
+            None,
+            OBJECT_TAILINGS,
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_CHIP),
             None,
             OBJECT_TAILINGS,
         ),

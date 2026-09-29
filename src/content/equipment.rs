@@ -78,6 +78,8 @@ pub const EQUIPMENT_TIMBER_WIRE_DRAWBENCH: EquipmentDefinitionId = EquipmentDefi
 pub const EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL: EquipmentDefinitionId =
     EquipmentDefinitionId::new(49);
 pub const EQUIPMENT_FLYWHEEL_WIRE_DRAWBENCH: EquipmentDefinitionId = EquipmentDefinitionId::new(50);
+pub const EQUIPMENT_CLAY_FACED_STONE_CASTING_BED: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(51);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

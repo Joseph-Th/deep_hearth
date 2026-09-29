@@ -29,6 +29,7 @@ const RAMP_RUST: PaletteRampId = PaletteRampId::new(12);
 const RAMP_REFRACTORY: PaletteRampId = PaletteRampId::new(13);
 const RAMP_SOOT: PaletteRampId = PaletteRampId::new(14);
 const RAMP_TRANSPARENT: PaletteRampId = PaletteRampId::new(15);
+const RAMP_CLAY_EARTH: PaletteRampId = PaletteRampId::new(16);
 
 pub const TEXTURE_WOOD_SIDE: TextureId = TextureId::new(1);
 pub const TEXTURE_WOOD_END: TextureId = TextureId::new(2);
@@ -42,6 +43,7 @@ pub const TEXTURE_WORKING_METAL: TextureId = TextureId::new(10);
 pub const TEXTURE_REFRACTORY: TextureId = TextureId::new(11);
 pub const TEXTURE_SCREEN_MESH: TextureId = TextureId::new(12);
 pub const TEXTURE_STONE: TextureId = TextureId::new(13);
+pub const TEXTURE_CLAY_EARTH: TextureId = TextureId::new(14);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
 pub const BLOCK_COPPER_ORE: BlockAppearanceId = BlockAppearanceId::new(3);
@@ -132,6 +134,9 @@ pub const OBJECT_STONE_DRAWPLATE: ObjectAppearanceId = ObjectAppearanceId::new(7
 pub const OBJECT_TIMBER_WIRE_DRAWBENCH: ObjectAppearanceId = ObjectAppearanceId::new(80);
 pub const OBJECT_TIMBER_TRIPOD_CORE_DRILL: ObjectAppearanceId = ObjectAppearanceId::new(81);
 pub const OBJECT_FLYWHEEL_WIRE_DRAWBENCH: ObjectAppearanceId = ObjectAppearanceId::new(82);
+pub const OBJECT_CLAY_FACED_STONE_CASTING_BED: ObjectAppearanceId = ObjectAppearanceId::new(83);
+pub const OBJECT_PACKED_CLAY_BINDER: ObjectAppearanceId = ObjectAppearanceId::new(84);
+pub const OBJECT_CLAY_EARTH_LUMP: ObjectAppearanceId = ObjectAppearanceId::new(85);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -210,6 +215,11 @@ fn build_palette_ramps() -> Vec<PaletteRampDefinition> {
             RAMP_SOOT,
             "furnace soot",
             [(5, 7, 12), (17, 20, 25), (41, 42, 43), (91, 83, 72)],
+        ),
+        ramp(
+            RAMP_CLAY_EARTH,
+            "moist clay earth",
+            [(36, 25, 25), (92, 58, 44), (157, 100, 68), (222, 176, 119)],
         ),
         PaletteRampDefinition::new(
             RAMP_TRANSPARENT,
@@ -306,6 +316,13 @@ fn build_textures() -> Vec<TextureDefinition> {
             &[RAMP_REFRACTORY, RAMP_SOOT],
             TextureAlphaMode::Opaque,
             refractory_pattern(),
+        ),
+        texture(
+            TEXTURE_CLAY_EARTH,
+            "compacted clay earth",
+            &[RAMP_CLAY_EARTH, RAMP_STONE],
+            TextureAlphaMode::Opaque,
+            aggregate_pattern(),
         ),
         texture(
             TEXTURE_SCREEN_MESH,

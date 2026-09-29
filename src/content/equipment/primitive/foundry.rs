@@ -9,25 +9,45 @@ use crate::content::capabilities::{
 use crate::content::crafted_parts::{COPPER_ELECTRICAL_WINDING_MASS, TIMBER_FLYWHEEL_MASS};
 use crate::content::materials::{
     FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LUMP,
-    FORM_REINFORCEMENT, FORM_STONE_CROCK_BODY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_PACKED_CLAY_BINDER, FORM_REINFORCEMENT, FORM_SCRAP, FORM_STONE_CROCK_BODY, MATERIAL_CLAY,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
-use crate::core::quantity::{Mass, Power, Temperature};
-use crate::equipment::{EquipmentDefinition, EquipmentUpgradeProfile};
+use crate::core::quantity::{Energy, Mass, Power, Temperature, Volume};
+use crate::core::time::TickSpan;
+use crate::equipment::{EquipmentDefinition, EquipmentMaintenanceProfile, EquipmentUpgradeProfile};
+use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
+use crate::survival::SurvivalExertion;
 
 use super::super::authoring::{
     EquipmentDefinitionAuthoringExt, assembled_definition_with_condition_curves,
     component_maintenance, power_condition_curve, profile, thresholds,
 };
 use super::super::{
-    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
-    EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+    EQUIPMENT_CLAY_FACED_STONE_CASTING_BED, EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
+    EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE,
+    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
 };
 
 const COPPER_ELECTRICAL_COMPONENT_MASS: Mass = Mass::from_milligrams(40_000);
 const FIRST_FOUNDRY_BATCH: Mass = Mass::from_milligrams(20_000);
 const SETTLEMENT_FOUNDRY_BATCH: Mass = Mass::from_milligrams(80_000);
+const CASTING_BED_CLAY_BINDER_MASS: Mass = Mass::from_milligrams(2_000_000);
+
+fn casting_bed_binder_maintenance() -> EquipmentMaintenanceProfile {
+    EquipmentMaintenanceProfile::new_component_replacement(
+        CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+        CASTING_BED_CLAY_BINDER_MASS,
+        CommodityKey::new(MATERIAL_CLAY, FORM_SCRAP),
+        Condition::PRISTINE,
+        TickSpan::new(100),
+        SurvivalExertion::new(
+            Energy::from_nanojoules(1_000_000_000_000),
+            Volume::from_microliters(250),
+        ),
+    )
+}
 
 /// A timber treadle and flywheel driving a copper-wound low-voltage dynamo.
 ///
@@ -331,6 +351,55 @@ pub(super) fn stone_ingot_mold() -> EquipmentDefinition {
         CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
         Mass::from_milligrams(2_400_000),
     ))
+}
+
+/// Timber-framed stone casting bed faced with compacted local clay binder.
+///
+/// This is a low-copper settlement alternative to the clamped four-cavity stone mold. Its cobbled
+/// stone bed and replaceable clay facing accept the same settlement batch without consuming cast
+/// copper, but heat leaves the metal more slowly. Periodic service replaces the binder and returns
+/// spent clay instead of deleting the mold medium, so repeated casting creates a reclaimable upkeep
+/// stream rather than a free throughput upgrade.
+pub(super) fn clay_faced_stone_casting_bed() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_CLAY_FACED_STONE_CASTING_BED,
+        "clay-faced stone casting bed",
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(6_000_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+                CASTING_BED_CLAY_BINDER_MASS,
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(1_600_000),
+            ),
+        ]),
+        profile([
+            (
+                CAPABILITY_COOLING_POWER,
+                CapabilityValue::Power(Power::from_microwatts(250_000_000)),
+            ),
+            (
+                CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1_450_000)),
+            ),
+            (
+                CAPABILITY_THERMAL_BATCH,
+                CapabilityValue::Mass(SETTLEMENT_FOUNDRY_BATCH),
+            ),
+        ]),
+        thresholds(),
+        vec![power_condition_curve(
+            CAPABILITY_COOLING_POWER,
+            500_000,
+            Power::from_microwatts(125_000_000),
+        )],
+    )
+    .with_maintenance_profile(casting_bed_binder_maintenance())
 }
 
 /// Four clamped stone cavities that accept one settlement-scale copper casting batch.

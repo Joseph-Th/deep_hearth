@@ -9,8 +9,8 @@ use super::super::{
     ENERGY_TIMBER_FLYWHEEL_DRIVE, ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_GRAVITY_SEPARATOR,
     EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_FOOD, FORM_LOG, FORM_LUMP,
-    FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_STONE,
-    MATERIAL_WOOD, MINING_METHOD_HAND_PICK, build_registries,
+    FORM_NATIVE_METAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_LEGUMES, MATERIAL_MEAT,
+    MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK, build_registries,
 };
 use crate::core::quantity::{Power, Volume};
 use crate::core::time::TickSpan;
@@ -100,6 +100,7 @@ fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_ro
     let registries = build_registries();
     let roots = BTreeSet::from([
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
     ]);
