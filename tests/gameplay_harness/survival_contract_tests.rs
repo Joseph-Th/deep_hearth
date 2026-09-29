@@ -30,6 +30,40 @@ use super::survival_probe::preservation_evaluation::{
 };
 use super::survival_probe::provisioning_world::minimum_visible_preservation_age_ticks;
 
+fn storage_capacity(
+    registries: &deep_hearth::registry::Registries,
+    definition: deep_hearth::inventory::StorageDefinitionId,
+) -> Mass {
+    registries
+        .storage()
+        .get(definition)
+        .unwrap_or_else(|| panic!("preservation contract storage definition disappeared"))
+        .maximum_stockpile_capacity()
+}
+
+fn capacity_just_above(
+    registries: &deep_hearth::registry::Registries,
+    definition: deep_hearth::inventory::StorageDefinitionId,
+) -> Mass {
+    storage_capacity(registries, definition)
+        .checked_add(Mass::from_milligrams(1))
+        .unwrap_or_else(|| panic!("preservation contract capacity boundary overflowed"))
+}
+
+fn storage_raw_opportunity(
+    registries: &deep_hearth::registry::Registries,
+    definition: deep_hearth::inventory::StorageDefinitionId,
+) -> Vec<(CommodityKey, Mass)> {
+    let storage = registries
+        .storage()
+        .get(definition)
+        .unwrap_or_else(|| panic!("preservation contract storage definition disappeared"));
+    preservation_construction_plan(registries, storage.assembly_profile())
+        .raw_requirements()
+        .into_iter()
+        .collect()
+}
+
 #[test]
 fn maintained_survival_coverage_keeps_the_strongest_preservation_endpoint_actionable() {
     let registries = build_registries();
@@ -636,73 +670,102 @@ fn survival_generation_covers_authored_options_without_policy_leakage() {
         low_threshold_choice.production_ticks >= high_threshold_choice.production_ticks,
         "higher attention valuation must not select a slower construction from the same physical frontier"
     );
-    assert_eq!(
-        preservation_storage_definition_for_policy_with_constraints(
-            &registries,
-            PreservationInvestmentPolicy::AttentionEfficient,
-            Mass::from_milligrams(15_000_000),
-            None,
-        ),
-        STORAGE_TIMBER_PROVISIONS_CHEST,
-        "a medium reserve should reject the cheap field box before ranking construction attention"
+    let above_field_box = capacity_just_above(&registries, STORAGE_ROUGH_TIMBER_FIELD_BOX);
+    assert!(
+        above_field_box <= storage_capacity(&registries, STORAGE_TIMBER_PROVISIONS_CHEST),
+        "authored standard chest must still provide a capacity step above the field box"
     );
     assert_eq!(
         preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::AttentionEfficient,
-            Mass::from_milligrams(30_000_000),
+            above_field_box,
+            None,
+        ),
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        "once field-box capacity is insufficient, attention-efficient ranking must choose the standard chest"
+    );
+    let above_standard_chest = capacity_just_above(&registries, STORAGE_TIMBER_PROVISIONS_CHEST);
+    assert!(
+        above_standard_chest <= storage_capacity(&registries, STORAGE_BULK_TIMBER_PROVISIONS_CRATE),
+        "authored bulk crate must still provide a capacity step above the standard chest"
+    );
+    assert_eq!(
+        preservation_storage_definition_for_policy_with_constraints(
+            &registries,
+            PreservationInvestmentPolicy::AttentionEfficient,
+            above_standard_chest,
             None,
         ),
         STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
         "bulk reserve feasibility must make the bulk crate the ordinary attention-efficient choice"
     );
+    let above_smaller_maximum_protection = std::cmp::max(
+        capacity_just_above(&registries, STORAGE_INSULATED_TIMBER_PANTRY),
+        capacity_just_above(&registries, STORAGE_CARVED_STONE_PROVISIONS_CROCK),
+    );
+    assert!(
+        above_smaller_maximum_protection
+            <= storage_capacity(&registries, STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST),
+        "double-wall chest must remain a capacity-feasible maximum-protection fallback"
+    );
     assert_eq!(
         preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::MaximumProtection,
-            Mass::from_milligrams(9_000_000),
+            above_smaller_maximum_protection,
             None,
         ),
         STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
         "maximum-protection ranking must reject the pantry and crock when the reserve exceeds their capacity"
     );
-    let stone_only = [(
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        Mass::from_milligrams(3_000_000),
-    )];
+    let stone_only = storage_raw_opportunity(&registries, STORAGE_CARVED_STONE_PROVISIONS_CROCK);
+    assert!(
+        stone_only
+            .iter()
+            .all(|(commodity, _)| *commodity == CommodityKey::new(MATERIAL_STONE, FORM_LUMP)),
+        "carved-crock bootstrap must remain a stone-only disclosed opportunity"
+    );
     assert_eq!(
         preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::MaximumProtection,
-            Mass::from_milligrams(5_000_000),
+            Mass::from_milligrams(1),
             Some(&stone_only),
         ),
         STORAGE_CARVED_STONE_PROVISIONS_CROCK,
         "a stone-only opportunity must not rank timber enclosures the actor cannot construct"
     );
-    let scarce_timber = [(
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(5_000_000),
-    )];
+    let scarce_timber =
+        storage_raw_opportunity(&registries, STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST);
+    assert!(
+        scarce_timber
+            .iter()
+            .all(|(commodity, _)| *commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)),
+        "double-wall chest bootstrap must remain a timber-only disclosed opportunity"
+    );
     assert_eq!(
         preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::MaximumProtection,
-            Mass::from_milligrams(5_000_000),
+            Mass::from_milligrams(1),
             Some(&scarce_timber),
         ),
         STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
-        "five kilograms of timber must not admit the six-kilogram pantry route"
+        "exact double-wall raw stock must not admit a more material-intensive timber route"
     );
-    let timber_only = [(
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(6_000_000),
-    )];
+    let timber_only = storage_raw_opportunity(&registries, STORAGE_INSULATED_TIMBER_PANTRY);
+    assert!(
+        timber_only
+            .iter()
+            .all(|(commodity, _)| *commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)),
+        "insulated pantry bootstrap must remain a timber-only disclosed opportunity"
+    );
     assert_eq!(
         preservation_storage_definition_for_policy_with_constraints(
             &registries,
             PreservationInvestmentPolicy::MaximumProtection,
-            Mass::from_milligrams(5_000_000),
+            Mass::from_milligrams(1),
             Some(&timber_only),
         ),
         STORAGE_INSULATED_TIMBER_PANTRY,

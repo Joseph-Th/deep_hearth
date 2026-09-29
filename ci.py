@@ -312,7 +312,7 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
     if command == cargo("test-core"):
         failed = FAILED_TEST.findall(combined)
         if failed:
-            return f"python tools/run_test.py {failed[-1]}"
+            return f"python tools/run_test.py --target lib {failed[-1]}"
     gameplay_targets = (
         GAMEPLAY_CONTRACTS_TARGET,
         *GAMEPLAY_AUDIT_TARGETS,
@@ -774,8 +774,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=GAMEPLAY_SCOPES,
         metavar="SCOPE",
         help=(
-            "run gameplay verification; gate accepts shared contracts or one focused scope, while audit "
-            "accepts omitted SCOPE/all for every maintained gameplay target"
+            "run gameplay verification; gate accepts shared contracts or one focused scope, while "
+            "audit accepts omitted SCOPE/all for the consolidated maintained gameplay audit"
         ),
     )
     lane.add_argument(
@@ -858,7 +858,7 @@ def validate_audit_options(parser: argparse.ArgumentParser, args: argparse.Names
         parser.error("audit requires an explicit scope: --core, --gameplay, or --all")
     if args.gameplay not in (None, "all"):
         parser.error(
-            "focused gameplay belongs in gate; audit --gameplay always means all maintained gameplay targets"
+            "focused gameplay belongs in gate; audit --gameplay runs the consolidated maintained audit"
         )
     if args.verbose:
         parser.error("--verbose is valid only with the report preset")
@@ -871,7 +871,7 @@ def validate_gate_options(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("broad verification is audit-only; use `python ci.py audit --all`")
     if args.gameplay == "all":
         parser.error(
-            "gate requires an explicit gameplay scope; use `python ci.py audit --gameplay` for all targets"
+            "gate requires an explicit gameplay scope; use `python ci.py audit --gameplay` for the consolidated audit"
         )
     if args.verbose:
         parser.error("--verbose is valid only with the report preset")

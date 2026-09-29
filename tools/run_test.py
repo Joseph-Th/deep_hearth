@@ -188,6 +188,12 @@ def resolve_automatic_exact_selection(
 ) -> tuple[str, str]:
     """Resolve one logical test globally, then choose its purpose-built Cargo target."""
 
+    if library_owner_feature_for_selector(selector) is not None:
+        library_catalog = source_test_catalog("lib", raw_features)
+        library_matches = source_test_matches(selector, library_catalog)
+        if len(library_matches) == 1:
+            return "lib", library_matches[0]
+
     locations = all_source_test_locations(raw_features)
     exact = [(target, name) for target, name in locations if name == selector]
     matches = exact or [(target, name) for target, name in locations if selector in name]
@@ -203,6 +209,13 @@ def resolve_automatic_exact_selection(
 
 def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> str:
     """Choose one purpose-built target containing the complete globally matched logical suite."""
+
+    if library_owner_feature_for_selector(selector) is not None:
+        library_matches = source_test_matches(
+            selector, source_test_catalog("lib", raw_features)
+        )
+        if library_matches:
+            return "lib"
 
     matches_by_target = {
         target: source_test_matches(selector, source_test_catalog(target, raw_features))
@@ -237,6 +250,16 @@ def source_test_matches(selector: str, catalog: list[str]) -> list[str]:
     return [name for name in catalog if selector in name]
 
 
+def library_owner_feature_for_selector(selector: str) -> str | None:
+    """Return the unit-test shard implied by one qualified production-owner selector."""
+
+    owner, separator, _remainder = selector.partition("::")
+    if not separator:
+        return None
+    feature = f"test-unit-{owner.replace('_', '-')}"
+    return feature if feature in cargo_manifest().get("features", {}) else None
+
+
 def resolve_test_name(selector: str, catalog: list[str]) -> str:
     """Resolve one source selector without ever widening execution beyond one exact test."""
 
@@ -251,7 +274,11 @@ def resolve_test_name(selector: str, catalog: list[str]) -> str:
 def library_unit_shard_feature(args: argparse.Namespace) -> str | None:
     """Return the owner shard for one bounded library-test execution when available."""
 
-    if args.target != "lib" or args.name is None:
+    if (
+        args.target != "lib"
+        or args.name is None
+        or getattr(args, "target_explicit", False)
+    ):
         return None
     names = (
         source_test_matches(args.name, source_test_catalog("lib", args.features))
@@ -355,8 +382,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--target",
         help=(
-            "explicit Cargo test target; exact/list/suite modes otherwise resolve the "
-            "purpose-built matching source target automatically"
+            "explicit Cargo test target and cache shape; exact/list/suite modes otherwise resolve "
+            "the purpose-built matching source target automatically"
         ),
     )
     parser.add_argument(
@@ -384,6 +411,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="replay DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED for this test execution",
     )
     args = parser.parse_args(argv)
+    args.target_explicit = args.target is not None
     if not args.list and not args.lint and not args.name:
         parser.error("a test selector is required for test execution")
     if args.list and args.lint:

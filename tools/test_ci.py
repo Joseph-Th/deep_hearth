@@ -34,7 +34,7 @@ _source_text_cache: dict[Path, str] = {}
 _maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
 
 DEDICATED_OWNER_CONTRACT_SCOPES = frozenset(
-    {"progression", "woodworking", "fieldwork", "ore"}
+    {"progression", "settlement", "woodworking", "fieldwork", "ore"}
 )
 
 
@@ -1366,15 +1366,15 @@ unknown_macro!();
         report = ROOT / "tests" / "gameplay_report.rs"
         self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
 
-    def test_owner_contract_targets_merge_only_when_the_focused_graph_already_owns_them(self) -> None:
+    def test_owner_contract_targets_split_when_the_contract_graph_is_materially_distinct(self) -> None:
         merged_contract_prefixes = {
             "workshop": "workshop_contract_tests::",
             "survival": "survival_contract_tests::",
-            "settlement": "settlement_wire_contract_tests::",
             "foundry": "foundry_contract_tests::",
         }
         dedicated_contract_prefixes = {
             "progression": "progression_contract_tests::",
+            "settlement": "settlement_wire_contract_tests::",
             "woodworking": "woodworking_contract_tests::",
             "fieldwork": "prospecting_instrument_contract_tests::",
             "ore": "ore_contract_tests::",
@@ -1404,19 +1404,20 @@ unknown_macro!();
                 )
             )
 
-    def test_settlement_focused_target_keeps_all_machine_contract_families(self) -> None:
+    def test_settlement_contract_target_keeps_all_machine_contract_families(self) -> None:
         focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
+        contracts = run_test.source_test_catalog(owner_contract_target("settlement"), None)
         prefixes = (
             "settlement_drill_contract_tests::",
             "settlement_helve_contract_tests::",
             "settlement_machine_contract_tests::",
             "settlement_wire_contract_tests::",
         )
-        self.assertIn("gameplay_settlement_probe", focused)
+        self.assertEqual(focused, ["gameplay_settlement_probe"])
         for prefix in prefixes:
             self.assertTrue(
-                any(name.startswith(prefix) for name in focused),
-                f"settlement focused target lost owner {prefix.removesuffix('::')}",
+                any(name.startswith(prefix) for name in contracts),
+                f"settlement contract target lost owner {prefix.removesuffix('::')}",
             )
 
     def test_focused_progression_stages_do_not_compile_each_other(self) -> None:
@@ -1551,7 +1552,7 @@ unknown_macro!();
         output = "failures:\n    mining::execution::tests::missing_capability\n"
         self.assertEqual(
             ci.repair_hint(["cargo", "test-core"], output, ""),
-            "python tools/run_test.py mining::execution::tests::missing_capability",
+            "python tools/run_test.py --target lib mining::execution::tests::missing_capability",
         )
 
     def test_gameplay_contract_failure_reuses_the_already_built_contract_target(self) -> None:
@@ -3058,7 +3059,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "lib",
         )
         for selector, expected in {
-            "settlement_wire_contract_tests": "gameplay_settlement",
+            "settlement_wire_contract_tests": "gameplay_settlement_contracts",
             "survival_contract_tests": "gameplay_survival",
             "progression_contract_tests": "gameplay_progression_contracts",
             "ore_contract_tests": "gameplay_ore_contracts",
@@ -3157,6 +3158,7 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_exact_unit_command_uses_the_matching_owner_shard(self) -> None:
         args = argparse.Namespace(
             target="lib",
+            target_explicit=False,
             features=None,
             list=False,
             name="core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
@@ -3168,6 +3170,57 @@ class ExactTestCommandTests(unittest.TestCase):
         self.assertIn("--features", command)
         self.assertIn("test-unit-core", command)
         self.assertIn("--exact", command)
+
+    def test_explicit_library_target_reuses_the_unsharded_core_artifact(self) -> None:
+        args = run_test.parse_args(
+            [
+                "--target",
+                "lib",
+                "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
+            ]
+        )
+        catalog = run_test.source_test_catalog("lib", None)
+        self.assertIsNotNone(run_test.resolve_requested_selection(args, catalog))
+        command = run_test.cargo_command(args)
+        self.assertNotIn("--features", command)
+        self.assertFalse(any(part.startswith("test-unit-") for part in command))
+        self.assertIn("--exact", command)
+
+    def test_qualified_unit_selection_does_not_scan_gameplay_targets(self) -> None:
+        with mock.patch.object(
+            run_test,
+            "all_source_test_locations",
+            side_effect=AssertionError("qualified unit selection widened to gameplay catalogs"),
+        ):
+            target, name = run_test.resolve_automatic_exact_selection(
+                "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
+                None,
+            )
+        self.assertEqual(target, "lib")
+        self.assertEqual(
+            name,
+            "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
+        )
+
+    def test_production_owner_prefixes_are_reserved_to_library_tests(self) -> None:
+        features = set(run_test.cargo_manifest()["features"])
+        owners = {
+            feature.removeprefix("test-unit-").replace("-", "_")
+            for feature in features
+            if feature.startswith("test-unit-") and feature != "test-unit-shard"
+        }
+        collisions = [
+            (target, name)
+            for target in run_test.test_targets()
+            if target != "lib"
+            for name in run_test.source_test_catalog(target, None)
+            if name.partition("::")[0] in owners
+        ]
+        self.assertEqual(
+            collisions,
+            [],
+            "qualified production-owner selectors may skip global target scanning only while those prefixes remain library-only",
+        )
 
     def test_source_catalog_matches_default_library_test_names_without_building(self) -> None:
         catalog = run_test.source_test_catalog("lib", None)
@@ -3221,6 +3274,10 @@ class ExactTestCommandTests(unittest.TestCase):
             "settlement_wire_contract_tests::flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield",
             settlement,
         )
+        focused_settlement = run_test.source_test_catalog(
+            ci.GAMEPLAY_TARGETS["settlement"], None
+        )
+        self.assertEqual(focused_settlement, [ci.GAMEPLAY_TESTS["settlement"]])
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
         self.assertNotIn("agency::gameplay_agency_counterfactuals", workshop)
         self.assertNotIn("scenario_tests::world_seed_never_changes_player_policy", workshop)

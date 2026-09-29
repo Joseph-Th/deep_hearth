@@ -5,8 +5,8 @@ linker = "lld-link.exe"
 
 [alias]
 # Daily feedback stays on the smallest artifact that can catch the current class of mistake. The
-# compile-only aliases avoid codegen/linking while code is unstable; exact unit tests and the core
-# audit reuse one feature-minimal test artifact while gameplay targets opt into their setup feature.
+# compile-only aliases avoid codegen/linking while code is unstable; exact unit tests owner-shard
+# their test code while the explicit core audit keeps one complete feature-minimal library artifact.
 # Compile-only feedback is an alternative to executable proof while code is unstable, not a warm-up
 # step before tests. Keep it on the test profile so switching lanes does not add a second dependency
 # profile, but invoke the executable proof directly when that is the contract being checked.
@@ -15,8 +15,8 @@ check-fast = "check --quiet --locked --profile test --lib"
 # Gameplay/report wrappers are compiled by their focused or audit lanes instead of
 # cloning the same large harness graph under Clippy. It shares the same profile/cache as tests.
 lint-fast = "clippy --quiet --locked --profile test --lib -- -D warnings"
-# Exact unit tests, public content contracts, and broad core audits share this one feature-minimal
-# library-test artifact. The measured local relink is cheaper than maintaining a second content binary.
+# Broad core audits use one complete feature-minimal library-test artifact. Their printed exact
+# repair command pins this target so a failure reuses the artifact instead of switching to a shard.
 test-core = "test --quiet --locked --lib"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak lane pays that cost only on demand.

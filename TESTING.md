@@ -19,7 +19,7 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 
 Routine iteration is `quick` while editing, then **one** build-producing proof. A passing Rust test is compile proof for its target. Use the default `gate` only when no executable test fits or a production-only cfg path changed. Do not stack an exact unit test and focused gameplay for the same claim.
 
-Use `python tools/run_test.py --list <substring>` for build-free discovery and the printed `repair:` command after failures. `run_test.py` owner-shards exact and single-owner suites because a one-file local rebuild is materially cheaper than recompiling the complete library test artifact. Switching owners selects another Rust artifact, so keep one repair loop on the owner being changed. Cargo check/test artifacts also differ, so do not precheck an executable test.
+Use `python tools/run_test.py --list <substring>` for build-free discovery and the printed `repair:` command after failures. Automatic exact and single-owner suite selection owner-shards library tests because a one-file local rebuild is materially cheaper than recompiling the complete library test artifact. A broad core-audit failure instead pins `--target lib` so its exact repair reuses the already-built unsharded artifact. Switching ordinary owner shards selects another Rust artifact, so keep one repair loop on the owner being changed. Cargo check/test artifacts also differ, so do not precheck an executable test.
 
 ## Escalation lanes
 
@@ -82,7 +82,7 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused probes own nearby contracts when compiling them does not materially enlarge the common edit artifact. Fieldwork and woodworking keep larger internal contract suites separate so the ordinary player-level probes stay small; progression and ore likewise keep materially narrower contract targets. Gameplay targets share one `test-gameplay` feature shape. Reports use examples and keep report-only formatting out of tests when measurement justifies the split.
+Focused probes own nearby contracts only when those contracts do not materially enlarge the edit artifact. Workshop, survival, settlement, foundry, woodworking, fieldwork, progression planning, and ore keep dedicated contract targets; progression episode contracts stay with the progression probe because they require its full evaluator. Gameplay targets share one `test-gameplay` feature shape. Reports use examples and keep report-only formatting out of tests when measurement justifies the split.
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 
