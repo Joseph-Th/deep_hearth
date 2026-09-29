@@ -429,12 +429,12 @@ fn observations_persist_quantitative_uncertainty_without_exposing_deposit_identi
     let broad = make_test_prospecting_resolution(
         line_bounds(0, 4),
         GeologicalEvidenceKind::SurfaceExposure,
-        vec![estimate(MATERIAL_COPPER, 0, 150_000)],
+        vec![estimate(MATERIAL_COPPER, 0, 75_000)],
     );
     let focused = make_test_prospecting_resolution(
         line_bounds(2, 3),
         GeologicalEvidenceKind::SurfaceExposure,
-        vec![estimate(MATERIAL_COPPER, 0, 150_000)],
+        vec![estimate(MATERIAL_COPPER, 0, 75_000)],
     );
     let broad_id = record(&registries, &mut state, broad);
     if let Err(error) = advance_tick(&registries, &mut state) {
@@ -452,10 +452,10 @@ fn observations_persist_quantitative_uncertainty_without_exposing_deposit_identi
         assessment.consistency(),
         GeologicalEvidenceConsistency::Compatible {
             lower_ppm: 0,
-            upper_ppm: 150_000,
+            upper_ppm: 75_000,
         }
     );
-    assert_eq!(assessment.envelope(), Some((0, 150_000)));
+    assert_eq!(assessment.envelope(), Some((0, 75_000)));
     assert_eq!(assessment.common_evidence_region(), Some(line_bounds(2, 3)));
     assert_eq!(assessment.common_acquired_region(), Some(line_bounds(2, 3)));
     assert_eq!(assessment.most_precise(), Some(focused_id));
@@ -785,7 +785,7 @@ fn prospecting_round_trip_preserves_deterministic_continuation() {
     let initial = make_test_prospecting_resolution(
         line_bounds(0, 4),
         GeologicalEvidenceKind::SurfaceExposure,
-        vec![estimate(MATERIAL_COPPER, 0, 150_000)],
+        vec![estimate(MATERIAL_COPPER, 0, 75_000)],
     );
     record(&registries, &mut state, initial);
     if let Err(error) = advance_tick(&registries, &mut state) {

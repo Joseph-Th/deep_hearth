@@ -347,8 +347,11 @@ combine only acquired evidence, preserving contradiction and spatial incomparabi
 truth.
 
 Trusted load validates observations against the authored method and the geological bodies that could have
-existed at acquisition time. Evidence cannot gain precision retroactively from later-generated bodies or current
-state. Resource-scale evidence remains observation-time evidence rather than a live reserve oracle.
+existed at acquisition time. Abundance and excavation-hardness evidence replay the same canonical quantization
+used by live prospecting over those historical bodies; resource-scale evidence retains bounded historical
+plausibility because later extraction means exact observation-time remaining mass is not reconstructible.
+Evidence cannot gain precision retroactively from later-generated bodies or current state, and resource-scale
+evidence remains observation-time evidence rather than a live reserve oracle.
 
 ### Prospecting and mining
 

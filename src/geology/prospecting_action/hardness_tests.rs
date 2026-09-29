@@ -9,7 +9,7 @@ use crate::spatial::{VoxelBounds, VoxelCoord};
 
 use crate::content::{FORM_ORE, MATERIAL_COPPER};
 
-use super::{excavation_hardness_band_matches_resolution, resolve_region_excavation_hardness};
+use super::resolve_region_excavation_hardness;
 
 fn bounds() -> VoxelBounds {
     VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1))
@@ -46,24 +46,6 @@ fn representational_ceiling_retains_full_authored_hardness_resolution() {
         Pressure::from_pascals(u64::MAX - resolution.pascals())
     );
     assert!(estimate.lower() <= actual && actual <= estimate.upper());
-    assert!(excavation_hardness_band_matches_resolution(
-        estimate, resolution
-    ));
-}
-
-#[test]
-fn hardness_resolution_shape_rejects_narrow_ceiling_band() {
-    let resolution = Pressure::from_pascals(50_000_000);
-    let aligned_lower = ((u64::MAX - 100) / resolution.pascals()) * resolution.pascals();
-    let narrow = crate::geology::ExcavationHardnessEstimate::new(
-        Pressure::from_pascals(aligned_lower),
-        Pressure::from_pascals(u64::MAX),
-    )
-    .unwrap_or_else(|error| panic!("narrow hardness estimate fixture failed: {error}"));
-
-    assert!(!excavation_hardness_band_matches_resolution(
-        narrow, resolution
-    ));
 }
 
 fn observed_hardness(hardness_pa: u64) -> crate::geology::ExcavationHardnessEstimate {

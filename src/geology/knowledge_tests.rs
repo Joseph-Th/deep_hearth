@@ -153,6 +153,61 @@ fn loaded_state_rejects_abundance_precision_no_authored_method_can_emit() {
 }
 
 #[test]
+fn loaded_state_rejects_wider_abundance_than_canonical_prospecting_can_emit() {
+    let registries = build_registries();
+    let mut app = AppState::new();
+    let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
+    let (knowledge, observation) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 950_000, 1_000_000)],
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
+                observation,
+                evidence: GeologicalEvidenceKind::ExcavationSample,
+            }
+        ))
+    );
+}
+
+#[test]
+fn loaded_state_rejects_wider_hardness_than_canonical_prospecting_can_emit() {
+    let registries = build_registries();
+    let mut app = AppState::new();
+    let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
+    let (mut knowledge, observation) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+    );
+    knowledge
+        .observations
+        .get_mut(&observation)
+        .unwrap_or_else(|| panic!("wider hardness observation disappeared"))
+        .excavation_hardness = Some(
+        ExcavationHardnessEstimate::new(
+            Pressure::from_pascals(250_000_000),
+            Pressure::from_pascals(400_000_000),
+        )
+        .unwrap_or_else(|error| panic!("wider hardness fixture failed: {error}")),
+    );
+    *app.geological_knowledge_state_mut() = knowledge;
+
+    assert_eq!(
+        validate_loaded_state(&registries, &app),
+        Err(StateValidationError::GeologicalKnowledge(
+            GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
+                observation,
+                evidence: GeologicalEvidenceKind::ExcavationSample,
+            }
+        ))
+    );
+}
+
+#[test]
 fn loaded_state_rejects_definite_physical_sample_missing_authored_hardness() {
     let registries = build_registries();
     let mut app = AppState::new();
