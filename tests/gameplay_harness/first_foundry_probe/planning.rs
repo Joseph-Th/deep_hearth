@@ -18,7 +18,7 @@ use deep_hearth::inventory::StockpileId;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::production::ProcessId;
-use deep_hearth::registry::Registries;
+use deep_hearth::registry::{CommoditySource, Registries};
 use deep_hearth::survival::project_survival_resource_budget;
 
 use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
@@ -115,7 +115,17 @@ fn project_foundry_craft_route(
     context: &'static str,
 ) -> ProjectedFoundryCraftRoute {
     let mut candidates = Vec::new();
-    for definition in registries.crafting().manual_producers(commodity) {
+    let handbook = registries
+        .commodity_handbook_entry(commodity)
+        .unwrap_or_else(|| panic!("first foundry {context} requested an unknown commodity"));
+    for source in handbook.sources() {
+        let CommoditySource::ManualCraft { process, .. } = *source else {
+            continue;
+        };
+        let definition = registries
+            .crafting()
+            .get_manual(process)
+            .unwrap_or_else(|| panic!("commodity handbook exposed an unknown manual process"));
         if !FOUNDRY_RAW_INPUTS.contains(&definition.input()) {
             continue;
         }

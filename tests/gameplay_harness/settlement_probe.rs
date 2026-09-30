@@ -12,8 +12,8 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
-    PoweredCraftRequest, project_manual_craft_equipment, resolve_manual_craft,
-    validate_start_powered_craft,
+    PoweredCraftRequest, manual_craft_options_from_stockpile, project_manual_craft_equipment,
+    resolve_manual_craft, validate_start_powered_craft,
 };
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{
@@ -220,10 +220,24 @@ fn setup_plans(
     let mut plans = Vec::new();
     let mut attention = 0_u64;
     for input in additions.inputs() {
-        let candidates = registries
-            .crafting()
-            .manual_producers(input.commodity())
-            .flat_map(|definition| {
+        let catalog =
+            manual_craft_options_from_stockpile(registries, state, raw).unwrap_or_else(|error| {
+                panic!("settlement cannot read the ordinary craft catalog: {error}")
+            });
+        let candidates = catalog
+            .into_iter()
+            .filter_map(|option| {
+                let definition = registries
+                    .crafting()
+                    .get_manual(option.process())
+                    .unwrap_or_else(|| panic!("ordinary craft catalog exposed an unknown process"));
+                if !definition
+                    .outputs()
+                    .iter()
+                    .any(|output| output.commodity() == input.commodity())
+                {
+                    return None;
+                }
                 let per_batch = definition
                     .outputs()
                     .iter()
@@ -244,30 +258,35 @@ fn setup_plans(
                         .checked_mul(batches)
                         .unwrap_or_else(|| panic!("settlement sawmill setup input overflowed")),
                 );
-                [None, Some(frame_saw)]
-                    .into_iter()
-                    .filter_map(move |equipment| {
-                        let mut request = plan_manual_craft_request(
-                            registries,
-                            state,
-                            definition.process(),
-                            raw,
-                            batches,
-                        )
-                        .ok()?;
-                        if let Some(equipment) = equipment {
-                            request = request.with_equipment(equipment);
-                        }
-                        let resolution = resolve_manual_craft(registries, state, &request).ok()?;
-                        Some((
-                            definition.process(),
-                            batches,
-                            equipment,
-                            resolution.duration().value(),
-                            required_input.milligrams(),
-                        ))
-                    })
+                Some(
+                    [None, Some(frame_saw)]
+                        .into_iter()
+                        .filter_map(move |equipment| {
+                            let mut request = plan_manual_craft_request(
+                                registries,
+                                state,
+                                definition.process(),
+                                raw,
+                                batches,
+                            )
+                            .ok()?;
+                            if let Some(equipment) = equipment {
+                                request = request.with_equipment(equipment);
+                            }
+                            let resolution =
+                                resolve_manual_craft(registries, state, &request).ok()?;
+                            Some((
+                                definition.process(),
+                                batches,
+                                equipment,
+                                resolution.duration().value(),
+                                required_input.milligrams(),
+                            ))
+                        })
+                        .collect::<Vec<_>>(),
+                )
             })
+            .flatten()
             .collect::<Vec<_>>();
         let best_key = candidates
             .iter()

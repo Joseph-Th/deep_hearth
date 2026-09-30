@@ -5,7 +5,7 @@ use std::num::NonZeroU64;
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::crafting::{ManualCraftDefinition, project_manual_craft_hand_work};
 use deep_hearth::material::CommodityKey;
-use deep_hearth::registry::{ProcessEquipmentRole, Registries};
+use deep_hearth::registry::{CommoditySource, ProcessEquipmentRole, Registries};
 
 fn manual_craft_plan_for_output_matching<'a>(
     registries: &'a Registries,
@@ -18,9 +18,23 @@ fn manual_craft_plan_for_output_matching<'a>(
         !required.is_zero(),
         "gameplay harness {context} requires nonzero produced mass"
     );
-    let candidates = registries
-        .crafting()
-        .manual_producers(commodity)
+    let handbook = registries
+        .commodity_handbook_entry(commodity)
+        .unwrap_or_else(|| panic!("gameplay harness {context} requested an unknown commodity"));
+    let candidates = handbook
+        .sources()
+        .iter()
+        .filter_map(|source| match *source {
+            CommoditySource::ManualCraft { process, .. } => Some(
+                registries
+                    .crafting()
+                    .get_manual(process)
+                    .unwrap_or_else(|| {
+                        panic!("commodity handbook exposed an unknown manual process")
+                    }),
+            ),
+            _ => None,
+        })
         .filter(|definition| {
             registries
                 .process_topology(definition.process())

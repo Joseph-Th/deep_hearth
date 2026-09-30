@@ -11,7 +11,7 @@ use deep_hearth::core::quantity::Mass;
 use deep_hearth::crafting::project_manual_craft_hand_work;
 use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
 use deep_hearth::production::ProcessId;
-use deep_hearth::registry::{ProcessEquipmentRole, Registries};
+use deep_hearth::registry::{CommoditySource, ProcessEquipmentRole, Registries};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ManualConstructionStep {
@@ -76,8 +76,20 @@ fn discover_manual_construction_route(
         return None;
     }
     let authored_producers = registries
-        .crafting()
-        .manual_producers(output)
+        .commodity_handbook_entry(output)
+        .into_iter()
+        .flat_map(|entry| entry.sources().to_vec())
+        .filter_map(|source| match source {
+            CommoditySource::ManualCraft { process, .. } => Some(
+                registries
+                    .crafting()
+                    .get_manual(process)
+                    .unwrap_or_else(|| {
+                        panic!("commodity handbook exposed an unknown manual process")
+                    }),
+            ),
+            _ => None,
+        })
         .collect::<Vec<_>>();
     if authored_producers.is_empty() {
         assert!(visiting.remove(&output));

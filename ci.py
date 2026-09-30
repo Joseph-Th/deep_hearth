@@ -185,18 +185,22 @@ def clear_gameplay_seed_environment(environ) -> None:
 def configure_gameplay_verification_environment(
     args: argparse.Namespace,
     environ,
-) -> None:
-    """Run maintained witnesses by default, adding variation only for an explicit replay."""
+    *,
+    randbits=secrets.randbits,
+) -> tuple[str, str]:
+    """Run maintained witnesses plus one fresh or explicitly replayed organic case."""
 
     use_behavior_seed = gameplay_sampling_behavior(args)
     assert use_behavior_seed is not None
     environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
     clear_gameplay_seed_environment(environ)
-    if args.variation_seed is None:
-        return
-    environ["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"] = args.variation_seed
-    if use_behavior_seed and args.behavior_seed is not None:
-        environ["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"] = args.behavior_seed
+    return configure_gameplay_replay_environment(
+        environ,
+        variation_override=args.variation_seed,
+        behavior_override=args.behavior_seed,
+        use_behavior_seed=use_behavior_seed,
+        randbits=randbits,
+    )
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)
@@ -674,7 +678,7 @@ def report_stage(
                 return None
         detail = None if label.startswith("gameplay report") else rust_test_summary(result.stdout)
         details = [detail] if detail is not None else []
-        if label.startswith("gameplay report"):
+        if label.startswith("gameplay") and label != "gameplay contracts":
             replay = gameplay_environment_summary(label, os.environ)
             if replay is None:
                 replay = gameplay_replay_summary(result.stdout)
@@ -879,7 +883,7 @@ def validate_audit_options(parser: argparse.ArgumentParser, args: argparse.Names
         parser.error("audit requires an explicit scope: --core, --gameplay, or --all")
     if args.gameplay not in (None, "all"):
         parser.error(
-            "focused gameplay belongs in gate; audit --gameplay runs the consolidated maintained audit"
+            "focused gameplay belongs in gate; audit --gameplay runs the consolidated gameplay audit"
         )
     if args.verbose:
         parser.error("--verbose is valid only with the report preset")

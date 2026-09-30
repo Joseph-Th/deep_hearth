@@ -54,7 +54,9 @@ projections, or action legality. Reports expose the applied policy so a cold age
 from actor preference.
 
 When production exposes a player/UI planner for an ordinary choice, the harness uses that planner instead of
-reconstructing its selection rules. Explicit lot selection remains valid only when the physical lot is itself a
+reconstructing its selection rules. Live manual-craft discovery comes from the production stockpile recipe catalog;
+pre-inventory route discovery comes from the production commodity handbook. Exact definitions and physics still come
+from their owning registries/resolvers. Explicit lot selection remains valid only when the physical lot is itself a
 meaningful player choice. Repeated stateful projections carry each production result into the next step; never
 multiply the first-step cost across a lifecycle whose condition, reserves, occupancy, or other state can change.
 
@@ -175,11 +177,12 @@ scope may establish.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Routine focused gameplay gates and the broad gameplay audit run maintained deterministic witnesses only. Explicit
-replay roots add one requested variation case. Reports own fresh organic sampling, using a broader bounded sample
-and agency qualification searches. Maintained cases prove contracts, not prevalence; organic samples are bounded
-evidence, not population estimates. A named qualitative regime must have a maintained witness; organic sampling
-broadens exploratory evidence around those anchors instead of making pass/fail coverage depend on luck. Organic
+Routine focused gameplay gates and the broad gameplay audit pair maintained deterministic witnesses with one fresh,
+replayable organic case. Exact replay roots replace that fresh case when reproducing a run. Reports use a broader
+bounded organic sample and agency qualification searches. Maintained cases prove contracts, not prevalence; organic
+samples are bounded evidence, not population estimates. A named qualitative regime must have a maintained witness;
+the single routine organic case catches generator, policy, and integration drift between those anchors without
+turning qualitative coverage into a probabilistic requirement. Organic
 generator ranges that are intended to
 straddle an authored threshold, equipment scale, storage capacity, or production crossover derive that scale from
 the current production definitions/projections. Fixed numeric pressure is appropriate only when the number itself
@@ -213,10 +216,10 @@ but a possible follow-up action discovered only after prospecting or another obs
 earlier provisioning choice. After new evidence arrives, reassess the newly disclosed work and provision from
 that state if needed.
 
-Project-owned routine gameplay verification ignores ambient replay state and runs maintained witnesses
-deterministically. Explicit roots replay one requested case exactly. Reports reuse the same replay contract while
-generating a broader fresh sample. [`TESTING.md`](TESTING.md) owns command selection; command help owns exact
-option syntax.
+Project-owned routine gameplay verification ignores ambient replay state, preserves maintained witnesses, and adds
+one fresh replayable organic case. Explicit roots replay one requested case exactly. Reports reuse the same replay
+contract while generating a broader fresh sample. [`TESTING.md`](TESTING.md) owns command selection; command help
+owns exact option syntax.
 
 Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
 labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their

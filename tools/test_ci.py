@@ -1184,6 +1184,20 @@ unknown_macro!();
         ]
         self.assertEqual(offenders, [])
 
+    def test_gameplay_actor_planners_use_player_facing_craft_discovery(self) -> None:
+        offenders = [
+            f"{path.relative_to(ROOT).as_posix()}:{index + 1}:{line.strip()}"
+            for path in maintained_rust_files(ROOT / "tests" / "gameplay_harness")
+            if not path.name.endswith("contract_tests.rs")
+            for index, line in enumerate(read_maintained_text(path).splitlines())
+            if ".manual_producers(" in line
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "gameplay actors must discover manual recipes through production player-facing catalogs",
+        )
+
     def test_standard_gate_compiles_production_once(self) -> None:
         self.assertEqual(
             ci.plan_for(gate_args()),
@@ -1371,10 +1385,22 @@ unknown_macro!();
             self.assertNotIn(
                 fresh_seed,
                 reachable,
-                f"routine gameplay target {target} must leave fresh organic sampling to the report",
+                f"routine gameplay target {target} must keep fresh root generation runner-side",
             )
         report = ROOT / "tests" / "gameplay_report.rs"
         self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
+
+    def test_exact_gameplay_probe_catalog_stays_aligned_with_ci_scopes(self) -> None:
+        expected = {*ci.GAMEPLAY_TESTS.values(), "gameplay_agency_counterfactuals"}
+        self.assertEqual(run_test.GAMEPLAY_PROBE_TESTS, expected)
+        self.assertEqual(
+            run_test.GAMEPLAY_BEHAVIOR_PROBE_TESTS,
+            {
+                spec.test
+                for spec in ci.GAMEPLAY_SCOPE_SPECS.values()
+                if spec.uses_behavior_seed and spec.test is not None
+            },
+        )
 
     def test_contract_targets_split_only_when_the_contract_graph_is_materially_distinct(self) -> None:
         dedicated_contracts = {
@@ -1399,12 +1425,12 @@ unknown_macro!();
                     for name in run_test.source_test_catalog(contract_target, None)
                 )
             )
-            contract_root = run_test.cargo_test_target_path(contract_target).read_text(
-                encoding="utf-8"
-            )
+            focused_probe_path = (
+                ROOT / "tests" / "gameplay_harness" / focused_probe
+            ).resolve()
             self.assertNotIn(
-                f'#[path = "gameplay_harness/{focused_probe}"]',
-                contract_root,
+                focused_probe_path,
+                run_test.target_source_paths(contract_target, None),
                 f"{contract_target} must isolate contracts instead of recompiling the full focused probe",
             )
         merged_contract_prefixes = {
@@ -1509,7 +1535,7 @@ unknown_macro!();
         )
         self.assertIsNone(ci.gameplay_replay_summary("test result: ok. 1 passed"))
 
-    def test_successful_gameplay_gate_reports_counts_without_replay_noise(self) -> None:
+    def test_successful_gameplay_gate_reports_compact_replay_roots(self) -> None:
         command = ci.gameplay_command("survival")
         result = ci.subprocess.CompletedProcess(
             command,
@@ -1542,7 +1568,7 @@ unknown_macro!();
                 ),
                 0.25,
             )
-        self.assertEqual(stdout.getvalue(), "PASS (0.2s; 1 test)\n")
+        self.assertEqual(stdout.getvalue(), "PASS (0.2s; 1 test; roots=0x111/0x222)\n")
         self.assertEqual(stderr.getvalue(), "")
 
     def test_gate_rejects_complete_core_suite_as_a_repair_loop(self) -> None:
@@ -1783,7 +1809,7 @@ unknown_macro!();
             },
         )
 
-    def test_run_test_focused_probe_is_deterministic_without_explicit_replay(self) -> None:
+    def test_run_test_focused_probe_gets_fresh_replay_roots_without_explicit_replay(self) -> None:
         args = run_test.parse_args(
             [
                 "--target",
@@ -1793,15 +1819,27 @@ unknown_macro!();
             ]
         )
         self.assertIn("--nocapture", run_test.cargo_command(args))
+        rolls = iter((0xAAAA, 0xBBBB))
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(run_test.gameplay_replay_environment(args), {})
+            self.assertEqual(
+                run_test.gameplay_replay_environment(
+                    args, randbits=lambda _bits: next(rolls)
+                ),
+                {
+                    run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                    run_test.GAMEPLAY_BEHAVIOR_ENV: "0x000000000000BBBB",
+                },
+            )
 
-    def test_run_test_non_actor_probe_is_deterministic_without_explicit_replay(self) -> None:
+    def test_run_test_non_actor_probe_gets_only_a_fresh_world_root(self) -> None:
         args = run_test.parse_args(
             ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
         )
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(run_test.gameplay_replay_environment(args), {})
+            self.assertEqual(
+                run_test.gameplay_replay_environment(args, randbits=lambda _bits: 0xAAAA),
+                {run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA"},
+            )
 
     def test_run_test_organic_roots_produce_a_copyable_replay_command(self) -> None:
         args = run_test.parse_args(
@@ -1818,7 +1856,7 @@ unknown_macro!();
             "python tools/run_test.py --target gameplay_survival --variation-seed 0x000000000000AAAA --behavior-seed 0x000000000000BBBB gameplay_survival_provisioning_probe",
         )
 
-    def test_run_test_ignores_ambient_replay_roots(self) -> None:
+    def test_run_test_replaces_ambient_replay_roots_with_fresh_roots(self) -> None:
         args = run_test.parse_args(
             ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
         )
@@ -1827,7 +1865,10 @@ unknown_macro!();
             {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1234"},
             clear=True,
         ):
-            self.assertEqual(run_test.gameplay_replay_environment(args), {})
+            self.assertEqual(
+                run_test.gameplay_replay_environment(args, randbits=lambda _bits: 0xAAAA),
+                {run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA"},
+            )
 
     def test_run_test_contract_execution_does_not_invent_gameplay_variation(self) -> None:
         args = run_test.parse_args(
@@ -2170,7 +2211,7 @@ unknown_macro!();
                 ):
                     ci.parse_args(argv)
 
-    def test_routine_gameplay_sampling_clears_ambient_roots_and_stays_maintained(self) -> None:
+    def test_routine_gameplay_sampling_replaces_ambient_roots_with_one_fresh_case(self) -> None:
         args = ci.parse_args(["gate", "--gameplay", "survival"])
         environment = {
             "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
@@ -2178,8 +2219,21 @@ unknown_macro!();
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2222",
             "KEEP": "yes",
         }
-        self.assertIsNone(ci.configure_gameplay_verification_environment(args, environment))
-        self.assertEqual(environment, {"KEEP": "yes"})
+        rolls = iter((0xAAAA, 0xBBBB))
+        self.assertEqual(
+            ci.configure_gameplay_verification_environment(
+                args, environment, randbits=lambda _bits: next(rolls)
+            ),
+            ("0x000000000000AAAA", "0x000000000000BBBB"),
+        )
+        self.assertEqual(
+            environment,
+            {
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+                "KEEP": "yes",
+            },
+        )
 
         replay = ci.parse_args(
             [
@@ -2197,8 +2251,9 @@ unknown_macro!();
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "ambient-world",
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ambient-policy",
         }
-        self.assertIsNone(
-            ci.configure_gameplay_verification_environment(replay, replay_environment)
+        self.assertEqual(
+            ci.configure_gameplay_verification_environment(replay, replay_environment),
+            ("0x0000000000001234", "0x0000000000005678"),
         )
         self.assertEqual(
             replay_environment,
@@ -2212,14 +2267,20 @@ unknown_macro!();
             ["gate", "--gameplay", "survival", "--variation-seed", "0x99"]
         )
         variation_environment: dict[str, str] = {}
-        self.assertIsNone(
+        self.assertEqual(
             ci.configure_gameplay_verification_environment(
-                variation_only, variation_environment
-            )
+                variation_only,
+                variation_environment,
+                randbits=lambda _bits: 0xBBBB,
+            ),
+            ("0x0000000000000099", "0x000000000000BBBB"),
         )
         self.assertEqual(
             variation_environment,
-            {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000000099"},
+            {
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000000099",
+                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+            },
         )
 
     def test_gameplay_sampling_surfaces_environment_replay_roots(self) -> None:

@@ -20,7 +20,9 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::material::CommodityKey;
-use deep_hearth::registry::{ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily};
+use deep_hearth::registry::{
+    CommoditySource, ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily,
+};
 
 use super::environment::ROOM_TEMPERATURE;
 use super::inventory_support::add_solid_stockpile;
@@ -31,15 +33,18 @@ use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output
 fn bootstrap_planning_excludes_faster_required_equipment_producers() {
     let registries = build_registries();
     let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let handbook = registries
+        .commodity_handbook_entry(boards)
+        .unwrap_or_else(|| panic!("board handbook entry disappeared"));
     assert!(
-        registries
-            .crafting()
-            .manual_producers(boards)
-            .any(|definition| registries
-                .process_topology(definition.process())
-                .is_some_and(
-                    |topology| topology.equipment_role() == ProcessEquipmentRole::Required
-                )),
+        handbook.sources().iter().any(|source| {
+            let CommoditySource::ManualCraft { process, .. } = *source else {
+                return false;
+            };
+            registries
+                .process_topology(process)
+                .is_some_and(|topology| topology.equipment_role() == ProcessEquipmentRole::Required)
+        }),
         "bootstrap-planning regression requires a competing required-equipment board route"
     );
 
@@ -133,6 +138,37 @@ fn current_manual_craft_planning_ignores_unowned_salvage_inputs() {
     assert_eq!(selected.process(), PROCESS_SHAPE_WOOD_BOARDS);
     assert_eq!(batches, 2);
     assert_eq!(selected_source, raw);
+}
+
+#[test]
+fn current_manual_craft_planning_checks_each_actor_visible_source() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let empty = add_solid_stockpile(&mut state, Mass::from_milligrams(10_000_000));
+    let logs = add_solid_stockpile(&mut state, Mass::from_milligrams(10_000_000));
+    seed_lot(
+        &registries,
+        &mut state,
+        logs,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(10_000_000),
+        ROOM_TEMPERATURE,
+    );
+    deep_hearth::survival::initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("manual-craft multisource player setup failed: {error}"));
+
+    let (selected, batches, selected_source) = manual_craft_plan_for_available_output(
+        &registries,
+        &state,
+        &[empty, logs],
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        Mass::from_milligrams(1_600_000),
+        "multisource board-route regression",
+    );
+
+    assert_eq!(selected.process(), PROCESS_SHAPE_WOOD_BOARDS);
+    assert_eq!(batches, 2);
+    assert_eq!(selected_source, logs);
 }
 
 #[test]

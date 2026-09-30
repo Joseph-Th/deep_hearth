@@ -12,6 +12,7 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::material::CommodityKey;
+use deep_hearth::registry::{CommoditySource, CommodityUse};
 
 use super::focused_case::FocusedProbeRole;
 use super::focused_seeds::{
@@ -445,31 +446,42 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
     for storage in preservation {
         let mut recoverable_body_count = 0_u32;
         for input in storage.assembly_profile().inputs() {
+            let handbook = registries
+                .commodity_handbook_entry(input.commodity())
+                .unwrap_or_else(|| panic!("preservation body commodity disappeared"));
             assert!(
-                registries
-                    .crafting()
-                    .manual_producers(input.commodity())
-                    .next()
-                    .is_some(),
+                handbook
+                    .sources()
+                    .iter()
+                    .any(|source| matches!(source, CommoditySource::ManualCraft { .. })),
                 "preservation body {} has no ordinary manual production route",
                 input.commodity().value()
             );
-            let salvage =
-                registries
+            let salvage = handbook.uses().iter().find_map(|usage| {
+                let CommodityUse::ManualCraft { process, .. } = *usage else {
+                    return None;
+                };
+                let route = registries
                     .crafting()
-                    .manual_consumers(input.commodity())
-                    .find(|route| {
-                        route.input_mass() == input.mass()
-                            && !route.outputs().is_empty()
-                            && route.outputs().iter().all(|output| {
-                                output.commodity().material() == input.commodity().material()
-                                    && output.commodity() != input.commodity()
-                            })
-                            && route.outputs().iter().try_fold(
-                                deep_hearth::core::quantity::Mass::ZERO,
-                                |total, output| total.checked_add(output.mass()),
-                            ) == Some(input.mass())
+                    .get_manual(process)
+                    .unwrap_or_else(|| {
+                        panic!("commodity handbook exposed an unknown manual process")
                     });
+                (route.input_mass() == input.mass()
+                    && !route.outputs().is_empty()
+                    && route.outputs().iter().all(|output| {
+                        output.commodity().material() == input.commodity().material()
+                            && output.commodity() != input.commodity()
+                    })
+                    && route
+                        .outputs()
+                        .iter()
+                        .try_fold(deep_hearth::core::quantity::Mass::ZERO, |total, output| {
+                            total.checked_add(output.mass())
+                        })
+                        == Some(input.mass()))
+                .then_some(route)
+            });
             if salvage.is_some() {
                 recoverable_body_count += 1;
             }

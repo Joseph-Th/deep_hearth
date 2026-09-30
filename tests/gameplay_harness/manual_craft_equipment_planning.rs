@@ -1,5 +1,6 @@
 //! Equipment-aware manual-craft planning for harness actors.
 
+use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
 use deep_hearth::core::quantity::Mass;
@@ -11,8 +12,10 @@ use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
-use deep_hearth::registry::Registries;
+use deep_hearth::production::ProcessId;
+use deep_hearth::registry::{CommoditySource, Registries};
 
+use super::manual_craft_planning::live_manual_craft_catalog_for_output;
 use super::manual_craft_selection::plan_manual_craft_request;
 
 fn output_batches(
@@ -79,9 +82,23 @@ pub(super) fn manual_craft_topology_plan_with_equipment<'a>(
 ) -> (&'a ManualCraftDefinition, u64) {
     assert!(!allowed_inputs.is_empty());
     assert!(!required.is_zero());
-    let candidates = registries
-        .crafting()
-        .manual_producers(commodity)
+    let handbook = registries
+        .commodity_handbook_entry(commodity)
+        .unwrap_or_else(|| panic!("gameplay harness {context} requested an unknown commodity"));
+    let candidates = handbook
+        .sources()
+        .iter()
+        .filter_map(|source| match *source {
+            CommoditySource::ManualCraft { process, .. } => Some(
+                registries
+                    .crafting()
+                    .get_manual(process)
+                    .unwrap_or_else(|| {
+                        panic!("commodity handbook exposed an unknown manual process")
+                    }),
+            ),
+            _ => None,
+        })
         .filter_map(|definition| {
             if !allowed_inputs.contains(&definition.input()) {
                 return None;
@@ -120,39 +137,52 @@ pub(super) fn manual_craft_plan_with_equipment<'a>(
         .equipment()
         .get_equipment(equipment)
         .unwrap_or_else(|| panic!("gameplay harness {context} equipment disappeared"));
-    let candidates = registries
-        .crafting()
-        .manual_producers(commodity)
-        .filter_map(|definition| {
-            let batches = output_batches(definition, commodity, required, context);
-            let required_input =
-                Mass::from_milligrams(definition.input_mass().milligrams().checked_mul(batches)?);
-            let (source, request) = sources.iter().copied().find_map(|source| {
-                plan_manual_craft_request(registries, state, definition.process(), source, batches)
-                    .ok()
-                    .map(|request| (source, request.with_equipment(equipment)))
-            })?;
-            let resolution = resolve_manual_craft(registries, state, &request).ok()?;
-            let work = project_manual_craft_equipment(
-                registries,
-                definition.process(),
-                NonZeroU64::new(batches)?,
-                equipment_record.definition(),
-                equipment_record.condition(),
-            )
-            .ok()?;
-            assert_eq!(
-                resolution.duration(),
-                work.duration(),
-                "gameplay harness {context} equipment projection diverged from canonical resolution"
-            );
-            Some((
-                definition,
-                batches,
-                source,
-                (resolution.duration().value(), required_input.milligrams()),
-            ))
-        })
-        .collect::<Vec<_>>();
+    let mut selected_processes = BTreeSet::<ProcessId>::new();
+    let mut candidates = Vec::new();
+    for (source, definition, _equipment_role) in
+        live_manual_craft_catalog_for_output(registries, state, sources, commodity, context)
+    {
+        if selected_processes.contains(&definition.process()) {
+            continue;
+        }
+        let batches = output_batches(definition, commodity, required, context);
+        let Some(required_input_mg) = definition.input_mass().milligrams().checked_mul(batches)
+        else {
+            continue;
+        };
+        let Ok(request) =
+            plan_manual_craft_request(registries, state, definition.process(), source, batches)
+        else {
+            continue;
+        };
+        let request = request.with_equipment(equipment);
+        let Ok(resolution) = resolve_manual_craft(registries, state, &request) else {
+            continue;
+        };
+        let Some(batches_nonzero) = NonZeroU64::new(batches) else {
+            continue;
+        };
+        let Ok(work) = project_manual_craft_equipment(
+            registries,
+            definition.process(),
+            batches_nonzero,
+            equipment_record.definition(),
+            equipment_record.condition(),
+        ) else {
+            continue;
+        };
+        assert_eq!(
+            resolution.duration(),
+            work.duration(),
+            "gameplay harness {context} equipment projection diverged from canonical resolution"
+        );
+        selected_processes.insert(definition.process());
+        candidates.push((
+            definition,
+            batches,
+            source,
+            (resolution.duration().value(), required_input_mg),
+        ));
+    }
     select_unique_best(candidates, commodity, context)
 }

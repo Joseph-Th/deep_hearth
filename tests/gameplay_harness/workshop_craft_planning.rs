@@ -5,7 +5,8 @@ use std::num::NonZeroU64;
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::crafting::{
-    ManualCraftRequest, plan_manual_craft_from_stockpile, resolve_manual_craft,
+    ManualCraftRequest, manual_craft_options_from_stockpile, plan_manual_craft_from_stockpile,
+    resolve_manual_craft,
 };
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::StockpileId;
@@ -38,34 +39,39 @@ pub(super) fn manual_craft_plan_with_available_equipment(
     );
 
     let mut candidates = Vec::new();
-    for definition in registries.crafting().manual_producers(commodity) {
-        let per_batch = definition
-            .outputs()
-            .iter()
-            .find(|output| output.commodity() == commodity)
-            .map(|output| output.mass())
-            .unwrap_or_else(|| {
+    for (source_rank, &source) in sources.iter().enumerate() {
+        let catalog = manual_craft_options_from_stockpile(registries, state, source)
+            .unwrap_or_else(|error| {
                 panic!(
-                    "gameplay harness {context} producer {} lost requested commodity {}",
-                    definition.process().value(),
-                    commodity.value()
+                    "gameplay harness {context} cannot read the ordinary craft catalog for source {}: {error}",
+                    source.value()
                 )
             });
-        assert!(
-            !per_batch.is_zero(),
-            "gameplay harness {context} producer {} has zero requested output",
-            definition.process().value()
-        );
-        let batches = required.milligrams().div_ceil(per_batch.milligrams());
-        let batches_nonzero = NonZeroU64::new(batches)
-            .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));
-        let total_input_mg = definition
-            .input_mass()
-            .milligrams()
-            .checked_mul(batches)
-            .unwrap_or_else(|| panic!("gameplay harness {context} input cost overflowed"));
-
-        for (source_rank, &source) in sources.iter().enumerate() {
+        for option in catalog {
+            let Some(definition) = registries.crafting().get_manual(option.process()) else {
+                panic!("ordinary craft catalog exposed an unknown process");
+            };
+            let Some(per_batch) = definition
+                .outputs()
+                .iter()
+                .find(|output| output.commodity() == commodity)
+                .map(|output| output.mass())
+            else {
+                continue;
+            };
+            assert!(
+                !per_batch.is_zero(),
+                "gameplay harness {context} producer {} has zero requested output",
+                definition.process().value()
+            );
+            let batches = required.milligrams().div_ceil(per_batch.milligrams());
+            let batches_nonzero = NonZeroU64::new(batches)
+                .unwrap_or_else(|| unreachable!("nonzero output demand yields nonzero batches"));
+            let total_input_mg = definition
+                .input_mass()
+                .milligrams()
+                .checked_mul(batches)
+                .unwrap_or_else(|| panic!("gameplay harness {context} input cost overflowed"));
             let Ok(base) = plan_manual_craft_from_stockpile(
                 registries,
                 state,
