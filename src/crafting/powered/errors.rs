@@ -7,7 +7,7 @@ use crate::capability::CapabilityEvaluationError;
 use crate::core::quantity::Mass;
 use crate::core::throughput::MassFlowDurationError;
 use crate::energy::{EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError};
-use crate::equipment::EquipmentProviderError;
+use crate::equipment::{EquipmentDefinitionId, EquipmentProviderError};
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::MaterialLotSpecError;
 use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError, StartProcessError};
@@ -33,6 +33,9 @@ pub enum PoweredCraftError {
         batch_mass: Mass,
     },
     Equipment(EquipmentProviderError),
+    UnknownEquipmentDefinition {
+        equipment: EquipmentDefinitionId,
+    },
     Capability(CapabilityEvaluationError),
     Energy(EnergySupplyError),
     EnergyCapacityExceeded {
@@ -86,6 +89,11 @@ impl Display for PoweredCraftError {
             Self::Equipment(error) => {
                 write!(formatter, "powered craft equipment is unavailable: {error}")
             }
+            Self::UnknownEquipmentDefinition { equipment } => write!(
+                formatter,
+                "unknown powered craft equipment definition {}",
+                equipment.value()
+            ),
             Self::Capability(error) => {
                 write!(
                     formatter,
@@ -151,6 +159,7 @@ impl Error for PoweredCraftError {
             | Self::InputCompositionMismatch
             | Self::MixedInputTemperature
             | Self::InputMassNotWholeBatches { .. }
+            | Self::UnknownEquipmentDefinition { .. }
             | Self::EnergyCapacityExceeded { .. }
             | Self::WrongEnergyCarrier { .. }
             | Self::OutputMassOverflow => None,

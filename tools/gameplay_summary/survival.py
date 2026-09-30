@@ -73,6 +73,9 @@ def survival_summary(lines: list[str]) -> str | None:
     prospecting_ticks = []
     power_ticks = []
     final_hydration_ppm = []
+    inherited_preservation_ppm = []
+    inherited_retained_mg = []
+    inherited_age_saved_ticks = []
     for line in survival:
         integrated = re.search(
             r"integrated=\[hydration-policy:([^\s]+) initial-drink:(\d+)uL/\d+t "
@@ -88,12 +91,25 @@ def survival_summary(lines: list[str]) -> str | None:
             power_work_drinks.append(int(integrated.group(5)))
             power_ticks.append(int(integrated.group(6)))
             final_hydration_ppm.append(int(integrated.group(7)))
+        inherited = re.search(
+            r"inherited-reserve=\[storage:[^ ]+ preservation:(\d+)ppm "
+            r"rotation:[^ ]+ retained:(\d+)mg age-saved:(\d+)t\]",
+            line,
+        )
+        if inherited is not None:
+            inherited_preservation_ppm.append(int(inherited.group(1)))
+            inherited_retained_mg.append(int(inherited.group(2)))
+            inherited_age_saved_ticks.append(int(inherited.group(3)))
     return (
         "ORDINARY SUMMARY probe=survival "
         f"samples={len(survival)} sample-shape=[{sample_shape(survival)}] "
         f"pressure=[hydration:{count('pressure=hydration')} energy:{count('pressure=energy')}] "
         f"diet=[balanced:{count('diet:balanced-recovery')} compact:{count('diet:compact-calories')}] "
         f"{_provisioning_evidence(lines, survival)} "
+        f"inherited-preservation=[lived:true "
+        f"strength:{_span(inherited_preservation_ppm, 'ppm')} "
+        f"retained:{scaled_span(inherited_retained_mg, 1_000_000, 'kg')} "
+        f"age-saved:{_span(inherited_age_saved_ticks, 't')}] "
         f"preservation-opportunity=[scarce:{count('mode:scarce-timber')} "
         f"choice-rich:{count('mode:choice-rich-timber')} "
         f"alternate:{count('mode:alternate-material')} "
@@ -105,6 +121,14 @@ def survival_summary(lines: list[str]) -> str | None:
         f"frontier:{count('storage-policy:balanced-frontier')} "
         f"maximum:{count('storage-policy:maximum-protection')}] "
         f"commitment=[cleared:{count('commitment-reason:return-clears-threshold')} "
+        f"declined-return:{count('commitment-reason:return-does-not-clear-threshold')}] "
+        f"preservation-investment=[separate-executed:true "
+        f"declined:{count('storage-policy:decline')} "
+        f"efficient:{count('storage-policy:attention-efficient')} "
+        f"singleton:{count('storage-policy:enclosure-singleton')} "
+        f"frontier:{count('storage-policy:balanced-frontier')} "
+        f"maximum:{count('storage-policy:maximum-protection')}] "
+        f"preservation-commitment=[cleared:{count('commitment-reason:return-clears-threshold')} "
         f"declined-return:{count('commitment-reason:return-does-not-clear-threshold')}] "
         f"work-interlock=[serving-floor:{scaled_span([int(match.group(1)) for line in survival if (match := re.search(r'short-loop-serving-floor:(\d+)uL', line))], 1_000, 'mL')} "
         f"policy=[task-floor:{count('hydration-policy:task-floor')} "

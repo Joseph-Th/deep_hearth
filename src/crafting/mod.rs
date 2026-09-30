@@ -42,7 +42,8 @@ pub use input_planning::{
 pub(crate) use physics::resolve_manual_craft_equipment_physics;
 pub use powered::{
     PoweredCraftError, PoweredCraftRequest, PoweredCraftWorkProjection, StartPoweredCraftError,
-    project_powered_craft_work, resolve_powered_craft, validate_start_powered_craft,
+    project_powered_craft_equipment_work, project_powered_craft_work, resolve_powered_craft,
+    validate_start_powered_craft,
 };
 pub use projection::{
     ManualCraftEquipmentProjection, ManualCraftHandProjection, project_manual_craft_equipment,

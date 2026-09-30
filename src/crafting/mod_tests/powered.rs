@@ -394,6 +394,24 @@ fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
         projection.condition_after(),
         Condition::new(997_600).unwrap_or_else(|error| panic!("condition failed: {error}"))
     );
+    let sawmill_record = state
+        .equipment()
+        .get_equipment(sawmill)
+        .unwrap_or_else(|| panic!("assembled sash sawmill disappeared before projection"));
+    assert_eq!(
+        project_powered_craft_equipment_work(
+            &registries,
+            &state,
+            PROCESS_POWER_SAW_WOOD_BOARDS,
+            Mass::from_milligrams(1_000_000),
+            sawmill_record.definition(),
+            sawmill_record.condition(),
+            empty_drive,
+        )
+        .unwrap_or_else(|error| panic!("future-provider projection failed: {error}")),
+        projection,
+        "future-provider planning must reuse canonical current-provider powered physics"
+    );
     assert!(matches!(
         resolve_powered_craft(
             &registries,

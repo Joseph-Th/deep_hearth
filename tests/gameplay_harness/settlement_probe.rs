@@ -12,15 +12,13 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{
-    PoweredCraftRequest, manual_craft_options_from_stockpile, project_manual_craft_equipment,
-    resolve_manual_craft, validate_start_powered_craft,
+    manual_craft_options_from_stockpile, project_manual_craft_equipment, resolve_manual_craft,
 };
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{
     EquipmentId, validate_assemble_equipment, validate_upgrade_equipment,
 };
 use deep_hearth::inventory::StockpileStorageProfile;
-use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::ProcessId;
@@ -33,11 +31,8 @@ use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_craft_selection::{plan_manual_craft_request, select_manual_craft_request};
 use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
-use super::manual_power_timing::finish_manual_power_work;
-use super::material_selection::select_stockpile_mass;
 use super::physical_time::format_physical_duration;
 use super::powered_craft_planning::authored_batch;
-use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
@@ -56,6 +51,9 @@ enum LumberInvestmentChoice {
     FrameSaw,
     SashSawmill,
 }
+
+#[path = "settlement_probe/lumber_followup.rs"]
+mod lumber_followup;
 
 fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
     match case.role() {
@@ -552,15 +550,16 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             .checked_mul(order_batches)
             .unwrap_or_else(|| panic!("settlement lumber order mass overflowed")),
     );
+    let manual_process = registries
+        .crafting()
+        .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
+        .and_then(|powered| registries.crafting().get_manual(powered.transform()))
+        .map(|manual| manual.process())
+        .unwrap_or_else(|| panic!("settlement sawmill lost its manual transform"));
     let baseline_request = select_manual_craft_request(
         registries,
         &state,
-        registries
-            .crafting()
-            .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
-            .and_then(|powered| registries.crafting().get_manual(powered.transform()))
-            .map(|manual| manual.process())
-            .unwrap_or_else(|| panic!("settlement sawmill lost its manual transform")),
+        manual_process,
         work_source,
         order_batches,
         "settlement frame-saw baseline",
@@ -644,59 +643,22 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             );
             upgraded = true;
 
-            for _ in 0..order_batches {
-                let power = validate_start_manual_power(
-                    registries,
-                    &state,
-                    ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, batch.work),
-                )
-                .unwrap_or_else(|error| panic!("settlement sawmill charging failed: {error}"))
-                .commit(&mut state)
-                .unwrap_or_else(|error| panic!("settlement sawmill charge commit failed: {error}"));
-                active_attention = active_attention
-                    .checked_add(finish_manual_power_work(
-                        registries,
-                        &mut state,
-                        power,
-                        "settlement sawmill charging",
-                    ))
-                    .unwrap_or_else(|| panic!("settlement active attention overflowed"));
-                let selections = select_stockpile_mass(
-                    &state,
-                    work_source,
-                    batch.input_mass,
-                    "settlement sawmill feed",
-                );
-                let job = validate_start_powered_craft(
-                    registries,
-                    &state,
-                    PoweredCraftRequest::new(
-                        PROCESS_POWER_SAW_WOOD_BOARDS,
-                        work_source,
-                        selections,
-                        sawmill,
-                        drive,
-                    ),
-                    output,
-                )
-                .unwrap_or_else(|error| panic!("settlement sawmill start failed: {error}"))
-                .commit(&mut state)
-                .unwrap_or_else(|error| panic!("settlement sawmill commit failed: {error}"));
-                let duration = state
-                    .production()
-                    .get_job(job)
-                    .map(|record| record.active_duration().value())
-                    .unwrap_or_else(|| panic!("settlement sawmill job disappeared"));
-                delegated_ticks = delegated_ticks
-                    .checked_add(duration)
-                    .unwrap_or_else(|| panic!("settlement delegated time overflowed"));
-                finish_uninterrupted_production_job(
-                    registries,
-                    &mut state,
-                    job,
-                    "settlement unattended sawing",
-                );
-            }
+            let (charging_attention, delegated) = lumber_followup::execute_powered_lumber_order(
+                registries,
+                &mut state,
+                work_source,
+                output,
+                sawmill,
+                crank,
+                drive,
+                batch,
+                order_batches,
+                "settlement sawmill order",
+            );
+            active_attention = active_attention
+                .checked_add(charging_attention)
+                .unwrap_or_else(|| panic!("settlement active attention overflowed"));
+            delegated_ticks = delegated;
             assert_eq!(
                 state
                     .equipment()
@@ -735,12 +697,60 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         !board_mass.is_zero(),
         "settlement lumber order must produce useful boards"
     );
-    let elapsed = state.tick().value() - started_at;
+    let first_elapsed = state.tick().value() - started_at;
+    let remaining_opportunity_batches = SETTLEMENT_OPPORTUNITY_BATCHES
+        .checked_sub(order_batches)
+        .unwrap_or_else(|| unreachable!("declared settlement order fits disclosed opportunity"));
+    let followup_batches = order_batches.min(remaining_opportunity_batches);
+    assert!(
+        followup_batches > 0,
+        "settlement lived episode must leave a disclosed follow-up lumber opportunity"
+    );
+    let initially_upgraded = upgraded;
+    let followup = lumber_followup::run_lumber_followup(lumber_followup::LumberFollowupInputs {
+        registries,
+        state: &mut state,
+        investment_policy,
+        batch,
+        manual_process,
+        work_source,
+        output,
+        upgrade_raw,
+        upgrade_parts,
+        frame_saw,
+        crank,
+        drive,
+        demand_batches: followup_batches,
+        choice,
+        board_mass_before: board_mass,
+        chip_mass_before: chip_mass,
+    });
+    upgraded = followup.final_upgraded;
+    let followup_active_attention = followup.active_attention;
+    let followup_delegated_ticks = followup.delegated_ticks;
+    let followup_route = followup.route;
+    let followup_reinvested = followup.reinvested;
+    let followup_completed_batches = followup.completed_batches;
+    let followup_reassessment = followup.reassessment;
+    let followup_elapsed = followup.elapsed_ticks;
+    let followup_board_mass = followup.board_mass;
+    let followup_chip_mass = followup.chip_mass;
+    let followup_terminal = followup.terminal;
+    validate_loaded_state(registries, &state)
+        .unwrap_or_else(|error| panic!("settlement follow-up state invalid: {error}"));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("settlement follow-up matter audit failed: {error}"))
+            .total(),
+        matter_before,
+        "settlement follow-up must conserve represented matter"
+    );
+    let episode_elapsed = state.tick().value() - started_at;
     let survival_after = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("settlement player survival disappeared after order"));
     let attention_saved = i128::from(baseline_attention) - i128::from(machine_attention);
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t machine-owned-before:{} reinvested:{} boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         order_batches,
@@ -755,12 +765,28 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         charge_ticks,
         attention_saved,
         active_attention,
-        elapsed,
-        format_physical_duration(registries, elapsed),
+        first_elapsed,
+        format_physical_duration(registries, first_elapsed),
         delegated_ticks,
-        upgraded,
+        initially_upgraded,
         board_mass.milligrams(),
         chip_mass.milligrams(),
+        followup_batches,
+        followup_completed_batches,
+        followup_terminal,
+        followup_route,
+        followup_active_attention,
+        followup_elapsed,
+        format_physical_duration(registries, followup_elapsed),
+        followup_delegated_ticks,
+        initially_upgraded,
+        followup_reinvested,
+        followup_board_mass.milligrams(),
+        followup_chip_mass.milligrams(),
+        followup_reassessment,
+        episode_elapsed,
+        format_physical_duration(registries, episode_elapsed),
+        upgraded,
         survival_before
             .metabolic_energy()
             .checked_sub(survival_after.metabolic_energy())

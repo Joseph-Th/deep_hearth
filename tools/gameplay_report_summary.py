@@ -39,7 +39,7 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
 _ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
         "first-copper",
-        "feed-adaptation",
+        "feed-reassessment",
         "processing-crossover",
         "disclosed-order-attention",
         "parallel-work",
@@ -57,6 +57,7 @@ _ORDINARY_DIGEST_FIELDS = {
         "attention-payback",
         "timber-saving",
         "lifecycle-feedback",
+        "forecast-calibration",
     ),
     "fieldwork": (
         "outcomes",
@@ -70,16 +71,18 @@ _ORDINARY_DIGEST_FIELDS = {
         "choice",
         "investment-policy-return",
         "decision-crossover-charges",
+        "lifecycle-obligations",
         "settlement-choice",
         "settlement-decision-crossover-charges",
+        "settlement-lifecycle-obligations",
     ),
     "settlement": (
         "choice",
         "investment-policy-return",
         "demand",
         "payoff",
-        "portfolio",
-        "stored-work",
+        "followup-payoff",
+        "witness-scope",
     ),
     "foundry-bootstrap": (
         "choice",
@@ -94,8 +97,9 @@ _ORDINARY_DIGEST_FIELDS = {
         "diet",
         "provisioning",
         "balanced-diet-counterfactual",
-        "preservation",
-        "commitment",
+        "inherited-preservation",
+        "preservation-investment",
+        "preservation-commitment",
     ),
 }
 

@@ -11,7 +11,7 @@ use crate::energy::{
     validate_energy_supply_request,
 };
 use crate::equipment::{
-    EquipmentDefinition, EquipmentId, ValidatedEquipmentUse,
+    EquipmentDefinition, EquipmentDefinitionId, EquipmentId, ValidatedEquipmentUse,
     evaluate_equipment_capabilities_at_condition, resolve_equipment_capability,
     resolve_equipment_provider,
 };
@@ -312,6 +312,61 @@ pub fn project_powered_craft_work(
         input_mass,
         provider.rate,
         provider.condition,
+        energy.required_energy,
+        energy.access.max_output_power(),
+    )
+}
+
+/// Projects powered work for an authored future equipment definition and explicit starting
+/// condition.
+///
+/// This is planning evidence only: the equipment definition need not yet exist in runtime state,
+/// and this function does not authorize assembly, upgrade, material custody, or execution.
+/// Energy-store carrier, transfer power, and capacity still come from the current observable
+/// store state.
+pub fn project_powered_craft_equipment_work(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    input_mass: Mass,
+    equipment: EquipmentDefinitionId,
+    condition: Condition,
+    energy_store: EnergyStoreId,
+) -> Result<PoweredCraftWorkProjection, PoweredCraftError> {
+    if input_mass.is_zero() {
+        return Err(PoweredCraftError::EmptyInput);
+    }
+    let (definition, transform) = resolve_powered_craft_definitions(registries, process)?;
+    if !input_mass
+        .milligrams()
+        .is_multiple_of(transform.input_mass().milligrams())
+    {
+        return Err(PoweredCraftError::InputMassNotWholeBatches {
+            consumed: input_mass,
+            batch_mass: transform.input_mass(),
+        });
+    }
+    let equipment_definition = registries
+        .equipment()
+        .get_equipment(equipment)
+        .ok_or(PoweredCraftError::UnknownEquipmentDefinition { equipment })?;
+    let rate = resolve_powered_craft_rate(registries, definition, equipment_definition, condition)
+        .map_err(PoweredCraftError::Capability)?;
+    let energy =
+        assess_powered_craft_energy(registries, state, definition, input_mass, energy_store)?;
+    if energy.required_energy > energy.access.capacity() {
+        return Err(PoweredCraftError::EnergyCapacityExceeded {
+            store: energy_store,
+            capacity: energy.access.capacity(),
+            requested: energy.required_energy,
+        });
+    }
+    resolve_powered_craft_work(
+        registries,
+        definition,
+        input_mass,
+        rate,
+        condition,
         energy.required_energy,
         energy.access.max_output_power(),
     )
