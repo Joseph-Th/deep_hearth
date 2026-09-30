@@ -9,6 +9,7 @@ from functools import lru_cache
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -507,23 +508,28 @@ def resolve_automatic_lint_target(args: argparse.Namespace) -> bool:
     return True
 
 
-def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
-    """Apply only explicit gameplay replay roots; ordinary exact probes stay deterministic."""
+def gameplay_replay_environment(
+    args: argparse.Namespace,
+    *,
+    randbits=secrets.randbits,
+) -> dict[str, str]:
+    """Give exact gameplay probes one fresh replayable case without perturbing contract tests."""
 
     if args.suite or args.name not in GAMEPLAY_PROBE_TESTS:
         if args.variation_seed or args.behavior_seed:
             raise ValueError("gameplay replay seeds require one exact gameplay probe")
         return {}
 
-    if args.variation_seed is None:
-        return {}
-
-    replay = {GAMEPLAY_VARIATION_ENV: args.variation_seed}
+    replay = {
+        GAMEPLAY_VARIATION_ENV: args.variation_seed or f"0x{randbits(64):016X}",
+    }
     uses_behavior_seed = args.name in GAMEPLAY_BEHAVIOR_PROBE_TESTS
     if args.behavior_seed and not uses_behavior_seed:
         raise ValueError(f"{args.name} does not consume an actor-policy behavior seed")
-    if args.behavior_seed:
-        replay[GAMEPLAY_BEHAVIOR_ENV] = args.behavior_seed
+    if uses_behavior_seed:
+        replay[GAMEPLAY_BEHAVIOR_ENV] = (
+            args.behavior_seed or f"0x{randbits(64):016X}"
+        )
     return replay
 
 

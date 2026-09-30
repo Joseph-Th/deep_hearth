@@ -142,19 +142,22 @@ def clear_gameplay_seed_environment(environ) -> None:
 def configure_gameplay_verification_environment(
     args: argparse.Namespace,
     environ,
-) -> None:
-    """Keep routine gates deterministic; add variation only for an explicit replay."""
+    *,
+    randbits=secrets.randbits,
+) -> tuple[str, str]:
+    """Run maintained witnesses plus one fresh or explicitly replayed organic case."""
 
     use_behavior_seed = gameplay_sampling_behavior(args)
     assert use_behavior_seed is not None
     environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
     clear_gameplay_seed_environment(environ)
-    if args.variation_seed is None:
-        return
-    environ[GAMEPLAY_VARIATION_ENV] = args.variation_seed
-    if args.behavior_seed is not None:
-        assert use_behavior_seed
-        environ[GAMEPLAY_BEHAVIOR_ENV] = args.behavior_seed
+    return configure_gameplay_replay_environment(
+        environ,
+        variation_override=args.variation_seed,
+        behavior_override=args.behavior_seed,
+        use_behavior_seed=use_behavior_seed,
+        randbits=randbits,
+    )
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)

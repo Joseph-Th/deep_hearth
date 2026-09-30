@@ -86,7 +86,7 @@ Split owner contract targets only when they materially shrink the compile graph.
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 
-Routine gameplay verification runs deterministic maintained witnesses only. Use explicit replay roots to add one investigated organic case; exploratory reports generate four organic cases plus broader agency search. Successful gates print only useful counts/timing unless an explicit replay was requested, failures print a narrow reproduction command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Routine gameplay verification runs maintained witnesses plus one fresh replayable organic case. Explicit replay roots replace that fresh case for diagnosis; exploratory reports generate four organic cases plus broader agency search. Successful gates print compact timing and replay roots, failures print a narrow reproduction command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 
