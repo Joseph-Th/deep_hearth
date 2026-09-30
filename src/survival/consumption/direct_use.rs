@@ -155,13 +155,19 @@ impl Error for DrinkStoreToTargetError {
     }
 }
 
-/// Familiar default food-use action: eat the minimum legal portion toward full metabolic reserve.
+/// Familiar default food-use action: eat a legal portion toward full metabolic reserve.
+///
+/// Reaching full reserve is a preference, not an admission requirement. If one legal meal cannot
+/// reach full reserve, or the selected stack contains less than the exact refill amount, this
+/// action consumes the largest legal available portion instead. Explicit target-oriented callers
+/// that require the requested reserve exactly should use
+/// [`validate_eat_lot_to_metabolic_target`].
 pub fn validate_eat_lot_to_full(
     registries: &Registries,
     state: &AppState,
     lot: MaterialLotId,
 ) -> Result<Option<ValidatedEat>, EatLotToTargetError> {
-    validate_eat_lot_to_metabolic_target(
+    let result = validate_eat_lot_to_metabolic_target(
         registries,
         state,
         lot,
@@ -169,21 +175,104 @@ pub fn validate_eat_lot_to_full(
             .survival()
             .physiology()
             .maximum_metabolic_energy(),
-    )
+    );
+    match result {
+        Err(EatLotToTargetError::Projection(
+            MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
+        )) => validate_eat_lot_up_to(registries, state, lot, maximum_meal_mass),
+        Err(EatLotToTargetError::InsufficientLotMass { available, .. }) => {
+            validate_eat_lot_up_to(registries, state, lot, available)
+        }
+        result => result,
+    }
 }
 
-/// Familiar default drink-use action: drink the minimum legal portion toward full hydration.
+/// Familiar default drink-use action: drink a legal portion toward full hydration.
+///
+/// As with default food use, a selected vessel remains useful when it cannot fill the entire
+/// reserve in one action. The exact target-oriented adapter keeps its stricter reachability
+/// contract.
 pub fn validate_drink_store_to_full(
     registries: &Registries,
     state: &AppState,
     store: FluidStoreId,
 ) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
-    validate_drink_store_to_hydration_target(
+    let result = validate_drink_store_to_hydration_target(
         registries,
         state,
         store,
         registries.survival().physiology().maximum_hydration(),
+    );
+    match result {
+        Err(DrinkStoreToTargetError::Projection(
+            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+                maximum_drink_volume,
+            },
+        )) => validate_drink_store_up_to(registries, state, store, maximum_drink_volume),
+        Err(DrinkStoreToTargetError::InsufficientVolume { available, .. }) => {
+            validate_drink_store_up_to(registries, state, store, available)
+        }
+        result => result,
+    }
+}
+
+fn validate_eat_lot_up_to(
+    registries: &Registries,
+    state: &AppState,
+    lot: MaterialLotId,
+    desired: Mass,
+) -> Result<Option<ValidatedEat>, EatLotToTargetError> {
+    let lot_record = state
+        .inventory()
+        .get_lot(lot)
+        .ok_or(EatLotToTargetError::UnknownLot { lot })?;
+    let direct = registries.survival().physiology().direct_consumption();
+    let available = lot_record.mass();
+    let portion = desired.min(available).min(direct.maximum_meal_mass());
+    if portion < direct.minimum_meal_mass() {
+        return Err(EatLotToTargetError::InsufficientLotMass {
+            lot,
+            available,
+            required: direct.minimum_meal_mass(),
+        });
+    }
+    let source = lot_record.stockpile();
+    validate_eat(
+        registries,
+        state,
+        source,
+        &[MaterialLotSelection::new(lot, portion)],
     )
+    .map(Some)
+    .map_err(EatLotToTargetError::Eat)
+}
+
+fn validate_drink_store_up_to(
+    registries: &Registries,
+    state: &AppState,
+    store: FluidStoreId,
+    desired: Volume,
+) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
+    let store_record = state
+        .fluid()
+        .get_store(store)
+        .ok_or(DrinkStoreToTargetError::UnknownStore { store })?;
+    let contents = store_record
+        .contents()
+        .ok_or(DrinkStoreToTargetError::EmptyStore { store })?;
+    let direct = registries.survival().physiology().direct_consumption();
+    let available = contents.volume();
+    let portion = desired.min(available).min(direct.maximum_drink_volume());
+    if portion < direct.minimum_drink_volume() {
+        return Err(DrinkStoreToTargetError::InsufficientVolume {
+            store,
+            available,
+            required: direct.minimum_drink_volume(),
+        });
+    }
+    validate_drink(registries, state, store, portion)
+        .map(Some)
+        .map_err(DrinkStoreToTargetError::Drink)
 }
 
 /// Validates eating the minimum amount from one selected stack needed to reach `target`.

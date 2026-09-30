@@ -2,13 +2,28 @@
 
 use super::*;
 use crate::content::{FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, build_registries};
-use crate::core::quantity::{Mass, Temperature, Volume};
+use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::material::CommodityKey;
 use crate::simulation::advance_tick;
-use crate::survival::initialize_player_survival;
+use crate::survival::{NutritionReserves, Vitality, initialize_player_survival, player_record};
+
+fn set_player_reserves(state: &mut AppState, metabolic_energy: Energy, hydration: Volume) {
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            metabolic_energy,
+            hydration,
+            Vitality::MAXIMUM,
+            NutritionReserves::FULL,
+            0,
+        ),
+    );
+}
 
 #[test]
 fn selected_food_stack_default_use_fills_toward_full_without_manual_mass_entry() {
@@ -44,6 +59,179 @@ fn selected_food_stack_default_use_fills_toward_full_without_manual_mass_entry()
             .direct_consumption()
             .minimum_meal_mass()
     );
+}
+
+#[test]
+fn selected_food_stack_default_use_makes_partial_progress_when_full_is_unreachable() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("partial-stack survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    set_player_reserves(&mut state, Energy::ZERO, physiology.maximum_hydration());
+    let available = Mass::from_milligrams(500_000);
+    let source = add_solid_stockpile_for_test(&mut state, available)
+        .unwrap_or_else(|error| panic!("partial-stack stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        available,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("partial-stack food failed: {error}"));
+
+    assert!(matches!(
+        validate_eat_lot_to_metabolic_target(
+            &registries,
+            &state,
+            lot,
+            physiology.maximum_metabolic_energy(),
+        ),
+        Err(EatLotToTargetError::Projection(
+            MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { .. }
+        ))
+    ));
+    let validated = validate_eat_lot_to_full(&registries, &state, lot)
+        .unwrap_or_else(|error| panic!("partial-stack default eating failed: {error}"))
+        .unwrap_or_else(|| panic!("empty reserves require a meal"));
+    let outcome = validated
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("partial-stack eating commit failed: {error}"));
+
+    assert_eq!(outcome.total_mass(), available);
+}
+
+#[test]
+fn selected_food_stack_default_use_consumes_available_legal_portion_when_refill_needs_more() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("short-stack survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let metabolic_energy = physiology
+        .maximum_metabolic_energy()
+        .checked_sub(Energy::from_nanojoules(500_000_000_000_000))
+        .unwrap_or_else(|| panic!("short-stack reserve fixture underflowed"));
+    set_player_reserves(&mut state, metabolic_energy, physiology.maximum_hydration());
+    let available = Mass::from_milligrams(100_000);
+    let source = add_solid_stockpile_for_test(&mut state, available)
+        .unwrap_or_else(|error| panic!("short-stack stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        available,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("short-stack food failed: {error}"));
+
+    assert!(matches!(
+        validate_eat_lot_to_metabolic_target(
+            &registries,
+            &state,
+            lot,
+            physiology.maximum_metabolic_energy(),
+        ),
+        Err(EatLotToTargetError::InsufficientLotMass {
+            available: found,
+            ..
+        }) if found == available
+    ));
+    let outcome = validate_eat_lot_to_full(&registries, &state, lot)
+        .unwrap_or_else(|error| panic!("short-stack default eating failed: {error}"))
+        .unwrap_or_else(|| panic!("partial reserve requires a meal"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("short-stack eating commit failed: {error}"));
+
+    assert_eq!(outcome.total_mass(), available);
+}
+
+#[test]
+fn selected_water_store_default_use_makes_partial_progress_when_full_is_unreachable() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("partial-vessel survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    set_player_reserves(
+        &mut state,
+        physiology.maximum_metabolic_energy(),
+        Volume::ZERO,
+    );
+    let available = Volume::from_microliters(500_000);
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        available,
+        FLUID_WATER,
+        available,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("partial-vessel water fixture failed: {error}"));
+
+    assert!(matches!(
+        validate_drink_store_to_hydration_target(
+            &registries,
+            &state,
+            store,
+            physiology.maximum_hydration(),
+        ),
+        Err(DrinkStoreToTargetError::Projection(
+            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit { .. }
+        ))
+    ));
+    let validated = validate_drink_store_to_full(&registries, &state, store)
+        .unwrap_or_else(|error| panic!("partial-vessel default drinking failed: {error}"))
+        .unwrap_or_else(|| panic!("empty hydration requires a drink"));
+    let outcome = validated
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("partial-vessel drinking commit failed: {error}"));
+
+    assert_eq!(outcome.volume(), available);
+}
+
+#[test]
+fn selected_water_store_default_use_consumes_available_legal_portion_when_refill_needs_more() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("short-vessel survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let hydration = Volume::from_microliters(3_500_000);
+    set_player_reserves(&mut state, physiology.maximum_metabolic_energy(), hydration);
+    let available = Volume::from_microliters(500_000);
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        available,
+        FLUID_WATER,
+        available,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("short-vessel water fixture failed: {error}"));
+
+    assert!(matches!(
+        validate_drink_store_to_hydration_target(
+            &registries,
+            &state,
+            store,
+            physiology.maximum_hydration(),
+        ),
+        Err(DrinkStoreToTargetError::InsufficientVolume {
+            available: found,
+            ..
+        }) if found == available
+    ));
+    let outcome = validate_drink_store_to_full(&registries, &state, store)
+        .unwrap_or_else(|error| panic!("short-vessel default drinking failed: {error}"))
+        .unwrap_or_else(|| panic!("partial hydration requires a drink"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("short-vessel drinking commit failed: {error}"));
+
+    assert_eq!(outcome.volume(), available);
 }
 
 #[test]

@@ -33,11 +33,10 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
-    DrinkDefinition, DrinkHydrationProjectionError, DrinkOutcome, DrinkStoreToTargetError,
-    EatOutcome, FoodCategory, FoodDefinition, FoodFreshness, ValidatedDrink, assess_food_freshness,
-    assess_survival, initialize_player_survival, project_food_freshness_after_storage_transition,
-    validate_drink, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
-    validate_eat,
+    DrinkDefinition, DrinkOutcome, EatOutcome, FoodCategory, FoodDefinition, FoodFreshness,
+    ValidatedDrink, assess_food_freshness, assess_survival, initialize_player_survival,
+    project_food_freshness_after_storage_transition, validate_drink, validate_drink_store_to_full,
+    validate_drink_store_to_hydration_target, validate_eat,
 };
 
 use super::environment::ROOM_TEMPERATURE;

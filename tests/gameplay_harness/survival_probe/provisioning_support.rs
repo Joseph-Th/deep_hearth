@@ -110,18 +110,8 @@ fn validate_recovery_drink(
     source: FluidStoreId,
     context: &'static str,
 ) -> Option<ValidatedDrink> {
-    match validate_drink_store_to_full(registries, state, source) {
-        Ok(drink) => drink,
-        Err(DrinkStoreToTargetError::Projection(
-            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
-                maximum_drink_volume,
-            },
-        )) => Some(
-            validate_drink(registries, state, source, maximum_drink_volume)
-                .unwrap_or_else(|error| panic!("{context} maximum legal drink failed: {error}")),
-        ),
-        Err(error) => panic!("{context} drink-to-full validation failed: {error}"),
-    }
+    validate_drink_store_to_full(registries, state, source)
+        .unwrap_or_else(|error| panic!("{context} drink-to-full validation failed: {error}"))
 }
 
 pub(super) struct ProvisioningActionOutcome {
