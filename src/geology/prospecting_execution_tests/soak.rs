@@ -21,14 +21,12 @@ fn run_prospecting_soak() -> AppState {
         };
         let region = line_bounds(x, x + 2);
         assert_eq!(method.resolve_region_observation_count(region), Ok(1));
-        let upper = method
-            .abundance_uncertainty_ppm()
-            .saturating_add((step.wrapping_mul(7919)) % 900_000)
-            .min(1_000_000);
+        // Empty geology can only produce the authored uncertainty band around zero abundance.
+        // Keep persisted soak evidence replayable instead of fabricating bands no method can emit.
         let resolution = make_test_prospecting_resolution(
             region,
             method.evidence(),
-            vec![estimate(material, 0, upper)],
+            vec![estimate(material, 0, method.abundance_uncertainty_ppm())],
         );
         record(&registries, &mut state, resolution);
         if let Err(error) = advance_tick(&registries, &mut state) {
