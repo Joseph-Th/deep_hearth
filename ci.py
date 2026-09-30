@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
@@ -15,65 +14,24 @@ import sys
 import time
 
 from tools.cargo_env import local_cargo_environment
+from tools.gameplay_targets import (
+    GAMEPLAY_AUDIT_TARGET,
+    GAMEPLAY_BEHAVIOR_ENV,
+    GAMEPLAY_CONTRACTS_TARGET,
+    GAMEPLAY_FEATURE,
+    GAMEPLAY_REPORT_MODE_ENV,
+    GAMEPLAY_SCOPE_SPECS,
+    GAMEPLAY_TARGETS,
+    GAMEPLAY_TESTS,
+    GAMEPLAY_VARIATION_ENV,
+)
 from tools.gameplay_report_summary import concise_gameplay_report
 from tools.replay_seed import parse_replay_seed
 
 
 ROOT = Path(__file__).resolve().parent
 
-GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
-GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_REPORT_EXAMPLE = "gameplay-report"
-GAMEPLAY_FEATURE = "test-gameplay"
-
-
-@dataclass(frozen=True)
-class GameplayScopeSpec:
-    target: str
-    test: str | None
-    uses_behavior_seed: bool = False
-
-
-GAMEPLAY_SCOPE_SPECS = {
-    "workshop": GameplayScopeSpec("gameplay_workshop", "gameplay_harness_gate", True),
-    "survival": GameplayScopeSpec(
-        "gameplay_survival",
-        "gameplay_survival_provisioning_probe",
-        True,
-    ),
-    "progression": GameplayScopeSpec(
-        "gameplay_progression",
-        "gameplay_primitive_progression_probe",
-    ),
-    "liberation": GameplayScopeSpec(
-        "gameplay_liberation",
-        "gameplay_primitive_liberation_probe",
-    ),
-    "settlement": GameplayScopeSpec(
-        "gameplay_settlement",
-        "gameplay_settlement_probe",
-        True,
-    ),
-    "foundry-bootstrap": GameplayScopeSpec(
-        "gameplay_foundry_bootstrap",
-        "gameplay_foundry_bootstrap_probe",
-    ),
-    "woodworking": GameplayScopeSpec(
-        "gameplay_woodworking",
-        "gameplay_woodworking_probe",
-        True,
-    ),
-    "fieldwork": GameplayScopeSpec("gameplay_fieldwork", "gameplay_fieldwork_probe", True),
-    "power-provider": GameplayScopeSpec(
-        "gameplay_power", "gameplay_power_provider_probe", True
-    ),
-    "ore": GameplayScopeSpec("gameplay_ore", "gameplay_ore_preparation_probe"),
-    "foundry": GameplayScopeSpec("gameplay_foundry", "gameplay_foundry_probe"),
-}
-GAMEPLAY_TARGETS = {scope: spec.target for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
-GAMEPLAY_TESTS = {
-    scope: spec.test for scope, spec in GAMEPLAY_SCOPE_SPECS.items() if spec.test is not None
-}
 FOCUSED_REPORT_EXAMPLES = {
     "workshop": "gameplay-workshop-report",
     "agency": "gameplay-workshop-report",
@@ -89,10 +47,9 @@ REPORT_BEHAVIOR_SCOPES = {
 }
 GAMEPLAY_SEED_ENV_KEYS = (
     "DEEP_HEARTH_GAMEPLAY_SEEDS",
-    "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
-    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED",
+    GAMEPLAY_VARIATION_ENV,
+    GAMEPLAY_BEHAVIOR_ENV,
 )
-GAMEPLAY_REPORT_MODE_ENV = "DEEP_HEARTH_GAMEPLAY_REPORT"
 SCOPED_TEST_REPORTS = frozenset(GAMEPLAY_SCOPE_SPECS) - frozenset(FOCUSED_REPORT_EXAMPLES)
 
 
@@ -106,8 +63,8 @@ def configure_gameplay_replay_environment(
 ) -> tuple[str, str]:
     """Apply or generate replayable gameplay roots before any Cargo process starts."""
 
-    variation_key = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
-    behavior_key = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
+    variation_key = GAMEPLAY_VARIATION_ENV
+    behavior_key = GAMEPLAY_BEHAVIOR_ENV
 
     if variation_override is not None:
         variation = variation_override
@@ -185,22 +142,19 @@ def clear_gameplay_seed_environment(environ) -> None:
 def configure_gameplay_verification_environment(
     args: argparse.Namespace,
     environ,
-    *,
-    randbits=secrets.randbits,
-) -> tuple[str, str]:
-    """Run maintained witnesses plus one fresh or explicitly replayed organic case."""
+) -> None:
+    """Keep routine gates deterministic; add variation only for an explicit replay."""
 
     use_behavior_seed = gameplay_sampling_behavior(args)
     assert use_behavior_seed is not None
     environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
     clear_gameplay_seed_environment(environ)
-    return configure_gameplay_replay_environment(
-        environ,
-        variation_override=args.variation_seed,
-        behavior_override=args.behavior_seed,
-        use_behavior_seed=use_behavior_seed,
-        randbits=randbits,
-    )
+    if args.variation_seed is None:
+        return
+    environ[GAMEPLAY_VARIATION_ENV] = args.variation_seed
+    if args.behavior_seed is not None:
+        assert use_behavior_seed
+        environ[GAMEPLAY_BEHAVIOR_ENV] = args.behavior_seed
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)
@@ -301,10 +255,10 @@ def gameplay_environment_summary(label: str, environ) -> str | None:
 
     if not label.startswith("gameplay") or label == "gameplay contracts":
         return None
-    variation = environ.get("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
+    variation = environ.get(GAMEPLAY_VARIATION_ENV)
     if variation is None:
         return None
-    behavior = environ.get("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", "n/a")
+    behavior = environ.get(GAMEPLAY_BEHAVIOR_ENV, "n/a")
     return f"roots={variation}/{behavior}"
 
 

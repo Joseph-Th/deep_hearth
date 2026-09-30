@@ -9,16 +9,16 @@ from functools import lru_cache
 import os
 from pathlib import Path
 import re
-import secrets
 import subprocess
 import sys
 import time
 import tomllib
 
 if __package__:
-    from . import cargo_env, replay_seed, test_catalog
+    from . import cargo_env, gameplay_targets, replay_seed, test_catalog
 else:
     import cargo_env
+    import gameplay_targets
     import replay_seed
     import test_catalog
 
@@ -32,35 +32,11 @@ TEST_RESULT = re.compile(
 FAILURE_HEAD_LINES = 16
 FAILURE_TAIL_LINES = 64
 CATALOG_DISPLAY_LIMIT = 40
-GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
-GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
-GAMEPLAY_REPORT_MODE_ENV = "DEEP_HEARTH_GAMEPLAY_REPORT"
-GAMEPLAY_PROBE_TESTS = frozenset(
-    {
-        "gameplay_harness_gate",
-        "gameplay_survival_provisioning_probe",
-        "gameplay_primitive_progression_probe",
-        "gameplay_primitive_liberation_probe",
-        "gameplay_settlement_probe",
-        "gameplay_foundry_bootstrap_probe",
-        "gameplay_woodworking_probe",
-        "gameplay_fieldwork_probe",
-        "gameplay_power_provider_probe",
-        "gameplay_ore_preparation_probe",
-        "gameplay_foundry_probe",
-        "gameplay_agency_counterfactuals",
-    }
-)
-GAMEPLAY_BEHAVIOR_PROBE_TESTS = frozenset(
-    {
-        "gameplay_harness_gate",
-        "gameplay_survival_provisioning_probe",
-        "gameplay_settlement_probe",
-        "gameplay_woodworking_probe",
-        "gameplay_fieldwork_probe",
-        "gameplay_power_provider_probe",
-    }
-)
+GAMEPLAY_VARIATION_ENV = gameplay_targets.GAMEPLAY_VARIATION_ENV
+GAMEPLAY_BEHAVIOR_ENV = gameplay_targets.GAMEPLAY_BEHAVIOR_ENV
+GAMEPLAY_REPORT_MODE_ENV = gameplay_targets.GAMEPLAY_REPORT_MODE_ENV
+GAMEPLAY_PROBE_TESTS = gameplay_targets.GAMEPLAY_PROBE_TESTS
+GAMEPLAY_BEHAVIOR_PROBE_TESTS = gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -229,6 +205,9 @@ def resolve_automatic_exact_selection(
     selector: str, raw_features: str | None
 ) -> tuple[str, str]:
     """Resolve one logical test globally, then choose its purpose-built Cargo target."""
+
+    if target := gameplay_targets.GAMEPLAY_PROBE_TARGETS.get(selector):
+        return target, selector
 
     library_catalog = source_test_catalog("lib", raw_features)
     if selector_uses_library_owner(selector, library_catalog):
@@ -443,6 +422,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--ignored, --nocapture, and --verbose apply only to execution modes")
     if (args.list or args.lint) and (args.variation_seed or args.behavior_seed):
         parser.error("gameplay replay seeds are execution-only options")
+    if args.behavior_seed is not None and args.variation_seed is None:
+        parser.error("--behavior-seed requires --variation-seed for a complete gameplay replay")
     return args
 
 
@@ -515,6 +496,9 @@ def resolve_automatic_lint_target(args: argparse.Namespace) -> bool:
 
     selector = args.name
     assert selector is not None
+    if target := gameplay_targets.GAMEPLAY_PROBE_TARGETS.get(selector):
+        args.target = target
+        return True
     try:
         args.target = resolve_automatic_suite_target(selector, args.features)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
@@ -523,28 +507,23 @@ def resolve_automatic_lint_target(args: argparse.Namespace) -> bool:
     return True
 
 
-def gameplay_replay_environment(
-    args: argparse.Namespace,
-    *,
-    randbits=secrets.randbits,
-) -> dict[str, str]:
-    """Give exact gameplay probes one fresh replayable case without perturbing contract tests."""
+def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
+    """Apply only explicit gameplay replay roots; ordinary exact probes stay deterministic."""
 
     if args.suite or args.name not in GAMEPLAY_PROBE_TESTS:
         if args.variation_seed or args.behavior_seed:
             raise ValueError("gameplay replay seeds require one exact gameplay probe")
         return {}
 
-    replay = {
-        GAMEPLAY_VARIATION_ENV: args.variation_seed or f"0x{randbits(64):016X}",
-    }
+    if args.variation_seed is None:
+        return {}
+
+    replay = {GAMEPLAY_VARIATION_ENV: args.variation_seed}
     uses_behavior_seed = args.name in GAMEPLAY_BEHAVIOR_PROBE_TESTS
     if args.behavior_seed and not uses_behavior_seed:
         raise ValueError(f"{args.name} does not consume an actor-policy behavior seed")
-    if uses_behavior_seed:
-        replay[GAMEPLAY_BEHAVIOR_ENV] = (
-            args.behavior_seed or f"0x{randbits(64):016X}"
-        )
+    if args.behavior_seed:
+        replay[GAMEPLAY_BEHAVIOR_ENV] = args.behavior_seed
     return replay
 
 

@@ -177,13 +177,12 @@ scope may establish.
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with exact constituent accounting and terminal tailings. Capability-only benchmark. |
 | `foundry` | Installed industrial pure-copper heating/melting/casting with finite energy, adaptive batches, remelting, and sink recovery. Capability-only benchmark. |
 
-Routine focused gameplay gates and the broad gameplay audit pair maintained deterministic witnesses with one fresh,
-replayable organic case. Exact replay roots replace that fresh case when reproducing a run. Reports use a broader
-bounded organic sample and agency qualification searches. Maintained cases prove contracts, not prevalence; organic
-samples are bounded evidence, not population estimates. A named qualitative regime must have a maintained witness;
-the single routine organic case catches generator, policy, and integration drift between those anchors without
-turning qualitative coverage into a probabilistic requirement. Organic
-generator ranges that are intended to
+Routine focused gameplay gates and the broad gameplay audit run maintained deterministic witnesses. Explicit replay
+roots may add one investigated organic case without making random sampling part of routine pass/fail. Reports use a
+broader bounded organic sample and agency qualification searches. Maintained cases prove contracts, not prevalence;
+organic samples are bounded evidence, not population estimates. A named qualitative regime must have a maintained
+witness; exploratory organic cases probe generator, policy, and integration drift between those anchors without
+turning qualitative coverage into a probabilistic requirement. Organic generator ranges that are intended to
 straddle an authored threshold, equipment scale, storage capacity, or production crossover derive that scale from
 the current production definitions/projections. Fixed numeric pressure is appropriate only when the number itself
 is the disclosed world condition or player goal, not when it is standing in for an authored requirement.
@@ -216,10 +215,10 @@ but a possible follow-up action discovered only after prospecting or another obs
 earlier provisioning choice. After new evidence arrives, reassess the newly disclosed work and provision from
 that state if needed.
 
-Project-owned routine gameplay verification ignores ambient replay state, preserves maintained witnesses, and adds
-one fresh replayable organic case. Explicit roots replay one requested case exactly. Reports reuse the same replay
-contract while generating a broader fresh sample. [`TESTING.md`](TESTING.md) owns command selection; command help
-owns exact option syntax.
+Project-owned routine gameplay verification ignores ambient replay state and preserves maintained witnesses without
+injecting random cases. Explicit roots add one requested replay case. Reports reuse the same replay contract while
+generating a broader fresh sample. [`TESTING.md`](TESTING.md) owns command selection; command help owns exact option
+syntax.
 
 Concise and verbose report modes may change diagnostics, not evidence semantics. Controlled summaries remain
 labeled as capability evidence and never imply ordinary reachability. Blocked selected continuations report their

@@ -25,6 +25,7 @@ from tools import (  # noqa: E402
     check_authority_docs,
     check_bca,
     check_format,
+    gameplay_targets,
     gameplay_report_summary,
     run_test,
     rust_diagnostics,
@@ -203,13 +204,25 @@ class LocalCiPlanTests(unittest.TestCase):
             {
                 "RUSTFLAGS": "-Cdebuginfo=2",
                 "CARGO_ENCODED_RUSTFLAGS": "stale",
+                "CARGO_TARGET_DIR": "elsewhere",
+                "CARGO_INCREMENTAL": "0",
+                "CARGO_PROFILE_TEST_DEBUG": "2",
+                "CARGO_PROFILE_TEST_CODEGEN_UNITS": "1",
                 "KEEP": "yes",
             }
         )
-        self.assertNotIn("RUSTFLAGS", environment)
         self.assertEqual(environment["CARGO_TERM_COLOR"], "never")
-        self.assertNotIn("CARGO_ENCODED_RUSTFLAGS", environment)
+        for key in (
+            "RUSTFLAGS",
+            "CARGO_ENCODED_RUSTFLAGS",
+            "CARGO_INCREMENTAL",
+            "CARGO_PROFILE_TEST_DEBUG",
+            "CARGO_PROFILE_TEST_CODEGEN_UNITS",
+        ):
+            self.assertNotIn(key, environment)
+        self.assertEqual(environment["CARGO_TARGET_DIR"], "elsewhere")
         self.assertEqual(environment["KEEP"], "yes")
+        self.assertNotIn("CARGO_TARGET_DIR", cargo_env.local_cargo_environment({}))
 
     def test_rust_diagnostics_normalizes_module_owner_focus(self) -> None:
         args = rust_diagnostics.parse_args(["modules", "--focus", "survival"])
@@ -1204,17 +1217,19 @@ unknown_macro!();
             [("compile", ["cargo", "check-fast"])],
         )
 
-    def test_local_test_profile_keeps_fast_relink_settings_explicit(self) -> None:
+    def test_local_test_profile_keeps_fast_incremental_shape_explicit(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         profile = manifest["profile"]["test"]
         self.assertEqual(profile.get("debug"), 0)
-        self.assertGreaterEqual(profile.get("codegen-units", 0), 16)
-        self.assertLessEqual(profile.get("codegen-units", 0), 64)
+        codegen_units = profile.get("codegen-units")
+        self.assertIsInstance(codegen_units, int)
+        self.assertGreater(codegen_units, 1)
         self.assertIs(profile.get("incremental"), True)
-
         cargo_config = tomllib.loads(
             (ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8")
         )
+        self.assertEqual(cargo_config["build"].get("target-dir"), "target/local-ci")
+        self.assertIn("-Cprefer-dynamic", cargo_config["build"].get("rustflags", []))
         self.assertEqual(
             cargo_config["target"]["x86_64-pc-windows-msvc"].get("linker"),
             "lld-link.exe",
@@ -1227,21 +1242,8 @@ unknown_macro!();
         self.assertFalse(
             any(feature.startswith("test-unit-") for feature in manifest["features"])
         )
-        support_roots: set[str] = set()
         for path in (ROOT / "src").rglob("*.rs"):
-            source = read_maintained_text(path)
-            self.assertNotIn("test-unit-shard", source)
-            if re.search(r'#\[cfg\(test\)\]\s*mod\s+test_support\s*;', source):
-                support_roots.add(path.relative_to(ROOT).as_posix())
-        self.assertEqual(
-            support_roots,
-            {
-                "src/content/mod.rs",
-                "src/inventory/mod.rs",
-                "src/production/mod.rs",
-                "src/structural/mod.rs",
-            },
-        )
+            self.assertNotIn("test-unit-shard", read_maintained_text(path))
 
     def test_gameplay_report_examples_are_executable_only(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -1392,14 +1394,18 @@ unknown_macro!();
 
     def test_exact_gameplay_probe_catalog_stays_aligned_with_ci_scopes(self) -> None:
         expected = {*ci.GAMEPLAY_TESTS.values(), "gameplay_agency_counterfactuals"}
-        self.assertEqual(run_test.GAMEPLAY_PROBE_TESTS, expected)
+        self.assertEqual(gameplay_targets.GAMEPLAY_PROBE_TESTS, expected)
         self.assertEqual(
-            run_test.GAMEPLAY_BEHAVIOR_PROBE_TESTS,
+            gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS,
             {
                 spec.test
                 for spec in ci.GAMEPLAY_SCOPE_SPECS.values()
-                if spec.uses_behavior_seed and spec.test is not None
+                if spec.uses_behavior_seed
             },
+        )
+        self.assertEqual(
+            gameplay_targets.GAMEPLAY_PROBE_TARGETS[ci.GAMEPLAY_TESTS["survival"]],
+            ci.GAMEPLAY_TARGETS["survival"],
         )
 
     def test_contract_targets_split_only_when_the_contract_graph_is_materially_distinct(self) -> None:
@@ -1449,6 +1455,16 @@ unknown_macro!();
                     for name in run_test.source_test_catalog(target, None)
                 )
             )
+
+    def test_progression_episode_regressions_reuse_the_focused_progression_target(self) -> None:
+        focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["progression"], None)
+        self.assertTrue(
+            any(name.startswith("progression_episode_contract_tests::") for name in focused)
+        )
+        self.assertLess(
+            run_test.target_source_bytes(ci.GAMEPLAY_TARGETS["progression"], None),
+            run_test.target_source_bytes(ci.GAMEPLAY_AUDIT_TARGET, None),
+        )
 
     def test_settlement_contract_target_keeps_all_machine_contract_families(self) -> None:
         focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
@@ -1809,7 +1825,7 @@ unknown_macro!();
             },
         )
 
-    def test_run_test_focused_probe_gets_fresh_replay_roots_without_explicit_replay(self) -> None:
+    def test_run_test_focused_probe_is_deterministic_without_explicit_replay(self) -> None:
         args = run_test.parse_args(
             [
                 "--target",
@@ -1819,27 +1835,15 @@ unknown_macro!();
             ]
         )
         self.assertIn("--nocapture", run_test.cargo_command(args))
-        rolls = iter((0xAAAA, 0xBBBB))
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(
-                run_test.gameplay_replay_environment(
-                    args, randbits=lambda _bits: next(rolls)
-                ),
-                {
-                    run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
-                    run_test.GAMEPLAY_BEHAVIOR_ENV: "0x000000000000BBBB",
-                },
-            )
+            self.assertEqual(run_test.gameplay_replay_environment(args), {})
 
-    def test_run_test_non_actor_probe_gets_only_a_fresh_world_root(self) -> None:
+    def test_run_test_non_actor_probe_is_deterministic_without_explicit_replay(self) -> None:
         args = run_test.parse_args(
             ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
         )
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(
-                run_test.gameplay_replay_environment(args, randbits=lambda _bits: 0xAAAA),
-                {run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA"},
-            )
+            self.assertEqual(run_test.gameplay_replay_environment(args), {})
 
     def test_run_test_organic_roots_produce_a_copyable_replay_command(self) -> None:
         args = run_test.parse_args(
@@ -1856,7 +1860,7 @@ unknown_macro!();
             "python tools/run_test.py --target gameplay_survival --variation-seed 0x000000000000AAAA --behavior-seed 0x000000000000BBBB gameplay_survival_provisioning_probe",
         )
 
-    def test_run_test_replaces_ambient_replay_roots_with_fresh_roots(self) -> None:
+    def test_run_test_ignores_ambient_replay_roots_without_explicit_replay(self) -> None:
         args = run_test.parse_args(
             ["--target", ci.GAMEPLAY_TARGETS["foundry"], ci.GAMEPLAY_TESTS["foundry"]]
         )
@@ -1865,9 +1869,16 @@ unknown_macro!();
             {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1234"},
             clear=True,
         ):
-            self.assertEqual(
-                run_test.gameplay_replay_environment(args, randbits=lambda _bits: 0xAAAA),
-                {run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA"},
+            self.assertEqual(run_test.gameplay_replay_environment(args), {})
+
+    def test_run_test_behavior_replay_requires_a_world_root(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            run_test.parse_args(
+                [
+                    "--behavior-seed",
+                    "0xBBBB",
+                    ci.GAMEPLAY_TESTS["survival"],
+                ]
             )
 
     def test_run_test_contract_execution_does_not_invent_gameplay_variation(self) -> None:
@@ -2211,7 +2222,7 @@ unknown_macro!();
                 ):
                     ci.parse_args(argv)
 
-    def test_routine_gameplay_sampling_replaces_ambient_roots_with_one_fresh_case(self) -> None:
+    def test_routine_gameplay_verification_is_deterministic_and_ignores_ambient_roots(self) -> None:
         args = ci.parse_args(["gate", "--gameplay", "survival"])
         environment = {
             "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
@@ -2219,21 +2230,8 @@ unknown_macro!();
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2222",
             "KEEP": "yes",
         }
-        rolls = iter((0xAAAA, 0xBBBB))
-        self.assertEqual(
-            ci.configure_gameplay_verification_environment(
-                args, environment, randbits=lambda _bits: next(rolls)
-            ),
-            ("0x000000000000AAAA", "0x000000000000BBBB"),
-        )
-        self.assertEqual(
-            environment,
-            {
-                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
-                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
-                "KEEP": "yes",
-            },
-        )
+        self.assertIsNone(ci.configure_gameplay_verification_environment(args, environment))
+        self.assertEqual(environment, {"KEEP": "yes"})
 
         replay = ci.parse_args(
             [
@@ -2251,9 +2249,8 @@ unknown_macro!();
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "ambient-world",
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ambient-policy",
         }
-        self.assertEqual(
-            ci.configure_gameplay_verification_environment(replay, replay_environment),
-            ("0x0000000000001234", "0x0000000000005678"),
+        self.assertIsNone(
+            ci.configure_gameplay_verification_environment(replay, replay_environment)
         )
         self.assertEqual(
             replay_environment,
@@ -2267,19 +2264,16 @@ unknown_macro!();
             ["gate", "--gameplay", "survival", "--variation-seed", "0x99"]
         )
         variation_environment: dict[str, str] = {}
-        self.assertEqual(
+        self.assertIsNone(
             ci.configure_gameplay_verification_environment(
                 variation_only,
                 variation_environment,
-                randbits=lambda _bits: 0xBBBB,
-            ),
-            ("0x0000000000000099", "0x000000000000BBBB"),
+            )
         )
         self.assertEqual(
             variation_environment,
             {
                 "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000000099",
-                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
             },
         )
 
@@ -2819,9 +2813,14 @@ unknown_macro!();
     def test_git_wizard_validation_levels_match_iteration_policy(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         validation = manifest["package"]["metadata"]["git-wizard"]["validation"]
-        self.assertEqual(validation["quick"], "python ci.py quick")
-        self.assertEqual(validation["standard"], "python ci.py gate")
-        self.assertNotIn("full", validation)
+        self.assertEqual(
+            validation,
+            {
+                "quick": "python ci.py quick",
+                "standard": "python ci.py gate",
+            },
+            "Git-Wizard routine levels must reuse repository lanes instead of generic all-target commands",
+        )
 
     def test_build_producing_cargo_targets_are_explicit_not_auto_discovered(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -3201,6 +3200,22 @@ class ExactTestCommandTests(unittest.TestCase):
         target, name = run_test.resolve_automatic_exact_selection(args.name, args.features)
         self.assertEqual(target, ci.GAMEPLAY_TARGETS["ore"])
         self.assertEqual(name, ci.GAMEPLAY_TESTS["ore"])
+
+    def test_named_gameplay_probe_uses_direct_target_map_without_global_catalog_scan(self) -> None:
+        selector = ci.GAMEPLAY_TESTS["survival"]
+        with mock.patch.object(
+            run_test,
+            "all_source_test_locations",
+            side_effect=AssertionError("focused gameplay probe must not scan every test target"),
+        ), mock.patch.object(
+            run_test,
+            "source_test_catalog",
+            side_effect=AssertionError("focused gameplay probe must not scan the library catalog"),
+        ):
+            self.assertEqual(
+                run_test.resolve_automatic_exact_selection(selector, None),
+                (ci.GAMEPLAY_TARGETS["survival"], selector),
+            )
 
     def test_automatic_selection_prefers_the_purpose_built_duplicate_test_target(self) -> None:
         target, name = run_test.resolve_automatic_exact_selection(

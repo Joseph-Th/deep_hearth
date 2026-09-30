@@ -19,7 +19,7 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 
 Routine iteration is `quick` while editing, then **one** build proof. A passing Rust test is compile proof for its target. Use default `gate` only when no executable test fits or production-only cfg changed. Do not stack equivalent tests or append an audit after a narrower proof.
 
-Use `python tools/run_test.py --list <substring>` for build-free discovery and printed `repair:` commands. Unit selectors reduce execution only; Rust still compiles the full `cfg(test)` library. While code is unstable, use `check-fast`; when a focused gameplay contract is equally authoritative, prefer its smaller target. Exact unit tests and the core audit reuse one library-test artifact. Official Python entrypoints strip ambient Rust flags so they converge on the repository profile and linker cache shape. Do not precheck an executable test.
+Use `python tools/run_test.py --list <substring>` for build-free discovery and printed `repair:` commands. Unit selectors reduce execution only; Rust still compiles the full `cfg(test)` library. While code is unstable, use `check-fast`; when a focused gameplay contract is equally authoritative, prefer its smaller target. Exact unit tests and the core audit reuse one library-test artifact. `.cargo/config.toml` owns the shared `target/local-ci` cache and dynamic-link build shape for every local Cargo entrypoint; repository Python entrypoints strip ambient Rust/profile overrides so they converge on it. Explicit `CARGO_TARGET_DIR` still overrides the shared cache. Do not precheck an executable test.
 
 ## Escalation lanes
 
@@ -30,7 +30,7 @@ Use `python tools/run_test.py --list <substring>` for build-free discovery and p
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free. `gate` runs one build lane. `audit` is a deliberate checkpoint, not an edit-loop step. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`; scoped audits are `audit --core` and `audit --gameplay`.
+`quick` is build-free. `gate` runs one build lane. `audit` is a deliberate checkpoint, not an edit-loop step. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`; scoped audits are `audit --core` and `audit --gameplay`. Git-Wizard `quick` and `standard` are the routine project-aware levels; use repository `gate --lint` or `audit --core` instead of generic all-target validation when those explicit proofs are needed.
 
 ## Evidence ladder
 
@@ -86,7 +86,7 @@ Split owner contract targets only when they materially shrink the compile graph.
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 
-Routine gameplay verification always keeps maintained witnesses and adds one fresh replayable organic case; exact replay roots replace only that fresh case. Reports use four organic cases plus broader agency search. Successful gameplay gates print their replay roots with the test count and elapsed time, failures print a copyable replay command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Routine gameplay verification runs deterministic maintained witnesses only. Use explicit replay roots to add one investigated organic case; exploratory reports generate four organic cases plus broader agency search. Successful gates print only useful counts/timing unless an explicit replay was requested, failures print a narrow reproduction command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 

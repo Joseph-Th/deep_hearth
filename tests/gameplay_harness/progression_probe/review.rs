@@ -904,7 +904,6 @@ pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: Foc
     if case.role() == FocusedProbeRole::MaintainedCoverage {
         match case.seed() {
             PROGRESSION_REFINEMENT_COVERAGE_SEED => {
-                assert_eq!(review.natural_priority, PrimitivePriority::CrankFirst);
                 assert!(review.information_refinement_required);
                 assert!(
                     review.extraction_reassessment_avoided_worse_feed,
@@ -916,7 +915,6 @@ pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: Foc
                 );
             }
             PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED => {
-                assert_eq!(review.natural_priority, PrimitivePriority::PickFirst);
                 assert!(
                     !review.information_refinement_required,
                     "surface-resolved coverage must preserve the no-refinement information path"

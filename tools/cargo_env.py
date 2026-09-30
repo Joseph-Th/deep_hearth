@@ -7,10 +7,17 @@ from collections.abc import Mapping
 
 
 def local_cargo_environment(base: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Return the repository-owned verification environment and cache shape."""
+    """Normalize ambient overrides so Cargo config owns the local verification shape."""
 
     environment = dict(os.environ if base is None else base)
     environment["CARGO_TERM_COLOR"] = "never"
-    environment.pop("RUSTFLAGS", None)
-    environment.pop("CARGO_ENCODED_RUSTFLAGS", None)
+    for key in (
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_INCREMENTAL",
+    ):
+        environment.pop(key, None)
+    for key in tuple(environment):
+        if key.startswith("CARGO_PROFILE_TEST_"):
+            environment.pop(key)
     return environment

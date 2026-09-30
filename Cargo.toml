@@ -154,12 +154,11 @@ unwrap_used = "deny"
 wildcard_enum_match_arm = "deny"
 
 [profile.test]
-# Test failures already carry source locations and typed assertion context; omitting debug symbols
-# keeps local test-binary codegen/linking out of the ordinary feedback bottleneck. A moderate CGU
-# count is faster for this Windows-local workload than maximal fragmentation because it sharply cuts
-# lld-link input/object overhead while preserving useful incremental codegen parallelism.
+# Test failures already carry source locations and typed assertion context, so local verification
+# omits debug symbols. Cargo config owns dynamic linking; 128 CGUs materially reduced measured
+# Windows post-edit codegen/link cost while retaining incremental reuse.
 debug = 0
-codegen-units = 32
+codegen-units = 128
 incremental = true
 
 [profile.release]

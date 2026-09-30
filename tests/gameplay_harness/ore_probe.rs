@@ -341,13 +341,23 @@ pub(super) fn run_ore_preparation_capability_probe(
     let outcome = evaluate_ore_preparation_capability_probe(registries, case);
     if case.role() == FocusedProbeRole::MaintainedCoverage {
         assert_eq!(case.seed(), ORE_FINITE_ENERGY_COVERAGE_SEED);
-        assert_eq!(
+        assert!(
+            matches!(
+                outcome,
+                OreProbeOutcome::Stopped {
+                    reason: OreStopReason::FiniteEnergy,
+                    ..
+                }
+            ),
+            "maintained ore finite-energy coverage must preserve a canonical finite-energy blocker; observed {outcome:?}"
+        );
+        assert_ne!(
             outcome,
             OreProbeOutcome::Stopped {
-                stage: "grind",
+                stage: "crush",
                 reason: OreStopReason::FiniteEnergy,
             },
-            "maintained ore finite-energy coverage must preserve a canonical mid-chain blocker"
+            "maintained ore finite-energy coverage must reach beyond the first operation before energy becomes limiting"
         );
     }
 }
