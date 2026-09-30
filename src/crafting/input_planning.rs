@@ -1,84 +1,25 @@
 //! Familiar recipe-input planning over exact inventory lots.
 
 use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::production::ProcessId;
-use crate::registry::{ProcessEquipmentRole, Registries};
+use crate::registry::Registries;
 
 use super::ManualCraftRequest;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CompatibleInputGroup {
-    temperature: Temperature,
-    mass: Mass,
-}
+mod availability;
+mod errors;
 
-/// How one recipe's material input can be presented to an ordinary inventory caller.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ManualCraftInputMode {
-    /// Durable homogeneous matter can be selected deterministically behind the recipe action.
-    Automatic(ManualCraftInputAvailability),
-    /// More than one temperature cohort can independently satisfy at least one batch.
-    ///
-    /// Choosing between them changes output temperature, so presentation must keep that choice
-    /// visible instead of allowing persistent lot identity to decide it implicitly.
-    TemperatureChoice(ManualCraftInputAvailability),
-    /// Stack-local state such as food age is gameplay-relevant and must remain player-selected.
-    ExplicitStackChoice {
-        input: CommodityKey,
-        batch_mass: Mass,
-    },
-}
-
-/// One stable recipe-book row for a stockpile, without claiming runtime tool availability.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ManualCraftStockpileOption {
-    process: ProcessId,
-    input_mode: ManualCraftInputMode,
-    equipment_role: ProcessEquipmentRole,
-}
-
-impl ManualCraftStockpileOption {
-    #[must_use]
-    pub const fn process(self) -> ProcessId {
-        self.process
-    }
-
-    pub const fn input_mode(self) -> ManualCraftInputMode {
-        self.input_mode
-    }
-
-    #[must_use]
-    pub const fn equipment_role(self) -> ProcessEquipmentRole {
-        self.equipment_role
-    }
-}
-
-/// Read-only stockpile availability for one authored manual recipe.
-///
-/// `maximum_batches` is based on the largest temperature-compatible pool because manual shaping
-/// cannot silently mix different material temperatures. `total_eligible_mass` remains visible so a
-/// caller can distinguish a true shortage from matter that exists but is split across incompatible
-/// thermal states.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ManualCraftInputAvailability {
-    input: CommodityKey,
-    batch_mass: Mass,
-    total_eligible_mass: Mass,
-    largest_compatible_mass: Mass,
-    maximum_batches: u64,
-    craftable_temperature_groups: u64,
-}
+use availability::{CompatibleInputInventory, scan_compatible_input};
+pub use availability::{
+    ManualCraftInputAvailability, ManualCraftInputMode, ManualCraftStockpileOption,
+};
+pub use errors::ManualCraftInputPlanError;
 
 /// Builds a deterministic manual-recipe catalog for one inventory custody location.
 ///
@@ -95,6 +36,7 @@ pub fn manual_craft_options_from_stockpile(
         return Err(ManualCraftInputPlanError::UnknownStockpile { stockpile: source });
     }
     let mut options = Vec::new();
+    let mut compatible_inputs = BTreeMap::<CommodityKey, CompatibleInputInventory>::new();
     for definition in registries.crafting().definitions() {
         let process = definition.process();
         let input_mode = if input_requires_explicit_stack_choice(registries, definition.input()) {
@@ -103,7 +45,11 @@ pub fn manual_craft_options_from_stockpile(
                 batch_mass: definition.input_mass(),
             }
         } else {
-            let availability = assess_manual_craft_inputs(registries, state, process, source)?;
+            let input = definition.input();
+            let inventory = compatible_inputs
+                .entry(input)
+                .or_insert_with(|| scan_compatible_input(state, source, input));
+            let availability = inventory.availability(input, definition.input_mass());
             if availability.craftable_temperature_groups() > 1 {
                 ManualCraftInputMode::TemperatureChoice(availability)
             } else {
@@ -125,144 +71,6 @@ pub fn manual_craft_options_from_stockpile(
     Ok(options)
 }
 
-impl ManualCraftInputAvailability {
-    #[must_use]
-    pub const fn input(self) -> CommodityKey {
-        self.input
-    }
-
-    #[must_use]
-    pub const fn batch_mass(self) -> Mass {
-        self.batch_mass
-    }
-
-    #[must_use]
-    pub const fn total_eligible_mass(self) -> Mass {
-        self.total_eligible_mass
-    }
-
-    #[must_use]
-    pub const fn largest_compatible_mass(self) -> Mass {
-        self.largest_compatible_mass
-    }
-
-    #[must_use]
-    pub const fn maximum_batches(self) -> u64 {
-        self.maximum_batches
-    }
-
-    /// Number of distinct input temperatures that can each supply at least one complete batch.
-    #[must_use]
-    pub const fn craftable_temperature_groups(self) -> u64 {
-        self.craftable_temperature_groups
-    }
-}
-
-/// Failure while turning a familiar recipe/batch choice into exact lot selections.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ManualCraftInputPlanError {
-    UnknownManualProcess {
-        process: ProcessId,
-    },
-    UnknownStockpile {
-        stockpile: StockpileId,
-    },
-    AgeSensitiveInputRequiresExplicitSelection {
-        input: CommodityKey,
-    },
-    InputMassOverflow {
-        process: ProcessId,
-        batches: NonZeroU64,
-    },
-    InsufficientInput {
-        input: CommodityKey,
-        available: Mass,
-        required: Mass,
-    },
-    SplitTemperatureInput {
-        input: CommodityKey,
-        available: Mass,
-        largest_compatible: Mass,
-        required: Mass,
-    },
-    MultipleCompatibleInputTemperatures {
-        input: CommodityKey,
-        required: Mass,
-        temperatures: Vec<Temperature>,
-    },
-}
-
-impl Display for ManualCraftInputPlanError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownManualProcess { process } => write!(
-                formatter,
-                "process {} is not authored as a manual craft",
-                process.value()
-            ),
-            Self::UnknownStockpile { stockpile } => {
-                write!(
-                    formatter,
-                    "unknown manual-craft source stockpile {}",
-                    stockpile.value()
-                )
-            }
-            Self::AgeSensitiveInputRequiresExplicitSelection { input } => write!(
-                formatter,
-                "manual craft input material {} form {} is age-sensitive and requires an explicit stack choice",
-                input.material().value(),
-                input.form().value()
-            ),
-            Self::InputMassOverflow { process, batches } => write!(
-                formatter,
-                "manual craft process {} input mass overflows for {} batches",
-                process.value(),
-                batches.get()
-            ),
-            Self::InsufficientInput {
-                input,
-                available,
-                required,
-            } => write!(
-                formatter,
-                "manual craft needs {} mg of material {} form {} but only {} mg of compatible input is available",
-                required.milligrams(),
-                input.material().value(),
-                input.form().value(),
-                available.milligrams()
-            ),
-            Self::SplitTemperatureInput {
-                input,
-                available,
-                largest_compatible,
-                required,
-            } => write!(
-                formatter,
-                "manual craft has {} mg of material {} form {} in total, but only {} mg shares one temperature and {} mg is required",
-                available.milligrams(),
-                input.material().value(),
-                input.form().value(),
-                largest_compatible.milligrams(),
-                required.milligrams()
-            ),
-            Self::MultipleCompatibleInputTemperatures {
-                input,
-                required,
-                temperatures,
-            } => write!(
-                formatter,
-                "manual craft has {} separate temperature cohorts of material {} form {} that can each supply the required {} mg; choose an input stack explicitly",
-                temperatures.len(),
-                input.material().value(),
-                input.form().value(),
-                required.milligrams()
-            ),
-        }
-    }
-}
-
-impl Error for ManualCraftInputPlanError {}
-
 pub(super) fn input_requires_explicit_stack_choice(
     registries: &Registries,
     input: CommodityKey,
@@ -270,12 +78,12 @@ pub(super) fn input_requires_explicit_stack_choice(
     registries.survival().get_food(input).is_some()
 }
 
-fn scan_input_groups(
+fn resolve_recipe_input(
     registries: &Registries,
     state: &AppState,
     process: ProcessId,
     source: StockpileId,
-) -> Result<(ManualCraftInputAvailability, Vec<CompatibleInputGroup>), ManualCraftInputPlanError> {
+) -> Result<(ManualCraftInputAvailability, CompatibleInputInventory), ManualCraftInputPlanError> {
     let definition = registries
         .crafting()
         .get_manual(process)
@@ -289,66 +97,9 @@ fn scan_input_groups(
             ManualCraftInputPlanError::AgeSensitiveInputRequiresExplicitSelection { input },
         );
     }
-
-    let expected_composition = MaterialComposition::pure(input.material());
-    let mut groups_by_temperature = BTreeMap::<Temperature, CompatibleInputGroup>::new();
-    let mut total_eligible_mass = Mass::ZERO;
-    for lot_id in state.inventory().lot_ids_for_commodity(source, input) {
-        let lot = state.inventory().get_lot(lot_id).unwrap_or_else(|| {
-            panic!(
-                "runtime invariant broken: stockpile {} indexes missing lot {}",
-                source.value(),
-                lot_id.value()
-            )
-        });
-        debug_assert_eq!(
-            lot.commodity(),
-            input,
-            "commodity index must only return lots for the requested recipe input"
-        );
-        if lot.composition() != &expected_composition {
-            continue;
-        }
-        total_eligible_mass = total_eligible_mass
-            .checked_add(lot.mass())
-            .unwrap_or_else(|| panic!("validated stockpile eligible manual-craft mass overflowed"));
-        let temperature = lot.temperature();
-        let group =
-            groups_by_temperature
-                .entry(temperature)
-                .or_insert_with(|| CompatibleInputGroup {
-                    temperature,
-                    mass: Mass::ZERO,
-                });
-        group.mass = group.mass.checked_add(lot.mass()).unwrap_or_else(|| {
-            panic!("validated stockpile compatible manual-craft mass overflowed")
-        });
-    }
-    let groups = groups_by_temperature.into_values().collect::<Vec<_>>();
-
-    let largest_compatible_mass = groups
-        .iter()
-        .map(|group| group.mass)
-        .max()
-        .unwrap_or(Mass::ZERO);
-    let batch_mass = definition.input_mass();
-    let craftable_temperature_groups = groups
-        .iter()
-        .filter(|group| group.mass >= batch_mass)
-        .count()
-        .try_into()
-        .unwrap_or_else(|_| panic!("manual-craft temperature group count exceeds u64"));
-    Ok((
-        ManualCraftInputAvailability {
-            input,
-            batch_mass,
-            total_eligible_mass,
-            largest_compatible_mass,
-            maximum_batches: largest_compatible_mass.milligrams() / batch_mass.milligrams(),
-            craftable_temperature_groups,
-        },
-        groups,
-    ))
+    let inventory = scan_compatible_input(state, source, input);
+    let availability = inventory.availability(input, definition.input_mass());
+    Ok((availability, inventory))
 }
 
 /// Reports how many complete batches one stockpile can supply without mixing input temperatures.
@@ -358,8 +109,8 @@ pub fn assess_manual_craft_inputs(
     process: ProcessId,
     source: StockpileId,
 ) -> Result<ManualCraftInputAvailability, ManualCraftInputPlanError> {
-    scan_input_groups(registries, state, process, source)
-        .map(|(availability, _groups)| availability)
+    resolve_recipe_input(registries, state, process, source)
+        .map(|(availability, _inventory)| availability)
 }
 
 /// Converts a recipe-and-batch choice into exact deterministic lot slices.
@@ -375,7 +126,7 @@ pub fn plan_manual_craft_from_stockpile(
     source: StockpileId,
     batches: NonZeroU64,
 ) -> Result<ManualCraftRequest, ManualCraftInputPlanError> {
-    let (availability, groups) = scan_input_groups(registries, state, process, source)?;
+    let (availability, inventory) = resolve_recipe_input(registries, state, process, source)?;
     let required = availability
         .batch_mass()
         .milligrams()
@@ -389,7 +140,10 @@ pub fn plan_manual_craft_from_stockpile(
             required,
         });
     }
-    let mut candidates = groups.iter().filter(|group| group.mass >= required);
+    let mut candidates = inventory
+        .groups()
+        .iter()
+        .filter(|group| group.mass() >= required);
     let group = candidates
         .next()
         .ok_or(ManualCraftInputPlanError::SplitTemperatureInput {
@@ -399,10 +153,11 @@ pub fn plan_manual_craft_from_stockpile(
             required,
         })?;
     if candidates.next().is_some() {
-        let temperatures = groups
+        let temperatures = inventory
+            .groups()
             .iter()
-            .filter(|group| group.mass >= required)
-            .map(|group| group.temperature)
+            .filter(|group| group.mass() >= required)
+            .map(|group| group.temperature())
             .collect::<Vec<_>>();
         return Err(
             ManualCraftInputPlanError::MultipleCompatibleInputTemperatures {
@@ -430,7 +185,7 @@ pub fn plan_manual_craft_from_stockpile(
                 lot_id.value()
             )
         });
-        if lot.composition() != &expected_composition || lot.temperature() != group.temperature {
+        if lot.composition() != &expected_composition || lot.temperature() != group.temperature() {
             continue;
         }
         let selected = lot.mass().min(remaining);

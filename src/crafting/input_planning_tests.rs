@@ -5,7 +5,8 @@ use std::num::NonZeroU64;
 use super::*;
 use crate::content::{
     FORM_BOARD, FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_TOOL, PROCESS_SAW_WOOD_BOARDS,
+    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_CRUSHER_JAW_FACE,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_STONE_CRUSHER_BLOCK,
     PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
@@ -260,6 +261,49 @@ fn stockpile_recipe_catalog_exposes_material_counts_and_tool_roles_in_stable_ord
         .find(|option| option.process() == PROCESS_SAW_WOOD_BOARDS)
         .unwrap_or_else(|| panic!("board sawing disappeared from recipe catalog"));
     assert_eq!(sawing.equipment_role(), ProcessEquipmentRole::Required);
+}
+
+#[test]
+fn recipe_catalog_reuses_input_scan_without_reusing_recipe_batch_mass() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_500_000))
+        .unwrap_or_else(|error| panic!("shared-input recipe stockpile failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(1_500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("shared-input stone failed: {error}"));
+
+    let options = manual_craft_options_from_stockpile(&registries, &state, source)
+        .unwrap_or_else(|error| panic!("shared-input recipe catalog failed: {error}"));
+    let jaw_face = options
+        .iter()
+        .copied()
+        .find(|option| option.process() == PROCESS_KNAP_STONE_CRUSHER_JAW_FACE)
+        .unwrap_or_else(|| panic!("crusher jaw-face recipe disappeared"));
+    let crusher_block = options
+        .iter()
+        .copied()
+        .find(|option| option.process() == PROCESS_SHAPE_STONE_CRUSHER_BLOCK)
+        .unwrap_or_else(|| panic!("crusher-block recipe disappeared"));
+
+    assert!(matches!(
+        jaw_face.input_mode(),
+        ManualCraftInputMode::Automatic(availability)
+            if availability.batch_mass() == Mass::from_milligrams(500_000)
+                && availability.maximum_batches() == 3
+    ));
+    assert!(matches!(
+        crusher_block.input_mode(),
+        ManualCraftInputMode::Automatic(availability)
+            if availability.batch_mass() == Mass::from_milligrams(1_500_000)
+                && availability.maximum_batches() == 1
+    ));
 }
 
 #[test]
