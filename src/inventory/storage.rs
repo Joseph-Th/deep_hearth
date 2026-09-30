@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
 use crate::core::time::TickSpan;
-use crate::material::{MaterialAssemblyProfile, MaterialRegistry};
+use crate::material::{MaterialAssemblyProfile, MaterialPhase, MaterialRegistry};
 use crate::survival::SurvivalExertion;
 
 use super::{AMBIENT_PRESERVATION_MULTIPLIER_PPM, StockpileStorageProfile};
@@ -62,6 +62,11 @@ impl StorageDefinition {
         storage_profile
             .validate()
             .unwrap_or_else(|error| panic!("storage definition has invalid profile: {error}"));
+        assert!(
+            storage_profile.can_store_phase(MaterialPhase::Solid)
+                && !storage_profile.can_store_phase(MaterialPhase::Liquid),
+            "constructible stockpile enclosures must remain within the dry-storage containment envelope restored by dismantling"
+        );
         assert!(
             storage_profile.preservation_multiplier_ppm() > AMBIENT_PRESERVATION_MULTIPLIER_PPM,
             "constructible preservation storage must improve on ambient shelf life"

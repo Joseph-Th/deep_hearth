@@ -83,6 +83,42 @@ fn storage_definition_requires_nonempty_name() {
 }
 
 #[test]
+fn storage_definition_rejects_liquid_compatible_containment() {
+    for profile in [
+        StockpileStorageProfile::with_preservation(
+            false,
+            true,
+            Temperature::from_millikelvin(333_150),
+            2_000_000,
+        )
+        .unwrap_or_else(|error| panic!("liquid-only storage profile failed: {error}")),
+        StockpileStorageProfile::with_preservation(
+            true,
+            true,
+            Temperature::from_millikelvin(333_150),
+            2_000_000,
+        )
+        .unwrap_or_else(|error| panic!("mixed-phase storage profile failed: {error}")),
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| {
+                StorageDefinition::new(
+                    TEST_STORAGE,
+                    "invalid liquid-compatible storage",
+                    Mass::from_milligrams(1),
+                    profile,
+                    assembly_profile(),
+                    TickSpan::new(1),
+                    active_exertion(),
+                )
+            })
+            .is_err(),
+            "dismantling always restores dry stockpile containment, so enclosure definitions must not admit liquid matter"
+        );
+    }
+}
+
+#[test]
 fn storage_definition_requires_active_dismantling_exertion() {
     assert!(
         std::panic::catch_unwind(|| {
