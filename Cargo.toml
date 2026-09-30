@@ -155,8 +155,8 @@ wildcard_enum_match_arm = "deny"
 
 [profile.test]
 # Test failures already carry source locations and typed assertion context, so local verification
-# omits debug symbols. Cargo config owns dynamic linking; 128 CGUs materially reduced measured
-# Windows post-edit codegen/link cost while retaining incremental reuse.
+# omits debug symbols. Cargo config owns dynamic linking; 128 CGUs favor measured post-edit
+# codegen/link latency over one-time cold-build speed while retaining incremental reuse.
 debug = 0
 codegen-units = 128
 incremental = true
