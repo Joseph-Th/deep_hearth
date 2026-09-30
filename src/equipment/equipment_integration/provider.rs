@@ -13,6 +13,60 @@ use super::super::state::{EquipmentId, EquipmentOperationTrace, EquipmentRecord}
 use super::EquipmentProviderError;
 use super::capability::resolve_equipment_capability;
 
+/// Occupancy that remains after the base provider boundary rejects direct equipment custody.
+///
+/// Maintenance and prospecting own the equipment directly and therefore fail provider resolution
+/// before a provider can be returned. Keeping only the remaining variants in this type prevents
+/// exact operation resolvers from accidentally accepting states that are impossible by contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EquipmentProviderOccupancy {
+    Production {
+        job: crate::production::ProductionJobId,
+        release: crate::production::ProductionOccupancyRelease,
+    },
+    Mining {
+        job: crate::mining::MiningJobId,
+    },
+    ManualPower {
+        completes_at: crate::core::time::SimulationTick,
+    },
+}
+
+fn resolve_provider_occupancy(
+    equipment: EquipmentId,
+    occupancy: Option<EquipmentOccupancy>,
+) -> Result<Option<EquipmentProviderOccupancy>, EquipmentProviderError> {
+    match occupancy {
+        Some(EquipmentOccupancy::Maintenance { completes_at }) => {
+            Err(EquipmentProviderError::MaintenanceInProgress {
+                equipment,
+                completes_at,
+            })
+        }
+        Some(EquipmentOccupancy::Prospecting { completes_at }) => {
+            Err(EquipmentProviderError::ProspectingInProgress {
+                equipment,
+                completes_at,
+            })
+        }
+        Some(EquipmentOccupancy::Production { job, release }) => {
+            Ok(Some(EquipmentProviderOccupancy::Production {
+                job,
+                release,
+            }))
+        }
+        Some(EquipmentOccupancy::Mining { job }) => {
+            Ok(Some(EquipmentProviderOccupancy::Mining { job }))
+        }
+        Some(EquipmentOccupancy::ManualPower { completes_at }) => {
+            Ok(Some(EquipmentProviderOccupancy::ManualPower {
+                completes_at,
+            }))
+        }
+        None => Ok(None),
+    }
+}
+
 /// Revision-bound equipment provider selection carried by a resolved operation until start.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,34 +166,14 @@ pub(crate) fn resolve_equipment_provider_with_occupancy<'state>(
 ) -> Result<
     (
         ResolvedEquipmentProvider<'state>,
-        Option<EquipmentOccupancy>,
+        Option<EquipmentProviderOccupancy>,
     ),
     EquipmentProviderError,
 > {
     let Some(record) = state.equipment().get_equipment(equipment) else {
         return Err(EquipmentProviderError::UnknownEquipment { equipment });
     };
-    let occupancy = equipment_occupancy(state, equipment);
-    match occupancy {
-        Some(EquipmentOccupancy::Maintenance { completes_at }) => {
-            return Err(EquipmentProviderError::MaintenanceInProgress {
-                equipment,
-                completes_at,
-            });
-        }
-        Some(EquipmentOccupancy::Prospecting { completes_at }) => {
-            return Err(EquipmentProviderError::ProspectingInProgress {
-                equipment,
-                completes_at,
-            });
-        }
-        Some(
-            EquipmentOccupancy::Production { .. }
-            | EquipmentOccupancy::Mining { .. }
-            | EquipmentOccupancy::ManualPower { .. },
-        )
-        | None => {}
-    }
+    let occupancy = resolve_provider_occupancy(equipment, equipment_occupancy(state, equipment))?;
     let Some(definition) = registries.equipment().get_equipment(record.definition()) else {
         return Err(EquipmentProviderError::UnknownDefinition {
             equipment,
@@ -204,24 +238,21 @@ pub fn resolve_available_equipment_provider<'state>(
     let (provider, occupancy) =
         resolve_equipment_provider_with_occupancy(registries, state, equipment)?;
     match occupancy {
-        Some(EquipmentOccupancy::Production { job, release }) => {
+        Some(EquipmentProviderOccupancy::Production { job, release }) => {
             return Err(EquipmentProviderError::ProductionInProgress {
                 equipment,
                 job,
                 release,
             });
         }
-        Some(EquipmentOccupancy::Mining { job }) => {
+        Some(EquipmentProviderOccupancy::Mining { job }) => {
             return Err(EquipmentProviderError::MiningInProgress { equipment, job });
         }
-        Some(EquipmentOccupancy::ManualPower { completes_at }) => {
+        Some(EquipmentProviderOccupancy::ManualPower { completes_at }) => {
             return Err(EquipmentProviderError::ManualPowerInProgress {
                 equipment,
                 completes_at,
             });
-        }
-        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. }) => {
-            unreachable!("base equipment provider rejects direct equipment custody")
         }
         None => {}
     }

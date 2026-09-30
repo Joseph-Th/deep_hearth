@@ -58,8 +58,9 @@ pub use upgrade_execution::{
 
 pub(crate) use availability::{EquipmentOccupancy, equipment_occupancy};
 pub(crate) use equipment_integration::{
-    ValidatedEquipmentUse, evaluate_equipment_capabilities_at_condition,
-    resolve_equipment_capability, resolve_equipment_provider_with_occupancy,
+    EquipmentProviderOccupancy, ValidatedEquipmentUse,
+    evaluate_equipment_capabilities_at_condition, resolve_equipment_capability,
+    resolve_equipment_provider_with_occupancy,
 };
 pub(crate) use equipment_structural_integration::{
     EquipmentStructuralLoadConsistencyError, validate_existing_equipment_structural_load,

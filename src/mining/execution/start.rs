@@ -4,7 +4,7 @@ use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::{
-    EquipmentId, EquipmentOccupancy, EquipmentOperationTrace,
+    EquipmentId, EquipmentOperationTrace, EquipmentProviderOccupancy,
     resolve_equipment_provider_with_occupancy,
 };
 use crate::geology::GeologicalDepositId;
@@ -106,21 +106,20 @@ fn resolve_mining_equipment_plan(
     validate_player_equipment_access(state, equipment)
         .map_err(MiningStartError::EquipmentAccess)?;
     match occupancy {
-        Some(EquipmentOccupancy::Production { job, release }) => {
+        Some(EquipmentProviderOccupancy::Production { job, release }) => {
             return Err(MiningStartError::EquipmentBusyProduction {
                 equipment,
                 job,
                 release,
             });
         }
-        Some(EquipmentOccupancy::Mining { job }) => {
+        Some(EquipmentProviderOccupancy::Mining { job }) => {
             return Err(MiningStartError::EquipmentBusyMining { equipment, job });
         }
-        Some(EquipmentOccupancy::ManualPower { .. }) => {
+        Some(EquipmentProviderOccupancy::ManualPower { .. }) => {
             return Err(MiningStartError::EquipmentBusyManualPower { equipment });
         }
-        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. })
-        | None => {}
+        None => {}
     }
     let physics = resolve_mining_physics(
         registries.core().physical_tick_duration(),

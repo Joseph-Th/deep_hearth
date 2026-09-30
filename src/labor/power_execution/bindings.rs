@@ -5,7 +5,7 @@ use crate::core::quantity::Power;
 use crate::core::state::AppState;
 use crate::energy::{ValidatedEnergySinkAccess, validate_energy_sink_access};
 use crate::equipment::{
-    EquipmentId, EquipmentOccupancy, ResolvedEquipmentProvider,
+    EquipmentId, EquipmentProviderOccupancy, ResolvedEquipmentProvider,
     resolve_equipment_provider_with_occupancy,
 };
 use crate::logistics::{validate_player_energy_store_access, validate_player_equipment_access};
@@ -42,26 +42,21 @@ impl<'state> ResolvedManualPowerBindings<'state> {
 }
 
 fn validate_equipment_occupancy(
-    occupancy: Option<EquipmentOccupancy>,
+    occupancy: Option<EquipmentProviderOccupancy>,
     equipment: EquipmentId,
 ) -> Result<(), ManualPowerError> {
     match occupancy {
-        Some(EquipmentOccupancy::Production { job, release }) => {
+        Some(EquipmentProviderOccupancy::Production { job, release }) => {
             Err(ManualPowerError::EquipmentBusyProduction {
                 equipment,
                 job,
                 release,
             })
         }
-        Some(EquipmentOccupancy::Mining { job }) => {
+        Some(EquipmentProviderOccupancy::Mining { job }) => {
             Err(ManualPowerError::EquipmentBusyMining { equipment, job })
         }
-        Some(
-            EquipmentOccupancy::ManualPower { .. }
-            | EquipmentOccupancy::Prospecting { .. }
-            | EquipmentOccupancy::Maintenance { .. },
-        )
-        | None => Ok(()),
+        Some(EquipmentProviderOccupancy::ManualPower { .. }) | None => Ok(()),
     }
 }
 

@@ -2,8 +2,8 @@
 
 use crate::core::state::AppState;
 use crate::equipment::{
-    EquipmentId, EquipmentOccupancy, EquipmentOperationTrace, equipment_occupancy,
-    resolve_equipment_provider_with_occupancy,
+    EquipmentId, EquipmentOccupancy, EquipmentOperationTrace, EquipmentProviderOccupancy,
+    equipment_occupancy, resolve_equipment_provider_with_occupancy,
 };
 use crate::labor::{
     PlayerWork, PlayerWorkResourceBudget, ProspectingDefinition, ProspectingMethodId,
@@ -183,21 +183,20 @@ fn validate_prospecting_target(
 }
 
 fn validate_start_equipment_occupancy(
-    occupancy: Option<EquipmentOccupancy>,
+    occupancy: Option<EquipmentProviderOccupancy>,
     equipment: EquipmentId,
 ) -> Result<(), FieldProspectingStartError> {
     match occupancy {
-        Some(EquipmentOccupancy::Production { job, .. }) => {
+        Some(EquipmentProviderOccupancy::Production { job, .. }) => {
             Err(FieldProspectingStartError::EquipmentBusyProduction { equipment, job })
         }
-        Some(EquipmentOccupancy::Mining { job }) => {
+        Some(EquipmentProviderOccupancy::Mining { job }) => {
             Err(FieldProspectingStartError::EquipmentBusyMining { equipment, job })
         }
-        Some(EquipmentOccupancy::ManualPower { .. }) => {
+        Some(EquipmentProviderOccupancy::ManualPower { .. }) => {
             Err(FieldProspectingStartError::EquipmentBusyManualPower { equipment })
         }
-        Some(EquipmentOccupancy::Prospecting { .. } | EquipmentOccupancy::Maintenance { .. })
-        | None => Ok(()),
+        None => Ok(()),
     }
 }
 
