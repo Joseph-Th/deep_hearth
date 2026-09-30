@@ -29,6 +29,7 @@ from tools import (  # noqa: E402
     gameplay_report_summary,
     run_test,
     rust_diagnostics,
+    test_catalog,
 )
 
 
@@ -198,7 +199,7 @@ def deserialized_named_structs(
     return structures
 
 
-class LocalCiPlanTests(unittest.TestCase):
+class CargoToolingTests(unittest.TestCase):
     def test_local_cargo_environment_owns_one_incremental_verification_shape(self) -> None:
         environment = cargo_env.local_cargo_environment(
             {
@@ -223,6 +224,29 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(environment["CARGO_TARGET_DIR"], "elsewhere")
         self.assertEqual(environment["KEEP"], "yes")
         self.assertNotIn("CARGO_TARGET_DIR", cargo_env.local_cargo_environment({}))
+        library_test = cargo_env.local_cargo_environment(
+            {"CARGO_PROFILE_TEST_CODEGEN_UNITS": "1"},
+            library_test_codegen=True,
+        )
+        self.assertEqual(
+            library_test["CARGO_PROFILE_TEST_CODEGEN_UNITS"],
+            cargo_env.LIBRARY_TEST_CODEGEN_UNITS,
+        )
+
+    def test_monolithic_library_test_lanes_use_high_cgu_environment_only_when_requested(self) -> None:
+        success = ci.subprocess.CompletedProcess(["cargo", "test-core"], 0, "", "")
+        with mock.patch.object(ci.subprocess, "run", return_value=success) as run:
+            ci.execute_stage(["cargo", "test-core"])
+        self.assertEqual(
+            run.call_args.kwargs["env"]["CARGO_PROFILE_TEST_CODEGEN_UNITS"],
+            cargo_env.LIBRARY_TEST_CODEGEN_UNITS,
+        )
+
+        focused = ci.gameplay_command("survival")
+        success = ci.subprocess.CompletedProcess(focused, 0, "", "")
+        with mock.patch.object(ci.subprocess, "run", return_value=success) as run:
+            ci.execute_stage(focused)
+        self.assertNotIn("CARGO_PROFILE_TEST_CODEGEN_UNITS", run.call_args.kwargs["env"])
 
     def test_rust_diagnostics_normalizes_module_owner_focus(self) -> None:
         args = rust_diagnostics.parse_args(["modules", "--focus", "survival"])
@@ -268,6 +292,79 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             run_test.parse_args(["--lint"])
+
+    def test_targeted_check_typechecks_only_the_selected_cache_shape(self) -> None:
+        args = run_test.parse_args(
+            ["--check", "--target", ci.GAMEPLAY_TARGETS["fieldwork"]]
+        )
+        self.assertEqual(
+            run_test.cargo_check_command(args),
+            [
+                "cargo",
+                "check",
+                "--quiet",
+                "--locked",
+                "--profile",
+                "test",
+                "--test",
+                ci.GAMEPLAY_TARGETS["fieldwork"],
+                "--features",
+                "test-gameplay",
+            ],
+        )
+
+        library = run_test.parse_args(["--check", "--target", "lib"])
+        self.assertEqual(
+            run_test.cargo_check_command(library),
+            [
+                "cargo",
+                "check",
+                "--quiet",
+                "--locked",
+                "--profile",
+                "test",
+                "--lib",
+                "--tests",
+            ],
+        )
+
+    def test_targeted_check_resolves_named_gameplay_probe_without_executing_it(self) -> None:
+        args = run_test.parse_args(["--check", ci.GAMEPLAY_TESTS["fieldwork"]])
+        self.assertTrue(run_test.resolve_automatic_compile_target(args))
+        self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
+        self.assertNotIn("cargo", args.name)
+
+    def test_targeted_check_resolves_existing_qualified_library_test_without_widening_targets(self) -> None:
+        args = run_test.parse_args(
+            ["--check", "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound"]
+        )
+        with mock.patch.object(
+            run_test,
+            "resolve_automatic_suite_target",
+            side_effect=AssertionError("known library selector must not scan gameplay targets"),
+        ):
+            self.assertTrue(run_test.resolve_automatic_compile_target(args))
+        self.assertEqual(args.target, "lib")
+
+    def test_targeted_check_does_not_turn_a_library_test_typo_into_a_green_owner_check(self) -> None:
+        args = run_test.parse_args(
+            ["--check", "core::time::tests::not_a_real_test_name"]
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertFalse(run_test.resolve_automatic_compile_target(args))
+        self.assertIsNone(args.target)
+
+    def test_targeted_check_rejects_execution_only_options_and_ambiguous_target_selection(self) -> None:
+        invalid = (
+            ["--check", "--suite", "fieldwork"],
+            ["--check", "--target", ci.GAMEPLAY_TARGETS["fieldwork"], "fieldwork"],
+            ["--check", "--nocapture", ci.GAMEPLAY_TESTS["fieldwork"]],
+            ["--check", "--variation-seed", "1", ci.GAMEPLAY_TESTS["fieldwork"]],
+        )
+        for argv in invalid:
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    run_test.parse_args(argv)
 
     def test_targeted_lint_rejects_the_slow_library_test_graph(self) -> None:
         args = run_test.parse_args(["--lint", "--target", "lib"])
@@ -409,6 +506,8 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("impl Serialize for PendingEating", filtered)
         self.assertNotIn("two", filtered)
 
+
+class BuildFreeCiTests(unittest.TestCase):
     def test_quick_lane_is_build_free(self) -> None:
         self.assertEqual(cargo_build_commands(ci.quick_plan()), [])
 
@@ -910,6 +1009,8 @@ unknown_macro!();
             ],
         )
 
+
+class TestTopologyContractTests(unittest.TestCase):
     def test_rust_test_summary_is_concise_and_aggregates_multiple_results(self) -> None:
         output = (
             "test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n"
@@ -1525,6 +1626,8 @@ unknown_macro!();
                 f"focused {scope} target must not rebuild the adjacent progression stage",
             )
 
+
+class GameplayCiRoutingTests(unittest.TestCase):
     def test_gameplay_replay_summary_is_compact_for_focused_and_workshop_runs(self) -> None:
         self.assertEqual(
             ci.gameplay_replay_summary(
@@ -1603,11 +1706,44 @@ unknown_macro!();
                     command,
                     (result, 0.25, None),
                     announced=True,
+                    show_replay=True,
                 ),
                 0.25,
             )
         self.assertEqual(stdout.getvalue(), "PASS (0.2s; 1 test; roots=0x111/0x222)\n")
         self.assertEqual(stderr.getvalue(), "")
+
+    def test_successful_routine_gameplay_gate_omits_unneeded_random_replay_roots(self) -> None:
+        command = ci.gameplay_command("survival")
+        result = ci.subprocess.CompletedProcess(
+            command,
+            0,
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n",
+            "",
+        )
+        with (
+            mock.patch.dict(
+                ci.os.environ,
+                {
+                    "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x111",
+                    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x222",
+                },
+                clear=True,
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.assertEqual(
+                ci.report_stage(
+                    1,
+                    1,
+                    "gameplay survival",
+                    command,
+                    (result, 0.25, None),
+                    announced=True,
+                ),
+                0.25,
+            )
+        self.assertEqual(stdout.getvalue(), "PASS (0.2s; 1 test)\n")
 
     def test_gate_rejects_complete_core_suite_as_a_repair_loop(self) -> None:
         with self.assertRaisesRegex(ValueError, "audit-only"):
@@ -2075,6 +2211,8 @@ unknown_macro!();
         self.assertTrue(run_test.resolve_automatic_lint_target(args))
         self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
 
+
+class GameplayReportContractTests(unittest.TestCase):
     def test_run_test_failure_output_is_bounded(self) -> None:
         lines = [f"line-{index}" for index in range(100)]
         bounded = run_test.bounded_failure_output("\n".join(lines))
@@ -2392,15 +2530,19 @@ unknown_macro!();
                     self.assertTrue(run.call_args.kwargs["capture_output"])
                     if returncode == 0:
                         self.assertEqual(stderr.getvalue(), "")
-                        self.assertIn(
-                            "roots=0x0000000000000111/0x0000000000000222",
-                            stdout.getvalue(),
-                        )
                         # Compare the entire body, not only markers that a head/tail limiter keeps.
                         body = "\n".join(stdout.getvalue().splitlines()[1:]) + "\n"
                         if mode is not None:
-                            self.assertEqual(body, transcript)
+                            self.assertNotIn("; roots=", stdout.getvalue().splitlines()[0])
+                            self.assertTrue(
+                                body == transcript,
+                                "verbose report must preserve the full captured transcript",
+                            )
                         else:
+                            self.assertIn(
+                                "roots=0x0000000000000111/0x0000000000000222",
+                                stdout.getvalue().splitlines()[0],
+                            )
                             self.assertEqual(body, "\n")
                             self.assertNotIn(opening, stdout.getvalue())
                             self.assertNotIn(ending, stdout.getvalue())
@@ -2868,6 +3010,8 @@ unknown_macro!();
             summary,
         )
 
+
+class AuthorityContractTests(unittest.TestCase):
     def test_git_wizard_validation_levels_match_iteration_policy(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         validation = manifest["package"]["metadata"]["git-wizard"]["validation"]
@@ -2875,10 +3019,30 @@ unknown_macro!();
             validation,
             {
                 "quick": "python ci.py quick",
-                "standard": "python ci.py gate",
+                "standard": "python ci.py quick",
+                "full": "python ci.py audit --all",
             },
-            "Git-Wizard routine levels must reuse repository lanes instead of generic all-target commands",
+            "generic finalization must not add a second build after the targeted behavioral proof",
         )
+
+    def test_ci_parser_exposes_only_options_owned_by_each_command(self) -> None:
+        self.assertEqual(ci.parse_args([]).preset, "quick")
+        self.assertEqual(ci.parse_args(["--dry-run"]).preset, "quick")
+        self.assertEqual(ci.parse_args(["gate", "--gameplay", "fieldwork"]).gameplay, "fieldwork")
+        self.assertEqual(ci.parse_args(["audit", "--gameplay"]).gameplay, "all")
+
+        invalid = (
+            ["quick", "--lint"],
+            ["gate", "--core"],
+            ["gate", "--gameplay", "all"],
+            ["audit", "--lint"],
+            ["report", "--soak"],
+            ["bca", "--gameplay", "fieldwork"],
+        )
+        for argv in invalid:
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    ci.parse_args(argv)
 
     def test_build_producing_cargo_targets_are_explicit_not_auto_discovered(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -3390,6 +3554,29 @@ class ExactTestCommandTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "does not understand cfg predicate"):
             run_test.attributes_enabled(['#[cfg(target_os = "windows")]'], features)
+
+    def test_source_catalog_accepts_same_line_and_wrapped_rust_attributes(self) -> None:
+        source = "\n".join(
+            (
+                '#[cfg(test)] #[test] fn same_line() {}',
+                '#[cfg(',
+                '    all(test, feature = "test-gameplay")',
+                ')]',
+                '#[test]',
+                'fn wrapped() {}',
+            )
+        )
+        self.assertEqual(
+            test_catalog.logical_source_lines(source),
+            [
+                '#[cfg(test)]',
+                '#[test]',
+                'fn same_line() {}',
+                '#[cfg( all(test, feature = "test-gameplay") )]',
+                '#[test]',
+                'fn wrapped() {}',
+            ],
+        )
 
     def test_unique_test_selector_resolves_to_one_exact_catalog_name(self) -> None:
         catalog = [

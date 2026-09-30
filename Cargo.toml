@@ -11,7 +11,10 @@ autobenches = false
 
 [package.metadata.git-wizard.validation]
 quick = "python ci.py quick"
-standard = "python ci.py gate"
+# Generic completion cannot know which owner or gameplay contract changed. Keep it build-free so a
+# correctly targeted Rust proof is not followed by a redundant second Cargo build.
+standard = "python ci.py quick"
+full = "python ci.py audit --all"
 
 [[bin]]
 name = "validate-shaders"
@@ -155,8 +158,9 @@ wildcard_enum_match_arm = "deny"
 
 [profile.test]
 # Test failures already carry source locations and typed assertion context, so local verification
-# omits debug symbols. Cargo config owns dynamic linking; 128 CGUs favor measured post-edit
-# codegen/link latency over one-time cold-build speed while retaining incremental reuse.
+# omits debug symbols. Cargo config owns dynamic linking; 128 CGUs benchmark best for the smaller
+# focused targets. Repository wrappers raise only the monolithic cfg(test) library to 512 CGUs,
+# where that larger graph materially reduces measured post-edit codegen/link latency.
 debug = 0
 codegen-units = 128
 incremental = true

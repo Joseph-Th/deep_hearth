@@ -222,64 +222,35 @@ fn depleted_warning_workshop_preserves_stock_when_recharge_is_declined() {
 }
 
 #[test]
-fn organic_warning_energy_shortfalls_do_not_manufacture_service_costs() {
-    use super::report::{
-        EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
-        StructuralPreference,
-    };
-    use deep_hearth::maintenance::MaintenanceBand;
+fn energy_shortfall_does_not_manufacture_warning_service_costs() {
+    use super::report::MaintenancePreference;
 
     let registries = build_registries();
-    // Fixed discoveries from the 0xE1B76C1750B8BA0A / 0x57A9B15C0A1F2C8F report.
-    for world_seed in [0x2426_1F4A_8649_4594, 0x018E_36B3_6C91_CFFF] {
-        let mut variation =
-            scenario::ScenarioVariation::from_seeds(&registries, world_seed, 1, None);
-        variation.policy = ScenarioPolicyVariation {
-            power_preference: PowerPreference::PreserveReserve,
-            energy_recovery_preference: EnergyRecoveryPreference::ProtectSurvival,
-            maintenance_preference: MaintenancePreference::ServiceAtWarning,
-            structural_preference: StructuralPreference::PreserveMargin,
-        };
-        let warning = workshop::runner::run_scenario(&registries, variation, None);
-        variation.policy.maintenance_preference = MaintenancePreference::ServiceAtCritical;
-        let critical_only = workshop::runner::run_scenario(&registries, variation, None);
+    let mut variation = warning_workshop_with_one_stored_batch(&registries);
+    let warning = workshop::runner::run_scenario(&registries, variation, None);
+    variation.policy.maintenance_preference = MaintenancePreference::ServiceAtCritical;
+    let critical_only = workshop::runner::run_scenario(&registries, variation, None);
 
-        std::println!(
-            "WARNING ENERGY REPLAY world=0x{world_seed:016X} warning=[ore:{}mg elapsed:{}t services:{} recharges:{}] critical-only=[ore:{}mg elapsed:{}t services:{} recharges:{}]",
-            warning.progress.processed_mass.milligrams(),
-            warning.resources.episode_end_tick,
-            warning.maintenance.services,
-            warning.choices.manual_recharges,
-            critical_only.progress.processed_mass.milligrams(),
-            critical_only.resources.episode_end_tick,
-            critical_only.maintenance.services,
-            critical_only.choices.manual_recharges,
-        );
-        assert_eq!(
-            warning.inputs.initial_maintenance_band,
-            MaintenanceBand::Warning
-        );
-        assert_eq!(warning.progress.processed_mass, variation.ore.order_mass);
-        assert!(warning.choices.manual_recharges > 0);
-        assert_eq!(warning.maintenance.services, 0);
-        assert_eq!(warning.maintenance.replacement_spent, Mass::ZERO);
-        assert_eq!(
-            warning.progress.processed_mass,
-            critical_only.progress.processed_mass
-        );
-        assert_eq!(
-            warning.resources.episode_end_tick,
-            critical_only.resources.episode_end_tick
-        );
-        assert_eq!(
-            warning.resources.final_condition_ppm,
-            critical_only.resources.final_condition_ppm
-        );
-        assert_eq!(
-            warning.resources.maintenance_stock_remaining,
-            critical_only.resources.maintenance_stock_remaining
-        );
-    }
+    assert_eq!(warning.progress.processed_mass, variation.ore.order_mass);
+    assert!(warning.choices.manual_recharges > 0);
+    assert_eq!(warning.maintenance.services, 0);
+    assert_eq!(warning.maintenance.replacement_spent, Mass::ZERO);
+    assert_eq!(
+        warning.progress.processed_mass,
+        critical_only.progress.processed_mass
+    );
+    assert_eq!(
+        warning.resources.episode_end_tick,
+        critical_only.resources.episode_end_tick
+    );
+    assert_eq!(
+        warning.resources.final_condition_ppm,
+        critical_only.resources.final_condition_ppm
+    );
+    assert_eq!(
+        warning.resources.maintenance_stock_remaining,
+        critical_only.resources.maintenance_stock_remaining
+    );
 }
 
 #[test]

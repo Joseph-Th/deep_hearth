@@ -11,15 +11,16 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
 | CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
+| Type-check one unstable test/harness target | `python tools/run_test.py --check <qualified-name-or-unique-substring>` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Shared gameplay contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Compile-only proof when no executable test fits | `python ci.py gate` |
 
-Routine iteration is `quick` while editing, then **one** build proof. A passing Rust test is compile proof for its target. Use default `gate` only when no executable test fits or production-only cfg changed. Do not stack equivalent tests or append an audit after a narrower proof.
+Routine iteration is `quick`, then **one** build proof. While code is unstable, `run_test.py --check <selector>` resolves the eventual test target without codegen/linking; once runnable, the test itself is compile proof. Use default `gate` only when no executable test fits. Do not stack equivalent proofs or append an audit.
 
-Use `python tools/run_test.py --list <substring>` for build-free discovery and printed `repair:` commands. Unit selectors reduce execution only; Rust still compiles the full `cfg(test)` library. While code is unstable, use `check-fast`; when a focused gameplay contract is equally authoritative, prefer its smaller target. Exact unit tests and the core audit reuse one library-test artifact. `.cargo/config.toml` owns the shared `target/local-ci` cache and dynamic-link build shape for every local Cargo entrypoint; repository Python entrypoints strip ambient Rust/profile overrides so they converge on it. Explicit `CARGO_TARGET_DIR` still overrides the shared cache. Do not precheck an executable test.
+Use `run_test.py --list <substring>` for build-free discovery. Unit selectors still compile the full `cfg(test)` library, so prefer a smaller focused gameplay target when equally authoritative. `.cargo/config.toml` owns the shared `target/local-ci` build shape; repository Python entrypoints remove ambient Rust/profile overrides while preserving an explicit `CARGO_TARGET_DIR`. The normal test profile keeps the smaller focused targets at 128 CGUs; exact/suite library tests and broad core/soak lanes use a measured 512-CGU override for faster post-edit codegen and linking. Run build-producing Cargo lanes serially: concurrent rustc/linker processes contend for CPU and the shared incremental cache. Only the build-free `quick` checks run in parallel.
 
 ## Escalation lanes
 
@@ -30,7 +31,7 @@ Use `python tools/run_test.py --list <substring>` for build-free discovery and p
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free. `gate` runs one build lane. `audit` is a deliberate checkpoint, not an edit-loop step. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`; scoped audits are `audit --core` and `audit --gameplay`. Git-Wizard `quick` and `standard` are the routine project-aware levels; use repository `gate --lint` or `audit --core` instead of generic all-target validation when those explicit proofs are needed.
+`quick` is build-free; `gate` runs one build lane; `audit` is an explicit checkpoint. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick` and `standard` stay build-free because generic finalization cannot select the changed behavioral contract; `full` maps to `audit --all` and is opt-in.
 
 ## Evidence ladder
 
@@ -86,8 +87,8 @@ Split owner contract targets only when they materially shrink the compile graph.
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 
-Routine gameplay verification runs maintained witnesses plus one fresh replayable organic case. Explicit replay roots replace that fresh case for diagnosis; exploratory reports generate four organic cases plus broader agency search. Successful gates print compact timing and replay roots, failures print a narrow reproduction command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Routine gameplay verification runs maintained witnesses plus one fresh replayable organic case. Explicit replay roots replace that fresh case for diagnosis; exploratory reports generate four organic cases plus broader agency search. Successful routine gates print only counts/timing, explicit replays echo their roots, failures print a narrow reproduction command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 
-Run only the lane required by the changed contract. Documentation-only work uses `check_authority_docs.py`; CI/test-tooling changes also run `python -m unittest tools.test_ci -q`. Every additional build must prove a distinct contract.
+Run only the lane required by the changed contract. CI/test-tooling changes run `python -m unittest tools.test_ci -q`; every additional build must prove a distinct contract.

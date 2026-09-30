@@ -75,7 +75,32 @@ def expanded_logical_source_lines(
 
 
 def logical_source_lines(source: str) -> list[str]:
-    """Join rustfmt-wrapped attributes while leaving ordinary source lines untouched."""
+    """Normalize wrapped or same-line leading attributes into one logical item per line."""
+
+    def attribute_end(text: str) -> int | None:
+        if not text.startswith("#["):
+            return None
+        depth = 0
+        quoted = False
+        escaped = False
+        for index, character in enumerate(text):
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == '"':
+                    quoted = False
+                continue
+            if character == '"':
+                quoted = True
+            elif character == "[":
+                depth += 1
+            elif character == "]":
+                depth -= 1
+                if depth == 0:
+                    return index + 1
+        return None
 
     raw = source.splitlines()
     logical: list[str] = []
@@ -83,7 +108,7 @@ def logical_source_lines(source: str) -> list[str]:
     while index < len(raw):
         line = raw[index]
         stripped = line.strip()
-        if not stripped.startswith("#[") or stripped.endswith("]"):
+        if not stripped.startswith("#["):
             logical.append(line)
             index += 1
             continue
@@ -91,15 +116,24 @@ def logical_source_lines(source: str) -> list[str]:
         indent = line[: len(line) - len(line.lstrip())]
         parts = [stripped]
         index += 1
-        while index < len(raw):
+        joined = stripped
+        while attribute_end(joined) is None and index < len(raw):
             part = raw[index].strip()
             parts.append(part)
             index += 1
-            if part.endswith("]"):
-                break
-        else:
+            joined = " ".join(parts)
+        if attribute_end(joined) is None:
             raise ValueError("unterminated Rust attribute in source catalog")
-        logical.append(indent + " ".join(parts))
+
+        remaining = joined
+        while remaining.startswith("#["):
+            end = attribute_end(remaining)
+            if end is None:
+                raise ValueError("unterminated Rust attribute in source catalog")
+            logical.append(indent + remaining[:end])
+            remaining = remaining[end:].lstrip()
+        if remaining:
+            logical.append(indent + remaining)
     return logical
 
 

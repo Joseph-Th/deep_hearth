@@ -160,7 +160,6 @@ def configure_gameplay_verification_environment(
     )
 
 
-GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)
 REPORT_SCOPES = ("all", *GAMEPLAY_SCOPE_SPECS, "agency")
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
@@ -580,7 +579,9 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
 
 def execute_stage(command: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, float, OSError | None]:
     started = time.perf_counter()
-    environment = local_cargo_environment()
+    environment = local_cargo_environment(
+        library_test_codegen=command in (cargo("test-core"), cargo("test-soak"))
+    )
     try:
         result = subprocess.run(
             command,
@@ -604,6 +605,7 @@ def report_stage(
     *,
     echo_success: bool = False,
     announced: bool = False,
+    show_replay: bool = False,
 ) -> float | None:
     result, elapsed, start_error = execution
     if not announced:
@@ -635,7 +637,7 @@ def report_stage(
                 return None
         detail = None if label.startswith("gameplay report") else rust_test_summary(result.stdout)
         details = [detail] if detail is not None else []
-        if label.startswith("gameplay") and label != "gameplay contracts":
+        if show_replay and label.startswith("gameplay") and label != "gameplay contracts":
             replay = gameplay_environment_summary(label, os.environ)
             if replay is None:
                 replay = gameplay_replay_summary(result.stdout)
@@ -671,6 +673,7 @@ def run_stage(
     command: list[str],
     *,
     echo_success: bool = False,
+    show_replay: bool = False,
 ) -> float | None:
     prefix = f"[{index}/{total}] {label}" if total > 1 else label
     print(f"{prefix} ... ", end="", flush=True)
@@ -682,6 +685,7 @@ def run_stage(
         execute_stage(command),
         echo_success=echo_success,
         announced=True,
+        show_replay=show_replay,
     )
 
 
@@ -712,183 +716,126 @@ def run_quick_stages(
     return None
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the local-CI command surface without mixing in preset policy validation."""
-
-    parser = argparse.ArgumentParser(
-        description="Run concise local verification without hosted CI or implicit change detection."
-    )
-    parser.add_argument(
-        "preset",
-        nargs="?",
-        choices=("quick", "gate", "audit", "report", "bca"),
-        default="quick",
-        help=(
-            "build-free edit-loop check, coherent compile/test gate, broad maintained checkpoint, "
-            "explicit gameplay report, or advisory changed-source BCA review"
-        ),
-    )
-    lane = parser.add_mutually_exclusive_group()
-    lane.add_argument(
-        "--lint",
-        action="store_true",
-        help="run the fast production-library Clippy lane",
-    )
-    lane.add_argument(
-        "--all",
-        action="store_true",
-        help="run both maintained audit surfaces; valid only with the audit preset",
-    )
-    lane.add_argument(
-        "--core",
-        action="store_true",
-        help="run the complete ordinary core behavior suite as an explicit audit-only lane",
-    )
-    lane.add_argument(
-        "--soak",
-        action="store_true",
-        help="run ignored long-horizon soak tests as the gate's single build lane",
-    )
-    lane.add_argument(
-        "--gameplay",
-        nargs="?",
-        const="all",
-        choices=GAMEPLAY_SCOPES,
-        metavar="SCOPE",
-        help=(
-            "run gameplay verification; gate accepts shared contracts or one focused scope, while "
-            "audit accepts omitted SCOPE/all for the consolidated maintained gameplay audit"
-        ),
-    )
-    lane.add_argument(
-        "--shaders",
-        action="store_true",
-        help="run WGSL validation as the gate's single build lane",
-    )
-    lane.add_argument(
-        "--rustdoc",
-        action="store_true",
-        help="build Rust API documentation as the gate's single build lane",
-    )
+def add_dry_run(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="print the resolved stages without executing them",
+        help="print the resolved stage(s) without executing them",
     )
-    parser.add_argument(
-        "--since",
-        default="HEAD",
-        help="git revision used as the BCA changed-source comparison base",
-    )
-    parser.add_argument(
-        "--path",
-        action="append",
-        default=[],
-        help="restrict BCA review to a source scope; repeat for multiple scopes",
-    )
-    parser.add_argument(
-        "--hotspots",
-        action="store_true",
-        help=(
-            "with the bca preset, review current history-aware hotspots in the requested source "
-            "scope instead of limiting the report to changed maintained Rust source"
-        ),
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="with report, print the complete replayable gameplay transcript",
-    )
-    parser.add_argument(
-        "--scope",
-        choices=REPORT_SCOPES,
-        default="all",
-        help="with report, run only one exploratory gameplay probe family",
-    )
+
+
+def add_replay_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--variation-seed",
         type=parse_replay_seed,
-        help="replay one gameplay physical-world variation root (decimal or 0x hex u64)",
+        help="replay one physical-world variation root (decimal or 0x hex u64)",
     )
     parser.add_argument(
         "--behavior-seed",
         type=parse_replay_seed,
-        help="replay one actor-policy root where the selected gameplay scope uses it",
+        help="replay one actor-policy root when the selected scope uses it",
     )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build a contextual local-CI command surface with no irrelevant preset flags."""
+
+    parser = argparse.ArgumentParser(
+        description="Run the smallest explicit local verification lane that proves the change."
+    )
+    presets = parser.add_subparsers(dest="preset", metavar="COMMAND")
+
+    quick = presets.add_parser("quick", help="build-free edit-loop checks")
+    add_dry_run(quick)
+
+    gate = presets.add_parser("gate", help="one compile, lint, or focused runtime proof")
+    lane = gate.add_mutually_exclusive_group()
+    lane.add_argument("--lint", action="store_true", help="lint the production library")
+    lane.add_argument("--soak", action="store_true", help="run ignored long-horizon soak tests")
+    lane.add_argument(
+        "--gameplay",
+        choices=("contracts", *GAMEPLAY_TARGETS),
+        metavar="SCOPE",
+        help="run shared contracts or one focused gameplay scope",
+    )
+    lane.add_argument("--shaders", action="store_true", help="validate built-in WGSL")
+    lane.add_argument("--rustdoc", action="store_true", help="build Rust API documentation")
+    add_replay_options(gate)
+    add_dry_run(gate)
+
+    audit = presets.add_parser("audit", help="explicit broad maintained checkpoint")
+    scope = audit.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--core", action="store_true", help="run the complete core behavior suite")
+    scope.add_argument(
+        "--gameplay",
+        action="store_const",
+        const="all",
+        dest="gameplay",
+        help="run the consolidated gameplay audit",
+    )
+    scope.add_argument("--all", action="store_true", help="run core plus consolidated gameplay")
+    add_replay_options(audit)
+    add_dry_run(audit)
+
+    report = presets.add_parser("report", help="exploratory replayable gameplay evidence")
+    report.add_argument(
+        "--scope",
+        choices=REPORT_SCOPES,
+        default="all",
+        help="run one exploratory gameplay family (default: all)",
+    )
+    report.add_argument("--verbose", action="store_true", help="print the complete replay transcript")
+    add_replay_options(report)
+    add_dry_run(report)
+
+    bca = presets.add_parser("bca", help="build-free changed-source complexity review")
+    bca.add_argument("--since", default="HEAD", help="git comparison revision")
+    bca.add_argument(
+        "--path",
+        action="append",
+        default=[],
+        help="restrict review to a source scope; repeat for multiple scopes",
+    )
+    bca.add_argument(
+        "--hotspots",
+        action="store_true",
+        help="review current history-aware hotspots instead of changed source only",
+    )
+    add_dry_run(bca)
     return parser
 
 
-def has_build_lane_option(args: argparse.Namespace) -> bool:
-    return any(
-        (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
-    )
+def normalize_args(args: argparse.Namespace) -> argparse.Namespace:
+    """Give plan/environment helpers stable fields without exposing irrelevant CLI options."""
 
-
-def validate_quick_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if has_build_lane_option(args):
-        parser.error("quick is intentionally build-free and does not accept build-producing flags")
-    if args.verbose:
-        parser.error("--verbose is valid only with the report preset")
-
-
-def validate_audit_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if any((args.lint, args.soak, args.shaders, args.rustdoc)):
-        parser.error(
-            "audit has a fixed runtime scope; run change-scoped lint/rustdoc/shader lanes separately"
-        )
-    if not any((args.all, args.core, args.gameplay)):
-        parser.error("audit requires an explicit scope: --core, --gameplay, or --all")
-    if args.gameplay not in (None, "all"):
-        parser.error(
-            "focused gameplay belongs in gate; audit --gameplay runs the consolidated gameplay audit"
-        )
-    if args.verbose:
-        parser.error("--verbose is valid only with the report preset")
-
-
-def validate_gate_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if args.core:
-        parser.error("complete core behavior is audit-only; use `python ci.py audit --core`")
-    if args.all:
-        parser.error("broad verification is audit-only; use `python ci.py audit --all`")
-    if args.gameplay == "all":
-        parser.error(
-            "gate requires an explicit gameplay scope; use `python ci.py audit --gameplay` for the consolidated audit"
-        )
-    if args.verbose:
-        parser.error("--verbose is valid only with the report preset")
-
-
-def validate_report_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if has_build_lane_option(args):
-        parser.error("report does not accept gate flags; use --scope for focused exploration")
-    if args.behavior_seed is not None and args.scope not in REPORT_BEHAVIOR_SCOPES:
-        parser.error(
-            f"report scope {args.scope!r} does not consume actor-policy variation; "
-            "omit --behavior-seed"
-        )
-
-
-def validate_bca_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if has_build_lane_option(args):
-        parser.error("bca review is build-free and does not accept build-producing flags")
-    if args.verbose:
-        parser.error("--verbose is valid only with the report preset")
+    defaults = {
+        "all": False,
+        "core": False,
+        "lint": False,
+        "soak": False,
+        "gameplay": None,
+        "shaders": False,
+        "rustdoc": False,
+        "dry_run": False,
+        "since": "HEAD",
+        "path": [],
+        "hotspots": False,
+        "verbose": False,
+        "scope": "all",
+        "variation_seed": None,
+        "behavior_seed": None,
+    }
+    for field, value in defaults.items():
+        if not hasattr(args, field):
+            setattr(args, field, value)
+    return args
 
 
 def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    validators = {
-        "quick": validate_quick_options,
-        "gate": validate_gate_options,
-        "audit": validate_audit_options,
-        "report": validate_report_options,
-        "bca": validate_bca_options,
-    }
-    validators[args.preset](parser, args)
-    if args.preset != "bca" and (args.since != "HEAD" or args.path or args.hotspots):
-        parser.error("--since, --path, and --hotspots are valid only with the bca preset")
-    if args.preset != "report" and args.scope != "all":
-        parser.error("--scope is valid only with the report preset")
+    if args.preset == "report" and args.behavior_seed is not None and args.scope not in REPORT_BEHAVIOR_SCOPES:
+        parser.error(
+            f"report scope {args.scope!r} does not consume actor-policy variation; omit --behavior-seed"
+        )
     if args.variation_seed is not None or args.behavior_seed is not None:
         variation_behavior = gameplay_sampling_behavior(args)
         if variation_behavior is None:
@@ -901,7 +848,12 @@ def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Name
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments:
+        arguments = ["quick"]
+    elif arguments[0].startswith("-") and arguments[0] not in ("-h", "--help"):
+        arguments.insert(0, "quick")
+    args = normalize_args(parser.parse_args(arguments))
     validate_preset_options(parser, args)
     return args
 
@@ -949,6 +901,17 @@ def main() -> int:
                 label,
                 command,
                 echo_success=args.preset in ("report", "bca"),
+                show_replay=(
+                    (
+                        args.preset == "report"
+                        and os.environ.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is None
+                        and os.environ.get("DEEP_HEARTH_GAMEPLAY_TRACE") is None
+                    )
+                    or (
+                        args.preset in ("gate", "audit")
+                        and args.variation_seed is not None
+                    )
+                ),
             )
             if elapsed is None:
                 return 1
