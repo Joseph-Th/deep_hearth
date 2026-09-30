@@ -9,15 +9,15 @@ from functools import lru_cache
 import os
 from pathlib import Path
 import re
-import secrets
 import subprocess
 import sys
 import time
 import tomllib
 
 if __package__:
-    from . import replay_seed, test_catalog
+    from . import cargo_env, replay_seed, test_catalog
 else:
+    import cargo_env
     import replay_seed
     import test_catalog
 
@@ -34,11 +34,6 @@ CATALOG_DISPLAY_LIMIT = 40
 GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
 GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
 GAMEPLAY_REPORT_MODE_ENV = "DEEP_HEARTH_GAMEPLAY_REPORT"
-BEHAVIOR_VARIATION_TESTS = {
-    "gameplay_harness_gate",
-    "gameplay_survival_provisioning_probe",
-    "gameplay_woodworking_probe",
-}
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -171,18 +166,36 @@ def all_source_test_names(raw_features: str | None) -> list[str]:
     return sorted({name for _target, name in all_source_test_locations(raw_features)})
 
 
+@lru_cache(maxsize=None)
+def target_source_paths(target: str, raw_features: str | None) -> frozenset[Path]:
+    """Return one target's reachable Rust files for build-free compile-footprint comparisons."""
+
+    features = cargo_feature_set(target, raw_features)
+    root = ROOT / "src" / "lib.rs" if target == "lib" else cargo_test_target_path(target)
+    return frozenset(
+        path.resolve()
+        for path, _prefix in test_catalog.reachable_modules(ROOT, root, features)
+    )
+
+
+@lru_cache(maxsize=None)
+def target_source_bytes(target: str, raw_features: str | None) -> int:
+    """Approximate target compile size from the reachable maintained source graph."""
+
+    return sum(path.stat().st_size for path in target_source_paths(target, raw_features))
+
+
 def preferred_target(targets: set[str], raw_features: str | None) -> str:
-    """Prefer purpose-built contract/focused targets over the consolidated audit target."""
+    """Prefer the smallest purpose-built graph and keep the consolidated audit as fallback."""
 
-    def role_rank(target: str) -> int:
-        if target == "gameplay_audit":
-            return 2
-        if target == "gameplay_contracts" or target.endswith("_contracts"):
-            return 0
-        return 1
-
-    del raw_features
-    return min(targets, key=lambda target: (role_rank(target), target))
+    return min(
+        targets,
+        key=lambda target: (
+            target == "gameplay_audit",
+            target_source_bytes(target, raw_features),
+            target,
+        ),
+    )
 
 
 def resolve_automatic_exact_selection(
@@ -484,36 +497,13 @@ def resolve_automatic_lint_target(args: argparse.Namespace) -> bool:
 
 
 def gameplay_replay_environment(args: argparse.Namespace) -> dict[str, str]:
+    """Return only replay roots explicitly requested for this exact execution."""
+
     replay: dict[str, str] = {}
     if args.variation_seed:
         replay[GAMEPLAY_VARIATION_ENV] = args.variation_seed
     if args.behavior_seed:
         replay[GAMEPLAY_BEHAVIOR_ENV] = args.behavior_seed
-    if replay:
-        return replay
-    for key in (GAMEPLAY_VARIATION_ENV, GAMEPLAY_BEHAVIOR_ENV):
-        if value := os.environ.get(key):
-            replay[key] = value
-    if replay:
-        return replay
-    if (
-        args.target == "lib"
-        or args.target == "gameplay_audit"
-        or args.target.endswith("_contracts")
-        or args.suite
-        or args.name is None
-        or "::" in args.name
-    ):
-        return replay
-    try:
-        target_features = cargo_test_target_definition(args.target).get("required-features", [])
-    except ValueError:
-        return replay
-    if "test-gameplay" not in target_features:
-        return replay
-    replay[GAMEPLAY_VARIATION_ENV] = f"0x{secrets.randbits(64):016X}"
-    if args.name in BEHAVIOR_VARIATION_TESTS:
-        replay[GAMEPLAY_BEHAVIOR_ENV] = f"0x{secrets.randbits(64):016X}"
     return replay
 
 
@@ -521,9 +511,9 @@ def execute_cargo_command(
     command: list[str],
     environment_overrides: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], float]:
-    environment = os.environ.copy()
-    environment["CARGO_TERM_COLOR"] = "never"
-    environment.pop(GAMEPLAY_REPORT_MODE_ENV, None)
+    environment = cargo_env.local_cargo_environment()
+    for key in (GAMEPLAY_REPORT_MODE_ENV, GAMEPLAY_VARIATION_ENV, GAMEPLAY_BEHAVIOR_ENV):
+        environment.pop(key, None)
     if environment_overrides:
         environment.update(environment_overrides)
     started = time.perf_counter()

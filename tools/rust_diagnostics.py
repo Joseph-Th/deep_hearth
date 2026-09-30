@@ -12,6 +12,11 @@ import subprocess
 import sys
 import tempfile
 
+if __package__:
+    from . import cargo_env
+else:
+    import cargo_env
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MUTANT_OUTPUT_ROOT = ROOT / "target" / "agent-output" / "rust-diagnostics" / "mutants"
@@ -250,8 +255,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def diagnostic_environment() -> dict[str, str]:
-    environment = os.environ.copy()
-    environment["CARGO_TERM_COLOR"] = "never"
+    environment = cargo_env.local_cargo_environment()
     environment["NO_COLOR"] = "1"
     return environment
 

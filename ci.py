@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 
+from tools.cargo_env import local_cargo_environment
 from tools.gameplay_report_summary import concise_gameplay_report
 from tools.replay_seed import parse_replay_seed
 
@@ -175,7 +176,7 @@ def gameplay_sampling_behavior(args: argparse.Namespace) -> bool | None:
 
 
 def clear_gameplay_seed_environment(environ) -> None:
-    """Clear ambient replay state before project-owned routine gameplay sampling."""
+    """Clear ambient replay state before project-owned routine gameplay verification."""
 
     for key in GAMEPLAY_SEED_ENV_KEYS:
         environ.pop(key, None)
@@ -184,22 +185,18 @@ def clear_gameplay_seed_environment(environ) -> None:
 def configure_gameplay_verification_environment(
     args: argparse.Namespace,
     environ,
-    *,
-    randbits=secrets.randbits,
-) -> tuple[str, str]:
-    """Add one fresh or explicitly replayed organic case to maintained gameplay witnesses."""
+) -> None:
+    """Run maintained witnesses by default, adding variation only for an explicit replay."""
 
     use_behavior_seed = gameplay_sampling_behavior(args)
     assert use_behavior_seed is not None
     environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
     clear_gameplay_seed_environment(environ)
-    return configure_gameplay_replay_environment(
-        environ,
-        variation_override=args.variation_seed,
-        behavior_override=args.behavior_seed,
-        use_behavior_seed=use_behavior_seed,
-        randbits=randbits,
-    )
+    if args.variation_seed is None:
+        return
+    environ["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"] = args.variation_seed
+    if use_behavior_seed and args.behavior_seed is not None:
+        environ["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"] = args.behavior_seed
 
 
 GAMEPLAY_SCOPES = ("all", "contracts", *GAMEPLAY_TARGETS)
@@ -622,8 +619,7 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
 
 def execute_stage(command: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, float, OSError | None]:
     started = time.perf_counter()
-    environment = os.environ.copy()
-    environment["CARGO_TERM_COLOR"] = "never"
+    environment = local_cargo_environment()
     try:
         result = subprocess.run(
             command,
@@ -967,11 +963,7 @@ def main() -> int:
             print(f"gameplay replay: {error}", file=sys.stderr)
             return 2
     elif gameplay_sampling_behavior(args) is not None:
-        try:
-            configure_gameplay_verification_environment(args, os.environ)
-        except ValueError as error:
-            print(f"gameplay replay: {error}", file=sys.stderr)
-            return 2
+        configure_gameplay_verification_environment(args, os.environ)
     elif args.preset == "gate" and args.gameplay == "contracts":
         os.environ.pop(GAMEPLAY_REPORT_MODE_ENV, None)
         clear_gameplay_seed_environment(os.environ)

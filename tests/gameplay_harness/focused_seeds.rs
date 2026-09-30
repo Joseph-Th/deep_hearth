@@ -35,8 +35,8 @@ pub(super) struct FocusedProbeSeedPlan<'a> {
 /// Resolves maintained contract cases plus an optional bounded replayable variation sample.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
-/// focused gates receive one variation root from the project command layer, so they combine
-/// maintained witnesses with one bounded organic case; exploratory reports use a broader sample.
+/// focused gates run maintained witnesses only; an explicit variation root adds one replay case,
+/// while exploratory reports generate and run a broader sample.
 /// A probe-specific salt keeps concerns independent. Physical and actor variation use independent
 /// replay roots so changing a preference cannot silently change the world.
 pub(super) fn focused_probe_cases_from(

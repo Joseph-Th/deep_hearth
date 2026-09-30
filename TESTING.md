@@ -17,9 +17,9 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Compile-only proof when no executable test fits | `python ci.py gate` |
 
-Routine iteration is `quick` while editing, then **one** build-producing proof. A passing Rust test is compile proof for its target. Use the default `gate` only when no executable test fits or a production-only cfg path changed. Do not stack an exact unit test and focused gameplay for the same claim.
+Routine iteration is `quick` while editing, then **one** build proof. A passing Rust test is compile proof for its target. Use default `gate` only when no executable test fits or production-only cfg changed. Do not stack equivalent tests or append an audit after a narrower proof.
 
-Use `python tools/run_test.py --list <substring>` for build-free discovery and the printed `repair:` command after failures. Exact and suite unit tests intentionally reuse the same feature-minimal library-test artifact as the broad core audit. This makes owner switches cheap and lets later core verification reuse the executable proof you already built. Cargo check/test artifacts still differ, so do not precheck an executable test.
+Use `python tools/run_test.py --list <substring>` for build-free discovery and printed `repair:` commands. Unit selectors reduce execution only; Rust still compiles the full `cfg(test)` library. While code is unstable, use `check-fast`; when a focused gameplay contract is equally authoritative, prefer its smaller target. Exact unit tests and the core audit reuse one library-test artifact. Official Python entrypoints strip ambient Rust flags so they converge on the repository profile and linker cache shape. Do not precheck an executable test.
 
 ## Escalation lanes
 
@@ -82,11 +82,11 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Focused probes own nearby contracts when doing so avoids another nearly identical Cargo artifact. Progression, settlement, woodworking, and fieldwork keep dedicated contract targets because those targets materially isolate a smaller or distinct graph; workshop, survival, ore, and foundry keep their contracts in the focused target because a second target would duplicate almost the same modules. Progression episode contracts stay with the progression probe because they require its full evaluator. Gameplay targets share one `test-gameplay` feature shape. Scoped reports reuse the focused test artifact when that target already contains its summary path. Formatter-heavy progression, woodworking, and power reports use small owner-specific examples; workshop/agency share their focused example, and only the cross-system report compiles the complete report graph.
+Split owner contract targets only when they materially shrink the compile graph. Progression, settlement, and woodworking qualify; fieldwork, workshop, survival, ore, and foundry keep nearby contracts in the focused target. Gameplay targets share one `test-gameplay` feature shape. Scoped reports reuse focused artifacts where possible; only the cross-system report compiles the complete report graph.
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 
-Routine gameplay verification combines maintained witnesses with one fresh replayable organic case. Successful gates print only the useful test count and elapsed time; failures print replay roots, and reports retain replay inputs as evidence. Reports use four organic cases plus broader agency search. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Routine gameplay verification is deterministic and runs maintained witnesses only. Explicit replay roots add one requested variation case. Fresh organic sampling belongs to reports, which use four organic cases plus broader agency search. Successful gates print only the useful test count and elapsed time; replay failures print their roots, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 
