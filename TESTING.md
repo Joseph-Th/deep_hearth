@@ -83,7 +83,7 @@ until the soak lane is requested.
 
 ## Gameplay evaluation
 
-Split owner contract targets only when they materially shrink the compile graph. Progression, settlement, and woodworking qualify; fieldwork, workshop, survival, ore, and foundry keep nearby contracts in the focused target. Gameplay targets share one `test-gameplay` feature shape. Scoped reports reuse focused artifacts where possible; only the cross-system report compiles the complete report graph.
+Split owner contract targets only when controlled post-edit timings show a real iteration win. Reachable file/byte counts are diagnostics, not proof of build speed. Progression, settlement, and woodworking retain measured/useful splits; fieldwork, workshop, survival, ore, and foundry keep nearby contracts in the focused target. Gameplay targets share one `test-gameplay` feature shape. Scoped reports reuse focused artifacts where possible; only the cross-system report compiles the complete report graph.
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 

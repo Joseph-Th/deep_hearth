@@ -172,7 +172,7 @@ def all_source_test_names(raw_features: str | None) -> list[str]:
 
 @lru_cache(maxsize=None)
 def target_source_paths(target: str, raw_features: str | None) -> frozenset[Path]:
-    """Return one target's reachable Rust files for build-free compile-footprint comparisons."""
+    """Return one target's reachable Rust files for build-free topology checks."""
 
     features = cargo_feature_set(target, raw_features)
     root = ROOT / "src" / "lib.rs" if target == "lib" else cargo_test_target_path(target)
