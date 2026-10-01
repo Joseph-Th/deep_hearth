@@ -22,6 +22,7 @@ use deep_hearth::registry::{CommoditySource, Registries};
 use deep_hearth::survival::project_survival_resource_budget;
 
 use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::super::focused_witnesses::FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED;
 use super::super::manual_craft_execution::execute_manual_craft;
 use super::super::material_selection::select_stockpile_commodity_mass;
 use super::super::seed::mix64;
@@ -395,25 +396,55 @@ pub(super) fn foundry_resource_opportunity(
             }
         }
         FocusedProbeRole::MaintainedCoverage => {
-            let shortfall = scaled_mass(required_after_current, 350_000, "coverage shortfall");
-            let copper_ppm = 350_000;
-            let required_feed =
-                minimum_powered_ore_feed_for_target_recovery(registries, shortfall, copper_ppm)
-                    .unwrap_or_else(|| {
-                        panic!("first foundry coverage recovery projection overflowed")
-                    });
-            FoundryResourceOpportunity {
-                native: native_with_shortfall(
+            if case.seed() == FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED {
+                let shortfall = scaled_mass(
+                    required_after_current,
+                    250_000,
+                    "recovery coverage shortfall",
+                );
+                let copper_ppm = 550_000;
+                let required_feed =
+                    minimum_powered_ore_feed_for_target_recovery(registries, shortfall, copper_ppm)
+                        .unwrap_or_else(|| {
+                            panic!("first foundry recovery coverage projection overflowed")
+                        });
+                let reserve = scaled_mass(required_feed, 100_000, "recovery coverage reserve");
+                FoundryResourceOpportunity {
+                    native: native_with_shortfall(
+                        immediate_native_input,
+                        required_after_current,
+                        shortfall,
+                    ),
+                    owned_ore: FoundryOwnedOreOpportunity {
+                        mass: required_feed.checked_add(reserve).unwrap_or_else(|| {
+                            panic!("first foundry recovery coverage ore overflowed")
+                        }),
+                        copper_ppm,
+                    },
                     immediate_native_input,
                     required_after_current,
-                    shortfall,
-                ),
-                owned_ore: FoundryOwnedOreOpportunity {
-                    mass: insufficient_feed(required_feed, case.seed()),
-                    copper_ppm,
-                },
-                immediate_native_input,
-                required_after_current,
+                }
+            } else {
+                let shortfall = scaled_mass(required_after_current, 350_000, "coverage shortfall");
+                let copper_ppm = 350_000;
+                let required_feed =
+                    minimum_powered_ore_feed_for_target_recovery(registries, shortfall, copper_ppm)
+                        .unwrap_or_else(|| {
+                            panic!("first foundry coverage recovery projection overflowed")
+                        });
+                FoundryResourceOpportunity {
+                    native: native_with_shortfall(
+                        immediate_native_input,
+                        required_after_current,
+                        shortfall,
+                    ),
+                    owned_ore: FoundryOwnedOreOpportunity {
+                        mass: insufficient_feed(required_feed, case.seed()),
+                        copper_ppm,
+                    },
+                    immediate_native_input,
+                    required_after_current,
+                }
             }
         }
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {

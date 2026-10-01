@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use deep_hearth::content::gameplay_fixture::{
     seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_composed_lot, seed_lot,
-    seed_stockpile,
+    seed_preused_assembled_equipment_at, seed_stockpile,
 };
 use deep_hearth::content::{
     ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_COPPER_PLATE_ELECTRICAL_BUFFER,
@@ -23,6 +23,7 @@ use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
+use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::validate_start_process;
@@ -34,13 +35,14 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::focused_case::FocusedProbeCase;
+use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
 use super::manual_craft_execution::execute_manual_craft;
 use super::manual_power_timing::finish_manual_power_work;
 use super::ore_fixture::copper_ore_composition;
 use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
+use super::seed::mix64;
 use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
 use super::world_admission::STATIONARY_PLAYER_ORIGIN;
 #[path = "first_foundry_probe/casting.rs"]
@@ -60,7 +62,7 @@ use self::planning::{
 };
 use self::recovery::{
     InheritedProcessingLine, PoweredOreRecoveryPlan, execute_powered_ore_recovery,
-    minimum_powered_ore_feed_for_target_recovery,
+    minimum_current_powered_ore_feed_for_target_recovery,
 };
 
 #[derive(Clone, Copy)]
@@ -71,11 +73,43 @@ struct PriorSettlementWorkshop {
     crusher: deep_hearth::equipment::EquipmentId,
     separator: deep_hearth::equipment::EquipmentId,
     processing_drive: deep_hearth::energy::EnergyStoreId,
+    minimum_start_condition_ppm: u32,
+    maximum_start_condition_ppm: u32,
+}
+
+fn inherited_equipment_condition(
+    registries: &Registries,
+    definition: deep_hearth::equipment::EquipmentDefinitionId,
+    case: FocusedProbeCase,
+) -> Condition {
+    if matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    ) {
+        return Condition::PRISTINE;
+    }
+    let warning = registries
+        .equipment()
+        .get_equipment(definition)
+        .unwrap_or_else(|| panic!("first foundry inherited equipment definition disappeared"))
+        .maintenance_thresholds()
+        .warning_below()
+        .parts_per_million();
+    let lower = warning
+        .checked_add((Condition::PRISTINE.parts_per_million() - warning) / 2)
+        .unwrap_or_else(|| unreachable!("normal condition midpoint fits u32"));
+    let span = Condition::PRISTINE.parts_per_million() - lower;
+    let offset =
+        u32::try_from(mix64(case.seed() ^ u64::from(definition.value())) % u64::from(span))
+            .unwrap_or_else(|_| unreachable!("bounded inherited condition offset fits u32"));
+    Condition::new(lower + offset)
+        .unwrap_or_else(|error| panic!("first foundry inherited condition invalid: {error}"))
 }
 
 fn seed_prior_settlement_workshop(
     registries: &Registries,
     state: &mut AppState,
+    case: FocusedProbeCase,
 ) -> PriorSettlementWorkshop {
     let definitions = [
         EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
@@ -122,41 +156,34 @@ fn seed_prior_settlement_workshop(
     for (commodity, mass) in requirements {
         let _ = seed_lot(registries, state, source, commodity, mass, ROOM_TEMPERATURE);
     }
-    let frame_saw = seed_assembled_equipment_at(
-        registries,
-        state,
-        EQUIPMENT_TIMBER_FRAME_SAW_BENCH,
-        source,
-        STATIONARY_PLAYER_ORIGIN,
-    );
-    let treadle_hammer = seed_assembled_equipment_at(
-        registries,
-        state,
-        EQUIPMENT_TIMBER_TREADLE_HAMMER,
-        source,
-        STATIONARY_PLAYER_ORIGIN,
-    );
-    let treadle_drive = seed_assembled_equipment_at(
-        registries,
-        state,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
-        source,
-        STATIONARY_PLAYER_ORIGIN,
-    );
-    let crusher = seed_assembled_equipment_at(
-        registries,
-        state,
-        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-        source,
-        STATIONARY_PLAYER_ORIGIN,
-    );
-    let separator = seed_assembled_equipment_at(
-        registries,
-        state,
-        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-        source,
-        STATIONARY_PLAYER_ORIGIN,
-    );
+    let mut start_conditions = Vec::with_capacity(definitions.len());
+    let mut assemble = |definition| {
+        let condition = inherited_equipment_condition(registries, definition, case);
+        start_conditions.push(condition.parts_per_million());
+        if condition == Condition::PRISTINE {
+            seed_assembled_equipment_at(
+                registries,
+                state,
+                definition,
+                source,
+                STATIONARY_PLAYER_ORIGIN,
+            )
+        } else {
+            seed_preused_assembled_equipment_at(
+                registries,
+                state,
+                definition,
+                source,
+                STATIONARY_PLAYER_ORIGIN,
+                condition,
+            )
+        }
+    };
+    let frame_saw = assemble(EQUIPMENT_TIMBER_FRAME_SAW_BENCH);
+    let treadle_hammer = assemble(EQUIPMENT_TIMBER_TREADLE_HAMMER);
+    let treadle_drive = assemble(EQUIPMENT_TIMBER_TREADLE_DRIVE);
+    let crusher = assemble(EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER);
+    let separator = assemble(EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR);
     let processing_drive = seed_assembled_energy_store_at(
         registries,
         state,
@@ -179,6 +206,14 @@ fn seed_prior_settlement_workshop(
         crusher,
         separator,
         processing_drive,
+        minimum_start_condition_ppm: *start_conditions
+            .iter()
+            .min()
+            .unwrap_or_else(|| unreachable!("inherited workshop has equipment")),
+        maximum_start_condition_ppm: *start_conditions
+            .iter()
+            .max()
+            .unwrap_or_else(|| unreachable!("inherited workshop has equipment")),
     }
 }
 
@@ -264,7 +299,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
     );
 
     let mut state = AppState::new();
-    let prior_workshop = seed_prior_settlement_workshop(registries, &mut state);
+    let prior_workshop = seed_prior_settlement_workshop(registries, &mut state, case);
     let frame_saw = prior_workshop.frame_saw;
     let treadle_hammer = prior_workshop.treadle_hammer;
     let treadle_drive = prior_workshop.treadle_drive;
@@ -442,20 +477,34 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .ore_processing()
         .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
         .unwrap_or_else(|| panic!("first foundry manual recovery fallback disappeared"));
-    let recovery_required_feed = minimum_powered_ore_feed_for_target_recovery(
-        registries,
-        shortfall_before_recovery,
-        inherited_ore.copper_ppm,
-    )
-    .unwrap_or_else(|| panic!("first foundry assayed owned ore recovery planning overflowed"));
+    let recovery_planned_feed = (!shortfall_before_recovery.is_zero())
+        .then(|| {
+            minimum_current_powered_ore_feed_for_target_recovery(
+                registries,
+                &state,
+                processing_line,
+                shortfall_before_recovery,
+                inherited_ore.copper_ppm,
+            )
+        })
+        .flatten();
     let recovery_available =
-        !shortfall_before_recovery.is_zero() && recovery_required_feed <= inherited_ore.mass;
+        recovery_planned_feed.is_some_and(|required| required <= inherited_ore.mass);
     let mut recovery_feed = Mass::ZERO;
     let mut recovery_attention = 0_u64;
     let mut recovery_autonomous = 0_u64;
     let mut recovery_elapsed = 0_u64;
     let mut recovery_batches = 0_u64;
     let mut recovered_native = Mass::ZERO;
+    let mut recovery_stop = if shortfall_before_recovery.is_zero() {
+        "not-needed"
+    } else if recovery_planned_feed.is_none() {
+        "processing-line-unavailable"
+    } else if recovery_available {
+        "not-executed"
+    } else {
+        "owned-ore-insufficient"
+    };
     let manual_recovery_ppm = sorting.target_recovery_ppm();
     let powered_recovery_ppm = registries
         .ore_processing()
@@ -476,21 +525,14 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
                 line: processing_line,
             },
         );
-        assert_eq!(
-            recovery.feed_mass, recovery_required_feed,
-            "first foundry recovery execution must consume the feed planned from the inherited processing line"
-        );
         recovery_feed = recovery.feed_mass;
         recovery_attention = recovery.attention_ticks;
         recovery_autonomous = recovery.autonomous_ticks;
         recovery_elapsed = recovery.elapsed_ticks;
         recovery_batches = recovery.batches;
         recovered_native = recovery.recovered_native;
+        recovery_stop = recovery.stop.label();
         assert_eq!(recovery.recovery_ppm, powered_recovery_ppm);
-        assert!(
-            recovered_native >= shortfall_before_recovery,
-            "foundry recovery chosen to close the shortfall must recover enough native copper"
-        );
     }
     let remaining_native = state
         .inventory()
@@ -516,9 +558,11 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         let survival_after = assess_survival(registries, &state)
             .unwrap_or_else(|| panic!("first foundry deferred player survival disappeared"));
         reviewln!(
-            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive,copper-reinforced-crusher,copper-reinforced-separator,copper-banded-flywheel] resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=owned-copper-cannot-fund-foundry-plus-first-settlement-batch] owned-ore-recovery=[route:powered-inherited-line required-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg attention:{}t autonomous:{}t elapsed:{}t batches:{} powered-recovery:{}ppm manual-fallback:{}ppm] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
+            "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive,copper-reinforced-crusher,copper-reinforced-separator,copper-banded-flywheel] inherited-condition={}..{}ppm resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:{}mg selection:continue-acquisition foundry-deferred:true reason=owned-copper-cannot-fund-foundry-plus-first-settlement-batch] owned-ore-recovery=[route:powered-inherited-line planned-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg attention:{}t autonomous:{}t elapsed:{}t batches:{} stop:{} powered-recovery:{}ppm manual-fallback:{}ppm] foundry-build=false episode-attention:{}t survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation=acquire-more-copper",
             case.seed(),
             case.role().label(),
+            prior_workshop.minimum_start_condition_ppm,
+            prior_workshop.maximum_start_condition_ppm,
             disclosed_stone_opportunity.milligrams(),
             component_wood.milligrams(),
             native_opportunity.milligrams(),
@@ -542,7 +586,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             shortfall_before_recovery.milligrams(),
             remaining_native.milligrams(),
             shortfall_after_recovery.milligrams(),
-            recovery_required_feed.milligrams(),
+            recovery_planned_feed.unwrap_or(Mass::ZERO).milligrams(),
             inherited_ore.mass.milligrams(),
             recovery_available,
             recovery_feed > Mass::ZERO,
@@ -552,6 +596,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             recovery_autonomous,
             recovery_elapsed,
             recovery_batches,
+            recovery_stop,
             powered_recovery_ppm,
             manual_recovery_ppm,
             direct_native_ticks
@@ -1050,9 +1095,11 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         .unwrap_or_else(|| panic!("first foundry raw stockpile disappeared after bootstrap"));
 
     reviewln!(
-        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive,copper-reinforced-crusher,copper-reinforced-separator,copper-banded-flywheel] resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:0mg selection=foundry reason=disclosed-followup-work-justifies-bootstrap] owned-ore-recovery=[route:powered-inherited-line required-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg attention:{}t autonomous:{}t elapsed:{}t batches:{} powered-recovery:{}ppm manual-fallback:{}ppm] foundry-build=true fabrication=[total:{}t/{} material=[stone:{}t wood:{}t copper:{}t] route=[hand:{}t frame-saw:{}t treadle-hammer:{}t]] workshop-reuse=[hand-only:{}t saved:{}t] campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] settlement-cast=[executed:{} batch:{}mg supply-shortfall:{}mg charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] total-autonomous:{}t copper-after-episode:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation={}",
+        "FIRST FOUNDRY EXPERIENCE seed=0x{:016X} sample={} scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive,copper-reinforced-crusher,copper-reinforced-separator,copper-banded-flywheel] inherited-condition={}..{}ppm resource-opportunity=[stone:{}mg wood:{}mg native:{}mg owned-ore:{}mg@{}ppm] immediate-choice=[order:{}mg attention:{}t reinforcement:{}mg tool:{} reason=cheapest-live-route] bootstrap-choice=[remaining-native-before:{}mg foundry-capital:{}mg cast-ingots:{}mg disclosed-followup:{}mg required:{}mg shortfall-before:{}mg remaining-native:{}mg shortfall:0mg selection=foundry reason=disclosed-followup-work-justifies-bootstrap] owned-ore-recovery=[route:powered-inherited-line planned-feed:{}mg available:{}mg sufficient:{} executed:{} feed:{}mg recovered:{}mg attention:{}t autonomous:{}t elapsed:{}t batches:{} stop:{} powered-recovery:{}ppm manual-fallback:{}ppm] foundry-build=true fabrication=[total:{}t/{} material=[stone:{}t wood:{}t copper:{}t] route=[hand:{}t frame-saw:{}t treadle-hammer:{}t]] workshop-reuse=[hand-only:{}t saved:{}t] campaign=[batches:{} charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] mold-upgrade=[{}mg->{}mg] settlement-cast=[executed:{} batch:{}mg supply-shortfall:{}mg charge:{}t melt:{}t cast:{}t cooldown:{}t autonomous:{}t released-heat:{}nJ] total-autonomous:{}t copper-after-episode:{}mg total-player-attention:{}t total-elapsed:{}t/{} survival=[energy:{}nJ hydration:{}uL] matter=conserved continuation={}",
         case.seed(),
         case.role().label(),
+        prior_workshop.minimum_start_condition_ppm,
+        prior_workshop.maximum_start_condition_ppm,
         disclosed_stone_opportunity.milligrams(),
         component_wood.milligrams(),
         native_opportunity.milligrams(),
@@ -1075,7 +1122,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         required_after_current.milligrams(),
         shortfall_before_recovery.milligrams(),
         remaining_native.milligrams(),
-        recovery_required_feed.milligrams(),
+        recovery_planned_feed.unwrap_or(Mass::ZERO).milligrams(),
         inherited_ore.mass.milligrams(),
         recovery_available,
         recovery_feed > Mass::ZERO,
@@ -1085,6 +1132,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         recovery_autonomous,
         recovery_elapsed,
         recovery_batches,
+        recovery_stop,
         powered_recovery_ppm,
         manual_recovery_ppm,
         fabrication.total_ticks,

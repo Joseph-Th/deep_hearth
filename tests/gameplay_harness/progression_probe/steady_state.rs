@@ -657,16 +657,29 @@ pub(super) fn crush_mass_for_exact_energy(registries: &Registries, energy: Energ
     mass
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct CrushResolutionPlan {
+    pub(super) source: deep_hearth::inventory::StockpileId,
+    pub(super) machine: PrimitiveMachine,
+    pub(super) mass: Mass,
+    pub(super) expected_energy: Energy,
+    pub(super) feed_copper_ppm: u32,
+    pub(super) context: &'static str,
+}
+
 pub(super) fn resolve_crush_ticks(
     registries: &Registries,
     state: &AppState,
-    source: deep_hearth::inventory::StockpileId,
-    machine: PrimitiveMachine,
-    mass: Mass,
-    expected_energy: Energy,
-    feed_copper_ppm: u32,
-    context: &'static str,
+    plan: CrushResolutionPlan,
 ) -> u64 {
+    let CrushResolutionPlan {
+        source,
+        machine,
+        mass,
+        expected_energy,
+        feed_copper_ppm,
+        context,
+    } = plan;
     let selection = select_observed_copper_grade(state, source, mass, feed_copper_ppm, context);
     let resolved = resolve_comminution_process(
         registries,

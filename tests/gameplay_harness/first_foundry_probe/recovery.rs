@@ -15,7 +15,8 @@ use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::ore_processing::{
     ComminutionRequest, ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
-    resolve_comminution_process, resolve_constituent_separation_process,
+    assess_powered_ore_mass_envelope, resolve_comminution_process,
+    resolve_constituent_separation_process,
 };
 use deep_hearth::production::{
     ProcessOutputRoute, validate_start_process, validate_start_process_routed,
@@ -36,9 +37,22 @@ pub(super) struct InheritedProcessingLine {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct RecoveryBatch {
-    feed: Mass,
-    target: Mass,
+pub(super) enum PoweredOreRecoveryStop {
+    TargetRecovered,
+    OwnedOreExhausted,
+    ProcessingLineUnavailable,
+    PlayerPowerUnavailable,
+}
+
+impl PoweredOreRecoveryStop {
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::TargetRecovered => "target-recovered",
+            Self::OwnedOreExhausted => "owned-ore-exhausted",
+            Self::ProcessingLineUnavailable => "processing-line-unavailable",
+            Self::PlayerPowerUnavailable => "player-power-unavailable",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,9 +64,10 @@ pub(super) struct PoweredOreRecoveryExecution {
     pub(super) elapsed_ticks: u64,
     pub(super) recovery_ppm: u32,
     pub(super) batches: u64,
+    pub(super) stop: PoweredOreRecoveryStop,
 }
 
-fn inherited_processing_batch_limit(registries: &Registries) -> Mass {
+fn nominal_inherited_processing_batch_limit(registries: &Registries) -> Mass {
     let crusher = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -85,60 +100,32 @@ fn inherited_processing_batch_limit(registries: &Registries) -> Mass {
         .min(separator_energy_batch)
 }
 
-fn largest_target_for_one_batch(
+fn current_processing_batch_limit(
     registries: &Registries,
-    copper_ppm: u32,
-    batch_limit: Mass,
+    state: &AppState,
+    line: InheritedProcessingLine,
 ) -> Option<Mass> {
-    let separator = registries
-        .ore_processing()
-        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)?;
-    let mut lower = 0_u64;
-    let mut upper = batch_limit.milligrams();
-    while lower < upper {
-        let midpoint = lower + (upper - lower).div_ceil(2);
-        let target = Mass::from_milligrams(midpoint);
-        let fits = separator
-            .minimum_homogeneous_feed_mass_for_target_recovery(target, copper_ppm)
-            .is_some_and(|feed| feed <= batch_limit);
-        if fits {
-            lower = midpoint;
-        } else {
-            upper = midpoint - 1;
-        }
-    }
-    (lower > 0).then(|| Mass::from_milligrams(lower))
-}
-
-fn recovery_batches_for_target(
-    registries: &Registries,
-    target: Mass,
-    copper_ppm: u32,
-) -> Option<Vec<RecoveryBatch>> {
-    if target.is_zero() {
-        return Some(Vec::new());
-    }
-    let separator = registries
-        .ore_processing()
-        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)?;
-    let batch_limit = inherited_processing_batch_limit(registries);
-    let target_per_batch = largest_target_for_one_batch(registries, copper_ppm, batch_limit)?;
-    let mut remaining = target;
-    let mut batches = Vec::new();
-    while !remaining.is_zero() {
-        let batch_target = remaining.min(target_per_batch);
-        let feed = separator
-            .minimum_homogeneous_feed_mass_for_target_recovery(batch_target, copper_ppm)?;
-        if feed.is_zero() || feed > batch_limit {
-            return None;
-        }
-        batches.push(RecoveryBatch {
-            feed,
-            target: batch_target,
-        });
-        remaining = remaining.checked_sub(batch_target)?;
-    }
-    Some(batches)
+    let crusher = assess_powered_ore_mass_envelope(
+        registries,
+        state,
+        PROCESS_CRUSH_ORE,
+        line.crusher,
+        line.drive,
+    )
+    .ok()?;
+    let separator = assess_powered_ore_mass_envelope(
+        registries,
+        state,
+        PROCESS_SEPARATE_NATIVE_COPPER,
+        line.separator,
+        line.drive,
+    )
+    .ok()?;
+    Some(
+        crusher
+            .maximum_mass_with_replenished_energy()
+            .min(separator.maximum_mass_with_replenished_energy()),
+    )
 }
 
 pub(super) fn minimum_powered_ore_feed_for_target_recovery(
@@ -146,9 +133,31 @@ pub(super) fn minimum_powered_ore_feed_for_target_recovery(
     target: Mass,
     copper_ppm: u32,
 ) -> Option<Mass> {
-    recovery_batches_for_target(registries, target, copper_ppm)?
-        .into_iter()
-        .try_fold(Mass::ZERO, |total, batch| total.checked_add(batch.feed))
+    let separator = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)?;
+    separator.minimum_batched_homogeneous_feed_mass_for_target_recovery(
+        target,
+        copper_ppm,
+        nominal_inherited_processing_batch_limit(registries),
+    )
+}
+
+pub(super) fn minimum_current_powered_ore_feed_for_target_recovery(
+    registries: &Registries,
+    state: &AppState,
+    line: InheritedProcessingLine,
+    target: Mass,
+    copper_ppm: u32,
+) -> Option<Mass> {
+    let separator = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)?;
+    separator.minimum_batched_homogeneous_feed_mass_for_target_recovery(
+        target,
+        copper_ppm,
+        current_processing_batch_limit(registries, state, line)?,
+    )
 }
 
 fn charge_processing_drive(
@@ -157,7 +166,7 @@ fn charge_processing_drive(
     line: InheritedProcessingLine,
     energy: Energy,
     context: &'static str,
-) -> u64 {
+) -> Option<u64> {
     assert_eq!(
         state
             .energy()
@@ -171,12 +180,12 @@ fn charge_processing_drive(
         state,
         ManualPowerRequest::new(MANUAL_POWER_FOOT_TREADLE, line.provider, line.drive, energy),
     )
-    .unwrap_or_else(|error| panic!("first foundry {context} charge failed: {error}"));
+    .ok()?;
     let work = start.work();
     start
         .commit(state)
         .unwrap_or_else(|error| panic!("first foundry {context} charge commit failed: {error}"));
-    finish_manual_power_work(registries, state, work, context)
+    Some(finish_manual_power_work(registries, state, work, context))
 }
 
 pub(super) struct PoweredOreRecoveryPlan {
@@ -194,10 +203,6 @@ pub(super) fn execute_powered_ore_recovery(
     state: &mut AppState,
     plan: PoweredOreRecoveryPlan,
 ) -> PoweredOreRecoveryExecution {
-    let batches = recovery_batches_for_target(registries, plan.target, plan.copper_ppm)
-        .unwrap_or_else(|| {
-            panic!("first foundry inherited processing cannot recover target copper")
-        });
     let crusher = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -211,22 +216,66 @@ pub(super) fn execute_powered_ore_recovery(
     let mut recovered_native = Mass::ZERO;
     let mut attention_ticks = 0_u64;
     let mut autonomous_ticks = 0_u64;
+    let mut batches = 0_u64;
+    let mut stop = PoweredOreRecoveryStop::TargetRecovered;
 
-    for batch in &batches {
-        let crush_energy = calculate_mass_specific_energy(batch.feed, crusher.specific_energy());
+    while recovered_native < plan.target {
+        let available_feed = state
+            .inventory()
+            .get_stockpile(plan.ore_source)
+            .map(|stockpile| stockpile.stored_mass())
+            .unwrap_or_else(|| panic!("first foundry owned-ore stockpile disappeared"));
+        if available_feed.is_zero() {
+            stop = PoweredOreRecoveryStop::OwnedOreExhausted;
+            break;
+        }
+        let Some(live_limit) = current_processing_batch_limit(registries, state, plan.line) else {
+            stop = PoweredOreRecoveryStop::ProcessingLineUnavailable;
+            break;
+        };
+        let batch_limit = live_limit.min(available_feed);
+        let target_capacity = separator
+            .maximum_homogeneous_target_recovery_from_feed(batch_limit, plan.copper_ppm)
+            .unwrap_or_else(|| panic!("first foundry powered recovery projection overflowed"));
+        if target_capacity.is_zero() {
+            stop = if batch_limit == available_feed {
+                PoweredOreRecoveryStop::OwnedOreExhausted
+            } else {
+                PoweredOreRecoveryStop::ProcessingLineUnavailable
+            };
+            break;
+        }
+        let remaining_target = plan
+            .target
+            .checked_sub(recovered_native)
+            .unwrap_or_else(|| unreachable!("recovery cannot exceed its target before this batch"));
+        let batch_target = remaining_target.min(target_capacity);
+        let feed = separator
+            .minimum_homogeneous_feed_mass_for_target_recovery(batch_target, plan.copper_ppm)
+            .unwrap_or_else(|| panic!("first foundry live recovery feed projection overflowed"));
+        assert!(
+            !feed.is_zero() && feed <= batch_limit,
+            "live recovery feed must fit the current processing envelope"
+        );
+
+        let crush_energy = calculate_mass_specific_energy(feed, crusher.specific_energy());
+        let Some(crush_attention) = charge_processing_drive(
+            registries,
+            state,
+            plan.line,
+            crush_energy,
+            "owned-ore crushing",
+        ) else {
+            stop = PoweredOreRecoveryStop::PlayerPowerUnavailable;
+            break;
+        };
         attention_ticks = attention_ticks
-            .checked_add(charge_processing_drive(
-                registries,
-                state,
-                plan.line,
-                crush_energy,
-                "owned-ore crushing",
-            ))
+            .checked_add(crush_attention)
             .unwrap_or_else(|| panic!("first foundry recovery attention overflowed"));
         let ore_selection = select_stockpile_mass(
             state,
             plan.ore_source,
-            batch.feed,
+            feed,
             "first foundry inherited crusher feed",
         );
         let crushing = resolve_comminution_process(
@@ -262,22 +311,28 @@ pub(super) fn execute_powered_ore_recovery(
         autonomous_ticks = autonomous_ticks
             .checked_add(crush_ticks)
             .unwrap_or_else(|| panic!("first foundry recovery autonomous time overflowed"));
+        feed_mass = feed_mass
+            .checked_add(feed)
+            .unwrap_or_else(|| panic!("first foundry recovery feed accounting overflowed"));
 
-        let separation_energy =
-            calculate_mass_specific_energy(batch.feed, separator.specific_energy());
+        let separation_energy = calculate_mass_specific_energy(feed, separator.specific_energy());
+        let Some(separation_attention) = charge_processing_drive(
+            registries,
+            state,
+            plan.line,
+            separation_energy,
+            "owned-ore separation",
+        ) else {
+            stop = PoweredOreRecoveryStop::PlayerPowerUnavailable;
+            break;
+        };
         attention_ticks = attention_ticks
-            .checked_add(charge_processing_drive(
-                registries,
-                state,
-                plan.line,
-                separation_energy,
-                "owned-ore separation",
-            ))
+            .checked_add(separation_attention)
             .unwrap_or_else(|| panic!("first foundry recovery attention overflowed"));
         let crushed_selection = select_stockpile_mass(
             state,
             plan.crushed_destination,
-            batch.feed,
+            feed,
             "first foundry inherited separator feed",
         );
         let separation = resolve_constituent_separation_process(
@@ -294,7 +349,7 @@ pub(super) fn execute_powered_ore_recovery(
         .unwrap_or_else(|error| panic!("first foundry inherited separation failed: {error}"));
         assert_eq!(separation.required_energy(), separation_energy);
         assert!(
-            separation.target_mass() >= batch.target,
+            separation.target_mass() >= batch_target,
             "canonical powered recovery must meet the batch target used to size its feed"
         );
         let separation_ticks = separation.process_resolution().duration().value();
@@ -328,18 +383,13 @@ pub(super) fn execute_powered_ore_recovery(
         autonomous_ticks = autonomous_ticks
             .checked_add(separation_ticks)
             .unwrap_or_else(|| panic!("first foundry recovery autonomous time overflowed"));
-        feed_mass = feed_mass
-            .checked_add(batch.feed)
-            .unwrap_or_else(|| panic!("first foundry recovery feed accounting overflowed"));
         recovered_native = recovered_native
             .checked_add(separation.target_mass())
             .unwrap_or_else(|| panic!("first foundry recovered copper accounting overflowed"));
+        batches = batches
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("first foundry recovery batch count overflowed"));
     }
-
-    assert!(
-        recovered_native >= plan.target,
-        "inherited processing selected to close the foundry shortfall must recover enough copper"
-    );
     let elapsed_ticks = state
         .tick()
         .value()
@@ -359,7 +409,7 @@ pub(super) fn execute_powered_ore_recovery(
         autonomous_ticks,
         elapsed_ticks,
         recovery_ppm: separator.target_recovery_ppm(),
-        batches: u64::try_from(batches.len())
-            .unwrap_or_else(|_| panic!("first foundry recovery batch count exceeds u64")),
+        batches,
+        stop,
     }
 }

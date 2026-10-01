@@ -26,6 +26,8 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
 
     builds = [line for line in witnesses if " foundry-build=true " in line]
     deferred = [line for line in witnesses if " foundry-build=false " in line]
+    inherited_condition_min = _values(witnesses, r"\binherited-condition=(\d+)\.\.\d+ppm")
+    inherited_condition_max = _values(witnesses, r"\binherited-condition=\d+\.\.(\d+)ppm")
     available = _values(witnesses, r"\bremaining-native:(\d+)mg")
     required = _values(witnesses, r"\brequired:(\d+)mg")
     shortfall = _values(witnesses, r"\bshortfall:(\d+)mg")
@@ -61,6 +63,11 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         for line in recovery_executed
         if re.search(r"\bshortfall:0mg", line) is not None
     ]
+    recovery_partial = [
+        line
+        for line in recovery_executed
+        if re.search(r"\bshortfall:[1-9]\d*mg", line) is not None
+    ]
     recovery_feed = _values(recovery_executed, r"\bfeed:(\d+)mg")
     recovery_native = _values(recovery_executed, r"\brecovered:(\d+)mg")
     recovery_attention = _values(
@@ -88,7 +95,8 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         recovery_summary = (
             " recovery=["
             f"needed:{len(recovery_needed)} executed:{len(recovery_executed)} "
-            f"closed:{len(recovery_closed)} insufficient:{len(recovery_needed) - len(recovery_executed)} "
+            f"closed:{len(recovery_closed)} partial:{len(recovery_partial)} "
+            f"skipped:{len(recovery_needed) - len(recovery_executed)} "
             f"feed:{scaled_span(recovery_feed, 1_000, 'g')} "
             f"native:{scaled_span(recovery_native, 1_000, 'g')} "
             f"powered:{powered_recovery}/{len(recovery_executed)} "
@@ -102,6 +110,8 @@ def foundry_bootstrap_summary(lines: list[str]) -> str | None:
         "ORDINARY SUMMARY probe=foundry-bootstrap "
         f"samples={len(witnesses)} sample-shape=[{sample_shape(witnesses)}] "
         f"choice=[build:{len(builds)} defer:{len(deferred)}] "
+        f"inherited-condition=[{min(inherited_condition_min) if inherited_condition_min else 'n/a'}"
+        f"..{max(inherited_condition_max) if inherited_condition_max else 'n/a'}ppm] "
         f"copper=[available:{scaled_span(available, 1_000, 'g')} "
         f"threshold:{scaled_span(required, 1_000, 'g')} "
         f"shortfall:{scaled_span(shortfall, 1_000, 'g')}] "

@@ -85,6 +85,7 @@ _ORDINARY_DIGEST_FIELDS = {
     ),
     "foundry-bootstrap": (
         "choice",
+        "inherited-condition",
         "copper",
         "recovery",
         "workshop-reuse",
@@ -118,6 +119,7 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
     ),
     "foundry-bootstrap": (
         "choice",
+        "inherited-condition",
         "copper",
         "recovery",
         "investment",

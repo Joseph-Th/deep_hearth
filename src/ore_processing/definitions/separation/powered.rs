@@ -8,7 +8,10 @@ use crate::production::ProcessId;
 
 use super::{
     ConstituentRecoveryProfile, ConstituentSeparationPhysics,
-    minimum_homogeneous_feed_mass_for_target_recovery,
+    maximum_homogeneous_target_recovery_from_feed,
+    minimum_batched_homogeneous_feed_mass_for_target_recovery,
+    minimum_homogeneous_constituent_ppm_for_target_recovery,
+    minimum_homogeneous_feed_mass_for_target_recovery, project_batched_homogeneous_target_recovery,
 };
 use crate::ore_processing::definitions::PoweredOreProcessProfile;
 
@@ -51,6 +54,20 @@ impl ConstituentSeparationProcessDefinition {
             ),
             operating,
         }
+    }
+
+    /// Smallest homogeneous target-constituent share that can recover the target from the feed.
+    #[must_use]
+    pub fn minimum_homogeneous_constituent_ppm_for_target_recovery(
+        self,
+        target: Mass,
+        feed: Mass,
+    ) -> Option<u32> {
+        minimum_homogeneous_constituent_ppm_for_target_recovery(
+            target,
+            feed,
+            self.target_recovery_ppm(),
+        )
     }
 
     /// Authors selective finite-recovery concentration of one liberated target constituent from
@@ -145,6 +162,55 @@ impl ConstituentSeparationProcessDefinition {
             target,
             constituent_ppm,
             self.target_recovery_ppm(),
+        )
+    }
+
+    /// Whole-milligram target recovery from one homogeneous feed group.
+    #[must_use]
+    pub fn maximum_homogeneous_target_recovery_from_feed(
+        self,
+        feed: Mass,
+        constituent_ppm: u32,
+    ) -> Option<Mass> {
+        maximum_homogeneous_target_recovery_from_feed(
+            feed,
+            constituent_ppm,
+            self.target_recovery_ppm(),
+        )
+    }
+
+    /// Recovery from homogeneous feed split into batches no larger than the supplied live limit.
+    ///
+    /// The limit is intentionally supplied by the caller because powered batch capacity belongs to
+    /// the current equipment, energy supply, and condition envelope rather than the process alone.
+    #[must_use]
+    pub fn project_batched_homogeneous_target_recovery(
+        self,
+        feed: Mass,
+        constituent_ppm: u32,
+        batch_limit: Mass,
+    ) -> Option<Mass> {
+        project_batched_homogeneous_target_recovery(
+            feed,
+            constituent_ppm,
+            self.target_recovery_ppm(),
+            batch_limit,
+        )
+    }
+
+    /// Smallest homogeneous feed that recovers at least the target under the supplied batch limit.
+    #[must_use]
+    pub fn minimum_batched_homogeneous_feed_mass_for_target_recovery(
+        self,
+        target: Mass,
+        constituent_ppm: u32,
+        batch_limit: Mass,
+    ) -> Option<Mass> {
+        minimum_batched_homogeneous_feed_mass_for_target_recovery(
+            target,
+            constituent_ppm,
+            self.target_recovery_ppm(),
+            batch_limit,
         )
     }
 

@@ -22,8 +22,6 @@ mod focused_witnesses;
 mod inventory_support;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
-#[path = "gameplay_harness/manual_ore_recovery_planning.rs"]
-mod manual_ore_recovery_planning;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
@@ -65,24 +63,17 @@ fn manual_recovery_planning_respects_runtime_sort_batch_rounding() {
     let single_group = sorting
         .minimum_homogeneous_feed_mass_for_target_recovery(target, copper_ppm)
         .unwrap_or_else(|| panic!("single-group recovery projection disappeared"));
-    let runtime_batched =
-        manual_ore_recovery_planning::minimum_manual_ore_feed_for_target_recovery(
-            &registries,
-            target,
-            copper_ppm,
-        )
+    let runtime_batched = sorting
+        .minimum_batched_homogeneous_feed_mass_for_target_recovery(target, copper_ppm)
         .unwrap_or_else(|| panic!("batch-aware recovery projection disappeared"));
 
     assert!(
         runtime_batched > single_group,
         "multi-batch planning must not reuse the optimistic one-group recovery bound"
     );
-    let recovered = manual_ore_recovery_planning::projected_batched_recovery(
-        sorting,
-        runtime_batched,
-        copper_ppm,
-    )
-    .unwrap_or_else(|| panic!("batch-aware recovery projection overflowed"));
+    let recovered = sorting
+        .project_batched_homogeneous_target_recovery(runtime_batched, copper_ppm)
+        .unwrap_or_else(|| panic!("batch-aware recovery projection overflowed"));
     assert!(
         recovered >= target,
         "planned feed must recover the requested copper"
@@ -90,12 +81,9 @@ fn manual_recovery_planning_respects_runtime_sort_batch_rounding() {
     let previous_feed = runtime_batched
         .checked_sub(deep_hearth::core::quantity::Mass::from_milligrams(1))
         .unwrap_or_else(|| panic!("nonzero batch-aware feed lost its predecessor"));
-    let previous_recovered = manual_ore_recovery_planning::projected_batched_recovery(
-        sorting,
-        previous_feed,
-        copper_ppm,
-    )
-    .unwrap_or_else(|| panic!("predecessor recovery projection overflowed"));
+    let previous_recovered = sorting
+        .project_batched_homogeneous_target_recovery(previous_feed, copper_ppm)
+        .unwrap_or_else(|| panic!("predecessor recovery projection overflowed"));
     assert!(
         previous_recovered < target,
         "batch-aware planner must return the smallest sufficient feed"

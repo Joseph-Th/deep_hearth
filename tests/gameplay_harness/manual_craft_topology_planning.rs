@@ -33,7 +33,12 @@ fn manual_craft_plan_for_output_matching<'a>(
                         panic!("commodity handbook exposed an unknown manual process")
                     }),
             ),
-            _ => None,
+            CommoditySource::EquipmentDisassembly { .. }
+            | CommoditySource::EnergyStoreDisassembly { .. }
+            | CommoditySource::StorageDismantling { .. }
+            | CommoditySource::EquipmentMaintenanceSpent { .. }
+            | CommoditySource::OreProcessing { .. }
+            | CommoditySource::ThermalPhaseChange { .. } => None,
         })
         .filter(|definition| {
             registries

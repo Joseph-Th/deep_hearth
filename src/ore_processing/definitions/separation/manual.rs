@@ -5,7 +5,12 @@ use crate::material::{CommodityKey, FormId, MaterialId, ParticleSizeRange};
 use crate::production::ProcessId;
 use crate::survival::SurvivalExertion;
 
-use super::{ConstituentSeparationPhysics, minimum_homogeneous_feed_mass_for_target_recovery};
+use super::{
+    ConstituentSeparationPhysics, maximum_homogeneous_target_recovery_from_feed,
+    minimum_batched_homogeneous_feed_mass_for_target_recovery,
+    minimum_homogeneous_constituent_ppm_for_target_recovery,
+    minimum_homogeneous_feed_mass_for_target_recovery, project_batched_homogeneous_target_recovery,
+};
 use crate::ore_processing::definitions::ManualOreProcessProfile;
 
 /// Immutable selected-batch constituent separation performed directly by player labor.
@@ -45,6 +50,20 @@ impl ManualConstituentSeparationProcessDefinition {
             ),
             operating,
         }
+    }
+
+    /// Smallest homogeneous target-constituent share that can recover the target from the feed.
+    #[must_use]
+    pub fn minimum_homogeneous_constituent_ppm_for_target_recovery(
+        self,
+        target: Mass,
+        feed: Mass,
+    ) -> Option<u32> {
+        minimum_homogeneous_constituent_ppm_for_target_recovery(
+            target,
+            feed,
+            self.target_recovery_ppm(),
+        )
     }
 
     #[must_use]
@@ -101,6 +120,53 @@ impl ManualConstituentSeparationProcessDefinition {
             target,
             constituent_ppm,
             self.target_recovery_ppm(),
+        )
+    }
+
+    /// Whole-milligram target recovery from one homogeneous feed group.
+    #[must_use]
+    pub fn maximum_homogeneous_target_recovery_from_feed(
+        self,
+        feed: Mass,
+        constituent_ppm: u32,
+    ) -> Option<Mass> {
+        maximum_homogeneous_target_recovery_from_feed(
+            feed,
+            constituent_ppm,
+            self.target_recovery_ppm(),
+        )
+    }
+
+    /// Recovery produced when homogeneous feed is processed in authored maximum-size batches.
+    ///
+    /// Each runtime batch is a separate recovery group and therefore floors fractional target
+    /// matter independently. This projection preserves that batching boundary.
+    #[must_use]
+    pub fn project_batched_homogeneous_target_recovery(
+        self,
+        feed: Mass,
+        constituent_ppm: u32,
+    ) -> Option<Mass> {
+        project_batched_homogeneous_target_recovery(
+            feed,
+            constituent_ppm,
+            self.target_recovery_ppm(),
+            self.max_batch_mass(),
+        )
+    }
+
+    /// Smallest homogeneous feed whose authored runtime batches recover at least the target.
+    #[must_use]
+    pub fn minimum_batched_homogeneous_feed_mass_for_target_recovery(
+        self,
+        target: Mass,
+        constituent_ppm: u32,
+    ) -> Option<Mass> {
+        minimum_batched_homogeneous_feed_mass_for_target_recovery(
+            target,
+            constituent_ppm,
+            self.target_recovery_ppm(),
+            self.max_batch_mass(),
         )
     }
 

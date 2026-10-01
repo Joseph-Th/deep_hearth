@@ -232,34 +232,6 @@ pub(crate) struct ManualProcessingSetup {
     pub(crate) clay_share_ppm: u32,
 }
 
-fn minimum_constituent_ppm_for_target_within_feed(
-    definition: ManualConstituentSeparationProcessDefinition,
-    target: Mass,
-    feed: Mass,
-) -> Option<u32> {
-    let mut lower = 1_u32;
-    let mut upper = COMPOSITION_PARTS_PER_MILLION;
-    if definition
-        .minimum_homogeneous_feed_mass_for_target_recovery(target, upper)
-        .is_none_or(|required| required > feed)
-    {
-        return None;
-    }
-
-    while lower < upper {
-        let midpoint = lower + (upper - lower) / 2;
-        if definition
-            .minimum_homogeneous_feed_mass_for_target_recovery(target, midpoint)
-            .is_some_and(|required| required <= feed)
-        {
-            upper = midpoint;
-        } else {
-            lower = midpoint + 1;
-        }
-    }
-    Some(lower)
-}
-
 pub(crate) fn manual_processing_setup(registries: &Registries, seed: u64) -> ManualProcessingSetup {
     let breaking = registries
         .ore_processing()
@@ -281,14 +253,14 @@ pub(crate) fn manual_processing_setup(registries: &Registries, seed: u64) -> Man
         .unwrap_or_else(|_| unreachable!("scaled bounded manual batch fits u64"));
     let ore_mass_mg = minimum_mass_mg
         + mix64(seed ^ 0x4841_4E44_4D41_5353) % (maximum_mass.milligrams() - minimum_mass_mg + 1);
-    let minimum_copper_ppm = minimum_constituent_ppm_for_target_within_feed(
-        sorting,
-        reinforcement,
-        Mass::from_milligrams(ore_mass_mg),
-    )
-    .unwrap_or_else(|| {
-        panic!("no legal homogeneous assay can recover the required primitive reinforcement")
-    });
+    let minimum_copper_ppm = sorting
+        .minimum_homogeneous_constituent_ppm_for_target_recovery(
+            reinforcement,
+            Mass::from_milligrams(ore_mass_mg),
+        )
+        .unwrap_or_else(|| {
+            panic!("no legal homogeneous assay can recover the required primitive reinforcement")
+        });
     assert!(
         minimum_copper_ppm < COMPOSITION_PARTS_PER_MILLION,
         "no single legal manual-processing batch can recover the copper required by the real primitive upgrade"

@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use super::*;
 use crate::focused_case::FocusedProbeRole;
+use crate::focused_witnesses::FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum OpportunityRegime {
@@ -139,6 +140,17 @@ fn maintained_foundry_worlds_pin_opposite_sides_of_current_threshold() {
         ingots,
         settlement_cast,
     );
+    let recovery_coverage = foundry_resource_opportunity(
+        &registries,
+        FocusedProbeCase::new(
+            FOUNDRY_BOOTSTRAP_RECOVERY_COVERAGE_SEED,
+            None,
+            FocusedProbeRole::MaintainedCoverage,
+        ),
+        &route_plan,
+        ingots,
+        settlement_cast,
+    );
     let coverage = foundry_resource_opportunity(
         &registries,
         FocusedProbeCase::new(2, None, FocusedProbeRole::MaintainedCoverage),
@@ -154,5 +166,52 @@ fn maintained_foundry_worlds_pin_opposite_sides_of_current_threshold() {
     assert_eq!(
         classify(&registries, coverage),
         OpportunityRegime::StillShort
+    );
+    assert_eq!(
+        classify(&registries, recovery_coverage),
+        OpportunityRegime::RecoverableOwnedOre
+    );
+}
+
+#[test]
+fn inherited_workshop_condition_keeps_maintained_witnesses_pristine_and_varies_organic_worlds() {
+    let registries = deep_hearth::content::build_registries();
+    let definition = EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR;
+    for role in [
+        FocusedProbeRole::MaintainedAnchor,
+        FocusedProbeRole::MaintainedCoverage,
+    ] {
+        assert_eq!(
+            inherited_equipment_condition(
+                &registries,
+                definition,
+                FocusedProbeCase::new(7, None, role),
+            ),
+            Condition::PRISTINE
+        );
+    }
+
+    let equipment = registries
+        .equipment()
+        .get_equipment(definition)
+        .unwrap_or_else(|| panic!("first-foundry separator definition disappeared"));
+    let warning = equipment.maintenance_thresholds().warning_below();
+    let organic = (1_u64..=12)
+        .map(|seed| {
+            inherited_equipment_condition(
+                &registries,
+                definition,
+                FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    assert!(
+        organic.len() > 1,
+        "organic inherited workshop condition must vary across replay seeds"
+    );
+    assert!(
+        organic
+            .iter()
+            .all(|condition| { *condition > warning && *condition < Condition::PRISTINE })
     );
 }

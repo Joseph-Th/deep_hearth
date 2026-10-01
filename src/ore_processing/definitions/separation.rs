@@ -22,6 +22,27 @@ pub struct ConstituentRecoveryProfile {
     non_target_ppm: u32,
 }
 
+fn minimum_homogeneous_constituent_ppm_for_target_recovery(
+    target: Mass,
+    feed: Mass,
+    recovery_ppm: u32,
+) -> Option<u32> {
+    if target.is_zero() {
+        return Some(0);
+    }
+    if feed.is_zero() || recovery_ppm == 0 || recovery_ppm > COMPOSITION_PARTS_PER_MILLION {
+        return None;
+    }
+    let composition_scale = u128::from(COMPOSITION_PARTS_PER_MILLION);
+    let numerator = u128::from(target.milligrams()) * composition_scale * composition_scale;
+    let denominator = u128::from(feed.milligrams()) * u128::from(recovery_ppm);
+    let constituent_ppm = numerator.div_ceil(denominator);
+    if constituent_ppm > composition_scale {
+        return None;
+    }
+    u32::try_from(constituent_ppm).ok()
+}
+
 impl ConstituentRecoveryProfile {
     #[must_use]
     pub const fn new(target_ppm: u32, non_target_ppm: u32) -> Self {
@@ -92,6 +113,112 @@ fn minimum_homogeneous_feed_mass_for_target_recovery(
     u64::try_from(feed_milligrams)
         .ok()
         .map(Mass::from_milligrams)
+}
+
+fn maximum_homogeneous_target_recovery_from_feed(
+    feed: Mass,
+    constituent_ppm: u32,
+    recovery_ppm: u32,
+) -> Option<Mass> {
+    if feed.is_zero() {
+        return Some(Mass::ZERO);
+    }
+    if constituent_ppm == 0
+        || constituent_ppm > COMPOSITION_PARTS_PER_MILLION
+        || recovery_ppm == 0
+        || recovery_ppm > COMPOSITION_PARTS_PER_MILLION
+    {
+        return None;
+    }
+    let composition_scale = u128::from(COMPOSITION_PARTS_PER_MILLION);
+    let denominator = composition_scale * composition_scale;
+    let recovered_milligrams = u128::from(feed.milligrams())
+        .checked_mul(u128::from(constituent_ppm))?
+        .checked_mul(u128::from(recovery_ppm))?
+        / denominator;
+    u64::try_from(recovered_milligrams)
+        .ok()
+        .map(Mass::from_milligrams)
+}
+
+fn project_batched_homogeneous_target_recovery(
+    feed: Mass,
+    constituent_ppm: u32,
+    recovery_ppm: u32,
+    max_batch_mass: Mass,
+) -> Option<Mass> {
+    if feed.is_zero() {
+        return Some(Mass::ZERO);
+    }
+    if max_batch_mass.is_zero() {
+        return None;
+    }
+    let full_batches = feed.milligrams() / max_batch_mass.milligrams();
+    let remainder = Mass::from_milligrams(feed.milligrams() % max_batch_mass.milligrams());
+    let full_batch_recovery = maximum_homogeneous_target_recovery_from_feed(
+        max_batch_mass,
+        constituent_ppm,
+        recovery_ppm,
+    )?;
+    let full_recovery_milligrams = full_batch_recovery.milligrams().checked_mul(full_batches)?;
+    let remainder_recovery =
+        maximum_homogeneous_target_recovery_from_feed(remainder, constituent_ppm, recovery_ppm)?;
+    Mass::from_milligrams(full_recovery_milligrams).checked_add(remainder_recovery)
+}
+
+fn minimum_batched_homogeneous_feed_mass_for_target_recovery(
+    target: Mass,
+    constituent_ppm: u32,
+    recovery_ppm: u32,
+    max_batch_mass: Mass,
+) -> Option<Mass> {
+    if target.is_zero() {
+        return Some(Mass::ZERO);
+    }
+    if max_batch_mass.is_zero()
+        || maximum_homogeneous_target_recovery_from_feed(
+            max_batch_mass,
+            constituent_ppm,
+            recovery_ppm,
+        )?
+        .is_zero()
+    {
+        return None;
+    }
+    let lower =
+        minimum_homogeneous_feed_mass_for_target_recovery(target, constituent_ppm, recovery_ppm)?;
+    let sufficient = |feed| {
+        project_batched_homogeneous_target_recovery(
+            feed,
+            constituent_ppm,
+            recovery_ppm,
+            max_batch_mass,
+        )
+        .is_some_and(|recovered| recovered >= target)
+    };
+    if sufficient(lower) {
+        return Some(lower);
+    }
+
+    let mut upper = lower;
+    loop {
+        upper = Mass::from_milligrams(upper.milligrams().checked_mul(2)?);
+        if sufficient(upper) {
+            break;
+        }
+    }
+
+    let mut lower_milligrams = lower.milligrams().checked_add(1)?;
+    let mut upper_milligrams = upper.milligrams();
+    while lower_milligrams < upper_milligrams {
+        let candidate = lower_milligrams + (upper_milligrams - lower_milligrams) / 2;
+        if sufficient(Mass::from_milligrams(candidate)) {
+            upper_milligrams = candidate;
+        } else {
+            lower_milligrams = candidate + 1;
+        }
+    }
+    Some(Mass::from_milligrams(lower_milligrams))
 }
 
 /// Material-side physics shared by powered and direct-labor separation routes.

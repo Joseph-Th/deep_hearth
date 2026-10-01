@@ -43,6 +43,52 @@ fn liberated_particle_size() -> ParticleSizeRange {
     .unwrap_or_else(|error| panic!("separation particle-size fixture failed: {error}"))
 }
 
+#[test]
+fn batched_homogeneous_recovery_projection_matches_runtime_group_rounding() {
+    let registries = build_registries();
+    let definition = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("manual native-copper sorting definition disappeared"));
+    let batch = definition.max_batch_mass();
+    let batch_milligrams = batch.milligrams();
+    let remainder = Mass::from_milligrams(batch_milligrams / 2);
+    let feed = Mass::from_milligrams(
+        batch_milligrams
+            .checked_mul(2)
+            .and_then(|mass| mass.checked_add(remainder.milligrams()))
+            .unwrap_or_else(|| panic!("batched recovery test feed overflowed")),
+    );
+    let fixture = manual_fixture(feed, copper_stone_composition(400_000));
+    let full_batch_recovery = resolve_manual(&fixture, batch).target_mass();
+    let remainder_recovery = resolve_manual(&fixture, remainder).target_mass();
+    let runtime_recovery = full_batch_recovery
+        .checked_add(full_batch_recovery)
+        .and_then(|mass| mass.checked_add(remainder_recovery))
+        .unwrap_or_else(|| panic!("batched recovery runtime total overflowed"));
+
+    assert_eq!(
+        definition.project_batched_homogeneous_target_recovery(feed, 400_000),
+        Some(runtime_recovery)
+    );
+    let minimum = definition
+        .minimum_batched_homogeneous_feed_mass_for_target_recovery(runtime_recovery, 400_000)
+        .unwrap_or_else(|| panic!("batched minimum-feed projection disappeared"));
+    assert!(
+        definition
+            .project_batched_homogeneous_target_recovery(minimum, 400_000)
+            .is_some_and(|recovered| recovered >= runtime_recovery)
+    );
+    let previous = minimum
+        .checked_sub(Mass::from_milligrams(1))
+        .unwrap_or_else(|| panic!("batched minimum feed must be nonzero"));
+    assert!(
+        definition
+            .project_batched_homogeneous_target_recovery(previous, 400_000)
+            .is_some_and(|recovered| recovered < runtime_recovery)
+    );
+}
+
 fn assemble_timber_dressing_bench(fixture: &mut ManualFixture) -> EquipmentId {
     let assembly =
         add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(2_800_000))
@@ -892,6 +938,30 @@ fn hand_sorting_is_a_conserved_survival_costed_fallback_that_powered_sorting_mat
         ),
         Some(mass),
         "powered planning projection must agree with the exact resolved recovery boundary"
+    );
+    assert_eq!(
+        manual_definition.maximum_homogeneous_target_recovery_from_feed(mass, 400_000),
+        Some(resolved.target_mass()),
+        "manual inverse recovery projection must agree with exact runtime output"
+    );
+    assert_eq!(
+        powered_definition.maximum_homogeneous_target_recovery_from_feed(mass, 400_000),
+        Some(powered_resolved.target_mass()),
+        "powered inverse recovery projection must agree with exact runtime output"
+    );
+    assert_eq!(
+        manual_definition
+            .minimum_homogeneous_constituent_ppm_for_target_recovery(resolved.target_mass(), mass),
+        Some(400_000),
+        "manual minimum-grade projection must agree with exact runtime recovery boundary"
+    );
+    assert_eq!(
+        powered_definition.minimum_homogeneous_constituent_ppm_for_target_recovery(
+            powered_resolved.target_mass(),
+            mass,
+        ),
+        Some(400_000),
+        "powered minimum-grade projection must agree with exact runtime recovery boundary"
     );
 
     assert_eq!(manual_definition.target_recovery_ppm(), 650_000);

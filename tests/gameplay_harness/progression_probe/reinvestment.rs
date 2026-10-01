@@ -367,16 +367,29 @@ fn ensure_reinvestment_ore(
     Ok(elapsed)
 }
 
-fn require_reinvestment_ore(
-    registries: &Registries,
-    state: &mut AppState,
+#[derive(Clone, Copy)]
+struct ReinvestmentOreRequirement {
     mining_target: MiningTargetRequest,
     ore_storage: deep_hearth::inventory::StockpileId,
     pick: deep_hearth::equipment::EquipmentId,
     feed_copper_ppm: u32,
     required: Mass,
     context: &'static str,
+}
+
+fn require_reinvestment_ore(
+    registries: &Registries,
+    state: &mut AppState,
+    requirement: ReinvestmentOreRequirement,
 ) -> Result<(), ReinvestmentBlocker> {
+    let ReinvestmentOreRequirement {
+        mining_target,
+        ore_storage,
+        pick,
+        feed_copper_ppm,
+        required,
+        context,
+    } = requirement;
     match ensure_reinvestment_ore(
         registries,
         state,
@@ -531,12 +544,14 @@ fn try_run_mature_reinvestment(
     require_reinvestment_ore(
         registries,
         state,
-        mining_target,
-        ore_storage,
-        pick,
-        feed_copper_ppm,
-        primary_batch_mass,
-        "baseline",
+        ReinvestmentOreRequirement {
+            mining_target,
+            ore_storage,
+            pick,
+            feed_copper_ppm,
+            required: primary_batch_mass,
+            context: "baseline",
+        },
     )?;
 
     let primary_energy = calculate_mass_specific_energy(
@@ -554,12 +569,14 @@ fn try_run_mature_reinvestment(
     let base_crush_ticks = resolve_crush_ticks(
         registries,
         state,
-        ore_storage,
-        machine,
-        primary_batch_mass,
-        primary_energy,
-        feed_copper_ppm,
-        "base crusher comparison",
+        CrushResolutionPlan {
+            source: ore_storage,
+            machine,
+            mass: primary_batch_mass,
+            expected_energy: primary_energy,
+            feed_copper_ppm,
+            context: "base crusher comparison",
+        },
     );
 
     // These first two upgrade parcels consume the owned stockpile before this branch
@@ -839,12 +856,14 @@ fn try_run_mature_reinvestment(
             require_reinvestment_ore(
                 registries,
                 state,
-                mining_target,
-                ore_storage,
-                pick,
-                feed_copper_ppm,
-                drain_mass,
-                "residual-work",
+                ReinvestmentOreRequirement {
+                    mining_target,
+                    ore_storage,
+                    pick,
+                    feed_copper_ppm,
+                    required: drain_mass,
+                    context: "residual-work",
+                },
             )?;
             // Acquiring feed advances time: flywheel drag makes the prior envelope stale.
             let drain_mass = assess_powered_ore_mass_envelope(
@@ -967,12 +986,14 @@ fn try_run_mature_reinvestment(
     require_reinvestment_ore(
         registries,
         state,
-        mining_target,
-        ore_storage,
-        pick,
-        feed_copper_ppm,
-        expanded_batch_mass,
-        "expanded-batch",
+        ReinvestmentOreRequirement {
+            mining_target,
+            ore_storage,
+            pick,
+            feed_copper_ppm,
+            required: expanded_batch_mass,
+            context: "expanded-batch",
+        },
     )?;
     let expanded_charge_ticks =
         charge_exact_reinvestment_energy(registries, state, machine, expanded_batch_energy);

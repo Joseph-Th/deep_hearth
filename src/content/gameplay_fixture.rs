@@ -68,6 +68,42 @@ pub fn seed_assembled_equipment_at(
     equipment
 }
 
+/// Establishes material-backed inherited equipment with disclosed prior-use condition.
+///
+/// Assembly and embodied matter remain production-owned. The fixture may only lower condition
+/// before actor admission, representing work that occurred before the evaluated episode without
+/// granting a post-admission repair, wear, or mutation shortcut.
+pub fn seed_preused_assembled_equipment_at(
+    registries: &Registries,
+    state: &mut AppState,
+    definition: EquipmentDefinitionId,
+    source: StockpileId,
+    position: VoxelCoord,
+    condition: Condition,
+) -> EquipmentId {
+    assert_pre_admission(state, "material-backed preused equipment seed");
+    assert!(
+        condition > Condition::FAILED && condition < Condition::PRISTINE,
+        "preused gameplay equipment condition must be usable and below pristine"
+    );
+    let equipment = seed_assembled_equipment_at(registries, state, definition, source, position);
+    let before = state
+        .equipment()
+        .get_equipment(equipment)
+        .map(|record| record.condition())
+        .unwrap_or_else(|| panic!("newly assembled gameplay equipment disappeared"));
+    assert_eq!(before, Condition::PRISTINE);
+    let next_revision = state
+        .equipment()
+        .revision()
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("gameplay bootstrap equipment revision exhausted"));
+    state
+        .equipment_state_mut()
+        .apply_condition_change(equipment, before, condition, next_revision);
+    equipment
+}
+
 /// Establishes one material-backed, already-existing finite-energy store at a disclosed location.
 ///
 /// Assembly consumes the authored component traces. The fixture adds only the pre-admission

@@ -2741,7 +2741,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "LIBERATION KIT ACQUISITION seed=0x1 scope=raw-stone+logs->adze+reusable-base-processing-kit raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign=8batches workload-known-before-build=true fabrication-choice=[spring-pole:true staging-funded:true policy-min-return:200000ppm threshold:36t direct:1012t selected:841t saved:171t extra-raw:5000000mg] raw=[stone:9000000mg wood:19400000mg total:28400000mg] built=[adze:true spring-pole:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:841t fabrication=[adze:80t spring-pole:176t machine-components:478t riddle-panel:107t] body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
             "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
             "LIBERATION FRONTIER CAPABILITY seed=0x1 sample=anchor cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
-            "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
+            "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] inherited-condition=1000000..1000000ppm resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
             "LIBERATION FRONTIER seed=0x1 remaining-frontier=industrial-foundry-scale industrial-foundry-frontier=[assembly-edge=[furnace:false mold:false electrical-buffer:false thermal-sink:false] manual-electrical-generation:true support-required=[furnace:true mold:true] energy-scale=[manual-electrical-max:100000000uW industrial-furnace-transfer-ceiling:2000000000000uW ceiling-ratio:20000x melting-carrier:Electrical conversion-path:present]] reachability-authority=STATUS.md",
             "WOODWORKING EXPERIENCE seed=0x1 sample=anchor demand-horizon=immediate-only choice=bare-hands reason=bare-hands-avoids-investment-cost",
             "WOODWORKING FEEDBACK seed=0x1 basis=executed-lifecycle-versus-pre-action-policy-model attention=[setup-budget-met:false actual-payback:false] timber=[nominal:costlier actual:costlier] selected=bare-hands choice-revised-after-outcome=false",
@@ -2826,7 +2826,7 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "GAMEPLAY foundry-bootstrap choice=[build:1 defer:0] copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
+            "GAMEPLAY foundry-bootstrap choice=[build:1 defer:0] inherited-condition=[1000000..1000000ppm] copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
             concise,
         )
         self.assertIn(
@@ -2969,18 +2969,44 @@ class GameplayReportContractTests(unittest.TestCase):
     def test_foundry_summary_preserves_powered_recovery_attention_and_autonomy(self) -> None:
         line = (
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=organic continuity=separate-episode "
+            "inherited-condition=850000..950000ppm "
             "bootstrap-choice=[remaining-native:1mg required:2mg shortfall-before:1000mg shortfall:0mg] "
-            "owned-ore-recovery=[route:powered-inherited-line required-feed:3000mg available:4000mg "
+            "owned-ore-recovery=[route:powered-inherited-line planned-feed:3000mg available:4000mg "
             "sufficient:true executed:true feed:3000mg recovered:1000mg attention:2t autonomous:55t "
-            "elapsed:57t batches:1 powered-recovery:900000ppm manual-fallback:650000ppm] "
+            "elapsed:57t batches:1 stop:target-recovered powered-recovery:900000ppm manual-fallback:650000ppm] "
             "foundry-build=true"
         )
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary([line]))
+        self.assertIn("inherited-condition=[850000..950000ppm]", summary)
         self.assertIn(
-            "recovery=[needed:1 executed:1 closed:1 insufficient:0 feed:3..3g native:1..1g "
+            "recovery=[needed:1 executed:1 closed:1 partial:0 skipped:0 feed:3..3g native:1..1g "
             "powered:1/1 attention:2..2t autonomous:55..55t elapsed:57..57t batches:1..1]",
             summary,
         )
+
+    def test_foundry_summary_distinguishes_partial_recovery_from_skipped_recovery(self) -> None:
+        partial = (
+            "FIRST FOUNDRY EXPERIENCE seed=0x2 sample=organic continuity=separate-episode "
+            "inherited-condition=820000..910000ppm "
+            "bootstrap-choice=[remaining-native:1mg required:2mg shortfall-before:1000mg shortfall:250mg] "
+            "owned-ore-recovery=[route:powered-inherited-line planned-feed:3000mg available:4000mg "
+            "sufficient:true executed:true feed:2000mg recovered:750mg attention:2t autonomous:40t "
+            "elapsed:42t batches:1 stop:processing-line-unavailable powered-recovery:900000ppm manual-fallback:650000ppm] "
+            "foundry-build=false"
+        )
+        skipped = (
+            "FIRST FOUNDRY EXPERIENCE seed=0x3 sample=organic continuity=separate-episode "
+            "inherited-condition=800000..930000ppm "
+            "bootstrap-choice=[remaining-native:1mg required:2mg shortfall-before:1000mg shortfall:1000mg] "
+            "owned-ore-recovery=[route:powered-inherited-line planned-feed:3000mg available:1000mg "
+            "sufficient:false executed:false feed:0mg recovered:0mg attention:0t autonomous:0t "
+            "elapsed:0t batches:0 stop:owned-ore-insufficient powered-recovery:900000ppm manual-fallback:650000ppm] "
+            "foundry-build=false"
+        )
+        summary = "\n".join(
+            gameplay_report_summary.ordinary_gameplay_summary([partial, skipped])
+        )
+        self.assertIn("recovery=[needed:2 executed:1 closed:0 partial:1 skipped:1", summary)
 
     def test_concise_report_rejects_missing_executed_probe_summary(self) -> None:
         transcript = (
