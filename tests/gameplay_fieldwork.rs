@@ -20,13 +20,6 @@ macro_rules! include_fieldwork_campaign_contract_tests {
         mod tests;
     };
 }
-macro_rules! include_fieldwork_recovery_contract_tests {
-    () => {
-        #[path = "recovery_tests.rs"]
-        mod tests;
-    };
-}
-
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[allow(

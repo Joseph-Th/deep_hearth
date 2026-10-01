@@ -68,6 +68,8 @@ use preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
 
 #[path = "fieldwork_probe/retooling.rs"]
 mod retooling;
+#[path = "fieldwork_shortfall_policy.rs"]
+mod shortfall_policy;
 
 #[cfg(test)]
 include_fieldwork_contract_tests!();

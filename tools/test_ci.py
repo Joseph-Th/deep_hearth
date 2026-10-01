@@ -43,6 +43,7 @@ DEDICATED_OWNER_CONTRACT_SCOPES = frozenset(
         "woodworking",
     }
 )
+FIELDWORK_POLICY_CONTRACT_TARGET = "gameplay_fieldwork_policy_contracts"
 
 
 def owner_contract_target(scope: str) -> str:
@@ -319,6 +320,49 @@ class CargoToolingTests(unittest.TestCase):
             ],
         )
 
+    def test_targeted_check_typechecks_only_the_selected_gameplay_target_without_linking(self) -> None:
+        args = run_test.parse_args(
+            ["--check", "--target", ci.GAMEPLAY_TARGETS["fieldwork"]]
+        )
+        command = run_test.cargo_check_command(args)
+        self.assertEqual(
+            command,
+            [
+                "cargo",
+                "check",
+                "--quiet",
+                "--locked",
+                "--profile",
+                "test",
+                "--test",
+                ci.GAMEPLAY_TARGETS["fieldwork"],
+                "--features",
+                "test-gameplay",
+            ],
+        )
+        self.assertNotIn("--no-run", command)
+
+    def test_targeted_check_resolves_named_gameplay_probe_without_executing_it(self) -> None:
+        args = run_test.parse_args(["--check", ci.GAMEPLAY_TESTS["fieldwork"]])
+        self.assertTrue(run_test.resolve_automatic_compile_target(args))
+        self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
+
+    def test_targeted_check_rejects_library_unit_test_surfaces(self) -> None:
+        explicit = run_test.parse_args(["--check", "--target", "lib"])
+        with self.assertRaisesRegex(ValueError, "library unit-test code requires"):
+            run_test.cargo_check_command(explicit)
+
+        selected = run_test.parse_args(
+            [
+                "--check",
+                "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound",
+            ]
+        )
+        self.assertTrue(run_test.resolve_automatic_compile_target(selected))
+        self.assertEqual(selected.target, "lib")
+        with self.assertRaisesRegex(ValueError, "exact test"):
+            run_test.cargo_check_command(selected)
+
     def test_targeted_build_resolves_named_gameplay_probe_without_executing_it(self) -> None:
         args = run_test.parse_args(["--build", ci.GAMEPLAY_TESTS["fieldwork"]])
         self.assertTrue(run_test.resolve_automatic_compile_target(args))
@@ -349,8 +393,12 @@ class CargoToolingTests(unittest.TestCase):
         invalid = (
             ["--build", "--suite", "fieldwork"],
             ["--build", "--target", ci.GAMEPLAY_TARGETS["fieldwork"], "fieldwork"],
-            ["--build", "--nocapture", ci.GAMEPLAY_TESTS["fieldwork"]],
+            ["--build", "--verbose", ci.GAMEPLAY_TESTS["fieldwork"]],
             ["--build", "--variation-seed", "1", ci.GAMEPLAY_TESTS["fieldwork"]],
+            ["--check", "--suite", "fieldwork"],
+            ["--check", "--target", ci.GAMEPLAY_TARGETS["fieldwork"], "fieldwork"],
+            ["--check", "--verbose", ci.GAMEPLAY_TESTS["fieldwork"]],
+            ["--check", "--variation-seed", "1", ci.GAMEPLAY_TESTS["fieldwork"]],
         )
         for argv in invalid:
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
@@ -1329,10 +1377,10 @@ class TestTopologyContractTests(unittest.TestCase):
             "gameplay actor decision/planning code must not gain fixture mutation authority",
         )
 
-    def test_standard_gate_compiles_production_once(self) -> None:
+    def test_standard_gate_typechecks_production_once(self) -> None:
         self.assertEqual(
             ci.plan_for(gate_args()),
-            [("compile", ["cargo", "check-fast"])],
+            [("check", ["cargo", "check-fast"])],
         )
 
     def test_local_test_profile_keeps_fast_incremental_shape_explicit(self) -> None:
@@ -1449,6 +1497,10 @@ class TestTopologyContractTests(unittest.TestCase):
                 definitions[target].get("required-features"),
                 [ci.GAMEPLAY_FEATURE],
             )
+        self.assertEqual(
+            definitions[FIELDWORK_POLICY_CONTRACT_TARGET].get("required-features"),
+            [ci.GAMEPLAY_FEATURE],
+        )
         self.assertNotIn("--nocapture", ci.gameplay_command("all"))
 
     def test_focused_gameplay_roots_do_not_import_unrelated_probe_families(self) -> None:
@@ -2086,7 +2138,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             name=ci.GAMEPLAY_TESTS["ore"],
             suite=False,
             ignored=False,
-            nocapture=False,
+            verbose=False,
         )
         command = run_test.cargo_command(args)
         self.assertEqual(command.count("--features"), 1)
@@ -2481,7 +2533,7 @@ class GameplayReportContractTests(unittest.TestCase):
                 )
         self.assertIsNone(ci.gameplay_environment_summary("core", environment))
         self.assertIsNone(ci.gameplay_environment_summary("gameplay contracts", environment))
-        self.assertIsNone(ci.gameplay_environment_summary("compile", environment))
+        self.assertIsNone(ci.gameplay_environment_summary("check", environment))
 
     def test_report_cli_preserves_large_success_evidence_but_bounds_failures(self) -> None:
         opening = "PLAYER FANTASY scope=ordinary-after-disclosed-bootstrap fixture=opening"
@@ -3092,6 +3144,7 @@ class AuthorityContractTests(unittest.TestCase):
             {
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
+                FIELDWORK_POLICY_CONTRACT_TARGET,
                 *ci.GAMEPLAY_TARGETS.values(),
                 *(owner_contract_target(scope) for scope in DEDICATED_OWNER_CONTRACT_SCOPES),
             },
@@ -3515,6 +3568,7 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
             "batch_capped_mining_finishes_the_requested_order": owner_contract_target("fieldwork"),
+            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": FIELDWORK_POLICY_CONTRACT_TARGET,
             "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": ci.GAMEPLAY_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": owner_contract_target("settlement"),
@@ -3671,7 +3725,7 @@ class ExactTestCommandTests(unittest.TestCase):
             name="module::tests::case",
             suite=False,
             ignored=False,
-            nocapture=False,
+            verbose=False,
         )
         self.assertEqual(
             run_test.cargo_command(args),
@@ -3778,6 +3832,11 @@ class ExactTestCommandTests(unittest.TestCase):
             ci.GAMEPLAY_TARGETS["settlement"], None
         )
         self.assertEqual(focused_settlement, [ci.GAMEPLAY_TESTS["settlement"]])
+        fieldwork_policy = run_test.source_test_catalog(FIELDWORK_POLICY_CONTRACT_TARGET, None)
+        self.assertIn(
+            "fieldwork_shortfall_policy_tests::shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion",
+            fieldwork_policy,
+        )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
         self.assertNotIn("agency::gameplay_agency_counterfactuals", workshop)
         self.assertNotIn("scenario_tests::world_seed_never_changes_player_policy", workshop)
@@ -3797,7 +3856,7 @@ class ExactTestCommandTests(unittest.TestCase):
             name="survival",
             suite=False,
             ignored=False,
-            nocapture=False,
+            verbose=False,
         )
         with self.assertRaisesRegex(ValueError, "does not invoke Cargo"):
             run_test.cargo_command(args)
@@ -3828,7 +3887,7 @@ class ExactTestCommandTests(unittest.TestCase):
             name="ore_processing::separation_execution::tests::",
             suite=True,
             ignored=False,
-            nocapture=False,
+            verbose=False,
         )
         command = run_test.cargo_command(args)
         self.assertNotIn("--features", command)

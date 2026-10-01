@@ -13,6 +13,9 @@ use super::retooling::{
     prepare_fieldwork_tool_for_site,
 };
 use super::review::FieldworkEpisodeReview;
+use super::shortfall_policy::{
+    InitialShortfallTerminal, demand_sized_followup_sites, shortfall_terminal,
+};
 use super::survey::{FOLLOWUP_CHANNEL_STARTS, FieldworkSurveyStrategy, search_target};
 
 pub(super) struct InitialShortfallRecovery {
@@ -44,37 +47,7 @@ pub(super) struct InitialShortfallRecovery {
     pub(super) additional_extracted: Mass,
     pub(super) fulfilled: Mass,
     pub(super) remaining: Mass,
-    pub(super) terminal: &'static str,
-}
-
-fn demand_sized_followup_sites(
-    remaining: Mass,
-    observed_site_upper: Mass,
-    available_sites: u64,
-) -> u64 {
-    assert!(
-        !remaining.is_zero(),
-        "fieldwork shortfall horizon requires unfinished demand"
-    );
-    assert!(
-        available_sites > 0,
-        "fieldwork shortfall horizon requires at least one candidate site"
-    );
-    let comparable_site_mass = observed_site_upper.milligrams().max(1);
-    remaining
-        .milligrams()
-        .div_ceil(comparable_site_mass)
-        .clamp(1, available_sites)
-}
-
-fn shortfall_terminal(remaining: Mass, sites_visited: u64, available_sites: u64) -> &'static str {
-    if remaining.is_zero() {
-        "order-complete"
-    } else if sites_visited >= available_sites {
-        "local-search-area-exhausted"
-    } else {
-        "planned-search-horizon-exhausted"
-    }
+    pub(super) terminal: InitialShortfallTerminal,
 }
 
 #[derive(Clone, Copy)]
@@ -476,6 +449,3 @@ pub(super) fn execute_initial_shortfall_recovery(
         terminal: shortfall_terminal(selected.remaining, selected.sites_visited, available_sites),
     }
 }
-
-#[cfg(test)]
-include_fieldwork_recovery_contract_tests!();

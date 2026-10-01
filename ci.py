@@ -554,7 +554,7 @@ def gate_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
         return [("rustdoc", cargo("test-doc"))]
     if args.lint:
         return [("clippy", lint_command())]
-    return [("compile", cargo("check-fast"))]
+    return [("check", cargo("check-fast"))]
 
 
 def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:

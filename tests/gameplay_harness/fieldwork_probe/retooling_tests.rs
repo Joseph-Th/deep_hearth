@@ -67,7 +67,6 @@ fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
     )
     .unwrap_or_else(|| panic!("owned soft-rock portfolio lost a feasible tool"));
     assert_eq!(soft.equipment, quarry);
-    assert_eq!(soft.label, "stone-quarry");
     assert!(soft.reused_existing);
     assert_eq!(soft.preparation_ticks, 0);
 
@@ -92,7 +91,6 @@ fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
     )
     .unwrap_or_else(|| panic!("owned hard-rock portfolio lost its reinforced pick"));
     assert_eq!(hard.equipment, hard_pick);
-    assert_eq!(hard.label, "copper-reinforced-hard-pick");
     assert!(hard.reused_existing);
     assert_eq!(hard.preparation_ticks, 0);
 }

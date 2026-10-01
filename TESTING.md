@@ -11,16 +11,17 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
 | CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
-| Build one unstable test/harness target without running it | `python tools/run_test.py --build <qualified-name-or-unique-substring>` |
+| Type-check one unstable gameplay/integration target without linking | `python tools/run_test.py --check <qualified-name-or-unique-substring>` |
+| Build/link one selected test target without running it | `python tools/run_test.py --build <qualified-name-or-unique-substring>` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Shared gameplay contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
-| Compile-only proof when no executable test fits | `python ci.py gate` |
+| Production-library type-check when no executable test fits | `python ci.py gate` |
 
-Routine iteration is `quick`, then **one** build proof. If code is not runnable, `run_test.py --build <selector>` compiles and links the eventual test target without executing it, so the later test reuses that artifact. Once runnable, execute the test directly. Use default `gate` only when no executable test fits. Do not stack equivalent proofs or append an audit.
+Iteration is `quick`, then **one** proof. For unstable gameplay/integration code, use `run_test.py --check <selector>` before paying codegen/link cost. Once runnable, run the exact test. Use `--build` only when a linked but unexecuted artifact is useful, and default `gate` only when no executable test fits. Do not stack equivalent proofs or append an audit.
 
-Use `run_test.py --list <substring>` for build-free discovery. Unit selectors compile the full `cfg(test)` library, so prefer a smaller focused gameplay target when equally authoritative. `.cargo/config.toml` and `[profile.test]` own one shared `target/local-ci` artifact shape; repository Python entrypoints remove ambient Rust/profile overrides while preserving explicit `CARGO_TARGET_DIR`. Do not tune compiler profiles or job counts per tool: isolated speedups that fragment reuse lose time when switching tests, gameplay gates, or audits. Run build-producing Cargo lanes serially; only build-free `quick` checks run in parallel.
+Use `run_test.py --list <substring>` for build-free discovery. `--check` rejects library unit-test selectors because `cargo check --lib` omits `cfg(test)` bodies; run the exact unit test instead. Prefer a smaller focused gameplay target when equally authoritative. All Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`; repository entrypoints normalize ambient compiler/profile overrides. Keep build-producing lanes serial. Only build-free `quick` checks run in parallel.
 
 ## Escalation lanes
 
@@ -31,7 +32,7 @@ Use `run_test.py --list <substring>` for build-free discovery. Unit selectors co
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free; `gate` runs one build lane; `audit` is an explicit checkpoint. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick` and `standard` stay build-free because generic finalization cannot select the changed behavioral contract; `full` maps to `audit --all` and is opt-in.
+`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
 
 ## Evidence ladder
 
@@ -43,7 +44,7 @@ Stop at the first level that completely proves the changed claim:
 4. **System/gameplay:** focused interaction proof when behavior depends on several owners.
 5. **Audit/exploration:** broader deterministic checkpoint or bounded sampling for cross-system uncertainty.
 
-A local test does not establish a cross-owner or player-level claim. Projection APIs cover feasible, limiting, infeasible, and stale cases against canonical semantics.
+A local test does not establish a cross-owner or player-level claim. Projection tests cover feasible, limiting, infeasible, and stale cases.
 
 ### Failure triage map
 
@@ -61,12 +62,11 @@ Widen only when the evidence crosses another owner or runtime boundary.
 
 ## Complexity review
 
-`bca.toml` and `.bca-baseline.toml` own the `quick` complexity ratchet. Use `python ci.py bca` for changed code and `--hotspots` only for existing concentration. Refactor for clarity, not a score. [`tools/README.md`](tools/README.md) owns optional diagnostics.
+`bca.toml` and `.bca-baseline.toml` own the `quick` complexity ratchet. Use `python ci.py bca` for changed code and `--hotspots` for existing concentration. Refactor for clarity, not a score. [`tools/README.md`](tools/README.md) owns optional diagnostics.
 
 ## Unit tests
 
-Keep unit tests with or adjacent to the owner in `*_tests.rs` or `mod_tests.rs`. Prefer the smallest
-deterministic fixture and the production operation being proved.
+Keep unit tests adjacent to the owner in `*_tests.rs` or `mod_tests.rs`. Prefer the smallest deterministic fixture and production operation that proves the claim.
 
 Assertions establish durable semantics:
 
@@ -77,17 +77,15 @@ Assertions establish durable semantics:
 - persistence and deterministic continuation for state that survives load;
 - authored values read from registries instead of copied balance constants.
 
-Avoid assertions on human-readable error prose, wall-clock timing, incidental collection order/count, or copied
-tuning values. Generated tests prove their declared bounded variation, not more. Soaks stay explicit and ignored
-until the soak lane is requested.
+Avoid assertions on error prose, wall-clock timing, incidental order/count, or copied tuning values. Generated tests prove only their declared bounded variation. Soaks stay explicit and ignored until requested.
 
 ## Gameplay evaluation
 
-Split owner contract targets only when controlled post-edit timings show a real iteration win. Reachable file/byte counts are diagnostics, not proof of build speed. Progression, settlement, and woodworking retain measured/useful splits; fieldwork, workshop, survival, ore, and foundry keep nearby contracts in the focused target. Gameplay targets share one `test-gameplay` feature shape. Scoped reports reuse focused artifacts where possible; only the cross-system report compiles the complete report graph.
+Split owner contract targets only when controlled post-edit timings show a real iteration win; source size is diagnostic, not build-speed proof. Progression, settlement, and woodworking retain measured splits. Fieldwork keeps integrated contracts in its focused target, while its pure shortfall policy has a measured lightweight contract target. Workshop, survival, ore, and foundry keep nearby contracts in their focused target. All gameplay targets share `test-gameplay`.
 
-`gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
+`gate --gameplay contracts` is the small cross-scope contract target. Exact owner contracts resolve through `run_test.py` to their purpose-built target. Scoped reports reuse focused artifacts where faithful; the cross-system report owns the complete report graph.
 
-Routine gameplay verification runs maintained witnesses plus one fresh replayable organic case. Explicit replay roots replace that fresh case for diagnosis; exploratory reports use a broader bounded organic sample plus broader agency search. Successful routine gates print only counts/timing, explicit replays echo their roots, failures print a narrow reproduction command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Routine gameplay runs maintained witnesses plus one fresh replayable case. Explicit roots reproduce failures; reports use broader bounded exploration. Gates stay quiet on success, failures print a narrow reproduction command, and reports retain replay inputs. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 

@@ -117,6 +117,11 @@ path = "tests/gameplay_fieldwork.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_fieldwork_policy_contracts"
+path = "tests/gameplay_fieldwork_policy_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_power"
 path = "tests/gameplay_power.rs"
 required-features = ["test-gameplay"]

@@ -27,6 +27,7 @@ use super::retooling::{
     FieldworkOreRecoveryReason, FieldworkOwnedOreRecovery, FieldworkSiteToolRequest,
     prepare_fieldwork_tool_for_site,
 };
+use super::shortfall_policy::InitialShortfallTerminal;
 use super::survey::{
     CHANNEL_COUNT, FieldworkSurveyStrategy, SECONDARY_CHANNEL_START_X, search_target,
 };
@@ -38,6 +39,16 @@ const fn sample_label(role: FocusedProbeRole) -> &'static str {
         FocusedProbeRole::MaintainedCoverage => "coverage",
         FocusedProbeRole::OrganicVariation => "organic",
         FocusedProbeRole::ExplicitReplay => "replay",
+    }
+}
+
+const fn shortfall_terminal_label(terminal: InitialShortfallTerminal) -> &'static str {
+    match terminal {
+        InitialShortfallTerminal::OrderComplete => "order-complete",
+        InitialShortfallTerminal::PlannedSearchHorizonExhausted => {
+            "planned-search-horizon-exhausted"
+        }
+        InitialShortfallTerminal::LocalSearchAreaExhausted => "local-search-area-exhausted",
     }
 }
 
@@ -523,7 +534,7 @@ fn report_known_site_exploitation(
             review.requested.milligrams(),
             fulfillment_ppm,
             recovery.remaining.milligrams(),
-            recovery.terminal,
+            shortfall_terminal_label(recovery.terminal),
         );
     }
 }
