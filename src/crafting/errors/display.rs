@@ -195,8 +195,11 @@ impl Display for ManualCraftError {
 impl Display for StartManualCraftError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Access(error) => {
+            Self::StockpileAccess(error) => {
                 write!(formatter, "manual craft stockpile access failed: {error}")
+            }
+            Self::EquipmentAccess(error) => {
+                write!(formatter, "manual craft equipment access failed: {error}")
             }
             Self::Resolution(error) => write!(formatter, "manual craft resolution failed: {error}"),
             Self::Process(error) => write!(formatter, "manual craft start failed: {error}"),

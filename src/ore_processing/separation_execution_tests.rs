@@ -19,7 +19,7 @@ use crate::inventory::{
 };
 use crate::labor::PlayerWork;
 use crate::logistics::{
-    PlayerStockpileAccessError, validate_initialize_player_logistics,
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
     validate_place_ground_stockpile,
 };
 use crate::material::{
@@ -736,12 +736,64 @@ fn manual_separation_rejects_known_remote_output_destination() {
             fixture.residue,
         )
         .err(),
-        Some(StartManualConstituentSeparationError::Access(
+        Some(StartManualConstituentSeparationError::StockpileAccess(
             PlayerStockpileAccessError::RemoteKnownStockpile {
                 stockpile: fixture.target,
                 stockpile_position: target_position,
                 player_position,
             }
+        ))
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn manual_separation_rejects_unlocated_equipment_after_player_logistics_initialization() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let equipment = assemble_timber_dressing_bench(&mut fixture);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&fixture.state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| {
+            panic!("equipment-access separation logistics setup failed: {error}")
+        })
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("equipment-access separation logistics commit failed: {error}")
+        });
+    for stockpile in [fixture.source, fixture.target, fixture.residue] {
+        validate_place_ground_stockpile(&fixture.state, stockpile, player_position)
+            .unwrap_or_else(|error| panic!("equipment-access separation placement failed: {error}"))
+            .commit(&mut fixture.state)
+            .unwrap_or_else(|error| {
+                panic!("equipment-access separation placement commit failed: {error}")
+            });
+    }
+    let resolved = resolve_manual_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ManualConstituentSeparationRequest::new(
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, mass)],
+        )
+        .with_equipment(equipment),
+    )
+    .unwrap_or_else(|error| panic!("equipment-access separation resolution failed: {error}"));
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        validate_start_manual_constituent_separation(
+            &fixture.registries,
+            &fixture.state,
+            &resolved,
+            fixture.source,
+            fixture.target,
+            fixture.residue,
+        )
+        .err(),
+        Some(StartManualConstituentSeparationError::EquipmentAccess(
+            PlayerEquipmentAccessError::UnlocatedEquipment { equipment }
         ))
     );
     assert_eq!(fixture.state, before);

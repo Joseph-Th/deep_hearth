@@ -7,6 +7,7 @@ use crate::core::quantity::Mass;
 use crate::core::throughput::MassFlowDurationError;
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentProviderError};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
+use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::ActiveConditionDurationError;
 use crate::material::{CommodityKey, MaterialLotSpecError};
 use crate::production::{
@@ -150,7 +151,8 @@ impl ManualCraftError {
 /// Failure while admitting manual shaping into production and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualCraftError {
-    Access(crate::logistics::PlayerStockpileAccessError),
+    StockpileAccess(PlayerStockpileAccessError),
+    EquipmentAccess(PlayerEquipmentAccessError),
     Resolution(ManualCraftError),
     Process(StartProcessError),
     Work(PlayerWorkStartError),

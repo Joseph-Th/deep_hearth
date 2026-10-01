@@ -4,17 +4,18 @@ use std::num::NonZeroU64;
 
 use super::*;
 use crate::content::{
-    FORM_BOARD, FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX, PROCESS_KNAP_STONE_CRUSHER_JAW_FACE,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_STONE_CRUSHER_BLOCK,
-    PROCESS_SHAPE_WOOD_BOARDS, build_registries,
+    EQUIPMENT_STONE_WOODWORKING_ADZE, FORM_BOARD, FORM_FOOD, FORM_HANDLE, FORM_LUMP, FORM_TOOL,
+    MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_ROUGH_TIMBER_FIELD_BOX,
+    PROCESS_KNAP_STONE_CRUSHER_JAW_FACE, PROCESS_KNAP_STONE_TOOL, PROCESS_SAW_WOOD_BOARDS,
+    PROCESS_SHAPE_STONE_CRUSHER_BLOCK, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError};
+use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
 use crate::logistics::{
-    GroundStockpilePlacementCommitError, PlayerStockpileAccessError,
+    GroundStockpilePlacementCommitError, PlayerEquipmentAccessError, PlayerStockpileAccessError,
     validate_allocate_ground_stockpile, validate_initialize_player_logistics,
     validate_place_ground_stockpile,
 };
@@ -76,12 +77,96 @@ fn manual_craft_rejects_known_remote_ground_source() {
             ),
         )
         .err(),
-        Some(StartManualCraftError::Access(
+        Some(StartManualCraftError::StockpileAccess(
             PlayerStockpileAccessError::RemoteKnownStockpile {
                 stockpile: source,
                 stockpile_position: source_position,
                 player_position,
             }
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn manual_craft_rejects_unlocated_equipment_after_player_logistics_initialization() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("equipment-access craft survival setup failed: {error}"));
+    let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| {
+            panic!("equipment-access craft assembly stockpile failed: {error}")
+        });
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("equipment-access craft assembly material failed: {error}"));
+    }
+    let equipment = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        assembly,
+    )
+    .unwrap_or_else(|error| panic!("equipment-access craft assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("equipment-access craft assembly commit failed: {error}"));
+    let carried = validate_initialize_player_logistics(
+        &state,
+        VoxelCoord::new(0, 0, 0),
+        Mass::from_milligrams(2_000_000),
+    )
+    .unwrap_or_else(|error| panic!("equipment-access craft logistics setup failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("equipment-access craft logistics commit failed: {error}"))
+    .carried_stockpile();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, crate::content::FORM_LOG),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("equipment-access craft lot failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::new(
+                ManualCraftRequest::single(
+                    PROCESS_SHAPE_WOOD_BOARDS,
+                    carried,
+                    crate::inventory::MaterialLotSelection::new(
+                        lot,
+                        Mass::from_milligrams(1_000_000),
+                    ),
+                )
+                .with_equipment(equipment),
+                carried,
+            ),
+        )
+        .err(),
+        Some(StartManualCraftError::EquipmentAccess(
+            PlayerEquipmentAccessError::UnlocatedEquipment { equipment }
         ))
     );
     assert_eq!(state, before);

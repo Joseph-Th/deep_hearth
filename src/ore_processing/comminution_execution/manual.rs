@@ -12,7 +12,10 @@ use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
-use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
+use crate::logistics::{
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_player_equipment_access,
+    validate_player_stockpile_access,
+};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, ProductionJobId, StartProcessCommitError, StartProcessError,
@@ -199,7 +202,8 @@ pub fn resolve_manual_comminution_process(
 /// Failure while reserving a resolved hand-breaking job and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualComminutionError {
-    Access(PlayerStockpileAccessError),
+    StockpileAccess(PlayerStockpileAccessError),
+    EquipmentAccess(PlayerEquipmentAccessError),
     Process(StartProcessError),
     Work(PlayerWorkStartError),
 }
@@ -207,7 +211,18 @@ pub enum StartManualComminutionError {
 impl Display for StartManualComminutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Access(error) => write!(formatter, "manual comminution access failed: {error}"),
+            Self::StockpileAccess(error) => {
+                write!(
+                    formatter,
+                    "manual comminution stockpile access failed: {error}"
+                )
+            }
+            Self::EquipmentAccess(error) => {
+                write!(
+                    formatter,
+                    "manual comminution equipment access failed: {error}"
+                )
+            }
             Self::Process(error) => write!(formatter, "manual comminution start failed: {error}"),
             Self::Work(error) => write!(
                 formatter,
@@ -220,7 +235,8 @@ impl Display for StartManualComminutionError {
 impl Error for StartManualComminutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Access(error) => Some(error),
+            Self::StockpileAccess(error) => Some(error),
+            Self::EquipmentAccess(error) => Some(error),
             Self::Process(error) => Some(error),
             Self::Work(error) => Some(error),
         }
@@ -309,9 +325,14 @@ pub fn validate_start_manual_comminution(
                 process: process_id,
             },
         ))?;
-    validate_player_stockpile_access(state, source).map_err(StartManualComminutionError::Access)?;
+    validate_player_stockpile_access(state, source)
+        .map_err(StartManualComminutionError::StockpileAccess)?;
     validate_player_stockpile_access(state, destination)
-        .map_err(StartManualComminutionError::Access)?;
+        .map_err(StartManualComminutionError::StockpileAccess)?;
+    if let Some(provider) = resolved.process_resolution().equipment_input() {
+        validate_player_equipment_access(state, provider.equipment())
+            .map_err(StartManualComminutionError::EquipmentAccess)?;
+    }
     let process = validate_start_manual_process(
         registries,
         state,

@@ -30,7 +30,7 @@ use crate::inventory::{
 };
 use crate::labor::PlayerWork;
 use crate::logistics::{
-    PlayerStockpileAccessError, validate_initialize_player_logistics,
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
     validate_place_ground_stockpile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
@@ -1587,12 +1587,65 @@ fn manual_comminution_rejects_known_remote_source() {
             fixture.destination,
         )
         .err(),
-        Some(StartManualComminutionError::Access(
+        Some(StartManualComminutionError::StockpileAccess(
             PlayerStockpileAccessError::RemoteKnownStockpile {
                 stockpile: fixture.source,
                 stockpile_position: source_position,
                 player_position,
             }
+        ))
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn manual_comminution_rejects_unlocated_equipment_after_player_logistics_initialization() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_comminution_fixture(mass);
+    let equipment = assemble_stone_cobbing_hammer(&mut fixture);
+    let player_position = VoxelCoord::new(0, 0, 0);
+    validate_initialize_player_logistics(&fixture.state, player_position, Mass::from_milligrams(1))
+        .unwrap_or_else(|error| {
+            panic!("equipment-access comminution logistics setup failed: {error}")
+        })
+        .commit(&mut fixture.state)
+        .unwrap_or_else(|error| {
+            panic!("equipment-access comminution logistics commit failed: {error}")
+        });
+    for stockpile in [fixture.source, fixture.destination] {
+        validate_place_ground_stockpile(&fixture.state, stockpile, player_position)
+            .unwrap_or_else(|error| {
+                panic!("equipment-access comminution placement failed: {error}")
+            })
+            .commit(&mut fixture.state)
+            .unwrap_or_else(|error| {
+                panic!("equipment-access comminution placement commit failed: {error}")
+            });
+    }
+    let resolved = resolve_manual_comminution_process(
+        &fixture.registries,
+        &fixture.state,
+        ManualComminutionRequest::new(
+            PROCESS_HAND_BREAK_ORE,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, mass)],
+        )
+        .with_equipment(equipment),
+    )
+    .unwrap_or_else(|error| panic!("equipment-access comminution resolution failed: {error}"));
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        validate_start_manual_comminution(
+            &fixture.registries,
+            &fixture.state,
+            &resolved,
+            fixture.source,
+            fixture.destination,
+        )
+        .err(),
+        Some(StartManualComminutionError::EquipmentAccess(
+            PlayerEquipmentAccessError::UnlocatedEquipment { equipment }
         ))
     );
     assert_eq!(fixture.state, before);

@@ -12,7 +12,10 @@ use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
-use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
+use crate::logistics::{
+    PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_player_equipment_access,
+    validate_player_stockpile_access,
+};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputRoute, ProcessOutputStream, ProcessResolution,
     ProcessResolutionError, ProductionJobId, StartProcessCommitError, StartProcessError,
@@ -234,7 +237,8 @@ pub fn resolve_manual_constituent_separation_process(
 /// Failure while reserving a resolved manual separation job and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualConstituentSeparationError {
-    Access(PlayerStockpileAccessError),
+    StockpileAccess(PlayerStockpileAccessError),
+    EquipmentAccess(PlayerEquipmentAccessError),
     Process(StartProcessError),
     Work(PlayerWorkStartError),
 }
@@ -242,7 +246,18 @@ pub enum StartManualConstituentSeparationError {
 impl Display for StartManualConstituentSeparationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Access(error) => write!(formatter, "manual separation access failed: {error}"),
+            Self::StockpileAccess(error) => {
+                write!(
+                    formatter,
+                    "manual separation stockpile access failed: {error}"
+                )
+            }
+            Self::EquipmentAccess(error) => {
+                write!(
+                    formatter,
+                    "manual separation equipment access failed: {error}"
+                )
+            }
             Self::Process(error) => write!(formatter, "manual separation start failed: {error}"),
             Self::Work(error) => {
                 write!(formatter, "manual separation labor is unavailable: {error}")
@@ -254,7 +269,8 @@ impl Display for StartManualConstituentSeparationError {
 impl Error for StartManualConstituentSeparationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Access(error) => Some(error),
+            Self::StockpileAccess(error) => Some(error),
+            Self::EquipmentAccess(error) => Some(error),
             Self::Process(error) => Some(error),
             Self::Work(error) => Some(error),
         }
@@ -346,11 +362,15 @@ pub fn validate_start_manual_constituent_separation(
             },
         ))?;
     validate_player_stockpile_access(state, source)
-        .map_err(StartManualConstituentSeparationError::Access)?;
+        .map_err(StartManualConstituentSeparationError::StockpileAccess)?;
     validate_player_stockpile_access(state, target_destination)
-        .map_err(StartManualConstituentSeparationError::Access)?;
+        .map_err(StartManualConstituentSeparationError::StockpileAccess)?;
     validate_player_stockpile_access(state, residue_destination)
-        .map_err(StartManualConstituentSeparationError::Access)?;
+        .map_err(StartManualConstituentSeparationError::StockpileAccess)?;
+    if let Some(provider) = resolved.process_resolution().equipment_input() {
+        validate_player_equipment_access(state, provider.equipment())
+            .map_err(StartManualConstituentSeparationError::EquipmentAccess)?;
+    }
     let routes = [
         ProcessOutputRoute::new(
             ManualConstituentSeparationProcessDefinition::TARGET_STREAM,

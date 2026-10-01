@@ -4,7 +4,7 @@ use crate::core::state::AppState;
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
-use crate::logistics::validate_player_stockpile_access;
+use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::production::{
     ProcessId, ProcessResolution, ProductionJobId, ValidatedStartProcess, validate_process_inputs,
     validate_start_manual_process,
@@ -300,8 +300,14 @@ pub fn validate_start_manual_craft(
     let ManualCraftStartRequest { craft, destination } = request;
     let process_id = craft.process();
     let source = craft.source();
-    validate_player_stockpile_access(state, source).map_err(StartManualCraftError::Access)?;
-    validate_player_stockpile_access(state, destination).map_err(StartManualCraftError::Access)?;
+    validate_player_stockpile_access(state, source)
+        .map_err(StartManualCraftError::StockpileAccess)?;
+    validate_player_stockpile_access(state, destination)
+        .map_err(StartManualCraftError::StockpileAccess)?;
+    if let Some(equipment) = craft.equipment() {
+        validate_player_equipment_access(state, equipment)
+            .map_err(StartManualCraftError::EquipmentAccess)?;
+    }
     let resolution = resolve_manual_craft(registries, state, &craft)
         .map_err(StartManualCraftError::Resolution)?;
     let process =
