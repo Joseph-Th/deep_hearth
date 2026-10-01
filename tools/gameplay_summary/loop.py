@@ -260,8 +260,9 @@ def _delegate_reinvest_evidence(
         "delegate=["
         f"mechanized-processing:{mechanized}/{len(progression)} "
         f"settlement-orders:{settlement_delegated}/{len(settlement)} "
-        f"attention-saved:{_attention_saved_span(progression)} "
-        f"productive-overlap:{overlap_span} autonomous-room:{room_span}]"
+        f"order-attention-saved:{_attention_saved_span(progression)} "
+        "stockpile-alt=[selected:false "
+        f"overlap:{overlap_span} open:{room_span}]]"
     )
     reinvest = f"reassess-reinvest=[completed:{reinvested}/{len(progression)}]"
     return delegate, reinvest

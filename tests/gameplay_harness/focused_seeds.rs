@@ -10,10 +10,11 @@ pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 ///
 /// Fieldwork combines independent demand, reserve scale, geology, and material-access regimes, so
 /// four worlds are too sparse to tell whether its investment choices emerge outside maintained
-/// witnesses. Doubling only that exploratory sample keeps routine gates unchanged and cheap.
+/// witnesses. Twelve organic worlds keep those factors independent while remaining cheap enough
+/// for an explicit exploratory report; routine gates are unchanged.
 pub(super) fn exploratory_variation_count(name: &str) -> usize {
     if name == "fieldwork" {
-        EXPLORATORY_VARIATION_COUNT * 2
+        EXPLORATORY_VARIATION_COUNT * 3
     } else {
         EXPLORATORY_VARIATION_COUNT
     }

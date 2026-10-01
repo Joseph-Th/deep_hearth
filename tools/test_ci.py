@@ -2611,7 +2611,8 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("orders=[short:1 project:2 bulk:0]", summary)
         self.assertIn(
-            "heavy-tool-market=[selected:0 deferred:0 unavail:0 organic=[heavy:0/1 bulk:0/1]",
+            "heavy-tool-market=[selected:0 deferred:0 unavail:0 "
+            "organic=[heavy:0/1 bulk:0/1 payback-sized:0/0 reserve-cut:0/0 no-market:0/0]",
             summary,
         )
         self.assertIn(
@@ -2641,6 +2642,31 @@ class GameplayReportContractTests(unittest.TestCase):
             "geology-tool=[soft:pick0/quarry1/reinforced0/hard0 "
             "reinforcement:pick0/quarry0/reinforced1/hard0 "
             "hard-specialist:pick0/quarry0/reinforced0/hard1]",
+            summary,
+        )
+
+    def test_fieldwork_summary_explains_bulk_tool_refusal_from_known_reserve(self) -> None:
+        lines = [
+            "FIELDWORK EXPERIENCE seed=0xA sample=organic outcome=completed order-horizon=bulk "
+            "field-inspections=2 geology=quarry-soft tool=stone-pick copper-opportunity=absent "
+            "requested=500mg planned-local-work=80mg mining=80mg resource-knowledge-effect=changed-tool",
+            "FIELDWORK BULK CROSSOVER seed=0xA available=true tool=stone-quarry order=100mg "
+            "base-batches=10 current-order=80mg scope=diagnostic-visible-state no-hidden-reserve=true",
+            "FIELDWORK EXPERIENCE seed=0xB sample=organic outcome=completed order-horizon=bulk "
+            "field-inspections=2 geology=quarry-soft tool=stone-quarry copper-opportunity=absent "
+            "requested=500mg planned-local-work=150mg mining=150mg resource-knowledge-effect=same-tool",
+            "FIELDWORK BULK CROSSOVER seed=0xB available=true tool=stone-quarry order=100mg "
+            "base-batches=10 current-order=150mg scope=diagnostic-visible-state no-hidden-reserve=true",
+            "FIELDWORK EXPERIENCE seed=0xC sample=organic outcome=completed order-horizon=bulk "
+            "field-inspections=2 geology=hard-pick-specialist tool=copper-reinforced-hard-pick "
+            "copper-opportunity=available requested=500mg planned-local-work=500mg mining=500mg "
+            "resource-knowledge-effect=same-tool",
+            "FIELDWORK BULK CROSSOVER seed=0xC available=false sampled-through=96-base-batches "
+            "current-order=500mg scope=diagnostic-visible-state no-hidden-reserve=true",
+        ]
+        summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
+        self.assertIn(
+            "organic=[heavy:1/3 bulk:3/3 payback-sized:1/3 reserve-cut:1/3 no-market:1/3]",
             summary,
         )
 
@@ -2800,7 +2826,7 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "delegate=[mechanized-processing:1/1 settlement-orders:0/1 attention-saved:2041..2041t",
+            "delegate=[mechanized-processing:1/1 settlement-orders:0/1 order-attention-saved:2041..2041t",
             concise,
         )
         self.assertIn(

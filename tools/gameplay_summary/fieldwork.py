@@ -386,7 +386,35 @@ def _heavy_tool_market_summary(lines: list[str], fieldwork: list[str]) -> str:
         field(line, "tool") in {"stone-quarry", "copper-reinforced-quarry"}
         for line in organic_fieldwork
     )
-    organic_bulk = sum(" order-horizon=bulk " in line for line in organic_fieldwork)
+    organic_bulk_lines = [
+        line for line in organic_fieldwork if " order-horizon=bulk " in line
+    ]
+    crossover_by_seed: dict[str, int | None] = {}
+    for line in lines:
+        if not line.startswith("FIELDWORK BULK CROSSOVER "):
+            continue
+        seed = field(line, "seed")
+        if seed is None:
+            continue
+        order = re.search(r"\border=(\d+)mg", line)
+        crossover_by_seed[seed.lower()] = (
+            int(order.group(1))
+            if " available=true " in line and order is not None
+            else None
+        )
+    organic_payback_sized = 0
+    organic_reserve_cut = 0
+    organic_no_market = 0
+    for line in organic_bulk_lines:
+        seed = field(line, "seed")
+        planned = re.search(r"\bplanned-local-work=(\d+)mg", line)
+        crossover = crossover_by_seed.get(seed.lower()) if seed is not None else None
+        if seed is None or seed.lower() not in crossover_by_seed or crossover is None:
+            organic_no_market += 1
+        elif planned is not None and int(planned.group(1)) >= crossover:
+            organic_payback_sized += 1
+        else:
+            organic_reserve_cut += 1
 
     def signed_values(sample_lines: list[str], pattern: str) -> list[int]:
         return [
@@ -407,7 +435,10 @@ def _heavy_tool_market_summary(lines: list[str], fieldwork: list[str]) -> str:
         f"deferred:{len(deferred)} "
         f"unavail:{sum(' heavy-investment=unavailable' in line for line in tool_markets)} "
         f"organic=[heavy:{organic_heavy}/{len(organic_fieldwork)} "
-        f"bulk:{organic_bulk}/{len(organic_fieldwork)}] "
+        f"bulk:{len(organic_bulk_lines)}/{len(organic_fieldwork)} "
+        f"payback-sized:{organic_payback_sized}/{len(organic_bulk_lines)} "
+        f"reserve-cut:{organic_reserve_cut}/{len(organic_bulk_lines)} "
+        f"no-market:{organic_no_market}/{len(organic_bulk_lines)}] "
         "selected-payoff=["
         f"prep-extra:{_signed_span(signed_values(selected, r'\bheavy-preparation-extra=([+-]\d+)t'))} "
         f"order-saving:{_signed_span(signed_values(selected, r'\bheavy-order-saving=([+-]\d+)t'))} "

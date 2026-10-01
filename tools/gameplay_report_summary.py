@@ -42,7 +42,6 @@ _ORDINARY_DIGEST_FIELDS = {
         "feed-reassessment",
         "processing-crossover",
         "disclosed-order-attention",
-        "parallel-work",
     ),
     "primitive-liberation": (
         "cleanup-executed",
@@ -106,6 +105,7 @@ _ORDINARY_DIGEST_FIELDS = {
 _SCOPED_ORDINARY_DIGEST_FIELDS = {
     "primitive-progression": (
         *_ORDINARY_DIGEST_FIELDS["primitive-progression"],
+        "stockpile-alt",
         "executed-manual-fallback",
         "integrated-campaign",
         "reinvestment",

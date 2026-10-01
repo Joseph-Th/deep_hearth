@@ -34,7 +34,7 @@ fn focused_probe_cases_from(
 fn exploratory_fieldwork_uses_a_denser_organic_sample_without_widening_other_probes() {
     assert_eq!(
         exploratory_variation_count("fieldwork"),
-        EXPLORATORY_VARIATION_COUNT * 2
+        EXPLORATORY_VARIATION_COUNT * 3
     );
     assert_eq!(
         exploratory_variation_count("woodworking"),

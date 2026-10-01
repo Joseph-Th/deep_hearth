@@ -105,7 +105,7 @@ def _stockpiling_evidence(progression: list[str]) -> tuple[str, str]:
     return hard_span, stockpiling
 
 
-def _parallel_work_evidence(progression: list[str]) -> str:
+def _stockpiling_parallel_evidence(progression: list[str]) -> str:
     def values(pattern: str) -> list[int]:
         return [
             int(match.group(1))
@@ -114,11 +114,11 @@ def _parallel_work_evidence(progression: list[str]) -> str:
         ]
 
     return (
-        "parallel-work=["
-        f"feed-replenishment:{_span(values(r'\bfeed-attention:(\d+)t'))} "
-        f"maintenance-prep:{_span(values(r'\bmaintenance-prep-overlap:(\d+)t'))} "
-        f"useful-overlap:{_span(values(r'\bproductive-attention:(\d+)t'))} "
-        f"remaining-autonomous:{_span(values(r'\breturned-attention:(\d+)t'))}]"
+        "stockpile-alt=[selected:false "
+        f"feed:{_span(values(r'\bfeed-attention:(\d+)t'))} "
+        f"maint:{_span(values(r'\bmaintenance-prep-overlap:(\d+)t'))} "
+        f"overlap:{_span(values(r'\bproductive-attention:(\d+)t'))} "
+        f"open:{_span(values(r'\breturned-attention:(\d+)t'))}]"
     )
 
 
@@ -355,7 +355,7 @@ def progression_summary(lines: list[str]) -> str | None:
         f"converged:{sum('converged-both-upgrades:true' in line for line in progression)}] "
         f"hard-access-lead={hard_span} "
         f"{stockpiling} "
-        f"{_parallel_work_evidence(progression)} "
+        f"{_stockpiling_parallel_evidence(progression)} "
         f"stockpiling-counterfactual-outcome=[complete:{sum('economics:finite-stockpile-order-complete' in line for line in progression)} "
         f"supply-ended:{sum('economics:supply-ended' in line for line in progression)}] "
         f"{processing_recovery} "
