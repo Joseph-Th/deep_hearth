@@ -28,6 +28,43 @@ fn choose_fieldwork_tool(
     )
 }
 
+#[test]
+fn organic_bulk_orders_cross_the_live_heavy_tool_market() {
+    let registries = deep_hearth::content::build_registries();
+    let limits = fieldwork_mining_limits(&registries);
+    let (state, raw, parts) = fieldwork_planning_fixture(&registries, true);
+    let mut selected_light = false;
+    let mut selected_heavy = false;
+
+    for seed in 1_u64..=256 {
+        let order = bulk_fieldwork_order(limits.base_quarry_batch, seed);
+        let selected = choose_fieldwork_tool(
+            &registries,
+            &state,
+            raw,
+            parts,
+            limits.reinforced_quarry_hardness,
+            order,
+        )
+        .unwrap_or_else(|| {
+            panic!("generated bulk fieldwork order lost every feasible mining tool")
+        });
+        if selected.tool.target == EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK {
+            selected_heavy = true;
+        } else if selected.tool.target == EQUIPMENT_COPPER_REINFORCED_PICK {
+            selected_light = true;
+        }
+        if selected_light && selected_heavy {
+            break;
+        }
+    }
+
+    assert!(
+        selected_light && selected_heavy,
+        "organic bulk demand must span both sides of the current reinforced quarry investment crossover"
+    );
+}
+
 /// Preserves the executed follow-up order when the selected tool's known batch cap applies.
 ///
 /// The actor already knows the selected tool's batch capacity from its planning frame, so it must

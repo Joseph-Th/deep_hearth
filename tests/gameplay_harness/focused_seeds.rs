@@ -6,6 +6,19 @@ use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
 pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 4;
 
+/// Returns the bounded organic sample size used by an exploratory report.
+///
+/// Fieldwork combines independent demand, reserve scale, geology, and material-access regimes, so
+/// four worlds are too sparse to tell whether its investment choices emerge outside maintained
+/// witnesses. Doubling only that exploratory sample keeps routine gates unchanged and cheap.
+pub(super) fn exploratory_variation_count(name: &str) -> usize {
+    if name == "fieldwork" {
+        EXPLORATORY_VARIATION_COUNT * 2
+    } else {
+        EXPLORATORY_VARIATION_COUNT
+    }
+}
+
 pub(super) fn probe_uses_behavior_seed(name: &str) -> bool {
     matches!(
         name,

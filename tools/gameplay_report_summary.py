@@ -238,6 +238,12 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         return f"GAMEPLAY probe={probe} {detail}".rstrip()
 
     if summary.startswith("PLAYER LOOP EVIDENCE "):
+        evidence_shape = field(summary, "evidence-shape")
+        continuity = ""
+        marker = "single-state-progression:"
+        if evidence_shape is not None and marker in evidence_shape:
+            ratio = evidence_shape.split(marker, 1)[1].split(" ", 1)[0].rstrip("]")
+            continuity = f"continuity=[primitive:{ratio} later:separate] "
         core = compact_fields(
             summary,
             (
@@ -260,7 +266,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
             ),
         )
         return (
-            f"GAMEPLAY loop {core}".rstrip()
+            f"GAMEPLAY loop {continuity}{core}".rstrip()
             + "\n"
             + f"GAMEPLAY loop-investment {investment}".rstrip()
             + "\n"

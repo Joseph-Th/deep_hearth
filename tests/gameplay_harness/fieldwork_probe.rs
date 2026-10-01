@@ -29,8 +29,8 @@ use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cy
 use super::seed::mix64;
 
 const FIELDWORK_KNOWN_SITE_REPEAT_HORIZON: u64 = 12;
-const FIELDWORK_BULK_ORDER_BATCHES: u64 = 48;
 const FIELDWORK_BULK_ORDER_MIN_BATCHES: u64 = 32;
+const FIELDWORK_BULK_ORDER_MAX_BATCHES: u64 = 96;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_SEED: u64 = 0;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_BATCHES: u64 = 64;
 const FIELDWORK_REINFORCED_BULK_COVERAGE_SUPPLY_BATCHES: u64 = 80;
@@ -92,17 +92,20 @@ fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
     let batch = fieldwork_mining_limits(registries).base_quarry_batch;
     match mix64(seed ^ 0x4649_454C_4444_454D) % 4 {
         0 => short_fieldwork_order(batch, seed),
-        1 => multiplied_mass(
-            batch,
-            FIELDWORK_BULK_ORDER_BATCHES,
-            "settlement-scale bulk fieldwork project",
-        ),
+        1 => bulk_fieldwork_order(batch, seed),
         _ => multiplied_mass(
             primitive_mining_cycle_mass(registries, seed),
             STOCKPILE_WORK_ORDER_CYCLES,
             "current primitive processing project",
         ),
     }
+}
+
+fn bulk_fieldwork_order(batch: Mass, seed: u64) -> Mass {
+    let batch_span = FIELDWORK_BULK_ORDER_MAX_BATCHES - FIELDWORK_BULK_ORDER_MIN_BATCHES + 1;
+    let batches =
+        FIELDWORK_BULK_ORDER_MIN_BATCHES + mix64(seed ^ 0x4649_454C_4442_4C4B) % batch_span;
+    multiplied_mass(batch, batches, "settlement-scale bulk fieldwork project")
 }
 
 fn survey_investment_policy(case: FocusedProbeCase) -> FieldworkSurveyPolicy {

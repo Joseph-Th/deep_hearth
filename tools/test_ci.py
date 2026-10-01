@@ -2631,6 +2631,10 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("orders=[short:1 project:2 bulk:0]", summary)
         self.assertIn(
+            "heavy-tool-market=[selected:0 deferred:0 unavail:0 organic=[heavy:0/1 bulk:0/1]",
+            summary,
+        )
+        self.assertIn(
             "initial-shortfall-campaign=[cases:1 strategy:point0/indexed1 survey-upgrade:40..40t "
             "realized-search=[positive:1 negative:0 flat:0 delta:+26..+26t] "
             "realized-total=[positive:1 negative:0 flat:0 delta:+16..+16t] "
@@ -2793,7 +2797,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("choice=[saw:0 adze:0 bare:1]", concise)
         self.assertIn(
-            "heavy-tool-market=[selected:0 deferred:1 unavailable:0",
+            "heavy-tool-market=[selected:0 deferred:1 unavail:0",
             concise,
         )
         self.assertNotIn("project-experience=[", concise)
@@ -2811,6 +2815,10 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertNotIn("integrated-campaign=[", concise)
         self.assertNotIn("work-interlock=[", concise)
         self.assertIn("GAMEPLAY loop-investment thermal-bootstrap=1/1", concise)
+        self.assertIn(
+            "GAMEPLAY loop continuity=[primitive:1/1 later:separate]",
+            concise,
+        )
         self.assertIn(
             "delegate=[mechanized-processing:1/1 settlement-orders:0/1 attention-saved:2041..2041t",
             concise,

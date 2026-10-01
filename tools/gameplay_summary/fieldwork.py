@@ -367,7 +367,7 @@ def _survey_campaign_summary(lines: list[str]) -> str:
     )
 
 
-def _heavy_tool_market_summary(lines: list[str]) -> str:
+def _heavy_tool_market_summary(lines: list[str], fieldwork: list[str]) -> str:
     tool_markets = [
         line
         for line in lines
@@ -381,6 +381,12 @@ def _heavy_tool_market_summary(lines: list[str]) -> str:
     deferred = [
         line for line in tool_markets if " heavy-investment=deferred" in line
     ]
+    organic_fieldwork = organic_only(fieldwork)
+    organic_heavy = sum(
+        field(line, "tool") in {"stone-quarry", "copper-reinforced-quarry"}
+        for line in organic_fieldwork
+    )
+    organic_bulk = sum(" order-horizon=bulk " in line for line in organic_fieldwork)
 
     def signed_values(sample_lines: list[str], pattern: str) -> list[int]:
         return [
@@ -399,12 +405,14 @@ def _heavy_tool_market_summary(lines: list[str]) -> str:
         "heavy-tool-market=["
         f"selected:{len(selected)} "
         f"deferred:{len(deferred)} "
-        f"unavailable:{sum(' heavy-investment=unavailable' in line for line in tool_markets)} "
-        "selected-economics=["
+        f"unavail:{sum(' heavy-investment=unavailable' in line for line in tool_markets)} "
+        f"organic=[heavy:{organic_heavy}/{len(organic_fieldwork)} "
+        f"bulk:{organic_bulk}/{len(organic_fieldwork)}] "
+        "selected-payoff=["
         f"prep-extra:{_signed_span(signed_values(selected, r'\bheavy-preparation-extra=([+-]\d+)t'))} "
         f"order-saving:{_signed_span(signed_values(selected, r'\bheavy-order-saving=([+-]\d+)t'))} "
         f"net-saving:{_signed_span(selected_net_savings)}] "
-        "deferred-economics=["
+        "deferred-cost=["
         f"prep-extra:{_signed_span(signed_values(deferred, r'\bheavy-preparation-extra=([+-]\d+)t'))} "
         f"order-saving:{_signed_span(signed_values(deferred, r'\bheavy-order-saving=([+-]\d+)t'))} "
         f"net-penalty:{_signed_span(signed_values(deferred, r'\bheavy-total-delta=([+-]\d+)t'))}]]"
@@ -477,7 +485,7 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         f"{depletion_adaptation} "
         f"{_initial_shortfall_recovery_summary(lines)} "
         f"{_survey_campaign_summary(lines)} "
-        f"{_heavy_tool_market_summary(lines)} "
+        f"{_heavy_tool_market_summary(lines, fieldwork)} "
         f"{_bulk_crossover_summary(lines)} "
         f"geology=[soft:{count('geology=quarry-soft')} "
         f"reinforcement:{count('geology=quarry-reinforcement')} "

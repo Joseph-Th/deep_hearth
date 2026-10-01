@@ -3,7 +3,8 @@
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeSeedError, FocusedProbeSeedPlan,
-    focused_probe_cases_from as build_focused_probe_cases, probe_uses_behavior_seed,
+    exploratory_variation_count, focused_probe_cases_from as build_focused_probe_cases,
+    probe_uses_behavior_seed,
 };
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
@@ -27,6 +28,22 @@ fn focused_probe_cases_from(
         default_variation_root,
         default_behavior_root: Some(0xB3A4_7102_5EED_2026),
     })
+}
+
+#[test]
+fn exploratory_fieldwork_uses_a_denser_organic_sample_without_widening_other_probes() {
+    assert_eq!(
+        exploratory_variation_count("fieldwork"),
+        EXPLORATORY_VARIATION_COUNT * 2
+    );
+    assert_eq!(
+        exploratory_variation_count("woodworking"),
+        EXPLORATORY_VARIATION_COUNT
+    );
+    assert_eq!(
+        exploratory_variation_count("power-provider"),
+        EXPLORATORY_VARIATION_COUNT
+    );
 }
 
 #[test]

@@ -43,6 +43,38 @@ fn exploratory_supply_spans_shallow_common_and_bulk_opportunities() {
 }
 
 #[test]
+fn exploratory_supply_keeps_every_reserve_regime_visible_in_bounded_sampling() {
+    let registries = deep_hearth::content::build_registries();
+    let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
+    let shallow_max =
+        scaled_fieldwork_supply(base_batch, FIELDWORK_SHALLOW_SUPPLY_MAX_PPM).milligrams();
+    let bulk_min = scaled_fieldwork_supply(base_batch, FIELDWORK_BULK_SUPPLY_MIN_PPM).milligrams();
+    let sample_count = 256_u64;
+    let minimum_visible = sample_count / 6;
+    let mut shallow = 0_u64;
+    let mut common = 0_u64;
+    let mut bulk = 0_u64;
+
+    for seed in 0..sample_count {
+        let supply = fieldwork_supply(&registries, seed).milligrams();
+        if supply <= shallow_max {
+            shallow += 1;
+        } else if supply >= bulk_min {
+            bulk += 1;
+        } else {
+            common += 1;
+        }
+    }
+
+    for (label, count) in [("shallow", shallow), ("common", common), ("bulk", bulk)] {
+        assert!(
+            count >= minimum_visible,
+            "{label} reserve opportunities are too rare for a bounded organic gameplay sample: {count}/{sample_count}"
+        );
+    }
+}
+
+#[test]
 fn exploratory_demand_and_reserve_scale_are_not_coupled() {
     let registries = deep_hearth::content::build_registries();
     let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;

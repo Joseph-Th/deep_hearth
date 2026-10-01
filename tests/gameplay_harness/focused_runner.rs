@@ -7,7 +7,7 @@ use deep_hearth::registry::Registries;
 
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_seeds::{
-    EXPLORATORY_VARIATION_COUNT, FocusedProbeSeedPlan, focused_probe_cases_from,
+    FocusedProbeSeedPlan, exploratory_variation_count, focused_probe_cases_from,
     probe_uses_behavior_seed,
 };
 use super::focused_witnesses::{
@@ -214,7 +214,7 @@ pub(super) fn run_focused_probe_with_registries(
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let requested_variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let variation_count = if explore {
-        EXPLORATORY_VARIATION_COUNT
+        exploratory_variation_count(name)
     } else if requested_variation_raw.is_some() {
         1
     } else {

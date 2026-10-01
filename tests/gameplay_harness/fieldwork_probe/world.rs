@@ -73,7 +73,10 @@ pub(super) fn fieldwork_supply(registries: &Registries, seed: u64) -> Mass {
     let base_batch = fieldwork_mining_limits(registries).base_quarry_batch;
     let variation = mix64(seed ^ 0x4649_454C_4452_5356);
     let shallow = mix64(seed ^ 0x4649_454C_4453_5554) % 4 == 1;
-    let bulk = !shallow && mix64(seed ^ 0x4649_454C_4442_554C).is_multiple_of(8);
+    // Keep the two tail regimes common enough for a bounded exploratory report to experience them
+    // without coordinating reserve truth with demand. The independent hashes yield roughly one
+    // quarter shallow, one half common, and one quarter bulk opportunities.
+    let bulk = !shallow && mix64(seed ^ 0x4649_454C_4442_554C).is_multiple_of(3);
     let scale_ppm = if shallow {
         FIELDWORK_SHALLOW_SUPPLY_MIN_PPM
             + variation % (FIELDWORK_SHALLOW_SUPPLY_MAX_PPM - FIELDWORK_SHALLOW_SUPPLY_MIN_PPM + 1)
