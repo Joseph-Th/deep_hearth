@@ -473,16 +473,15 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
             .iter()
             .flat_map(|destinations| destinations.iter().copied()),
     );
-    super::super::world_admission::locate_stationary_endpoints(
+    super::super::world_admission::admit_stationary_player(
+        registries,
         &mut state,
         &stationary_stockpiles.into_iter().collect::<Vec<_>>(),
         &[],
+        "preservation infrastructure",
     );
     // Player admission ends fixture mutation; the subepisode then uses only canonical production
     // work and simulation ticks.
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("preservation infrastructure player setup failed: {error}"));
-    super::super::world_admission::initialize_stationary_player_logistics(&mut state);
     let projection_started_at = state.tick();
     let transition_at = SimulationTick::new(
         projection_started_at

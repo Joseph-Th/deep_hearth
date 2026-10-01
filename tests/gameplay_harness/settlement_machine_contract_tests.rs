@@ -5,16 +5,16 @@ use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH, EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
     EQUIPMENT_TIMBER_SPRING_POLE_LATHE, EQUIPMENT_TIMBER_TREADLE_GRINDSTONE, FORM_BOARD, FORM_CHIP,
-    FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_HANDLE, FORM_LOG, FORM_REINFORCEMENT, FORM_SCRAP,
-    FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_POWER_GRIND_STONE_SCRAP_TOOL,
-    PROCESS_POWER_TURN_TIMBER_FLYWHEEL, PROCESS_SHAPE_TIMBER_FLYWHEEL, build_registries,
+    FORM_FLYWHEEL, FORM_LOG, FORM_SCRAP, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_GRIND_STONE_SCRAP_TOOL,
+    PROCESS_POWER_GRIND_STONE_SCRAP_TOOL, PROCESS_POWER_TURN_TIMBER_FLYWHEEL,
+    PROCESS_SHAPE_TIMBER_FLYWHEEL, build_registries,
 };
 #[cfg(test)]
 use deep_hearth::content::{
     EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_TIMBER_SASH_SAWMILL, FORM_NATIVE_METAL,
-    FORM_SAW_BLADE, PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_POWER_SAW_WOOD_BOARDS,
-    PROCESS_SAW_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_POWER_SAW_WOOD_BOARDS, PROCESS_SAW_WOOD_BOARDS,
+    PROCESS_SHAPE_WOOD_HANDLE,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -28,7 +28,6 @@ use deep_hearth::inventory::{MaterialLotSelection, StockpileStorageProfile};
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::survival::initialize_player_survival;
 
 #[cfg(test)]
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
@@ -103,31 +102,14 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
     // Disclosed bootstrap: the settlement already owns the earlier frame-saw and mechanical-work
     // tier. The decision under test is whether to keep using that durable infrastructure or spend
     // current raw material and attention converting it into unattended sawing capacity.
-    let bootstrap = seed_stockpile(
+    let bootstrap = super::settlement_fixture::seed_inherited_workshop_package(
+        &registries,
         &mut state,
-        Mass::from_milligrams(4_054_000),
-        StockpileStorageProfile::unbounded_solid_only(),
+        &[EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_STONE_HAND_CRANK],
+        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[],
+        "sawmill prior workshop",
     );
-    for (commodity, mass) in [
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            Mass::from_milligrams(1_600_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(600_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
-            Mass::from_milligrams(54_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(1_800_000),
-        ),
-    ] {
-        seed_material(&registries, &mut state, bootstrap, commodity, mass);
-    }
     let upgrade_raw = seed_stockpile(
         &mut state,
         Mass::from_milligrams(6_020_000),
@@ -180,8 +162,20 @@ fn sash_sawmill_upgrades_existing_workshop_only_when_disclosed_lumber_demand_rep
         StockpileStorageProfile::unbounded_solid_only(),
     );
 
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("sawmill investment survival setup failed: {error}"));
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[
+            bootstrap,
+            upgrade_raw,
+            upgrade_parts,
+            work_source,
+            baseline_output,
+            powered_output,
+        ],
+        &[],
+        "sawmill investment",
+    );
     let frame_saw = validate_assemble_equipment(
         &registries,
         &state,
@@ -531,55 +525,17 @@ pub(super) fn run_timbershop_lathe_delegation_experience() {
     );
     let mut state = AppState::new();
 
-    let bootstrap = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(7_920_000),
-        StockpileStorageProfile::unbounded_solid_only(),
-    );
-    for (commodity, mass) in [
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            Mass::from_milligrams(3_200_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(1_200_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(800_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(2_700_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-            Mass::from_milligrams(20_000),
-        ),
-    ] {
-        seed_material(&registries, &mut state, bootstrap, commodity, mass);
-    }
-
-    let pole_lathe = validate_assemble_equipment(
+    let bootstrap = super::settlement_fixture::seed_inherited_workshop_package(
         &registries,
-        &state,
-        EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
-        bootstrap,
-    )
-    .unwrap_or_else(|error| panic!("spring-pole lathe settlement assembly failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("spring-pole lathe settlement commit failed: {error}"));
-    let crank =
-        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_HAND_CRANK, bootstrap)
-            .unwrap_or_else(|error| panic!("lathe settlement crank assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("lathe settlement crank commit failed: {error}"));
-    let drive =
-        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, bootstrap)
-            .unwrap_or_else(|error| panic!("lathe settlement flywheel assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("lathe settlement flywheel commit failed: {error}"));
+        &mut state,
+        &[
+            EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+            EQUIPMENT_STONE_HAND_CRANK,
+        ],
+        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[EQUIPMENT_TIMBER_FLYWHEEL_LATHE],
+        "lathe settlement package",
+    );
 
     let source = seed_stockpile(
         &mut state,
@@ -599,8 +555,32 @@ pub(super) fn run_timbershop_lathe_delegation_experience() {
         StockpileStorageProfile::unbounded_solid_only(),
     );
 
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("lathe settlement survival setup failed: {error}"));
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[bootstrap, source, output],
+        &[],
+        "lathe settlement",
+    );
+    let pole_lathe = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+        bootstrap,
+    )
+    .unwrap_or_else(|error| panic!("spring-pole lathe settlement assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("spring-pole lathe settlement commit failed: {error}"));
+    let crank =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_HAND_CRANK, bootstrap)
+            .unwrap_or_else(|error| panic!("lathe settlement crank assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("lathe settlement crank commit failed: {error}"));
+    let drive =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, bootstrap)
+            .unwrap_or_else(|error| panic!("lathe settlement flywheel assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("lathe settlement flywheel commit failed: {error}"));
 
     let hand = resolve_manual_craft(
         &registries,
@@ -770,35 +750,17 @@ pub(super) fn run_toolroom_grindstone_delegation_experience() {
     );
     let mut state = AppState::new();
 
-    let bootstrap = seed_stockpile(
+    let bootstrap = super::settlement_fixture::seed_inherited_workshop_package(
+        &registries,
         &mut state,
-        Mass::from_milligrams(8_520_000),
-        StockpileStorageProfile::unbounded_solid_only(),
+        &[
+            EQUIPMENT_TIMBER_TREADLE_GRINDSTONE,
+            EQUIPMENT_STONE_HAND_CRANK,
+        ],
+        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[EQUIPMENT_TIMBER_FLYWHEEL_GRINDING_BENCH],
+        "toolroom settlement package",
     );
-    for (commodity, mass) in [
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_GRINDSTONE_WHEEL),
-            Mass::from_milligrams(1_400_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            Mass::from_milligrams(3_200_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(1_200_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(2_700_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
-            Mass::from_milligrams(20_000),
-        ),
-    ] {
-        seed_material(&registries, &mut state, bootstrap, commodity, mass);
-    }
     let source = seed_stockpile(
         &mut state,
         toolroom_batch.input_mass,
@@ -816,8 +778,13 @@ pub(super) fn run_toolroom_grindstone_delegation_experience() {
         toolroom_batch.input_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("toolroom settlement survival setup failed: {error}"));
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[bootstrap, source, output],
+        &[],
+        "toolroom settlement",
+    );
 
     let treadle = validate_assemble_equipment(
         &registries,

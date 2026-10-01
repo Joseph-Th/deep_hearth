@@ -186,6 +186,8 @@ mod scenario_tests;
 mod seed_contract_tests;
 #[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
 mod settlement_drill_contract_tests;
+#[path = "gameplay_harness/settlement_fixture.rs"]
+mod settlement_fixture;
 #[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
 mod settlement_helve_contract_tests;
 #[path = "gameplay_harness/settlement_machine_contract_tests.rs"]

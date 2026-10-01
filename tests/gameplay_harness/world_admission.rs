@@ -12,7 +12,9 @@ use deep_hearth::logistics::{
     validate_initialize_player_logistics, validate_place_fluid_store,
     validate_place_ground_stockpile,
 };
+use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelCoord;
+use deep_hearth::survival::initialize_player_survival;
 
 pub(super) const STATIONARY_PLAYER_ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
 
@@ -71,4 +73,19 @@ pub(super) fn initialize_stationary_player_logistics(state: &mut AppState) {
         .unwrap_or_else(|error| {
             panic!("stationary gameplay logistics initialization commit failed: {error}")
         });
+}
+
+/// Admits one ordinary stationary episode through both player owners after all fixture seeding.
+pub(super) fn admit_stationary_player(
+    registries: &Registries,
+    state: &mut AppState,
+    stockpiles: &[StockpileId],
+    fluid_stores: &[FluidStoreId],
+    context: &'static str,
+) {
+    locate_stationary_endpoints(state, stockpiles, fluid_stores);
+    initialize_player_survival(registries, state).unwrap_or_else(|error| {
+        panic!("stationary gameplay {context} survival initialization failed: {error}")
+    });
+    initialize_stationary_player_logistics(state);
 }

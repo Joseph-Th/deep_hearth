@@ -46,8 +46,6 @@ mod structural_fixture;
 mod temporal;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
-#[path = "gameplay_harness/world_admission.rs"]
-mod world_admission;
 #[cfg(test)]
 #[test]
 fn gameplay_foundry_probe() {

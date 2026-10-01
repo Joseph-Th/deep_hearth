@@ -219,7 +219,8 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("woodworking initial matter audit failed: {error}"))
         .total();
-    super::super::world_admission::locate_stationary_endpoints(
+    super::super::world_admission::admit_stationary_player(
+        registries,
         &mut state,
         &[
             raw,
@@ -232,10 +233,8 @@ fn build_woodworking_world(registries: &Registries, seed: u64) -> WoodworkingWor
             saw_spent,
         ],
         &[],
+        "woodworking investment",
     );
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("woodworking survival setup failed: {error}"));
-    super::super::world_admission::initialize_stationary_player_logistics(&mut state);
     WoodworkingWorld {
         state,
         raw,

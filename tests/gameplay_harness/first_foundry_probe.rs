@@ -27,7 +27,7 @@ use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::validate_start_process;
 use deep_hearth::registry::Registries;
-use deep_hearth::survival::{assess_survival, initialize_player_survival};
+use deep_hearth::survival::assess_survival;
 use deep_hearth::thermal::{
     MeltingRequest, calculate_fusion_heat, calculate_sensible_heat, resolve_melting_process,
 };
@@ -349,7 +349,8 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             ROOM_TEMPERATURE,
         );
     }
-    super::world_admission::locate_stationary_endpoints(
+    super::world_admission::admit_stationary_player(
+        registries,
         &mut state,
         &[
             raw,
@@ -363,10 +364,8 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
             settlement_output,
         ],
         &[],
+        "first foundry",
     );
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("first foundry survival setup failed: {error}"));
-    super::world_admission::initialize_stationary_player_logistics(&mut state);
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("first foundry player survival disappeared"));
     let matter_before = calculate_matter_accounting(&state)

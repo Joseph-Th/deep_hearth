@@ -23,7 +23,7 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
-use deep_hearth::survival::{assess_survival, initialize_player_survival};
+use deep_hearth::survival::assess_survival;
 
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
@@ -50,6 +50,53 @@ const SETTLEMENT_OPPORTUNITY_BATCHES: u64 =
 enum LumberInvestmentChoice {
     FrameSaw,
     SashSawmill,
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+
+    #[test]
+    fn organic_settlement_generation_straddles_supplied_crossovers_and_varies_actor_policy() {
+        let cases = (1_u64..=128)
+            .map(|seed| {
+                FocusedProbeCase::new(
+                    seed,
+                    Some(seed.rotate_left(17)),
+                    FocusedProbeRole::OrganicVariation,
+                )
+            })
+            .collect::<Vec<_>>();
+        for crossover in [4_u64, 8, 16, 32, 64, 96] {
+            let demands = cases
+                .iter()
+                .copied()
+                .map(|case| declared_lumber_batches(case, crossover))
+                .collect::<BTreeSet<_>>();
+            assert!(
+                demands.len() > 1,
+                "organic settlement generation collapsed to one disclosed order around crossover {crossover}"
+            );
+            assert!(
+                demands.iter().any(|batches| *batches < crossover)
+                    && demands.iter().any(|batches| *batches > crossover),
+                "organic settlement demand must sample both sides of supplied crossover {crossover}"
+            );
+        }
+        assert!(
+            cases
+                .iter()
+                .copied()
+                .map(investment_policy)
+                .map(CapitalInvestmentPolicy::minimum_return_ppm)
+                .collect::<BTreeSet<_>>()
+                .len()
+                > 1,
+            "organic settlement actor policy collapsed to one capital-return preference"
+        );
+    }
 }
 
 #[path = "settlement_probe/lumber_followup.rs"]
@@ -114,56 +161,14 @@ fn seed_prior_workshop(
     registries: &Registries,
     state: &mut AppState,
 ) -> deep_hearth::inventory::StockpileId {
-    let mut requirements = BTreeMap::<CommodityKey, Mass>::new();
-    for equipment in [EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_STONE_HAND_CRANK] {
-        let profile = registries
-            .equipment()
-            .get_equipment(equipment)
-            .and_then(|definition| definition.assembly_profile())
-            .unwrap_or_else(|| panic!("settlement prior equipment lost assembly profile"));
-        for input in profile.inputs() {
-            add_requirement(
-                &mut requirements,
-                input.commodity(),
-                input.mass(),
-                "prior-workshop",
-            );
-        }
-    }
-    let drive_profile = registries
-        .energy()
-        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
-        .and_then(|definition| definition.assembly_profile())
-        .unwrap_or_else(|| panic!("settlement prior flywheel lost assembly profile"));
-    for input in drive_profile.inputs() {
-        add_requirement(
-            &mut requirements,
-            input.commodity(),
-            input.mass(),
-            "prior-workshop",
-        );
-    }
-    let capacity = requirements
-        .values()
-        .copied()
-        .try_fold(Mass::ZERO, Mass::checked_add)
-        .unwrap_or_else(|| panic!("settlement prior-workshop capacity overflowed"));
-    let stockpile = seed_stockpile(
+    super::settlement_fixture::seed_inherited_workshop_package(
+        registries,
         state,
-        capacity,
-        StockpileStorageProfile::unbounded_solid_only(),
-    );
-    for (commodity, mass) in requirements {
-        seed_lot(
-            registries,
-            state,
-            stockpile,
-            commodity,
-            mass,
-            ROOM_TEMPERATURE,
-        );
-    }
-    stockpile
+        &[EQUIPMENT_TIMBER_FRAME_SAW_BENCH, EQUIPMENT_STONE_HAND_CRANK],
+        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[],
+        "focused settlement prior workshop",
+    )
 }
 
 fn settlement_upgrade_raw_requirements(registries: &Registries) -> BTreeMap<CommodityKey, Mass> {
@@ -493,14 +498,13 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
         opportunity_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    super::world_admission::locate_stationary_endpoints(
+    super::world_admission::admit_stationary_player(
+        registries,
         &mut state,
         &[bootstrap, upgrade_raw, upgrade_parts, work_source, output],
         &[],
+        "focused settlement",
     );
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("settlement survival setup failed: {error}"));
-    super::world_admission::initialize_stationary_player_logistics(&mut state);
 
     let frame_saw = validate_assemble_equipment(
         registries,

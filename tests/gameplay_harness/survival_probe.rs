@@ -451,13 +451,15 @@ fn evaluate_diet_recovery_consequence(
         drink_supply,
         ROOM_TEMPERATURE,
     );
-    super::world_admission::locate_stationary_endpoints(&mut state, &[food_store], &[drink_store]);
-
     // Every provision exists before admission. The vitality deficit is created only by canonical
     // simulation ticks so the recovery decision does not depend on post-admission fixture mutation.
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("diet-recovery player initialization failed: {error}"));
-    super::world_admission::initialize_stationary_player_logistics(&mut state);
+    super::world_admission::admit_stationary_player(
+        registries,
+        &mut state,
+        &[food_store],
+        &[drink_store],
+        "diet recovery",
+    );
     let maximum_deprivation_ticks = registries
         .core()
         .calendar()

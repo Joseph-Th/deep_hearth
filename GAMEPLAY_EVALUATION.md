@@ -28,6 +28,10 @@ authorization, or comparison-branch outcomes.
 `src/content/gameplay_fixture.rs` owns pre-admission fixture construction and opaque authorization for disclosed
 controlled events. Pre-admission ends when the survival or logistics player is initialized. After that boundary,
 all consequential changes use canonical runtime operations. Fixture authorization is never actor-visible evidence.
+Ordinary exact-local episodes locate every disclosed pre-existing stationary endpoint before that boundary, then
+initialize both survival and player logistics before actor work begins. The runtime's no-logistics-player locality
+fallback is valid only for controlled-capability fixtures or explicitly movement-abstracted evidence; it cannot
+support an exact-local ordinary-play claim.
 
 Actor policy may choose among observable alternatives using attention, material demand, survival reserve,
 throughput, capacity, condition, and acquired evidence. Production owns legality and physics; actor code owns
@@ -115,7 +119,7 @@ unless production owns and proves the equivalent authoritative transition.
 
 | Mode | Surface | Supported conclusion |
 | --- | --- | --- |
-| Ordinary/runtime, exact-local | focused `survival`, `primitive-liberation`; report `woodworking`, `power-provider`, first-foundry episode | Automated-player outcomes through ordinary acquisition and the same logistics-locality admission used by the runtime. |
+| Ordinary/runtime, exact-local | focused `survival`, `primitive-liberation`, `woodworking`, `power-provider`, `settlement`, `foundry-bootstrap` | Automated-player outcomes through ordinary acquisition and the same logistics-locality admission used by the runtime. |
 | Ordinary-system spatial proxy | focused `progression`; report `fieldwork` | Ordinary geology, production, equipment, survival, evidence, and investment semantics with actor movement intentionally abstracted because the runtime has no movement/path authority yet. These episodes support knowledge/tool/resource-loop conclusions, not travel/locality conclusions. |
 | Controlled capability | `workshop`, `ore`, `foundry` | Canonical mechanics under disclosed prearranged infrastructure, not ordinary reachability. |
 | Counterfactual | matched branches | Action-attributable differences from one actor-visible starting state over one fixed comparison horizon. |
@@ -186,6 +190,10 @@ turning qualitative coverage into a probabilistic requirement. Organic generator
 straddle an authored threshold, equipment scale, storage capacity, or production crossover derive that scale from
 the current production definitions/projections. Fixed numeric pressure is appropriate only when the number itself
 is the disclosed world condition or player goal, not when it is standing in for an authored requirement.
+An organic seed must materially affect actor-visible world pressure, actor policy, or both; changing only a replay
+label is not variation. For bounded generators whose purpose depends on spanning distinct pressures or decision
+regimes, keep a cheap direct generator contract that samples enough seeds to detect collapse without replacing the
+end-to-end focused episode.
 Partial or blocked outcomes must preserve trusted-load validity and relevant conservation. Selected-path summaries
 must not count counterfactual, coverage-only, or negative-control branches as player experience.
 

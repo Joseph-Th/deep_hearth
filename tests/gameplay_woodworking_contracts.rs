@@ -29,6 +29,8 @@ mod tick_observation;
 )]
 #[path = "gameplay_harness/woodworking_policy.rs"]
 mod woodworking_policy;
+#[path = "gameplay_harness/world_admission.rs"]
+mod world_admission;
 
 #[path = "gameplay_harness/saw_bench_contract_tests.rs"]
 mod saw_bench_contract_tests;

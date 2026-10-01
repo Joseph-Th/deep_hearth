@@ -27,7 +27,6 @@ use deep_hearth::labor::ManualPowerMethodId;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
-use deep_hearth::survival::initialize_player_survival;
 
 use super::capital_investment_policy::CapitalInvestmentPolicy;
 use super::environment::ROOM_TEMPERATURE;
@@ -511,7 +510,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         ROOM_TEMPERATURE,
         copper_ore_composition(350_000, 200_000),
     );
-    super::world_admission::locate_stationary_endpoints(
+    super::world_admission::admit_stationary_player(
+        registries,
         &mut state,
         &[
             raw,
@@ -523,10 +523,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             shaped,
         ],
         &[primitive_provisions.water],
+        "primitive power-provider",
     );
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("power provider survival setup failed: {error}"));
-    super::world_admission::initialize_stationary_player_logistics(&mut state);
     let baseline_primitive_crossover = planning::primitive_power_decision_crossover_charges(
         registries,
         &state,
@@ -639,7 +637,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_service_spent =
         add_solid_stockpile(&mut settlement_state, settlement_raw_capacity);
     let settlement_provisions = seed_power_project_provisions(registries, &mut settlement_state);
-    super::world_admission::locate_stationary_endpoints(
+    super::world_admission::admit_stationary_player(
+        registries,
         &mut settlement_state,
         &[
             settlement_raw,
@@ -651,10 +650,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             settlement_provisions.food,
         ],
         &[settlement_provisions.water],
+        "settlement power-provider",
     );
-    initialize_player_survival(registries, &mut settlement_state)
-        .unwrap_or_else(|error| panic!("settlement power survival setup failed: {error}"));
-    super::world_admission::initialize_stationary_player_logistics(&mut settlement_state);
     let baseline_settlement_crossover = planning::settlement_power_decision_crossover_charges(
         registries,
         &settlement_state,

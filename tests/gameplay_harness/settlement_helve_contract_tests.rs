@@ -3,11 +3,10 @@
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_HELVE_HAMMER,
-    EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG,
-    FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-    PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT, PROCESS_SHAPE_WOOD_BOARDS,
-    PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+    EQUIPMENT_TIMBER_TREADLE_HAMMER, FORM_LOG, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_WOOD,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,
+    PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -20,7 +19,6 @@ use deep_hearth::inventory::{MaterialLotSelection, StockpileStorageProfile};
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::survival::initialize_player_survival;
 
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
@@ -60,31 +58,14 @@ pub(super) fn run_helve_hammer_investment_experience() {
     );
     let mut state = AppState::new();
 
-    let bootstrap = seed_stockpile(
+    let bootstrap = super::settlement_fixture::seed_inherited_workshop_package(
+        &registries,
         &mut state,
-        Mass::from_milligrams(6_600_000),
-        StockpileStorageProfile::unbounded_solid_only(),
+        &[EQUIPMENT_TIMBER_TREADLE_HAMMER, EQUIPMENT_STONE_HAND_CRANK],
+        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[],
+        "helve-hammer prior workshop",
     );
-    for (commodity, mass) in [
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            Mass::from_milligrams(3_200_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(800_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(800_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(1_800_000),
-        ),
-    ] {
-        seed_material(&registries, &mut state, bootstrap, commodity, mass);
-    }
     let upgrade_raw = seed_stockpile(
         &mut state,
         Mass::from_milligrams(3_020_000),
@@ -137,8 +118,20 @@ pub(super) fn run_helve_hammer_investment_experience() {
         StockpileStorageProfile::unbounded_solid_only(),
     );
 
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("helve investment survival setup failed: {error}"));
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[
+            bootstrap,
+            upgrade_raw,
+            upgrade_parts,
+            work_source,
+            baseline_output,
+            powered_output,
+        ],
+        &[],
+        "helve-hammer investment",
+    );
     let treadle_hammer = validate_assemble_equipment(
         &registries,
         &state,

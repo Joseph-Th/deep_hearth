@@ -3,11 +3,11 @@
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_TIMBER_SPINDLE_DRILL, FORM_DRILL_BIT, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG,
-    FORM_REINFORCEMENT, FORM_SCRAP, FORM_SCREEN_PLATE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-    PROCESS_PIERCE_COPPER_SCREEN_PLATE, PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
-    PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+    EQUIPMENT_TIMBER_SPINDLE_DRILL, FORM_LOG, FORM_REINFORCEMENT, FORM_SCRAP, FORM_SCREEN_PLATE,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_WOOD,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_PIERCE_COPPER_SCREEN_PLATE,
+    PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE, PROCESS_SHAPE_WOOD_BOARDS, PROCESS_SHAPE_WOOD_HANDLE,
+    build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -20,7 +20,6 @@ use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::survival::initialize_player_survival;
 
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::environment::ROOM_TEMPERATURE;
@@ -64,52 +63,16 @@ pub(super) fn run_spindle_drill_investment_experience() {
     // This stock is the already-shaped primitive workshop package. The later upgrade additions are
     // deliberately made through ordinary manual recipes below so the investment cost remains
     // player attention rather than fixture-only finished parts.
-    let bootstrap = seed_stockpile(
-        &mut state,
-        Mass::from_milligrams(3_600_000),
-        StockpileStorageProfile::unbounded_solid_only(),
-    );
-    for (commodity, mass) in [
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(2_700_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_DRILL_BIT),
-            Mass::from_milligrams(100_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(800_000),
-        ),
-    ] {
-        seed_material(&registries, &mut state, bootstrap, commodity, mass);
-    }
-    let pump = validate_assemble_equipment(
+    let bootstrap = super::settlement_fixture::seed_inherited_workshop_package(
         &registries,
-        &state,
-        EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
-        bootstrap,
-    )
-    .unwrap_or_else(|error| panic!("pump drill assembly failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("pump drill assembly commit failed: {error}"));
-    let crank =
-        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_HAND_CRANK, bootstrap)
-            .unwrap_or_else(|error| panic!("spindle investment crank assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("spindle investment crank commit failed: {error}"));
-    let drive =
-        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, bootstrap)
-            .unwrap_or_else(|error| panic!("spindle investment flywheel assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("spindle investment flywheel commit failed: {error}"));
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(bootstrap)
-            .map(|stockpile| stockpile.stored_mass()),
-        Some(Mass::ZERO)
+        &mut state,
+        &[
+            EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+            EQUIPMENT_STONE_HAND_CRANK,
+        ],
+        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[],
+        "spindle-drill prior workshop",
     );
 
     // Wear the portable drill once before the decision so the upgrade has to preserve real use,
@@ -183,8 +146,48 @@ pub(super) fn run_spindle_drill_investment_experience() {
         StockpileStorageProfile::unbounded_solid_only(),
     );
 
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("spindle investment survival setup failed: {error}"));
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[
+            bootstrap,
+            calibration_source,
+            calibration_output,
+            upgrade_raw,
+            upgrade_parts,
+            work_source,
+            baseline_output,
+            powered_output,
+        ],
+        &[],
+        "spindle-drill investment",
+    );
+    let pump = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_STONE_FLYWHEEL_PUMP_DRILL,
+        bootstrap,
+    )
+    .unwrap_or_else(|error| panic!("pump drill assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("pump drill assembly commit failed: {error}"));
+    let crank =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_HAND_CRANK, bootstrap)
+            .unwrap_or_else(|error| panic!("spindle investment crank assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("spindle investment crank commit failed: {error}"));
+    let drive =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, bootstrap)
+            .unwrap_or_else(|error| panic!("spindle investment flywheel assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("spindle investment flywheel commit failed: {error}"));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(bootstrap)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO)
+    );
     let calibration = select_manual_craft_request(
         &registries,
         &state,

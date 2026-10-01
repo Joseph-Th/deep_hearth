@@ -10,32 +10,23 @@ pub(super) fn run_lathe_investment_experience() {
         "flywheel-lathe investment",
     );
     let mut state = AppState::new();
-    let bootstrap = seed_stockpile(
+    let bootstrap = super::super::settlement_fixture::seed_inherited_workshop_package(
+        &registries,
         &mut state,
-        Mass::from_milligrams(5_000_000),
-        StockpileStorageProfile::unbounded_solid_only(),
+        &[
+            EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
+            EQUIPMENT_STONE_HAND_CRANK,
+        ],
+        &[ENERGY_STONE_FLYWHEEL_DRIVE],
+        &[],
+        "lathe prior workshop",
     );
-    for (commodity, mass) in [
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-            Mass::from_milligrams(1_600_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-            Mass::from_milligrams(800_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-            Mass::from_milligrams(800_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(1_800_000),
-        ),
-    ] {
-        seed_material(&registries, &mut state, bootstrap, commodity, mass);
-    }
-    let (upgrade_raw, upgrade_parts) = seed_common_upgrade_raw(&registries, &mut state);
+    let (upgrade_raw, upgrade_parts) = seed_upgrade_raw(
+        &registries,
+        &mut state,
+        EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+        "lathe flywheel upgrade",
+    );
     let project_mass = Mass::from_milligrams(
         PROJECT_LATHE_ORDER
             .checked_mul(batch.input_mass.milligrams())
@@ -63,8 +54,20 @@ pub(super) fn run_lathe_investment_experience() {
         project_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("lathe investment survival setup failed: {error}"));
+    super::super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[
+            bootstrap,
+            upgrade_raw,
+            upgrade_parts,
+            source,
+            baseline_output,
+            powered_output,
+        ],
+        &[],
+        "lathe investment",
+    );
     let pole_lathe = validate_assemble_equipment(
         &registries,
         &state,
@@ -118,7 +121,14 @@ pub(super) fn run_lathe_investment_experience() {
     .with_equipment(pole_lathe);
     let project_baseline = resolve_manual_craft(&registries, &state, &project_request)
         .unwrap_or_else(|error| panic!("lathe project projection failed: {error}"));
-    let setup_attention = project_upgrade_setup(&registries, &state, upgrade_raw, Some(pole_lathe));
+    let setup_attention = project_upgrade_setup(
+        &registries,
+        &state,
+        upgrade_raw,
+        EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
+        Some(pole_lathe),
+        "lathe flywheel upgrade",
+    );
     let crank_condition = state
         .equipment()
         .get_equipment(crank)
@@ -189,7 +199,9 @@ pub(super) fn run_lathe_investment_experience() {
         &mut powered,
         upgrade_raw,
         upgrade_parts,
+        EQUIPMENT_TIMBER_FLYWHEEL_LATHE,
         Some(pole_lathe),
+        "lathe flywheel upgrade",
     );
     assert_eq!(executed_setup, setup_attention);
     let lathe = validate_upgrade_equipment(

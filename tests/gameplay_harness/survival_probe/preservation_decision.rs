@@ -122,6 +122,7 @@ fn evaluate_no_build(
         SimulationTick::new(reference.bootstrap_age_ticks),
     );
     let mut retained_raw_mg = 0_u64;
+    let mut stationary_stockpiles = vec![stockpile];
     for (commodity, mass) in available {
         let raw = seed_stockpile(
             &mut state,
@@ -139,10 +140,15 @@ fn evaluate_no_build(
         retained_raw_mg = retained_raw_mg
             .checked_add(mass.milligrams())
             .unwrap_or_else(|| panic!("bounded raw mass"));
+        stationary_stockpiles.push(raw);
     }
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("no-build player admission: {error:?}"));
-    super::super::world_admission::initialize_stationary_player_logistics(&mut state);
+    super::super::world_admission::admit_stationary_player(
+        registries,
+        &mut state,
+        &stationary_stockpiles,
+        &[],
+        "preservation no-build",
+    );
     let before = state.clone();
     let elapsed_ticks = reference
         .production_ticks

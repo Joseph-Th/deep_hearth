@@ -43,9 +43,13 @@ pub(super) fn evaluate_survival_work_pressure_probe(
     let physiology = registries.survival().physiology();
 
     let mut prospecting = AppState::new();
-    initialize_player_survival(registries, &mut prospecting)
-        .unwrap_or_else(|error| panic!("work-pressure prospecting survival setup failed: {error}"));
-    super::super::world_admission::initialize_stationary_player_logistics(&mut prospecting);
+    super::super::world_admission::admit_stationary_player(
+        registries,
+        &mut prospecting,
+        &[],
+        &[],
+        "work-pressure prospecting",
+    );
     let prospecting_method = prospecting_method_for_work_pressure(registries, seed);
     let prospecting_definition = registries
         .labor()
@@ -148,15 +152,13 @@ pub(super) fn evaluate_survival_work_pressure_probe(
             ROOM_TEMPERATURE,
         );
     }
-    super::super::world_admission::locate_stationary_endpoints(
+    super::super::world_admission::admit_stationary_player(
+        registries,
         &mut power,
         &[component_source],
         &[],
+        "work-pressure manual power",
     );
-    initialize_player_survival(registries, &mut power).unwrap_or_else(|error| {
-        panic!("work-pressure manual-power survival setup failed: {error}")
-    });
-    super::super::world_admission::initialize_stationary_player_logistics(&mut power);
     let crank = validate_assemble_equipment(
         registries,
         &power,

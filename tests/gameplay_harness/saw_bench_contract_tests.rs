@@ -19,7 +19,6 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use deep_hearth::simulation::advance_tick;
-use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_batches::execute_manual_craft_batches;
@@ -79,8 +78,13 @@ fn frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention
         Mass::from_milligrams(2_000_000),
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("frame-saw survival setup failed: {error}"));
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[raw, adze_parts, bench_parts, output, recovery],
+        &[],
+        "frame-saw acquisition",
+    );
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("frame-saw initial matter audit failed: {error}"))
         .total();

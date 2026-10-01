@@ -15,7 +15,6 @@ use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equip
 use deep_hearth::inventory::{StockpileStorageProfile, validate_build_storage_enclosure};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::survival::initialize_player_survival;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::manual_craft_batches::execute_manual_craft_batches;
@@ -82,8 +81,13 @@ fn woodworking_adze_turns_bulk_board_work_into_a_durable_attention_investment() 
         StockpileStorageProfile::unbounded_solid_only(),
     );
 
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("woodworking progression survival setup failed: {error}"));
+    super::world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[raw, components, boards, crate_body, copperwork, provisions],
+        &[],
+        "woodworking progression",
+    );
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("woodworking progression matter setup failed: {error}"))
         .total();
