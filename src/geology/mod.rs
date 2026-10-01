@@ -40,6 +40,8 @@ pub(crate) use knowledge::{
     validate_loaded_geological_evidence_against_world, validate_loaded_geological_knowledge,
 };
 pub(crate) use prospecting_action::{
-    FieldProspectingTickError, apply_field_prospecting_tick, decide_field_prospecting_tick,
+    FieldProspectingInterruptionPlan, FieldProspectingTickError,
+    apply_field_prospecting_interruption, apply_field_prospecting_tick,
+    decide_field_prospecting_interruption, decide_field_prospecting_tick,
 };
 pub(crate) use state::{GeologyState, validate_loaded_geology};

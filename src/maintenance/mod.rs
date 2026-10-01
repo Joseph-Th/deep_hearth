@@ -179,6 +179,42 @@ pub(crate) fn calculate_condition_after_active_ticks(
     Condition(before.0.saturating_sub(bounded_wear))
 }
 
+/// Projects proportional condition recovery after an interrupted maintenance interval.
+///
+/// Recovery is linear in completed authoritative ticks, rounded down once so interruption never
+/// grants work that has not elapsed. The scheduled completion point recovers the exact authored
+/// target.
+#[must_use]
+pub(crate) fn calculate_condition_after_partial_recovery(
+    before: Condition,
+    target: Condition,
+    elapsed: TickSpan,
+    total: TickSpan,
+) -> Condition {
+    assert!(
+        target >= before,
+        "maintenance recovery target cannot be below starting condition"
+    );
+    assert!(
+        total.value() != 0,
+        "maintenance recovery duration must be nonzero"
+    );
+    assert!(
+        elapsed <= total,
+        "maintenance elapsed time cannot exceed scheduled duration"
+    );
+    let total_gain = u128::from(target.0 - before.0);
+    let recovered = total_gain * u128::from(elapsed.value()) / u128::from(total.value());
+    let recovered = u32::try_from(recovered)
+        .unwrap_or_else(|_| unreachable!("normalized maintenance recovery always fits u32"));
+    Condition(
+        before
+            .0
+            .checked_add(recovered)
+            .unwrap_or_else(|| unreachable!("bounded maintenance recovery cannot overflow")),
+    )
+}
+
 /// Returns the greatest active duration that can start from `before` without requiring productive
 /// work after equipment failure. The final admitted tick may end exactly at failed condition.
 #[must_use]

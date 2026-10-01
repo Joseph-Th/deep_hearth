@@ -32,6 +32,7 @@ impl ManualPowerRequest {
 }
 
 mod errors;
+mod interruption;
 
 pub use errors::{ManualPowerCommitError, ManualPowerError};
 
@@ -70,6 +71,9 @@ mod start;
 mod tick;
 
 pub(super) use bindings::{ResolvedManualPowerBindings, resolve_manual_power_bindings};
+pub(crate) use interruption::{
+    ManualPowerInterruptionPlan, apply_manual_power_interruption, decide_manual_power_interruption,
+};
 pub use start::{ValidatedManualPowerStart, validate_start_manual_power};
 pub(super) use start::{
     map_manual_power_schedule_error, validate_start_manual_power_with_bindings,

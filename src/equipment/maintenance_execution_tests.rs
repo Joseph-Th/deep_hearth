@@ -37,7 +37,7 @@ use crate::logistics::{
     PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_initialize_player_logistics,
     validate_place_ground_stockpile,
 };
-use crate::maintenance::MaintenanceThresholds;
+use crate::maintenance::{MaintenanceThresholds, calculate_condition_after_partial_recovery};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};

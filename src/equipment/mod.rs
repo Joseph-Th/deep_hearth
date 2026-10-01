@@ -66,7 +66,9 @@ pub(crate) use equipment_structural_integration::{
     EquipmentStructuralLoadConsistencyError, validate_existing_equipment_structural_load,
 };
 pub(crate) use maintenance_execution::{
-    apply_equipment_maintenance_tick, decide_equipment_maintenance_tick,
+    EquipmentMaintenanceInterruptionPlan, apply_equipment_maintenance_interruption,
+    apply_equipment_maintenance_tick, decide_equipment_maintenance_interruption,
+    decide_equipment_maintenance_tick,
 };
 pub(crate) use mass_flow_schedule::{
     EquipmentMassFlowResolutionError, EquipmentMassFlowSchedule, EquipmentMassFlowScheduleError,

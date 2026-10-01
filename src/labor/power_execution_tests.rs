@@ -29,6 +29,7 @@ use crate::logistics::{
     PlayerEnergyStoreAccessError, validate_allocate_ground_stockpile,
     validate_initialize_player_logistics,
 };
+use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
@@ -241,7 +242,7 @@ fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
 }
 
 #[test]
-fn fatal_tick_cancels_unfinished_manual_power_without_energy_or_wear() {
+fn fatal_tick_interrupts_unfinished_manual_power_without_energy_but_with_elapsed_wear() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
@@ -263,6 +264,15 @@ fn fatal_tick_cancels_unfinished_manual_power_without_energy_or_wear() {
         .get_equipment(crank)
         .unwrap_or_else(|| panic!("fatal manual-power crank disappeared"))
         .condition();
+    let expected_condition = calculate_condition_after_active_ticks(
+        registries
+            .labor()
+            .get_manual_power(MANUAL_POWER_HAND_CRANK)
+            .unwrap_or_else(|| panic!("fatal manual-power method disappeared"))
+            .condition_wear_ppm_per_active_tick(),
+        condition_before,
+        TickSpan::new(1),
+    );
     start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("fatal manual-power commit failed: {error}"));
@@ -290,8 +300,8 @@ fn fatal_tick_cancels_unfinished_manual_power_without_energy_or_wear() {
             .equipment()
             .get_equipment(crank)
             .map(|record| record.condition()),
-        Some(condition_before),
-        "unfinished manual power must not apply completion wear on fatal interruption"
+        Some(expected_condition),
+        "fatal interruption must retain wear from the elapsed manual-power tick"
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("fatal manual-power state audit failed: {error}"));

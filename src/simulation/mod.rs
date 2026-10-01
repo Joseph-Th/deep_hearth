@@ -33,7 +33,7 @@ use crate::survival::{
     SurvivalAssessment, apply_survival_tick, assess_survival, decide_survival_tick,
 };
 
-use player_death::{apply_player_death_cancellation, decide_player_death_effects};
+use player_death::{apply_player_death_effects, decide_player_death_effects};
 
 /// Successful result of one canonical simulation tick.
 #[must_use]
@@ -198,25 +198,6 @@ pub fn advance_tick(
             .map_or(0, |plan| plan.geology_revision_steps())],
         TickError::GeologyRevisionExhausted,
     )?;
-    require_revision_capacity(
-        state.equipment().revision(),
-        [
-            completion_plan.equipment_revision_steps(),
-            mining_plan
-                .as_ref()
-                .map_or(0, |plan| plan.equipment_revision_steps()),
-            manual_power_plan
-                .as_ref()
-                .map_or(0, |plan| plan.equipment_revision_steps()),
-            equipment_maintenance_plan
-                .as_ref()
-                .map_or(0, |plan| plan.equipment_revision_steps()),
-            field_prospecting_plan
-                .as_ref()
-                .map_or(0, |plan| plan.equipment_revision_steps()),
-        ],
-        TickError::EquipmentRevisionExhausted,
-    )?;
     let passive_energy_plan = decide_passive_energy_dissipation(registries, state);
     let passive_energy_revision_steps = passive_energy_plan.energy_revision_steps();
     // Production releases and manual-power completion already own future energy revisions through
@@ -246,11 +227,34 @@ pub fn advance_tick(
     let player_dead_after_tick = survival_plan
         .as_ref()
         .is_some_and(|plan| plan.player_dead_after_tick());
-    let player_death_cancellation = decide_player_death_effects(
+    let player_death_effects = decide_player_death_effects(
+        registries,
         state,
         next_tick,
         player_dead_after_tick,
         &mut completion_plan,
+    )?;
+    require_revision_capacity(
+        state.equipment().revision(),
+        [
+            completion_plan.equipment_revision_steps(),
+            mining_plan
+                .as_ref()
+                .map_or(0, |plan| plan.equipment_revision_steps()),
+            manual_power_plan
+                .as_ref()
+                .map_or(0, |plan| plan.equipment_revision_steps()),
+            equipment_maintenance_plan
+                .as_ref()
+                .map_or(0, |plan| plan.equipment_revision_steps()),
+            field_prospecting_plan
+                .as_ref()
+                .map_or(0, |plan| plan.equipment_revision_steps()),
+            player_death_effects
+                .as_ref()
+                .map_or(0, |plan| plan.equipment_revision_steps()),
+        ],
+        TickError::EquipmentRevisionExhausted,
     )?;
     let player_work_plan = decide_player_work_tick(
         registries,
@@ -271,7 +275,7 @@ pub fn advance_tick(
     let field_prospecting = apply_field_prospecting_tick(state, field_prospecting_plan);
     let storage_enclosure_dismantling =
         apply_storage_enclosure_dismantling_tick(state, storage_enclosure_dismantling_plan);
-    apply_player_death_cancellation(state, player_death_cancellation);
+    apply_player_death_effects(state, player_death_effects);
     apply_player_work_tick(state, player_work_plan);
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));

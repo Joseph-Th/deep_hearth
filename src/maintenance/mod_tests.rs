@@ -10,6 +10,30 @@ fn condition(value: u32) -> Condition {
 }
 
 #[test]
+fn partial_maintenance_recovery_tracks_completed_active_time_without_overgranting() {
+    let before = condition(500_000);
+    let target = condition(700_000);
+    let total = TickSpan::new(6);
+
+    assert_eq!(
+        calculate_condition_after_partial_recovery(before, target, TickSpan::ZERO, total),
+        before
+    );
+    assert_eq!(
+        calculate_condition_after_partial_recovery(before, target, TickSpan::new(1), total),
+        condition(533_333)
+    );
+    assert_eq!(
+        calculate_condition_after_partial_recovery(before, target, TickSpan::new(3), total),
+        condition(600_000)
+    );
+    assert_eq!(
+        calculate_condition_after_partial_recovery(before, target, total, total),
+        target
+    );
+}
+
+#[test]
 fn wear_clamps_at_failed_bound_without_destroying_records() {
     assert_eq!(
         calculate_condition_after_active_ticks(20, condition(10), TickSpan::new(1)),

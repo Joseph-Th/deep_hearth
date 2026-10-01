@@ -15,6 +15,7 @@ use super::state::{EquipmentId, EquipmentMaintenanceAdmission};
 
 mod commit;
 mod errors;
+mod interruption;
 mod material;
 mod tick;
 mod validation;
@@ -23,6 +24,10 @@ use material::ValidatedMaintenanceMaterial;
 
 pub use errors::{
     EquipmentMaintenanceCommitError, EquipmentMaintenanceError, EquipmentMaintenanceMaterialError,
+};
+pub(crate) use interruption::{
+    EquipmentMaintenanceInterruptionPlan, apply_equipment_maintenance_interruption,
+    decide_equipment_maintenance_interruption,
 };
 pub(crate) use tick::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
 pub use validation::validate_equipment_maintenance;

@@ -41,7 +41,7 @@ use crate::logistics::{
     PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_allocate_ground_stockpile,
     validate_initialize_player_logistics, validate_place_ground_stockpile,
 };
-use crate::maintenance::Condition;
+use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
 use crate::matter::calculate_matter_accounting;
 use crate::mining::{
@@ -251,7 +251,7 @@ fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
 }
 
 #[test]
-fn fatal_tick_cancels_unfinished_mining_without_extracting_or_wearing_tool() {
+fn fatal_tick_cancels_unfinished_mining_without_extraction_but_with_elapsed_tool_wear() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
@@ -271,6 +271,15 @@ fn fatal_tick_cancels_unfinished_mining_without_extracting_or_wearing_tool() {
         .get_equipment(pick)
         .map(|record| record.condition())
         .unwrap_or_else(|| panic!("fatal mining pick disappeared before start"));
+    let expected_condition = calculate_condition_after_active_ticks(
+        registries
+            .mining()
+            .get_method(MINING_METHOD_HAND_PICK)
+            .unwrap_or_else(|| panic!("fatal mining method disappeared"))
+            .condition_wear_ppm_per_active_tick(),
+        condition_before,
+        TickSpan::new(1),
+    );
     let job = validate_known_mining(
         &registries,
         &state,
@@ -332,8 +341,8 @@ fn fatal_tick_cancels_unfinished_mining_without_extracting_or_wearing_tool() {
             .equipment()
             .get_equipment(pick)
             .map(|record| record.condition()),
-        Some(condition_before),
-        "unfinished canceled mining must not apply completion wear"
+        Some(expected_condition),
+        "fatal cancellation must retain wear from the elapsed mining tick"
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("fatal mining state failed trusted-load audit: {error}"));
@@ -367,6 +376,7 @@ fn fatal_mining_cancellation_consumes_reserved_headroom_at_owner_limits() {
     encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX - 1);
     encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX - 1);
     encoded["state"]["systems"]["mining"]["revision"] = serde_json::json!(u64::MAX - 2);
+    encoded["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX - 1);
     encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX - 1);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("fatal headroom mining decode failed: {error}"));
@@ -382,6 +392,7 @@ fn fatal_mining_cancellation_consumes_reserved_headroom_at_owner_limits() {
     assert_eq!(loaded.inventory().revision(), u64::MAX);
     assert_eq!(loaded.inventory().next_lot_id(), u64::MAX - 1);
     assert_eq!(loaded.mining().revision(), u64::MAX - 1);
+    assert_eq!(loaded.equipment().revision(), u64::MAX);
     assert_eq!(loaded.structures().revision(), u64::MAX - 1);
     assert_eq!(
         loaded

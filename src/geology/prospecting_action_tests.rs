@@ -9,6 +9,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Pressure, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
@@ -20,6 +21,7 @@ use crate::logistics::{
     PlayerEquipmentAccessError, validate_allocate_ground_stockpile,
     validate_initialize_player_logistics,
 };
+use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::mining::{MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -211,7 +213,7 @@ fn make_next_tick_fatal(registries: &Registries, state: &mut AppState) {
 }
 
 #[test]
-fn fatal_tick_cancels_unfinished_equipment_prospecting_without_evidence_or_wear() {
+fn fatal_tick_interrupts_unfinished_equipment_prospecting_without_evidence_but_with_elapsed_wear() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
@@ -239,6 +241,17 @@ fn fatal_tick_cancels_unfinished_equipment_prospecting_without_evidence_or_wear(
     .unwrap_or_else(|error| panic!("fatal prospecting validation failed: {error}"));
     let work = start.work();
     assert!(work.completes_at().value() > state.tick().value() + 1);
+    let trace = work
+        .equipment_trace()
+        .unwrap_or_else(|| panic!("fatal prospecting work lost its instrument trace"));
+    let wear = registries
+        .labor()
+        .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
+        .and_then(|method| method.equipment())
+        .and_then(|profile| profile.condition_wear_ppm_per_active_tick(trace.definition()))
+        .unwrap_or_else(|| panic!("fatal prospecting instrument wear disappeared"));
+    let expected_condition =
+        calculate_condition_after_active_ticks(wear, condition_before, TickSpan::new(1));
     start
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("fatal prospecting commit failed: {error}"));
@@ -267,8 +280,8 @@ fn fatal_tick_cancels_unfinished_equipment_prospecting_without_evidence_or_wear(
             .equipment()
             .get_equipment(hammer)
             .map(|record| record.condition()),
-        Some(condition_before),
-        "unfinished prospecting must not apply completion wear on fatal interruption"
+        Some(expected_condition),
+        "fatal interruption must retain wear from the elapsed prospecting tick"
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("fatal prospecting state audit failed: {error}"));

@@ -145,7 +145,7 @@ fn active_maintenance_rejects_second_service_as_equipment_occupancy() {
 }
 
 #[test]
-fn fatal_tick_interrupts_unfinished_maintenance_without_refunding_committed_service_material() {
+fn fatal_tick_interrupts_maintenance_with_committed_material_and_completed_recovery_preserved() {
     let registries = registries_with_service_duration(TickSpan::new(6));
     let mut state = AppState::new();
     initialize_service_player(&registries, &mut state);
@@ -189,6 +189,21 @@ fn fatal_tick_interrupts_unfinished_maintenance_without_refunding_committed_serv
             .map(|record| record.stored_mass()),
         Some(Mass::from_milligrams(2))
     );
+    let maintenance_work = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::EquipmentMaintenance { work }) => work,
+        other => panic!("expected active maintenance work before fatal tick, found {other:?}"),
+    };
+    assert_eq!(maintenance_work.started_at(), state.tick());
+    let service_duration = maintenance_work
+        .completes_at()
+        .checked_duration_since(maintenance_work.started_at())
+        .unwrap_or_else(|| panic!("maintenance fixture completion precedes its start"));
+    let interrupted_condition = calculate_condition_after_partial_recovery(
+        start.condition_before(),
+        start.target_condition(),
+        TickSpan::new(1),
+        service_duration,
+    );
     make_next_tick_fatal(&registries, &mut state);
 
     let outcome = advance_tick(&registries, &mut state)
@@ -205,8 +220,8 @@ fn fatal_tick_interrupts_unfinished_maintenance_without_refunding_committed_serv
             .equipment()
             .get_equipment(equipment)
             .map(|record| record.condition()),
-        Some(start.condition_before()),
-        "interrupted maintenance must not grant the deferred condition recovery"
+        Some(interrupted_condition),
+        "interrupted maintenance must preserve only the recovery earned by elapsed service"
     );
     assert_eq!(
         state
@@ -234,7 +249,7 @@ fn fatal_tick_interrupts_unfinished_maintenance_without_refunding_committed_serv
             .equipment()
             .get_equipment(equipment)
             .map(|record| record.condition()),
-        Some(start.condition_before())
+        Some(interrupted_condition)
     );
 }
 
