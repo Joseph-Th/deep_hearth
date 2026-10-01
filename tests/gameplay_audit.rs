@@ -113,6 +113,8 @@ mod material_selection;
 mod ore_fixture;
 #[path = "gameplay_harness/ore_setup.rs"]
 mod ore_setup;
+#[path = "gameplay_harness/persistence_timing.rs"]
+mod persistence_timing;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/power_provider_probe.rs"]

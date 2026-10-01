@@ -144,6 +144,7 @@ _EXPECTED_CONTROLLED_BY_PROBE = {
     "ore-preparation": {"ore"},
     "foundry": {"foundry"},
 }
+_SPATIAL_PROXY_PROBES = {"primitive-progression", "fieldwork"}
 
 
 def _controlled_summary_probe(summary: str) -> str | None:
@@ -201,6 +202,11 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         probe = field(summary, "probe")
         if probe is None:
             return summary
+        scope = (
+            " scope=spatial-proxy"
+            if probe in _SPATIAL_PROXY_PROBES
+            else ""
+        )
         if probe == "fieldwork":
             experience_fields = [
                 "outcomes",
@@ -223,7 +229,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 ),
             )
             return (
-                f"GAMEPLAY probe=fieldwork {experience}".rstrip()
+                f"GAMEPLAY fieldwork{scope} {experience}".rstrip()
                 + "\n"
                 + f"GAMEPLAY fieldwork-adaptation {adaptation}".rstrip()
             )
@@ -235,7 +241,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         if scoped and "sample-shape" not in fields and field(summary, "sample-shape") is not None:
             fields = ("sample-shape", *fields)
         detail = compact_fields(summary, fields)
-        return f"GAMEPLAY probe={probe} {detail}".rstrip()
+        return f"GAMEPLAY {probe}{scope} {detail}".rstrip()
 
     if summary.startswith("PLAYER LOOP EVIDENCE "):
         evidence_shape = field(summary, "evidence-shape")

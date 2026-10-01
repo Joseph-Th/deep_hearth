@@ -2705,14 +2705,14 @@ class GameplayReportContractTests(unittest.TestCase):
         for prefix in (
             "SIMULATION TIME ",
             "PLAYER FANTASY ",
-            "GAMEPLAY probe=primitive-progression ",
-            "GAMEPLAY probe=primitive-liberation ",
-            "GAMEPLAY probe=woodworking ",
-            "GAMEPLAY probe=fieldwork ",
-            "GAMEPLAY probe=power-provider ",
-            "GAMEPLAY probe=settlement ",
-            "GAMEPLAY probe=foundry-bootstrap ",
-            "GAMEPLAY probe=survival ",
+            "GAMEPLAY primitive-progression scope=spatial-proxy ",
+            "GAMEPLAY primitive-liberation ",
+            "GAMEPLAY woodworking ",
+            "GAMEPLAY fieldwork scope=spatial-proxy ",
+            "GAMEPLAY power-provider ",
+            "GAMEPLAY settlement ",
+            "GAMEPLAY foundry-bootstrap ",
+            "GAMEPLAY survival ",
             "GAMEPLAY loop ",
             "GAMEPLAY loop-investment ",
             "CAPABILITY probe=workshop ",
@@ -2737,8 +2737,8 @@ class GameplayReportContractTests(unittest.TestCase):
             "disclosed-order-attention=[manual:2470..2470t mechanized:429..429t saved:2041..2041t]",
             concise,
         )
-        self.assertNotIn("probe=primitive-progression sample-shape=", concise)
-        self.assertNotIn("probe=primitive-progression samples=", concise)
+        self.assertNotIn("GAMEPLAY primitive-progression scope=spatial-proxy sample-shape=", concise)
+        self.assertNotIn("GAMEPLAY primitive-progression scope=spatial-proxy samples=", concise)
         self.assertIn("probe=workshop sample-shape=[", concise)
         self.assertNotIn("probe=workshop scenarios=", concise)
         self.assertIn("remaining-frontier=industrial-foundry-scale", concise)
@@ -2748,7 +2748,7 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "probe=foundry-bootstrap choice=[build:1 defer:0] copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
+            "GAMEPLAY foundry-bootstrap choice=[build:1 defer:0] copper=[available:340..340g threshold:320..320g shortfall:0..0g]",
             concise,
         )
         self.assertIn(
@@ -2860,10 +2860,10 @@ class GameplayReportContractTests(unittest.TestCase):
             )
 
         self.assertIn(
-            "GAMEPLAY probe=fieldwork sample-shape=[anchor:1 coverage:0 organic:0 replay:0]",
+            "GAMEPLAY fieldwork scope=spatial-proxy sample-shape=[anchor:1 coverage:0 organic:0 replay:0]",
             concise,
         )
-        self.assertNotIn("GAMEPLAY probe=fieldwork samples=", concise)
+        self.assertNotIn("scope=spatial-proxy samples=", concise)
         self.assertNotIn("GAMEPLAY loop ", concise)
         loop_evidence.assert_not_called()
 

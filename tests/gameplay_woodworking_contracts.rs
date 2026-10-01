@@ -19,6 +19,8 @@ mod manual_craft_batches;
 mod manual_craft_execution;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[path = "gameplay_harness/persistence_timing.rs"]
+mod persistence_timing;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/tick_observation.rs"]

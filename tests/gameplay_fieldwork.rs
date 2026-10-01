@@ -69,6 +69,8 @@ mod manual_ore_recovery;
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
+#[path = "gameplay_harness/persistence_timing.rs"]
+mod persistence_timing;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/primitive_workload.rs"]

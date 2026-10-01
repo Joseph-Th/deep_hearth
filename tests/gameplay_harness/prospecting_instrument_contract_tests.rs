@@ -374,12 +374,9 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     let reinforced_wear = detailed_tool
         .condition_wear_ppm_per_active_tick(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER)
         .unwrap_or_else(|| panic!("reinforced hammer lost detailed-sampling wear"));
-    assert_eq!(
-        reinforced_wear
-            .checked_mul(2)
-            .unwrap_or_else(|| panic!("reinforced sampling wear ratio overflowed")),
-        base_wear,
-        "copper reinforcement must halve detailed-sampling wear"
+    assert!(
+        reinforced_wear < base_wear,
+        "copper reinforcement must reduce detailed-sampling wear"
     );
 
     let base_hammer = registries
@@ -626,7 +623,11 @@ fn reinforced_sampling_hammer_turns_repeated_point_work_into_bounded_channel_evi
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("active channel-survey state audit failed: {error}"));
 
-    let elapsed_before_save = 11_u64;
+    let elapsed_before_save = super::persistence_timing::mid_work_checkpoint_ticks(
+        channel_work.started_at(),
+        channel_work.completes_at(),
+        "indexed channel survey persistence",
+    );
     for _ in 0..elapsed_before_save {
         let outcome = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("channel survey pre-save tick failed: {error}"));

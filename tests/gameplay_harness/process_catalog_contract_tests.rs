@@ -51,7 +51,7 @@ fn every_authored_process_has_legible_physical_execution_topology() {
 }
 
 #[test]
-fn ordinary_process_reachability_has_no_equipment_or_energy_acquisition_holes() {
+fn authored_process_topology_has_no_provider_definition_holes() {
     let registries = build_registries();
     let catalog = process_catalog_entries(&registries);
 
@@ -65,7 +65,7 @@ fn ordinary_process_reachability_has_no_equipment_or_energy_acquisition_holes() 
         .collect::<Vec<_>>();
     assert!(
         equipment_frontier.is_empty(),
-        "ordinary process topology must not contain equipment acquisition holes: {equipment_frontier:?}"
+        "authored process topology must not reference equipment without an authored acquisition edge: {equipment_frontier:?}"
     );
 
     let energy_frontier = catalog
@@ -78,6 +78,6 @@ fn ordinary_process_reachability_has_no_equipment_or_energy_acquisition_holes() 
         .collect::<Vec<_>>();
     assert!(
         energy_frontier.is_empty(),
-        "ordinary process topology must not contain energy-store acquisition holes: {energy_frontier:?}"
+        "authored process topology must not reference energy stores without an authored assembly edge: {energy_frontier:?}"
     );
 }

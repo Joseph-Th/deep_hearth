@@ -1,4 +1,7 @@
 //! Read-only authored process topology used by gameplay diagnostics and catalog contracts.
+//!
+//! Definition-level acquisition/assembly edges establish authored possibility only. They do not
+//! establish ordinary reachability, which also depends on the current runtime acquisition graph.
 
 use deep_hearth::production::ProcessId;
 pub(super) use deep_hearth::registry::ProcessExecutionFamily as ProcessResolverKind;

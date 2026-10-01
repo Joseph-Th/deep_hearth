@@ -277,7 +277,16 @@ fn frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention
     .unwrap_or_else(|error| panic!("frame-saw production start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("frame-saw production commit failed: {error}"));
-    for _ in 0..20 {
+    let active = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("frame-saw production job disappeared after start"));
+    let elapsed_before_save = super::persistence_timing::mid_work_checkpoint_ticks(
+        active.started_at(),
+        active.completes_at(),
+        "frame-saw persistence",
+    );
+    for _ in 0..elapsed_before_save {
         let outcome = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("frame-saw pre-save tick failed: {error}"));
         assert!(outcome.production_completions().is_empty());
