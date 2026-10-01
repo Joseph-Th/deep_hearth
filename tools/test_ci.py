@@ -2798,6 +2798,14 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertNotIn("project-experience=[", concise)
         self.assertNotIn("evidence-scope=", concise)
+        self.assertIn(
+            "lifecycle-obligations=[services:1..1 prep:4..4t share:35..35% provisioning:1..1",
+            concise,
+        )
+        self.assertIn(
+            "settlement-lifecycle-obligations=[services:4..4 prep:240..240t share:10..10% provisioning:2..2",
+            concise,
+        )
         self.assertIn("pacing-physical=[first-expedition:3.8..3.8m", concise)
         self.assertIn("reuse-physical=[repeat-complete:7.2..7.2s", concise)
         self.assertNotIn("integrated-campaign=[", concise)

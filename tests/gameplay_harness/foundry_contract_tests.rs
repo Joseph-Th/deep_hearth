@@ -21,7 +21,6 @@ use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::material::{CommodityKey, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::validate_start_process;
-use deep_hearth::survival::initialize_player_survival;
 use deep_hearth::thermal::{
     CastingRequest, MeltingRequest, calculate_fusion_heat, calculate_sensible_heat,
     resolve_casting_process, resolve_melting_process,
@@ -35,7 +34,7 @@ use super::foundry_setup::setup_foundry_probe;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::production_timing::finish_uninterrupted_production_job;
-use super::world_admission::{initialize_stationary_player_logistics, locate_stationary_endpoints};
+use super::world_admission::admit_stationary_player;
 
 #[test]
 fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work() {
@@ -151,10 +150,13 @@ fn settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work
         settlement_cast_mass,
         StockpileStorageProfile::unbounded_solid_only(),
     );
-    locate_stationary_endpoints(&mut state, &[parts, feed, molten, cast], &[]);
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("settlement foundry survival setup failed: {error}"));
-    initialize_stationary_player_logistics(&mut state);
+    admit_stationary_player(
+        &registries,
+        &mut state,
+        &[parts, feed, molten, cast],
+        &[],
+        "settlement foundry",
+    );
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("settlement foundry matter setup failed: {error}"))
         .total();

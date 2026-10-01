@@ -4,6 +4,25 @@ use super::*;
 use crate::crafting::ManualCraftOutput;
 
 #[test]
+fn powered_sawing_reduces_repetitive_blade_wear_without_removing_maintenance() {
+    let registries = build_registries();
+    let powered = registries
+        .crafting()
+        .get_powered(PROCESS_POWER_SAW_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("powered lumber route disappeared"));
+    let manual = registries
+        .crafting()
+        .get_manual(PROCESS_SAW_WOOD_BOARDS)
+        .and_then(|definition| definition.equipment_profile())
+        .unwrap_or_else(|| panic!("manual lumber route lost its durable saw profile"));
+    assert!(powered.condition_wear_ppm_per_active_tick() > 0);
+    assert!(
+        powered.condition_wear_ppm_per_active_tick() < manual.condition_wear_ppm_per_active_tick(),
+        "settlement mechanization should reduce repetitive blade service while preserving finite wear"
+    );
+}
+
+#[test]
 fn phase_change_definitions_require_authored_phase_directions() {
     for thermal in [
         ThermalRegistry::new(

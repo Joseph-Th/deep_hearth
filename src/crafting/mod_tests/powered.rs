@@ -390,9 +390,9 @@ fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
         Energy::from_nanojoules(250_000_000_000)
     );
     assert_eq!(projection.duration().value(), 3);
-    assert_eq!(
-        projection.condition_after(),
-        Condition::new(997_600).unwrap_or_else(|error| panic!("condition failed: {error}"))
+    assert!(
+        projection.condition_after() < Condition::PRISTINE,
+        "powered sawing must retain finite blade wear"
     );
     let sawmill_record = state
         .equipment()
@@ -513,7 +513,8 @@ fn sash_sawmill_preserves_frame_saw_yield_while_spending_stored_work() {
             .equipment()
             .get_equipment(sawmill)
             .map(|record| record.condition()),
-        Some(Condition::new(997_600).unwrap_or_else(|error| panic!("condition failed: {error}")))
+        Some(projection.condition_after()),
+        "executed powered-saw wear must match the canonical pre-action projection"
     );
     assert_eq!(
         calculate_matter_accounting(&state)

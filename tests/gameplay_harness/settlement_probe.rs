@@ -34,13 +34,10 @@ use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output
 use super::physical_time::format_physical_duration;
 use super::powered_craft_planning::authored_batch;
 use super::seed::mix64;
+use super::settlement_generation::{organic_investment_policy, organic_lumber_batches};
 use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manual_power_sequence};
 
 const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
-// Keep the maintained mechanized witness materially beyond the current crossover instead of
-// pinning the harness to a barely-positive order. Organic worlds derive their demand from the
-// live production crossover below, so content retuning cannot silently move every sample to one
-// side of the investment decision.
 const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 64;
 const SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES: u64 = 128;
 const SETTLEMENT_OPPORTUNITY_BATCHES: u64 =
@@ -50,53 +47,6 @@ const SETTLEMENT_OPPORTUNITY_BATCHES: u64 =
 enum LumberInvestmentChoice {
     FrameSaw,
     SashSawmill,
-}
-
-#[cfg(test)]
-mod generation_tests {
-    use std::collections::BTreeSet;
-
-    use super::*;
-
-    #[test]
-    fn organic_settlement_generation_straddles_supplied_crossovers_and_varies_actor_policy() {
-        let cases = (1_u64..=128)
-            .map(|seed| {
-                FocusedProbeCase::new(
-                    seed,
-                    Some(seed.rotate_left(17)),
-                    FocusedProbeRole::OrganicVariation,
-                )
-            })
-            .collect::<Vec<_>>();
-        for crossover in [4_u64, 8, 16, 32, 64, 96] {
-            let demands = cases
-                .iter()
-                .copied()
-                .map(|case| declared_lumber_batches(case, crossover))
-                .collect::<BTreeSet<_>>();
-            assert!(
-                demands.len() > 1,
-                "organic settlement generation collapsed to one disclosed order around crossover {crossover}"
-            );
-            assert!(
-                demands.iter().any(|batches| *batches < crossover)
-                    && demands.iter().any(|batches| *batches > crossover),
-                "organic settlement demand must sample both sides of supplied crossover {crossover}"
-            );
-        }
-        assert!(
-            cases
-                .iter()
-                .copied()
-                .map(investment_policy)
-                .map(CapitalInvestmentPolicy::minimum_return_ppm)
-                .collect::<BTreeSet<_>>()
-                .len()
-                > 1,
-            "organic settlement actor policy collapsed to one capital-return preference"
-        );
-    }
 }
 
 #[path = "settlement_probe/lumber_followup.rs"]
@@ -109,7 +59,7 @@ fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
         }
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => case
             .behavior_seed()
-            .map(CapitalInvestmentPolicy::from_behavior_seed)
+            .map(organic_investment_policy)
             .unwrap_or_else(CapitalInvestmentPolicy::baseline),
     }
 }
@@ -123,26 +73,24 @@ impl LumberInvestmentChoice {
     }
 }
 
-#[derive(Clone, Copy)]
-struct SetupPlan {
-    process: ProcessId,
-    batches: u64,
-    equipment: Option<EquipmentId>,
-}
-
 fn declared_lumber_batches(case: FocusedProbeCase, baseline_crossover_batches: u64) -> u64 {
     match case.role() {
         FocusedProbeRole::MaintainedAnchor => SETTLEMENT_DIRECT_HORIZON_BATCHES,
         FocusedProbeRole::MaintainedCoverage => SETTLEMENT_MECHANIZE_HORIZON_BATCHES,
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            let spread = (baseline_crossover_batches / 2).max(1);
-            let lower = baseline_crossover_batches.saturating_sub(spread).max(1);
-            let upper = baseline_crossover_batches
-                .checked_add(spread)
-                .unwrap_or_else(|| panic!("settlement organic order range overflowed"));
-            lower + mix64(case.seed() ^ 0x5345_5454_4C55_4D42) % (upper - lower + 1)
+            organic_lumber_batches(
+                mix64(case.seed() ^ 0x5345_5454_4C55_4D42),
+                baseline_crossover_batches,
+            )
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct SetupPlan {
+    process: ProcessId,
+    batches: u64,
+    equipment: Option<EquipmentId>,
 }
 
 fn add_requirement(

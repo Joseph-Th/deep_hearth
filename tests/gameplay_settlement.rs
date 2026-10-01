@@ -38,6 +38,8 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/settlement_fixture.rs"]
 mod settlement_fixture;
+#[path = "gameplay_harness/settlement_generation.rs"]
+mod settlement_generation;
 #[path = "gameplay_harness/settlement_power_planning.rs"]
 mod settlement_power_planning;
 #[path = "gameplay_harness/settlement_probe.rs"]

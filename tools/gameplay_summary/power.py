@@ -129,7 +129,9 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
         "limited_batches": [],
         "attention": [],
         "services": [],
+        "maintenance_preparation_ticks": [],
         "service_ticks": [],
+        "maintenance_active_share_percent": [],
         "provisioning_stops": [],
         "provisioning_attention": [],
         "drink_actions": [],
@@ -145,6 +147,7 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
         "limited_batches": r"survival-limited-batches:(\d+)",
         "attention": r"active-attention:(\d+)t",
         "services": r"maintenance=\[services:(\d+)",
+        "maintenance_preparation_ticks": r"maintenance=\[services:\d+ preparation:(\d+)t",
         "service_ticks": r"\bservice:(\d+)t",
         "provisioning_stops": r"provisioning=\[stops:(\d+)",
         "provisioning_attention": r"provisioning=\[stops:\d+ attention:(\d+)t",
@@ -179,6 +182,19 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
             )
         if projected_services is not None:
             values["projected_services"].append(int(projected_services.group(1)))
+
+        active_attention = re.search(r"active-attention:(\d+)t", line)
+        maintenance = re.search(
+            r"maintenance=\[services:\d+ preparation:(\d+)t service:(\d+)t", line
+        )
+        if active_attention is not None and maintenance is not None:
+            active_ticks = int(active_attention.group(1))
+            preparation_ticks, service_ticks = map(int, maintenance.groups())
+            if active_ticks > 0:
+                maintenance_ticks = preparation_ticks + service_ticks
+                values["maintenance_active_share_percent"].append(
+                    (maintenance_ticks * 100 + active_ticks // 2) // active_ticks
+                )
 
         selected_provider = re.search(r"\bselected=([^\s]+)", line)
         if era == "primitive":
@@ -270,10 +286,10 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])} "
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])}] "
         f"lifecycle-obligations=[services:{_span(lived['services'])} "
-        f"service-time:{_span(lived['service_ticks'], 't')} "
-        f"provisioning-stops:{_span(lived['provisioning_stops'])} "
-        f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])} "
-        f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])}] "
+        f"prep:{_span(lived['maintenance_preparation_ticks'], 't')} "
+        f"share:{_span(lived['maintenance_active_share_percent'], '%')} "
+        f"provisioning:{_span(lived['provisioning_stops'])} "
+        f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
         f"decision-crossover-charges={_span(decision_crossovers)} "
         f"pristine-rate-break-even={_span(pristine_break_evens)} "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
@@ -359,10 +375,10 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])} "
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])}] "
         f"settlement-lifecycle-obligations=[services:{_span(lived['services'])} "
-        f"service-time:{_span(lived['service_ticks'], 't')} "
-        f"provisioning-stops:{_span(lived['provisioning_stops'])} "
-        f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])} "
-        f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])}] "
+        f"prep:{_span(lived['maintenance_preparation_ticks'], 't')} "
+        f"share:{_span(lived['maintenance_active_share_percent'], '%')} "
+        f"provisioning:{_span(lived['provisioning_stops'])} "
+        f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
         f"settlement-decision-crossover-charges={_span(decision_crossovers)} "
         f"settlement-pristine-rate-break-even={_span(pristine_break_evens)} "
         f"settlement-investment-policy-return={_span(policy_returns, 'ppm')} "

@@ -107,6 +107,8 @@ mod seed_input;
 mod settlement_drill_contract_tests;
 #[path = "gameplay_harness/settlement_fixture.rs"]
 mod settlement_fixture;
+#[path = "gameplay_harness/settlement_generation.rs"]
+mod settlement_generation;
 #[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
 mod settlement_helve_contract_tests;
 #[path = "gameplay_harness/settlement_power_planning.rs"]

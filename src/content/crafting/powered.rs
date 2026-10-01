@@ -31,9 +31,11 @@ pub(super) fn definitions() -> [PoweredCraftDefinition; 11] {
             CAPABILITY_POWERED_SAWING_FLOW,
             EnergyCarrier::Mechanical,
             // Primitive stored work can power sawing; larger accumulators reduce charging
-            // interruptions without changing the manual transform's material yield.
+            // interruptions without changing the manual transform's material yield. Powered
+            // sawing still consumes blades over long campaigns, but its service cadence must
+            // remain lower than hand sawing so mechanization actually returns player attention.
             MassSpecificEnergy::from_nanojoules_per_milligram(250_000),
-            800,
+            500,
         ),
         PoweredCraftDefinition::new(
             PROCESS_POWER_HAMMER_COPPER_REINFORCEMENT,

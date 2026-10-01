@@ -24,6 +24,8 @@ mod powered_craft_planning;
 mod production_timing;
 #[path = "gameplay_harness/settlement_fixture.rs"]
 mod settlement_fixture;
+#[path = "gameplay_harness/settlement_generation.rs"]
+mod settlement_generation;
 #[path = "gameplay_harness/settlement_power_planning.rs"]
 mod settlement_power_planning;
 #[path = "gameplay_harness/tick_observation.rs"]
@@ -33,6 +35,8 @@ mod world_admission;
 
 #[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
 mod settlement_drill_contract_tests;
+#[path = "gameplay_harness/settlement_generation_contract_tests.rs"]
+mod settlement_generation_contract_tests;
 #[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
 mod settlement_helve_contract_tests;
 #[path = "gameplay_harness/settlement_machine_contract_tests.rs"]
