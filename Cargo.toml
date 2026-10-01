@@ -158,9 +158,9 @@ wildcard_enum_match_arm = "deny"
 
 [profile.test]
 # Test failures already carry source locations and typed assertion context, so local verification
-# omits debug symbols. Cargo config owns dynamic linking; 128 CGUs benchmark best for the smaller
-# focused targets. Repository wrappers raise only the monolithic cfg(test) library to 512 CGUs,
-# where that larger graph materially reduces measured post-edit codegen/link latency.
+# omits debug symbols. Cargo config owns dynamic linking. Keep one profile for exact unit tests,
+# focused gameplay targets, and broad checkpoints: per-lane compiler overrides fragment the local
+# incremental cache and make switching verification tools more expensive than either lane alone.
 debug = 0
 codegen-units = 128
 incremental = true

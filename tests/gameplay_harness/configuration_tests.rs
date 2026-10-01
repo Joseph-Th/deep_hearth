@@ -168,7 +168,10 @@ fn gate_roots_vary_only_the_bounded_organic_case() {
         scenario_seeds_from(ScenarioPlanMode::Explore, None, None, None, 0x1111, 0x2222)
             .unwrap_or_else(|error| panic!("exploratory plan failed: {error:?}"));
     assert_eq!(exploratory.source_label(), "anchor+variation");
-    assert_eq!(exploratory.variation_seed_count(), 4);
+    assert!(
+        exploratory.variation_seed_count() > first.variation_seed_count(),
+        "exploration must be broader than the one-case routine gate without pinning tuning"
+    );
     assert_eq!(exploratory.variation_label(), "0x0000000000001111");
     assert_eq!(exploratory.behavior_label(), "0x0000000000002222");
 }
@@ -201,7 +204,10 @@ fn explicit_world_and_behavior_roots_replay_the_same_cases() {
             .collect::<Vec<_>>(),
         EXPECTED_MAINTAINED_ANCHORS
     );
-    assert_eq!(first.variation_seed_count(), 4);
+    assert!(
+        first.variation_seed_count() > 0,
+        "explicit exploratory roots must produce bounded organic variation"
+    );
     assert_eq!(first.custom_seed_count(), 0);
     assert!(
         first

@@ -13,13 +13,11 @@ rustflags = ["-Cprefer-dynamic"]
 linker = "lld-link.exe"
 
 [alias]
-# Daily feedback stays on the smallest artifact that can catch the current class of mistake. The
-# compile-only aliases avoid codegen/linking while code is unstable; exact unit tests and the core
-# audit intentionally reuse one feature-minimal library-test artifact so owner switches and final
-# verification do not trigger a second library build.
-# Compile-only feedback is an alternative to executable proof while code is unstable, not a warm-up
-# step before tests. Keep it on the test profile so switching lanes does not add a second dependency
-# profile, but invoke the executable proof directly when that is the contract being checked.
+# Daily feedback stays on the smallest artifact that can catch the current class of mistake.
+# `check-fast` is an alternative when no executable contract fits; test preflights use
+# `tools/run_test.py --build` so successful compilation warms the exact artifact that will run.
+# Every repository-owned lane keeps one test-profile shape so switching tools does not invalidate
+# local incremental reuse.
 check-fast = "check --quiet --locked --profile test --lib"
 # One lib-only Clippy shape serves both the direct edit loop and `gate --lint`.
 # Gameplay/report wrappers are compiled by their focused or audit lanes instead of

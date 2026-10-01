@@ -11,16 +11,16 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
 | CI/test tooling contracts | `python -m unittest tools.test_ci -q` |
-| Type-check one unstable test/harness target | `python tools/run_test.py --check <qualified-name-or-unique-substring>` |
+| Build one unstable test/harness target without running it | `python tools/run_test.py --build <qualified-name-or-unique-substring>` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Shared gameplay contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Compile-only proof when no executable test fits | `python ci.py gate` |
 
-Routine iteration is `quick`, then **one** build proof. While code is unstable, `run_test.py --check <selector>` resolves the eventual test target without codegen/linking; once runnable, the test itself is compile proof. Use default `gate` only when no executable test fits. Do not stack equivalent proofs or append an audit.
+Routine iteration is `quick`, then **one** build proof. If code is not runnable, `run_test.py --build <selector>` compiles and links the eventual test target without executing it, so the later test reuses that artifact. Once runnable, execute the test directly. Use default `gate` only when no executable test fits. Do not stack equivalent proofs or append an audit.
 
-Use `run_test.py --list <substring>` for build-free discovery. Unit selectors still compile the full `cfg(test)` library, so prefer a smaller focused gameplay target when equally authoritative. `.cargo/config.toml` owns the shared `target/local-ci` build shape; repository Python entrypoints remove ambient Rust/profile overrides while preserving an explicit `CARGO_TARGET_DIR`. Focused targets keep 128 CGUs and Cargo's default parallelism; library-test/core/soak lanes use measured 512-CGU/four-job overrides for faster post-edit rebuilds. Run build-producing Cargo lanes serially; only build-free `quick` checks run in parallel.
+Use `run_test.py --list <substring>` for build-free discovery. Unit selectors compile the full `cfg(test)` library, so prefer a smaller focused gameplay target when equally authoritative. `.cargo/config.toml` and `[profile.test]` own one shared `target/local-ci` artifact shape; repository Python entrypoints remove ambient Rust/profile overrides while preserving explicit `CARGO_TARGET_DIR`. Do not tune compiler profiles or job counts per tool: isolated speedups that fragment reuse lose time when switching tests, gameplay gates, or audits. Run build-producing Cargo lanes serially; only build-free `quick` checks run in parallel.
 
 ## Escalation lanes
 
@@ -87,7 +87,7 @@ Split owner contract targets only when controlled post-edit timings show a real 
 
 `gate --gameplay contracts` is only the small cross-scope contract target. Owner-specific contract tests are discovered and run through `run_test.py`; exact names automatically select their purpose-built contract target, so routine work does not need a broad multi-target contract gate.
 
-Routine gameplay verification runs maintained witnesses plus one fresh replayable organic case. Explicit replay roots replace that fresh case for diagnosis; exploratory reports generate four organic cases plus broader agency search. Successful routine gates print only counts/timing, explicit replays echo their roots, failures print a narrow reproduction command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Routine gameplay verification runs maintained witnesses plus one fresh replayable organic case. Explicit replay roots replace that fresh case for diagnosis; exploratory reports use a broader bounded organic sample plus broader agency search. Successful routine gates print only counts/timing, explicit replays echo their roots, failures print a narrow reproduction command, and reports retain replay inputs as evidence. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 
 ## Completion
 

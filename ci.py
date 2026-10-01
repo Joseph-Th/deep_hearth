@@ -40,7 +40,6 @@ FOCUSED_REPORT_EXAMPLES = {
     "power-provider": "gameplay-power-report",
 }
 FOCUSED_REPORT_ARGUMENTS = {"agency": ("agency",)}
-GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_AUDIT_TARGET,)
 REPORT_BEHAVIOR_SCOPES = {
     "all",
     *(scope for scope, spec in GAMEPLAY_SCOPE_SPECS.items() if spec.uses_behavior_seed),
@@ -290,7 +289,7 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
             return f"python tools/run_test.py {failed[-1]}"
     gameplay_targets = (
         GAMEPLAY_CONTRACTS_TARGET,
-        *GAMEPLAY_AUDIT_TARGETS,
+        GAMEPLAY_AUDIT_TARGET,
         *GAMEPLAY_TARGETS.values(),
     )
     if any(target in command for target in gameplay_targets):
@@ -397,8 +396,8 @@ def bounded_failure_output(output: str) -> str:
     )
 
 
-def gameplay_targets_command(
-    targets: tuple[str, ...],
+def gameplay_target_command(
+    target: str,
     *,
     test_filter: str | None = None,
     nocapture: bool = False,
@@ -412,8 +411,7 @@ def gameplay_targets_command(
         "--features",
         GAMEPLAY_FEATURE,
     ]
-    for target in targets:
-        command.extend(("--test", target))
+    command.extend(("--test", target))
     test_args: list[str] = []
     if test_filter is not None:
         command.append(test_filter)
@@ -430,11 +428,11 @@ def gameplay_targets_command(
 
 def gameplay_command(scope: str) -> list[str]:
     if scope == "all":
-        return gameplay_targets_command(GAMEPLAY_AUDIT_TARGETS)
+        return gameplay_target_command(GAMEPLAY_AUDIT_TARGET)
     if scope == "contracts":
-        return gameplay_targets_command((GAMEPLAY_CONTRACTS_TARGET,))
-    return gameplay_targets_command(
-        (GAMEPLAY_TARGETS[scope],),
+        return gameplay_target_command(GAMEPLAY_CONTRACTS_TARGET)
+    return gameplay_target_command(
+        GAMEPLAY_TARGETS[scope],
         test_filter=GAMEPLAY_TESTS.get(scope),
     )
 
@@ -473,8 +471,8 @@ def report_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
         raise ValueError(f"unknown gameplay report scope: {scope}")
     if scope in SCOPED_TEST_REPORTS:
         spec = GAMEPLAY_SCOPE_SPECS[scope]
-        command = gameplay_targets_command(
-            (spec.target,),
+        command = gameplay_target_command(
+            spec.target,
             test_filter=spec.test,
             nocapture=True,
         )
@@ -579,9 +577,7 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
 
 def execute_stage(command: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, float, OSError | None]:
     started = time.perf_counter()
-    environment = local_cargo_environment(
-        library_test_codegen=command in (cargo("test-core"), cargo("test-soak"))
-    )
+    environment = local_cargo_environment()
     try:
         result = subprocess.run(
             command,

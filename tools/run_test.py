@@ -341,18 +341,16 @@ def cargo_lint_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
-def cargo_check_command(args: argparse.Namespace) -> list[str]:
-    """Type-check one selected test crate without codegen, linking, or test execution."""
+def cargo_build_command(args: argparse.Namespace) -> list[str]:
+    """Build one selected test artifact without executing it, warming the eventual test cache."""
 
     if args.list:
         raise ValueError("source catalog listing does not invoke Cargo")
     if args.target is None:
-        raise ValueError("--check requires an explicit test target")
-    command = ["cargo", "check", "--quiet", "--locked", "--profile", "test"]
+        raise ValueError("--build requires an explicit test target")
+    command = ["cargo", "test", "--quiet", "--locked", "--no-run"]
     if args.target == "lib":
-        # `--tests` enables cfg(test) so adjacent unit-test code is checked too. Every explicit
-        # integration target requires an opt-in feature, so the default library lane stays bounded.
-        command.extend(("--lib", "--tests"))
+        command.append("--lib")
     else:
         command.extend(("--test", args.target))
     requested_features = requested_target_features(args.target, args.features)
@@ -364,7 +362,7 @@ def cargo_check_command(args: argparse.Namespace) -> list[str]:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run one exact cached Rust test or bounded suite, type-check/lint one selected target, "
+            "Run one exact cached Rust test or bounded suite, build/lint one selected target, "
             "or inspect the build-free source catalog."
         )
     )
@@ -380,9 +378,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="list exact source test names without compiling or linking",
     )
     compile_mode.add_argument(
-        "--check",
+        "--build",
         action="store_true",
-        help="type-check the smallest matching test target without codegen, linking, or execution",
+        help=(
+            "compile and link the smallest matching test target without executing it; "
+            "the resulting artifact is reused by the later test run"
+        ),
     )
     compile_mode.add_argument(
         "--lint",
@@ -426,19 +427,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="replay DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED for this test execution",
     )
     args = parser.parse_args(argv)
-    if not args.list and not args.lint and not args.check and not args.name:
+    if not args.list and not args.lint and not args.build and not args.name:
         parser.error("a test selector is required for test execution")
-    if args.suite and (args.list or args.lint or args.check):
-        parser.error("--suite is an execution mode and cannot be combined with --list/--check/--lint")
-    if (args.lint or args.check) and args.target is None and not args.name:
-        parser.error("--check/--lint requires either a source selector or explicit --target")
-    if (args.lint or args.check) and args.target is not None and args.name:
-        parser.error("with explicit --target, --check/--lint validates the whole target; omit NAME")
+    if args.suite and (args.list or args.lint or args.build):
+        parser.error("--suite is an execution mode and cannot be combined with --list/--build/--lint")
+    if (args.lint or args.build) and args.target is None and not args.name:
+        parser.error("--build/--lint requires either a source selector or explicit --target")
+    if (args.lint or args.build) and args.target is not None and args.name:
+        parser.error("with explicit --target, --build/--lint validates the whole target; omit NAME")
     if args.suite and args.ignored:
         parser.error("--ignored requires exact execution; use an exact ignored-test selector")
-    if (args.list or args.lint or args.check) and (args.ignored or args.nocapture or args.verbose):
+    if (args.list or args.lint or args.build) and (args.ignored or args.nocapture or args.verbose):
         parser.error("--ignored, --nocapture, and --verbose apply only to test execution")
-    if (args.list or args.lint or args.check) and (args.variation_seed or args.behavior_seed):
+    if (args.list or args.lint or args.build) and (args.variation_seed or args.behavior_seed):
         parser.error("gameplay replay seeds apply only to test execution")
     if args.behavior_seed is not None and args.variation_seed is None:
         parser.error("--behavior-seed requires --variation-seed for a complete gameplay replay")
@@ -531,12 +532,6 @@ def resolve_automatic_compile_target(args: argparse.Namespace) -> bool:
     return True
 
 
-def resolve_automatic_lint_target(args: argparse.Namespace) -> bool:
-    """Resolve lint to the purpose-built target containing the selected source suite."""
-
-    return resolve_automatic_compile_target(args)
-
-
 def gameplay_replay_environment(
     args: argparse.Namespace,
     *,
@@ -565,12 +560,8 @@ def gameplay_replay_environment(
 def execute_cargo_command(
     command: list[str],
     environment_overrides: dict[str, str] | None = None,
-    *,
-    library_test_codegen: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], float]:
-    environment = cargo_env.local_cargo_environment(
-        library_test_codegen=library_test_codegen
-    )
+    environment = cargo_env.local_cargo_environment()
     for key in (GAMEPLAY_REPORT_MODE_ENV, GAMEPLAY_VARIATION_ENV, GAMEPLAY_BEHAVIOR_ENV):
         environment.pop(key, None)
     if environment_overrides:
@@ -706,20 +697,20 @@ def report_cargo_success(
 
 def main() -> int:
     args = parse_args()
-    if (args.lint or args.check) and args.target is None:
+    if (args.lint or args.build) and args.target is None:
         if not resolve_automatic_compile_target(args):
             return 2
-    if args.check:
+    if args.build:
         try:
-            command = cargo_check_command(args)
+            command = cargo_build_command(args)
         except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-            print(f"FAIL check selection: {error}", file=sys.stderr)
+            print(f"FAIL build selection: {error}", file=sys.stderr)
             return 2
         result, elapsed = execute_cargo_command(command)
         if result.returncode != 0:
             report_cargo_failure(command, result, elapsed)
             return result.returncode
-        print(f"PASS check {args.target} ({elapsed:.1f}s)")
+        print(f"PASS build {args.target} ({elapsed:.1f}s)")
         return 0
     if args.lint:
         try:
@@ -767,11 +758,7 @@ def main() -> int:
     except ValueError as error:
         print(f"FAIL gameplay replay: {error}", file=sys.stderr)
         return 2
-    result, elapsed = execute_cargo_command(
-        command,
-        replay,
-        library_test_codegen=args.target == "lib",
-    )
+    result, elapsed = execute_cargo_command(command, replay)
     if result.returncode != 0:
         report_cargo_failure(command, result, elapsed, replay_command(args, replay))
         return result.returncode

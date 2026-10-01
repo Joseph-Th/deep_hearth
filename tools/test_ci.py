@@ -226,38 +226,21 @@ class CargoToolingTests(unittest.TestCase):
         self.assertEqual(environment["CARGO_TARGET_DIR"], "elsewhere")
         self.assertEqual(environment["KEEP"], "yes")
         self.assertNotIn("CARGO_TARGET_DIR", cargo_env.local_cargo_environment({}))
-        library_test = cargo_env.local_cargo_environment(
-            {"CARGO_PROFILE_TEST_CODEGEN_UNITS": "1"},
-            library_test_codegen=True,
-        )
-        self.assertEqual(
-            library_test["CARGO_PROFILE_TEST_CODEGEN_UNITS"],
-            cargo_env.LIBRARY_TEST_CODEGEN_UNITS,
-        )
-        self.assertEqual(
-            library_test["CARGO_BUILD_JOBS"],
-            cargo_env.LIBRARY_TEST_BUILD_JOBS,
-        )
 
-    def test_monolithic_library_test_lanes_use_high_cgu_environment_only_when_requested(self) -> None:
+    def test_core_and_focused_gameplay_use_the_same_normalized_profile_environment(self) -> None:
         success = ci.subprocess.CompletedProcess(["cargo", "test-core"], 0, "", "")
         with mock.patch.object(ci.subprocess, "run", return_value=success) as run:
             ci.execute_stage(["cargo", "test-core"])
-        self.assertEqual(
-            run.call_args.kwargs["env"]["CARGO_PROFILE_TEST_CODEGEN_UNITS"],
-            cargo_env.LIBRARY_TEST_CODEGEN_UNITS,
-        )
-        self.assertEqual(
-            run.call_args.kwargs["env"]["CARGO_BUILD_JOBS"],
-            cargo_env.LIBRARY_TEST_BUILD_JOBS,
-        )
+        core_environment = run.call_args.kwargs["env"]
 
         focused = ci.gameplay_command("survival")
         success = ci.subprocess.CompletedProcess(focused, 0, "", "")
         with mock.patch.object(ci.subprocess, "run", return_value=success) as run:
             ci.execute_stage(focused)
-        self.assertNotIn("CARGO_PROFILE_TEST_CODEGEN_UNITS", run.call_args.kwargs["env"])
-        self.assertNotIn("CARGO_BUILD_JOBS", run.call_args.kwargs["env"])
+        focused_environment = run.call_args.kwargs["env"]
+        self.assertEqual(core_environment, focused_environment)
+        self.assertNotIn("CARGO_PROFILE_TEST_CODEGEN_UNITS", core_environment)
+        self.assertNotIn("CARGO_BUILD_JOBS", core_environment)
 
     def test_rust_diagnostics_normalizes_module_owner_focus(self) -> None:
         args = rust_diagnostics.parse_args(["modules", "--focus", "survival"])
@@ -304,19 +287,18 @@ class CargoToolingTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             run_test.parse_args(["--lint"])
 
-    def test_targeted_check_typechecks_only_the_selected_cache_shape(self) -> None:
+    def test_targeted_build_compiles_only_the_selected_test_artifact(self) -> None:
         args = run_test.parse_args(
-            ["--check", "--target", ci.GAMEPLAY_TARGETS["fieldwork"]]
+            ["--build", "--target", ci.GAMEPLAY_TARGETS["fieldwork"]]
         )
         self.assertEqual(
-            run_test.cargo_check_command(args),
+            run_test.cargo_build_command(args),
             [
                 "cargo",
-                "check",
+                "test",
                 "--quiet",
                 "--locked",
-                "--profile",
-                "test",
+                "--no-run",
                 "--test",
                 ci.GAMEPLAY_TARGETS["fieldwork"],
                 "--features",
@@ -324,30 +306,28 @@ class CargoToolingTests(unittest.TestCase):
             ],
         )
 
-        library = run_test.parse_args(["--check", "--target", "lib"])
+        library = run_test.parse_args(["--build", "--target", "lib"])
         self.assertEqual(
-            run_test.cargo_check_command(library),
+            run_test.cargo_build_command(library),
             [
                 "cargo",
-                "check",
+                "test",
                 "--quiet",
                 "--locked",
-                "--profile",
-                "test",
+                "--no-run",
                 "--lib",
-                "--tests",
             ],
         )
 
-    def test_targeted_check_resolves_named_gameplay_probe_without_executing_it(self) -> None:
-        args = run_test.parse_args(["--check", ci.GAMEPLAY_TESTS["fieldwork"]])
+    def test_targeted_build_resolves_named_gameplay_probe_without_executing_it(self) -> None:
+        args = run_test.parse_args(["--build", ci.GAMEPLAY_TESTS["fieldwork"]])
         self.assertTrue(run_test.resolve_automatic_compile_target(args))
         self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
         self.assertNotIn("cargo", args.name)
 
-    def test_targeted_check_resolves_existing_qualified_library_test_without_widening_targets(self) -> None:
+    def test_targeted_build_resolves_existing_qualified_library_test_without_widening_targets(self) -> None:
         args = run_test.parse_args(
-            ["--check", "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound"]
+            ["--build", "core::time::tests::absolute_tick_and_relative_span_add_without_wraparound"]
         )
         with mock.patch.object(
             run_test,
@@ -357,20 +337,20 @@ class CargoToolingTests(unittest.TestCase):
             self.assertTrue(run_test.resolve_automatic_compile_target(args))
         self.assertEqual(args.target, "lib")
 
-    def test_targeted_check_does_not_turn_a_library_test_typo_into_a_green_owner_check(self) -> None:
+    def test_targeted_build_does_not_turn_a_library_test_typo_into_a_green_owner_build(self) -> None:
         args = run_test.parse_args(
-            ["--check", "core::time::tests::not_a_real_test_name"]
+            ["--build", "core::time::tests::not_a_real_test_name"]
         )
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertFalse(run_test.resolve_automatic_compile_target(args))
         self.assertIsNone(args.target)
 
-    def test_targeted_check_rejects_execution_only_options_and_ambiguous_target_selection(self) -> None:
+    def test_targeted_build_rejects_execution_only_options_and_ambiguous_target_selection(self) -> None:
         invalid = (
-            ["--check", "--suite", "fieldwork"],
-            ["--check", "--target", ci.GAMEPLAY_TARGETS["fieldwork"], "fieldwork"],
-            ["--check", "--nocapture", ci.GAMEPLAY_TESTS["fieldwork"]],
-            ["--check", "--variation-seed", "1", ci.GAMEPLAY_TESTS["fieldwork"]],
+            ["--build", "--suite", "fieldwork"],
+            ["--build", "--target", ci.GAMEPLAY_TARGETS["fieldwork"], "fieldwork"],
+            ["--build", "--nocapture", ci.GAMEPLAY_TESTS["fieldwork"]],
+            ["--build", "--variation-seed", "1", ci.GAMEPLAY_TESTS["fieldwork"]],
         )
         for argv in invalid:
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
@@ -1772,7 +1752,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly one build-producing lane"):
             ci.plan_for(gate_args(soak=True, gameplay="ore"))
 
-    def test_all_audit_reuses_separate_core_and_gameplay_cache_shapes(self) -> None:
+    def test_all_audit_runs_only_the_two_required_feature_surfaces(self) -> None:
         plan = ci.audit_plan("all")
         builds = cargo_build_commands(plan)
         self.assertEqual(
@@ -2120,8 +2100,8 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 self.assertEqual(plan[0][0], f"gameplay report {scope}")
                 self.assertEqual(
                     plan[0][1],
-                    ci.gameplay_targets_command(
-                        (ci.GAMEPLAY_TARGETS[scope],),
+                    ci.gameplay_target_command(
+                        ci.GAMEPLAY_TARGETS[scope],
                         test_filter=ci.GAMEPLAY_TESTS[scope],
                         nocapture=True,
                     ),
@@ -2223,7 +2203,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
         args = run_test.parse_args(["--lint", "gameplay_fieldwork_probe"])
         self.assertTrue(args.lint)
         self.assertIsNone(args.target)
-        self.assertTrue(run_test.resolve_automatic_lint_target(args))
+        self.assertTrue(run_test.resolve_automatic_compile_target(args))
         self.assertEqual(args.target, ci.GAMEPLAY_TARGETS["fieldwork"])
 
 
@@ -3778,8 +3758,9 @@ class ExactTestCommandTests(unittest.TestCase):
         audit = run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None)
         self.assertIn("agency::gameplay_agency_counterfactuals", audit)
         self.assertIn("scenario_tests::world_seed_never_changes_player_policy", audit)
-        self.assertTrue(
-            all("gameplay_report" not in run_test.source_test_catalog(target, None) for target in ci.GAMEPLAY_AUDIT_TARGETS)
+        self.assertNotIn(
+            "gameplay_report",
+            run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None),
         )
 
     def test_source_catalog_listing_never_builds_through_cargo_command(self) -> None:
