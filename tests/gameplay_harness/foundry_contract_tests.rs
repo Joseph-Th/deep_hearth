@@ -29,6 +29,7 @@ use deep_hearth::thermal::{
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
+use super::focused_witnesses::FOUNDRY_MAINTAINED_ANCHOR_SEED;
 use super::foundry_probe::{choose_heating_strategy, probe_setup};
 use super::foundry_setup::setup_foundry_probe;
 use super::manual_power_timing::finish_manual_power_work;
@@ -432,7 +433,7 @@ fn foundry_generation_covers_authored_feed_forms_and_varies_conditions() {
 #[test]
 fn same_source_preheat_stays_diagnostic_until_it_has_a_real_physical_advantage() {
     let registries = build_registries();
-    let seed = 0xD33F_C01D_F001;
+    let seed = FOUNDRY_MAINTAINED_ANCHOR_SEED;
     let setup = probe_setup(&registries, seed);
     let mass = setup.mass;
     let target = setup.preheat_target;

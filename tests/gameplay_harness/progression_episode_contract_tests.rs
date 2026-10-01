@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use deep_hearth::content::build_registries;
 
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::focused_witnesses::PROGRESSION_MAINTAINED_ANCHOR_SEED;
 use super::progression_probe::{
     DEEP_OPPORTUNITY_MIN_BATCHES, MARGINAL_OPPORTUNITY_MAX_BATCHES,
     MARGINAL_OPPORTUNITY_MIN_BATCHES, PrimitivePriority, PrimitiveReinvestmentOutcome,
@@ -18,7 +19,11 @@ fn autonomous_crushing_does_not_fill_idle_time_with_unbounded_feed_mining() {
     let registries = build_registries();
     let review = evaluate_primitive_progression_probe(
         &registries,
-        FocusedProbeCase::new(0xD33F_C01D_5052, None, FocusedProbeRole::MaintainedAnchor),
+        FocusedProbeCase::new(
+            PROGRESSION_MAINTAINED_ANCHOR_SEED,
+            None,
+            FocusedProbeRole::MaintainedAnchor,
+        ),
     );
     assert!(
         review.steady_feed_buffer_ready_cycles > 0,
@@ -39,7 +44,11 @@ fn completed_reinvestment_consumes_post_order_stockpile_for_upgrade_demand() {
     let registries = build_registries();
     let review = evaluate_primitive_progression_probe(
         &registries,
-        FocusedProbeCase::new(0xD33F_C01D_5052, None, FocusedProbeRole::MaintainedAnchor),
+        FocusedProbeCase::new(
+            PROGRESSION_MAINTAINED_ANCHOR_SEED,
+            None,
+            FocusedProbeRole::MaintainedAnchor,
+        ),
     );
     assert!(
         review.steady_state_cycles > 0,
@@ -121,7 +130,10 @@ fn bounded_stockpiling_preserves_shallow_supply_until_reinvestment() {
 fn local_first_copper_sequence_is_chosen_from_acquired_grade_evidence() {
     let registries = build_registries();
     for (seed, expected) in [
-        (0xD33F_C01D_5052, PrimitivePriority::PickFirst),
+        (
+            PROGRESSION_MAINTAINED_ANCHOR_SEED,
+            PrimitivePriority::PickFirst,
+        ),
         (3, PrimitivePriority::CrankFirst),
     ] {
         let review = evaluate_primitive_progression_probe(

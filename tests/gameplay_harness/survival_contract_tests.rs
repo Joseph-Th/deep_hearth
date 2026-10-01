@@ -18,6 +18,10 @@ use super::focused_case::FocusedProbeRole;
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeSeedPlan, focused_probe_cases_from,
 };
+use super::focused_witnesses::{
+    SURVIVAL_DECLINE_COVERAGE_SEED, SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED,
+    SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
+};
 use super::preservation_route::{
     is_disclosed_preservation_raw_material, preservation_construction_plan,
 };
@@ -68,11 +72,11 @@ fn storage_raw_opportunity(
 #[test]
 fn maintained_survival_coverage_keeps_the_strongest_preservation_endpoint_actionable() {
     let registries = build_registries();
-    let world = provisioning_world(&registries, 6);
+    let world = provisioning_world(&registries, SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED);
     let decision = evaluate_preservation_decision(
         &registries,
-        6,
-        0x0274_20B1_9FB8_38F7,
+        SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
+        SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED,
         world.foods[world.witness_index],
         world.preserved_reserve_mass,
     );
@@ -152,16 +156,18 @@ fn preservation_material_budget_makes_intermediate_frontier_actionable() {
 #[test]
 fn preservation_decline_executes_without_spending_the_raw_opportunity() {
     use super::survival_probe::preservation_decision::evaluate_preservation_decision;
+    const DECLINE_POLICY_REPLAY_SEED: u64 = 0x9B76_F388_4EA8_CF64;
+
     let registries = build_registries();
     // Replayed ordinary world/policy pair where retaining the disclosed raw opportunity outranks
     // every enclosure. The contract is the no-build decision and unspent opportunity, not any
     // particular preservation tuning trajectory.
-    let seed = 0x043C_561D_398D_32BA;
+    let seed = SURVIVAL_DECLINE_COVERAGE_SEED;
     let world = provisioning_world(&registries, seed);
     let decision = evaluate_preservation_decision(
         &registries,
         seed,
-        0x9B76_F388_4EA8_CF64,
+        DECLINE_POLICY_REPLAY_SEED,
         world.foods[world.witness_index],
         world.preserved_reserve_mass,
     );

@@ -12,9 +12,12 @@ use super::focused_seeds::{
 };
 use super::focused_witnesses::{
     FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED,
-    FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED, ORE_FINITE_ENERGY_COVERAGE_SEED,
+    FOUNDRY_MAINTAINED_ANCHOR_SEED, FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED,
+    ORE_FINITE_ENERGY_COVERAGE_SEED, PROGRESSION_MAINTAINED_ANCHOR_SEED,
     PROGRESSION_REFINEMENT_COVERAGE_SEED, PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
-    SURVIVAL_CONTINUATION_COVERAGE_SEED,
+    SURVIVAL_BALANCED_PRESERVATION_BEHAVIOR_SEED, SURVIVAL_BALANCED_PRESERVATION_COVERAGE_SEED,
+    SURVIVAL_CONTINUATION_COVERAGE_SEED, SURVIVAL_DECLINE_COVERAGE_SEED,
+    SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED, SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
 };
 #[cfg(not(test))]
 use super::fresh_seed::fresh_root;
@@ -26,15 +29,19 @@ fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u6
         // deliberately patient but not all-in on material, so the double-wall chest wins between
         // the fast field box and stronger pantry. Keep this deterministic witness while organic
         // behavior remains independently varied from the fresh behavior root.
-        ("survival-provisioning", FocusedProbeRole::MaintainedCoverage, 0x0000_0000_0000_0002) => {
-            Some(0xAB2C_977A_0B20_C7A3)
-        }
+        (
+            "survival-provisioning",
+            FocusedProbeRole::MaintainedCoverage,
+            SURVIVAL_BALANCED_PRESERVATION_COVERAGE_SEED,
+        ) => Some(SURVIVAL_BALANCED_PRESERVATION_BEHAVIOR_SEED),
         // This second choice-rich preservation world protects the opposite endpoint. The actor
         // has enough disclosed timber to build the strongest pantry and values its much longer
         // fresh-food window enough to accept the additional construction attention and matter.
-        ("survival-provisioning", FocusedProbeRole::MaintainedCoverage, 0x0000_0000_0000_0006) => {
-            Some(0x0274_20B1_9FB8_38F7)
-        }
+        (
+            "survival-provisioning",
+            FocusedProbeRole::MaintainedCoverage,
+            SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
+        ) => Some(SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED),
         _ => None,
     }
 }
@@ -57,17 +64,17 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             0xD33F_C01D_5A70,
             &[
                 1,
-                2,
+                SURVIVAL_BALANCED_PRESERVATION_COVERAGE_SEED,
                 5,
-                6,
-                0x043C_561D_398D_32BA,
+                SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
+                SURVIVAL_DECLINE_COVERAGE_SEED,
                 0xF495_6470_1464_3BC2,
                 SURVIVAL_CONTINUATION_COVERAGE_SEED,
             ],
             0x5355_5256_5052_4F42,
         ),
         "primitive-progression" => (
-            0xD33F_C01D_5052,
+            PROGRESSION_MAINTAINED_ANCHOR_SEED,
             &[
                 PROGRESSION_REFINEMENT_COVERAGE_SEED,
                 PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
@@ -75,7 +82,7 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             0x5052_4F47_5052_4F42,
         ),
         "primitive-liberation" => (
-            0xD33F_C01D_5052,
+            PROGRESSION_MAINTAINED_ANCHOR_SEED,
             &[
                 PROGRESSION_REFINEMENT_COVERAGE_SEED,
                 PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
@@ -139,7 +146,7 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             0x0AE5_1A5E_5052_4F42,
         ),
         "foundry" => (
-            0xD33F_C01D_F001,
+            FOUNDRY_MAINTAINED_ANCHOR_SEED,
             &[FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED],
             0xF0A1_DA7A_5052_4F42,
         ),

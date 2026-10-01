@@ -182,24 +182,17 @@ def target_source_paths(target: str, raw_features: str | None) -> frozenset[Path
     )
 
 
-@lru_cache(maxsize=None)
-def target_source_bytes(target: str, raw_features: str | None) -> int:
-    """Approximate target compile size from the reachable maintained source graph."""
+def preferred_target(targets: set[str]) -> str:
+    """Select the unique purpose-built owner; use the consolidated audit only as fallback."""
 
-    return sum(path.stat().st_size for path in target_source_paths(target, raw_features))
-
-
-def preferred_target(targets: set[str], raw_features: str | None) -> str:
-    """Prefer the smallest purpose-built graph and keep the consolidated audit as fallback."""
-
-    return min(
-        targets,
-        key=lambda target: (
-            target == "gameplay_audit",
-            target_source_bytes(target, raw_features),
-            target,
-        ),
-    )
+    audit = gameplay_targets.GAMEPLAY_AUDIT_TARGET
+    purpose_built = targets - {audit}
+    if len(purpose_built) == 1:
+        return next(iter(purpose_built))
+    if not purpose_built and targets == {audit}:
+        return audit
+    owners = ", ".join(sorted(purpose_built or targets))
+    raise ValueError(f"logical test has multiple purpose-built targets: {owners}")
 
 
 def resolve_automatic_exact_selection(
@@ -226,7 +219,7 @@ def resolve_automatic_exact_selection(
         raise ValueError(f"test selector not found: {selector}")
     name = names[0]
     targets = {target for target, candidate in matches if candidate == name}
-    return preferred_target(targets, raw_features), name
+    return preferred_target(targets), name
 
 
 def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> str:
@@ -260,7 +253,7 @@ def resolve_automatic_suite_target(selector: str, raw_features: str | None) -> s
             f"test suite selector spans different target catalogs: {selector} ({targets}); "
             "specify --target"
         )
-    return preferred_target(complete_targets, raw_features)
+    return preferred_target(complete_targets)
 
 
 def source_test_matches(selector: str, catalog: list[str]) -> list[str]:

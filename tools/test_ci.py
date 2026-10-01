@@ -207,6 +207,7 @@ class CargoToolingTests(unittest.TestCase):
                 "CARGO_ENCODED_RUSTFLAGS": "stale",
                 "CARGO_TARGET_DIR": "elsewhere",
                 "CARGO_INCREMENTAL": "0",
+                "CARGO_BUILD_JOBS": "28",
                 "CARGO_PROFILE_TEST_DEBUG": "2",
                 "CARGO_PROFILE_TEST_CODEGEN_UNITS": "1",
                 "KEEP": "yes",
@@ -217,6 +218,7 @@ class CargoToolingTests(unittest.TestCase):
             "RUSTFLAGS",
             "CARGO_ENCODED_RUSTFLAGS",
             "CARGO_INCREMENTAL",
+            "CARGO_BUILD_JOBS",
             "CARGO_PROFILE_TEST_DEBUG",
             "CARGO_PROFILE_TEST_CODEGEN_UNITS",
         ):
@@ -232,6 +234,10 @@ class CargoToolingTests(unittest.TestCase):
             library_test["CARGO_PROFILE_TEST_CODEGEN_UNITS"],
             cargo_env.LIBRARY_TEST_CODEGEN_UNITS,
         )
+        self.assertEqual(
+            library_test["CARGO_BUILD_JOBS"],
+            cargo_env.LIBRARY_TEST_BUILD_JOBS,
+        )
 
     def test_monolithic_library_test_lanes_use_high_cgu_environment_only_when_requested(self) -> None:
         success = ci.subprocess.CompletedProcess(["cargo", "test-core"], 0, "", "")
@@ -241,12 +247,17 @@ class CargoToolingTests(unittest.TestCase):
             run.call_args.kwargs["env"]["CARGO_PROFILE_TEST_CODEGEN_UNITS"],
             cargo_env.LIBRARY_TEST_CODEGEN_UNITS,
         )
+        self.assertEqual(
+            run.call_args.kwargs["env"]["CARGO_BUILD_JOBS"],
+            cargo_env.LIBRARY_TEST_BUILD_JOBS,
+        )
 
         focused = ci.gameplay_command("survival")
         success = ci.subprocess.CompletedProcess(focused, 0, "", "")
         with mock.patch.object(ci.subprocess, "run", return_value=success) as run:
             ci.execute_stage(focused)
         self.assertNotIn("CARGO_PROFILE_TEST_CODEGEN_UNITS", run.call_args.kwargs["env"])
+        self.assertNotIn("CARGO_BUILD_JOBS", run.call_args.kwargs["env"])
 
     def test_rust_diagnostics_normalizes_module_owner_focus(self) -> None:
         args = rust_diagnostics.parse_args(["modules", "--focus", "survival"])
@@ -528,13 +539,17 @@ class BuildFreeCiTests(unittest.TestCase):
         stages = ci.quick_plan()
         success = ci.subprocess.CompletedProcess(stages[0][1], 0, "", "")
         failure = ci.subprocess.CompletedProcess(stages[1][1], 1, "bad complexity", "")
-        executions = [
-            (success, 0.1, None),
-            (failure, 0.2, None),
-            (success, 0.1, None),
-        ]
+        executions = {
+            tuple(stages[0][1]): (success, 0.1, None),
+            tuple(stages[1][1]): (failure, 0.2, None),
+            tuple(stages[2][1]): (success, 0.1, None),
+        }
         with (
-            mock.patch.object(ci, "execute_stage", side_effect=executions),
+            mock.patch.object(
+                ci,
+                "execute_stage",
+                side_effect=lambda command: executions[tuple(command)],
+            ),
             contextlib.redirect_stdout(io.StringIO()) as stdout,
             contextlib.redirect_stderr(io.StringIO()) as stderr,
         ):
@@ -1584,10 +1599,6 @@ class TestTopologyContractTests(unittest.TestCase):
         self.assertTrue(
             any(name.startswith("progression_episode_contract_tests::") for name in focused)
         )
-        self.assertLess(
-            run_test.target_source_bytes(ci.GAMEPLAY_TARGETS["progression"], None),
-            run_test.target_source_bytes(ci.GAMEPLAY_AUDIT_TARGET, None),
-        )
 
     def test_settlement_contract_target_keeps_all_machine_contract_families(self) -> None:
         focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
@@ -2177,6 +2188,10 @@ class GameplayCiRoutingTests(unittest.TestCase):
 
         all_report = ci.parse_args(["report"])
         ci.configure_report_mode_environment(all_report, report_environment)
+        self.assertNotIn(ci.GAMEPLAY_REPORT_MODE_ENV, report_environment)
+
+        agency_report = ci.parse_args(["report", "--scope", "agency"])
+        ci.configure_report_mode_environment(agency_report, report_environment)
         self.assertNotIn(ci.GAMEPLAY_REPORT_MODE_ENV, report_environment)
 
         gate = ci.parse_args(["gate", "--gameplay", "fieldwork"])
@@ -3450,6 +3465,31 @@ class ExactTestCommandTests(unittest.TestCase):
             "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
         )
 
+    def test_duplicate_gameplay_tests_have_one_explicit_non_audit_owner(self) -> None:
+        owners_by_name: dict[str, set[str]] = {}
+        for target, name in run_test.all_source_test_locations(None):
+            owners_by_name.setdefault(name, set()).add(target)
+        duplicates = {
+            name: targets for name, targets in owners_by_name.items() if len(targets) > 1
+        }
+        self.assertTrue(duplicates)
+        for name, targets in duplicates.items():
+            purpose_built = targets - {ci.GAMEPLAY_AUDIT_TARGET}
+            self.assertEqual(
+                len(purpose_built),
+                1,
+                f"duplicate logical test {name} needs one explicit purpose-built owner",
+            )
+            self.assertEqual(run_test.preferred_target(targets), next(iter(purpose_built)))
+
+    def test_target_selection_fails_closed_when_multiple_purpose_built_owners_exist(self) -> None:
+        with self.assertRaisesRegex(ValueError, "multiple purpose-built targets"):
+            run_test.preferred_target({"gameplay_survival", "gameplay_workshop"})
+        self.assertEqual(
+            run_test.preferred_target({ci.GAMEPLAY_AUDIT_TARGET}),
+            ci.GAMEPLAY_AUDIT_TARGET,
+        )
+
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
             "batch_capped_mining_finishes_the_requested_order": owner_contract_target("fieldwork"),
@@ -3504,6 +3544,7 @@ class ExactTestCommandTests(unittest.TestCase):
         )
         for selector, expected in {
             "workshop_contract_tests": ci.GAMEPLAY_TARGETS["workshop"],
+            "prospecting_instrument_contract_tests": ci.GAMEPLAY_TARGETS["fieldwork"],
             "settlement_wire_contract_tests": "gameplay_settlement_contracts",
             "survival_contract_tests": ci.GAMEPLAY_TARGETS["survival"],
             "progression_contract_tests": "gameplay_progression_contracts",

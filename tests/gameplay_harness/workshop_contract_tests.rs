@@ -15,6 +15,33 @@ fn condition(parts_per_million: u32) -> Condition {
         .unwrap_or_else(|error| panic!("gameplay harness condition is invalid: {error}"))
 }
 
+fn maintained_variation(
+    registries: &deep_hearth::registry::Registries,
+    anchor: MaintainedAnchor,
+) -> scenario::ScenarioVariation {
+    let plan = scenario_seeds_from(
+        ScenarioPlanMode::Gate,
+        None,
+        None,
+        None,
+        MAINTAINED_VARIATION_ROOT,
+        MAINTAINED_BEHAVIOR_ROOT,
+    )
+    .unwrap_or_else(|error| panic!("maintained workshop seed plan failed: {error:?}"));
+    let case = plan
+        .cases()
+        .iter()
+        .find(|case| case.anchor == Some(anchor))
+        .copied()
+        .unwrap_or_else(|| panic!("maintained workshop anchor {anchor:?} disappeared"));
+    scenario::ScenarioVariation::from_seeds(
+        registries,
+        case.world_seed,
+        case.behavior_seed,
+        case.anchor,
+    )
+}
+
 #[test]
 fn short_warning_order_defers_service_until_safe_completion() {
     use super::report::MaintenancePreference;
@@ -26,12 +53,7 @@ fn short_warning_order_defers_service_until_safe_completion() {
         .equipment()
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
         .unwrap_or_else(|| panic!("authored crusher disappeared"));
-    let mut variation = scenario::ScenarioVariation::from_seeds(
-        &registries,
-        4,
-        1,
-        Some(MaintainedAnchor::WarningMaintenance),
-    );
+    let mut variation = maintained_variation(&registries, MaintainedAnchor::WarningMaintenance);
     variation.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
     let profile = definition
         .maintenance_profile()
@@ -92,12 +114,7 @@ fn warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_
     use deep_hearth::maintenance::MaintenanceBand;
 
     let registries = build_registries();
-    let mut warning = scenario::ScenarioVariation::from_seeds(
-        &registries,
-        29,
-        1,
-        Some(MaintainedAnchor::ConditionPressure),
-    );
+    let mut warning = maintained_variation(&registries, MaintainedAnchor::ConditionPressure);
     warning.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
     let warning_report = workshop::runner::run_scenario(&registries, warning, None);
 
@@ -135,12 +152,7 @@ fn warning_workshop_with_one_stored_batch(
 ) -> scenario::ScenarioVariation {
     use super::report::{EnergyRecoveryPreference, MaintenancePreference};
 
-    let mut variation = scenario::ScenarioVariation::from_seeds(
-        registries,
-        4,
-        1,
-        Some(MaintainedAnchor::WarningMaintenance),
-    );
+    let mut variation = maintained_variation(registries, MaintainedAnchor::WarningMaintenance);
     variation.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
     variation.policy.energy_recovery_preference = EnergyRecoveryPreference::ProtectSurvival;
     variation.ore.order_mass = variation
@@ -337,12 +349,7 @@ fn critical_service_is_affordable_from_warning_hydration_reserves() {
 #[test]
 fn initial_service_rebases_hidden_event_timing_after_elapsed_work() {
     let registries = build_registries();
-    let variation = scenario::ScenarioVariation::from_seeds(
-        &registries,
-        9,
-        0x88BD_D3FE_783B_B94D,
-        Some(super::configuration::MaintainedAnchor::CriticalMaintenance),
-    );
+    let variation = maintained_variation(&registries, MaintainedAnchor::CriticalMaintenance);
 
     let report = workshop::runner::run_scenario(&registries, variation, None);
 

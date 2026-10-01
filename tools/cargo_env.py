@@ -6,6 +6,7 @@ import os
 from collections.abc import Mapping
 
 LIBRARY_TEST_CODEGEN_UNITS = "512"
+LIBRARY_TEST_BUILD_JOBS = "4"
 
 
 def local_cargo_environment(
@@ -21,6 +22,7 @@ def local_cargo_environment(
         "RUSTFLAGS",
         "CARGO_ENCODED_RUSTFLAGS",
         "CARGO_INCREMENTAL",
+        "CARGO_BUILD_JOBS",
     ):
         environment.pop(key, None)
     for key in tuple(environment):
@@ -29,6 +31,8 @@ def local_cargo_environment(
     if library_test_codegen:
         # The cfg(test) library is much larger than focused gameplay crates. A high CGU count
         # materially reduces measured post-edit codegen/link latency while focused targets retain
-        # the lower-CGU profile that benchmarks better for their smaller graphs.
+        # the lower-CGU profile and Cargo's wider default parallelism that benchmark better for
+        # their smaller graphs.
         environment["CARGO_PROFILE_TEST_CODEGEN_UNITS"] = LIBRARY_TEST_CODEGEN_UNITS
+        environment["CARGO_BUILD_JOBS"] = LIBRARY_TEST_BUILD_JOBS
     return environment
