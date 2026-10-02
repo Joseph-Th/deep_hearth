@@ -62,7 +62,7 @@ GAMEPLAY_SCOPE_SPECS = {
 GAMEPLAY_TARGETS = {scope: spec.target for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
 GAMEPLAY_TESTS = {scope: spec.test for scope, spec in GAMEPLAY_SCOPE_SPECS.items()}
 GAMEPLAY_PROBE_TARGETS = {spec.test: spec.target for spec in GAMEPLAY_SCOPE_SPECS.values()}
-GAMEPLAY_PROBE_TARGETS["gameplay_agency_counterfactuals"] = GAMEPLAY_AUDIT_TARGET
+GAMEPLAY_PROBE_TARGETS["gameplay_agency_counterfactuals"] = GAMEPLAY_TARGETS["workshop"]
 GAMEPLAY_PROBE_TESTS = frozenset(GAMEPLAY_PROBE_TARGETS)
 GAMEPLAY_BEHAVIOR_PROBE_TESTS = frozenset(
     spec.test for spec in GAMEPLAY_SCOPE_SPECS.values() if spec.uses_behavior_seed

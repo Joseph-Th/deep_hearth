@@ -368,15 +368,28 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
         raise ValueError(f"unknown audit scope: {scope}")
 
     if scope == "all":
-        return [
-            ("core", cargo("test-core")),
-            ("gameplay", gameplay_command("all")),
-        ]
+        return [("gameplay+core", all_audit_command())]
     if scope == "core":
         return [("core", cargo("test-core"))]
     if scope == "gameplay":
         return [("gameplay", gameplay_command("all"))]
     raise AssertionError("validated audit scope must return a plan")
+
+
+def all_audit_command() -> list[str]:
+    """Build core unit tests and the consolidated gameplay audit in one feature-compatible Cargo run."""
+
+    return [
+        "cargo",
+        "test",
+        "--quiet",
+        "--locked",
+        "--features",
+        GAMEPLAY_FEATURE,
+        "--lib",
+        "--test",
+        GAMEPLAY_AUDIT_TARGET,
+    ]
 
 
 def bounded_failure_output(output: str) -> str:

@@ -989,8 +989,3 @@ fn gameplay_agency_gate_keeps_witnesses_and_varies_one_organic_world() {
         second[maintained_count].world_seed
     );
 }
-
-#[test]
-fn gameplay_agency_counterfactuals() {
-    run_gameplay_agency_counterfactuals();
-}

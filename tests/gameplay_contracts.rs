@@ -27,6 +27,8 @@ mod configuration_tests;
 mod fixture_boundary_tests;
 #[path = "gameplay_harness/manual_craft_selection_tests.rs"]
 mod manual_craft_selection_tests;
+#[path = "gameplay_harness/primitive_liberation_contract_tests.rs"]
+mod primitive_liberation_contract_tests;
 #[path = "gameplay_harness/process_catalog_contract_tests.rs"]
 mod process_catalog_contract_tests;
 #[path = "gameplay_harness/seed_contract_tests.rs"]

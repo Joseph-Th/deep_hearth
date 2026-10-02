@@ -32,7 +32,7 @@ Use `run_test.py --list <substring>` for build-free discovery. `--check` rejects
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
+`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. `audit --all` runs core unit tests and the consolidated gameplay audit in one `test-gameplay` Cargo invocation so production code is not rebuilt under two feature shapes; `audit --core` remains the feature-minimal core checkpoint. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
 
 ## Evidence ladder
 

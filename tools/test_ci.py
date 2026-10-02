@@ -1804,21 +1804,15 @@ class GameplayCiRoutingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly one build-producing lane"):
             ci.plan_for(gate_args(soak=True, gameplay="ore"))
 
-    def test_all_audit_runs_only_the_two_required_feature_surfaces(self) -> None:
+    def test_all_audit_reuses_one_gameplay_feature_build(self) -> None:
         plan = ci.audit_plan("all")
         builds = cargo_build_commands(plan)
-        self.assertEqual(
-            builds,
-            [
-                ["cargo", "test-core"],
-                ci.gameplay_command("all"),
-            ],
-        )
+        self.assertEqual(builds, [ci.all_audit_command()])
         self.assertFalse(any("check-fast" in command for command in builds))
         self.assertFalse(any(stage in ci.quick_plan() for stage in plan))
-        self.assertNotIn("test-gameplay", builds[0])
-        self.assertIn(ci.GAMEPLAY_FEATURE, builds[1])
-        self.assertEqual(cargo_test_targets(builds[1]), [ci.GAMEPLAY_AUDIT_TARGET])
+        self.assertIn(ci.GAMEPLAY_FEATURE, builds[0])
+        self.assertIn("--lib", builds[0])
+        self.assertEqual(cargo_test_targets(builds[0]), [ci.GAMEPLAY_AUDIT_TARGET])
 
     def test_core_repair_loop_stays_feature_minimal_while_gameplay_is_explicit(self) -> None:
         config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
@@ -1851,6 +1845,14 @@ class GameplayCiRoutingTests(unittest.TestCase):
         output = "failures:\n    mining::execution::tests::missing_capability\n"
         self.assertEqual(
             ci.repair_hint(["cargo", "test-core"], output, ""),
+            "python tools/run_test.py mining::execution::tests::missing_capability",
+        )
+
+    def test_all_audit_core_failure_points_to_one_exact_repair(self) -> None:
+        output = "failures:\n    mining::execution::tests::missing_capability\n"
+        error = "error: test failed, to rerun pass `--lib`"
+        self.assertEqual(
+            ci.repair_hint(ci.all_audit_command(), output, error),
             "python tools/run_test.py mining::execution::tests::missing_capability",
         )
 
@@ -1962,12 +1964,12 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_agency_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
             "AGENCY INPUT mode=gate organic=1 variation_root=0xAAAA\n"
-            "failures:\n    agency::gameplay_agency_counterfactuals\n"
+            "failures:\n    gameplay_agency_counterfactuals\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA agency::gameplay_agency_counterfactuals",
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA gameplay_agency_counterfactuals",
         )
 
     def test_workshop_failure_reuses_the_warm_audit_target(self) -> None:
@@ -3567,6 +3569,34 @@ class ExactTestCommandTests(unittest.TestCase):
             "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
         )
 
+    def test_audit_tests_all_have_smaller_purpose_built_owners(self) -> None:
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        focused_targets = {
+            definition["name"]
+            for definition in manifest.get("test", [])
+            if definition["name"] != ci.GAMEPLAY_AUDIT_TARGET
+        }
+        focused_tests = {
+            name
+            for target in focused_targets
+            for name in run_test.source_test_catalog(target, None)
+        }
+        audit_tests = set(run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None))
+        self.assertEqual(audit_tests - focused_tests, set())
+
+    def test_audit_gameplay_concerns_route_to_natural_focused_owners(self) -> None:
+        for selector, expected_target in {
+            "gameplay_agency_counterfactuals": ci.GAMEPLAY_TARGETS["workshop"],
+            "scenario_tests::world_seed_never_changes_player_policy": ci.GAMEPLAY_TARGETS[
+                "workshop"
+            ],
+            "primitive_liberation_contract_tests::primitive_liberation_content_closes_the_pre_smelting_processing_gap": ci.GAMEPLAY_CONTRACTS_TARGET,
+        }.items():
+            with self.subTest(selector=selector):
+                target, name = run_test.resolve_automatic_exact_selection(selector, None)
+                self.assertEqual(target, expected_target)
+                self.assertEqual(name, selector)
+
     def test_duplicate_gameplay_tests_have_one_explicit_non_audit_owner(self) -> None:
         owners_by_name: dict[str, set[str]] = {}
         for target, name in run_test.all_source_test_locations(None):
@@ -3865,10 +3895,15 @@ class ExactTestCommandTests(unittest.TestCase):
             fieldwork_policy,
         )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
-        self.assertNotIn("agency::gameplay_agency_counterfactuals", workshop)
-        self.assertNotIn("scenario_tests::world_seed_never_changes_player_policy", workshop)
+        self.assertIn("gameplay_agency_counterfactuals", workshop)
+        self.assertIn("scenario_tests::world_seed_never_changes_player_policy", workshop)
+        contracts = run_test.source_test_catalog(ci.GAMEPLAY_CONTRACTS_TARGET, None)
+        self.assertIn(
+            "primitive_liberation_contract_tests::primitive_liberation_content_closes_the_pre_smelting_processing_gap",
+            contracts,
+        )
         audit = run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None)
-        self.assertIn("agency::gameplay_agency_counterfactuals", audit)
+        self.assertIn("gameplay_agency_counterfactuals", audit)
         self.assertIn("scenario_tests::world_seed_never_changes_player_policy", audit)
         self.assertNotIn(
             "gameplay_report",

@@ -228,6 +228,11 @@ fn gameplay_survival_provisioning_probe() {
 }
 
 #[test]
+fn gameplay_agency_counterfactuals() {
+    agency::run_gameplay_agency_counterfactuals();
+}
+
+#[test]
 fn gameplay_settlement_probe() {
     focused_runner::run_focused_probe("settlement", settlement_probe::run_settlement_probe);
 }
