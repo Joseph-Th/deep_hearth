@@ -400,9 +400,11 @@ fn provision_diet_recovery_branch(
         meal_actions = meal_actions
             .checked_add(1)
             .unwrap_or_else(|| panic!("diet-recovery meal action count overflowed"));
+        let after_meal = assess_survival(registries, &state)
+            .unwrap_or_else(|| panic!("diet-recovery player disappeared after eating"));
         assert!(
-            meal_actions <= 16,
-            "diet-recovery required implausibly many meal-sized actions to establish recovery reserves"
+            after_meal.metabolic_energy() > current.metabolic_energy(),
+            "diet-recovery meal did not make progress toward the disclosed metabolic reserve target"
         );
     }
 
@@ -411,6 +413,9 @@ fn provision_diet_recovery_branch(
         .hydration()
         < hydration_target
     {
+        let current_hydration = assess_survival(registries, &state)
+            .unwrap_or_else(|| panic!("diet-recovery player disappeared before drinking"))
+            .hydration();
         let validated = match validate_drink_store_to_hydration_target(
             registries,
             &state,
@@ -442,9 +447,11 @@ fn provision_diet_recovery_branch(
         drink_actions = drink_actions
             .checked_add(1)
             .unwrap_or_else(|| panic!("diet-recovery drink action count overflowed"));
+        let after_drink = assess_survival(registries, &state)
+            .unwrap_or_else(|| panic!("diet-recovery player disappeared after drinking"));
         assert!(
-            drink_actions <= 16,
-            "diet-recovery required implausibly many bottle-sized actions to clear thirst"
+            after_drink.hydration() > current_hydration,
+            "diet-recovery drink did not make progress toward the disclosed hydration target"
         );
     }
     DietRecoveryProvisioned {
