@@ -38,10 +38,12 @@ fn organic_power_workload_sampling_straddles_the_current_crossover_scale() {
         crusher.specific_energy(),
     );
     let primitive = (1_u64..=64)
-        .map(|seed| declared_primitive_crushing_project(&registries, seed, store_definition, 8).0)
+        .map(|seed| {
+            declared_primitive_crushing_project(&registries, seed, store_definition, Some(8)).0
+        })
         .collect::<Vec<_>>();
     let settlement = (1_u64..=64)
-        .map(|seed| declared_settlement_lumber_project(&registries, seed, 8).0)
+        .map(|seed| declared_settlement_lumber_project(&registries, seed, Some(8)).0)
         .collect::<Vec<_>>();
 
     assert!(
@@ -86,4 +88,17 @@ fn organic_power_workload_sampling_straddles_the_current_crossover_scale() {
     assert!(primitive_units.iter().any(|units| *units >= 8));
     assert!(settlement_units.iter().any(|units| *units < 8));
     assert!(settlement_units.iter().any(|units| *units >= 8));
+
+    let no_primitive_crossover = (1_u64..=64)
+        .map(|seed| {
+            declared_primitive_crushing_project(&registries, seed, store_definition, None).0
+        })
+        .map(|mass| mass.milligrams() / primitive_mass_per_charge.milligrams())
+        .collect::<BTreeSet<_>>();
+    let no_settlement_crossover = (1_u64..=64)
+        .map(|seed| declared_settlement_lumber_project(&registries, seed, None).0)
+        .map(|mass| mass.milligrams() / saw_mass_per_bank.milligrams())
+        .collect::<BTreeSet<_>>();
+    assert!(no_primitive_crossover.len() > 1);
+    assert!(no_settlement_crossover.len() > 1);
 }

@@ -980,9 +980,7 @@ fn evaluate_woodworking_probe(
     case: FocusedProbeCase,
 ) -> (&'static str, u64, Option<u64>) {
     let seed = case.seed();
-    let behavior_seed = case
-        .behavior_seed()
-        .unwrap_or_else(|| panic!("woodworking actor case lost its independent behavior seed"));
+    let behavior_seed = case.required_behavior_seed("woodworking investment policy");
     let demand = plan_woodworking_demand(registries, seed);
     let world = build_woodworking_world(registries, seed);
     let decision = plan_woodworking_investment(registries, behavior_seed, demand, &world);

@@ -78,6 +78,7 @@ _ORDINARY_DIGEST_FIELDS = {
     "settlement": (
         "choice",
         "investment-policy-return",
+        "baseline-crossover",
         "demand",
         "payoff",
         "followup-payoff",

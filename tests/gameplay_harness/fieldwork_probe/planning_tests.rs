@@ -9,6 +9,14 @@ use super::super::inventory_support::add_solid_stockpile;
 use super::extraction::{FieldworkOrderAdaptation, FieldworkStop};
 use super::*;
 
+fn replay(seed: u64) -> FocusedProbeCase {
+    FocusedProbeCase::new(
+        seed,
+        Some(super::super::seed::mix64(seed ^ 0x4649_454C_445F_504C)),
+        FocusedProbeRole::ExplicitReplay,
+    )
+}
+
 fn choose_fieldwork_tool(
     registries: &Registries,
     state: &AppState,
@@ -87,7 +95,7 @@ fn batch_capped_mining_finishes_the_requested_order() {
             ..
         } = run_fieldwork_with_supply(
             &registries,
-            FocusedProbeCase::new(seed, None, FocusedProbeRole::ExplicitReplay),
+            replay(seed),
             fieldwork_order(&registries, seed),
             fieldwork_order(&registries, seed),
         );
@@ -121,7 +129,7 @@ fn preparation_cost_selects_light_tools_for_short_orders() {
             ..
         } = run_fieldwork_order(
             &registries,
-            FocusedProbeCase::new(seed, None, FocusedProbeRole::ExplicitReplay),
+            replay(seed),
             short_fieldwork_order(fieldwork_mining_limits(&registries).base_quarry_batch, seed),
         );
         assert!(
@@ -336,12 +344,7 @@ fn wear_adjusted_order_can_favor_the_lighter_reinforced_tool() {
                 ..
             },
         ..
-    } = run_fieldwork_with_supply(
-        &registries,
-        FocusedProbeCase::new(1, None, FocusedProbeRole::ExplicitReplay),
-        order,
-        order,
-    );
+    } = run_fieldwork_with_supply(&registries, replay(1), order, order);
     assert_eq!(tool, EQUIPMENT_COPPER_REINFORCED_PICK);
     assert_eq!(stop, FieldworkStop::OrderComplete);
     assert!(mining_ticks > preparation_ticks);

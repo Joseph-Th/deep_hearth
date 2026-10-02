@@ -34,6 +34,15 @@ def settlement_summary(lines: list[str]) -> str | None:
     setup = _values(settlement, r"setup:(\d+)t")
     delegated = _values(settlement, r"delegated:(\d+)t")
     policy_returns = _values(settlement, r"minimum-return:(\d+)ppm")
+    crossover_values = _values(settlement, r"baseline-crossover:(\d+)")
+    crossover_none = sum("baseline-crossover:none" in line for line in settlement)
+    crossover = ""
+    if crossover_values or crossover_none:
+        crossover = (
+            " baseline-crossover=["
+            f"found:{len(crossover_values)}/{len(settlement)} "
+            f"range:{_span(crossover_values, 'batches')} none:{crossover_none}]"
+        )
     builds = sum(" upgraded:true " in line for line in settlement)
     mechanized_lines = [line for line in settlement if "choice:sash-sawmill" in line]
     saved = _values(mechanized_lines, r"margin:\+(\d+)t")
@@ -175,7 +184,8 @@ def settlement_summary(lines: list[str]) -> str | None:
         f"samples={len(settlement)} sample-shape=[{sample_shape(settlement)}] "
         f"choice=[frame:{direct} sawmill:{mechanized}] "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
-        f"demand={min(batches)}..{max(batches)}batches "
+        f"demand={min(batches)}..{max(batches)}batches"
+        f"{crossover} "
         f"attention=[baseline:{min(baseline)}..{max(baseline)}t "
         f"mechanized:{min(machine)}..{max(machine)}t "
         f"setup:{min(setup)}..{max(setup)}t] "

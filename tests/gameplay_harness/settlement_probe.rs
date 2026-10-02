@@ -39,9 +39,7 @@ use super::settlement_power_planning::{ManualPowerSequenceRequest, project_manua
 
 const SETTLEMENT_DIRECT_HORIZON_BATCHES: u64 = 20;
 const SETTLEMENT_MECHANIZE_HORIZON_BATCHES: u64 = 64;
-const SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES: u64 = 128;
-const SETTLEMENT_OPPORTUNITY_BATCHES: u64 =
-    SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES + SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES / 2;
+const SETTLEMENT_OPPORTUNITY_BATCHES: u64 = 192;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LumberInvestmentChoice {
@@ -57,10 +55,9 @@ fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
             CapitalInvestmentPolicy::baseline()
         }
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => case
-            .behavior_seed()
-            .map(organic_investment_policy)
-            .unwrap_or_else(CapitalInvestmentPolicy::baseline),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            organic_investment_policy(case.required_behavior_seed("settlement investment policy"))
+        }
     }
 }
 
@@ -73,7 +70,7 @@ impl LumberInvestmentChoice {
     }
 }
 
-fn declared_lumber_batches(case: FocusedProbeCase, baseline_crossover_batches: u64) -> u64 {
+fn declared_lumber_batches(case: FocusedProbeCase, baseline_crossover_batches: Option<u64>) -> u64 {
     match case.role() {
         FocusedProbeRole::MaintainedAnchor => SETTLEMENT_DIRECT_HORIZON_BATCHES,
         FocusedProbeRole::MaintainedCoverage => SETTLEMENT_MECHANIZE_HORIZON_BATCHES,
@@ -81,6 +78,7 @@ fn declared_lumber_batches(case: FocusedProbeCase, baseline_crossover_batches: u
             organic_lumber_batches(
                 mix64(case.seed() ^ 0x5345_5454_4C55_4D42),
                 baseline_crossover_batches,
+                SETTLEMENT_OPPORTUNITY_BATCHES,
             )
         }
     }
@@ -313,7 +311,7 @@ fn baseline_lumber_crossover_batches(
     frame_saw: EquipmentId,
     crank: EquipmentId,
     work_per_batch: deep_hearth::core::quantity::Energy,
-) -> u64 {
+) -> Option<u64> {
     let (_, setup_attention) = setup_plans(registries, state, raw, frame_saw);
     let manual_process = registries
         .crafting()
@@ -334,7 +332,7 @@ fn baseline_lumber_crossover_batches(
     let minimum_attention_return =
         CapitalInvestmentPolicy::baseline().minimum_attention_return(0, setup_attention);
 
-    for batches in 1..=SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES {
+    for batches in 1..=SETTLEMENT_OPPORTUNITY_BATCHES {
         let batches_nonzero = NonZeroU64::new(batches).unwrap_or_else(|| {
             unreachable!("positive settlement crossover batch count is nonzero")
         });
@@ -370,12 +368,10 @@ fn baseline_lumber_crossover_batches(
             machine_attention,
             minimum_attention_return,
         ) {
-            return batches;
+            return Some(batches);
         }
     }
-    panic!(
-        "settlement sawmill investment has no baseline crossover within {SETTLEMENT_CROSSOVER_SEARCH_MAX_BATCHES} batches"
-    );
+    None
 }
 
 pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCase) {
@@ -701,12 +697,15 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
     let survival_after = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("settlement player survival disappeared after order"));
     let attention_saved = i128::from(baseline_attention) - i128::from(machine_attention);
+    let baseline_crossover =
+        baseline_crossover_batches.map_or_else(|| "none".to_owned(), |batches| batches.to_string());
     reviewln!(
-        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t machine-owned-before:{} reinvested:{} boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
+        "SETTLEMENT EXPERIENCE seed=0x{:016X} sample={} demand=[batches:{} mass:{}mg baseline-crossover:{}] decision=[choice:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t baseline:{}t mechanized:{}t setup:{}t charging-total:{}t first-charge:{}t margin:{:+}t followup-not-input:true] execution=[active:{}t elapsed:{}t/{} delegated:{}t upgraded:{} boards:{}mg chips:{}mg] followup=[demand-batches:{} completed:{} terminal:{} route:{} active:{}t elapsed:{}t/{} delegated:{}t machine-owned-before:{} reinvested:{} boards-total:{}mg chips-total:{}mg] followup-reassessment=[{}] episode=[elapsed:{}t/{} upgraded-final:{}] survival=[energy-spent:{}nJ hydration-spent:{}uL] prior-infrastructure=frame-saw+hand-crank+flywheel raw-upgrade-opportunity=[wood:{}mg copper:{}mg] matter=conserved",
         case.seed(),
         case.role().label(),
         order_batches,
         order_mass.milligrams(),
+        baseline_crossover,
         choice.label(),
         investment_policy.minimum_return_ppm(),
         minimum_attention_return,

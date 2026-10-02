@@ -115,10 +115,11 @@ fn survey_investment_policy(case: FocusedProbeCase) -> FieldworkSurveyPolicy {
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
             FieldworkSurveyPolicy::baseline()
         }
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => case
-            .behavior_seed()
-            .map(FieldworkSurveyPolicy::from_behavior_seed)
-            .unwrap_or_else(FieldworkSurveyPolicy::baseline),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            FieldworkSurveyPolicy::from_behavior_seed(
+                case.required_behavior_seed("fieldwork survey policy"),
+            )
+        }
     }
 }
 

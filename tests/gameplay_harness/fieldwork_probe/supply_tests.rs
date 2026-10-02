@@ -13,7 +13,7 @@ use deep_hearth::maintenance::Condition;
 fn replay(seed: u64) -> FocusedProbeCase {
     FocusedProbeCase::new(
         seed,
-        None,
+        Some(super::super::seed::mix64(seed ^ 0x4649_454C_445F_5355)),
         super::super::focused_case::FocusedProbeRole::ExplicitReplay,
     )
 }

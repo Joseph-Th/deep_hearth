@@ -755,6 +755,19 @@ pub(super) fn acquire_raw_kit<T>(
         Some(Mass::ZERO),
         "liberation ground bootstrap must be emptied through canonical pickup",
     );
+    let admitted_player = state
+        .logistics()
+        .player()
+        .unwrap_or_else(|| panic!("primitive liberation pickup lost its logistics player"));
+    assert_eq!(admitted_player.position(), player_position);
+    for stockpile in state.inventory().stockpiles() {
+        assert_eq!(
+            state.logistics().stockpile_position(stockpile.id()),
+            Some(player_position),
+            "primitive liberation stockpile {} is not local after canonical pickup",
+            stockpile.id().value()
+        );
+    }
 
     assert!(
         stockpile_funds_requirements(&state, raw, &direct_raw_requirements),

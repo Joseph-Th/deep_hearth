@@ -70,10 +70,11 @@ fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
             CapitalInvestmentPolicy::baseline()
         }
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => case
-            .behavior_seed()
-            .map(CapitalInvestmentPolicy::from_behavior_seed)
-            .unwrap_or_else(CapitalInvestmentPolicy::baseline),
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            CapitalInvestmentPolicy::from_behavior_seed(
+                case.required_behavior_seed("power-provider investment policy"),
+            )
+        }
     }
 }
 
@@ -261,11 +262,11 @@ pub(super) fn declared_primitive_crushing_project(
     registries: &Registries,
     seed: u64,
     store_definition: EnergyStoreDefinitionId,
-    baseline_crossover_charges: u64,
+    baseline_crossover_charges: Option<u64>,
 ) -> (Mass, Energy) {
-    // Center organic work around the current baseline provider crossover. The world seed chooses
-    // the workload while the independent behavior seed still owns the actor's investment policy.
-    // This keeps physical demand stable when only actor preference changes.
+    // Center organic work around the current baseline provider crossover when one exists; if the
+    // disclosed opportunity never repays the upgrade, sample that finite opportunity directly.
+    // The world seed owns workload while the independent behavior seed owns actor policy.
     let definition = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -282,7 +283,12 @@ pub(super) fn declared_primitive_crushing_project(
         !mass_per_charge.is_zero(),
         "primitive accumulator must fund positive crusher work"
     );
-    let charges = sampled_workload_units(seed, baseline_crossover_charges, 0x5052_494D_5F4F_5245);
+    let charges = sampled_workload_units(
+        seed,
+        baseline_crossover_charges,
+        maximum_sampled_workload_units(planning::primitive_crossover_search_limit()),
+        0x5052_494D_5F4F_5245,
+    );
     let mass = Mass::from_milligrams(
         mass_per_charge
             .milligrams()
@@ -298,9 +304,9 @@ pub(super) fn declared_primitive_crushing_project(
 pub(super) fn declared_settlement_lumber_project(
     registries: &Registries,
     seed: u64,
-    baseline_crossover_charges: u64,
+    baseline_crossover_charges: Option<u64>,
 ) -> (Mass, Energy) {
-    // Settlement demand uses the same world-only crossover-relative sampling discipline as the
+    // Settlement demand uses the same world-only crossover/opportunity sampling discipline as the
     // primitive project. Each unit is one current full flywheel-bank workload.
     let store = registries
         .energy()
@@ -318,8 +324,12 @@ pub(super) fn declared_settlement_lumber_project(
         !mass_per_bank.is_zero(),
         "settlement flywheel bank must fund positive saw work"
     );
-    let bank_workloads =
-        sampled_workload_units(seed, baseline_crossover_charges, 0x5345_5454_5F4C_554D);
+    let bank_workloads = sampled_workload_units(
+        seed,
+        baseline_crossover_charges,
+        maximum_sampled_workload_units(planning::settlement_crossover_search_limit()),
+        0x5345_5454_5F4C_554D,
+    );
     let mass = Mass::from_milligrams(
         mass_per_bank
             .milligrams()
@@ -332,13 +342,26 @@ pub(super) fn declared_settlement_lumber_project(
     )
 }
 
-fn sampled_workload_units(seed: u64, crossover: u64, salt: u64) -> u64 {
+fn sampled_workload_units(
+    seed: u64,
+    crossover: Option<u64>,
+    opportunity_units: u64,
+    salt: u64,
+) -> u64 {
+    assert!(
+        opportunity_units > 0,
+        "power-provider workload opportunity must be nonzero"
+    );
+    let Some(crossover) = crossover else {
+        return 1 + mix64(seed ^ salt) % opportunity_units;
+    };
     assert!(crossover > 0, "power-provider crossover must be positive");
     let spread = (crossover / 2).max(1);
     let lower = crossover.saturating_sub(spread).max(1);
     let upper = crossover
         .checked_add(spread)
-        .unwrap_or_else(|| panic!("power-provider workload range overflowed"));
+        .unwrap_or(u64::MAX)
+        .min(opportunity_units);
     lower + mix64(seed ^ salt) % (upper - lower + 1)
 }
 
@@ -981,16 +1004,17 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_break_even_charges =
         settlement_build_attention_delta.div_ceil(settlement_charge_saving);
     #[cfg(not(test))]
-    let settlement_decision_crossover = settlement_plan
-        .decision_crossover_charges
-        .map_or_else(|| "none".to_owned(), |charges| charges.to_string());
+    let settlement_decision_crossover = settlement_plan.decision_crossover_charges.map_or_else(
+        || "none-within-opportunity".to_owned(),
+        |charges| format!("{charges}charges"),
+    );
     assert_eq!(
         settlement_plan.declared_work_nj,
         settlement_project_work.nanojoules()
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{}charges provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
+        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{} provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
         case.role().label(),
         settlement_project_mass.milligrams(),
         settlement_project_work.nanojoules(),
@@ -1107,9 +1131,10 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     #[cfg(not(test))]
     let break_even_charges = build_attention_delta_ticks.div_ceil(charge_saving_per_job_ticks);
     #[cfg(not(test))]
-    let decision_crossover = plan
-        .decision_crossover_charges
-        .map_or_else(|| "none".to_owned(), |charges| charges.to_string());
+    let decision_crossover = plan.decision_crossover_charges.map_or_else(
+        || "none-within-opportunity".to_owned(),
+        |charges| charges.to_string(),
+    );
     assert_eq!(plan.declared_work_nj, primitive_project_work.nanojoules());
     let crank_package = crank_build.checked_add(crank_drive_build, "crank package");
     let treadle_package = treadle_build.checked_add(treadle_drive_build, "treadle package");

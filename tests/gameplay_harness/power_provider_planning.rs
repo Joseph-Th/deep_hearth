@@ -232,7 +232,7 @@ pub(super) fn settlement_power_decision_crossover_charges(
     shaped: StockpileId,
     capacity_nj: u128,
     investment_policy: CapitalInvestmentPolicy,
-) -> u64 {
+) -> Option<u64> {
     let treadle_build = project_power_package(
         registries,
         state,
@@ -277,12 +277,6 @@ pub(super) fn settlement_power_decision_crossover_charges(
         MAX_SETTLEMENT_CROSSOVER_CHARGES,
         minimum_attention_return_ticks,
     )
-    .unwrap_or_else(|| {
-        panic!(
-            "settlement provider investment has no crossover within the maintained {}-charge horizon",
-            MAX_SETTLEMENT_CROSSOVER_CHARGES
-        )
-    })
 }
 
 pub(super) fn settlement_power_plan(
@@ -457,7 +451,7 @@ pub(super) fn primitive_power_decision_crossover_charges(
     store_definition: EnergyStoreDefinitionId,
     capacity_nj: u128,
     investment_policy: CapitalInvestmentPolicy,
-) -> u64 {
+) -> Option<u64> {
     let crank_build = project_power_package(
         registries,
         state,
@@ -502,12 +496,6 @@ pub(super) fn primitive_power_decision_crossover_charges(
         MAX_PRIMITIVE_CROSSOVER_CHARGES,
         minimum_attention_return_ticks,
     )
-    .unwrap_or_else(|| {
-        panic!(
-            "primitive provider investment has no crossover within the maintained {}-charge horizon",
-            MAX_PRIMITIVE_CROSSOVER_CHARGES
-        )
-    })
 }
 
 pub(super) fn primitive_power_plan(

@@ -31,6 +31,18 @@ fn focused_probe_cases_from(
 }
 
 #[test]
+fn choice_rich_cases_fail_closed_when_actor_entropy_is_missing() {
+    let case = FocusedProbeCase::new(0x1234, None, FocusedProbeRole::OrganicVariation);
+    assert!(
+        std::panic::catch_unwind(|| case.required_behavior_seed("seed contract")).is_err(),
+        "organic actor cases must not silently collapse to a maintained baseline policy"
+    );
+
+    let replay = FocusedProbeCase::new(0x1234, Some(0xCAFE), FocusedProbeRole::ExplicitReplay);
+    assert_eq!(replay.required_behavior_seed("seed contract"), 0xCAFE);
+}
+
+#[test]
 fn exploratory_fieldwork_uses_a_denser_organic_sample_without_widening_other_probes() {
     assert_eq!(
         exploratory_variation_count("fieldwork"),

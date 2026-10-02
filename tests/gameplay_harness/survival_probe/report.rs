@@ -7,9 +7,7 @@ use super::*;
 fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
     let sample = case.role().label();
-    let behavior_seed = case
-        .behavior_seed()
-        .unwrap_or_else(|| panic!("survival probe is missing its actor behavior seed"));
+    let behavior_seed = case.required_behavior_seed("survival provisioning policy");
     let world = provisioning_world(registries, seed);
     let protected_food = world.foods[world.witness_index];
     let protected_reserve_mass = world.preserved_reserve_mass;
