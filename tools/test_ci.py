@@ -2741,7 +2741,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "PROGRESSION REVIEW seed=0x1 sample=anchor role=runtime-experience-after-disclosed-bootstrap continuity=single-state captured:true coverage-autonomy=[repeat-horizon:12/24cycles stop:stockpile-order-complete] selected-reinvestment=[completed copper-invested:60000mg next-stage=[sizing-plate-continuation:90t]] stored-work=[passive-loss:125000000000nJ reserve-recharge:1t]",
             "PROGRESSION GOAL seed=0x1 immediate=265t delayed=741t chosen=immediate",
             "LIBERATION COST seed=0x1 scavenger-marginal=[attention:17t native:6mg]",
-            "LIBERATION KIT ACQUISITION seed=0x1 scope=raw-stone+logs->adze+reusable-base-processing-kit raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign=8batches workload-known-before-build=true fabrication-choice=[spring-pole:true staging-funded:true policy-min-return:200000ppm threshold:36t direct:1012t selected:841t saved:171t extra-raw:5000000mg] raw=[stone:9000000mg wood:19400000mg total:28400000mg] built=[adze:true spring-pole:true crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:841t fabrication=[adze:80t spring-pole:176t machine-components:478t riddle-panel:107t] body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+            "LIBERATION KIT ACQUISITION seed=0x1 scope=progression-carryover->incremental-liberation-kit continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:820000..1000000ppm embodied:5500000mg] raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign=8batches workload-known-before-build=true raw=[stone:3000000mg wood:5000000mg total:8000000mg] raw-use=[consumed:8000000mg remaining:0mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:342t fabrication=[adze:80t extension-components:160t riddle-panel:102t] body=500000000000000nJ/100000uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
             "LIBERATION ROUTE TRADEOFF seed=0x1 basis=matched-ore-mass feed=100mg manual=[attention:60t native:30mg recovery:650000ppm body:1nJ/1uL] powered=[elapsed:20t charge-attention:5t native:45mg] campaign=[planned:8batches executed:8 kit-payback:8batches attention:manual:480t/powered:444t body:manual:8nJ/8uL powered:500000000000008nJ/100008uL elapsed:160t final-condition=[crusher:970000 quern:850000 screen:981200 separator:971800 treadle:999040] justified:true] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[executed attention:404t body:500000000000000nJ/100000uL] continuity=live-kit-used",
             "LIBERATION FRONTIER CAPABILITY seed=0x1 sample=anchor cleanup-executed=true reason=required-native-copper-conversion input=[100mg] concentrate=[first:70mg/700000ppm final:75mg/750000ppm] copper-in-concentrate=[first:49mg final:56mg scavenger-recovered:7mg] native-copper=50mg matter=conserved",
             "FIRST FOUNDRY EXPERIENCE seed=0x1 sample=anchor scope=ordinary-foundry-bootstrap-decision upstream=post-settlement-mechanization-disclosed-opportunity continuity=separate-episode inherited-workshop=[frame-saw,treadle-hammer,treadle-drive] inherited-condition=1000000..1000000ppm resource-opportunity=[stone:19200000mg wood:12000000mg native:360000mg] immediate-choice=[order:20000mg attention:14t reinforcement:20000mg tool:treadle-hammer reason=cheapest-live-route] bootstrap-choice=[remaining-native:340000mg foundry-capital:160000mg cast-ingots:80000mg disclosed-followup:80000mg required:320000mg shortfall:0mg selection:foundry reason=disclosed-followup-work-justifies-bootstrap] foundry-build=true fabrication=[total:500t/30.0m material=[stone:360t wood:28t copper:112t] route=[hand:360t frame-saw:28t treadle-hammer:112t]] workshop-reuse=[hand-only:880t saved:380t] campaign=[batches:4 charge:140t melt:140t cast:72t cooldown:0t autonomous:212t released-heat:49190296000000nJ] mold-upgrade=[20000mg->80000mg] settlement-cast=[executed:true batch:80000mg supply-shortfall:0mg charge:140t melt:140t cast:69t cooldown:60t autonomous:269t released-heat:49190296000000nJ] total-autonomous:481t copper-after-episode:20000mg total-player-attention:794t total-elapsed:1275t/76.5m survival=[energy:1000nJ hydration:200uL] matter=conserved continuation=settlement-batch-proven",
@@ -2849,11 +2849,16 @@ class GameplayReportContractTests(unittest.TestCase):
             concise,
         )
         self.assertIn(
-            "staging=[funded:1/1 spring-pole:1/1 extra-raw:5..5kg direct:1012..1012t selected:841..841t saved:171..171t]",
+            "carryover=[processing-line:1/1 condition:820000..1000000ppm embodied:5.5..5.5kg]",
             concise,
         )
         self.assertIn(
-            "phases=[adze:80..80t spring-pole:176..176t parts:478..478t riddle:107..107t]",
+            "raw=[stone:3..3kg wood:5..5kg total:8..8kg consumed:8..8kg remaining:0..0kg]",
+            concise,
+        )
+        self.assertIn("incremental-attn:342..342t", concise)
+        self.assertIn(
+            "phases=[adze:80..80t parts:160..160t riddle:102..102t]",
             concise,
         )
         self.assertIn("choice=[saw:0 adze:0 bare:1]", concise)
