@@ -545,7 +545,7 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
         .projected_indexed_search_ticks
         .map_or_else(|| "unfunded".to_owned(), |ticks| format!("{ticks}t"));
     reviewln!(
-        "FIELDWORK SURVEY CAMPAIGN seed=0x{:016X} planned-sites={} localized-sites={} barren-sites={} upgrade-available={} selected={} policy=min-expected-search-attention-with-minimum-return minimum-return={}ppm projected=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
+        "FIELDWORK SURVEY CAMPAIGN seed=0x{:016X} planned-sites={} localized-sites={} barren-sites={} upgrade-available={} selected={} policy=min-expected-search-attention-with-minimum-return minimum-return={}ppm productive-site-prior={}ppm projected=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t] execution=search-only extraction-owned-by-lived-reroute=true choice-frozen-before-branch=true",
         review.case.seed(),
         campaign.planned_sites,
         campaign.localized_sites,
@@ -553,6 +553,7 @@ fn report_survey_campaign(review: &FieldworkEpisodeReview<'_>) {
         campaign.upgrade_available,
         campaign.selected_strategy.label(),
         campaign.investment_policy.minimum_return_ppm(),
+        campaign.investment_policy.productive_site_prior_ppm(),
         campaign.projected_point_search_ticks,
         indexed_projection,
         campaign.baseline_search_ticks,

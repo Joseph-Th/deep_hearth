@@ -452,7 +452,7 @@ fn run_fieldwork_with_supply(
             hammer,
             channel_voxels,
             sites: &campaign_sites,
-            planned_sites: planned_future_sites(seed),
+            planned_sites: planned_future_sites(case),
             investment_policy: survey_investment_policy(case),
         },
     );

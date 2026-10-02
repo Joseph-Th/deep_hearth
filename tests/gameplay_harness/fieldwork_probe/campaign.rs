@@ -11,6 +11,7 @@ use deep_hearth::labor::{ProspectingMethodId, project_prospecting_work};
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelBounds;
 
+use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::seed::mix64;
 use super::planning::project_sampling_hammer_upgrade_ticks;
 use super::preparation::upgrade_sampling_hammer;
@@ -73,16 +74,20 @@ pub(super) struct FieldworkSurveyDecision {
 pub(super) const MINIMUM_SURVEY_INVESTMENT_RETURN_PPM: u128 = 100_000;
 const ORGANIC_MINIMUM_SURVEY_RETURN_PPM: u128 = 75_000;
 const ORGANIC_MAXIMUM_SURVEY_RETURN_PPM: u128 = 125_000;
+const SITE_PRODUCTIVITY_SCALE_PPM: u128 = 1_000_000;
+const NEUTRAL_PRODUCTIVE_SITE_PRIOR_PPM: u128 = SITE_PRODUCTIVITY_SCALE_PPM / 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct FieldworkSurveyPolicy {
     minimum_return_ppm: u128,
+    productive_site_prior_ppm: u128,
 }
 
 impl FieldworkSurveyPolicy {
     pub(super) const fn baseline() -> Self {
         Self {
             minimum_return_ppm: MINIMUM_SURVEY_INVESTMENT_RETURN_PPM,
+            productive_site_prior_ppm: NEUTRAL_PRODUCTIVE_SITE_PRIOR_PPM,
         }
     }
 
@@ -90,20 +95,32 @@ impl FieldworkSurveyPolicy {
         let span = ORGANIC_MAXIMUM_SURVEY_RETURN_PPM - ORGANIC_MINIMUM_SURVEY_RETURN_PPM;
         Self {
             minimum_return_ppm: ORGANIC_MINIMUM_SURVEY_RETURN_PPM + (seed as u128) % (span + 1),
+            // Unknown neighboring ground is not assigned the hidden world's generated success
+            // frequency. Keep one explicit neutral prior while behavior entropy varies only the
+            // actor's capital-return tolerance.
+            productive_site_prior_ppm: NEUTRAL_PRODUCTIVE_SITE_PRIOR_PPM,
         }
     }
 
     pub(super) const fn minimum_return_ppm(self) -> u128 {
         self.minimum_return_ppm
     }
+
+    pub(super) const fn productive_site_prior_ppm(self) -> u128 {
+        self.productive_site_prior_ppm
+    }
 }
 
-pub(super) fn planned_future_sites(seed: u64) -> u64 {
-    // Keep organic/replay horizons seed-driven while making the maintained fieldwork witnesses
-    // span one-, two-, and three-site campaigns. The three-site case is where the authored indexed
-    // survey can rationally repay its copper reinforcement, so routine reports must not depend on
-    // organic luck to exercise that decision.
-    1 + mix64(seed ^ 0x4649_454C_4443_41BE) % 3
+pub(super) fn planned_future_sites(case: FocusedProbeCase) -> u64 {
+    let policy_seed = match case.role() {
+        // Maintained cases intentionally attach stable policy to their maintained world identity.
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => case.seed(),
+        // Choice-rich organic/replay policy must be independent of physical world generation.
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            case.required_behavior_seed("fieldwork survey campaign horizon")
+        }
+    };
+    1 + mix64(policy_seed ^ 0x4649_454C_4443_41BE) % 3
 }
 
 fn projected_prospecting_ticks(
@@ -117,7 +134,11 @@ fn projected_prospecting_ticks(
         .value()
 }
 
-fn expected_point_search_ticks(registries: &Registries, channel_voxels: i64) -> u64 {
+fn expected_point_search_ticks(
+    registries: &Registries,
+    channel_voxels: i64,
+    policy: FieldworkSurveyPolicy,
+) -> u64 {
     let channel_voxel_count = u64::try_from(channel_voxels)
         .unwrap_or_else(|_| panic!("fieldwork campaign channel width must be positive"));
     let channel_region = horizontal_region(0, channel_voxels);
@@ -134,17 +155,36 @@ fn expected_point_search_ticks(registries: &Registries, channel_voxels: i64) -> 
         projected_prospecting_ticks(registries, PROSPECTING_FIELD_INSPECTION, point_region);
     let detailed =
         projected_prospecting_ticks(registries, PROSPECTING_DETAILED_FIELD_SURVEY, point_region);
-    let doubled_variable = channel_voxel_count
+    // Within a selected channel no actor-visible fact favors one unsampled voxel over another, so
+    // the productive-site projection uses the symmetric mean inspection count. Whether a new area
+    // is productive at all is different: follow-up geology may legitimately be barren, and its
+    // generated frequency is hidden. Weight productive and barren search costs only by the explicit
+    // actor prior instead of silently assuming every future area contains copper.
+    let productive_doubled_variable = channel_voxel_count
         .checked_add(1)
         .and_then(|count| count.checked_mul(inspection))
         .and_then(|ticks| ticks.checked_add(detailed.checked_mul(2)?))
         .unwrap_or_else(|| panic!("fieldwork campaign expected point-search duration overflowed"));
-    assert!(
-        doubled_variable.is_multiple_of(2),
-        "fieldwork campaign expected point-search duration must resolve to whole ticks"
-    );
+    let barren_variable = channel_voxel_count
+        .checked_mul(inspection)
+        .unwrap_or_else(|| panic!("fieldwork barren-site search duration overflowed"));
+    let productive_prior = policy.productive_site_prior_ppm();
+    assert!(productive_prior <= SITE_PRODUCTIVITY_SCALE_PPM);
+    let barren_prior = SITE_PRODUCTIVITY_SCALE_PPM - productive_prior;
+    let weighted_doubled_variable = u128::from(productive_doubled_variable)
+        .checked_mul(productive_prior)
+        .and_then(|productive| {
+            u128::from(barren_variable)
+                .checked_mul(2)
+                .and_then(|barren| barren.checked_mul(barren_prior))
+                .and_then(|barren| productive.checked_add(barren))
+        })
+        .unwrap_or_else(|| panic!("fieldwork campaign weighted search projection overflowed"));
+    let variable_ticks = weighted_doubled_variable.div_ceil(SITE_PRODUCTIVITY_SCALE_PPM * 2);
+    let variable_ticks = u64::try_from(variable_ticks)
+        .unwrap_or_else(|_| panic!("fieldwork campaign search projection exceeds tick range"));
     common_transects
-        .checked_add(doubled_variable / 2)
+        .checked_add(variable_ticks)
         .unwrap_or_else(|| panic!("fieldwork campaign point-search duration overflowed"))
 }
 
@@ -207,7 +247,7 @@ pub(super) fn decide_fieldwork_survey_strategy(
         planned_sites > 0,
         "fieldwork survey plan requires at least one future site"
     );
-    let point_per_site = expected_point_search_ticks(registries, channel_voxels);
+    let point_per_site = expected_point_search_ticks(registries, channel_voxels, policy);
     let indexed_per_site = indexed_search_ticks(registries, channel_voxels);
     let projected_point_search_ticks = point_per_site
         .checked_mul(planned_sites)

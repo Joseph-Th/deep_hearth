@@ -9,15 +9,52 @@ use super::super::world::build_fieldwork_world;
 
 #[test]
 fn maintained_fieldwork_witnesses_span_campaign_horizons() {
-    assert_eq!(planned_future_sites(1), 1);
+    use super::super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+
+    let maintained = |seed| FocusedProbeCase::new(seed, None, FocusedProbeRole::MaintainedCoverage);
+    assert_eq!(planned_future_sites(maintained(1)), 1);
     assert_eq!(
         [
-            planned_future_sites(2),
-            planned_future_sites(3),
-            planned_future_sites(6),
+            planned_future_sites(maintained(2)),
+            planned_future_sites(maintained(3)),
+            planned_future_sites(maintained(6)),
         ],
         [1, 3, 2],
         "maintained coverage must include a copper-capable three-site survey-investment witness"
+    );
+}
+
+#[test]
+fn organic_campaign_horizon_depends_on_behavior_seed_not_world_seed() {
+    use super::super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+
+    let first_world = FocusedProbeCase::new(1, Some(3), FocusedProbeRole::OrganicVariation);
+    let second_world = FocusedProbeCase::new(99, Some(3), FocusedProbeRole::OrganicVariation);
+    assert_eq!(
+        planned_future_sites(first_world),
+        planned_future_sites(second_world)
+    );
+
+    let mut horizons = std::collections::BTreeSet::new();
+    for behavior_seed in 0..32 {
+        horizons.insert(planned_future_sites(FocusedProbeCase::new(
+            1,
+            Some(behavior_seed),
+            FocusedProbeRole::OrganicVariation,
+        )));
+    }
+    assert_eq!(horizons, [1, 2, 3].into_iter().collect());
+}
+
+#[test]
+fn point_search_projection_accounts_for_barren_future_ground_without_hidden_world_frequency() {
+    let registries = build_registries();
+    let policy = FieldworkSurveyPolicy::baseline();
+    assert_eq!(policy.productive_site_prior_ppm(), 500_000);
+    assert_eq!(
+        expected_point_search_ticks(&registries, 4, policy),
+        75,
+        "two transects plus a neutral mix of productive mean-search and full barren scan must own the forecast"
     );
 }
 
@@ -66,6 +103,11 @@ fn behavior_seed_varies_survey_investment_tolerance_without_changing_physics() {
     let cautious = FieldworkSurveyPolicy::from_behavior_seed(50_000);
     assert!(eager.minimum_return_ppm() < baseline.minimum_return_ppm());
     assert!(baseline.minimum_return_ppm() < cautious.minimum_return_ppm());
+    assert_eq!(
+        eager.productive_site_prior_ppm(),
+        cautious.productive_site_prior_ppm(),
+        "behavior entropy may vary return tolerance but not smuggle a different hidden-world success rate"
+    );
     let indexed_ticks = 1_000_000_u64;
     let midpoint_return_ppm = (eager.minimum_return_ppm() + cautious.minimum_return_ppm()) / 2;
     let midpoint_saved_ticks = u64::try_from(midpoint_return_ppm)
