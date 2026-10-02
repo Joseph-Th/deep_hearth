@@ -75,6 +75,61 @@ fn future_material_lot_identity_demand_tracks_job_insert_and_remove() {
 }
 
 #[test]
+fn physical_availability_candidates_inspect_only_active_output_destinations() {
+    let suspended = ProductionJobId::new(1);
+    let support_required = ProductionJobId::new(2);
+    let supported_output = ProductionJobId::new(3);
+    let unsupported_output = ProductionJobId::new(4);
+    let overlapping = ProductionJobId::new(5);
+    let supported_stockpile = StockpileId::new(10);
+    let unsupported_stockpile = StockpileId::new(11);
+    let projection =
+        |output_stockpiles: BTreeSet<StockpileId>, suspended, requires_active_support| {
+            ProductionJobIndexProjection {
+                due_tick: None,
+                consumed_energy_store: None,
+                released_energy_store: None,
+                equipment: None,
+                output_stockpiles,
+                future_material_lot_id_demand: 0,
+                suspended,
+                player_labor_suspended: false,
+                requires_active_support,
+                requires_energy_revision: false,
+                requires_equipment_revision: false,
+            }
+        };
+    let mut indexes = ProductionIndexes::new();
+    indexes.insert_job(suspended, &projection(BTreeSet::new(), true, false));
+    indexes.insert_job(support_required, &projection(BTreeSet::new(), false, true));
+    indexes.insert_job(
+        supported_output,
+        &projection(BTreeSet::from([supported_stockpile]), false, false),
+    );
+    indexes.insert_job(
+        unsupported_output,
+        &projection(BTreeSet::from([unsupported_stockpile]), false, false),
+    );
+    indexes.insert_job(
+        overlapping,
+        &projection(BTreeSet::from([supported_stockpile]), true, false),
+    );
+
+    let mut inspected = Vec::new();
+    let candidates = indexes.physical_availability_candidate_jobs(|stockpile| {
+        inspected.push(stockpile);
+        stockpile == supported_stockpile
+    });
+
+    assert_eq!(inspected, vec![supported_stockpile, unsupported_stockpile]);
+    assert_eq!(
+        candidates,
+        vec![suspended, support_required, supported_output, overlapping],
+        "availability candidates must remain sorted and deduplicated"
+    );
+}
+
+#[test]
 fn revision_requirement_buckets_track_shared_ticks_without_rescanning_jobs() {
     let shared_tick = SimulationTick::new(4);
     let other_tick = SimulationTick::new(5);

@@ -194,14 +194,14 @@ impl ProductionIndexes {
 
     pub(super) fn physical_availability_candidate_jobs(
         &self,
-        supported_stockpiles: impl IntoIterator<Item = StockpileId>,
+        mut is_stockpile_supported: impl FnMut(StockpileId) -> bool,
     ) -> Vec<ProductionJobId> {
         let mut candidates =
             Vec::with_capacity(self.suspended_jobs.len() + self.required_active_support_jobs.len());
         candidates.extend(self.suspended_jobs.iter().copied());
         candidates.extend(self.required_active_support_jobs.iter().copied());
-        for stockpile in supported_stockpiles {
-            if let Some(jobs) = self.output_stockpile_occupancy.get(&stockpile) {
+        for (stockpile, jobs) in &self.output_stockpile_occupancy {
+            if is_stockpile_supported(*stockpile) {
                 candidates.extend(jobs.iter().copied());
             }
         }

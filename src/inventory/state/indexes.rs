@@ -100,13 +100,6 @@ impl InventoryState {
             .flat_map(|stockpiles| stockpiles.iter().copied())
     }
 
-    /// Iterates every structurally supported stockpile without scanning unrelated inventory records.
-    pub(crate) fn all_supported_stockpiles(&self) -> impl Iterator<Item = StockpileId> + '_ {
-        self.stockpiles_by_support
-            .values()
-            .flat_map(|stockpiles| stockpiles.iter().copied())
-    }
-
     pub(in crate::inventory) fn assert_support_change_available(
         &self,
         stockpile: StockpileId,

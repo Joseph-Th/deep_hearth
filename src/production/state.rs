@@ -104,7 +104,11 @@ impl ProductionState {
         inventory: &InventoryState,
     ) -> Vec<ProductionJobId> {
         self.indexes
-            .physical_availability_candidate_jobs(inventory.all_supported_stockpiles())
+            .physical_availability_candidate_jobs(|stockpile| {
+                inventory
+                    .get_stockpile(stockpile)
+                    .is_some_and(|record| record.supported_by().is_some())
+            })
     }
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {

@@ -178,6 +178,26 @@ impl Display for PlayerFluidStoreAccessError {
 
 impl Error for PlayerFluidStoreAccessError {}
 
+fn validate_known_local_position<E>(
+    player_position: VoxelCoord,
+    asset_position: Option<VoxelCoord>,
+    asset_exists: bool,
+    unlocated_error: E,
+    remote_error: impl FnOnce(VoxelCoord, VoxelCoord) -> E,
+) -> Result<(), E> {
+    let Some(asset_position) = asset_position else {
+        return if asset_exists {
+            Err(unlocated_error)
+        } else {
+            Ok(())
+        };
+    };
+    if asset_position != player_position {
+        return Err(remote_error(asset_position, player_position));
+    }
+    Ok(())
+}
+
 /// Requires every known non-carried stockpile targeted by a player action to have an exact
 /// logistics-owned world location at the player's voxel. Controlled fixtures without a player
 /// remain free to exercise capability-level behavior without world custody.
@@ -191,22 +211,17 @@ pub fn validate_player_stockpile_access(
     if player.carried_stockpile() == stockpile {
         return Ok(());
     }
-    let Some(stockpile_position) = state.logistics().stationary_stockpile_position(stockpile)
-    else {
-        return if state.inventory().get_stockpile(stockpile).is_some() {
-            Err(PlayerStockpileAccessError::UnlocatedStockpile { stockpile })
-        } else {
-            Ok(())
-        };
-    };
-    if stockpile_position != player.position() {
-        return Err(PlayerStockpileAccessError::RemoteKnownStockpile {
+    validate_known_local_position(
+        player.position(),
+        state.logistics().stationary_stockpile_position(stockpile),
+        state.inventory().get_stockpile(stockpile).is_some(),
+        PlayerStockpileAccessError::UnlocatedStockpile { stockpile },
+        |stockpile_position, player_position| PlayerStockpileAccessError::RemoteKnownStockpile {
             stockpile,
             stockpile_position,
-            player_position: player.position(),
-        });
-    }
-    Ok(())
+            player_position,
+        },
+    )
 }
 
 /// Requires every known finite-fluid store targeted by a player action to be explicitly co-located.
@@ -217,21 +232,17 @@ pub fn validate_player_fluid_store_access(
     let Some(player) = state.logistics().player().copied() else {
         return Ok(());
     };
-    let Some(store_position) = state.logistics().fluid_store_position(store) else {
-        return if state.fluid().get_store(store).is_some() {
-            Err(PlayerFluidStoreAccessError::UnlocatedFluidStore { store })
-        } else {
-            Ok(())
-        };
-    };
-    if store_position != player.position() {
-        return Err(PlayerFluidStoreAccessError::RemoteKnownFluidStore {
+    validate_known_local_position(
+        player.position(),
+        state.logistics().fluid_store_position(store),
+        state.fluid().get_store(store).is_some(),
+        PlayerFluidStoreAccessError::UnlocatedFluidStore { store },
+        |store_position, player_position| PlayerFluidStoreAccessError::RemoteKnownFluidStore {
             store,
             store_position,
-            player_position: player.position(),
-        });
-    }
-    Ok(())
+            player_position,
+        },
+    )
 }
 
 /// Requires every known finite-energy store targeted by a player action to be explicitly co-located.
@@ -242,21 +253,17 @@ pub fn validate_player_energy_store_access(
     let Some(player) = state.logistics().player().copied() else {
         return Ok(());
     };
-    let Some(store_position) = state.logistics().energy_store_position(store) else {
-        return if state.energy().get_store(store).is_some() {
-            Err(PlayerEnergyStoreAccessError::UnlocatedEnergyStore { store })
-        } else {
-            Ok(())
-        };
-    };
-    if store_position != player.position() {
-        return Err(PlayerEnergyStoreAccessError::RemoteKnownEnergyStore {
+    validate_known_local_position(
+        player.position(),
+        state.logistics().energy_store_position(store),
+        state.energy().get_store(store).is_some(),
+        PlayerEnergyStoreAccessError::UnlocatedEnergyStore { store },
+        |store_position, player_position| PlayerEnergyStoreAccessError::RemoteKnownEnergyStore {
             store,
             store_position,
-            player_position: player.position(),
-        });
-    }
-    Ok(())
+            player_position,
+        },
+    )
 }
 
 /// Requires every known equipment instance targeted by a player action to be explicitly co-located.
@@ -267,19 +274,15 @@ pub fn validate_player_equipment_access(
     let Some(player) = state.logistics().player().copied() else {
         return Ok(());
     };
-    let Some(equipment_position) = state.logistics().equipment_position(equipment) else {
-        return if state.equipment().get_equipment(equipment).is_some() {
-            Err(PlayerEquipmentAccessError::UnlocatedEquipment { equipment })
-        } else {
-            Ok(())
-        };
-    };
-    if equipment_position != player.position() {
-        return Err(PlayerEquipmentAccessError::RemoteKnownEquipment {
+    validate_known_local_position(
+        player.position(),
+        state.logistics().equipment_position(equipment),
+        state.equipment().get_equipment(equipment).is_some(),
+        PlayerEquipmentAccessError::UnlocatedEquipment { equipment },
+        |equipment_position, player_position| PlayerEquipmentAccessError::RemoteKnownEquipment {
             equipment,
             equipment_position,
-            player_position: player.position(),
-        });
-    }
-    Ok(())
+            player_position,
+        },
+    )
 }
