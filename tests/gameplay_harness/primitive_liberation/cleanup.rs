@@ -36,7 +36,8 @@ pub(super) fn run(
     let native_copper = scenario.native_copper;
     let exhausted_tailings = scenario.exhausted_tailings;
     let separator = scenario.separator;
-    let treadle = scenario.treadle;
+    let power_method = scenario.power_method;
+    let power_provider = scenario.power_provider;
     let drive = scenario.drive;
     let state = &mut scenario.state;
     let exhausted_before = state
@@ -53,7 +54,7 @@ pub(super) fn run(
             separator,
             concentrate,
         ),
-        (treadle, drive),
+        (power_method, power_provider, drive),
         scenario.charge_policy,
         "primitive concentrate-cleaning recharge",
     ));

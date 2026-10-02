@@ -45,7 +45,8 @@ pub(super) fn run(
     let quern = scenario.quern;
     let screen = scenario.screen;
     let separator = scenario.separator;
-    let treadle = scenario.treadle;
+    let power_method = scenario.power_method;
+    let power_provider = scenario.power_provider;
     let drive = scenario.drive;
     let policy = scenario.charge_policy;
     let charges = &mut scenario.charges;
@@ -55,9 +56,9 @@ pub(super) fn run(
         registries,
         state,
         (PROCESS_CRUSH_ORE, crusher, ore),
-        (treadle, drive),
+        (power_method, power_provider, drive),
         policy,
-        "primitive liberation treadle charge",
+        "primitive liberation processing charge",
     ));
     let crush = resolve_comminution_process(
         registries,
@@ -87,7 +88,7 @@ pub(super) fn run(
         registries,
         state,
         (PROCESS_GRIND_CRUSHED_ORE, quern, crushed),
-        (treadle, drive),
+        (power_method, power_provider, drive),
         policy,
         "primitive liberation post-crush recharge",
     ));
@@ -125,7 +126,7 @@ pub(super) fn run(
         registries,
         state,
         (PROCESS_SCREEN_CRUSHED_ORE, screen, ground),
-        (treadle, drive),
+        (power_method, power_provider, drive),
         policy,
         "primitive liberation post-grind recharge",
     ));
@@ -161,7 +162,7 @@ pub(super) fn run(
         registries,
         state,
         (PROCESS_FINE_GRIND_SCREEN_OVERSIZE, quern, oversize),
-        (treadle, drive),
+        (power_method, power_provider, drive),
         policy,
         "primitive liberation post-screen recharge",
     ));
@@ -205,7 +206,7 @@ pub(super) fn run(
         registries,
         state,
         (PROCESS_CONCENTRATE_COPPER, separator, undersize),
-        (treadle, drive),
+        (power_method, power_provider, drive),
         policy,
         "primitive liberation post-regrind recharge",
     ));

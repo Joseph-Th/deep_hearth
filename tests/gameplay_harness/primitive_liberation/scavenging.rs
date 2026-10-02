@@ -37,7 +37,8 @@ pub(super) fn run(
     let concentrate = scenario.concentrate;
     let quern = scenario.quern;
     let separator = scenario.separator;
-    let treadle = scenario.treadle;
+    let power_method = scenario.power_method;
+    let power_provider = scenario.power_provider;
     let drive = scenario.drive;
     let state = &mut scenario.state;
     let policy = scenario.charge_policy;
@@ -47,7 +48,7 @@ pub(super) fn run(
         registries,
         state,
         (PROCESS_REGRIND_COPPER_TAILINGS, quern, tailings),
-        (treadle, drive),
+        (power_method, power_provider, drive),
         policy,
         "primitive liberation tailings-regrind recharge",
     ));
@@ -99,7 +100,7 @@ pub(super) fn run(
         registries,
         state,
         (PROCESS_SCAVENGE_COPPER_TAILINGS, separator, fine_tailings),
-        (treadle, drive),
+        (power_method, power_provider, drive),
         policy,
         "primitive liberation scavenger recharge",
     ));

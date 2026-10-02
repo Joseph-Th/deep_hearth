@@ -106,6 +106,77 @@ def _kit_acquisition(lines: list[str]) -> str:
     if witnesses and runtime_pickups != len(witnesses):
         raise ValueError("primitive liberation kit acquisition bypassed runtime pickup")
     world_gathering = sum(" world-gathering-proved=true " in line for line in witnesses)
+    incremental = [line for line in witnesses if " incremental-attention:" in line]
+    if incremental:
+        if len(incremental) != len(witnesses):
+            raise ValueError("primitive liberation mixed legacy and incremental kit evidence")
+        stone: list[int] = []
+        wood: list[int] = []
+        total: list[int] = []
+        consumed: list[int] = []
+        remaining: list[int] = []
+        attention: list[int] = []
+        inherited_min_condition: list[int] = []
+        inherited_max_condition: list[int] = []
+        inherited_mass: list[int] = []
+        adze_attention: list[int] = []
+        extension_attention: list[int] = []
+        riddle_attention: list[int] = []
+        for line in incremental:
+            raw = re.search(
+                r"raw=\[stone:(\d+)mg wood:(\d+)mg total:(\d+)mg\]",
+                line,
+            )
+            raw_use = re.search(
+                r"raw-use=\[consumed:(\d+)mg remaining:(\d+)mg\]", line
+            )
+            inherited = re.search(
+                r"inherited=\[[^]]*condition:(\d+)\.\.(\d+)ppm embodied:(\d+)mg\]",
+                line,
+            )
+            build_attention = re.search(r"incremental-attention:(\d+)t", line)
+            fabrication = re.search(
+                r"fabrication=\[adze:(\d+)t extension-components:(\d+)t riddle-panel:(\d+)t\]",
+                line,
+            )
+            if None in (raw, raw_use, inherited, build_attention, fabrication):
+                raise ValueError(
+                    "primitive liberation incremental kit report lost continuity or fabrication evidence"
+                )
+            assert raw is not None
+            assert raw_use is not None
+            assert inherited is not None
+            assert build_attention is not None
+            assert fabrication is not None
+            stone.append(int(raw.group(1)))
+            wood.append(int(raw.group(2)))
+            total.append(int(raw.group(3)))
+            consumed.append(int(raw_use.group(1)))
+            remaining.append(int(raw_use.group(2)))
+            inherited_min_condition.append(int(inherited.group(1)))
+            inherited_max_condition.append(int(inherited.group(2)))
+            inherited_mass.append(int(inherited.group(3)))
+            attention.append(int(build_attention.group(1)))
+            adze_attention.append(int(fabrication.group(1)))
+            extension_attention.append(int(fabrication.group(2)))
+            riddle_attention.append(int(fabrication.group(3)))
+        return (
+            "kit-acquisition=["
+            f"source=[fixture:{fixture_sources} pickup:{runtime_pickups} gather:{world_gathering}] "
+            f"carryover=[processing-line:{len(incremental)}/{len(witnesses)} "
+            f"condition:{min(inherited_min_condition)}..{max(inherited_max_condition)}ppm "
+            f"embodied:{scaled_span(inherited_mass, 1_000_000, 'kg')}] "
+            f"raw=[stone:{scaled_span(stone, 1_000_000, 'kg')} "
+            f"wood:{scaled_span(wood, 1_000_000, 'kg')} "
+            f"total:{scaled_span(total, 1_000_000, 'kg')} "
+            f"consumed:{scaled_span(consumed, 1_000_000, 'kg')} "
+            f"remaining:{scaled_span(remaining, 1_000_000, 'kg')}] "
+            f"incremental-attn:{_span(attention, 't')} "
+            f"time:{physical_duration_span(lines, attention)} "
+            f"phases=[adze:{_span(adze_attention, 't')} "
+            f"parts:{_span(extension_attention, 't')} "
+            f"riddle:{_span(riddle_attention, 't')}]]"
+        )
     stone: list[int] = []
     wood: list[int] = []
     total: list[int] = []

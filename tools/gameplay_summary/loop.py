@@ -210,9 +210,14 @@ def _prepare_invest_evidence(
         " strategy=indexed-channel " in line for line in shortfall_recoveries
     )
     settlement_builds = sum(" upgraded:true " in line for line in settlement)
+    progression_assets_reused = sum(
+        " continuity=separate-episode-inherited-progression-line " in line
+        for line in liberation_kit
+    )
     return (
         "prepare-invest=["
-        f"primitive-kit-executed:{len(liberation_kit)} "
+        f"liberation-ext:{len(liberation_kit)} "
+        f"progression-reuse:{progression_assets_reused}/{len(liberation_kit)} "
         f"woodworking-tool:{invested_woodworking}/{len(woodworking)} "
         f"power-market:{len(power)}/{len(power)} "
         f"settlement-machine:{settlement_builds}/{len(settlement)} "

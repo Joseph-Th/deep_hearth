@@ -132,7 +132,7 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
     // These are completion costs for the same finite job, not equal-horizon final reserves.
     // The full-buffer arm's remaining work stays visible: it could be useful for a later job.
     reviewln!(
-        "LIBERATION COST seed=0x{seed:016X} basis=matched-post-setup-same-finite-pipeline primary={}t scavenger={}t cleanup={}t direct-cleanup={}t total={}t charge=[demand:{}t full:{}t] generated=[demand:{}nJ full:{}nJ] retained=[demand:{}nJ full:{}nJ] scavenger-extra={}mg native-copper={}mg direct-native={}mg scavenger-marginal=[attention:{}t native:{}mg] output=identical-within-branch base-kit-cost=reported-separately",
+        "LIBERATION COST seed=0x{seed:016X} basis=matched-post-setup-same-finite-pipeline primary={}t scavenger={}t cleanup={}t direct-cleanup={}t total={}t charge=[demand:{}t full:{}t] generated=[demand:{}nJ full:{}nJ] retained=[demand:{}nJ full:{}nJ] scavenger-extra={}mg native-copper={}mg direct-native={}mg scavenger-marginal=[attention:{}t native:{}mg] output=identical-within-branch extension-cost=reported-separately",
         primary_ticks,
         scavenger_ticks,
         cleanup_ticks,
@@ -187,7 +187,7 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
         }
     }
     let payback = payback.unwrap_or_else(|| {
-        panic!("primitive processing kit did not repay within the disclosed campaign")
+        panic!("liberation processing extension did not repay within the disclosed campaign")
     });
     assert!(payback <= planned_batches);
     let powered_campaign_attention = cumulative_powered_attention;
@@ -214,7 +214,7 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
             "attention:manual:{manual_campaign_attention}t/powered:{powered_campaign_attention}t ",
             "body:manual:{manual_campaign_metabolic}nJ/{manual_campaign_hydration}uL ",
             "powered:{powered_campaign_metabolic}nJ/{powered_campaign_hydration}uL ",
-            "elapsed:{elapsed_ticks}t final-condition=[crusher:{crusher} quern:{quern} screen:{screen} separator:{separator} treadle:{treadle}] justified:true"
+            "elapsed:{elapsed_ticks}t final-condition=[crusher:{crusher} quern:{quern} screen:{screen} separator:{separator} provider:{provider}] justified:true"
         ),
         planned_batches = planned_batches,
         executed_batches = campaign_lifecycle.batch_charge_ticks.len(),
@@ -230,10 +230,10 @@ pub(super) fn review(registries: &Registries, seed: u64, comparison: LiberationC
         quern = campaign_lifecycle.quern_condition_ppm,
         screen = campaign_lifecycle.screen_condition_ppm,
         separator = campaign_lifecycle.separator_condition_ppm,
-        treadle = campaign_lifecycle.treadle_condition_ppm,
+        provider = campaign_lifecycle.power_provider_condition_ppm,
     );
     reviewln!(
-        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation base-kit=[{kit}] continuity=live-kit-used interpretation=manual-is-low-infrastructure-fallback;powered-route-buys-recovery-and-reusable-throughput",
+        "LIBERATION ROUTE TRADEOFF seed=0x{seed:016X} basis=matched-ore-mass feed={}mg manual=[attention:{}t native:{}mg recovery:{}ppm body:{}nJ/{}uL] powered=[elapsed:{}t charge-attention:{}t native:{}mg] campaign=[{campaign}] sizing=timber-riddle copper-input=none next-screen-upgrade=proved-by-progression-continuation extension=[{kit}] continuity=live-kit-used inherited-processing-line=reused interpretation=manual-is-low-infrastructure-fallback;powered-route-extends-earned-infrastructure-for-recovery-and-throughput",
         manual_recovery.feed_mass.milligrams(),
         manual_recovery.attention_ticks,
         manual_recovery.recovered_native.milligrams(),

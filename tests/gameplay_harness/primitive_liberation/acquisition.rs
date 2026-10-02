@@ -7,20 +7,22 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
-use deep_hearth::content::gameplay_fixture::seed_lot;
+use deep_hearth::content::gameplay_fixture::{
+    seed_assembled_energy_store_at, seed_assembled_equipment_at, seed_lot,
+    seed_preused_assembled_equipment_at,
+};
 use deep_hearth::content::{
-    ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_ROTARY_QUERN,
-    EQUIPMENT_STONE_SEPARATOR, EQUIPMENT_STONE_WOODWORKING_ADZE,
-    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, FORM_BOARD, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP,
+    ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+    EQUIPMENT_STONE_ROTARY_QUERN, EQUIPMENT_STONE_WOODWORKING_ADZE,
+    EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN, FORM_BOARD, FORM_LOG, FORM_LUMP,
     FORM_TIMBER_RIDDLE_PANEL, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::crafting::{project_manual_craft_equipment, project_manual_craft_hand_work};
-use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId, validate_assemble_equipment};
-use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
+use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::logistics::{
     assess_player_carrying, validate_allocate_ground_stockpile,
     validate_initialize_player_logistics, validate_pickup_from_ground,
@@ -31,8 +33,8 @@ use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
-use super::super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 use super::super::environment::ROOM_TEMPERATURE;
+use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::super::manual_craft_batches::execute_manual_craft_batches;
 use super::super::manual_craft_equipment_planning::{
     manual_craft_plan_with_equipment, manual_craft_topology_plan_with_equipment,
@@ -69,20 +71,13 @@ fn add_attention(total: &mut u64, ticks: u64, context: &'static str) {
 #[derive(Clone, Copy)]
 struct RawKitAttentionProjection {
     total_ticks: u64,
-    lathe_setup_ticks: u64,
 }
 
-fn project_raw_kit_attention_route(
-    registries: &Registries,
-    stage_with_lathe: bool,
-) -> RawKitAttentionProjection {
+fn project_incremental_kit_attention(registries: &Registries) -> RawKitAttentionProjection {
     let adze_profile = equipment_profile(registries, EQUIPMENT_STONE_WOODWORKING_ADZE);
     let equipment = [
-        EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_ROTARY_QUERN,
         EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
-        EQUIPMENT_STONE_SEPARATOR,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
     ];
     let mut final_requirements = BTreeMap::new();
     for definition in equipment {
@@ -91,12 +86,6 @@ fn project_raw_kit_attention_route(
             equipment_profile(registries, definition),
         );
     }
-    let drive_profile = registries
-        .energy()
-        .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
-        .and_then(|store| store.assembly_profile())
-        .unwrap_or_else(|| panic!("liberation kit drive lost authored assembly"));
-    add_profile_requirements(&mut final_requirements, drive_profile);
     let panel = CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL);
     let required_panel = final_requirements
         .remove(&panel)
@@ -141,61 +130,6 @@ fn project_raw_kit_attention_route(
     }
 
     let mut adze_condition = Condition::PRISTINE;
-    let mut lathe_condition = Condition::PRISTINE;
-    let attention_before_lathe = attention;
-    if stage_with_lathe {
-        let lathe_profile = equipment_profile(registries, EQUIPMENT_TIMBER_SPRING_POLE_LATHE);
-        for input in lathe_profile.inputs() {
-            if input.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
-                let (definition, batches) = manual_craft_topology_plan_with_equipment(
-                    registries,
-                    input.commodity(),
-                    input.mass(),
-                    &disclosed_raw_inputs(),
-                    EQUIPMENT_STONE_WOODWORKING_ADZE,
-                    adze_condition,
-                    "liberation kit spring-pole board projection",
-                );
-                let projection = project_manual_craft_equipment(
-                    registries,
-                    definition.process(),
-                    nonzero_batches(batches, "spring-pole board projection"),
-                    EQUIPMENT_STONE_WOODWORKING_ADZE,
-                    adze_condition,
-                )
-                .unwrap_or_else(|error| {
-                    panic!("liberation kit spring-pole board projection failed: {error}")
-                });
-                add_attention(
-                    &mut attention,
-                    projection.duration().value(),
-                    "spring-pole board projection",
-                );
-                adze_condition = projection.condition_after();
-            } else {
-                let (definition, batches) = raw_component_plan(
-                    registries,
-                    input.commodity(),
-                    input.mass(),
-                    "liberation kit spring-pole component projection",
-                );
-                let projection = project_manual_craft_hand_work(
-                    registries,
-                    definition.process(),
-                    nonzero_batches(batches, "spring-pole component projection"),
-                )
-                .unwrap_or_else(|error| {
-                    panic!("liberation kit spring-pole component projection failed: {error}")
-                });
-                add_attention(
-                    &mut attention,
-                    projection.duration().value(),
-                    "spring-pole component projection",
-                );
-            }
-        }
-    }
-    let lathe_setup_ticks = attention - attention_before_lathe;
     for (commodity, required) in final_requirements {
         if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
             let (definition, batches) = manual_craft_topology_plan_with_equipment(
@@ -223,35 +157,6 @@ fn project_raw_kit_attention_route(
                 "adze-assisted component projection",
             );
             adze_condition = projection.condition_after();
-        } else if stage_with_lathe
-            && commodity.material() == MATERIAL_WOOD
-            && matches!(commodity.form(), FORM_HANDLE | FORM_FLYWHEEL)
-        {
-            let (definition, batches) = manual_craft_topology_plan_with_equipment(
-                registries,
-                commodity,
-                required,
-                &disclosed_raw_inputs(),
-                EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
-                lathe_condition,
-                "liberation kit spring-pole-assisted component projection",
-            );
-            let projection = project_manual_craft_equipment(
-                registries,
-                definition.process(),
-                nonzero_batches(batches, "spring-pole-assisted component projection"),
-                EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
-                lathe_condition,
-            )
-            .unwrap_or_else(|error| {
-                panic!("liberation kit spring-pole-assisted projection failed: {error}")
-            });
-            add_attention(
-                &mut attention,
-                projection.duration().value(),
-                "spring-pole-assisted component projection",
-            );
-            lathe_condition = projection.condition_after();
         } else {
             let (definition, batches) = raw_component_plan(
                 registries,
@@ -322,12 +227,7 @@ fn project_raw_kit_attention_route(
     );
     RawKitAttentionProjection {
         total_ticks: attention,
-        lathe_setup_ticks,
     }
-}
-
-fn project_staged_raw_kit_attention(registries: &Registries) -> RawKitAttentionProjection {
-    project_raw_kit_attention_route(registries, true)
 }
 
 pub(super) struct AcquiredPrimitiveKit {
@@ -336,9 +236,20 @@ pub(super) struct AcquiredPrimitiveKit {
     pub(super) quern: EquipmentId,
     pub(super) screen: EquipmentId,
     pub(super) separator: EquipmentId,
-    pub(super) treadle: EquipmentId,
+    pub(super) power_provider: EquipmentId,
     pub(super) drive: deep_hearth::energy::EnergyStoreId,
     pub(super) review: RawKitAcquisitionReview,
+}
+
+#[derive(Clone, Copy)]
+struct InheritedProgressionInfrastructure {
+    crusher: EquipmentId,
+    separator: EquipmentId,
+    power_provider: EquipmentId,
+    drive: deep_hearth::energy::EnergyStoreId,
+    embodied_mass: Mass,
+    minimum_condition_ppm: u32,
+    maximum_condition_ppm: u32,
 }
 
 fn add_requirement(
@@ -350,6 +261,120 @@ fn add_requirement(
     *entry = entry
         .checked_add(mass)
         .unwrap_or_else(|| panic!("liberation kit component requirement overflowed"));
+}
+
+fn inherited_progression_condition(
+    registries: &Registries,
+    definition: EquipmentDefinitionId,
+    case: FocusedProbeCase,
+    salt: u64,
+) -> Condition {
+    if matches!(
+        case.role(),
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
+    ) {
+        return Condition::PRISTINE;
+    }
+    let warning = registries
+        .equipment()
+        .get_equipment(definition)
+        .unwrap_or_else(|| panic!("liberation inherited equipment definition disappeared"))
+        .maintenance_thresholds()
+        .warning_below()
+        .parts_per_million();
+    let lower = warning
+        .checked_add((Condition::PRISTINE.parts_per_million() - warning) / 2)
+        .unwrap_or_else(|| unreachable!("normal-condition midpoint fits u32"));
+    let span = Condition::PRISTINE.parts_per_million() - lower;
+    let offset = u32::try_from(mix64(case.seed() ^ 0x4C49_4245_494E_4845 ^ salt) % u64::from(span))
+        .unwrap_or_else(|_| unreachable!("bounded inherited-condition offset fits u32"));
+    Condition::new(lower + offset)
+        .unwrap_or_else(|error| panic!("liberation inherited condition invalid: {error}"))
+}
+
+fn seed_inherited_progression_infrastructure(
+    registries: &Registries,
+    state: &mut AppState,
+    case: FocusedProbeCase,
+    position: deep_hearth::spatial::VoxelCoord,
+) -> InheritedProgressionInfrastructure {
+    let equipment = [
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+    ];
+    let mut requirements = BTreeMap::new();
+    for definition in equipment {
+        add_profile_requirements(&mut requirements, equipment_profile(registries, definition));
+    }
+    let drive_profile = registries
+        .energy()
+        .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .and_then(|store| store.assembly_profile())
+        .unwrap_or_else(|| panic!("liberation inherited flywheel lost authored assembly"));
+    add_profile_requirements(&mut requirements, drive_profile);
+    let embodied_mass = raw_requirement_mass(&requirements);
+    let source = validate_allocate_ground_stockpile(state, position, embodied_mass)
+        .unwrap_or_else(|error| panic!("liberation inherited component allocation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("liberation inherited component commit failed: {error}"));
+    for (commodity, mass) in requirements {
+        seed_lot(registries, state, source, commodity, mass, ROOM_TEMPERATURE);
+    }
+    let mut conditions = Vec::with_capacity(equipment.len());
+    let mut assemble = |definition, salt| {
+        let condition = inherited_progression_condition(registries, definition, case, salt);
+        conditions.push(condition.parts_per_million());
+        if condition == Condition::PRISTINE {
+            seed_assembled_equipment_at(registries, state, definition, source, position)
+        } else {
+            seed_preused_assembled_equipment_at(
+                registries, state, definition, source, position, condition,
+            )
+        }
+    };
+    let power_provider = assemble(
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        0x4352_414E_4B00_0001,
+    );
+    let crusher = assemble(
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        0x4352_5553_4800_0001,
+    );
+    let separator = assemble(
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+        0x5345_5041_5241_544F,
+    );
+    let drive = seed_assembled_energy_store_at(
+        registries,
+        state,
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        source,
+        position,
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "liberation inherited progression line must embody its complete disclosed component stock"
+    );
+    InheritedProgressionInfrastructure {
+        crusher,
+        separator,
+        power_provider,
+        drive,
+        embodied_mass,
+        minimum_condition_ppm: *conditions
+            .iter()
+            .min()
+            .unwrap_or_else(|| unreachable!("inherited progression line has equipment")),
+        maximum_condition_ppm: *conditions
+            .iter()
+            .max()
+            .unwrap_or_else(|| unreachable!("inherited progression line has equipment")),
+    }
 }
 
 fn add_profile_requirements(
@@ -421,16 +446,10 @@ fn raw_kit_requirements(
     adze_profile: &MaterialAssemblyProfile,
     final_requirements: &BTreeMap<CommodityKey, Mass>,
     panel_board_mass: Mass,
-    include_fabrication_lathe: bool,
 ) -> BTreeMap<CommodityKey, Mass> {
     let mut raw = BTreeMap::new();
     for input in adze_profile.inputs() {
         add_raw_cost(registries, &mut raw, input.commodity(), input.mass());
-    }
-    if include_fabrication_lathe {
-        for input in equipment_profile(registries, EQUIPMENT_TIMBER_SPRING_POLE_LATHE).inputs() {
-            add_raw_cost(registries, &mut raw, input.commodity(), input.mass());
-        }
     }
     for (commodity, required) in final_requirements {
         add_raw_cost(registries, &mut raw, *commodity, *required);
@@ -450,24 +469,6 @@ fn raw_requirement_mass(requirements: &BTreeMap<CommodityKey, Mass>) -> Mass {
         .copied()
         .try_fold(Mass::ZERO, Mass::checked_add)
         .unwrap_or_else(|| panic!("liberation kit raw mass overflowed"))
-}
-
-fn stockpile_funds_requirements(
-    state: &AppState,
-    stockpile: StockpileId,
-    requirements: &BTreeMap<CommodityKey, Mass>,
-) -> bool {
-    let record = state
-        .inventory()
-        .get_stockpile(stockpile)
-        .unwrap_or_else(|| panic!("liberation carried raw stockpile disappeared"));
-    requirements
-        .iter()
-        .all(|(commodity, required)| record.get_mass(*commodity) >= *required)
-}
-
-pub(super) fn staging_material_available(seed: u64) -> bool {
-    !mix64(seed ^ 0x4C49_4245_5354_4147).is_multiple_of(2)
 }
 
 struct ComponentCraftPlan {
@@ -602,21 +603,19 @@ fn craft_riddle_panel(
 
 pub(super) fn acquire_raw_kit<T>(
     registries: &Registries,
-    seed: u64,
+    case: FocusedProbeCase,
     planned_batches: u64,
     bootstrap_before_admission: impl FnOnce(&mut AppState) -> T,
 ) -> (AcquiredPrimitiveKit, T) {
+    let seed = case.seed();
     assert!(
         planned_batches > 0,
         "liberation kit acquisition requires a disclosed nonzero campaign horizon"
     );
     let adze_profile = equipment_profile(registries, EQUIPMENT_STONE_WOODWORKING_ADZE);
     let equipment = [
-        EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_ROTARY_QUERN,
         EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN,
-        EQUIPMENT_STONE_SEPARATOR,
-        EQUIPMENT_TIMBER_TREADLE_DRIVE,
     ];
     let mut final_requirements = BTreeMap::new();
     for definition in equipment {
@@ -625,12 +624,6 @@ pub(super) fn acquire_raw_kit<T>(
             equipment_profile(registries, definition),
         );
     }
-    let drive_profile = registries
-        .energy()
-        .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
-        .and_then(|store| store.assembly_profile())
-        .unwrap_or_else(|| panic!("liberation kit drive lost authored assembly"));
-    add_profile_requirements(&mut final_requirements, drive_profile);
     let panel = CommodityKey::new(MATERIAL_WOOD, FORM_TIMBER_RIDDLE_PANEL);
     let required_panel = final_requirements
         .remove(&panel)
@@ -654,44 +647,12 @@ pub(super) fn acquire_raw_kit<T>(
             .unwrap_or_else(|| panic!("liberation kit riddle-panel board demand overflowed")),
     );
 
-    let direct_raw_requirements = raw_kit_requirements(
+    let raw_requirements = raw_kit_requirements(
         registries,
         adze_profile,
         &final_requirements,
         panel_board_mass,
-        false,
     );
-    let staged_raw_requirements = raw_kit_requirements(
-        registries,
-        adze_profile,
-        &final_requirements,
-        panel_board_mass,
-        true,
-    );
-    for (commodity, direct) in &direct_raw_requirements {
-        assert!(
-            staged_raw_requirements
-                .get(commodity)
-                .copied()
-                .unwrap_or(Mass::ZERO)
-                >= *direct,
-            "liberation staging route must not create raw material from the direct route"
-        );
-    }
-    let direct_raw_mass = raw_requirement_mass(&direct_raw_requirements);
-    let staged_raw_mass = raw_requirement_mass(&staged_raw_requirements);
-    let staging_extra_raw = staged_raw_mass
-        .checked_sub(direct_raw_mass)
-        .unwrap_or_else(|| unreachable!("staged liberation raw requirement includes direct kit"));
-    // The controlled raw opportunity belongs to world setup, not actor policy. Every world funds
-    // the direct kit; only a replayable subset also has enough local raw material to stage the
-    // spring-pole lathe. This makes material scarcity a real input to the fabrication decision.
-    let staging_material_available = staging_material_available(seed);
-    let raw_requirements = if staging_material_available {
-        staged_raw_requirements.clone()
-    } else {
-        direct_raw_requirements.clone()
-    };
     let raw_mass = raw_requirement_mass(&raw_requirements);
     let stone_raw = raw_requirements
         .get(&CommodityKey::new(MATERIAL_STONE, FORM_LUMP))
@@ -728,6 +689,8 @@ pub(super) fn acquire_raw_kit<T>(
         .unwrap_or_else(|error| panic!("liberation panel-feed allocation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("liberation panel-feed allocation commit failed: {error}"));
+    let inherited =
+        seed_inherited_progression_infrastructure(registries, &mut state, case, player_position);
     let bootstrap = bootstrap_before_admission(&mut state);
     let raw = validate_initialize_player_logistics(&state, player_position, raw_mass)
         .unwrap_or_else(|error| panic!("liberation carried-custody setup failed: {error}"))
@@ -769,31 +732,7 @@ pub(super) fn acquire_raw_kit<T>(
         );
     }
 
-    assert!(
-        stockpile_funds_requirements(&state, raw, &direct_raw_requirements),
-        "every liberation world must fund the disclosed direct primitive kit"
-    );
-    let staging_funded = stockpile_funds_requirements(&state, raw, &staged_raw_requirements);
-    assert_eq!(
-        staging_funded, staging_material_available,
-        "liberation staging availability must come from disclosed raw opportunity"
-    );
-    let direct_projection = project_raw_kit_attention_route(registries, false);
-    let staged_projection = project_staged_raw_kit_attention(registries);
-    let investment_policy = CapitalInvestmentPolicy::baseline();
-    let minimum_lathe_return =
-        investment_policy.minimum_attention_return(0, staged_projection.lathe_setup_ticks);
-    let stage_with_lathe = staging_funded
-        && clears_attention_return(
-            direct_projection.total_ticks,
-            staged_projection.total_ticks,
-            minimum_lathe_return,
-        );
-    let selected_projection = if stage_with_lathe {
-        staged_projection
-    } else {
-        direct_projection
-    };
+    let projected_attention = project_incremental_kit_attention(registries);
 
     for input in adze_profile.inputs() {
         craft_component(
@@ -816,46 +755,8 @@ pub(super) fn acquire_raw_kit<T>(
             .unwrap_or_else(|error| panic!("liberation kit adze commit failed: {error}"));
     let adze_ready_at = state.tick().value();
 
-    let fabrication_lathe = if stage_with_lathe {
-        let lathe_profile = equipment_profile(registries, EQUIPMENT_TIMBER_SPRING_POLE_LATHE);
-        for input in lathe_profile.inputs() {
-            let equipment =
-                (input.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)).then_some(adze);
-            craft_component(
-                registries,
-                &mut state,
-                ComponentCraftPlan {
-                    raw,
-                    destination: parts,
-                    commodity: input.commodity(),
-                    required: input.mass(),
-                    equipment,
-                    context: "liberation kit spring-pole component",
-                },
-            );
-        }
-        Some(
-            validate_assemble_equipment(
-                registries,
-                &state,
-                EQUIPMENT_TIMBER_SPRING_POLE_LATHE,
-                parts,
-            )
-            .unwrap_or_else(|error| panic!("liberation kit spring-pole assembly failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("liberation kit spring-pole commit failed: {error}")),
-        )
-    } else {
-        None
-    };
-    let fabrication_lathe_ready_at = state.tick().value();
-
     for (commodity, required) in final_requirements {
-        let equipment = match (commodity.material(), commodity.form()) {
-            (MATERIAL_WOOD, FORM_BOARD) => Some(adze),
-            (MATERIAL_WOOD, FORM_HANDLE | FORM_FLYWHEEL) => fabrication_lathe,
-            _ => None,
-        };
+        let equipment = (commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)).then_some(adze);
         craft_component(
             registries,
             &mut state,
@@ -869,7 +770,7 @@ pub(super) fn acquire_raw_kit<T>(
             },
         );
     }
-    let machine_components_ready_at = state.tick().value();
+    let extension_components_ready_at = state.tick().value();
     craft_riddle_panel(
         registries,
         &mut state,
@@ -886,35 +787,30 @@ pub(super) fn acquire_raw_kit<T>(
             .commit(state)
             .unwrap_or_else(|error| panic!("liberation kit equipment commit failed: {error}"))
     };
-    let crusher = assemble(&mut state, EQUIPMENT_STONE_CRUSHER);
     let quern = assemble(&mut state, EQUIPMENT_STONE_ROTARY_QUERN);
     let screen = assemble(&mut state, EQUIPMENT_TIMBER_RIDDLE_SIZING_SCREEN);
-    let separator = assemble(&mut state, EQUIPMENT_STONE_SEPARATOR);
-    let treadle = assemble(&mut state, EQUIPMENT_TIMBER_TREADLE_DRIVE);
-    let drive = validate_assemble_energy_store(
-        registries,
-        &state,
-        ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE,
-        parts,
-    )
-    .unwrap_or_else(|error| panic!("liberation kit drive assembly failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("liberation kit drive commit failed: {error}"));
 
+    let remaining_raw = state
+        .inventory()
+        .get_stockpile(raw)
+        .map(|stockpile| stockpile.stored_mass())
+        .unwrap_or_else(|| {
+            panic!("liberation carried raw stockpile disappeared after fabrication")
+        });
     assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(raw)
-            .map(|stockpile| stockpile.stored_mass()),
-        Some(Mass::ZERO),
-        "liberation kit raw witness must consume its exact disclosed stone/log opportunity",
+        remaining_raw,
+        Mass::ZERO,
+        "incremental liberation opportunity is sized to the selected extension and must be fully embodied"
     );
+    let consumed_raw = raw_mass.checked_sub(remaining_raw).unwrap_or_else(|| {
+        unreachable!("remaining liberation raw cannot exceed disclosed opportunity")
+    });
     let carrying = assess_player_carrying(&state)
         .unwrap_or_else(|| panic!("liberation carried-custody assessment disappeared"));
     assert_eq!(carrying.position(), player_position);
     assert_eq!(carrying.stockpile(), raw);
     assert_eq!(carrying.capacity(), raw_mass);
-    assert_eq!(carrying.stored(), Mass::ZERO);
+    assert_eq!(carrying.stored(), remaining_raw);
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("liberation kit final matter audit failed: {error}"))
@@ -927,19 +823,15 @@ pub(super) fn acquire_raw_kit<T>(
         .unwrap_or_else(|| panic!("liberation kit final survival disappeared"));
     let attention = state.tick().value() - started_at;
     let adze_attention = adze_ready_at - started_at;
-    let fabrication_lathe_attention = fabrication_lathe_ready_at - adze_ready_at;
-    let machine_component_attention = machine_components_ready_at - fabrication_lathe_ready_at;
-    let riddle_attention = riddle_ready_at - machine_components_ready_at;
+    let extension_component_attention = extension_components_ready_at - adze_ready_at;
+    let riddle_attention = riddle_ready_at - extension_components_ready_at;
     assert_eq!(
-        adze_attention
-            + fabrication_lathe_attention
-            + machine_component_attention
-            + riddle_attention,
+        adze_attention + extension_component_attention + riddle_attention,
         attention,
-        "liberation kit phase attention must account for the full fabrication wall"
+        "liberation extension phases must account for the full incremental fabrication wall"
     );
     assert_eq!(
-        attention, selected_projection.total_ticks,
+        attention, projected_attention.total_ticks,
         "liberation kit executed fabrication attention diverged from the pre-action projection"
     );
     let metabolic = survival_before
@@ -950,38 +842,32 @@ pub(super) fn acquire_raw_kit<T>(
         .hydration()
         .checked_sub(survival_after.hydration())
         .unwrap_or_else(|| panic!("liberation kit hydration reserve increased"));
-    let attention_saved = direct_projection.total_ticks.saturating_sub(attention);
     reviewln!(
-        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} scope=raw-stone+logs->adze+reusable-base-processing-kit raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign={}batches workload-known-before-build=true fabrication-choice=[spring-pole:{} staging-funded:{} policy-min-return:{}ppm threshold:{}t direct:{}t selected:{}t saved:{}t extra-raw:{}mg] raw=[stone:{}mg wood:{}mg total:{}mg] built=[adze:true spring-pole:{} crusher:true quern:true timber-riddle:true separator:true treadle:true paired-flywheel:true] attention:{}t fabrication=[adze:{}t spring-pole:{}t machine-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+        "LIBERATION KIT ACQUISITION seed=0x{seed:016X} scope=progression-carryover->incremental-liberation-kit continuity=separate-episode-inherited-progression-line inherited=[provider:copper-reinforced-hand-crank crusher:copper-reinforced-stone separator:copper-reinforced-stone drive:copper-banded-stone-flywheel condition:{}..{}ppm embodied:{}mg] raw-origin=pre-admission-fixture pickup=same-voxel-runtime carried-custody=finite@voxel world-gathering-proved=false disclosed-campaign={}batches workload-known-before-build=true raw=[stone:{}mg wood:{}mg total:{}mg] raw-use=[consumed:{}mg remaining:{}mg] built=[adze:true quern:true timber-riddle:true] incremental-attention:{}t fabrication=[adze:{}t extension-components:{}t riddle-panel:{}t] body={}nJ/{}uL copper-screen-upgrade=proved-by-progression-continuation matter=conserved",
+        inherited.minimum_condition_ppm,
+        inherited.maximum_condition_ppm,
+        inherited.embodied_mass.milligrams(),
         planned_batches,
-        stage_with_lathe,
-        staging_funded,
-        investment_policy.minimum_return_ppm(),
-        minimum_lathe_return,
-        direct_projection.total_ticks,
-        attention,
-        attention_saved,
-        staging_extra_raw.milligrams(),
         stone_raw.milligrams(),
         wood_raw.milligrams(),
         raw_mass.milligrams(),
-        stage_with_lathe,
+        consumed_raw.milligrams(),
+        remaining_raw.milligrams(),
         attention,
         adze_attention,
-        fabrication_lathe_attention,
-        machine_component_attention,
+        extension_component_attention,
         riddle_attention,
         metabolic.nanojoules(),
         hydration.microliters(),
     );
     let kit = AcquiredPrimitiveKit {
         state,
-        crusher,
+        crusher: inherited.crusher,
         quern,
         screen,
-        separator,
-        treadle,
-        drive,
+        separator: inherited.separator,
+        power_provider: inherited.power_provider,
+        drive: inherited.drive,
         review: RawKitAcquisitionReview {
             attention_ticks: attention,
             metabolic_cost_nj: metabolic.nanojoules(),

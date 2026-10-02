@@ -1,12 +1,12 @@
 //! Shared primitive-liberation harness operations for charging and exact stock selection.
 
-use deep_hearth::content::{MANUAL_POWER_FOOT_TREADLE, MATERIAL_COPPER};
+use deep_hearth::content::MATERIAL_COPPER;
 use deep_hearth::core::quantity::Energy;
 use deep_hearth::core::state::AppState;
 use deep_hearth::energy::EnergyStoreId;
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::MaterialLotSelection;
-use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
+use deep_hearth::labor::{ManualPowerMethodId, ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::registry::Registries;
 
 use super::super::manual_power_timing::finish_manual_power_work;
@@ -25,12 +25,12 @@ pub(super) fn prepare_stage(
         EquipmentId,
         deep_hearth::inventory::StockpileId,
     ),
-    power: (EquipmentId, EnergyStoreId),
+    power: (ManualPowerMethodId, EquipmentId, EnergyStoreId),
     policy: ChargePolicy,
     label: &'static str,
 ) -> ChargeReport {
     let (process, equipment, feed) = stage;
-    let (treadle, drive) = power;
+    let (method, provider, drive) = power;
     let store = state
         .energy()
         .get_store(drive)
@@ -67,13 +67,13 @@ pub(super) fn prepare_stage(
     let charge = validate_start_manual_power(
         registries,
         state,
-        ManualPowerRequest::new(MANUAL_POWER_FOOT_TREADLE, treadle, drive, requested),
+        ManualPowerRequest::new(method, provider, drive, requested),
     )
-    .unwrap_or_else(|error| panic!("{label} treadle recharge failed: {error}"));
+    .unwrap_or_else(|error| panic!("{label} manual-power recharge failed: {error}"));
     let work = charge.work();
     charge
         .commit(state)
-        .unwrap_or_else(|error| panic!("{label} treadle recharge commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("{label} manual-power recharge commit failed: {error}"));
     let ticks = finish_manual_power_work(registries, state, work, label);
     let stored_after = state
         .energy()

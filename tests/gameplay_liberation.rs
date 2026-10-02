@@ -4,8 +4,6 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-#[path = "gameplay_harness/capital_investment_policy.rs"]
-mod capital_investment_policy;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/focused_case.rs"]

@@ -3,17 +3,17 @@
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
-    ENERGY_ELECTRICAL_BUFFER, ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE, ENERGY_THERMAL_SINK,
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, MANUAL_POWER_FOOT_TREADLE,
-    MANUAL_POWER_HAND_CRANK, MANUAL_POWER_TREADLE_DYNAMO, MANUAL_POWER_WALKING_WHEEL,
-    MATERIAL_COPPER, PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER,
-    PROCESS_SCREEN_CRUSHED_ORE,
+    ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
+    EQUIPMENT_ELECTRIC_FURNACE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
+    MANUAL_POWER_TREADLE_DYNAMO, MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::{EnergyCarrier, EnergyStoreId};
 use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
+use deep_hearth::labor::ManualPowerMethodId;
 use deep_hearth::logistics::validate_allocate_ground_stockpile;
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
@@ -143,7 +143,8 @@ struct PrimitiveLiberationScenario {
     quern: EquipmentId,
     screen: EquipmentId,
     separator: EquipmentId,
-    treadle: EquipmentId,
+    power_method: ManualPowerMethodId,
+    power_provider: EquipmentId,
     drive: EnergyStoreId,
 }
 
@@ -157,7 +158,7 @@ struct PrimitiveLiberationCampaignLifecycle {
     quern_condition_ppm: u32,
     screen_condition_ppm: u32,
     separator_condition_ppm: u32,
-    treadle_condition_ppm: u32,
+    power_provider_condition_ppm: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -166,7 +167,8 @@ struct PrimitiveLiberationCampaignInfrastructure {
     quern: EquipmentId,
     screen: EquipmentId,
     separator: EquipmentId,
-    treadle: EquipmentId,
+    power_method: ManualPowerMethodId,
+    power_provider: EquipmentId,
     drive: EnergyStoreId,
 }
 
@@ -212,7 +214,8 @@ fn run_powered_campaign_lifecycle(
             quern: infrastructure.quern,
             screen: infrastructure.screen,
             separator: infrastructure.separator,
-            treadle: infrastructure.treadle,
+            power_method: infrastructure.power_method,
+            power_provider: infrastructure.power_provider,
             drive: infrastructure.drive,
         };
         let primary = primary::run(registries, &mut scenario);
@@ -266,7 +269,7 @@ fn run_powered_campaign_lifecycle(
         quern_condition_ppm: condition(infrastructure.quern),
         screen_condition_ppm: condition(infrastructure.screen),
         separator_condition_ppm: condition(infrastructure.separator),
-        treadle_condition_ppm: condition(infrastructure.treadle),
+        power_provider_condition_ppm: condition(infrastructure.power_provider),
     }
 }
 
@@ -340,7 +343,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         clay_share_ppm,
     } = primitive_liberation_world_parameters(registries, case);
     let (acquired, campaign_bootstraps) =
-        acquisition::acquire_raw_kit(registries, seed, planned_batches, |state| {
+        acquisition::acquire_raw_kit(registries, case, planned_batches, |state| {
             (0..planned_batches)
                 .map(|_| {
                     bootstrap_liberation_inventory(
@@ -365,7 +368,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
             quern: acquired.quern,
             screen: acquired.screen,
             separator: acquired.separator,
-            treadle: acquired.treadle,
+            power_method: MANUAL_POWER_HAND_CRANK,
+            power_provider: acquired.power_provider,
             drive: acquired.drive,
         },
     );
@@ -374,7 +378,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
     let quern = acquired.quern;
     let screen = acquired.screen;
     let separator = acquired.separator;
-    let treadle = acquired.treadle;
+    let power_provider = acquired.power_provider;
     let drive = acquired.drive;
     let kit_acquisition = acquired.review;
     let PrimitiveLiberationBootstrap {
@@ -393,11 +397,16 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         manual_residue,
         ore_lot,
     } = bootstrap;
+    let drive_definition = state
+        .energy()
+        .get_store(drive)
+        .map(|record| record.definition())
+        .unwrap_or_else(|| panic!("inherited primitive liberation drive disappeared"));
     let drive_capacity = registries
         .energy()
-        .get_store(ENERGY_PAIRED_STONE_FLYWHEEL_DRIVE)
+        .get_store(drive_definition)
         .map(|definition| definition.capacity())
-        .unwrap_or_else(|| panic!("paired primitive drive disappeared"));
+        .unwrap_or_else(|| panic!("inherited primitive drive definition disappeared"));
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("primitive liberation matter setup failed: {error}"))
         .total();
@@ -438,7 +447,8 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         quern,
         screen,
         separator,
-        treadle,
+        power_method: MANUAL_POWER_HAND_CRANK,
+        power_provider,
         drive,
     };
     let mut full_buffer = scenario.clone();
@@ -626,7 +636,7 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         melting.energy_carrier(),
     );
     reviewln!(
-        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} cleanup-executed=true reason=required-native-copper-conversion route=treadle+paired-flywheel->crusher->quern->timber-riddle->regrind->separator->tailings-regrind->scavenger->concentrate-cleanup input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] native-copper={}mg cleanup-residue={}mg exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
+        "LIBERATION FRONTIER CAPABILITY seed=0x{seed:016X} sample={} cleanup-executed=true reason=required-native-copper-conversion route=reinforced-hand-crank+copper-banded-flywheel->reinforced-crusher->quern->timber-riddle->regrind->reinforced-separator->tailings-regrind->scavenger->concentrate-cleanup input=[{}mg {}ppm-Cu clay-share:{}ppm] concentrate=[first:{}mg/{}ppm final:{}mg/{}ppm] copper-in-concentrate=[first:{}mg final:{}mg scavenger-recovered:{}mg] native-copper={}mg cleanup-residue={}mg exhausted-tailings={}mg stored-work-remaining={}nJ machinery-worn=true matter=conserved",
         case.role().label(),
         batch_mass.milligrams(),
         copper_ppm,
