@@ -16,6 +16,8 @@ mod manual_craft_selection;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/world_admission.rs"]
+mod world_admission;
 
 #[path = "gameplay_harness/capital_investment_policy_tests.rs"]
 mod capital_investment_policy_tests;

@@ -16,6 +16,64 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::initialize_player_survival;
 
+use super::world_admission;
+
+#[test]
+fn exact_local_admission_accepts_a_fully_located_runtime_world() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let first = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(1),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let second = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(1),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    world_admission::admit_stationary_player(
+        &registries,
+        &mut state,
+        &[first, second],
+        &[],
+        "exact-local positive contract",
+    );
+}
+
+#[test]
+fn exact_local_admission_rejects_a_forgotten_unlocated_stockpile() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let located = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(1),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    let forgotten = seed_stockpile(
+        &mut state,
+        Mass::from_milligrams(1),
+        StockpileStorageProfile::unbounded_solid_only(),
+    );
+    world_admission::locate_stationary_endpoints(&mut state, &[located], &[]);
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("exact-local guard survival setup failed: {error}"));
+    world_admission::initialize_stationary_player_logistics(&mut state);
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        world_admission::assert_exact_local_runtime_ready(
+            &registries,
+            &state,
+            "forgotten-endpoint contract",
+        );
+    }));
+    assert!(
+        result.is_err(),
+        "exact-local admission accepted unlocated stockpile {}",
+        forgotten.value()
+    );
+}
+
 fn seed_delivery_endpoints(
     registries: &deep_hearth::registry::Registries,
     state: &mut AppState,

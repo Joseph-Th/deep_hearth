@@ -27,6 +27,7 @@ use super::super::environment::ROOM_TEMPERATURE;
 #[derive(Clone, Copy)]
 pub(super) struct PowerProjectProvisions {
     pub(super) food: StockpileId,
+    pub(super) enclosure_material: StockpileId,
     pub(super) water: FluidStoreId,
     #[cfg_attr(
         test,
@@ -171,6 +172,7 @@ pub(super) fn seed_power_project_provisions(
     );
     PowerProjectProvisions {
         food,
+        enclosure_material,
         water,
         food_supply_mg,
         food_preservation_ppm: cache.storage_profile().preservation_multiplier_ppm(),

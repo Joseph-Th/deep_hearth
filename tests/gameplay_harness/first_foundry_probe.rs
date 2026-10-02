@@ -21,7 +21,7 @@ use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
-use deep_hearth::inventory::StockpileStorageProfile;
+use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, MaterialComposition};
@@ -67,6 +67,7 @@ use self::recovery::{
 
 #[derive(Clone, Copy)]
 struct PriorSettlementWorkshop {
+    component_source: StockpileId,
     frame_saw: deep_hearth::equipment::EquipmentId,
     treadle_hammer: deep_hearth::equipment::EquipmentId,
     treadle_drive: deep_hearth::equipment::EquipmentId,
@@ -200,6 +201,7 @@ fn seed_prior_settlement_workshop(
         "first foundry inherited workshop must embody its complete disclosed component stock"
     );
     PriorSettlementWorkshop {
+        component_source: source,
         frame_saw,
         treadle_hammer,
         treadle_drive,
@@ -388,6 +390,7 @@ pub(super) fn run_first_foundry_probe(registries: &Registries, case: FocusedProb
         registries,
         &mut state,
         &[
+            prior_workshop.component_source,
             raw,
             parts,
             owned_ore,

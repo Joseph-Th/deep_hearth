@@ -520,6 +520,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             primitive_service_replacement,
             primitive_service_spent,
             primitive_provisions.food,
+            primitive_provisions.enclosure_material,
             shaped,
         ],
         &[primitive_provisions.water],
@@ -648,6 +649,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             settlement_service_replacement,
             settlement_service_spent,
             settlement_provisions.food,
+            settlement_provisions.enclosure_material,
         ],
         &[settlement_provisions.water],
         "settlement power-provider",
@@ -682,9 +684,11 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &settlement_state,
         settlement_raw,
         settlement_shaped,
-        settlement_capacity_nj,
-        settlement_project_mass,
-        settlement_project_work.nanojoules(),
+        planning::SettlementPowerProject {
+            capacity_nj: settlement_capacity_nj,
+            declared_mass: settlement_project_mass,
+            declared_work_nj: settlement_project_work.nanojoules(),
+        },
         investment_policy,
     );
     assert_eq!(

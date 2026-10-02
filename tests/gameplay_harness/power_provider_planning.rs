@@ -187,6 +187,13 @@ pub(super) struct PrimitivePowerProject {
 }
 
 #[derive(Clone, Copy)]
+pub(super) struct SettlementPowerProject {
+    pub(super) capacity_nj: u128,
+    pub(super) declared_mass: Mass,
+    pub(super) declared_work_nj: u128,
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct SettlementPowerPlan {
     pub(super) choice: SettlementPowerChoice,
     pub(super) minimum_return_ppm: u64,
@@ -283,9 +290,7 @@ pub(super) fn settlement_power_plan(
     state: &AppState,
     raw: StockpileId,
     shaped: StockpileId,
-    capacity_nj: u128,
-    declared_mass: Mass,
-    declared_work_nj: u128,
+    project: SettlementPowerProject,
     investment_policy: CapitalInvestmentPolicy,
 ) -> SettlementPowerPlan {
     let treadle_build = project_power_package(
@@ -306,7 +311,7 @@ pub(super) fn settlement_power_plan(
         ENERGY_TIMBER_FRAME_FLYWHEEL_BANK,
         "walking-wheel pre-action build",
     );
-    let requested = Energy::from_nanojoules(capacity_nj);
+    let requested = Energy::from_nanojoules(project.capacity_nj);
     let treadle_route = ManualPowerRoute::new(
         MANUAL_POWER_FOOT_TREADLE,
         EQUIPMENT_TIMBER_TREADLE_DRIVE,
@@ -334,9 +339,12 @@ pub(super) fn settlement_power_plan(
     );
     let treadle_charge = treadle_route.project(registries, Condition::PRISTINE);
     let walking_charge = walking_route.project(registries, Condition::PRISTINE);
-    let charge_events =
-        charge_events_for_declared_work(declared_work_nj, capacity_nj, "settlement project");
-    let declared_work = Energy::from_nanojoules(declared_work_nj);
+    let charge_events = charge_events_for_declared_work(
+        project.declared_work_nj,
+        project.capacity_nj,
+        "settlement project",
+    );
+    let declared_work = Energy::from_nanojoules(project.declared_work_nj);
     let treadle_lifecycle = treadle_route.project_lifecycle(registries, declared_work);
     let walking_lifecycle = walking_route.project_lifecycle(registries, declared_work);
     let treadle_lifecycle_attention = treadle_build
@@ -374,9 +382,9 @@ pub(super) fn settlement_power_plan(
             SettlementPowerChoice::Treadle
         },
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
-        capacity_nj,
-        declared_mass,
-        declared_work_nj,
+        capacity_nj: project.capacity_nj,
+        declared_mass: project.declared_mass,
+        declared_work_nj: project.declared_work_nj,
         charge_events,
         treadle_build,
         walking_build,

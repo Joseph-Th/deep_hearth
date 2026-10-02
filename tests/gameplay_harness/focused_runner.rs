@@ -217,12 +217,13 @@ pub(super) fn run_focused_probe_with_registries(
     };
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let requested_variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
+    // Direct Cargo invocation still gets one deterministic organic case. Repository runners
+    // replace the root with a fresh replayable one, so the fast path varies without making
+    // failures irreproducible.
     let variation_count = if explore {
         exploratory_variation_count(name)
-    } else if requested_variation_raw.is_some() {
-        1
     } else {
-        0
+        1
     };
     let variation_raw = (variation_count > 0)
         .then_some(requested_variation_raw)
