@@ -36,6 +36,9 @@ mod acquisition;
 mod cleanup;
 #[path = "primitive_liberation/comparison.rs"]
 mod comparison;
+#[cfg(test)]
+#[path = "primitive_liberation/generation_tests.rs"]
+mod generation_tests;
 #[path = "primitive_liberation/primary.rs"]
 mod primary;
 #[path = "primitive_liberation/scavenging.rs"]
@@ -286,7 +289,18 @@ fn disclosed_campaign_batches(case: FocusedProbeCase) -> u64 {
     }
 }
 
-pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: FocusedProbeCase) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PrimitiveLiberationWorldParameters {
+    planned_batches: u64,
+    batch_mass: Mass,
+    copper_ppm: u32,
+    clay_share_ppm: u32,
+}
+
+fn primitive_liberation_world_parameters(
+    registries: &Registries,
+    case: FocusedProbeCase,
+) -> PrimitiveLiberationWorldParameters {
     let seed = case.seed();
     let planned_batches = disclosed_campaign_batches(case);
     let requested_batch_mass =
@@ -309,8 +323,22 @@ pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: Focu
         !batch_mass.is_zero(),
         "primitive liberation generated no representable batch"
     );
-    let copper_ppm = 300_000 + (mix64(seed ^ 0x4C49_4245_5243_5550) % 300_001) as u32;
-    let clay_share_ppm = (mix64(seed ^ 0x4C49_4245_5243_4C41) % 650_001) as u32;
+    PrimitiveLiberationWorldParameters {
+        planned_batches,
+        batch_mass,
+        copper_ppm: 300_000 + (mix64(seed ^ 0x4C49_4245_5243_5550) % 300_001) as u32,
+        clay_share_ppm: (mix64(seed ^ 0x4C49_4245_5243_4C41) % 650_001) as u32,
+    }
+}
+
+pub(super) fn run_primitive_liberation_probe(registries: &Registries, case: FocusedProbeCase) {
+    let seed = case.seed();
+    let PrimitiveLiberationWorldParameters {
+        planned_batches,
+        batch_mass,
+        copper_ppm,
+        clay_share_ppm,
+    } = primitive_liberation_world_parameters(registries, case);
     let (acquired, campaign_bootstraps) =
         acquisition::acquire_raw_kit(registries, seed, planned_batches, |state| {
             (0..planned_batches)

@@ -466,7 +466,7 @@ fn stockpile_funds_requirements(
         .all(|(commodity, required)| record.get_mass(*commodity) >= *required)
 }
 
-fn staging_material_available(seed: u64) -> bool {
+pub(super) fn staging_material_available(seed: u64) -> bool {
     !mix64(seed ^ 0x4C49_4245_5354_4147).is_multiple_of(2)
 }
 

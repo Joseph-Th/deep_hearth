@@ -24,16 +24,42 @@ pub(in super::super) fn prospecting_method_for_work_pressure(
         .labor()
         .prospecting_definitions()
         .filter(|definition| definition.equipment().is_none())
-        .map(|definition| definition.id())
+        .map(|definition| {
+            let spatial_resolution = match definition.spatial_resolution() {
+                ProspectingSpatialResolution::AggregateRegion => 0_u8,
+                ProspectingSpatialResolution::PerVoxel => 1_u8,
+            };
+            let signature = (
+                definition.evidence(),
+                spatial_resolution,
+                definition.duration().value(),
+                definition.maximum_region_voxels(),
+                definition.abundance_uncertainty_ppm(),
+                definition
+                    .excavation_hardness_resolution()
+                    .map(Pressure::pascals),
+                definition.resource_mass_resolution().map(Mass::milligrams),
+                definition.exertion().energy_cost_per_tick().nanojoules(),
+                definition
+                    .exertion()
+                    .hydration_loss_per_tick()
+                    .microliters(),
+            );
+            (signature, definition.id())
+        })
         .collect::<Vec<_>>();
-    methods.sort_unstable();
+    // World generation is ordered by player-visible physical opportunity, not authored identity.
+    // Physically equivalent methods are one generator opportunity even if content happens to
+    // contain more than one stable definition ID for that same action shape.
+    methods.sort_unstable_by_key(|(signature, _)| *signature);
+    methods.dedup_by_key(|(signature, _)| *signature);
     assert!(
         !methods.is_empty(),
         "survival work-pressure probe requires one authored prospecting method"
     );
     let index = usize::try_from(mix64(seed ^ 0x5052_4F53_4D45_5448) % methods.len() as u64)
         .unwrap_or_else(|_| unreachable!("prospecting method index fits usize"));
-    methods[index]
+    methods[index].1
 }
 
 pub(super) fn evaluate_survival_work_pressure_probe(

@@ -24,8 +24,8 @@ use deep_hearth::inventory::{
     validate_build_storage_enclosure, validate_start_storage_enclosure_dismantling,
 };
 use deep_hearth::labor::{
-    ManualPowerRequest, PlayerWork, ProspectingMethodId, project_manual_power,
-    project_prospecting_work, validate_start_manual_power,
+    ManualPowerRequest, PlayerWork, ProspectingMethodId, ProspectingSpatialResolution,
+    project_manual_power, project_prospecting_work, validate_start_manual_power,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
