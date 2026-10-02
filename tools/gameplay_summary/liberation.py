@@ -109,7 +109,9 @@ def _kit_acquisition(lines: list[str]) -> str:
     incremental = [line for line in witnesses if " incremental-attention:" in line]
     if incremental:
         if len(incremental) != len(witnesses):
-            raise ValueError("primitive liberation mixed legacy and incremental kit evidence")
+            raise ValueError(
+                "primitive liberation kit report requires current incremental acquisition evidence"
+            )
         stone: list[int] = []
         wood: list[int] = []
         total: list[int] = []
@@ -177,83 +179,8 @@ def _kit_acquisition(lines: list[str]) -> str:
             f"parts:{_span(extension_attention, 't')} "
             f"riddle:{_span(riddle_attention, 't')}]]"
         )
-    stone: list[int] = []
-    wood: list[int] = []
-    total: list[int] = []
-    attention: list[int] = []
-    staging_funded = 0
-    staged_lathe = 0
-    staging_extra_raw: list[int] = []
-    direct_attention: list[int] = []
-    selected_attention: list[int] = []
-    staged_attention_saved: list[int] = []
-    adze_attention: list[int] = []
-    spring_pole_attention: list[int] = []
-    machine_component_attention: list[int] = []
-    riddle_attention: list[int] = []
-    for line in witnesses:
-        raw = re.search(
-            r"raw=\[stone:(\d+)mg wood:(\d+)mg total:(\d+)mg\]",
-            line,
-        )
-        body = re.search(r"attention:(\d+)t .*?body=(\d+)nJ/(\d+)uL", line)
-        choice = re.search(
-            r"fabrication-choice=\[spring-pole:(true|false) staging-funded:(true|false) "
-            r"[^]]*direct:(\d+)t selected:(\d+)t saved:(\d+)t extra-raw:(\d+)mg\]",
-            line,
-        )
-        fabrication = re.search(
-            r"fabrication=\[adze:(\d+)t spring-pole:(\d+)t machine-components:(\d+)t riddle-panel:(\d+)t\]",
-            line,
-        )
-        if raw is not None:
-            stone.append(int(raw.group(1)))
-            wood.append(int(raw.group(2)))
-            total.append(int(raw.group(3)))
-        if body is not None:
-            attention.append(int(body.group(1)))
-        if choice is not None:
-            staged_lathe += choice.group(1) == "true"
-            staging_funded += choice.group(2) == "true"
-            direct_attention.append(int(choice.group(3)))
-            selected_attention.append(int(choice.group(4)))
-            staged_attention_saved.append(int(choice.group(5)))
-            staging_extra_raw.append(int(choice.group(6)))
-        if fabrication is not None:
-            adze_attention.append(int(fabrication.group(1)))
-            spring_pole_attention.append(int(fabrication.group(2)))
-            machine_component_attention.append(int(fabrication.group(3)))
-            riddle_attention.append(int(fabrication.group(4)))
-    if witnesses and not (
-        len(attention)
-        == len(direct_attention)
-        == len(selected_attention)
-        == len(staged_attention_saved)
-        == len(staging_extra_raw)
-        == len(adze_attention)
-        == len(spring_pole_attention)
-        == len(machine_component_attention)
-        == len(riddle_attention)
-        == len(witnesses)
-    ):
-        raise ValueError("primitive liberation kit report lost fabrication-decision evidence")
-    return (
-        "kit-acquisition=["
-        f"source=[fixture:{fixture_sources} pickup:{runtime_pickups} gather:{world_gathering}] "
-        f"raw=[stone:{scaled_span(stone, 1_000_000, 'kg')} "
-        f"wood:{scaled_span(wood, 1_000_000, 'kg')} "
-        f"total:{scaled_span(total, 1_000_000, 'kg')}] "
-        f"attn:{_span(attention, 't')} "
-        f"time:{physical_duration_span(lines, attention)} "
-        f"staging=[funded:{staging_funded}/{len(witnesses)} "
-        f"spring-pole:{staged_lathe}/{len(witnesses)} "
-        f"extra-raw:{scaled_span(staging_extra_raw, 1_000_000, 'kg')} "
-        f"direct:{_span(direct_attention, 't')} selected:{_span(selected_attention, 't')} "
-        f"saved:{_span(staged_attention_saved, 't')}] "
-        f"phases=[adze:{_span(adze_attention, 't')} "
-        f"spring-pole:{_span(spring_pole_attention, 't')} "
-        f"parts:{_span(machine_component_attention, 't')} "
-        f"riddle:{_span(riddle_attention, 't')}]]"
+    raise ValueError(
+        "primitive liberation kit report requires current incremental acquisition evidence"
     )
 
 
