@@ -682,12 +682,25 @@ def suite_result_detail(stdout: str) -> str:
     return detail
 
 
-def execution_error(args: argparse.Namespace, stdout: str) -> tuple[str, str] | None:
+def execution_error(
+    args: argparse.Namespace,
+    stdout: str,
+    *,
+    expected_suite_count: int | None = None,
+) -> tuple[str, str] | None:
     """Return one precise failure and repair command when selected tests did not execute."""
 
     counts = executed_test_counts(stdout)
     if counts is not None:
         passed, ignored = counts
+        if args.suite and expected_suite_count is not None:
+            selected = passed + ignored
+            if selected != expected_suite_count:
+                return (
+                    "Cargo/source catalog suite selection drifted: "
+                    f"catalog={expected_suite_count} cargo={selected} for {args.name}",
+                    f"python tools/run_test.py --list {args.name}",
+                )
         if passed > 0:
             return None
         if not args.suite and ignored > 0 and not args.ignored:
@@ -793,11 +806,12 @@ def main() -> int:
         print_source_catalog(args, catalog)
         return 0
 
+    selected_catalog: list[str]
     if args.target is None:
         resolved = resolve_automatic_selection(args)
         if resolved is None:
             return 2
-        selector, _catalog = resolved
+        selector, selected_catalog = resolved
     else:
         catalog = load_source_catalog(args)
         if catalog is None:
@@ -805,6 +819,7 @@ def main() -> int:
         selector = resolve_requested_selection(args, catalog)
         if selector is None:
             return 2
+        selected_catalog = catalog
 
     command = cargo_command(args)
     try:
@@ -817,7 +832,14 @@ def main() -> int:
         report_cargo_failure(command, result, elapsed, replay_command(args, replay))
         return result.returncode
 
-    if mismatch := execution_error(args, result.stdout):
+    expected_suite_count = (
+        len(source_test_matches(selector, selected_catalog)) if args.suite else None
+    )
+    if mismatch := execution_error(
+        args,
+        result.stdout,
+        expected_suite_count=expected_suite_count,
+    ):
         failure, repair = mismatch
         print(f"FAIL {failure}", file=sys.stderr)
         print(f"repair: {repair}", file=sys.stderr)

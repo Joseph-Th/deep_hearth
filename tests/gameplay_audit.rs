@@ -40,6 +40,13 @@ macro_rules! include_fieldwork_campaign_contract_tests {
     };
 }
 
+macro_rules! include_survival_probe_contract_tests {
+    () => {
+        #[path = "survival_probe/provisioning_support_tests.rs"]
+        mod provisioning_support_tests;
+    };
+}
+
 #[path = "gameplay_harness/agency.rs"]
 mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]

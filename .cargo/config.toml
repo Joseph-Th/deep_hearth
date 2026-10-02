@@ -2,6 +2,8 @@
 # Keep every local Cargo entrypoint on one artifact cache. Environment-level CARGO_TARGET_DIR still
 # overrides this when an intentionally isolated build is needed.
 target-dir = "target/local-ci"
+# Repository entrypoints serialize separate Cargo builds. Cargo itself should use all host
+# parallelism inside that one build, so do not pin `jobs` here or in routine aliases.
 # Prefer dynamic dependencies for local verification so exact tests and focused harness binaries
 # relink cheaply. Keeping this in Cargo config, rather than Python wrappers, gives direct Cargo and
 # repository tools the same artifact shape.

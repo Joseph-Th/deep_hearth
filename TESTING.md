@@ -19,9 +19,9 @@ Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, an
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Production-library type-check when no executable test fits | `python ci.py gate` |
 
-Iteration is `quick`, then **one** proof. For unstable gameplay/integration code, use `run_test.py --check <selector>` before paying codegen/link cost. Once runnable, run the exact test. Use `--build` only when a linked but unexecuted artifact is useful, and default `gate` only when no executable test fits. Do not stack equivalent proofs or append an audit.
+Iteration is `quick`, then **one** proof. Use `--check` while gameplay/integration code is not yet worth linking; once an executable proof is runnable, run it directly. `gate` is an optional production-only type-check before library unit tests and does not cover `cfg(test)`. Use `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes or append an audit.
 
-Use `run_test.py --list <substring>` for build-free discovery. `--check` rejects library unit-test selectors because `cargo check --lib` omits `cfg(test)` bodies; run the exact unit test instead. Prefer a smaller focused gameplay target when equally authoritative. All Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`; repository entrypoints normalize ambient compiler/profile overrides. Keep build-producing lanes serial. Only build-free `quick` checks run in parallel.
+Use `run_test.py --list <substring>` for build-free discovery. `--check` cannot validate library unit bodies. Prefer the smallest authoritative gameplay target. Scoped reports reuse focused test artifacts when supported; do not add a second executable for the same graph. Cargo lanes share `.cargo/config.toml`, `[profile.test]`, and `target/local-ci`; repository entrypoints normalize ambient overrides. Keep separate Cargo invocations serial, leave Cargo's internal job count uncapped, and parallelize only build-free `quick` checks.
 
 ## Escalation lanes
 
@@ -32,7 +32,7 @@ Use `run_test.py --list <substring>` for build-free discovery. `--check` rejects
 | Gameplay exploration | `python ci.py report [--scope <scope>]` |
 | Changed-source complexity review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
-`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. `audit --all` runs core unit tests and the consolidated gameplay audit in one `test-gameplay` Cargo invocation so production code is not rebuilt under two feature shapes; `audit --core` remains the feature-minimal core checkpoint. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
+`quick` is build-free, `gate` runs one build lane, and `audit` is an explicit checkpoint. `audit --all` runs core unit tests and the consolidated gameplay audit in one additive `test-gameplay` feature shape; negative `test-gameplay` gating is forbidden. `audit --core` remains feature-minimal. Specialized gates are `--shaders`, `--rustdoc`, and `--soak`. Git-Wizard `quick`/`standard` stay build-free; `full` maps to opt-in `audit --all`.
 
 ## Evidence ladder
 

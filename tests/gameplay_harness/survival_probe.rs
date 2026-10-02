@@ -89,8 +89,7 @@ pub(super) use report::run_survival_provisioning_probe;
 pub(super) mod provisioning_support;
 use provisioning_support::*;
 #[cfg(test)]
-#[path = "survival_probe/provisioning_support_tests.rs"]
-mod provisioning_support_tests;
+include_survival_probe_contract_tests!();
 
 #[path = "survival_probe/provisioning_world.rs"]
 pub(super) mod provisioning_world;

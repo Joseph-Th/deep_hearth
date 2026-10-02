@@ -72,6 +72,11 @@ path = "tests/gameplay_survival.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_survival_contracts"
+path = "tests/gameplay_survival_contracts.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_progression"
 path = "tests/gameplay_progression.rs"
 required-features = ["test-gameplay"]
@@ -117,8 +122,8 @@ path = "tests/gameplay_fieldwork.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
-name = "gameplay_fieldwork_policy_contracts"
-path = "tests/gameplay_fieldwork_policy_contracts.rs"
+name = "gameplay_fieldwork_contracts"
+path = "tests/gameplay_fieldwork_contracts.rs"
 required-features = ["test-gameplay"]
 
 [[test]]

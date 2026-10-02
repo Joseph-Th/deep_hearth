@@ -38,12 +38,13 @@ _maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
 
 DEDICATED_OWNER_CONTRACT_SCOPES = frozenset(
     {
+        "fieldwork",
         "progression",
         "settlement",
+        "survival",
         "woodworking",
     }
 )
-FIELDWORK_POLICY_CONTRACT_TARGET = "gameplay_fieldwork_policy_contracts"
 
 
 def owner_contract_target(scope: str) -> str:
@@ -1395,6 +1396,7 @@ class TestTopologyContractTests(unittest.TestCase):
             (ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8")
         )
         self.assertEqual(cargo_config["build"].get("target-dir"), "target/local-ci")
+        self.assertNotIn("jobs", cargo_config["build"])
         self.assertIn("-Cprefer-dynamic", cargo_config["build"].get("rustflags", []))
         self.assertEqual(
             cargo_config["target"]["x86_64-pc-windows-msvc"].get("linker"),
@@ -1402,6 +1404,10 @@ class TestTopologyContractTests(unittest.TestCase):
         )
         self.assertIn("--profile test", cargo_config["alias"]["check-fast"])
         self.assertIn("--profile test", cargo_config["alias"]["lint-fast"])
+        for alias in cargo_config["alias"].values():
+            tokens = alias.split()
+            self.assertNotIn("-j", tokens)
+            self.assertNotIn("--jobs", tokens)
 
     def test_unit_tests_use_one_normal_library_cache_shape(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -1497,10 +1503,6 @@ class TestTopologyContractTests(unittest.TestCase):
                 definitions[target].get("required-features"),
                 [ci.GAMEPLAY_FEATURE],
             )
-        self.assertEqual(
-            definitions[FIELDWORK_POLICY_CONTRACT_TARGET].get("required-features"),
-            [ci.GAMEPLAY_FEATURE],
-        )
         self.assertNotIn("--nocapture", ci.gameplay_command("all"))
 
     def test_focused_gameplay_roots_do_not_import_unrelated_probe_families(self) -> None:
@@ -1578,14 +1580,21 @@ class TestTopologyContractTests(unittest.TestCase):
             ci.GAMEPLAY_TARGETS["survival"],
         )
 
-    def test_contract_targets_split_only_when_the_contract_graph_is_materially_distinct(self) -> None:
-        dedicated_contracts = {
+    def test_contract_targets_keep_contract_bodies_out_of_focused_probe_artifacts(self) -> None:
+        graph_isolated_contracts = {
             "progression": ("progression_contract_tests::", "progression_probe.rs"),
             "settlement": ("settlement_wire_contract_tests::", "settlement_probe.rs"),
             "woodworking": ("woodworking_contract_tests::", "woodworking_probe.rs"),
         }
+        shared_probe_graph_contracts = {
+            "survival": ("survival_contract_tests::", "survival_probe.rs"),
+            "fieldwork": ("prospecting_instrument_contract_tests::", "fieldwork_probe.rs"),
+        }
 
-        for scope, (prefix, focused_probe) in dedicated_contracts.items():
+        for scope, (prefix, focused_probe) in {
+            **graph_isolated_contracts,
+            **shared_probe_graph_contracts,
+        }.items():
             focused_target = ci.GAMEPLAY_TARGETS[scope]
             contract_target = owner_contract_target(scope)
             self.assertNotEqual(contract_target, focused_target)
@@ -1601,18 +1610,28 @@ class TestTopologyContractTests(unittest.TestCase):
                     for name in run_test.source_test_catalog(contract_target, None)
                 )
             )
-            focused_probe_path = (
-                ROOT / "tests" / "gameplay_harness" / focused_probe
-            ).resolve()
+            focused_probe_path = (ROOT / "tests" / "gameplay_harness" / focused_probe).resolve()
+            contract_paths = run_test.target_source_paths(contract_target, None)
+            if scope in graph_isolated_contracts:
+                self.assertNotIn(
+                    focused_probe_path,
+                    contract_paths,
+                    f"{contract_target} must isolate cheap contracts from the full focused probe",
+                )
+            else:
+                self.assertIn(
+                    focused_probe_path,
+                    contract_paths,
+                    f"{contract_target} owns full-probe contracts outside the hot focused artifact",
+                )
+
+        for scope in shared_probe_graph_contracts:
             self.assertNotIn(
-                focused_probe_path,
-                run_test.target_source_paths(contract_target, None),
-                f"{contract_target} must isolate contracts instead of recompiling the full focused probe",
+                "contract_tests::",
+                "\n".join(run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)),
             )
         merged_contract_prefixes = {
             "workshop": "workshop_contract_tests::",
-            "survival": "survival_contract_tests::",
-            "fieldwork": "prospecting_instrument_contract_tests::",
             "ore": "ore_contract_tests::",
             "foundry": "foundry_contract_tests::",
         }
@@ -1813,6 +1832,21 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertIn(ci.GAMEPLAY_FEATURE, builds[0])
         self.assertIn("--lib", builds[0])
         self.assertEqual(cargo_test_targets(builds[0]), [ci.GAMEPLAY_AUDIT_TARGET])
+
+    def test_gameplay_feature_is_additive_for_combined_audit(self) -> None:
+        negative_feature_cfg = re.compile(
+            r'#\s*\[\s*cfg[^\]]*not\s*\(\s*feature\s*=\s*"test-gameplay"'
+        )
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in maintained_rust_files(ROOT / "src")
+            if negative_feature_cfg.search(read_maintained_text(path))
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "combined audit assumes test-gameplay only adds fixture/test capability",
+        )
 
     def test_core_repair_loop_stays_feature_minimal_while_gameplay_is_explicit(self) -> None:
         config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
@@ -3178,7 +3212,6 @@ class AuthorityContractTests(unittest.TestCase):
             {
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
-                FIELDWORK_POLICY_CONTRACT_TARGET,
                 *ci.GAMEPLAY_TARGETS.values(),
                 *(owner_contract_target(scope) for scope in DEDICATED_OWNER_CONTRACT_SCOPES),
             },
@@ -3630,7 +3663,7 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
             "batch_capped_mining_finishes_the_requested_order": owner_contract_target("fieldwork"),
-            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": FIELDWORK_POLICY_CONTRACT_TARGET,
+            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": owner_contract_target("fieldwork"),
             "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": ci.GAMEPLAY_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": owner_contract_target("settlement"),
@@ -3682,9 +3715,9 @@ class ExactTestCommandTests(unittest.TestCase):
         )
         for selector, expected in {
             "workshop_contract_tests": ci.GAMEPLAY_TARGETS["workshop"],
-            "prospecting_instrument_contract_tests": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "prospecting_instrument_contract_tests": owner_contract_target("fieldwork"),
             "settlement_wire_contract_tests": "gameplay_settlement_contracts",
-            "survival_contract_tests": ci.GAMEPLAY_TARGETS["survival"],
+            "survival_contract_tests": owner_contract_target("survival"),
             "progression_contract_tests": "gameplay_progression_contracts",
             "ore_contract_tests": ci.GAMEPLAY_TARGETS["ore"],
             "foundry_contract_tests": ci.GAMEPLAY_TARGETS["foundry"],
@@ -3838,7 +3871,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "survey_investment_requires_a_material_disclosed_attention_payoff"
         )
         target, name = run_test.resolve_automatic_exact_selection(selector, None)
-        self.assertEqual(target, ci.GAMEPLAY_TARGETS["fieldwork"])
+        self.assertEqual(target, owner_contract_target("fieldwork"))
         self.assertEqual(name, selector)
 
     def test_source_catalog_matches_default_library_test_names_without_building(self) -> None:
@@ -3894,10 +3927,10 @@ class ExactTestCommandTests(unittest.TestCase):
             ci.GAMEPLAY_TARGETS["settlement"], None
         )
         self.assertEqual(focused_settlement, [ci.GAMEPLAY_TESTS["settlement"]])
-        fieldwork_policy = run_test.source_test_catalog(FIELDWORK_POLICY_CONTRACT_TARGET, None)
+        fieldwork_contracts = run_test.source_test_catalog(owner_contract_target("fieldwork"), None)
         self.assertIn(
             "fieldwork_shortfall_policy_tests::shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion",
-            fieldwork_policy,
+            fieldwork_contracts,
         )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
         self.assertIn("gameplay_agency_counterfactuals", workshop)
@@ -3985,6 +4018,28 @@ class ExactTestCommandTests(unittest.TestCase):
                 "python tools/run_test.py --ignored --target gameplay_fieldwork "
                 "--variation-seed 0x1234 synthetic::ignored_contract",
             ),
+        )
+
+    def test_suite_execution_rejects_source_catalog_selection_drift(self) -> None:
+        args = argparse.Namespace(
+            target="lib",
+            name="owner::tests::",
+            suite=True,
+            ignored=False,
+            variation_seed=None,
+            behavior_seed=None,
+        )
+        output = "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 10 filtered out"
+        self.assertEqual(
+            run_test.execution_error(args, output, expected_suite_count=4),
+            (
+                "Cargo/source catalog suite selection drifted: catalog=4 cargo=3 "
+                "for owner::tests::",
+                "python tools/run_test.py --list owner::tests::",
+            ),
+        )
+        self.assertIsNone(
+            run_test.execution_error(args, output, expected_suite_count=3)
         )
 
     def test_exact_execution_requires_a_passed_test(self) -> None:
