@@ -88,7 +88,12 @@ fn discover_manual_construction_route(
                         panic!("commodity handbook exposed an unknown manual process")
                     }),
             ),
-            _ => None,
+            CommoditySource::EquipmentDisassembly { .. }
+            | CommoditySource::EnergyStoreDisassembly { .. }
+            | CommoditySource::StorageDismantling { .. }
+            | CommoditySource::EquipmentMaintenanceSpent { .. }
+            | CommoditySource::OreProcessing { .. }
+            | CommoditySource::ThermalPhaseChange { .. } => None,
         })
         .collect::<Vec<_>>();
     if authored_producers.is_empty() {

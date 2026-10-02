@@ -187,14 +187,20 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
     let diet_recovery = diet_comparison.recovery;
     let recovery_consequence = if diet_recovery.actionable {
         format!(
-            "choice:actionable deprivation:{}t provisioning-horizon:{}t observe:{}t vitality:{}->[compact:{} balanced:{} delta:+{}ppm] diet:[compact:{} balanced:{}ppm]",
+            "choice:actionable deprivation:{}t provisioning-horizon:{}t servings=[compact:{}meal+{}drink balanced:{}meal+{}drink] observe:{}t vitality:{}->[compact:{} balanced:{} realized-delta:{:+}ppm window-delta=[compact:{:+} balanced:{:+}]] diet:[compact:{} balanced:{}ppm]",
             diet_recovery.deprivation_ticks,
             diet_recovery.provisioning_horizon_ticks,
+            diet_recovery.compact_meal_actions,
+            diet_recovery.compact_drink_actions,
+            diet_recovery.balanced_meal_actions,
+            diet_recovery.balanced_drink_actions,
             diet_recovery.observation_ticks,
             diet_recovery.vitality_before_ppm,
             diet_recovery.compact_vitality_after_ppm,
             diet_recovery.balanced_vitality_after_ppm,
-            diet_recovery.vitality_advantage_ppm,
+            diet_recovery.realized_vitality_delta_ppm,
+            diet_recovery.compact_recovery_window_delta_ppm,
+            diet_recovery.balanced_recovery_window_delta_ppm,
             diet_recovery.compact_diet_quality_ppm,
             diet_recovery.balanced_diet_quality_ppm,
         )
@@ -255,7 +261,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         )
     });
     reviewln!(
-        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{inherited_preservation_label} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] separate-investment-scenario=[protected-reserve:{}mg raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] storage-policy:{} commitment:{committed_preservation_label} state:{preservation_commitment_state} commitment-reason:{preservation_commitment_reason} minimum-return:{preservation_minimum_return_ppm}ppm committed=[build:{}t raw:{}mg service:0t] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} preservation:{}ppm candidates:{} frontier=[physical:{}/{} budget-eligible:{}/{} selected-physical:{} selected-budget:{}] {preservation_comparison} build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg utilization:{}ppm dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] consequence=[reserve-improved:{} {diet_consequence} horizon:{}t] lived-wait=[drinks:{} volume:{}uL] work-interlock=[short-loop-serving-floor:{}uL prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[hydration-policy:{} initial-drink:{}uL/{}t prospect:{}t followup-survey:{}:{}t followup-drink:{}:{}uL/{}t continuation:{} opportunity-power:{} power-drink:{}:{}uL/{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}]]",
+        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} diet:{} meal:{}mg drink:{}uL] inherited-reserve=[storage:{inherited_preservation_label} preservation:{}ppm rotation:consume-ambient-first retained:{}mg age-saved:{}t] separate-investment-scenario=[protected-reserve:{}mg raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] storage-policy:{} commitment:{committed_preservation_label} state:{preservation_commitment_state} commitment-reason:{preservation_commitment_reason} minimum-return:{preservation_minimum_return_ppm}ppm committed=[build:{}t raw:{}mg service:0t] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} preservation:{}ppm candidates:{} frontier=[physical:{}/{} budget-eligible:{}/{} selected-physical:{} selected-budget:{}] {preservation_comparison} build:{}t/{} raw:{}mg embodied:{}mg capacity:{}mg utilization:{}ppm dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] consequence=[reserve-improved:{} {diet_consequence} horizon:{}t] lived-wait=[drinks:{} volume:{}uL] work-interlock=[short-loop-serving-floor:{}uL prospecting:{}t cost:{}ppmE/{}ppmH dominant:{} manual-power:{}t cost:{}ppmE/{}ppmH dominant:{} integrated=[hydration-policy:{} initial-drink:{}uL/{}t prospect:{}t followup-survey:{}:{}t followup-drink:{}:{}uL/{}t continuation:{} opportunity-power:{} power-drink:{}:{}uL/{}t power:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{} serving-actions=[initial:{} followup:{} power:{}]]]",
         world.start_profile.label(),
         foods.len(),
         available_category_count,
@@ -328,9 +334,12 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         1_000_000 - integrated_work.energy_deficit_ppm,
         1_000_000 - integrated_work.hydration_deficit_ppm,
         integrated_work.hydration_warning_safe,
+        integrated_work.initial_drink_actions,
+        integrated_work.followup_reprovision_actions,
+        integrated_work.power_reprovision_actions,
     );
     reviewln!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t lived-wait=[drinks:{} volume:{}uL] available:[foods:{} categories:{} options:{food_options}]] separate-investment-evidence=[policy:{} candidates:{} raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] frontier=[{preservation_frontier_summary}] legend=P:physical-frontier,d:dominated,B:within-material-budget,x:over-material-budget commitment:{} committed=[build:{}t raw:{}mg] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} physical:{} within-material-budget:{}]] best-enclosure-execution-and-dismantling-coverage=[food:{protected_food_label} stages:{} route=finite-disclosed-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning serving-floor:{}uL policy:{} initial-drink:{}uL/{}t prospect:{}t followup-survey:{}:{}t followup-drink:{}:{}uL/{}t continuation:{} opportunity-power:{} power-drink:{}:{}uL/{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{}] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] diet-evidence=[{diet_counterfactual}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{inherited_preservation_label} age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t lived-wait=[drinks:{} volume:{}uL] available:[foods:{} categories:{} options:{food_options}]] separate-investment-evidence=[policy:{} candidates:{} raw-opportunity=[origin:{preservation_opportunity_label} mode:{preservation_opportunity_mode} inputs:{preservation_raw_summary}] frontier=[{preservation_frontier_summary}] legend=P:physical-frontier,d:dominated,B:within-material-budget,x:over-material-budget commitment:{} committed=[build:{}t raw:{}mg] no-build-baseline=[{}t fresh:{}t retained-raw:{}mg] best-enclosure-counterfactual=[policy:{best_enclosure_policy} storage:{selected_preservation_label} physical:{} within-material-budget:{}]] best-enclosure-execution-and-dismantling-coverage=[food:{protected_food_label} stages:{} route=finite-disclosed-raw-opportunity->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg capacity:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t remaining:{}t saved:{}t] survival-cost:{}nJ+{}uL dismantle=[{}t body:{}nJ/{}uL returned:{}mg]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] integrated-work-loop=[start:hydration-warning serving-floor:{}uL policy:{} initial-drink:{}uL/{}t prospect:{}t followup-survey:{}:{}t followup-drink:{}:{}uL/{}t continuation:{} opportunity-power:{} power-drink:{}:{}uL/{}t generate:{}t stored:{}nJ final-reserve:{}ppmE/{}ppmH warning-safe:{} serving-actions=[initial:{} followup:{} power:{}]] actor-choice=[diet-policy:{} selected:{} meal:{}mg drink:{}uL] diet-evidence=[{diet_counterfactual}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] inherited-preservation=[definition:{inherited_preservation_label} age-saved:{}t retained:{}mg] reserve-recovered:{}",
         world.start_profile.label(),
         diet_comparison.midwait_drink_count,
         diet_comparison.midwait_drink_volume_ul,
@@ -412,6 +421,9 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedPr
         1_000_000 - integrated_work.energy_deficit_ppm,
         1_000_000 - integrated_work.hydration_deficit_ppm,
         integrated_work.hydration_warning_safe,
+        integrated_work.initial_drink_actions,
+        integrated_work.followup_reprovision_actions,
+        integrated_work.power_reprovision_actions,
         natural_policy.label(),
         natural.selected_category_count,
         natural.meal_mass_mg,

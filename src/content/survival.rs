@@ -18,8 +18,15 @@ use super::{
 const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
 const MAXIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 333_150;
 const MINIMUM_MEAL_MASS_MG: u64 = 10_000;
+/// Largest ordinary direct food-use serving. Deeper deficits require another intentional meal
+/// action instead of collapsing most of a day's food into one interaction.
+const MAXIMUM_MEAL_MASS_MG: u64 = 500_000;
+const MAXIMUM_MEAL_DURATION_TICKS: u64 = 50;
 /// Smallest ordinary drink action: one meaningful cup-sized serving rather than threshold-sipping.
 const MINIMUM_DRINK_VOLUME_UL: u64 = 250_000;
+/// Largest ordinary direct drink: a large bottle-sized serving rather than a litre-scale recovery action.
+const MAXIMUM_DRINK_VOLUME_UL: u64 = 750_000;
+const MAXIMUM_DRINK_DURATION_TICKS: u64 = 18;
 
 fn direct_consumption_temperature() -> ConsumptionTemperatureRange {
     ConsumptionTemperatureRange::new(
@@ -43,11 +50,11 @@ fn physiology() -> PhysiologyDefinition {
         NutritionDefinition::new(5, 10),
         DirectConsumptionDefinition::new(
             Mass::from_milligrams(MINIMUM_MEAL_MASS_MG),
-            Mass::from_milligrams(1_000_000),
-            TickSpan::new(100),
+            Mass::from_milligrams(MAXIMUM_MEAL_MASS_MG),
+            TickSpan::new(MAXIMUM_MEAL_DURATION_TICKS),
             Volume::from_microliters(MINIMUM_DRINK_VOLUME_UL),
-            Volume::from_microliters(1_250_000),
-            TickSpan::new(30),
+            Volume::from_microliters(MAXIMUM_DRINK_VOLUME_UL),
+            TickSpan::new(MAXIMUM_DRINK_DURATION_TICKS),
         ),
         25,
         50,

@@ -194,15 +194,15 @@ fn selected_water_store_default_use_makes_partial_progress_when_full_is_unreacha
 }
 
 #[test]
-fn selected_water_store_default_use_consumes_available_legal_portion_when_refill_needs_more() {
+fn selected_water_store_default_use_consumes_one_maximum_serving_when_refill_needs_more() {
     let registries = build_registries();
     let mut state = AppState::new();
     initialize_player_survival(&registries, &mut state)
         .unwrap_or_else(|error| panic!("short-vessel survival setup failed: {error}"));
     let physiology = registries.survival().physiology();
-    let hydration = Volume::from_microliters(3_500_000);
+    let hydration = Volume::from_microliters(3_000_000);
     set_player_reserves(&mut state, physiology.maximum_metabolic_energy(), hydration);
-    let available = Volume::from_microliters(500_000);
+    let available = physiology.direct_consumption().maximum_drink_volume();
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
@@ -220,10 +220,11 @@ fn selected_water_store_default_use_consumes_available_legal_portion_when_refill
             store,
             physiology.maximum_hydration(),
         ),
-        Err(DrinkStoreToTargetError::InsufficientVolume {
-            available: found,
-            ..
-        }) if found == available
+        Err(DrinkStoreToTargetError::Projection(
+            DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
+                maximum_drink_volume,
+            }
+        )) if maximum_drink_volume == available
     ));
     let outcome = validate_drink_store_to_full(&registries, &state, store)
         .unwrap_or_else(|error| panic!("short-vessel default drinking failed: {error}"))

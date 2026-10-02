@@ -25,7 +25,7 @@ def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
 
     balanced_meal_extra_mg: list[int] = []
     balanced_diet_quality_gain_ppm: list[int] = []
-    balanced_vitality_gain_ppm: list[int] = []
+    balanced_realized_vitality_delta_ppm: list[int] = []
     for line in lines:
         if not line.startswith("SURVIVAL REVIEW "):
             continue
@@ -39,11 +39,11 @@ def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
             balanced_diet_quality_gain_ppm.append(int(tradeoff.group(2)))
         recovery = re.search(
             r"recovery-consequence=\[choice:actionable .*?"
-            r"vitality:\d+->\[compact:\d+ balanced:\d+ delta:\+(\d+)ppm\]",
+            r"vitality:\d+->\[compact:\d+ balanced:\d+ realized-delta:([+-]\d+)ppm",
             line,
         )
         if recovery is not None:
-            balanced_vitality_gain_ppm.append(int(recovery.group(1)))
+            balanced_realized_vitality_delta_ppm.append(int(recovery.group(1)))
 
     return (
         "provisioning=["
@@ -52,7 +52,7 @@ def _provisioning_evidence(lines: list[str], survival: list[str]) -> str:
         "balanced-diet-counterfactual=["
         f"meal-extra:{scaled_span(balanced_meal_extra_mg, 1_000, 'g')} "
         f"diet-quality-gain:{scaled_span(balanced_diet_quality_gain_ppm, 1, 'ppm')} "
-        f"vitality-gain:{scaled_span(balanced_vitality_gain_ppm, 1, 'ppm')}]"
+        f"realized-vitality-delta:{scaled_span(balanced_realized_vitality_delta_ppm, 1, 'ppm')}]"
     )
 
 
@@ -70,6 +70,9 @@ def survival_summary(lines: list[str]) -> str | None:
     initial_work_drinks = []
     followup_work_drinks = []
     power_work_drinks = []
+    initial_work_servings = []
+    followup_work_servings = []
+    power_work_servings = []
     prospecting_ticks = []
     power_ticks = []
     final_hydration_ppm = []
@@ -91,6 +94,14 @@ def survival_summary(lines: list[str]) -> str | None:
             power_work_drinks.append(int(integrated.group(5)))
             power_ticks.append(int(integrated.group(6)))
             final_hydration_ppm.append(int(integrated.group(7)))
+        serving_actions = re.search(
+            r"serving-actions=\[initial:(\d+) followup:(\d+) power:(\d+)\]",
+            line,
+        )
+        if serving_actions is not None:
+            initial_work_servings.append(int(serving_actions.group(1)))
+            followup_work_servings.append(int(serving_actions.group(2)))
+            power_work_servings.append(int(serving_actions.group(3)))
         inherited = re.search(
             r"inherited-reserve=\[storage:[^ ]+ preservation:(\d+)ppm "
             r"rotation:[^ ]+ retained:(\d+)mg age-saved:(\d+)t\]",
@@ -141,6 +152,8 @@ def survival_summary(lines: list[str]) -> str | None:
         f"initial-drink:{scaled_span(initial_work_drinks, 1_000, 'mL')} "
         f"followup-drink:{scaled_span(followup_work_drinks, 1_000, 'mL')} "
         f"power-drink:{scaled_span(power_work_drinks, 1_000, 'mL')} "
+        f"servings=[initial:{_span(initial_work_servings)} "
+        f"followup:{_span(followup_work_servings)} power:{_span(power_work_servings)}] "
         f"prospect:{_span(prospecting_ticks, 't')} power:{_span(power_ticks, 't')} "
         f"final-hydration:{_span(final_hydration_ppm, 'ppm')} "
         f"warning-safe:{count('warning-safe:true')}/{len(survival)}] "

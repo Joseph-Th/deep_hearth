@@ -295,13 +295,10 @@ pub(super) fn evaluate_provisioning_comparison(
         assert!(
             balanced.recovery_rate_after_ppm_per_tick >= compact.recovery_rate_after_ppm_per_tick
         );
-        if world.start_profile == SurvivalStartProfile::FullReserve {
-            assert!(
-                balanced.recovery_rate_after_ppm_per_tick
-                    > compact.recovery_rate_after_ppm_per_tick,
-                "balanced provisioning must buy measurably stronger recovery resilience in the maintained long-horizon survival world"
-            );
-        }
+        // One serving should make the dietary tradeoff legible immediately, but nutrition-backed
+        // vitality recovery is intentionally a longer-horizon consequence. The dedicated recovery
+        // challenge below observes that consequence after real deprivation and elapsed recovery
+        // rather than requiring a single meal-sized action to cross a recovery-rate threshold.
     }
 
     let natural_policy = diet_provisioning_policy_for_behavior_seed(behavior_seed);

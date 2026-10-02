@@ -12,7 +12,7 @@ use super::super::{
     FORM_NATIVE_METAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_LEGUMES, MATERIAL_MEAT,
     MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK, build_registries,
 };
-use crate::core::quantity::{Power, Volume};
+use crate::core::quantity::{Mass, Power, Volume};
 use crate::core::time::TickSpan;
 use crate::energy::{PowerRemainder, integrate_power};
 use crate::material::{CommodityKey, MaterialInputSpec};
@@ -29,6 +29,24 @@ fn built_in_direct_drinking_uses_a_meaningful_serving_floor() {
     assert!(
         (Volume::from_microliters(150_000)..=Volume::from_microliters(500_000)).contains(&serving),
         "ordinary drinking should use a human-scale cup serving rather than threshold-sipping"
+    );
+}
+
+#[test]
+fn built_in_direct_consumption_keeps_one_use_action_at_human_scale() {
+    let direct = build_registries()
+        .survival()
+        .physiology()
+        .direct_consumption();
+    assert!(
+        (Mass::from_milligrams(250_000)..=Mass::from_milligrams(600_000))
+            .contains(&direct.maximum_meal_mass()),
+        "ordinary eating should use a meal-sized portion rather than a bulk daily refill"
+    );
+    assert!(
+        (Volume::from_microliters(400_000)..=Volume::from_microliters(750_000))
+            .contains(&direct.maximum_drink_volume()),
+        "ordinary drinking should use a bottle-sized serving rather than a litre-scale refill"
     );
 }
 

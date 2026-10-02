@@ -61,6 +61,8 @@ different action:
   temperature, provenance, or another physical distinction creates a meaningful stack-level choice;
 - using held food or a drink source derives a sensible physical portion from the requested reserve rather than
   asking the player to type grams or milliliters;
+- one direct food or drink use represents a human-scale serving; deep deficits take additional servings and their
+  attention time rather than turning one familiar use action into a bulk refill;
 - contextual help/handbook views answer "what is this?", "what can I do with it?", and "how do I make it?"
   from the same authoritative process, assembly, upgrade, maintenance, recovery, and capability data used by simulation;
 - obvious direct actions remain attemptable. Better knowledge should improve prediction, route choice, recovery,
