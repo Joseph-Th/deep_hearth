@@ -2,120 +2,20 @@
 
 use std::collections::BTreeSet;
 
-use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::{
-    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
+    ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, PROCESS_CRUSH_ORE, PROCESS_POWER_SAW_WOOD_BOARDS,
 };
-use deep_hearth::energy::EnergyCarrier;
-use deep_hearth::material::CommodityKey;
-use deep_hearth::registry::{CommoditySource, ProcessEquipmentRole, Registries};
 
-use super::planning::{PrimitivePowerChoice, SettlementPowerChoice};
+use super::planning::{
+    assert_primitive_power_provider_market_current, assert_settlement_power_provider_market_current,
+};
 use super::*;
-
-fn commodity_reachable_from_roots(
-    registries: &Registries,
-    commodity: CommodityKey,
-    roots: &BTreeSet<CommodityKey>,
-) -> bool {
-    if roots.contains(&commodity) {
-        return true;
-    }
-    registries
-        .commodity_handbook_entry(commodity)
-        .unwrap_or_else(|| panic!("power-provider availability requested unknown commodity"))
-        .sources()
-        .iter()
-        .filter_map(|source| {
-            let CommoditySource::ManualCraft { process, .. } = *source else {
-                return None;
-            };
-            registries.crafting().get_manual(process)
-        })
-        .filter(|producer| {
-            registries
-                .process_topology(producer.process())
-                .unwrap_or_else(|| panic!("manual producer lost process topology"))
-                .equipment_role()
-                != ProcessEquipmentRole::Required
-        })
-        .any(|producer| roots.contains(&producer.input()))
-}
-
-fn reachable_mechanical_power_providers(
-    registries: &Registries,
-    roots: impl IntoIterator<Item = CommodityKey>,
-) -> BTreeSet<(
-    deep_hearth::labor::ManualPowerMethodId,
-    deep_hearth::equipment::EquipmentDefinitionId,
-)> {
-    let roots = roots.into_iter().collect::<BTreeSet<_>>();
-    let methods = registries
-        .labor()
-        .manual_power_definitions()
-        .filter(|method| method.carrier() == EnergyCarrier::Mechanical)
-        .collect::<Vec<_>>();
-    let mut providers = BTreeSet::new();
-    for method in methods {
-        for equipment in registries.equipment().definitions() {
-            if equipment.requires_structural_support() {
-                continue;
-            }
-            if !matches!(
-                equipment
-                    .capabilities()
-                    .get_capability(method.power_capability()),
-                Some(CapabilityValue::Power(power)) if !power.is_zero()
-            ) {
-                continue;
-            }
-            let Some(assembly) = equipment.assembly_profile() else {
-                continue;
-            };
-            if assembly
-                .inputs()
-                .iter()
-                .all(|input| commodity_reachable_from_roots(registries, input.commodity(), &roots))
-            {
-                providers.insert((method.id(), equipment.id()));
-            }
-        }
-    }
-    providers
-}
 
 #[test]
 fn played_power_provider_sets_match_current_buildable_mechanical_content() {
     let registries = deep_hearth::content::build_registries();
-    let primitive_roots = [
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-    ];
-    let settlement_roots = [
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-    ];
-    let primitive_expected = PrimitivePowerChoice::ALL
-        .into_iter()
-        .map(|choice| (choice.method(), choice.equipment()))
-        .collect::<BTreeSet<_>>();
-    let settlement_expected = SettlementPowerChoice::ALL
-        .into_iter()
-        .map(|choice| (choice.method(), choice.equipment()))
-        .collect::<BTreeSet<_>>();
-
-    assert_eq!(
-        reachable_mechanical_power_providers(&registries, primitive_roots),
-        primitive_expected,
-        "primitive played provider set diverged from mechanical equipment buildable from disclosed stone/wood roots"
-    );
-    assert_eq!(
-        reachable_mechanical_power_providers(&registries, settlement_roots),
-        settlement_expected,
-        "settlement played provider set diverged from mechanical equipment buildable from disclosed stone/wood/native-copper roots"
-    );
+    assert_primitive_power_provider_market_current(&registries);
+    assert_settlement_power_provider_market_current(&registries);
 }
 
 #[test]

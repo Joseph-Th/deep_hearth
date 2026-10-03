@@ -34,8 +34,10 @@ mod fresh_seed;
 mod inventory_support;
 #[path = "gameplay_harness/maintenance_timing.rs"]
 mod maintenance_timing;
-#[path = "gameplay_harness/manual_assembly_planning.rs"]
-mod manual_assembly_planning;
+#[path = "gameplay_harness/manual_construction_package_planning.rs"]
+mod manual_construction_package_planning;
+#[path = "gameplay_harness/manual_construction_planning.rs"]
+mod manual_construction_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
@@ -44,8 +46,6 @@ mod manual_craft_execution;
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
-#[path = "gameplay_harness/manual_craft_topology_planning.rs"]
-mod manual_craft_topology_planning;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]

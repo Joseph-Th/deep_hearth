@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_SASH_SAWMILL,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_TIMBER_SASH_SAWMILL, EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
     EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE,
     MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
     PROCESS_POWER_SAW_WOOD_BOARDS,
@@ -25,7 +25,7 @@ use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
-use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
+use super::manual_construction_planning::manual_construction_route_from_roots;
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
@@ -54,7 +54,8 @@ use planning::{
     PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
 };
 use planning::{
-    PrimitivePowerProject, SettlementCopperPolicy, primitive_power_plan, settlement_power_plan,
+    PrimitivePowerProject, SettlementCopperPolicy, assert_primitive_power_provider_market_current,
+    assert_settlement_power_provider_market_current, primitive_power_plan, settlement_power_plan,
 };
 use provisioning::seed_power_project_provisions;
 
@@ -120,6 +121,24 @@ fn add_raw_requirement(
         .or_insert(mass);
 }
 
+fn power_raw_roots(
+    state: &AppState,
+    raw: deep_hearth::inventory::StockpileId,
+) -> Vec<CommodityKey> {
+    let stockpile = state
+        .inventory()
+        .get_stockpile(raw)
+        .unwrap_or_else(|| panic!("power-provider raw stockpile disappeared"));
+    [
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+    ]
+    .into_iter()
+    .filter(|commodity| !stockpile.get_mass(*commodity).is_zero())
+    .collect()
+}
+
 fn add_output_as_raw_requirement(
     registries: &Registries,
     requirements: &mut BTreeMap<CommodityKey, Mass>,
@@ -128,25 +147,20 @@ fn add_output_as_raw_requirement(
     required: Mass,
     context: &'static str,
 ) {
-    if primitive_roots.contains(&commodity) {
-        add_raw_requirement(requirements, commodity, required, context);
-        return;
-    }
-    let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
+    let route = manual_construction_route_from_roots(
         registries,
         commodity,
         required,
         primitive_roots,
         context,
-    );
-    let raw = Mass::from_milligrams(
-        craft
-            .input_mass()
-            .milligrams()
-            .checked_mul(batches)
-            .unwrap_or_else(|| panic!("{context} topology input overflowed")),
-    );
-    add_raw_requirement(requirements, craft.input(), raw, context);
+    )
+    .unwrap_or_else(|| {
+        panic!(
+            "{context} has no equipment-free manual route from disclosed raw roots to commodity {}",
+            commodity.value()
+        )
+    });
+    add_raw_requirement(requirements, route.raw_commodity, route.raw_mass, context);
 }
 
 fn add_equipment_raw_requirements(
@@ -487,6 +501,8 @@ fn primitive_accumulator_for_current_crusher(registries: &Registries) -> EnergyS
 }
 
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
+    assert_primitive_power_provider_market_current(registries);
+    assert_settlement_power_provider_market_current(registries);
     let seed = case.seed();
     let investment_policy = investment_policy(case);
     // Derive the smallest ordinary copper-free accumulator that funds one complete pristine
@@ -621,6 +637,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
             EQUIPMENT_TIMBER_TREADLE_DRIVE,
             EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+            EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
             EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
         ],
         &[ENERGY_TIMBER_FRAME_FLYWHEEL_BANK],
@@ -879,6 +896,17 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_consumer,
     );
     #[cfg(not(test))]
+    let settlement_double_wound_treadle_dynamo_project = execute_selected_settlement_project(
+        registries,
+        &settlement_state,
+        settlement_resources,
+        SettlementPowerPlan {
+            choice: SettlementPowerChoice::DoubleWoundTreadleDynamo,
+            ..settlement_plan
+        },
+        settlement_consumer,
+    );
+    #[cfg(not(test))]
     let settlement_walking_project = execute_selected_settlement_project(
         registries,
         &settlement_state,
@@ -895,6 +923,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         SettlementPowerChoice::CopperCrank => settlement_copper_project,
         SettlementPowerChoice::Treadle => settlement_treadle_project,
         SettlementPowerChoice::TreadleDynamo => settlement_treadle_dynamo_project,
+        SettlementPowerChoice::DoubleWoundTreadleDynamo => {
+            settlement_double_wound_treadle_dynamo_project
+        }
         SettlementPowerChoice::WalkingWheel => settlement_walking_project,
     };
     #[cfg(not(test))]
@@ -939,6 +970,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_copper_project.active_attention_ticks(),
         settlement_treadle_project.active_attention_ticks(),
         settlement_treadle_dynamo_project.active_attention_ticks(),
+        settlement_double_wound_treadle_dynamo_project.active_attention_ticks(),
         settlement_walking_project.active_attention_ticks(),
     ]
     .into_iter()
@@ -956,6 +988,10 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             (
                 SettlementPowerChoice::TreadleDynamo,
                 settlement_treadle_dynamo_project,
+            ),
+            (
+                SettlementPowerChoice::DoubleWoundTreadleDynamo,
+                settlement_double_wound_treadle_dynamo_project,
             ),
             (
                 SettlementPowerChoice::WalkingWheel,
@@ -985,6 +1021,10 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         (
             SettlementPowerChoice::TreadleDynamo,
             settlement_treadle_dynamo_project,
+        ),
+        (
+            SettlementPowerChoice::DoubleWoundTreadleDynamo,
+            settlement_double_wound_treadle_dynamo_project,
         ),
         (
             SettlementPowerChoice::WalkingWheel,
@@ -1064,7 +1104,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement selected={} copper-policy={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[stone-crank-active-attention:{}t copper-crank-active-attention:{}t treadle-active-attention:{}t treadle-dynamo-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} allowed-attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement selected={} copper-policy={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[stone-crank-active-attention:{}t copper-crank-active-attention:{}t treadle-active-attention:{}t treadle-dynamo-active-attention:{}t double-wound-treadle-dynamo-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} allowed-attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
         case.role().label(),
         settlement_plan.choice.label(),
         copper_policy.label(),
@@ -1099,6 +1139,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_copper_project.active_attention_ticks(),
         settlement_treadle_project.active_attention_ticks(),
         settlement_treadle_dynamo_project.active_attention_ticks(),
+        settlement_double_wound_treadle_dynamo_project.active_attention_ticks(),
         settlement_walking_project.active_attention_ticks(),
         settlement_actual_attention_best,
         settlement_allowed_attention_best,

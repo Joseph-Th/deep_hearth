@@ -11,7 +11,6 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Mass, Pressure};
 use deep_hearth::core::state::AppState;
-use deep_hearth::crafting::{assess_manual_craft_inputs, resolve_manual_craft};
 use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::geology::{ExcavationHardnessEstimate, ResourceMassEstimate};
 use deep_hearth::inventory::StockpileId;
@@ -22,9 +21,7 @@ use deep_hearth::registry::Registries;
 use super::equipment_support::pristine_equipment_capability;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_witnesses::FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED;
-use super::manual_assembly_planning::project_manual_assembly_package;
-use super::manual_craft_selection::plan_manual_craft_request;
-use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output_from_inputs;
+use super::manual_construction_planning::manual_construction_route_from_roots;
 use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
 
@@ -221,6 +218,7 @@ fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
 }
 
 pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCase) {
+    assert_fieldwork_tool_market_current(registries);
     if case.role() == FocusedProbeRole::MaintainedAnchor {
         knowledge_experience::run_fieldwork_knowledge_experience(registries, case.seed());
     }
@@ -375,7 +373,7 @@ fn run_fieldwork_with_supply(
         None => FieldworkResourceKnowledgeEffect::ChangedFeasibility,
     };
     reviewln!(
-        "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-wear-adjusted-local-opportunity,then-native-copper,then-raw-mass,ties-light-first requested={}mg observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} preparation={}t projected-order={}t total={}t authorization=not-yet",
+        "FIELDWORK DECISION seed=0x{seed:016X} tick={} selected={} policy=min-preparation-plus-wear-adjusted-local-opportunity,then-native-copper,then-raw-mass,ties=explicit-preference-required requested={}mg observed-resource-mass={}..{}mg planned-local-work={}mg full-order-tool={} resource-knowledge-effect={} preparation={}t projected-order={}t total={}t authorization=not-yet",
         state.tick().value(),
         estimate.tool.label,
         requested_mine_mass.milligrams(),

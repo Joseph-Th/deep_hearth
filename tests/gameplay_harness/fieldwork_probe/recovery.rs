@@ -33,6 +33,7 @@ pub(super) struct InitialShortfallRecovery {
     pub(super) tool_preparation_ticks: u64,
     pub(super) extraction_ticks: u64,
     pub(super) tool_builds: u64,
+    pub(super) tool_upgrades: u64,
     pub(super) tool_switches: u64,
     pub(super) barren_sites: u64,
     pub(super) blocked_sites: u64,
@@ -57,6 +58,7 @@ struct InitialShortfallRun {
     tool_preparation_ticks: u64,
     extraction_ticks: u64,
     tool_builds: u64,
+    tool_upgrades: u64,
     tool_switches: u64,
     barren_sites: u64,
     blocked_sites: u64,
@@ -80,6 +82,7 @@ struct RecoveryProgress {
     tool_preparation_ticks: u64,
     extraction_ticks: u64,
     tool_builds: u64,
+    tool_upgrades: u64,
     tool_switches: u64,
     barren_sites: u64,
     blocked_sites: u64,
@@ -116,6 +119,7 @@ impl RecoveryProgress {
             tool_preparation_ticks: 0,
             extraction_ticks: 0,
             tool_builds: 0,
+            tool_upgrades: 0,
             tool_switches: 0,
             barren_sites: 0,
             blocked_sites: 0,
@@ -167,13 +171,16 @@ impl RecoveryProgress {
                 .checked_add(tool.recovered_native)
                 .unwrap_or_else(|| panic!("fieldwork recovery native copper overflowed"));
         }
+        self.tool_preparation_ticks = self
+            .tool_preparation_ticks
+            .checked_add(tool.preparation_ticks)
+            .unwrap_or_else(|| panic!("fieldwork recovery tool preparation overflowed"));
+        if tool.upgraded_existing {
+            self.tool_upgrades += 1;
+        }
         if !tool.reused_existing {
             self.tool_builds += 1;
             self.owned_equipment.push(tool.equipment);
-            self.tool_preparation_ticks = self
-                .tool_preparation_ticks
-                .checked_add(tool.preparation_ticks)
-                .unwrap_or_else(|| panic!("fieldwork recovery tool preparation overflowed"));
         }
         if tool.label != self.current_tool_label {
             self.tool_switches += 1;
@@ -197,6 +204,7 @@ impl RecoveryProgress {
             tool_preparation_ticks: self.tool_preparation_ticks,
             extraction_ticks: self.extraction_ticks,
             tool_builds: self.tool_builds,
+            tool_upgrades: self.tool_upgrades,
             tool_switches: self.tool_switches,
             barren_sites: self.barren_sites,
             blocked_sites: self.blocked_sites,
@@ -432,6 +440,7 @@ pub(super) fn execute_initial_shortfall_recovery(
         tool_preparation_ticks: selected.tool_preparation_ticks,
         extraction_ticks: selected.extraction_ticks,
         tool_builds: selected.tool_builds,
+        tool_upgrades: selected.tool_upgrades,
         tool_switches: selected.tool_switches,
         barren_sites: selected.barren_sites,
         blocked_sites: selected.blocked_sites,

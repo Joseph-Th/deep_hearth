@@ -1,4 +1,4 @@
-//! Topology-only planning for manual production before live inventory exists.
+//! One-layer topology planning for manual production from explicitly disclosed inputs.
 
 use std::num::NonZeroU64;
 

@@ -156,6 +156,11 @@ _SCOPED_ORDINARY_DIGEST_FIELDS = {
         "reinvestment",
         "next-stage-continuation",
     ),
+    "power-provider": (
+        *_ORDINARY_DIGEST_FIELDS["power-provider"],
+        "market",
+        "settlement-market",
+    ),
     "settlement": (
         *_ORDINARY_DIGEST_FIELDS["settlement"],
         "attention",

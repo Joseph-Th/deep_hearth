@@ -10,9 +10,65 @@ use deep_hearth::equipment::{
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::registry::Registries;
 
+use super::super::manual_construction_planning::manual_construction_route_from_roots;
 use super::super::manual_craft_batches::execute_manual_craft_batches;
-use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
-use super::planning::{FieldworkTool, equipment_component_requirements};
+use super::planning::{FieldworkTool, disclosed_raw_inputs, equipment_component_requirements};
+
+fn craft_missing_component(
+    registries: &Registries,
+    state: &mut AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    commodity: deep_hearth::material::CommodityKey,
+    missing: deep_hearth::core::quantity::Mass,
+    context: &'static str,
+) -> u64 {
+    let route = manual_construction_route_from_roots(
+        registries,
+        commodity,
+        missing,
+        &disclosed_raw_inputs(),
+        context,
+    )
+    .unwrap_or_else(|| {
+        panic!(
+            "fieldwork {context} has no ordinary manual route from disclosed raw inputs to component {}",
+            commodity.value()
+        )
+    });
+    assert!(
+        !route.steps.is_empty(),
+        "fieldwork {context} assembly directly consumes disclosed raw commodity {}; add an explicit custody transfer instead of treating it as a shaped component",
+        commodity.value()
+    );
+    let mut source = raw;
+    let mut ticks = 0_u64;
+    for step in route.steps {
+        let duration = execute_manual_craft_batches(
+            registries,
+            state,
+            step.process,
+            source,
+            parts,
+            step.batches,
+            context,
+        );
+        assert_eq!(
+            duration.value(),
+            step.duration_ticks,
+            "fieldwork {context} live component craft diverged from pre-action topology projection"
+        );
+        ticks = ticks
+            .checked_add(duration.value())
+            .unwrap_or_else(|| panic!("fieldwork {context} component route duration overflowed"));
+        source = parts;
+    }
+    assert_eq!(
+        ticks, route.attention_ticks,
+        "fieldwork {context} executed component route diverged from its projected attention"
+    );
+    ticks
+}
 
 pub(super) fn craft_equipment_components(
     registries: &Registries,
@@ -36,25 +92,10 @@ pub(super) fn craft_equipment_components(
         let missing = required
             .checked_sub(available)
             .unwrap_or_else(|| unreachable!("fieldwork checked existing component mass"));
-        let (craft, batches, source) = manual_craft_plan_for_available_output(
-            registries,
-            state,
-            &[raw],
-            commodity,
-            missing,
-            context,
-        );
-        let duration = execute_manual_craft_batches(
-            registries,
-            state,
-            craft.process(),
-            source,
-            parts,
-            batches,
-            context,
-        );
         ticks = ticks
-            .checked_add(duration.value())
+            .checked_add(craft_missing_component(
+                registries, state, raw, parts, commodity, missing, context,
+            ))
             .unwrap_or_else(|| panic!("fieldwork tool preparation duration overflowed"));
     }
     ticks
@@ -82,19 +123,15 @@ pub(super) fn assemble_fieldwork_tool(
     if tool.target == tool.base {
         return (pick, component_ticks);
     }
-    let reinforcement_ticks = craft_upgrade_additions(
+    let reinforcement_ticks = upgrade_fieldwork_tool(
         registries,
         state,
         raw,
         parts,
+        pick,
         tool.target,
         "fieldwork selected-tool reinforcement",
     );
-    let upgraded = validate_upgrade_equipment(registries, state, pick, tool.target, parts)
-        .unwrap_or_else(|error| panic!("fieldwork hard-pick upgrade failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("fieldwork hard-pick upgrade commit failed: {error}"));
-    assert_eq!(upgraded, pick);
     (
         pick,
         component_ticks
@@ -134,25 +171,33 @@ pub(super) fn upgrade_sampling_hammer(
     parts: StockpileId,
     hammer: EquipmentId,
 ) -> u64 {
-    let reinforcement_ticks = craft_upgrade_additions(
+    upgrade_fieldwork_tool(
         registries,
         state,
         raw,
         parts,
-        EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
-        "fieldwork sampling-hammer reinforcement",
-    );
-    let upgraded = validate_upgrade_equipment(
-        registries,
-        state,
         hammer,
         EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
-        parts,
+        "fieldwork sampling-hammer reinforcement",
     )
-    .unwrap_or_else(|error| panic!("fieldwork sampling-hammer upgrade failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("fieldwork sampling-hammer upgrade commit failed: {error}"));
-    assert_eq!(upgraded, hammer);
+}
+
+pub(super) fn upgrade_fieldwork_tool(
+    registries: &Registries,
+    state: &mut AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    equipment: EquipmentId,
+    target: EquipmentDefinitionId,
+    context: &'static str,
+) -> u64 {
+    let reinforcement_ticks =
+        craft_upgrade_additions(registries, state, raw, parts, target, context);
+    let upgraded = validate_upgrade_equipment(registries, state, equipment, target, parts)
+        .unwrap_or_else(|error| panic!("fieldwork {context} upgrade validation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("fieldwork {context} upgrade commit failed: {error}"));
+    assert_eq!(upgraded, equipment);
     reinforcement_ticks
 }
 
@@ -188,25 +233,16 @@ fn craft_upgrade_additions(
             .mass()
             .checked_sub(available)
             .unwrap_or_else(|| unreachable!("fieldwork checked existing upgrade component mass"));
-        let (craft, batches, source) = manual_craft_plan_for_available_output(
-            registries,
-            state,
-            &[raw],
-            input.commodity(),
-            missing,
-            context,
-        );
-        let duration = execute_manual_craft_batches(
-            registries,
-            state,
-            craft.process(),
-            source,
-            parts,
-            batches,
-            context,
-        );
         ticks = ticks
-            .checked_add(duration.value())
+            .checked_add(craft_missing_component(
+                registries,
+                state,
+                raw,
+                parts,
+                input.commodity(),
+                missing,
+                context,
+            ))
             .unwrap_or_else(|| panic!("fieldwork reinforcement duration overflowed"));
     }
     ticks

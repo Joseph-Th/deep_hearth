@@ -19,10 +19,11 @@ use deep_hearth::registry::Registries;
 
 use super::super::manual_ore_recovery::{ManualOreRecoveryPlan, execute_manual_ore_recovery};
 use super::planning::{
-    FIELDWORK_ORDER_MAX_BATCHES, FIELDWORK_TOOLS, FieldworkToolBlocker,
+    FIELDWORK_ORDER_MAX_BATCHES, FIELDWORK_TOOLS, FieldworkTool, FieldworkToolBlocker,
     choose_fieldwork_tool_quiet, choose_fieldwork_tool_with_market_phase, estimate_fieldwork_tool,
+    estimate_fieldwork_upgrade_preparation,
 };
-use super::preparation::assemble_fieldwork_tool;
+use super::preparation::{assemble_fieldwork_tool, upgrade_fieldwork_tool};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct FieldworkOwnedOreRecovery {
@@ -70,6 +71,40 @@ struct ExistingToolProjection {
 }
 
 #[derive(Clone, Copy, Debug)]
+struct OwnedUpgradeProjection {
+    equipment: EquipmentId,
+    tool: FieldworkTool,
+    batch: Mass,
+    preparation_ticks: u64,
+    order_ticks: u64,
+    condition_ppm: u32,
+    copper_raw: Mass,
+    raw_mass: Mass,
+}
+
+impl OwnedUpgradeProjection {
+    fn total_ticks(self) -> u64 {
+        self.preparation_ticks
+            .checked_add(self.order_ticks)
+            .unwrap_or_else(|| panic!("fieldwork owned-upgrade attention overflowed"))
+    }
+
+    fn actor_cost_key(self) -> (u64, Mass, Mass) {
+        (self.total_ticks(), self.copper_raw, self.raw_mass)
+    }
+
+    fn selection_key(self) -> (u64, Mass, Mass, Reverse<u32>, Reverse<u64>) {
+        (
+            self.total_ticks(),
+            self.copper_raw,
+            self.raw_mass,
+            Reverse(self.condition_ppm),
+            Reverse(self.batch.milligrams()),
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 struct SalvageProjection {
     equipment: EquipmentId,
     total_attention_ticks: u64,
@@ -98,6 +133,7 @@ pub(super) struct FieldworkSiteToolChoice {
     pub(super) projected_order_ticks: u64,
     pub(super) label: &'static str,
     pub(super) reused_existing: bool,
+    pub(super) upgraded_existing: bool,
     pub(super) ore_recovery_ticks: u64,
     pub(super) ore_feed_mass: Mass,
     pub(super) recovered_native: Mass,
@@ -155,6 +191,124 @@ fn existing_tool_projection(
     })
 }
 
+fn owned_upgrade_projection(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    equipment: EquipmentId,
+    tool: FieldworkTool,
+    observed_hardness_upper: Pressure,
+    order: Mass,
+) -> Option<OwnedUpgradeProjection> {
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("fieldwork owned-upgrade hand-pick method disappeared"));
+    let record = state.equipment().get_equipment(equipment)?;
+    let definition = registries.equipment().get_equipment(tool.target)?;
+    let upgrade = definition.upgrade_profile()?;
+    if upgrade.from() != record.definition() {
+        return None;
+    }
+    let CapabilityValue::Pressure(maximum) = project_equipment_capability(
+        definition,
+        record.condition(),
+        method.max_hardness_capability(),
+    )?
+    else {
+        panic!("fieldwork owned-upgrade hardness capability changed physical kind")
+    };
+    if observed_hardness_upper > maximum {
+        return None;
+    }
+    let CapabilityValue::Mass(batch) = project_equipment_capability(
+        definition,
+        record.condition(),
+        method.max_batch_mass_capability(),
+    )?
+    else {
+        panic!("fieldwork owned-upgrade batch capability changed physical kind")
+    };
+    let resolution = resolve_mining_order(
+        registries.core().physical_tick_duration(),
+        method,
+        definition,
+        MiningOrderRequest::new(
+            record.condition(),
+            observed_hardness_upper,
+            order,
+            batch,
+            FIELDWORK_ORDER_MAX_BATCHES,
+        ),
+    )
+    .ok()?;
+    let (preparation_ticks, raw_required) =
+        estimate_fieldwork_upgrade_preparation(registries, state, raw, parts, tool.target).ok()?;
+    let copper_raw = raw_required
+        .get(&CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL))
+        .copied()
+        .unwrap_or(Mass::ZERO);
+    let raw_mass = raw_required
+        .values()
+        .copied()
+        .try_fold(Mass::ZERO, Mass::checked_add)?;
+    Some(OwnedUpgradeProjection {
+        equipment,
+        tool,
+        batch,
+        preparation_ticks,
+        order_ticks: resolution.duration().value(),
+        condition_ppm: record.condition().parts_per_million(),
+        copper_raw,
+        raw_mass,
+    })
+}
+
+fn best_owned_upgrade_projection(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    owned_equipment: &[EquipmentId],
+    observed_hardness_upper: Pressure,
+    order: Mass,
+) -> Option<OwnedUpgradeProjection> {
+    let candidates = owned_equipment
+        .iter()
+        .flat_map(|&equipment| {
+            FIELDWORK_TOOLS.into_iter().filter_map(move |tool| {
+                owned_upgrade_projection(
+                    registries,
+                    state,
+                    raw,
+                    parts,
+                    equipment,
+                    tool,
+                    observed_hardness_upper,
+                    order,
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let best_key = candidates
+        .iter()
+        .copied()
+        .map(OwnedUpgradeProjection::selection_key)
+        .min()?;
+    let mut best = candidates
+        .into_iter()
+        .filter(|candidate| candidate.selection_key() == best_key);
+    let selected = best
+        .next()
+        .unwrap_or_else(|| unreachable!("best fieldwork owned-upgrade key came from a candidate"));
+    assert!(
+        best.next().is_none(),
+        "fieldwork owned-tool upgrades tie on every actor-visible cost and condition; add an explicit actor preference instead of using equipment identity"
+    );
+    Some(selected)
+}
+
 fn prepare_from_current_materials(
     registries: &Registries,
     state: &mut AppState,
@@ -196,6 +350,15 @@ fn prepare_from_current_materials(
         );
         Some(selected)
     });
+    let upgrade = best_owned_upgrade_projection(
+        registries,
+        state,
+        raw,
+        parts,
+        owned_equipment,
+        observed_hardness_upper,
+        order,
+    );
     let fresh = choose_fieldwork_tool_with_market_phase(
         registries,
         state,
@@ -205,11 +368,26 @@ fn prepare_from_current_materials(
         order,
         "new-site-evidence",
     );
-    if let Some((equipment, existing)) = existing
-        && fresh
-            .as_ref()
-            .is_none_or(|candidate| existing.order_ticks <= candidate.total_ticks())
-    {
+    // Stable actor preference when every declared cost ties: keep a usable owned tool, then
+    // improve an owned tool in place, then create another durable equipment identity.
+    let existing_action_key = existing
+        .as_ref()
+        .map(|(_, projection)| (projection.order_ticks, Mass::ZERO, Mass::ZERO, 0_u8));
+    let upgrade_action_key = upgrade.map(|candidate| {
+        let (ticks, copper, raw_mass) = candidate.actor_cost_key();
+        (ticks, copper, raw_mass, 1_u8)
+    });
+    let fresh_action_key = fresh.as_ref().map(|candidate| {
+        let (ticks, copper, raw_mass) = candidate.actor_cost_key();
+        (ticks, copper, raw_mass, 2_u8)
+    });
+    let selected_key = [existing_action_key, upgrade_action_key, fresh_action_key]
+        .into_iter()
+        .flatten()
+        .min()?;
+    if existing_action_key == Some(selected_key) {
+        let (equipment, existing) = existing
+            .unwrap_or_else(|| unreachable!("selected existing fieldwork route was projected"));
         return Some(FieldworkSiteToolChoice {
             equipment,
             batch: existing.batch,
@@ -217,6 +395,7 @@ fn prepare_from_current_materials(
             projected_order_ticks: existing.order_ticks,
             label: existing.label,
             reused_existing: true,
+            upgraded_existing: false,
             ore_recovery_ticks: 0,
             ore_feed_mass: Mass::ZERO,
             recovered_native: Mass::ZERO,
@@ -225,7 +404,57 @@ fn prepare_from_current_materials(
         });
     }
 
-    let fresh = fresh?;
+    if upgrade_action_key == Some(selected_key) {
+        let upgrade = upgrade.unwrap_or_else(|| {
+            unreachable!("selected fieldwork owned-upgrade route was projected")
+        });
+        let condition_before = state
+            .equipment()
+            .get_equipment(upgrade.equipment)
+            .map(|record| record.condition())
+            .unwrap_or_else(|| panic!("selected fieldwork owned tool disappeared before upgrade"));
+        let preparation_ticks = upgrade_fieldwork_tool(
+            registries,
+            state,
+            raw,
+            parts,
+            upgrade.equipment,
+            upgrade.tool.target,
+            "owned extraction-tool adaptation",
+        );
+        assert_eq!(
+            preparation_ticks, upgrade.preparation_ticks,
+            "fieldwork owned-tool upgrade execution must match its pre-action projection"
+        );
+        let upgraded = state
+            .equipment()
+            .get_equipment(upgrade.equipment)
+            .unwrap_or_else(|| panic!("fieldwork upgraded owned tool disappeared"));
+        assert_eq!(upgraded.definition(), upgrade.tool.target);
+        assert_eq!(
+            upgraded.condition(),
+            condition_before,
+            "additive fieldwork upgrade must preserve the owned tool's current condition"
+        );
+        return Some(FieldworkSiteToolChoice {
+            equipment: upgrade.equipment,
+            batch: upgrade.batch,
+            preparation_ticks,
+            projected_order_ticks: upgrade.order_ticks,
+            label: upgrade.tool.label,
+            reused_existing: true,
+            upgraded_existing: true,
+            ore_recovery_ticks: 0,
+            ore_feed_mass: Mass::ZERO,
+            recovered_native: Mass::ZERO,
+            ore_recovery_reason: None,
+            salvaged_equipment: None,
+        });
+    }
+
+    let fresh = fresh
+        .filter(|_| fresh_action_key == Some(selected_key))
+        .unwrap_or_else(|| unreachable!("selected fresh fieldwork route was projected"));
     let (equipment, preparation_ticks) =
         assemble_fieldwork_tool(registries, state, raw, parts, fresh.tool);
     assert_eq!(
@@ -239,6 +468,7 @@ fn prepare_from_current_materials(
         projected_order_ticks: fresh.order_ticks,
         label: fresh.tool.label,
         reused_existing: false,
+        upgraded_existing: false,
         ore_recovery_ticks: 0,
         ore_feed_mass: Mass::ZERO,
         recovered_native: Mass::ZERO,
@@ -263,6 +493,16 @@ pub(super) fn projected_current_material_attention(
                 .map(|projection| projection.order_ticks)
         })
         .min();
+    let upgrade = best_owned_upgrade_projection(
+        registries,
+        state,
+        raw,
+        parts,
+        owned_equipment,
+        observed_hardness_upper,
+        order,
+    )
+    .map(OwnedUpgradeProjection::total_ticks);
     let fresh = choose_fieldwork_tool_quiet(
         registries,
         state,
@@ -272,12 +512,7 @@ pub(super) fn projected_current_material_attention(
         order,
     )
     .map(|estimate| estimate.total_ticks());
-    match (existing, fresh) {
-        (Some(existing), Some(fresh)) => Some(existing.min(fresh)),
-        (Some(existing), None) => Some(existing),
-        (None, Some(fresh)) => Some(fresh),
-        (None, None) => None,
-    }
+    [existing, upgrade, fresh].into_iter().flatten().min()
 }
 
 fn projected_salvage(
@@ -464,9 +699,9 @@ fn recover_native_copper_from_owned_ore(
 
 /// Reassesses carried extraction tools against one newly observed local opportunity.
 ///
-/// The actor compares owned tools, immediately buildable tools, salvage-and-rebuild, and an
-/// ore-funded specialization using only acquired hardness, visible workload, owned inventory, and
-/// canonical process physics. Salvage is projected through canonical equipment disassembly on a
+/// The actor compares owned tools, authored in-place upgrades, immediately buildable tools,
+/// salvage-and-rebuild, and an ore-funded specialization using only acquired hardness, visible
+/// workload, owned inventory, and canonical process physics. Salvage is projected through canonical equipment disassembly on a
 /// cloned state, so embodied copper and handles can become real adaptation capital without free
 /// matter. If native copper is the sole missing input for a physically feasible tool, a cloned
 /// visible state prices ordinary hand-breaking and hand-sorting before commitment. Alternatives

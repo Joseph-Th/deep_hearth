@@ -9,8 +9,8 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
 use deep_hearth::survival::assess_survival;
 
+use super::super::manual_construction_planning::manual_construction_route_from_roots;
 use super::super::manual_craft_batches::execute_manual_craft_batches;
-use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::planning::ShapedBuild;
 
 pub(super) fn stockpile_mass(state: &AppState, stockpile: StockpileId) -> Mass {
@@ -29,6 +29,7 @@ fn shape_assembly_inputs(
     inputs: Vec<(CommodityKey, Mass)>,
     context: &'static str,
 ) -> u64 {
+    let raw_roots = super::power_raw_roots(state, raw);
     let mut attention_ticks = 0_u64;
     for (commodity, required) in inputs {
         let available = state
@@ -42,27 +43,52 @@ fn shape_assembly_inputs(
         let missing = required
             .checked_sub(available)
             .unwrap_or_else(|| unreachable!("power provider component availability was checked"));
-        let (craft, batches, source) = manual_craft_plan_for_available_output(
+        let route = manual_construction_route_from_roots(
             registries,
-            state,
-            &[raw],
             commodity,
             missing,
+            &raw_roots,
             context,
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "power provider {context} has no ordinary manual route from disclosed raw roots to component {}",
+                commodity.value()
+            )
+        });
+        assert!(
+            !route.steps.is_empty(),
+            "power provider {context} assembly consumes raw commodity {} directly; route it into assembly custody explicitly instead of treating it as shaped output",
+            commodity.value()
+        );
+        let mut source = raw;
+        let mut route_ticks = 0_u64;
+        for step in route.steps {
+            let ticks = execute_manual_craft_batches(
+                registries,
+                state,
+                step.process,
+                source,
+                shaped,
+                step.batches,
+                context,
+            )
+            .value();
+            assert_eq!(
+                ticks, step.duration_ticks,
+                "power provider {context} live craft duration diverged from topology projection"
+            );
+            route_ticks = route_ticks
+                .checked_add(ticks)
+                .unwrap_or_else(|| panic!("power provider {context} route attention overflowed"));
+            source = shaped;
+        }
+        assert_eq!(
+            route_ticks, route.attention_ticks,
+            "power provider {context} executed route attention diverged from pre-action projection"
         );
         attention_ticks = attention_ticks
-            .checked_add(
-                execute_manual_craft_batches(
-                    registries,
-                    state,
-                    craft.process(),
-                    source,
-                    shaped,
-                    batches,
-                    context,
-                )
-                .value(),
-            )
+            .checked_add(route_ticks)
             .unwrap_or_else(|| panic!("power provider {context} attention overflowed"));
     }
     attention_ticks

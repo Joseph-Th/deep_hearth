@@ -32,18 +32,14 @@ mod focused_seeds;
 mod focused_witnesses;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
-#[path = "gameplay_harness/manual_assembly_planning.rs"]
-mod manual_assembly_planning;
+#[path = "gameplay_harness/manual_construction_planning.rs"]
+mod manual_construction_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]
 mod manual_craft_execution;
-#[path = "gameplay_harness/manual_craft_planning.rs"]
-mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
-#[path = "gameplay_harness/manual_craft_topology_planning.rs"]
-mod manual_craft_topology_planning;
 #[allow(
     dead_code,
     reason = "focused target uses only the execution half of shared ore-recovery support"

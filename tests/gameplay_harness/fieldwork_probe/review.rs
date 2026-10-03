@@ -223,6 +223,7 @@ struct SiteReroute {
     target_found: bool,
     tool_preparation_ticks: u64,
     tool_reused: bool,
+    tool_upgraded: bool,
     tool_label: Option<&'static str>,
     ore_recovery_ticks: u64,
     ore_feed_mass: Mass,
@@ -255,6 +256,7 @@ fn execute_site_reroute(
             target_found: false,
             tool_preparation_ticks: 0,
             tool_reused: false,
+            tool_upgraded: false,
             tool_label: None,
             ore_recovery_ticks: 0,
             ore_feed_mass: Mass::ZERO,
@@ -292,6 +294,7 @@ fn execute_site_reroute(
             target_found: true,
             tool_preparation_ticks: 0,
             tool_reused: false,
+            tool_upgraded: false,
             tool_label: None,
             ore_recovery_ticks: 0,
             ore_feed_mass: Mass::ZERO,
@@ -323,6 +326,7 @@ fn execute_site_reroute(
         target_found: true,
         tool_preparation_ticks: tool.preparation_ticks,
         tool_reused: tool.reused_existing,
+        tool_upgraded: tool.upgraded_existing,
         tool_label: Some(tool.label),
         ore_recovery_ticks: tool.ore_recovery_ticks,
         ore_feed_mass: tool.ore_feed_mass,
@@ -424,9 +428,10 @@ fn report_known_site_exploitation(
             let reroute = execute_site_reroute(review, &exploitation.final_state);
             if let Some(extraction) = reroute.extraction {
                 reviewln!(
-                    "FIELDWORK DEPLETION RECOVERY seed=0x{:016X} depletion-observed=true reroute-proved=true evidence=executed-from-depleted-state post-depletion-execution=true mining-tool-reused={} selected-tool={} retool={}t salvage={} ore-recovery=[reason:{} ticks:{} feed:{}mg native:{}mg] survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search={}t/{} extraction={}t/{} extracted={}mg stop={}",
+                    "FIELDWORK DEPLETION RECOVERY seed=0x{:016X} depletion-observed=true reroute-proved=true evidence=executed-from-depleted-state post-depletion-execution=true mining-tool-reused={} mining-tool-upgraded={} selected-tool={} retool={}t salvage={} ore-recovery=[reason:{} ticks:{} feed:{}mg native:{}mg] survey-base-kit-reused=true strategy=point-search survey-upgrade=0t search={}t/{} extraction={}t/{} extracted={}mg stop={}",
                     review.case.seed(),
                     reroute.tool_reused,
+                    reroute.tool_upgraded,
                     reroute.tool_label.unwrap_or("unknown"),
                     reroute.tool_preparation_ticks,
                     reroute.salvaged,
@@ -484,8 +489,13 @@ fn report_known_site_exploitation(
                 "adaptive fieldwork witness must encounter materially different geology"
             );
             assert!(
-                recovery.tool_switches > 0 && recovery.salvage_retools > 0,
-                "adaptive fieldwork witness must salvage an obsolete specialization and switch tools"
+                recovery.tool_switches > 0
+                    && recovery
+                        .tool_builds
+                        .checked_add(recovery.tool_upgrades)
+                        .and_then(|retools| retools.checked_add(recovery.salvage_retools))
+                        .is_some_and(|retools| retools > 0),
+                "adaptive fieldwork witness must change specialization through a canonical build, upgrade, or salvage route"
             );
             assert!(
                 !recovery.additional_extracted.is_zero(),
@@ -493,7 +503,7 @@ fn report_known_site_exploitation(
             );
         }
         reviewln!(
-            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved={} evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution={} mining-tool-reused={} survey-base-kit-reused=true strategy={} planned-sites={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t total-attention-delta:{:+}t] adaptation=[hardness-tier-changes:{} tool-builds:{} tool-switches:{} salvage-retools:{} barren-sites:{} blocked-sites:{} tool-preparation:{}t ore-recovery-events:{} ore-recovery-required-access:{} ore-recovery-payback:{} ore-recovery:{}t ore-feed:{}mg native-recovered:{}mg point-baseline-fulfilled:{}mg survey-fulfillment-delta:{:+}mg] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
+            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x{:016X} initial-supply-ended=true reroute-proved={} evidence=executed-multi-site-from-partial-extraction-state post-shortfall-execution={} mining-tool-reused={} survey-base-kit-reused=true strategy={} planned-sites={} survey-upgrade={}t projected-search=[point:{}t indexed:{}] realized=[baseline-search:{}t selected-search:{}t upgrade:{}t attention-delta:{:+}t total-attention-delta:{:+}t] adaptation=[hardness-tier-changes:{} tool-builds:{} tool-upgrades:{} tool-switches:{} salvage-retools:{} barren-sites:{} blocked-sites:{} tool-preparation:{}t ore-recovery-events:{} ore-recovery-required-access:{} ore-recovery-payback:{} ore-recovery:{}t ore-feed:{}mg native-recovered:{}mg point-baseline-fulfilled:{}mg survey-fulfillment-delta:{:+}mg] sites-visited={} search={}t/{} extraction={}t/{} initial-extracted={}mg additional-extracted={}mg fulfilled={}mg requested={}mg fulfillment={}ppm remaining={}mg terminal={}",
             review.case.seed(),
             reroute_proved,
             reroute_proved,
@@ -510,6 +520,7 @@ fn report_known_site_exploitation(
             recovery.realized_total_attention_delta,
             recovery.hardness_tier_changes,
             recovery.tool_builds,
+            recovery.tool_upgrades,
             recovery.tool_switches,
             recovery.salvage_retools,
             recovery.barren_sites,

@@ -26,11 +26,7 @@ use super::world::build_fieldwork_world;
 fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
     let registries = build_registries();
     let limits = fieldwork_mining_limits(&registries);
-    let requested = multiplied_mass(
-        limits.base_quarry_batch,
-        48,
-        "owned-tool portfolio regression order",
-    );
+    let requested = limits.base_quarry_batch;
     let mut world = build_fieldwork_world(&registries, 1, requested, requested);
     let (hard_pick, _) = assemble_fieldwork_tool(
         &registries,
@@ -93,6 +89,78 @@ fn carried_tool_portfolio_reuses_the_best_owned_specialization() {
     assert_eq!(hard.equipment, hard_pick);
     assert!(hard.reused_existing);
     assert_eq!(hard.preparation_ticks, 0);
+}
+
+#[test]
+fn owned_base_tool_uses_the_authored_in_place_upgrade_before_fresh_rebuild() {
+    let registries = build_registries();
+    let limits = fieldwork_mining_limits(&registries);
+    let requested = limits.base_quarry_batch;
+    let mut world = build_fieldwork_world(&registries, 1, requested, requested);
+    assert!(world.copper_rich);
+    let (pick, _) = assemble_fieldwork_tool(
+        &registries,
+        &mut world.state,
+        world.raw,
+        world.parts,
+        FIELDWORK_TOOLS[0],
+    );
+    let before = world
+        .state
+        .equipment()
+        .get_equipment(pick)
+        .cloned()
+        .unwrap_or_else(|| panic!("owned fieldwork base pick disappeared"));
+    let hard_upper = Pressure::from_pascals(
+        limits
+            .reinforced_quarry_hardness
+            .pascals()
+            .checked_add(1)
+            .unwrap_or_else(|| unreachable!("bounded fieldwork hardness fits u64")),
+    );
+    let matter_before = calculate_matter_accounting(&world.state)
+        .unwrap_or_else(|error| panic!("owned-upgrade matter setup failed: {error}"))
+        .total();
+    let choice = prepare_fieldwork_tool_for_site(
+        &registries,
+        &mut world.state,
+        FieldworkSiteToolRequest::new(
+            world.raw,
+            world.parts,
+            FieldworkOwnedOreRecovery {
+                ore_source: world.destination,
+                crushed_destination: world.recovery_crushed,
+                residue_destination: world.recovery_residue,
+            },
+            &[pick],
+            hard_upper,
+            requested,
+        ),
+    )
+    .unwrap_or_else(|| panic!("owned stone pick lost its authored reinforced upgrade route"));
+
+    assert_eq!(choice.equipment, pick);
+    assert!(choice.reused_existing);
+    assert!(choice.upgraded_existing);
+    assert!(choice.preparation_ticks > 0);
+    assert_eq!(choice.salvaged_equipment, None);
+    assert_eq!(choice.ore_recovery_ticks, 0);
+    let after = world
+        .state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("in-place upgraded fieldwork pick disappeared"));
+    assert_eq!(after.definition(), EQUIPMENT_COPPER_REINFORCED_PICK);
+    assert_eq!(after.condition(), before.condition());
+    assert_eq!(after.created_at(), before.created_at());
+    assert_eq!(
+        calculate_matter_accounting(&world.state)
+            .unwrap_or_else(|error| panic!("owned-upgrade matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&registries, &world.state)
+        .unwrap_or_else(|error| panic!("owned-upgrade fieldwork state invalid: {error}"));
 }
 
 #[test]

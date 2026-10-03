@@ -276,6 +276,7 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> tuple[str, str]:
 
     hardness_changes = values(r"\bhardness-tier-changes:(\d+)")
     tool_builds = values(r"\btool-builds:(\d+)")
+    tool_upgrades = values(r"\btool-upgrades:(\d+)")
     salvage_retools = values(r"\bsalvage-retools:(\d+)")
     barren_sites = values(r"\bbarren-sites:(\d+)")
     blocked_sites = values(r"\bblocked-sites:(\d+)")
@@ -288,6 +289,17 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> tuple[str, str]:
     completed = sum(" terminal=order-complete" in line for line in recoveries)
     horizon_exhausted = sum(
         " terminal=planned-search-horizon-exhausted" in line for line in recoveries
+    )
+    retooled = sum(
+        (
+            (build := re.search(r"\btool-builds:(\d+)", line)) is not None
+            and int(build.group(1)) > 0
+        )
+        or (
+            (upgrade := re.search(r"\btool-upgrades:(\d+)", line)) is not None
+            and int(upgrade.group(1)) > 0
+        )
+        for line in recoveries
     )
     detailed = (
         "initial-shortfall-campaign=["
@@ -307,7 +319,8 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> tuple[str, str]:
         f"productive-reroute:{sum(value > 0 for value in additional_extracted)}/{len(recoveries)} "
         f"additional-extracted:{_span(additional_extracted, unit='mg')} "
         f"geology-changed:{sum(value > 0 for value in hardness_changes)}/{len(recoveries)} "
-        f"retooled:{sum(value > 0 for value in tool_builds)}/{len(recoveries)} "
+        f"retooled:{retooled}/{len(recoveries)} "
+        f"upgraded:{sum(value > 0 for value in tool_upgrades)}/{len(recoveries)} "
         f"salvaged:{sum(value > 0 for value in salvage_retools)}/{len(recoveries)} "
         f"ore-funded:{sum(value > 0 for value in ore_recovery_events)}/{len(recoveries)}"
         f"(payback:{sum(ore_recovery_payback)}/access:{sum(ore_recovery_required)}) "
@@ -322,11 +335,11 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> tuple[str, str]:
     )
     compact = (
         "shortfall-recovery=["
-        f"cases:{len(recoveries)} "
         f"productive:{sum(value > 0 for value in additional_extracted)}/{len(recoveries)} "
         f"geology-changed:{sum(value > 0 for value in hardness_changes)}/{len(recoveries)} "
-        f"retooled:{sum(value > 0 for value in tool_builds)} salvaged:{sum(value > 0 for value in salvage_retools)} "
-        f"completed:{completed}/{len(recoveries)} horizon-ended:{horizon_exhausted} "
+        f"retooled:{retooled} upgraded:{sum(value > 0 for value in tool_upgrades)} "
+        f"salvaged:{sum(value > 0 for value in salvage_retools)} "
+        f"completed:{completed}/{len(recoveries)} horizon-end:{horizon_exhausted} "
         f"fulfillment:{_span(fulfillment, unit='ppm')}]"
     )
     return detailed, compact

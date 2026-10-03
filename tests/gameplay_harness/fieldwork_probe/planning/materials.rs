@@ -2,7 +2,7 @@
 
 use super::super::*;
 
-pub(super) fn disclosed_raw_inputs() -> [CommodityKey; 3] {
+pub(in super::super) fn disclosed_raw_inputs() -> [CommodityKey; 3] {
     [
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
@@ -70,17 +70,22 @@ pub(in super::super) fn raw_opportunity_for_equipment_components(
     let mut parts_capacity = Mass::ZERO;
     for (commodity, required) in equipment_component_requirements(registries, equipment_definitions)
     {
-        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
+        let route = manual_construction_route_from_roots(
             registries,
             commodity,
             required,
             &disclosed_raw_inputs(),
             context,
-        );
-        let consumed = multiplied_mass(craft.input_mass(), batches, context);
-        add_mass(&mut raw, craft.input(), consumed, context);
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "fieldwork {context} lost ordinary manual route to component {}",
+                commodity.value()
+            )
+        });
+        add_mass(&mut raw, route.raw_commodity, route.raw_mass, context);
         parts_capacity = parts_capacity
-            .checked_add(consumed)
+            .checked_add(route.raw_mass)
             .unwrap_or_else(|| panic!("fieldwork {context} parts capacity overflowed"));
     }
     (raw, parts_capacity)
@@ -106,17 +111,22 @@ fn upgrade_raw_requirements(
     let mut raw = BTreeMap::new();
     let mut total_raw = Mass::ZERO;
     for input in upgrade.additions().inputs() {
-        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
+        let route = manual_construction_route_from_roots(
             registries,
             input.commodity(),
             input.mass(),
             &disclosed_raw_inputs(),
             context,
-        );
-        let consumed = multiplied_mass(craft.input_mass(), batches, context);
-        add_mass(&mut raw, craft.input(), consumed, context);
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "fieldwork {context} lost ordinary manual route to upgrade component {}",
+                input.commodity().value()
+            )
+        });
+        add_mass(&mut raw, route.raw_commodity, route.raw_mass, context);
         total_raw = total_raw
-            .checked_add(consumed)
+            .checked_add(route.raw_mass)
             .unwrap_or_else(|| panic!("fieldwork {context} total raw mass overflowed"));
     }
     (raw, total_raw)
@@ -208,57 +218,13 @@ pub(in super::super) fn project_sampling_hammer_upgrade_ticks(
         .and_then(|definition| definition.upgrade_profile())
         .unwrap_or_else(|| panic!("fieldwork reinforced sampling hammer lost authored upgrade"));
     assert_eq!(upgrade.from(), EQUIPMENT_STONE_GEOLOGICAL_HAMMER);
-
-    let parts_record = state
-        .inventory()
-        .get_stockpile(parts)
-        .unwrap_or_else(|| panic!("fieldwork parts stockpile disappeared"));
-    let mut raw_required =
-        BTreeMap::<CommodityKey, (deep_hearth::production::ProcessId, Mass)>::new();
-    for input in upgrade.additions().inputs() {
-        let available = parts_record.get_mass(input.commodity());
-        if available >= input.mass() {
-            continue;
-        }
-        let missing = input.mass().checked_sub(available).unwrap_or_else(|| {
-            unreachable!("fieldwork sampling upgrade checked parts availability")
-        });
-        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
-            registries,
-            input.commodity(),
-            missing,
-            &disclosed_raw_inputs(),
-            "fieldwork sampling-hammer upgrade projection",
-        );
-        plan_manual_craft_request(registries, state, craft.process(), raw, batches).ok()?;
-        let consumed = multiplied_mass(
-            craft.input_mass(),
-            batches,
-            "sampling-upgrade projection input",
-        );
-        let entry = raw_required
-            .entry(craft.input())
-            .or_insert((craft.process(), Mass::ZERO));
-        entry.1 = entry
-            .1
-            .checked_add(consumed)
-            .unwrap_or_else(|| panic!("sampling-upgrade projection input overflowed"));
-    }
-    for (_commodity, (process, required)) in raw_required {
-        let availability = assess_manual_craft_inputs(registries, state, process, raw).ok()?;
-        if availability.largest_compatible_mass() < required {
-            return None;
-        }
-    }
-    Some(
-        project_manual_assembly_package(
-            registries,
-            state,
-            &[raw],
-            parts,
-            &[upgrade.additions()],
-            "fieldwork sampling-hammer upgrade projection",
-        )
-        .attention_ticks,
+    super::tools::estimate_fieldwork_upgrade_preparation(
+        registries,
+        state,
+        raw,
+        parts,
+        EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER,
     )
+    .ok()
+    .map(|(ticks, _raw)| ticks)
 }

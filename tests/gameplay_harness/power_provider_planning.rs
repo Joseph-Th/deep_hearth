@@ -1,25 +1,32 @@
 //! Pre-action workload planning for primitive and settlement human power.
 
+use std::collections::BTreeSet;
+
+use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
-    EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
-    MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER, PROCESS_CRUSH_ORE,
+    EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+    EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
+    MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK, MANUAL_POWER_WALKING_WHEEL,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
-use deep_hearth::energy::EnergyStoreDefinitionId;
+use deep_hearth::energy::{EnergyCarrier, EnergyStoreDefinitionId};
 use deep_hearth::equipment::{EquipmentDefinitionId, EquipmentId};
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::ManualPowerProjection;
 use deep_hearth::maintenance::Condition;
+use deep_hearth::material::CommodityKey;
 use deep_hearth::ore_processing::{
     PoweredOreOrderMaintenancePolicy, PoweredOreOrderRequest, project_powered_ore_order,
 };
 use deep_hearth::registry::Registries;
 
 use super::super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
-use super::super::manual_assembly_planning::project_manual_assembly_package;
+use super::super::manual_construction_package_planning::project_manual_construction_package_from_roots;
+use super::super::manual_construction_planning::manual_construction_route_from_roots;
 
 #[path = "power_provider_planning/lifecycle.rs"]
 mod lifecycle;
@@ -74,6 +81,186 @@ impl ShapedBuild {
     }
 }
 
+fn bootstrap_commodity_reachable(
+    registries: &Registries,
+    commodity: CommodityKey,
+    roots: &BTreeSet<CommodityKey>,
+) -> bool {
+    if roots.contains(&commodity) {
+        return true;
+    }
+    let raw_roots = roots.iter().copied().collect::<Vec<_>>();
+    manual_construction_route_from_roots(
+        registries,
+        commodity,
+        Mass::from_milligrams(1),
+        &raw_roots,
+        "power-provider market reachability",
+    )
+    .is_some()
+}
+
+fn bootstrap_equipment_reachable(
+    registries: &Registries,
+    equipment: EquipmentDefinitionId,
+    roots: &BTreeSet<CommodityKey>,
+    visiting: &mut BTreeSet<EquipmentDefinitionId>,
+) -> bool {
+    if !visiting.insert(equipment) {
+        return false;
+    }
+    let definition = registries
+        .equipment()
+        .get_equipment(equipment)
+        .unwrap_or_else(|| panic!("power-provider market references unknown equipment"));
+    let assembly_reachable = definition.assembly_profile().is_some_and(|assembly| {
+        assembly
+            .inputs()
+            .iter()
+            .all(|input| bootstrap_commodity_reachable(registries, input.commodity(), roots))
+    });
+    let upgrade_reachable =
+        definition.upgrade_profile().is_some_and(|upgrade| {
+            bootstrap_equipment_reachable(registries, upgrade.from(), roots, visiting)
+                && upgrade.additions().inputs().iter().all(|input| {
+                    bootstrap_commodity_reachable(registries, input.commodity(), roots)
+                })
+        });
+    assert!(visiting.remove(&equipment));
+    assembly_reachable || upgrade_reachable
+}
+
+fn reachable_mechanical_power_providers(
+    registries: &Registries,
+    roots: impl IntoIterator<Item = CommodityKey>,
+) -> BTreeSet<(
+    deep_hearth::labor::ManualPowerMethodId,
+    EquipmentDefinitionId,
+)> {
+    let roots = roots.into_iter().collect::<BTreeSet<_>>();
+    let mut providers = BTreeSet::new();
+    for method in registries
+        .labor()
+        .manual_power_definitions()
+        .filter(|method| method.carrier() == EnergyCarrier::Mechanical)
+    {
+        for equipment in registries.equipment().definitions() {
+            if equipment.requires_structural_support()
+                || !matches!(
+                    equipment
+                        .capabilities()
+                        .get_capability(method.power_capability()),
+                    Some(CapabilityValue::Power(power)) if !power.is_zero()
+                )
+                || !bootstrap_equipment_reachable(
+                    registries,
+                    equipment.id(),
+                    &roots,
+                    &mut BTreeSet::new(),
+                )
+            {
+                continue;
+            }
+            providers.insert((method.id(), equipment.id()));
+        }
+    }
+    providers
+}
+
+fn assembly_input_totals(
+    profile: &deep_hearth::material::MaterialAssemblyProfile,
+) -> std::collections::BTreeMap<CommodityKey, Mass> {
+    let mut totals = std::collections::BTreeMap::new();
+    for input in profile.inputs() {
+        let entry = totals.entry(input.commodity()).or_insert(Mass::ZERO);
+        *entry = entry
+            .checked_add(input.mass())
+            .unwrap_or_else(|| panic!("power-provider assembly input total overflowed"));
+    }
+    totals
+}
+
+fn assert_virgin_provider_acquisition_shape_current(
+    registries: &Registries,
+    equipment: EquipmentDefinitionId,
+) {
+    let definition = registries
+        .equipment()
+        .get_equipment(equipment)
+        .unwrap_or_else(|| panic!("played power-provider equipment disappeared"));
+    let Some(upgrade) = definition.upgrade_profile() else {
+        return;
+    };
+    let direct = definition.assembly_profile().unwrap_or_else(|| {
+        panic!(
+            "played power provider {} is upgrade-only; virgin planning must compare the authored upgrade route explicitly",
+            equipment.value()
+        )
+    });
+    let base = registries
+        .equipment()
+        .get_equipment(upgrade.from())
+        .and_then(|base| base.assembly_profile())
+        .unwrap_or_else(|| {
+            panic!(
+                "played power provider {} has no direct-assembly base for its authored upgrade route",
+                equipment.value()
+            )
+        });
+    let mut via_upgrade = assembly_input_totals(base);
+    for input in upgrade.additions().inputs() {
+        let entry = via_upgrade.entry(input.commodity()).or_insert(Mass::ZERO);
+        *entry = entry
+            .checked_add(input.mass())
+            .unwrap_or_else(|| panic!("power-provider upgrade-route component total overflowed"));
+    }
+    assert_eq!(
+        assembly_input_totals(direct),
+        via_upgrade,
+        "played power provider {} has materially different virgin direct-assembly and base-plus-upgrade routes; compare both actor choices instead of assuming direct assembly",
+        equipment.value()
+    );
+}
+
+pub(super) fn assert_primitive_power_provider_market_current(registries: &Registries) {
+    let roots = [
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+    ];
+    let played = PrimitivePowerChoice::ALL
+        .into_iter()
+        .map(|choice| (choice.method(), choice.equipment()))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        played,
+        reachable_mechanical_power_providers(registries, roots),
+        "primitive played provider market diverged from portable mechanical equipment ordinarily bootstrap-reachable from disclosed stone/wood roots"
+    );
+    for choice in PrimitivePowerChoice::ALL {
+        assert_virgin_provider_acquisition_shape_current(registries, choice.equipment());
+    }
+}
+
+pub(super) fn assert_settlement_power_provider_market_current(registries: &Registries) {
+    let roots = [
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+    ];
+    let played = SettlementPowerChoice::ALL
+        .into_iter()
+        .map(|choice| (choice.method(), choice.equipment()))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        played,
+        reachable_mechanical_power_providers(registries, roots),
+        "settlement played provider market diverged from portable mechanical equipment ordinarily bootstrap-reachable from disclosed stone/wood/native-copper roots"
+    );
+    for choice in SettlementPowerChoice::ALL {
+        assert_virgin_provider_acquisition_shape_current(registries, choice.equipment());
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PrimitivePowerChoice {
     Crank,
@@ -116,15 +303,17 @@ pub(super) enum SettlementPowerChoice {
     CopperCrank,
     Treadle,
     TreadleDynamo,
+    DoubleWoundTreadleDynamo,
     WalkingWheel,
 }
 
 impl SettlementPowerChoice {
-    pub(super) const ALL: [Self; 5] = [
+    pub(super) const ALL: [Self; 6] = [
         Self::StoneCrank,
         Self::CopperCrank,
         Self::Treadle,
         Self::TreadleDynamo,
+        Self::DoubleWoundTreadleDynamo,
         Self::WalkingWheel,
     ];
 
@@ -134,6 +323,7 @@ impl SettlementPowerChoice {
             Self::CopperCrank => EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
             Self::Treadle => EQUIPMENT_TIMBER_TREADLE_DRIVE,
             Self::TreadleDynamo => EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+            Self::DoubleWoundTreadleDynamo => EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
             Self::WalkingWheel => EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
         }
     }
@@ -141,7 +331,9 @@ impl SettlementPowerChoice {
     pub(super) const fn method(self) -> deep_hearth::labor::ManualPowerMethodId {
         match self {
             Self::StoneCrank | Self::CopperCrank => MANUAL_POWER_HAND_CRANK,
-            Self::Treadle | Self::TreadleDynamo => MANUAL_POWER_FOOT_TREADLE,
+            Self::Treadle | Self::TreadleDynamo | Self::DoubleWoundTreadleDynamo => {
+                MANUAL_POWER_FOOT_TREADLE
+            }
             Self::WalkingWheel => MANUAL_POWER_WALKING_WHEEL,
         }
     }
@@ -166,6 +358,7 @@ impl SettlementPowerChoice {
             Self::CopperCrank => "copper-crank",
             Self::Treadle => "treadle",
             Self::TreadleDynamo => "treadle-dynamo",
+            Self::DoubleWoundTreadleDynamo => "double-wound-treadle-dynamo",
             Self::WalkingWheel => "walking-wheel",
         }
     }
@@ -445,21 +638,25 @@ pub(super) struct SettlementPowerPlan {
     pub(super) copper_crank_lifecycle_attention: u64,
     pub(super) treadle_lifecycle_attention: u64,
     pub(super) treadle_dynamo_lifecycle_attention: u64,
+    pub(super) double_wound_treadle_dynamo_lifecycle_attention: u64,
     pub(super) walking_lifecycle_attention: u64,
     pub(super) stone_crank_lifecycle_metabolic_nj: u128,
     pub(super) copper_crank_lifecycle_metabolic_nj: u128,
     pub(super) treadle_lifecycle_metabolic_nj: u128,
     pub(super) treadle_dynamo_lifecycle_metabolic_nj: u128,
+    pub(super) double_wound_treadle_dynamo_lifecycle_metabolic_nj: u128,
     pub(super) walking_lifecycle_metabolic_nj: u128,
     pub(super) stone_crank_lifecycle_hydration_ul: u64,
     pub(super) copper_crank_lifecycle_hydration_ul: u64,
     pub(super) treadle_lifecycle_hydration_ul: u64,
     pub(super) treadle_dynamo_lifecycle_hydration_ul: u64,
+    pub(super) double_wound_treadle_dynamo_lifecycle_hydration_ul: u64,
     pub(super) walking_lifecycle_hydration_ul: u64,
     pub(super) stone_crank_lifecycle_condition: Condition,
     pub(super) copper_crank_lifecycle_condition: Condition,
     pub(super) treadle_lifecycle_condition: Condition,
     pub(super) treadle_dynamo_lifecycle_condition: Condition,
+    pub(super) double_wound_treadle_dynamo_lifecycle_condition: Condition,
     pub(super) walking_lifecycle_condition: Condition,
     #[cfg_attr(
         test,
@@ -514,7 +711,7 @@ fn settlement_candidate_routes(
     raw: StockpileId,
     shaped: StockpileId,
     capacity_nj: u128,
-) -> [SettlementCandidateRoute; 5] {
+) -> [SettlementCandidateRoute; 6] {
     SettlementPowerChoice::ALL.map(|choice| SettlementCandidateRoute {
         choice,
         build: project_power_package(
@@ -539,9 +736,9 @@ fn settlement_candidate_routes(
 
 fn project_settlement_candidates(
     registries: &Registries,
-    routes: [SettlementCandidateRoute; 5],
+    routes: [SettlementCandidateRoute; 6],
     declared_work: Energy,
-) -> [SettlementCandidateProjection; 5] {
+) -> [SettlementCandidateProjection; 6] {
     routes.map(|candidate| {
         let lifecycle = candidate.route.project_lifecycle(registries, declared_work);
         SettlementCandidateProjection {
@@ -572,7 +769,7 @@ fn project_settlement_candidates(
 fn select_settlement_candidate(
     investment_policy: CapitalInvestmentPolicy,
     copper_policy: SettlementCopperPolicy,
-    candidates: &[SettlementCandidateProjection; 5],
+    candidates: &[SettlementCandidateProjection; 6],
 ) -> (SettlementPowerChoice, u64) {
     let available = candidates.iter().copied().filter(|candidate| {
         copper_policy == SettlementCopperPolicy::SpendAvailable || !candidate.uses_copper
@@ -632,7 +829,7 @@ fn select_settlement_candidate(
 }
 
 fn settlement_projection_for(
-    candidates: &[SettlementCandidateProjection; 5],
+    candidates: &[SettlementCandidateProjection; 6],
     choice: SettlementPowerChoice,
 ) -> SettlementCandidateProjection {
     candidates
@@ -652,7 +849,7 @@ pub(super) fn settlement_power_decision_frontier(
     investment_policy: CapitalInvestmentPolicy,
 ) -> Vec<(u64, SettlementPowerChoice)> {
     let routes = settlement_candidate_routes(registries, state, raw, shaped, capacity_nj);
-    let lifecycle: [Vec<lifecycle::ManualPowerLifecycleCost>; 5] = std::array::from_fn(|index| {
+    let lifecycle: [Vec<lifecycle::ManualPowerLifecycleCost>; 6] = std::array::from_fn(|index| {
         routes[index]
             .route
             .project_full_charge_series(registries, MAX_SETTLEMENT_CROSSOVER_CHARGES)
@@ -721,6 +918,8 @@ pub(super) fn settlement_power_plan(
     let treadle = settlement_projection_for(&candidates, SettlementPowerChoice::Treadle);
     let treadle_dynamo =
         settlement_projection_for(&candidates, SettlementPowerChoice::TreadleDynamo);
+    let double_wound_treadle_dynamo =
+        settlement_projection_for(&candidates, SettlementPowerChoice::DoubleWoundTreadleDynamo);
     let walking = settlement_projection_for(&candidates, SettlementPowerChoice::WalkingWheel);
     SettlementPowerPlan {
         choice,
@@ -737,21 +936,29 @@ pub(super) fn settlement_power_plan(
         copper_crank_lifecycle_attention: copper.lifecycle_attention,
         treadle_lifecycle_attention: treadle.lifecycle_attention,
         treadle_dynamo_lifecycle_attention: treadle_dynamo.lifecycle_attention,
+        double_wound_treadle_dynamo_lifecycle_attention: double_wound_treadle_dynamo
+            .lifecycle_attention,
         walking_lifecycle_attention: walking.lifecycle_attention,
         stone_crank_lifecycle_metabolic_nj: stone.lifecycle_metabolic_nj,
         copper_crank_lifecycle_metabolic_nj: copper.lifecycle_metabolic_nj,
         treadle_lifecycle_metabolic_nj: treadle.lifecycle_metabolic_nj,
         treadle_dynamo_lifecycle_metabolic_nj: treadle_dynamo.lifecycle_metabolic_nj,
+        double_wound_treadle_dynamo_lifecycle_metabolic_nj: double_wound_treadle_dynamo
+            .lifecycle_metabolic_nj,
         walking_lifecycle_metabolic_nj: walking.lifecycle_metabolic_nj,
         stone_crank_lifecycle_hydration_ul: stone.lifecycle_hydration_ul,
         copper_crank_lifecycle_hydration_ul: copper.lifecycle_hydration_ul,
         treadle_lifecycle_hydration_ul: treadle.lifecycle_hydration_ul,
         treadle_dynamo_lifecycle_hydration_ul: treadle_dynamo.lifecycle_hydration_ul,
+        double_wound_treadle_dynamo_lifecycle_hydration_ul: double_wound_treadle_dynamo
+            .lifecycle_hydration_ul,
         walking_lifecycle_hydration_ul: walking.lifecycle_hydration_ul,
         stone_crank_lifecycle_condition: stone.lifecycle_condition,
         copper_crank_lifecycle_condition: copper.lifecycle_condition,
         treadle_lifecycle_condition: treadle.lifecycle_condition,
         treadle_dynamo_lifecycle_condition: treadle_dynamo.lifecycle_condition,
+        double_wound_treadle_dynamo_lifecycle_condition: double_wound_treadle_dynamo
+            .lifecycle_condition,
         walking_lifecycle_condition: walking.lifecycle_condition,
         minimum_attention_return_ticks,
     }
@@ -786,12 +993,14 @@ fn project_power_package(
                 store.value()
             )
         });
-    let projection = project_manual_assembly_package(
+    let raw_roots = super::power_raw_roots(state, raw);
+    let projection = project_manual_construction_package_from_roots(
         registries,
         state,
-        &[raw],
+        raw,
         shaped,
         &[equipment_profile, store_profile],
+        &raw_roots,
         context,
     );
     ShapedBuild {

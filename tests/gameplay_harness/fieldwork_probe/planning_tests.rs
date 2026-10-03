@@ -1,7 +1,5 @@
 //! Fieldwork planning and tool-choice economics contracts.
 
-use std::collections::BTreeSet;
-
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::survival::initialize_player_survival;
 
@@ -41,46 +39,7 @@ fn choose_fieldwork_tool(
 #[test]
 fn fieldwork_actor_family_tracks_all_portable_ordinary_hand_pick_providers() {
     let registries = deep_hearth::content::build_registries();
-    let method = registries
-        .mining()
-        .get_method(MINING_METHOD_HAND_PICK)
-        .unwrap_or_else(|| panic!("fieldwork hand-pick method disappeared"));
-    let authored = registries
-        .equipment()
-        .definitions()
-        .filter(|definition| {
-            !definition.requires_structural_support()
-                && definition.has_authored_acquisition_edge()
-                && matches!(
-                    definition
-                        .capabilities()
-                        .get_capability(method.mass_flow_capability()),
-                    Some(CapabilityValue::MassFlow(flow)) if !flow.is_zero()
-                )
-                && matches!(
-                    definition
-                        .capabilities()
-                        .get_capability(method.max_batch_mass_capability()),
-                    Some(CapabilityValue::Mass(batch)) if !batch.is_zero()
-                )
-                && matches!(
-                    definition
-                        .capabilities()
-                        .get_capability(method.max_hardness_capability()),
-                    Some(CapabilityValue::Pressure(hardness)) if !hardness.is_zero()
-                )
-        })
-        .map(|definition| definition.id())
-        .collect::<BTreeSet<_>>();
-    let considered = FIELDWORK_TOOLS
-        .iter()
-        .map(|tool| tool.target)
-        .collect::<BTreeSet<_>>();
-
-    assert_eq!(
-        considered, authored,
-        "fieldwork actor tool market drifted from the portable ordinarily acquirable hand-pick providers"
-    );
+    assert_fieldwork_tool_market_current(&registries);
 }
 
 #[test]

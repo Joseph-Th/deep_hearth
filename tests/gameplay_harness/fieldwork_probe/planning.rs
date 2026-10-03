@@ -6,12 +6,13 @@ mod materials;
 mod tools;
 
 pub(super) use materials::{
-    equipment_component_requirements, fieldwork_raw_opportunity, multiplied_mass,
-    project_sampling_hammer_upgrade_ticks, raw_opportunity_for_equipment_components,
+    disclosed_raw_inputs, equipment_component_requirements, fieldwork_raw_opportunity,
+    multiplied_mass, project_sampling_hammer_upgrade_ticks,
+    raw_opportunity_for_equipment_components,
 };
 pub(super) use tools::{
     FIELDWORK_ORDER_MAX_BATCHES, FIELDWORK_TOOLS, FieldworkMiningLimits, FieldworkTool,
-    FieldworkToolBlocker, FieldworkToolEstimate, choose_fieldwork_tool_quiet,
-    choose_fieldwork_tool_with_market_phase, estimate_fieldwork_tool, fieldwork_bulk_crossover,
-    fieldwork_mining_limits,
+    FieldworkToolBlocker, FieldworkToolEstimate, assert_fieldwork_tool_market_current,
+    choose_fieldwork_tool_quiet, choose_fieldwork_tool_with_market_phase, estimate_fieldwork_tool,
+    estimate_fieldwork_upgrade_preparation, fieldwork_bulk_crossover, fieldwork_mining_limits,
 };

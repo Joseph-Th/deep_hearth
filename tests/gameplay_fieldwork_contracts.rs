@@ -47,6 +47,8 @@ mod focused_witnesses;
 mod inventory_support;
 #[path = "gameplay_harness/manual_assembly_planning.rs"]
 mod manual_assembly_planning;
+#[path = "gameplay_harness/manual_construction_planning.rs"]
+mod manual_construction_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_execution.rs"]

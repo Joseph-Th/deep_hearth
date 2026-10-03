@@ -58,6 +58,16 @@ pub(in super::super::super) fn execute_selected_settlement_project(
             plan.treadle_dynamo_lifecycle_condition.parts_per_million(),
             "selected settlement treadle-dynamo project",
         ),
+        SettlementPowerChoice::DoubleWoundTreadleDynamo => (
+            EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
+            MANUAL_POWER_FOOT_TREADLE,
+            plan.double_wound_treadle_dynamo_lifecycle_attention,
+            plan.double_wound_treadle_dynamo_lifecycle_metabolic_nj,
+            plan.double_wound_treadle_dynamo_lifecycle_hydration_ul,
+            plan.double_wound_treadle_dynamo_lifecycle_condition
+                .parts_per_million(),
+            "selected settlement double-wound treadle-dynamo project",
+        ),
         SettlementPowerChoice::WalkingWheel => (
             EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE,
             MANUAL_POWER_WALKING_WHEEL,

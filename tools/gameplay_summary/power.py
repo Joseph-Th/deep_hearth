@@ -57,6 +57,12 @@ def _choice_counts_text(counts: dict[str, int]) -> str:
     return " ".join(f"{provider}:{count}" for provider, count in selected) or "none"
 
 
+def _provider_market_text(counts: dict[str, int]) -> str:
+    """Expose the actually executed counterfactual market without a second provider catalog."""
+
+    return ",".join(counts) or "none"
+
+
 def _market_regime_counts(lines: list[str]) -> list[int]:
     counts: list[int] = []
     for line in lines:
@@ -291,6 +297,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     lived_samples = lived["samples"][0]
     return (
         f"choice=[{_choice_counts_text(choice_counts)}] "
+        f"market=[{_provider_market_text(choice_counts)}] "
         f"organic-choice=[{_choice_counts_text(organic_choice_counts)}] "
         f"project=[crusher-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "
@@ -388,6 +395,7 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
     lived_samples = lived["samples"][0]
     return (
         f"settlement-choice=[{_choice_counts_text(choice_counts)}] "
+        f"settlement-market=[{_provider_market_text(choice_counts)}] "
         f"organic-settlement-choice=[{_choice_counts_text(organic_choice_counts)}] "
         f"settlement-project=[lumber-feed:{scaled_span(project_mass, 1_000_000, 'kg')} "
         f"mechanical-work:{scaled_span(project_work, 1_000_000_000_000, 'kJ')} "

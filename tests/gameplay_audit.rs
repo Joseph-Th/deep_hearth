@@ -89,6 +89,10 @@ mod inventory_support;
 mod maintenance_timing;
 #[path = "gameplay_harness/manual_assembly_planning.rs"]
 mod manual_assembly_planning;
+#[path = "gameplay_harness/manual_construction_package_planning.rs"]
+mod manual_construction_package_planning;
+#[path = "gameplay_harness/manual_construction_planning.rs"]
+mod manual_construction_planning;
 #[path = "gameplay_harness/manual_craft_batches.rs"]
 mod manual_craft_batches;
 #[path = "gameplay_harness/manual_craft_equipment_planning.rs"]

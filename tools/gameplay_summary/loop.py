@@ -437,8 +437,14 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
         for line in shortfall_recoveries
     )
     retooled = sum(
-        (match := re.search(r"\btool-builds:(\d+)", line)) is not None
-        and int(match.group(1)) > 0
+        (
+            (build := re.search(r"\btool-builds:(\d+)", line)) is not None
+            and int(build.group(1)) > 0
+        )
+        or (
+            (upgrade := re.search(r"\btool-upgrades:(\d+)", line)) is not None
+            and int(upgrade.group(1)) > 0
+        )
         for line in shortfall_recoveries
     )
     barren_sites = sum(
@@ -455,7 +461,10 @@ def _world_feedback_evidence(lines: list[str], fieldwork: list[str]) -> str:
     )
     depletion_retooled = sum(
         line.startswith("FIELDWORK DEPLETION RECOVERY ")
-        and " mining-tool-reused=false " in line
+        and (
+            " mining-tool-reused=false " in line
+            or " mining-tool-upgraded=true " in line
+        )
         for line in lines
     )
     search_ended = shortfall_horizon_exhausted + shortfall_local_exhausted

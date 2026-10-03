@@ -96,6 +96,81 @@ pub(in super::super) const FIELDWORK_TOOLS: [FieldworkTool; 4] = [
     },
 ];
 
+pub(in super::super) fn assert_fieldwork_tool_market_current(registries: &Registries) {
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("fieldwork hand-pick method disappeared"));
+    let authored = registries
+        .equipment()
+        .definitions()
+        .filter(|definition| {
+            !definition.requires_structural_support()
+                && definition.has_authored_acquisition_edge()
+                && matches!(
+                    definition
+                        .capabilities()
+                        .get_capability(method.mass_flow_capability()),
+                    Some(CapabilityValue::MassFlow(flow)) if !flow.is_zero()
+                )
+                && matches!(
+                    definition
+                        .capabilities()
+                        .get_capability(method.max_batch_mass_capability()),
+                    Some(CapabilityValue::Mass(batch)) if !batch.is_zero()
+                )
+                && matches!(
+                    definition
+                        .capabilities()
+                        .get_capability(method.max_hardness_capability()),
+                    Some(CapabilityValue::Pressure(hardness)) if !hardness.is_zero()
+                )
+        })
+        .map(|definition| definition.id())
+        .collect::<std::collections::BTreeSet<_>>();
+    let played = FIELDWORK_TOOLS
+        .iter()
+        .map(|tool| tool.target)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        played, authored,
+        "fieldwork played tool market diverged from the current portable ordinarily acquirable hand-pick providers"
+    );
+    for tool in FIELDWORK_TOOLS {
+        if tool.target == tool.base {
+            continue;
+        }
+        let target = registries
+            .equipment()
+            .get_equipment(tool.target)
+            .unwrap_or_else(|| panic!("fieldwork played reinforced tool disappeared"));
+        let upgrade = target.upgrade_profile().unwrap_or_else(|| {
+            panic!("fieldwork played reinforced tool lost its authored upgrade")
+        });
+        assert_eq!(
+            upgrade.from(),
+            tool.base,
+            "fieldwork played upgrade base diverged from the authored equipment edge"
+        );
+        let direct = equipment_component_requirements(registries, &[tool.target]);
+        let mut via_upgrade = equipment_component_requirements(registries, &[tool.base]);
+        for input in upgrade.additions().inputs() {
+            add_mass(
+                &mut via_upgrade,
+                input.commodity(),
+                input.mass(),
+                "fieldwork virgin upgrade-route equivalence",
+            );
+        }
+        assert_eq!(
+            via_upgrade,
+            direct,
+            "fieldwork virgin base-plus-upgrade route no longer matches direct assembly for equipment {}; compare both authored acquisition routes explicitly",
+            tool.target.value()
+        );
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(in super::super) struct FieldworkToolEstimate {
     pub(in super::super) tool: FieldworkTool,
@@ -112,7 +187,7 @@ impl FieldworkToolEstimate {
             .unwrap_or_else(|| panic!("fieldwork estimated attention overflowed"))
     }
 
-    fn policy_key(&self) -> (u64, Mass, Mass) {
+    pub(in super::super) fn actor_cost_key(&self) -> (u64, Mass, Mass) {
         let copper = self
             .raw
             .get(&CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL))
@@ -125,6 +200,10 @@ impl FieldworkToolEstimate {
             .try_fold(Mass::ZERO, Mass::checked_add)
             .unwrap_or_else(|| panic!("fieldwork raw estimate overflowed"));
         (self.total_ticks(), copper, raw)
+    }
+
+    fn policy_key(&self) -> (u64, Mass, Mass) {
+        self.actor_cost_key()
     }
 }
 
@@ -163,29 +242,13 @@ pub(in super::super) enum FieldworkToolBlocker {
     Order(deep_hearth::mining::MiningOrderError),
 }
 
-fn estimate_tool_preparation(
+fn estimate_component_preparation(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
     parts: StockpileId,
-    tool: FieldworkTool,
+    requirements: impl IntoIterator<Item = (CommodityKey, Mass)>,
 ) -> Result<(u64, BTreeMap<CommodityKey, Mass>), FieldworkToolBlocker> {
-    // Assembly and upgrade execute as separate crafts. Preserve their batch rounding rather
-    // than merging a shared component into one cheaper hypothetical preparation step.
-    let mut requirements: Vec<_> = equipment_component_requirements(registries, &[tool.base])
-        .into_iter()
-        .collect();
-    if tool.target != tool.base {
-        let upgrade = registries
-            .equipment()
-            .get_equipment(tool.target)
-            .and_then(|definition| definition.upgrade_profile())
-            .unwrap_or_else(|| panic!("fieldwork upgrade disappeared"));
-        assert_eq!(upgrade.from(), tool.base);
-        for input in upgrade.additions().inputs() {
-            requirements.push((input.commodity(), input.mass()));
-        }
-    }
     let parts_record = state
         .inventory()
         .get_stockpile(parts)
@@ -207,48 +270,97 @@ fn estimate_tool_preparation(
         if missing.is_zero() {
             continue;
         }
-        // The declared raw-tool family uses its equipment-free topology route. Missing raw
-        // inputs exclude this route; they do not prove that every possible salvage route fails.
-        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
+        let route = manual_construction_route_from_roots(
             registries,
             commodity,
             missing,
             &disclosed_raw_inputs(),
             "fieldwork pre-action components",
-        );
-        let consumed = multiplied_mass(craft.input_mass(), batches, "planned raw input");
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "fieldwork component {} lost its equipment-free route from disclosed raw inputs",
+                commodity.value()
+            )
+        });
         add_mass(
             &mut raw_required,
-            craft.input(),
-            consumed,
+            route.raw_commodity,
+            route.raw_mass,
             "planned cumulative raw input",
         );
-        let cumulative = raw_required[&craft.input()];
-        let availability = assess_manual_craft_inputs(registries, state, craft.process(), raw)
-            .map_err(|_| FieldworkToolBlocker::RawInput {
-                commodity: craft.input(),
-                required: cumulative,
-            })?;
-        if availability.largest_compatible_mass() < cumulative {
+        let cumulative = raw_required[&route.raw_commodity];
+        let available = state
+            .inventory()
+            .get_stockpile(raw)
+            .unwrap_or_else(|| panic!("fieldwork raw stockpile disappeared during planning"))
+            .get_mass(route.raw_commodity);
+        if available < cumulative {
             return Err(FieldworkToolBlocker::RawInput {
-                commodity: craft.input(),
+                commodity: route.raw_commodity,
                 required: cumulative,
             });
         }
-        let request = plan_manual_craft_request(registries, state, craft.process(), raw, batches)
-            .map_err(|_| FieldworkToolBlocker::RawInput {
-            commodity: craft.input(),
-            required: cumulative,
-        })?;
-        let resolution =
-            resolve_manual_craft(registries, state, &request).unwrap_or_else(|error| {
-                panic!("fieldwork pre-action craft resolution failed: {error}")
-            });
         ticks = ticks
-            .checked_add(resolution.duration().value())
+            .checked_add(route.attention_ticks)
             .unwrap_or_else(|| panic!("fieldwork preparation estimate overflowed"));
     }
     Ok((ticks, raw_required))
+}
+
+fn estimate_tool_preparation(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    tool: FieldworkTool,
+) -> Result<(u64, BTreeMap<CommodityKey, Mass>), FieldworkToolBlocker> {
+    // Assembly and upgrade execute as separate crafts. Preserve their batch rounding rather
+    // than merging a shared component into one cheaper hypothetical preparation step.
+    let mut requirements: Vec<_> = equipment_component_requirements(registries, &[tool.base])
+        .into_iter()
+        .collect();
+    if tool.target != tool.base {
+        let upgrade = registries
+            .equipment()
+            .get_equipment(tool.target)
+            .and_then(|definition| definition.upgrade_profile())
+            .unwrap_or_else(|| panic!("fieldwork upgrade disappeared"));
+        assert_eq!(upgrade.from(), tool.base);
+        requirements.extend(
+            upgrade
+                .additions()
+                .inputs()
+                .iter()
+                .map(|input| (input.commodity(), input.mass())),
+        );
+    }
+    estimate_component_preparation(registries, state, raw, parts, requirements)
+}
+
+pub(in super::super) fn estimate_fieldwork_upgrade_preparation(
+    registries: &Registries,
+    state: &AppState,
+    raw: StockpileId,
+    parts: StockpileId,
+    target: EquipmentDefinitionId,
+) -> Result<(u64, BTreeMap<CommodityKey, Mass>), FieldworkToolBlocker> {
+    let upgrade = registries
+        .equipment()
+        .get_equipment(target)
+        .and_then(|definition| definition.upgrade_profile())
+        .unwrap_or_else(|| panic!("fieldwork owned-tool upgrade target lost its authored upgrade"));
+    estimate_component_preparation(
+        registries,
+        state,
+        raw,
+        parts,
+        upgrade
+            .additions()
+            .inputs()
+            .iter()
+            .map(|input| (input.commodity(), input.mass())),
+    )
 }
 
 pub(in super::super) fn estimate_fieldwork_tool(
@@ -369,7 +481,7 @@ fn viable_fieldwork_tools(
             estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order);
         if report_candidates {
             println!(
-                "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=four-raw-build-tools authorization=not-yet assumptions=no-service,caller-supplied-visible-workload",
+                "FIELDWORK CANDIDATE tick={} tool={} observed-upper={}Pa order={}mg estimate={estimate:?} scope=current-portable-ordinary-hand-pick-market authorization=not-yet assumptions=no-service,caller-supplied-visible-workload",
                 state.tick().value(),
                 tool.label,
                 observed_upper.pascals(),
