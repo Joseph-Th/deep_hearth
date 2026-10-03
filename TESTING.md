@@ -81,9 +81,16 @@ Avoid assertions on error prose, wall-clock timing, incidental order/count, or c
 
 ## Gameplay evaluation
 
-Each gameplay scope owns one focused test artifact containing its probe and nearby owner contracts. Exact tests and suites still select only requested bodies, while probe/contract work in one scope reuses the same compiled target. Split only for a genuinely different graph and only when measured post-edit timing shows a net iteration win. All gameplay targets share `test-gameplay`.
+Each gameplay scope owns a focused probe artifact. Keep nearby contracts in that artifact while they are cheap; a
+contract-only target is justified when measured build timing shows that unrelated test bodies materially slow the
+probe loop. Exact-test routing must still resolve those contracts to their purpose-built target rather than the
+consolidated audit. Fieldwork keeps its larger contract set separate from the lived probe so the frequent probe
+link stays small. All gameplay targets share `test-gameplay`.
 
-`gate --gameplay contracts` is the small cross-scope contract target. Exact owner contracts resolve through `run_test.py` to their focused target. Scoped reports reuse focused artifacts when faithful; keep report-only examples only to exclude formatter/narration code from hot tests. The cross-system report owns the complete report graph.
+`gate --gameplay contracts` is the small cross-scope contract target. Exact owner contracts resolve through
+`run_test.py` to their smallest purpose-built target. Scoped reports reuse focused artifacts when faithful; keep
+report-only examples only to exclude formatter/narration code from hot tests. The cross-system report owns the
+complete report graph.
 
 Routine gameplay runs maintained witnesses plus one fresh replayable case. Explicit roots reproduce failures; reports use broader bounded exploration. Gates stay quiet on success, failures print a narrow reproduction command, and reports retain replay inputs. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 

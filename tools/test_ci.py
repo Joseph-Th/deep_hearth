@@ -1553,14 +1553,13 @@ class TestTopologyContractTests(unittest.TestCase):
             ci.GAMEPLAY_TARGETS["survival"],
         )
 
-    def test_focused_gameplay_targets_own_probe_and_owner_contracts_together(self) -> None:
+    def test_focused_gameplay_targets_keep_cheap_owner_contracts_with_the_probe(self) -> None:
         contract_prefixes = {
             "workshop": "workshop_contract_tests::",
             "survival": "survival_contract_tests::",
             "progression": "progression_contract_tests::",
             "settlement": "settlement_wire_contract_tests::",
             "woodworking": "woodworking_contract_tests::",
-            "fieldwork": "prospecting_instrument_contract_tests::",
             "ore": "ore_contract_tests::",
             "foundry": "foundry_contract_tests::",
         }
@@ -1571,6 +1570,25 @@ class TestTopologyContractTests(unittest.TestCase):
             self.assertTrue(
                 any(name.startswith(prefix) for name in catalog),
                 f"focused gameplay target {scope} lost owner contracts {prefix}",
+            )
+
+    def test_fieldwork_contracts_stay_off_the_hot_probe_target(self) -> None:
+        probe = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["fieldwork"], None)
+        contracts = run_test.source_test_catalog(
+            gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
+            None,
+        )
+        self.assertEqual(probe, [ci.GAMEPLAY_TESTS["fieldwork"]])
+        self.assertNotIn(ci.GAMEPLAY_TESTS["fieldwork"], contracts)
+        for prefix in (
+            "fieldwork_probe::planning_tests::",
+            "fieldwork_probe::retooling_tests::",
+            "fieldwork_probe::fieldwork_shortfall_policy_tests::",
+            "prospecting_instrument_contract_tests::",
+        ):
+            self.assertTrue(
+                any(name.startswith(prefix) for name in contracts),
+                f"fieldwork contract target lost {prefix}",
             )
 
     def test_progression_episode_regressions_reuse_the_focused_progression_target(self) -> None:
@@ -3178,6 +3196,7 @@ class AuthorityContractTests(unittest.TestCase):
             {
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
+                gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
                 *ci.GAMEPLAY_TARGETS.values(),
             },
         )
@@ -3627,14 +3646,14 @@ class ExactTestCommandTests(unittest.TestCase):
 
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
-            "batch_capped_mining_finishes_the_requested_order": ci.GAMEPLAY_TARGETS["fieldwork"],
-            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "batch_capped_mining_finishes_the_requested_order": gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
+            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
             "woodworking_keeps_pre_action_non_saw_choice_when_realized_saw_is_cheaper": ci.GAMEPLAY_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
             "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": ci.GAMEPLAY_TARGETS["settlement"],
             "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": ci.GAMEPLAY_TARGETS["foundry"],
             "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": ci.GAMEPLAY_TARGETS["woodworking"],
-            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
             "preservation_storage_routes_are_authored_recoverable_tradeoffs": ci.GAMEPLAY_TARGETS["survival"],
             "ore_probe_generation_varies_feed_and_operating_state": ci.GAMEPLAY_TARGETS["ore"],
             "primitive_recovery_and_reinforcement_routes_remain_connected": ci.GAMEPLAY_TARGETS["progression"],
@@ -3680,7 +3699,7 @@ class ExactTestCommandTests(unittest.TestCase):
         )
         for selector, expected in {
             "workshop_contract_tests": ci.GAMEPLAY_TARGETS["workshop"],
-            "prospecting_instrument_contract_tests": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "prospecting_instrument_contract_tests": gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
             "settlement_wire_contract_tests": ci.GAMEPLAY_TARGETS["settlement"],
             "survival_contract_tests": ci.GAMEPLAY_TARGETS["survival"],
             "progression_contract_tests": ci.GAMEPLAY_TARGETS["progression"],
@@ -3836,7 +3855,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "survey_investment_requires_a_material_disclosed_attention_payoff"
         )
         target, name = run_test.resolve_automatic_exact_selection(selector, None)
-        self.assertEqual(target, ci.GAMEPLAY_TARGETS["fieldwork"])
+        self.assertEqual(target, gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET)
         self.assertEqual(name, selector)
 
     def test_source_catalog_matches_default_library_test_names_without_building(self) -> None:
@@ -3898,7 +3917,10 @@ class ExactTestCommandTests(unittest.TestCase):
                 for name in focused_settlement
             )
         )
-        fieldwork_contracts = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["fieldwork"], None)
+        fieldwork_contracts = run_test.source_test_catalog(
+            gameplay_targets.GAMEPLAY_FIELDWORK_CONTRACTS_TARGET,
+            None,
+        )
         self.assertIn(
             "fieldwork_probe::fieldwork_shortfall_policy_tests::shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion",
             fieldwork_contracts,

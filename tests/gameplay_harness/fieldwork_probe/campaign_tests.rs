@@ -12,15 +12,14 @@ fn maintained_fieldwork_witnesses_span_campaign_horizons() {
     use super::super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 
     let maintained = |seed| FocusedProbeCase::new(seed, None, FocusedProbeRole::MaintainedCoverage);
-    assert_eq!(planned_future_sites(maintained(1)), 1);
+    let horizons = [1, 2, 3, 6]
+        .into_iter()
+        .map(|seed| planned_future_sites(maintained(seed)))
+        .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(
-        [
-            planned_future_sites(maintained(2)),
-            planned_future_sites(maintained(3)),
-            planned_future_sites(maintained(6)),
-        ],
-        [1, 3, 2],
-        "maintained coverage must include a copper-capable three-site survey-investment witness"
+        horizons,
+        [1, 2, 3].into_iter().collect(),
+        "maintained fieldwork coverage must exercise every bounded survey horizon"
     );
 }
 
