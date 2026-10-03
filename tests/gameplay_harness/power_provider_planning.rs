@@ -4,7 +4,7 @@ use deep_hearth::content::{
     ENERGY_TIMBER_FRAME_FLYWHEEL_BANK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
     EQUIPMENT_TIMBER_WALKING_WHEEL_DRIVE, MANUAL_POWER_FOOT_TREADLE, MANUAL_POWER_HAND_CRANK,
-    MANUAL_POWER_WALKING_WHEEL, PROCESS_CRUSH_ORE,
+    MANUAL_POWER_WALKING_WHEEL, MATERIAL_COPPER, PROCESS_CRUSH_ORE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
@@ -25,13 +25,10 @@ use super::super::manual_assembly_planning::project_manual_assembly_package;
 mod lifecycle;
 use lifecycle::{ManualPowerRoute, charge_events_for_declared_work};
 
+#[cfg(not(test))]
 const MAX_PRIMITIVE_CROSSOVER_CHARGES: u64 = 512;
 const MAX_PRIMITIVE_PROJECT_BATCHES: u64 = 1_024;
 const MAX_SETTLEMENT_CROSSOVER_CHARGES: u64 = 160;
-
-pub(super) const fn primitive_crossover_search_limit() -> u64 {
-    MAX_PRIMITIVE_CROSSOVER_CHARGES
-}
 
 pub(super) const fn primitive_project_batch_limit() -> u64 {
     MAX_PRIMITIVE_PROJECT_BATCHES
@@ -149,6 +146,19 @@ impl SettlementPowerChoice {
         }
     }
 
+    pub(super) fn uses_copper(self, registries: &Registries) -> bool {
+        registries
+            .equipment()
+            .get_equipment(self.equipment())
+            .and_then(|definition| definition.assembly_profile())
+            .is_some_and(|assembly| {
+                assembly
+                    .inputs()
+                    .iter()
+                    .any(|input| input.commodity().material() == MATERIAL_COPPER)
+            })
+    }
+
     #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
@@ -170,7 +180,11 @@ pub(super) struct PrimitivePowerPlan {
     pub(super) declared_mass: Mass,
     pub(super) declared_work_nj: u128,
     pub(super) charge_events: u64,
-    pub(super) consumer_projected_charge_events: u64,
+    #[cfg_attr(
+        test,
+        allow(dead_code, reason = "exploratory power-provider report telemetry")
+    )]
+    pub(super) consumer_projected_batches: u64,
     pub(super) consumer_projected_services: u64,
     pub(super) crank_build: ShapedBuild,
     pub(super) treadle_build: ShapedBuild,
@@ -221,11 +235,6 @@ pub(super) struct PrimitivePowerPlan {
         allow(dead_code, reason = "exploratory power-provider report telemetry")
     )]
     pub(super) minimum_attention_return_ticks: u64,
-    #[cfg_attr(
-        test,
-        allow(dead_code, reason = "exploratory power-provider report telemetry")
-    )]
-    pub(super) decision_crossover_charges: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -233,6 +242,22 @@ struct PrimitiveCandidateRoute {
     choice: PrimitivePowerChoice,
     build: ShapedBuild,
     route: ManualPowerRoute,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SettlementCopperPolicy {
+    SpendAvailable,
+    PreserveForOtherUses,
+}
+
+impl SettlementCopperPolicy {
+    #[cfg(not(test))]
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::SpendAvailable => "spend-available",
+            Self::PreserveForOtherUses => "preserve-for-other-uses",
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -441,11 +466,6 @@ pub(super) struct SettlementPowerPlan {
         allow(dead_code, reason = "exploratory power-provider report telemetry")
     )]
     pub(super) minimum_attention_return_ticks: u64,
-    #[cfg_attr(
-        test,
-        allow(dead_code, reason = "exploratory power-provider report telemetry")
-    )]
-    pub(super) decision_crossover_charges: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -453,6 +473,7 @@ struct SettlementCandidateRoute {
     choice: SettlementPowerChoice,
     build: ShapedBuild,
     route: ManualPowerRoute,
+    uses_copper: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -460,6 +481,7 @@ struct SettlementCandidateProjection {
     choice: SettlementPowerChoice,
     build: ShapedBuild,
     charge: ManualPowerProjection,
+    uses_copper: bool,
     lifecycle_attention: u64,
     lifecycle_metabolic_nj: u128,
     lifecycle_hydration_ul: u64,
@@ -511,6 +533,7 @@ fn settlement_candidate_routes(
             Energy::from_nanojoules(capacity_nj),
             "settlement provider",
         ),
+        uses_copper: choice.uses_copper(registries),
     })
 }
 
@@ -525,6 +548,7 @@ fn project_settlement_candidates(
             choice: candidate.choice,
             build: candidate.build,
             charge: candidate.route.project(registries, Condition::PRISTINE),
+            uses_copper: candidate.uses_copper,
             lifecycle_attention: candidate
                 .build
                 .attention_ticks
@@ -547,14 +571,19 @@ fn project_settlement_candidates(
 
 fn select_settlement_candidate(
     investment_policy: CapitalInvestmentPolicy,
+    copper_policy: SettlementCopperPolicy,
     candidates: &[SettlementCandidateProjection; 5],
 ) -> (SettlementPowerChoice, u64) {
-    let baseline_key = candidates
+    let available = candidates.iter().copied().filter(|candidate| {
+        copper_policy == SettlementCopperPolicy::SpendAvailable || !candidate.uses_copper
+    });
+    let available = available.collect::<Vec<_>>();
+    let baseline_key = available
         .iter()
         .map(|candidate| candidate.setup_key())
         .min()
-        .unwrap_or_else(|| unreachable!("settlement provider set is nonempty"));
-    let mut baselines = candidates
+        .unwrap_or_else(|| panic!("settlement copper policy removed every power provider"));
+    let mut baselines = available
         .iter()
         .copied()
         .filter(|candidate| candidate.setup_key() == baseline_key);
@@ -566,7 +595,7 @@ fn select_settlement_candidate(
         "settlement power providers tie on every actor-visible setup cost; author an explicit preference"
     );
 
-    let eligible = candidates.iter().copied().filter(|candidate| {
+    let eligible = available.iter().copied().filter(|candidate| {
         if candidate.choice == baseline.choice {
             return true;
         }
@@ -613,29 +642,59 @@ fn settlement_projection_for(
         .unwrap_or_else(|| unreachable!("every settlement choice has one candidate projection"))
 }
 
-pub(super) fn settlement_power_decision_crossover_charges(
+pub(super) fn settlement_power_decision_frontier(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
     shaped: StockpileId,
     capacity_nj: u128,
+    copper_policy: SettlementCopperPolicy,
     investment_policy: CapitalInvestmentPolicy,
-) -> Option<u64> {
+) -> Vec<(u64, SettlementPowerChoice)> {
     let routes = settlement_candidate_routes(registries, state, raw, shaped, capacity_nj);
-    let first =
-        project_settlement_candidates(registries, routes, Energy::from_nanojoules(capacity_nj));
-    let (initial_choice, _) = select_settlement_candidate(investment_policy, &first);
-    (2..=MAX_SETTLEMENT_CROSSOVER_CHARGES).find(|&charges| {
-        let declared_work_nj = capacity_nj
-            .checked_mul(u128::from(charges))
-            .unwrap_or_else(|| panic!("settlement crossover work overflowed"));
-        let projected = project_settlement_candidates(
-            registries,
-            routes,
-            Energy::from_nanojoules(declared_work_nj),
-        );
-        select_settlement_candidate(investment_policy, &projected).0 != initial_choice
-    })
+    let lifecycle: [Vec<lifecycle::ManualPowerLifecycleCost>; 5] = std::array::from_fn(|index| {
+        routes[index]
+            .route
+            .project_full_charge_series(registries, MAX_SETTLEMENT_CROSSOVER_CHARGES)
+    });
+    let mut frontier = Vec::new();
+    let mut previous = None;
+    for charges in 1..=MAX_SETTLEMENT_CROSSOVER_CHARGES {
+        let index = usize::try_from(charges - 1)
+            .unwrap_or_else(|_| unreachable!("bounded settlement charge index fits usize"));
+        let candidates = std::array::from_fn(|candidate| {
+            let route = routes[candidate];
+            let lifecycle = lifecycle[candidate][index];
+            SettlementCandidateProjection {
+                choice: route.choice,
+                build: route.build,
+                charge: route.route.project(registries, Condition::PRISTINE),
+                uses_copper: route.uses_copper,
+                lifecycle_attention: route
+                    .build
+                    .attention_ticks
+                    .checked_add(lifecycle.attention_ticks)
+                    .unwrap_or_else(|| panic!("settlement frontier attention overflowed")),
+                lifecycle_metabolic_nj: route
+                    .build
+                    .metabolic_nj
+                    .checked_add(lifecycle.metabolic_nj)
+                    .unwrap_or_else(|| panic!("settlement frontier metabolism overflowed")),
+                lifecycle_hydration_ul: route
+                    .build
+                    .hydration_ul
+                    .checked_add(lifecycle.hydration_ul)
+                    .unwrap_or_else(|| panic!("settlement frontier hydration overflowed")),
+                lifecycle_condition: lifecycle.condition_after,
+            }
+        });
+        let choice = select_settlement_candidate(investment_policy, copper_policy, &candidates).0;
+        if previous != Some(choice) {
+            frontier.push((charges, choice));
+            previous = Some(choice);
+        }
+    }
+    frontier
 }
 
 pub(super) fn settlement_power_plan(
@@ -644,6 +703,7 @@ pub(super) fn settlement_power_plan(
     raw: StockpileId,
     shaped: StockpileId,
     project: SettlementPowerProject,
+    copper_policy: SettlementCopperPolicy,
     investment_policy: CapitalInvestmentPolicy,
 ) -> SettlementPowerPlan {
     let routes = settlement_candidate_routes(registries, state, raw, shaped, project.capacity_nj);
@@ -655,21 +715,13 @@ pub(super) fn settlement_power_plan(
     let declared_work = Energy::from_nanojoules(project.declared_work_nj);
     let candidates = project_settlement_candidates(registries, routes, declared_work);
     let (choice, minimum_attention_return_ticks) =
-        select_settlement_candidate(investment_policy, &candidates);
+        select_settlement_candidate(investment_policy, copper_policy, &candidates);
     let stone = settlement_projection_for(&candidates, SettlementPowerChoice::StoneCrank);
     let copper = settlement_projection_for(&candidates, SettlementPowerChoice::CopperCrank);
     let treadle = settlement_projection_for(&candidates, SettlementPowerChoice::Treadle);
     let treadle_dynamo =
         settlement_projection_for(&candidates, SettlementPowerChoice::TreadleDynamo);
     let walking = settlement_projection_for(&candidates, SettlementPowerChoice::WalkingWheel);
-    let decision_crossover_charges = settlement_power_decision_crossover_charges(
-        registries,
-        state,
-        raw,
-        shaped,
-        project.capacity_nj,
-        investment_policy,
-    );
     SettlementPowerPlan {
         choice,
         minimum_return_ppm: investment_policy.minimum_return_ppm(),
@@ -702,7 +754,6 @@ pub(super) fn settlement_power_plan(
         treadle_dynamo_lifecycle_condition: treadle_dynamo.lifecycle_condition,
         walking_lifecycle_condition: walking.lifecycle_condition,
         minimum_attention_return_ticks,
-        decision_crossover_charges,
     }
 }
 
@@ -752,7 +803,8 @@ fn project_power_package(
     }
 }
 
-pub(super) fn primitive_power_decision_crossover_charges(
+#[cfg(not(test))]
+pub(super) fn primitive_power_decision_frontier(
     registries: &Registries,
     state: &AppState,
     raw: StockpileId,
@@ -760,7 +812,7 @@ pub(super) fn primitive_power_decision_crossover_charges(
     store_definition: EnergyStoreDefinitionId,
     capacity_nj: u128,
     investment_policy: CapitalInvestmentPolicy,
-) -> Option<u64> {
+) -> Vec<(u64, PrimitivePowerChoice)> {
     let routes = primitive_candidate_routes(
         registries,
         state,
@@ -769,23 +821,26 @@ pub(super) fn primitive_power_decision_crossover_charges(
         store_definition,
         capacity_nj,
     );
-    let project = |charges: u64| {
-        let declared = Energy::from_nanojoules(
-            capacity_nj
-                .checked_mul(u128::from(charges))
-                .unwrap_or_else(|| panic!("primitive crossover work overflowed")),
-        );
-        routes.map(|candidate| {
-            primitive_candidate_projection(
-                candidate,
-                candidate.route.project_lifecycle(registries, declared),
-            )
-        })
-    };
-    let initial_choice = select_primitive_candidate(investment_policy, &project(1)).0;
-    (2..=MAX_PRIMITIVE_CROSSOVER_CHARGES).find(|&charges| {
-        select_primitive_candidate(investment_policy, &project(charges)).0 != initial_choice
-    })
+    let lifecycle: [Vec<lifecycle::ManualPowerLifecycleCost>; 3] = std::array::from_fn(|index| {
+        routes[index]
+            .route
+            .project_full_charge_series(registries, MAX_PRIMITIVE_CROSSOVER_CHARGES)
+    });
+    let mut frontier = Vec::new();
+    let mut previous = None;
+    for charges in 1..=MAX_PRIMITIVE_CROSSOVER_CHARGES {
+        let index = usize::try_from(charges - 1)
+            .unwrap_or_else(|_| unreachable!("bounded primitive charge index fits usize"));
+        let candidates = std::array::from_fn(|candidate| {
+            primitive_candidate_projection(routes[candidate], lifecycle[candidate][index])
+        });
+        let choice = select_primitive_candidate(investment_policy, &candidates).0;
+        if previous != Some(choice) {
+            frontier.push((charges, choice));
+            previous = Some(choice);
+        }
+    }
+    frontier
 }
 
 pub(super) fn primitive_power_plan(
@@ -834,12 +889,8 @@ pub(super) fn primitive_power_plan(
     .unwrap_or_else(|error| {
         panic!("power-provider primitive consumer order projection failed: {error}")
     });
-    let consumer_projected_charge_events = u64::try_from(consumer_order.batches().len())
-        .unwrap_or_else(|_| panic!("power-provider projected charge count exceeds u64"));
-    assert!(
-        consumer_projected_charge_events >= charge_events,
-        "consumer wear cannot reduce the buffer-only charge lower bound"
-    );
+    let consumer_projected_batches = u64::try_from(consumer_order.batches().len())
+        .unwrap_or_else(|_| panic!("power-provider projected batch count exceeds u64"));
     let projected_work_nj = consumer_order
         .batches()
         .iter()
@@ -854,22 +905,14 @@ pub(super) fn primitive_power_plan(
     let candidates = routes.map(|candidate| {
         primitive_candidate_projection(
             candidate,
-            candidate
-                .route
-                .project_lifecycle_batches(registries, consumer_order.batches()),
+            candidate.route.project_lifecycle(
+                registries,
+                Energy::from_nanojoules(project.declared_work_nj),
+            ),
         )
     });
     let (choice, minimum_attention_return_ticks) =
         select_primitive_candidate(investment_policy, &candidates);
-    let decision_crossover_charges = primitive_power_decision_crossover_charges(
-        registries,
-        state,
-        raw,
-        shaped,
-        project.store_definition,
-        project.capacity_nj,
-        investment_policy,
-    );
     let crank = primitive_projection_for(&candidates, PrimitivePowerChoice::Crank);
     let treadle = primitive_projection_for(&candidates, PrimitivePowerChoice::Treadle);
     PrimitivePowerPlan {
@@ -880,7 +923,7 @@ pub(super) fn primitive_power_plan(
         declared_mass: project.declared_mass,
         declared_work_nj: project.declared_work_nj,
         charge_events,
-        consumer_projected_charge_events,
+        consumer_projected_batches,
         consumer_projected_services: consumer_order.services(),
         crank_build: crank.build,
         treadle_build: treadle.build,
@@ -895,6 +938,5 @@ pub(super) fn primitive_power_plan(
         crank_lifecycle_condition: crank.lifecycle_condition,
         treadle_lifecycle_condition: treadle.lifecycle_condition,
         minimum_attention_return_ticks,
-        decision_crossover_charges,
     }
 }

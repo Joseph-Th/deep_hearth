@@ -111,10 +111,11 @@ _ORDINARY_DIGEST_FIELDS = {
     "power-provider": (
         "choice",
         "investment-policy-return",
-        "decision-crossover-charges",
+        "market-regimes",
         "lifecycle-obligations",
         "settlement-choice",
-        "settlement-decision-crossover-charges",
+        "settlement-copper-policy",
+        "settlement-regimes",
         "settlement-lifecycle-obligations",
     ),
     "settlement": (
@@ -395,7 +396,7 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     _require_summary_coverage(lines, ordinary, controlled)
     scoped_ordinary = len(ordinary) == 1
     if len(ordinary) == len(_ORDINARY_DIGEST_FIELDS):
-        selected.extend(line for line in lines if line.startswith("PLAYER FANTASY "))
+        selected.extend(line for line in lines if line.startswith("DESIGN TARGET "))
     ordinary_digests = [
         _digest_summary(summary, scoped=scoped_ordinary) for summary in ordinary
     ]

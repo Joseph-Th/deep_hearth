@@ -20,7 +20,8 @@ use deep_hearth::equipment::{
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::StockpileId;
 use deep_hearth::labor::{
-    ManualPowerMethodId, ManualPowerRequest, project_manual_power, validate_start_manual_power,
+    ManualPowerEnergyEnvelopeRequest, ManualPowerMethodId, ManualPowerRequest,
+    assess_manual_power_energy_envelope, project_manual_power, validate_start_manual_power,
 };
 use deep_hearth::maintenance::MaintenanceBand;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -34,7 +35,7 @@ use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::super::manual_power_timing::finish_manual_power_work;
 use super::build::{build_flywheel, build_provider, stockpile_mass};
 use super::consumers::{
-    PrimitivePowerConsumer, SettlementPowerConsumer, consume_primitive_charge,
+    PrimitivePowerConsumer, SettlementPowerConsumer, consume_primitive_work,
     consume_settlement_charge,
 };
 use super::planning::{
@@ -129,14 +130,14 @@ pub(super) fn execute_primitive_comparison(
         plan.capacity_nj,
         "power provider treadle charge",
     );
-    let crank_consumer_ticks = consume_primitive_charge(
+    let crank_consumer_ticks = consume_primitive_work(
         registries,
         &mut crank_state,
         consumer,
         crank_drive,
         plan.capacity_nj,
     );
-    let treadle_consumer_ticks = consume_primitive_charge(
+    let treadle_consumer_ticks = consume_primitive_work(
         registries,
         &mut treadle_state,
         consumer,

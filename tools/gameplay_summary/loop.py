@@ -189,12 +189,12 @@ def _choice_diversity(
     return (
         "choice-diversity=["
         f"woodworking:{len(woodworking_choices)} "
-        f"fieldwork-selected:{len(fieldwork_tools)}/4 "
-        f"bulk-crossover-tools:{len(bulk_tools)}/2 "
+        f"fieldwork-selected:{len(fieldwork_tools)} "
+        f"bulk-crossover-tools:{len(bulk_tools)} "
         f"power-market=[primitive:{len(primitive_power_choices)} settlement:{len(settlement_power_choices)}] "
-        f"settlement-investment:{len(settlement_choices)}/2 "
-        f"survey-strategy:{len(survey_strategies)}/2 "
-        f"preservation:{len(preservation_policies)}/5]"
+        f"settlement-investment:{len(settlement_choices)} "
+        f"survey-strategy:{len(survey_strategies)} "
+        f"preservation:{len(preservation_policies)}]"
     )
 
 
@@ -338,7 +338,7 @@ def _survival_adaptation_evidence(
 
 def _selected_woodworking_services(line: str) -> int:
     choice = field(line, "choice")
-    if choice == "stone-adze":
+    if choice in ("stone-adze", "reinforced-adze"):
         match = re.search(r"routes=\[adze:.*?maintenance:\d+t/(\d+)services", line)
         return int(match.group(1)) if match is not None else 0
     if choice == "frame-saw":

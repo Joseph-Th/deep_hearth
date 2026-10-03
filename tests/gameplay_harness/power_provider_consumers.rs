@@ -59,13 +59,18 @@ pub(super) fn build_primitive_power_consumer(
     }
 }
 
-pub(super) fn consume_primitive_charge(
+pub(super) fn consume_primitive_work(
     registries: &Registries,
     state: &mut AppState,
     consumer: PrimitivePowerConsumer,
     drive: EnergyStoreId,
     requested_nj: u128,
 ) -> u64 {
+    let stored_before = state
+        .energy()
+        .get_store(drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("power-provider primitive drive disappeared before work"));
     let definition = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -118,10 +123,17 @@ pub(super) fn consume_primitive_charge(
         job,
         "power provider primitive consumer",
     );
-    assert_eq!(
-        state.energy().get_store(drive).map(|store| store.stored()),
-        Some(Energy::ZERO),
-        "primitive consumer must use the entire matched flywheel charge"
+    let stored_after = state
+        .energy()
+        .get_store(drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("power-provider primitive drive disappeared after work"));
+    assert!(
+        stored_after
+            <= stored_before
+                .checked_sub(Energy::from_nanojoules(requested_nj))
+                .unwrap_or_else(|| panic!("primitive consumer spent unavailable stored work")),
+        "primitive consumer must debit its exact work plus any elapsed passive loss while preserving residual stored work"
     );
     ticks
 }

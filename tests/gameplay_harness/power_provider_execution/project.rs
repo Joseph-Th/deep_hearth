@@ -35,6 +35,71 @@ impl ProjectExecutionResources {
     }
 }
 
+pub(super) fn charge_store_to_maximum_destination(
+    registries: &Registries,
+    state: &mut AppState,
+    method: ManualPowerMethodId,
+    equipment: EquipmentId,
+    store: EnergyStoreId,
+    energy_limit: Energy,
+    context: &'static str,
+) -> ChargeOutcome {
+    let envelope = assess_manual_power_energy_envelope(
+        registries,
+        state,
+        ManualPowerEnergyEnvelopeRequest::new(method, equipment, store, energy_limit),
+    )
+    .unwrap_or_else(|error| {
+        panic!("power provider {context} maximum-destination planning failed: {error}")
+    });
+    let generated = envelope.energy_for_maximum_destination();
+    assert!(
+        !generated.is_zero(),
+        "power provider {context} requested a recharge when no positive generation is currently feasible"
+    );
+    let expected_destination = envelope.maximum_destination_energy();
+    let before = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("power provider {context} lost the player before charging"));
+    let charge = validate_start_manual_power(
+        registries,
+        state,
+        ManualPowerRequest::new(method, equipment, store, generated),
+    )
+    .unwrap_or_else(|error| panic!("power provider {context} charge failed: {error}"));
+    let work = charge.work();
+    charge
+        .commit(state)
+        .unwrap_or_else(|error| panic!("power provider {context} charge commit failed: {error}"));
+    let attention_ticks = finish_manual_power_work(registries, state, work, context);
+    assert_eq!(
+        state
+            .energy()
+            .get_store(store)
+            .map(|record| record.stored()),
+        Some(expected_destination),
+        "power provider {context} maximum-destination projection diverged from executed stored work"
+    );
+    let after = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("power provider {context} lost the player after charging"));
+    let condition_after_ppm = state
+        .equipment()
+        .get_equipment(equipment)
+        .map(|record| record.condition().parts_per_million())
+        .unwrap_or_else(|| panic!("power provider {context} equipment disappeared"));
+    ChargeOutcome {
+        attention_ticks,
+        metabolic_nj: before
+            .metabolic_energy()
+            .nanojoules()
+            .checked_sub(after.metabolic_energy().nanojoules())
+            .unwrap_or_else(|| panic!("power provider {context} metabolic audit underflowed")),
+        hydration_ul: u128::from(before.hydration().microliters())
+            .checked_sub(u128::from(after.hydration().microliters()))
+            .unwrap_or_else(|| panic!("power provider {context} hydration audit underflowed")),
+        condition_after_ppm,
+    }
+}
+
 pub(in super::super) struct ChargeOutcome {
     pub(in super::super) attention_ticks: u64,
     pub(in super::super) metabolic_nj: u128,

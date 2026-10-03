@@ -1,6 +1,6 @@
 //! Matched primitive and settlement human-power comparisons through canonical craft and charging.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use deep_hearth::content::gameplay_fixture::{seed_composed_lot, seed_lot};
 use deep_hearth::content::{
@@ -29,6 +29,7 @@ use super::manual_craft_topology_planning::manual_craft_topology_plan_for_output
 use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::physical_time::format_physical_duration;
+use super::primitive_workload::{STOCKPILE_WORK_ORDER_CYCLES, primitive_mining_cycle_mass};
 use super::seed::mix64;
 
 #[path = "power_provider_build.rs"]
@@ -52,7 +53,9 @@ use execution::{
 use planning::{
     PrimitivePowerChoice, PrimitivePowerPlan, SettlementPowerChoice, SettlementPowerPlan,
 };
-use planning::{PrimitivePowerProject, primitive_power_plan, settlement_power_plan};
+use planning::{
+    PrimitivePowerProject, SettlementCopperPolicy, primitive_power_plan, settlement_power_plan,
+};
 use provisioning::seed_power_project_provisions;
 
 fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
@@ -64,6 +67,39 @@ fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
             CapitalInvestmentPolicy::from_behavior_seed(
                 case.required_behavior_seed("power-provider investment policy"),
             )
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn primitive_frontier_label(frontier: &[(u64, PrimitivePowerChoice)]) -> String {
+    frontier
+        .iter()
+        .map(|(charges, choice)| format!("{charges}:{}", choice.label()))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[cfg(not(test))]
+fn settlement_frontier_label(frontier: &[(u64, SettlementPowerChoice)]) -> String {
+    frontier
+        .iter()
+        .map(|(charges, choice)| format!("{charges}:{}", choice.label()))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn settlement_copper_policy(case: FocusedProbeCase) -> SettlementCopperPolicy {
+    match case.role() {
+        FocusedProbeRole::MaintainedAnchor => SettlementCopperPolicy::SpendAvailable,
+        FocusedProbeRole::MaintainedCoverage => SettlementCopperPolicy::PreserveForOtherUses,
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            let behavior = case.required_behavior_seed("settlement power copper policy");
+            if mix64(behavior ^ 0x5345_5454_5F43_4F50).is_multiple_of(2) {
+                SettlementCopperPolicy::SpendAvailable
+            } else {
+                SettlementCopperPolicy::PreserveForOtherUses
+            }
         }
     }
 }
@@ -252,11 +288,11 @@ pub(super) fn declared_primitive_crushing_project(
     registries: &Registries,
     seed: u64,
     store_definition: EnergyStoreDefinitionId,
-    baseline_crossover_charges: Option<u64>,
 ) -> (Mass, Energy) {
-    // Center organic work around the current baseline provider crossover when one exists; if the
-    // disclosed opportunity never repays the upgrade, sample that finite opportunity directly.
-    // The world seed owns workload while the independent behavior seed owns actor policy.
+    // Ordinary primitive power should resemble the current progression loop, not a synthetic
+    // provider-crossover benchmark. Vary around the authored twelve-cycle stockpiling horizon up
+    // to the progression probe's bounded two-horizon repeat window. The complete provider frontier
+    // remains reportable separately without manufacturing multi-day primitive campaigns.
     let definition = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -265,24 +301,22 @@ pub(super) fn declared_primitive_crushing_project(
         .energy()
         .get_store(store_definition)
         .unwrap_or_else(|| panic!("primitive power project accumulator disappeared"));
-    let mass_per_charge = deep_hearth::energy::calculate_mass_specific_energy_capacity(
-        store.capacity(),
+    let cycle_mass = primitive_mining_cycle_mass(registries, seed);
+    let cycle_work = deep_hearth::energy::calculate_mass_specific_energy(
+        cycle_mass,
         definition.specific_energy(),
     );
     assert!(
-        !mass_per_charge.is_zero(),
-        "primitive accumulator must fund positive crusher work"
+        !cycle_work.is_zero() && cycle_work <= store.capacity(),
+        "ordinary primitive mining cycle must fit the current baseline accumulator"
     );
-    let charges = sampled_workload_units(
-        seed,
-        baseline_crossover_charges,
-        maximum_sampled_workload_units(planning::primitive_crossover_search_limit()),
-        0x5052_494D_5F4F_5245,
-    );
+    const MIN_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2 / 3;
+    const MAX_CYCLES: u64 = STOCKPILE_WORK_ORDER_CYCLES * 2;
+    let cycles = MIN_CYCLES + mix64(seed ^ 0x5052_494D_5F4F_5245) % (MAX_CYCLES - MIN_CYCLES + 1);
     let mass = Mass::from_milligrams(
-        mass_per_charge
+        cycle_mass
             .milligrams()
-            .checked_mul(charges)
+            .checked_mul(cycles)
             .unwrap_or_else(|| panic!("primitive power project mass overflowed")),
     );
     (
@@ -294,10 +328,11 @@ pub(super) fn declared_primitive_crushing_project(
 pub(super) fn declared_settlement_lumber_project(
     registries: &Registries,
     seed: u64,
-    baseline_crossover_charges: Option<u64>,
+    market_regime_starts: &[u64],
 ) -> (Mass, Energy) {
-    // Settlement demand uses the same world-only crossover/opportunity sampling discipline as the
-    // primitive project. Each unit is one current full flywheel-bank workload.
+    // Settlement demand samples the union of current spend-copper and preserve-copper market
+    // regimes. This makes copper opportunity cost visible without allowing behavior policy to
+    // choose its own workload. Each unit is one current full flywheel-bank workload.
     let store = registries
         .energy()
         .get_store(ENERGY_TIMBER_FRAME_FLYWHEEL_BANK)
@@ -316,7 +351,7 @@ pub(super) fn declared_settlement_lumber_project(
     );
     let bank_workloads = sampled_workload_units(
         seed,
-        baseline_crossover_charges,
+        market_regime_starts,
         maximum_sampled_workload_units(planning::settlement_crossover_search_limit()),
         0x5345_5454_5F4C_554D,
     );
@@ -334,7 +369,7 @@ pub(super) fn declared_settlement_lumber_project(
 
 fn sampled_workload_units(
     seed: u64,
-    crossover: Option<u64>,
+    regime_starts: &[u64],
     opportunity_units: u64,
     salt: u64,
 ) -> u64 {
@@ -342,14 +377,38 @@ fn sampled_workload_units(
         opportunity_units > 0,
         "power-provider workload opportunity must be nonzero"
     );
-    let Some(crossover) = crossover else {
+    if regime_starts.is_empty() {
         return 1 + mix64(seed ^ salt) % opportunity_units;
-    };
-    assert!(crossover > 0, "power-provider crossover must be positive");
-    let spread = (crossover / 2).max(1);
-    let lower = crossover.saturating_sub(spread).max(1);
-    let upper = crossover.saturating_add(spread).min(opportunity_units);
-    lower + mix64(seed ^ salt) % (upper - lower + 1)
+    }
+    assert_eq!(
+        regime_starts.first().copied(),
+        Some(1),
+        "power-provider market regimes must begin at one workload"
+    );
+    assert!(
+        regime_starts.windows(2).all(|window| window[0] < window[1]),
+        "power-provider market regime starts must be strictly increasing"
+    );
+    let mixed = mix64(seed ^ salt);
+    let regime_index = usize::try_from(mixed % regime_starts.len() as u64)
+        .unwrap_or_else(|_| unreachable!("bounded regime index fits usize"));
+    let lower = regime_starts[regime_index];
+    assert!(
+        lower <= opportunity_units,
+        "power-provider market regime begins beyond disclosed opportunity"
+    );
+    let upper = regime_starts
+        .get(regime_index + 1)
+        .map_or_else(
+            || {
+                lower
+                    .saturating_add((lower / 2).max(4))
+                    .min(opportunity_units)
+            },
+            |next| next.saturating_sub(1).min(opportunity_units),
+        )
+        .max(lower);
+    lower + mix64(mixed ^ 0x574F_524B_4C4F_4144) % (upper - lower + 1)
 }
 
 fn maximum_sampled_workload_units(search_limit: u64) -> u64 {
@@ -468,22 +527,9 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         .get_store(store_definition)
         .map(|definition| definition.capacity().nanojoules())
         .unwrap_or_else(|| panic!("power provider flywheel definition disappeared"));
-    let primitive_process = registries
-        .ore_processing()
-        .get_comminution(PROCESS_CRUSH_ORE)
-        .unwrap_or_else(|| panic!("primitive power project crusher process disappeared"));
-    let primitive_mass_per_charge = deep_hearth::energy::calculate_mass_specific_energy_capacity(
-        Energy::from_nanojoules(capacity_nj),
-        primitive_process.specific_energy(),
-    );
-    let primitive_available_mass = Mass::from_milligrams(
-        primitive_mass_per_charge
-            .milligrams()
-            .checked_mul(maximum_sampled_workload_units(
-                planning::primitive_crossover_search_limit(),
-            ))
-            .unwrap_or_else(|| panic!("primitive power available workload overflowed")),
-    );
+    let (primitive_project_mass, primitive_project_work) =
+        declared_primitive_crushing_project(registries, seed, store_definition);
+    let primitive_available_mass = primitive_project_mass;
     let primitive_feed = add_solid_stockpile(&mut state, primitive_available_mass);
     let primitive_output = add_solid_stockpile(&mut state, primitive_available_mass);
     // Service and shaping buffers are not the pressure under test. Bound them by the finite raw
@@ -516,22 +562,6 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &[primitive_provisions.water],
         "primitive power-provider",
     );
-    let baseline_primitive_crossover = planning::primitive_power_decision_crossover_charges(
-        registries,
-        &state,
-        raw,
-        shaped,
-        store_definition,
-        capacity_nj,
-        CapitalInvestmentPolicy::baseline(),
-    );
-    let (primitive_project_mass, primitive_project_work) = declared_primitive_crushing_project(
-        registries,
-        seed,
-        store_definition,
-        baseline_primitive_crossover,
-    );
-    assert!(primitive_project_mass <= primitive_available_mass);
     let primitive_consumer = build_primitive_power_consumer(
         registries,
         &mut state,
@@ -560,6 +590,16 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             declared_mass: primitive_project_mass,
             declared_work_nj: primitive_project_work.nanojoules(),
         },
+        investment_policy,
+    );
+    #[cfg(not(test))]
+    let primitive_frontier = planning::primitive_power_decision_frontier(
+        registries,
+        &state,
+        raw,
+        shaped,
+        store_definition,
+        capacity_nj,
         investment_policy,
     );
     assert_eq!(
@@ -647,16 +687,33 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         &[settlement_provisions.water],
         "settlement power-provider",
     );
-    let baseline_settlement_crossover = planning::settlement_power_decision_crossover_charges(
+    let baseline_settlement_spend_frontier = planning::settlement_power_decision_frontier(
         registries,
         &settlement_state,
         settlement_raw,
         settlement_shaped,
         settlement_capacity_nj,
+        SettlementCopperPolicy::SpendAvailable,
         CapitalInvestmentPolicy::baseline(),
     );
+    let baseline_settlement_preserve_frontier = planning::settlement_power_decision_frontier(
+        registries,
+        &settlement_state,
+        settlement_raw,
+        settlement_shaped,
+        settlement_capacity_nj,
+        SettlementCopperPolicy::PreserveForOtherUses,
+        CapitalInvestmentPolicy::baseline(),
+    );
+    let settlement_market_regimes = baseline_settlement_spend_frontier
+        .iter()
+        .chain(&baseline_settlement_preserve_frontier)
+        .map(|(charges, _)| *charges)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
     let (settlement_project_mass, settlement_project_work) =
-        declared_settlement_lumber_project(registries, seed, baseline_settlement_crossover);
+        declared_settlement_lumber_project(registries, seed, &settlement_market_regimes);
     assert!(settlement_project_mass <= settlement_available_mass);
     let settlement_consumer = build_settlement_power_consumer(
         registries,
@@ -672,6 +729,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_fluid_before = calculate_fluid_volume_accounting(&settlement_state)
         .unwrap_or_else(|error| panic!("settlement power initial fluid audit failed: {error}"))
         .total();
+    let copper_policy = settlement_copper_policy(case);
     let settlement_plan = settlement_power_plan(
         registries,
         &settlement_state,
@@ -682,6 +740,17 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             declared_mass: settlement_project_mass,
             declared_work_nj: settlement_project_work.nanojoules(),
         },
+        copper_policy,
+        investment_policy,
+    );
+    #[cfg(not(test))]
+    let settlement_frontier = planning::settlement_power_decision_frontier(
+        registries,
+        &settlement_state,
+        settlement_raw,
+        settlement_shaped,
+        settlement_capacity_nj,
+        copper_policy,
         investment_policy,
     );
     assert_eq!(
@@ -860,6 +929,11 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         }
     };
     #[cfg(not(test))]
+    let primitive_selected_attention_gap = primitive_selected
+        .active_attention_ticks()
+        .checked_sub(primitive_actual_attention_minimum)
+        .unwrap_or_else(|| unreachable!("minimum primitive attention cannot exceed selected arm"));
+    #[cfg(not(test))]
     let settlement_actual_attention_minimum = [
         settlement_stone_project.active_attention_ticks(),
         settlement_copper_project.active_attention_ticks(),
@@ -901,13 +975,61 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         }
     };
     #[cfg(not(test))]
+    let settlement_allowed_attention = [
+        (SettlementPowerChoice::StoneCrank, settlement_stone_project),
+        (
+            SettlementPowerChoice::CopperCrank,
+            settlement_copper_project,
+        ),
+        (SettlementPowerChoice::Treadle, settlement_treadle_project),
+        (
+            SettlementPowerChoice::TreadleDynamo,
+            settlement_treadle_dynamo_project,
+        ),
+        (
+            SettlementPowerChoice::WalkingWheel,
+            settlement_walking_project,
+        ),
+    ]
+    .into_iter()
+    .filter(|(choice, _)| {
+        copper_policy == SettlementCopperPolicy::SpendAvailable || !choice.uses_copper(registries)
+    })
+    .collect::<Vec<_>>();
+    #[cfg(not(test))]
+    let settlement_allowed_attention_minimum = settlement_allowed_attention
+        .iter()
+        .map(|(_, outcome)| outcome.active_attention_ticks())
+        .min()
+        .unwrap_or_else(|| unreachable!("settlement copper policy leaves playable providers"));
+    #[cfg(not(test))]
+    let settlement_allowed_attention_best = {
+        let best = settlement_allowed_attention
+            .iter()
+            .filter(|(_, outcome)| {
+                outcome.active_attention_ticks() == settlement_allowed_attention_minimum
+            })
+            .map(|(choice, _)| *choice)
+            .collect::<Vec<_>>();
+        if best.len() == 1 {
+            best[0].label()
+        } else {
+            "tie"
+        }
+    };
+    #[cfg(not(test))]
+    let settlement_selected_attention_gap = settlement_selected
+        .active_attention_ticks()
+        .checked_sub(settlement_allowed_attention_minimum)
+        .unwrap_or_else(|| unreachable!("allowed settlement minimum cannot exceed selected arm"));
+    #[cfg(not(test))]
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive selected={} declared=[work:{}nJ pristine-charge-events:{} consumer-projected-charge-events:{} consumer-projected-services:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} selected-agrees:{}] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=primitive selected={} declared=[work:{}nJ pristine-charge-events:{} consumer-projected-batches:{} consumer-projected-services:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[crank-active-attention:{}t treadle-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
         case.role().label(),
         plan.choice.label(),
         plan.declared_work_nj,
         plan.charge_events,
-        plan.consumer_projected_charge_events,
+        plan.consumer_projected_batches,
         plan.consumer_projected_services,
         primitive_provisions.food_supply_mg,
         primitive_provisions.food_preservation_ppm,
@@ -938,13 +1060,14 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         primitive_treadle_project.active_attention_ticks(),
         primitive_walking_project.active_attention_ticks(),
         primitive_actual_attention_best,
-        primitive_selected.active_attention_ticks() == primitive_actual_attention_minimum,
+        primitive_selected_attention_gap,
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement selected={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[stone-crank-active-attention:{}t copper-crank-active-attention:{}t treadle-active-attention:{}t treadle-dynamo-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} selected-agrees:{}] evidence=complete-selected-project-canonical",
+        "POWER PROJECT EXPERIENCE seed=0x{seed:016X} sample={} era=settlement selected={} copper-policy={} declared=[work:{}nJ pristine-charge-events:{} project-cache=[food:{}mg preservation:{}ppm water:{}uL]] executed=[charge-events:{} survival-limited-batches:{} active-attention:{}t provider-attention:{}t consumer-runtime:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg] provisioning=[stops:{} attention:{}t drinks:{} volume:{}uL meals:{} mass:{}mg] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL]] condition=[provider:{}ppm consumer:{}ppm] full-counterfactual=[stone-crank-active-attention:{}t copper-crank-active-attention:{}t treadle-active-attention:{}t treadle-dynamo-active-attention:{}t walking-wheel-active-attention:{}t attention-best:{} allowed-attention-best:{} selected-attention-gap:{}t] evidence=complete-selected-project-canonical",
         case.role().label(),
         settlement_plan.choice.label(),
+        copper_policy.label(),
         settlement_plan.declared_work_nj,
         settlement_plan.charge_events,
         settlement_provisions.food_supply_mg,
@@ -978,7 +1101,8 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_treadle_dynamo_project.active_attention_ticks(),
         settlement_walking_project.active_attention_ticks(),
         settlement_actual_attention_best,
-        settlement_selected.active_attention_ticks() == settlement_actual_attention_minimum,
+        settlement_allowed_attention_best,
+        settlement_selected_attention_gap,
     );
 
     // Matched arms inherit the same actor-visible state. Execution owns projection agreement,
@@ -1078,23 +1202,21 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_break_even_charges =
         settlement_build_attention_delta.div_ceil(settlement_charge_saving);
     #[cfg(not(test))]
-    let settlement_decision_crossover = settlement_plan.decision_crossover_charges.map_or_else(
-        || "none-within-opportunity".to_owned(),
-        |charges| format!("{charges}charges"),
-    );
+    let settlement_market_frontier = settlement_frontier_label(&settlement_frontier);
     assert_eq!(
         settlement_plan.declared_work_nj,
         settlement_project_work.nanojoules()
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges wear-aware-decision-crossover:{} provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
+        "POWER SETTLEMENT seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:powered-saw feed:{}mg work:{}nJ charge-events:{}] buffer:{}nJ decision=[selected:{} copper-policy:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-treadle:{}t projected-attention-walking:{}t choice-frozen-before-action:true] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] walking-wheel=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:powered-saw treadle:{}t walking:{}t] projected-provider-lifecycle=[treadle:body:{}nJ/{}uL condition:{}ppm walking-wheel:body:{}nJ/{}uL condition:{}ppm] comparison=[charge-saving:{}t metabolic-saving:{}nJ pristine-rate-break-even:{}charges market-frontier:{} provider-lifecycle=condition-carried-no-service] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw] matter=conserved",
         case.role().label(),
         settlement_project_mass.milligrams(),
         settlement_project_work.nanojoules(),
         settlement_plan.charge_events,
         settlement_capacity_nj,
         settlement_plan.choice.label(),
+        copper_policy.label(),
         settlement_plan.minimum_return_ppm,
         settlement_plan.minimum_attention_return_ticks,
         settlement_plan.treadle_lifecycle_attention,
@@ -1135,7 +1257,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             .checked_sub(walking_charge.metabolic_nj)
             .unwrap_or_else(|| panic!("walking wheel must reduce charge metabolism")),
         settlement_break_even_charges,
-        settlement_decision_crossover,
+        settlement_market_frontier,
         settlement_selected.charge_events,
         settlement_selected.provider_attention_ticks,
         settlement_selected.consumer_ticks,
@@ -1205,10 +1327,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     #[cfg(not(test))]
     let break_even_charges = build_attention_delta_ticks.div_ceil(charge_saving_per_job_ticks);
     #[cfg(not(test))]
-    let decision_crossover = plan.decision_crossover_charges.map_or_else(
-        || "none-within-opportunity".to_owned(),
-        |charges| charges.to_string(),
-    );
+    let primitive_market_frontier = primitive_frontier_label(&primitive_frontier);
     assert_eq!(plan.declared_work_nj, primitive_project_work.nanojoules());
     let crank_package = crank_build.checked_add(crank_drive_build, "crank package");
     let treadle_package = treadle_build.checked_add(treadle_drive_build, "treadle package");
@@ -1254,12 +1373,12 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     );
     #[cfg(not(test))]
     reviewln!(
-        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ buffer-lower-bound-charges:{} consumer-projected-charges:{} projected-services:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} wear-aware-decision-crossover:{} provider-lifecycle=consumer-batches+provider-condition] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
+        "POWER PROVIDER EXPERIENCE seed=0x{seed:016X} sample={} workload-source=declared-consumer-project project=[consumer:stone-crusher feed:{}mg work:{}nJ buffer-lower-bound-charges:{} consumer-projected-batches:{} projected-services:{}] buffer:{}nJ decision=[selected:{} policy=attention-first-with-minimum-investment-return minimum-return:{}ppm minimum-attention-return:{}t projected-attention-crank:{}t projected-attention-treadle:{}t choice-frozen-before-action:true] crank=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] treadle=[build:{}mg attention:{}t build-body:{}nJ/{}uL first-charge:{}t second-charge:{}t metabolic:{}nJ hydration:{}uL condition:{}ppm] productive-cycle=[consumer:stone-crusher crank:{}t treadle:{}t] projected-provider-lifecycle=[crank:body:{}nJ/{}uL condition:{}ppm treadle:body:{}nJ/{}uL condition:{}ppm] comparison=[basis:matched-starting-state charge-attention-reduction:{}ppm build-mass-crank:{}mg build-mass-treadle:{}mg metabolic-crank:{}nJ metabolic-treadle:{}nJ build-attention-crank:{}t build-attention-treadle:{}t charge-crank:{}t charge-treadle:{}t charge-saving:{}t pristine-rate-break-even:{} market-frontier:{} provider-lifecycle=consumer-batches+provider-condition] selected-project=[charge-events:{} provider-attention:{}t consumer:{}t maintenance=[services:{} preparation:{}t service:{}t replacement:{}mg policy:service-at-critical] elapsed:{}t reserves=[start:{}nJ/{}uL end:{}nJ/{}uL] provider-condition:{}ppm consumer-condition:{}ppm] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:stone-crusher] matter=conserved",
         case.role().label(),
         primitive_project_mass.milligrams(),
         primitive_project_work.nanojoules(),
         plan.charge_events,
-        plan.consumer_projected_charge_events,
+        plan.consumer_projected_batches,
         plan.consumer_projected_services,
         capacity_nj,
         plan.choice.label(),
@@ -1304,7 +1423,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         treadle_charge.attention_ticks,
         charge_saving_per_job_ticks,
         break_even_charges,
-        decision_crossover,
+        primitive_market_frontier,
         primitive_selected.charge_events,
         primitive_selected.provider_attention_ticks,
         primitive_selected.consumer_ticks,

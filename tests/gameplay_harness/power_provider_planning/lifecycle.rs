@@ -5,7 +5,6 @@ use deep_hearth::energy::EnergyStoreDefinitionId;
 use deep_hearth::equipment::EquipmentDefinitionId;
 use deep_hearth::labor::{ManualPowerMethodId, ManualPowerProjection, project_manual_power};
 use deep_hearth::maintenance::Condition;
-use deep_hearth::ore_processing::PoweredOreOrderBatch;
 use deep_hearth::registry::Registries;
 
 #[derive(Clone, Copy)]
@@ -153,23 +152,33 @@ impl ManualPowerRoute {
         lifecycle.finish()
     }
 
-    pub(super) fn project_lifecycle_batches(
+    /// Projects cumulative full-buffer lifecycle costs once per charge count.
+    ///
+    /// Market-frontier discovery asks the same route about many adjacent horizons. Replaying the
+    /// whole lifecycle from pristine condition for every horizon would turn an O(n) gameplay
+    /// question into O(n²) harness work. Carry the canonical projected condition forward once and
+    /// retain each cumulative result instead.
+    pub(super) fn project_full_charge_series(
         self,
         registries: &Registries,
-        batches: &[PoweredOreOrderBatch],
-    ) -> ManualPowerLifecycleCost {
+        maximum_charges: u64,
+    ) -> Vec<ManualPowerLifecycleCost> {
         assert!(
-            !batches.is_empty(),
-            "power-provider {} lifecycle requires at least one consumer batch",
+            maximum_charges > 0,
+            "power-provider {} frontier requires at least one charge",
             self.context
         );
         let mut lifecycle = LifecycleAccumulator::empty();
-        for batch in batches {
-            let charge =
-                self.project_requested(registries, lifecycle.condition, batch.required_energy());
+        let mut series = Vec::with_capacity(
+            usize::try_from(maximum_charges)
+                .unwrap_or_else(|_| panic!("power-provider frontier exceeds usize")),
+        );
+        for _ in 0..maximum_charges {
+            let charge = self.project(registries, lifecycle.condition);
             lifecycle.record_charge(charge, self.context);
+            series.push(lifecycle.finish());
         }
-        lifecycle.finish()
+        series
     }
 }
 

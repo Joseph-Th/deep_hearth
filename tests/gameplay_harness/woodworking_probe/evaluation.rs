@@ -143,12 +143,11 @@ fn adze_reinforcement_native_copper(registries: &Registries) -> Mass {
     let batches = reinforcement_required
         .milligrams()
         .div_ceil(reinforcement_per_batch.milligrams());
-    let native_per_upgrade = checked_mass_times(
+    checked_mass_times(
         reinforcement_craft.input_mass(),
         batches,
         "future adze reinforcement reserve",
-    );
-    native_per_upgrade
+    )
 }
 
 fn protected_future_copper_reserve(registries: &Registries) -> Mass {

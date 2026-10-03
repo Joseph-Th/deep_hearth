@@ -57,6 +57,15 @@ def _choice_counts_text(counts: dict[str, int]) -> str:
     return " ".join(f"{provider}:{count}" for provider, count in selected) or "none"
 
 
+def _market_regime_counts(lines: list[str]) -> list[int]:
+    counts: list[int] = []
+    for line in lines:
+        match = re.search(r"\bmarket-frontier:([a-z0-9,:-]+)", line)
+        if match is not None:
+            counts.append(len(match.group(1).split(",")))
+    return counts
+
+
 def _selected_project_mass(
     lines: list[str],
     consumer: str,
@@ -158,7 +167,7 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
         "charge_events": [],
         "wear_projected_extra_charge_events": [],
         "unplanned_extra_charge_events": [],
-        "attention_regret": [],
+        "attention_gap": [],
         "limited_batches": [],
         "attention": [],
         "services": [],
@@ -175,6 +184,7 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
         "water": [],
     }
     patterns = {
+        "attention_gap": r"selected-attention-gap:(\d+)t",
         "pristine_charge_events": r"pristine-charge-events:(\d+)",
         "charge_events": r"executed=\[charge-events:(\d+)",
         "limited_batches": r"survival-limited-batches:(\d+)",
@@ -229,15 +239,6 @@ def _project_experience(lines: list[str], era: str) -> dict[str, list[int]]:
                     (maintenance_ticks * 100 + active_ticks // 2) // active_ticks
                 )
 
-        selected_provider = re.search(r"\bselected=([^\s]+)", line)
-        provider_attention = _counterfactual_provider_attention(line)
-        if selected_provider is not None and provider_attention:
-            chosen = provider_attention.get(selected_provider.group(1))
-            if chosen is not None:
-                values["attention_regret"].append(chosen - min(provider_attention.values()))
-    values["selected_agrees"] = [
-        1 if "selected-agrees:true" in line else 0 for line in selected
-    ]
     values["samples"] = [len(selected)]
     return values
 
@@ -257,9 +258,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
     minimum_attention_return = _numeric_values(
         power, r"minimum-attention-return:(\d+)t"
     )
-    decision_crossovers = _numeric_values(
-        power, r"wear-aware-decision-crossover:(\d+)"
-    )
+    market_regimes = _market_regime_counts(power)
     project_mass = _numeric_values(
         power, r"project=\[consumer:stone-crusher feed:(\d+)mg"
     )
@@ -308,7 +307,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"share:{_span(lived['maintenance_active_share_percent'], '%')} "
         f"provisioning:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
-        f"decision-crossover-charges={_span(decision_crossovers)} "
+        f"market-regimes={_span(market_regimes)} "
         f"pristine-rate-break-even={_span(pristine_break_evens)} "
         f"investment-policy-return={_span(policy_returns, 'ppm')} "
         f"minimum-investment-return={_span(minimum_attention_return, 't')} "
@@ -329,8 +328,7 @@ def _primitive_evidence(power: list[str], projects: list[str]) -> str:
         f"consumer-duration:{_span(consumer_ticks, 't')} "
         f"carried-state-recharge:{second_charge_pairs}/{len(power)}] "
         f"lived-project=[executed:{lived_samples}/{len(power)} "
-        f"choice-agrees:{sum(lived['selected_agrees'])}/{lived_samples} "
-        f"attention-regret:{_span(lived['attention_regret'], 't')} "
+        f"selected-attention-gap:{_span(lived['attention_gap'], 't')} "
         f"charge-events:{_span(lived['charge_events'])} "
         f"consumer-projected-charges:{_span(lived['projected_charge_events'])} "
         f"wear-projected-extra-charges:{_span(lived['wear_projected_extra_charge_events'])} "
@@ -371,8 +369,10 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
     pristine_break_evens = _numeric_values(
         settlement, r"pristine-rate-break-even:(\d+)charges"
     )
-    decision_crossovers = _numeric_values(
-        settlement, r"wear-aware-decision-crossover:(\d+)charges"
+    market_regimes = _market_regime_counts(settlement)
+    spend_copper = sum(" copper-policy:spend-available " in line for line in settlement)
+    preserve_copper = sum(
+        " copper-policy:preserve-for-other-uses " in line for line in settlement
     )
     lifecycle = _lifecycle_values(settlement, "treadle", "walking-wheel")
     executed_cycles, projected_horizons, consumer_ticks, second_charge_pairs = (
@@ -403,7 +403,8 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"share:{_span(lived['maintenance_active_share_percent'], '%')} "
         f"provisioning:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
-        f"settlement-decision-crossover-charges={_span(decision_crossovers)} "
+        f"settlement-copper-policy=[spend:{spend_copper} preserve:{preserve_copper}] "
+        f"settlement-regimes={_span(market_regimes)} "
         f"settlement-pristine-rate-break-even={_span(pristine_break_evens)} "
         f"settlement-investment-policy-return={_span(policy_returns, 'ppm')} "
         f"settlement-load=[treadle:{scaled_span(treadle_load, 1_000_000, 'kg')} "
@@ -418,8 +419,7 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"consumer-duration:{_span(consumer_ticks, 't')} "
         f"carried-state-recharge:{second_charge_pairs}/{len(settlement)}] "
         f"settlement-lived-project=[executed:{lived_samples}/{len(settlement)} "
-        f"choice-agrees:{sum(lived['selected_agrees'])}/{lived_samples} "
-        f"attention-regret:{_span(lived['attention_regret'], 't')} "
+        f"selected-attention-gap:{_span(lived['attention_gap'], 't')} "
         f"charge-events:{_span(lived['charge_events'])} "
         f"unplanned-extra-charges:{_span(lived['unplanned_extra_charge_events'])} "
         f"survival-limited-batches:{_span(lived['limited_batches'])} "
