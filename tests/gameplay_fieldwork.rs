@@ -5,10 +5,20 @@
 mod output;
 
 macro_rules! include_fieldwork_contract_tests {
-    () => {};
+    () => {
+        #[path = "fieldwork_probe/planning_tests.rs"]
+        mod planning_tests;
+        #[path = "fieldwork_probe/retooling_tests.rs"]
+        mod retooling_tests;
+        #[path = "fieldwork_probe/supply_tests.rs"]
+        mod supply_tests;
+    };
 }
 macro_rules! include_fieldwork_campaign_contract_tests {
-    () => {};
+    () => {
+        #[path = "campaign_tests.rs"]
+        mod tests;
+    };
 }
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
@@ -52,12 +62,16 @@ mod manual_ore_recovery;
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
+#[path = "gameplay_harness/persistence_timing.rs"]
+mod persistence_timing;
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/primitive_workload.rs"]
 mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/prospecting_instrument_contract_tests.rs"]
+mod prospecting_instrument_contract_tests;
 #[path = "gameplay_harness/prospecting_timing.rs"]
 mod prospecting_timing;
 #[path = "gameplay_harness/seed.rs"]

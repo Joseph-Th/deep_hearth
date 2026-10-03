@@ -81,9 +81,9 @@ Avoid assertions on error prose, wall-clock timing, incidental order/count, or c
 
 ## Gameplay evaluation
 
-Split owner contract targets only when controlled post-edit timings show a real iteration win; source size is diagnostic, not build-speed proof. Progression, settlement, and woodworking retain measured splits. Fieldwork keeps integrated contracts in its focused target, while its pure shortfall policy has a measured lightweight contract target. Workshop, survival, ore, and foundry keep nearby contracts in their focused target. All gameplay targets share `test-gameplay`.
+Each gameplay scope owns one focused test artifact containing its probe and nearby owner contracts. Exact tests and suites still select only requested bodies, while probe/contract work in one scope reuses the same compiled target. Split only for a genuinely different graph and only when measured post-edit timing shows a net iteration win. All gameplay targets share `test-gameplay`.
 
-`gate --gameplay contracts` is the small cross-scope contract target. Exact owner contracts resolve through `run_test.py` to their purpose-built target. Scoped reports reuse focused artifacts where faithful; the cross-system report owns the complete report graph.
+`gate --gameplay contracts` is the small cross-scope contract target. Exact owner contracts resolve through `run_test.py` to their focused target. Scoped reports reuse focused artifacts when faithful; keep report-only examples only to exclude formatter/narration code from hot tests. The cross-system report owns the complete report graph.
 
 Routine gameplay runs maintained witnesses plus one fresh replayable case. Explicit roots reproduce failures; reports use broader bounded exploration. Gates stay quiet on success, failures print a narrow reproduction command, and reports retain replay inputs. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
 

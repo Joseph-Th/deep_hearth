@@ -97,7 +97,12 @@ pub(super) fn manual_craft_topology_plan_with_equipment<'a>(
                         panic!("commodity handbook exposed an unknown manual process")
                     }),
             ),
-            _ => None,
+            CommoditySource::EquipmentDisassembly { .. }
+            | CommoditySource::EnergyStoreDisassembly { .. }
+            | CommoditySource::StorageDismantling { .. }
+            | CommoditySource::EquipmentMaintenanceSpent { .. }
+            | CommoditySource::OreProcessing { .. }
+            | CommoditySource::ThermalPhaseChange { .. } => None,
         })
         .filter_map(|definition| {
             if !allowed_inputs.contains(&definition.input()) {

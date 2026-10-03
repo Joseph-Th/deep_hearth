@@ -69,6 +69,9 @@ mod recovery;
 mod preparation;
 use preparation::{assemble_fieldwork_tool, assemble_sampling_hammer};
 
+#[cfg(test)]
+#[path = "fieldwork_shortfall_policy_tests.rs"]
+mod fieldwork_shortfall_policy_tests;
 #[path = "fieldwork_probe/retooling.rs"]
 mod retooling;
 #[path = "fieldwork_shortfall_policy.rs"]

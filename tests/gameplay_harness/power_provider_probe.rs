@@ -358,10 +358,7 @@ fn sampled_workload_units(
     assert!(crossover > 0, "power-provider crossover must be positive");
     let spread = (crossover / 2).max(1);
     let lower = crossover.saturating_sub(spread).max(1);
-    let upper = crossover
-        .checked_add(spread)
-        .unwrap_or(u64::MAX)
-        .min(opportunity_units);
+    let upper = crossover.saturating_add(spread).min(opportunity_units);
     lower + mix64(seed ^ salt) % (upper - lower + 1)
 }
 

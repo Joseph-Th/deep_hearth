@@ -228,11 +228,9 @@ pub(super) fn run_fieldwork_knowledge_experience(registries: &Registries, seed: 
         .filter_map(|steps| crossover_mg.checked_sub(steps * core_resolution_mg))
         .filter(|&actual_mg| {
             let hammer_upper = (actual_mg / detailed_resolution_mg + 1)
-                .checked_mul(detailed_resolution_mg)
-                .unwrap_or(u64::MAX);
+                .saturating_mul(detailed_resolution_mg);
             let core_upper = (actual_mg / core_resolution_mg + 1)
-                .checked_mul(core_resolution_mg)
-                .unwrap_or(u64::MAX);
+                .saturating_mul(core_resolution_mg);
             hammer_upper >= crossover_mg && core_upper < crossover_mg
         })
         .min()

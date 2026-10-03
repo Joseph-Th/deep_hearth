@@ -2,7 +2,7 @@
 
 use deep_hearth::core::quantity::Mass;
 
-use super::fieldwork_shortfall_policy::{
+use super::shortfall_policy::{
     InitialShortfallTerminal, demand_sized_followup_sites, shortfall_terminal,
 };
 

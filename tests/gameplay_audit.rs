@@ -67,10 +67,6 @@ mod environment;
 mod equipment_support;
 #[path = "gameplay_harness/fieldwork_probe.rs"]
 mod fieldwork_probe;
-#[path = "gameplay_harness/fieldwork_shortfall_policy.rs"]
-mod fieldwork_shortfall_policy;
-#[path = "gameplay_harness/fieldwork_shortfall_policy_tests.rs"]
-mod fieldwork_shortfall_policy_tests;
 #[path = "gameplay_harness/first_foundry_probe.rs"]
 mod first_foundry_probe;
 #[path = "gameplay_harness/focused_case.rs"]

@@ -38,6 +38,18 @@ struct PoweredLumberSequenceProjection {
     delegated_ticks: u64,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct PoweredLumberOrder {
+    pub(super) source: StockpileId,
+    pub(super) output: StockpileId,
+    pub(super) sawmill: EquipmentId,
+    pub(super) crank: EquipmentId,
+    pub(super) drive: EnergyStoreId,
+    pub(super) batch: AuthoredPoweredCraftBatch,
+    pub(super) batches: u64,
+    pub(super) context: &'static str,
+}
+
 pub(super) struct LumberFollowupInputs<'a> {
     pub(super) registries: &'a Registries,
     pub(super) state: &'a mut AppState,
@@ -201,15 +213,18 @@ fn project_owned_powered_lumber_sequence(
 pub(super) fn execute_powered_lumber_order(
     registries: &Registries,
     state: &mut AppState,
-    source: StockpileId,
-    output: StockpileId,
-    sawmill: EquipmentId,
-    crank: EquipmentId,
-    drive: EnergyStoreId,
-    batch: AuthoredPoweredCraftBatch,
-    batches: u64,
-    context: &'static str,
+    order: PoweredLumberOrder,
 ) -> (u64, u64) {
+    let PoweredLumberOrder {
+        source,
+        output,
+        sawmill,
+        crank,
+        drive,
+        batch,
+        batches,
+        context,
+    } = order;
     let mut attention = 0_u64;
     let mut delegated = 0_u64;
     for _ in 0..batches {
@@ -406,14 +421,16 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                 let (attention, delegated) = execute_powered_lumber_order(
                     registries,
                     state,
-                    work_source,
-                    output,
-                    sawmill,
-                    crank,
-                    drive,
-                    batch,
-                    powered_capacity,
-                    "settlement follow-up sawmill order",
+                    PoweredLumberOrder {
+                        source: work_source,
+                        output,
+                        sawmill,
+                        crank,
+                        drive,
+                        batch,
+                        batches: powered_capacity,
+                        context: "settlement follow-up sawmill order",
+                    },
                 );
                 let total_attention = attention
                     .checked_add(setup_attention)
@@ -518,14 +535,16 @@ pub(super) fn run_lumber_followup(inputs: LumberFollowupInputs<'_>) -> LumberFol
                 let (attention, delegated) = execute_powered_lumber_order(
                     registries,
                     state,
-                    work_source,
-                    output,
-                    frame_saw,
-                    crank,
-                    drive,
-                    batch,
-                    projection.batches,
-                    "settlement follow-up sawmill order",
+                    PoweredLumberOrder {
+                        source: work_source,
+                        output,
+                        sawmill: frame_saw,
+                        crank,
+                        drive,
+                        batch,
+                        batches: projection.batches,
+                        context: "settlement follow-up sawmill order",
+                    },
                 );
                 assert_eq!(
                     delegated, projection.delegated_ticks,

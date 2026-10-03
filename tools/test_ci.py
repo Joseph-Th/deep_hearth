@@ -36,25 +36,6 @@ from tools import (  # noqa: E402
 _source_text_cache: dict[Path, str] = {}
 _maintained_files_cache: dict[tuple[Path, ...], list[Path]] = {}
 
-DEDICATED_OWNER_CONTRACT_SCOPES = frozenset(
-    {
-        "fieldwork",
-        "progression",
-        "settlement",
-        "survival",
-        "woodworking",
-    }
-)
-
-
-def owner_contract_target(scope: str) -> str:
-    """Return the cheapest target that owns one scope's gameplay contracts."""
-
-    if scope in DEDICATED_OWNER_CONTRACT_SCOPES:
-        return f"gameplay_{scope}_contracts"
-    return ci.GAMEPLAY_TARGETS[scope]
-
-
 def read_maintained_text(path: Path) -> str:
     """Return cached source text; the working tree is static during one contract run."""
 
@@ -680,7 +661,6 @@ class BuildFreeCiTests(unittest.TestCase):
         for scope, report_only in cases.items():
             for target in (
                 ci.GAMEPLAY_TARGETS[scope],
-                owner_contract_target(scope),
                 ci.GAMEPLAY_AUDIT_TARGET,
             ):
                 features = run_test.cargo_feature_set(target, None)
@@ -1497,12 +1477,6 @@ class TestTopologyContractTests(unittest.TestCase):
             definitions[ci.GAMEPLAY_AUDIT_TARGET].get("required-features"),
             [ci.GAMEPLAY_FEATURE],
         )
-        for scope in DEDICATED_OWNER_CONTRACT_SCOPES:
-            target = owner_contract_target(scope)
-            self.assertEqual(
-                definitions[target].get("required-features"),
-                [ci.GAMEPLAY_FEATURE],
-            )
         self.assertNotIn("--nocapture", ci.gameplay_command("all"))
 
     def test_focused_gameplay_roots_do_not_import_unrelated_probe_families(self) -> None:
@@ -1543,7 +1517,6 @@ class TestTopologyContractTests(unittest.TestCase):
         fresh_seed = (ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs").resolve()
         routine_targets = (
             *ci.GAMEPLAY_TARGETS.values(),
-            *(owner_contract_target(scope) for scope in DEDICATED_OWNER_CONTRACT_SCOPES),
             ci.GAMEPLAY_CONTRACTS_TARGET,
             ci.GAMEPLAY_AUDIT_TARGET,
         )
@@ -1580,69 +1553,24 @@ class TestTopologyContractTests(unittest.TestCase):
             ci.GAMEPLAY_TARGETS["survival"],
         )
 
-    def test_contract_targets_keep_contract_bodies_out_of_focused_probe_artifacts(self) -> None:
-        graph_isolated_contracts = {
-            "progression": ("progression_contract_tests::", "progression_probe.rs"),
-            "settlement": ("settlement_wire_contract_tests::", "settlement_probe.rs"),
-            "woodworking": ("woodworking_contract_tests::", "woodworking_probe.rs"),
-        }
-        shared_probe_graph_contracts = {
-            "survival": ("survival_contract_tests::", "survival_probe.rs"),
-            "fieldwork": ("prospecting_instrument_contract_tests::", "fieldwork_probe.rs"),
-        }
-
-        for scope, (prefix, focused_probe) in {
-            **graph_isolated_contracts,
-            **shared_probe_graph_contracts,
-        }.items():
-            focused_target = ci.GAMEPLAY_TARGETS[scope]
-            contract_target = owner_contract_target(scope)
-            self.assertNotEqual(contract_target, focused_target)
-            self.assertFalse(
-                any(
-                    name.startswith(prefix)
-                    for name in run_test.source_test_catalog(focused_target, None)
-                )
-            )
-            self.assertTrue(
-                any(
-                    name.startswith(prefix)
-                    for name in run_test.source_test_catalog(contract_target, None)
-                )
-            )
-            focused_probe_path = (ROOT / "tests" / "gameplay_harness" / focused_probe).resolve()
-            contract_paths = run_test.target_source_paths(contract_target, None)
-            if scope in graph_isolated_contracts:
-                self.assertNotIn(
-                    focused_probe_path,
-                    contract_paths,
-                    f"{contract_target} must isolate cheap contracts from the full focused probe",
-                )
-            else:
-                self.assertIn(
-                    focused_probe_path,
-                    contract_paths,
-                    f"{contract_target} owns full-probe contracts outside the hot focused artifact",
-                )
-
-        for scope in shared_probe_graph_contracts:
-            self.assertNotIn(
-                "contract_tests::",
-                "\n".join(run_test.source_test_catalog(ci.GAMEPLAY_TARGETS[scope], None)),
-            )
-        merged_contract_prefixes = {
+    def test_focused_gameplay_targets_own_probe_and_owner_contracts_together(self) -> None:
+        contract_prefixes = {
             "workshop": "workshop_contract_tests::",
+            "survival": "survival_contract_tests::",
+            "progression": "progression_contract_tests::",
+            "settlement": "settlement_wire_contract_tests::",
+            "woodworking": "woodworking_contract_tests::",
+            "fieldwork": "prospecting_instrument_contract_tests::",
             "ore": "ore_contract_tests::",
             "foundry": "foundry_contract_tests::",
         }
-        for scope, prefix in merged_contract_prefixes.items():
+        for scope, prefix in contract_prefixes.items():
             target = ci.GAMEPLAY_TARGETS[scope]
-            self.assertEqual(owner_contract_target(scope), target)
+            catalog = run_test.source_test_catalog(target, None)
+            self.assertIn(ci.GAMEPLAY_TESTS[scope], catalog)
             self.assertTrue(
-                any(
-                    name.startswith(prefix)
-                    for name in run_test.source_test_catalog(target, None)
-                )
+                any(name.startswith(prefix) for name in catalog),
+                f"focused gameplay target {scope} lost owner contracts {prefix}",
             )
 
     def test_progression_episode_regressions_reuse_the_focused_progression_target(self) -> None:
@@ -1651,20 +1579,19 @@ class TestTopologyContractTests(unittest.TestCase):
             any(name.startswith("progression_episode_contract_tests::") for name in focused)
         )
 
-    def test_settlement_contract_target_keeps_all_machine_contract_families(self) -> None:
-        focused = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
-        contracts = run_test.source_test_catalog(owner_contract_target("settlement"), None)
+    def test_settlement_target_keeps_all_machine_contract_families(self) -> None:
+        catalog = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
         prefixes = (
             "settlement_drill_contract_tests::",
             "settlement_helve_contract_tests::",
             "settlement_machine_contract_tests::",
             "settlement_wire_contract_tests::",
         )
-        self.assertEqual(focused, ["gameplay_settlement_probe"])
+        self.assertIn("gameplay_settlement_probe", catalog)
         for prefix in prefixes:
             self.assertTrue(
-                any(name.startswith(prefix) for name in contracts),
-                f"settlement contract target lost owner {prefix.removesuffix('::')}",
+                any(name.startswith(prefix) for name in catalog),
+                f"settlement target lost owner {prefix.removesuffix('::')}",
             )
 
     def test_focused_progression_stages_do_not_compile_each_other(self) -> None:
@@ -3249,7 +3176,6 @@ class AuthorityContractTests(unittest.TestCase):
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
                 *ci.GAMEPLAY_TARGETS.values(),
-                *(owner_contract_target(scope) for scope in DEDICATED_OWNER_CONTRACT_SCOPES),
             },
         )
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
@@ -3698,19 +3624,19 @@ class ExactTestCommandTests(unittest.TestCase):
 
     def test_automatic_selection_prefers_the_expected_owner_target(self) -> None:
         cases = {
-            "batch_capped_mining_finishes_the_requested_order": owner_contract_target("fieldwork"),
-            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": owner_contract_target("fieldwork"),
+            "batch_capped_mining_finishes_the_requested_order": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion": ci.GAMEPLAY_TARGETS["fieldwork"],
             "woodworking_keeps_pre_action_setup_budget_choice_when_realized_saw_is_cheaper": ci.GAMEPLAY_TARGETS["woodworking"],
             "capital_return_requires_a_positive_saving_that_meets_the_computed_floor": ci.GAMEPLAY_CONTRACTS_TARGET,
-            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": owner_contract_target("settlement"),
-            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": owner_contract_target("foundry"),
-            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": owner_contract_target("woodworking"),
-            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": owner_contract_target("fieldwork"),
-            "preservation_storage_routes_are_authored_recoverable_tradeoffs": owner_contract_target("survival"),
-            "ore_probe_generation_varies_feed_and_operating_state": owner_contract_target("ore"),
-            "primitive_recovery_and_reinforcement_routes_remain_connected": owner_contract_target("progression"),
+            "flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield": ci.GAMEPLAY_TARGETS["settlement"],
+            "settlement_foundry_upgrade_executes_one_authored_batch_through_canonical_work": ci.GAMEPLAY_TARGETS["foundry"],
+            "frame_saw_bench_turns_scarce_copper_into_better_timber_recovery_and_attention": ci.GAMEPLAY_TARGETS["woodworking"],
+            "shallow_core_drill_turns_expensive_local_work_into_mining_ready_persistent_evidence": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "preservation_storage_routes_are_authored_recoverable_tradeoffs": ci.GAMEPLAY_TARGETS["survival"],
+            "ore_probe_generation_varies_feed_and_operating_state": ci.GAMEPLAY_TARGETS["ore"],
+            "primitive_recovery_and_reinforcement_routes_remain_connected": ci.GAMEPLAY_TARGETS["progression"],
             "progression_generators_cover_distinct_search_and_economic_pressures": ci.GAMEPLAY_TARGETS["progression"],
-            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": owner_contract_target("workshop"),
+            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": ci.GAMEPLAY_TARGETS["workshop"],
         }
         for selector, expected_target in cases.items():
             target, _name = run_test.resolve_automatic_exact_selection(selector, None)
@@ -3751,10 +3677,10 @@ class ExactTestCommandTests(unittest.TestCase):
         )
         for selector, expected in {
             "workshop_contract_tests": ci.GAMEPLAY_TARGETS["workshop"],
-            "prospecting_instrument_contract_tests": owner_contract_target("fieldwork"),
-            "settlement_wire_contract_tests": "gameplay_settlement_contracts",
-            "survival_contract_tests": owner_contract_target("survival"),
-            "progression_contract_tests": "gameplay_progression_contracts",
+            "prospecting_instrument_contract_tests": ci.GAMEPLAY_TARGETS["fieldwork"],
+            "settlement_wire_contract_tests": ci.GAMEPLAY_TARGETS["settlement"],
+            "survival_contract_tests": ci.GAMEPLAY_TARGETS["survival"],
+            "progression_contract_tests": ci.GAMEPLAY_TARGETS["progression"],
             "ore_contract_tests": ci.GAMEPLAY_TARGETS["ore"],
             "foundry_contract_tests": ci.GAMEPLAY_TARGETS["foundry"],
         }.items():
@@ -3907,7 +3833,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "survey_investment_requires_a_material_disclosed_attention_payoff"
         )
         target, name = run_test.resolve_automatic_exact_selection(selector, None)
-        self.assertEqual(target, owner_contract_target("fieldwork"))
+        self.assertEqual(target, ci.GAMEPLAY_TARGETS["fieldwork"])
         self.assertEqual(name, selector)
 
     def test_source_catalog_matches_default_library_test_names_without_building(self) -> None:
@@ -3954,7 +3880,7 @@ class ExactTestCommandTests(unittest.TestCase):
                 focused,
                 f"focused gameplay scope {scope} must resolve in its dedicated target",
             )
-        settlement = run_test.source_test_catalog(owner_contract_target("settlement"), None)
+        settlement = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["settlement"], None)
         self.assertIn(
             "settlement_wire_contract_tests::flywheel_drawbench_repays_repeated_lossless_conductor_work_without_changing_yield",
             settlement,
@@ -3962,10 +3888,16 @@ class ExactTestCommandTests(unittest.TestCase):
         focused_settlement = run_test.source_test_catalog(
             ci.GAMEPLAY_TARGETS["settlement"], None
         )
-        self.assertEqual(focused_settlement, [ci.GAMEPLAY_TESTS["settlement"]])
-        fieldwork_contracts = run_test.source_test_catalog(owner_contract_target("fieldwork"), None)
+        self.assertIn(ci.GAMEPLAY_TESTS["settlement"], focused_settlement)
+        self.assertTrue(
+            any(
+                name.startswith("settlement_wire_contract_tests::")
+                for name in focused_settlement
+            )
+        )
+        fieldwork_contracts = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["fieldwork"], None)
         self.assertIn(
-            "fieldwork_shortfall_policy_tests::shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion",
+            "fieldwork_probe::fieldwork_shortfall_policy_tests::shortfall_terminal_distinguishes_completion_budget_exhaustion_and_local_exhaustion",
             fieldwork_contracts,
         )
         workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)

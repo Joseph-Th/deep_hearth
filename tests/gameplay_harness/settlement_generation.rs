@@ -21,9 +21,6 @@ pub(super) fn organic_lumber_batches(
     };
     let spread = (crossover / 2).max(1);
     let lower = crossover.saturating_sub(spread).max(1).min(maximum_order);
-    let upper = crossover
-        .checked_add(spread)
-        .unwrap_or(u64::MAX)
-        .min(maximum_order);
+    let upper = crossover.saturating_add(spread).min(maximum_order);
     lower + entropy % (upper - lower + 1)
 }

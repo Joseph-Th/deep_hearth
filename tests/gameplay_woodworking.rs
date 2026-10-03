@@ -7,7 +7,10 @@ mod output;
 
 #[cfg(test)]
 macro_rules! include_woodworking_policy_contract_tests {
-    () => {};
+    () => {
+        #[path = "woodworking_policy_tests.rs"]
+        mod tests;
+    };
 }
 
 #[path = "gameplay_harness/environment.rs"]
@@ -37,17 +40,23 @@ mod manual_craft_execution;
 mod manual_craft_planning;
 #[path = "gameplay_harness/manual_craft_selection.rs"]
 mod manual_craft_selection;
+#[path = "gameplay_harness/persistence_timing.rs"]
+mod persistence_timing;
 #[cfg(not(test))]
 #[path = "gameplay_harness/physical_time.rs"]
 mod physical_time;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/saw_bench_contract_tests.rs"]
+mod saw_bench_contract_tests;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
+#[path = "gameplay_harness/woodworking_contract_tests.rs"]
+mod woodworking_contract_tests;
 #[path = "gameplay_harness/woodworking_policy.rs"]
 mod woodworking_policy;
 #[path = "gameplay_harness/woodworking_probe.rs"]

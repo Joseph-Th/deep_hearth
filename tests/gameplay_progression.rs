@@ -48,6 +48,9 @@ mod primitive_workload;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[cfg(test)]
+#[path = "gameplay_harness/progression_contract_tests.rs"]
+mod progression_contract_tests;
+#[cfg(test)]
 #[path = "gameplay_harness/progression_episode_contract_tests.rs"]
 mod progression_episode_contract_tests;
 #[allow(

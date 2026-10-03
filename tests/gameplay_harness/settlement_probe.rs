@@ -594,14 +594,16 @@ pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCa
             let (charging_attention, delegated) = lumber_followup::execute_powered_lumber_order(
                 registries,
                 &mut state,
-                work_source,
-                output,
-                sawmill,
-                crank,
-                drive,
-                batch,
-                order_batches,
-                "settlement sawmill order",
+                lumber_followup::PoweredLumberOrder {
+                    source: work_source,
+                    output,
+                    sawmill,
+                    crank,
+                    drive,
+                    batch,
+                    batches: order_batches,
+                    context: "settlement sawmill order",
+                },
             );
             active_attention = active_attention
                 .checked_add(charging_attention)

@@ -50,10 +50,53 @@ fn organic_campaign_horizon_depends_on_behavior_seed_not_world_seed() {
 fn point_search_projection_accounts_for_barren_future_ground_without_hidden_world_frequency() {
     let registries = build_registries();
     let policy = FieldworkSurveyPolicy::baseline();
-    assert_eq!(policy.productive_site_prior_ppm(), 500_000);
     assert_eq!(
-        expected_point_search_ticks(&registries, 4, policy),
-        75,
+        policy.productive_site_prior_ppm().checked_mul(2),
+        Some(SITE_PRODUCTIVITY_SCALE_PPM),
+        "baseline fieldwork policy must stay explicitly neutral rather than copy a generated success rate"
+    );
+    let channel_voxels = i64::try_from(
+        registries
+            .labor()
+            .get_prospecting(PROSPECTING_LOCAL_TRANSECT)
+            .map(|definition| definition.maximum_region_voxels())
+            .unwrap_or_else(|| panic!("fieldwork local-transect definition disappeared")),
+    )
+    .unwrap_or_else(|_| panic!("fieldwork local-transect span exceeds coordinate range"));
+    let channel_count = u64::try_from(CHANNEL_COUNT)
+        .unwrap_or_else(|_| unreachable!("positive channel count fits u64"));
+    let channel_voxel_count = u64::try_from(channel_voxels)
+        .unwrap_or_else(|_| panic!("fieldwork campaign channel width must be positive"));
+    let common_transects = channel_count
+        .checked_mul(projected_prospecting_ticks(
+            &registries,
+            PROSPECTING_LOCAL_TRANSECT,
+            horizontal_region(0, channel_voxels),
+        ))
+        .unwrap_or_else(|| panic!("fieldwork campaign transect duration overflowed"));
+    let point = horizontal_region(0, 1);
+    let inspection = projected_prospecting_ticks(&registries, PROSPECTING_FIELD_INSPECTION, point);
+    let detailed =
+        projected_prospecting_ticks(&registries, PROSPECTING_DETAILED_FIELD_SURVEY, point);
+    let productive_doubled_variable = channel_voxel_count
+        .checked_add(1)
+        .and_then(|count| count.checked_mul(inspection))
+        .and_then(|ticks| ticks.checked_add(detailed.checked_mul(2)?))
+        .unwrap_or_else(|| panic!("fieldwork productive search duration overflowed"));
+    let barren_doubled_variable = channel_voxel_count
+        .checked_mul(inspection)
+        .and_then(|ticks| ticks.checked_mul(2))
+        .unwrap_or_else(|| panic!("fieldwork barren search duration overflowed"));
+    let neutral_variable = productive_doubled_variable
+        .checked_add(barren_doubled_variable)
+        .unwrap_or_else(|| panic!("fieldwork neutral search duration overflowed"))
+        .div_ceil(4);
+    let expected = common_transects
+        .checked_add(neutral_variable)
+        .unwrap_or_else(|| panic!("fieldwork neutral search projection overflowed"));
+    assert_eq!(
+        expected_point_search_ticks(&registries, channel_voxels, policy),
+        expected,
         "two transects plus a neutral mix of productive mean-search and full barren scan must own the forecast"
     );
 }

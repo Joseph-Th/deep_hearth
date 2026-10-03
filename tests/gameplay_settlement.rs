@@ -38,14 +38,26 @@ mod production_timing;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/settlement_drill_contract_tests.rs"]
+mod settlement_drill_contract_tests;
 #[path = "gameplay_harness/settlement_fixture.rs"]
 mod settlement_fixture;
 #[path = "gameplay_harness/settlement_generation.rs"]
 mod settlement_generation;
+#[path = "gameplay_harness/settlement_generation_contract_tests.rs"]
+mod settlement_generation_contract_tests;
+#[path = "gameplay_harness/settlement_helve_contract_tests.rs"]
+mod settlement_helve_contract_tests;
+#[path = "gameplay_harness/settlement_machine_contract_tests.rs"]
+mod settlement_machine_contract_tests;
 #[path = "gameplay_harness/settlement_power_planning.rs"]
 mod settlement_power_planning;
 #[path = "gameplay_harness/settlement_probe.rs"]
 mod settlement_probe;
+#[path = "gameplay_harness/settlement_wire_contract_tests.rs"]
+mod settlement_wire_contract_tests;
+#[path = "gameplay_harness/settlement_workshop_investment.rs"]
+mod settlement_workshop_investment;
 #[path = "gameplay_harness/tick_observation.rs"]
 mod tick_observation;
 #[path = "gameplay_harness/world_admission.rs"]
