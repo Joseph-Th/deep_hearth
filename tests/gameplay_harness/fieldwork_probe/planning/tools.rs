@@ -71,8 +71,8 @@ pub(in super::super) struct FieldworkTool {
     pub(in super::super) label: &'static str,
 }
 
-// A bounded actor family, not an exhaustive equipment catalog. Equal observable costs prefer
-// the light stone pick, then its reinforcement, then the corresponding heavy quarry tools.
+// A bounded actor family, not an exhaustive equipment catalog. Array order is not actor policy;
+// selection below requires one unique minimum over the declared observable costs.
 pub(in super::super) const FIELDWORK_TOOLS: [FieldworkTool; 4] = [
     FieldworkTool {
         base: EQUIPMENT_STONE_PICK,
@@ -126,6 +126,28 @@ impl FieldworkToolEstimate {
             .unwrap_or_else(|| panic!("fieldwork raw estimate overflowed"));
         (self.total_ticks(), copper, raw)
     }
+}
+
+fn select_unique_best_tool(
+    candidates: impl IntoIterator<Item = FieldworkToolEstimate>,
+    context: &'static str,
+) -> Option<FieldworkToolEstimate> {
+    let candidates = candidates.into_iter().collect::<Vec<_>>();
+    let best_key = candidates
+        .iter()
+        .map(FieldworkToolEstimate::policy_key)
+        .min()?;
+    let mut best = candidates
+        .into_iter()
+        .filter(|candidate| candidate.policy_key() == best_key);
+    let selected = best
+        .next()
+        .unwrap_or_else(|| unreachable!("best fieldwork key came from a candidate"));
+    assert!(
+        best.next().is_none(),
+        "fieldwork {context} has multiple tools tied on every actor-visible policy cost; add an explicit actor preference instead of relying on catalog order"
+    );
+    Some(selected)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -308,13 +330,13 @@ pub(in super::super) fn fieldwork_bulk_crossover(
     const REPRESENTATIVE_BATCHES: [u64; 12] = [1, 2, 4, 8, 16, 24, 32, 40, 48, 64, 80, 96];
     for batches in REPRESENTATIVE_BATCHES {
         let order = multiplied_mass(base_batch, batches, "bulk crossover diagnostic");
-        let selected = FIELDWORK_TOOLS
-            .iter()
-            .filter_map(|&tool| {
+        let selected = select_unique_best_tool(
+            FIELDWORK_TOOLS.iter().filter_map(|&tool| {
                 estimate_fieldwork_tool(registries, state, raw, parts, tool, observed_upper, order)
                     .ok()
-            })
-            .min_by_key(FieldworkToolEstimate::policy_key);
+            }),
+            "bulk-crossover diagnostic",
+        );
         let Some(selected) = selected else {
             continue;
         };
@@ -369,9 +391,10 @@ pub(in super::super) fn choose_fieldwork_tool_quiet(
     observed_upper: Pressure,
     order: Mass,
 ) -> Option<FieldworkToolEstimate> {
-    viable_fieldwork_tools(registries, state, raw, parts, observed_upper, order, false)
-        .into_iter()
-        .min_by_key(FieldworkToolEstimate::policy_key)
+    select_unique_best_tool(
+        viable_fieldwork_tools(registries, state, raw, parts, observed_upper, order, false),
+        "quiet planning",
+    )
 }
 
 pub(in super::super) fn choose_fieldwork_tool_with_market_phase(
@@ -384,31 +407,34 @@ pub(in super::super) fn choose_fieldwork_tool_with_market_phase(
     market_phase: &'static str,
 ) -> Option<FieldworkToolEstimate> {
     let viable = viable_fieldwork_tools(registries, state, raw, parts, observed_upper, order, true);
-    let selected = viable
-        .iter()
-        .min_by_key(|estimate| estimate.policy_key())
-        .cloned();
+    let selected = select_unique_best_tool(viable.iter().cloned(), "market planning");
     if let Some(selected) = &selected {
-        let heavy = viable
-            .iter()
-            .filter(|estimate| {
-                matches!(
-                    estimate.tool.target,
-                    EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
-                )
-            })
-            .min_by_key(|estimate| estimate.policy_key());
-        let light = viable
-            .iter()
-            .filter(|estimate| {
-                !matches!(
-                    estimate.tool.target,
-                    EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
-                )
-            })
-            .min_by_key(|estimate| estimate.policy_key());
-        if let Some(heavy) = heavy {
-            if let Some(light) = light {
+        let heavy = select_unique_best_tool(
+            viable
+                .iter()
+                .filter(|estimate| {
+                    matches!(
+                        estimate.tool.target,
+                        EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
+                    )
+                })
+                .cloned(),
+            "heavy-tool market comparison",
+        );
+        let light = select_unique_best_tool(
+            viable
+                .iter()
+                .filter(|estimate| {
+                    !matches!(
+                        estimate.tool.target,
+                        EQUIPMENT_STONE_QUARRY_PICK | EQUIPMENT_COPPER_REINFORCED_STONE_QUARRY_PICK
+                    )
+                })
+                .cloned(),
+            "light-tool market comparison",
+        );
+        if let Some(heavy) = &heavy {
+            if let Some(light) = &light {
                 let preparation_extra =
                     i128::from(heavy.preparation_ticks) - i128::from(light.preparation_ticks);
                 let order_saving = i128::from(light.order_ticks) - i128::from(heavy.order_ticks);

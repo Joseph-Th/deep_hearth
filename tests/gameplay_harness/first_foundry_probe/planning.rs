@@ -169,7 +169,6 @@ fn project_foundry_craft_route(
                     input_mass.milligrams(),
                     work.resource_budget().metabolic_energy().nanojoules(),
                     work.resource_budget().hydration().microliters(),
-                    0_usize,
                 ),
                 None,
             ));
@@ -205,7 +204,6 @@ fn project_foundry_craft_route(
                     input_mass.milligrams(),
                     body.metabolic_energy().nanojoules(),
                     body.hydration().microliters(),
-                    tool_index + 1,
                 ),
                 Some((tool_index, projection.condition_after())),
             ));

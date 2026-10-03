@@ -164,19 +164,38 @@ fn prepare_from_current_materials(
     observed_hardness_upper: Pressure,
     order: Mass,
 ) -> Option<FieldworkSiteToolChoice> {
-    let existing = owned_equipment
+    let existing_candidates = owned_equipment
         .iter()
         .filter_map(|&equipment| {
             existing_tool_projection(registries, state, equipment, observed_hardness_upper, order)
                 .map(|projection| (equipment, projection))
         })
-        .min_by_key(|(_, projection)| {
+        .collect::<Vec<_>>();
+    let existing_key = existing_candidates
+        .iter()
+        .map(|(_, projection)| {
             (
                 projection.order_ticks,
                 Reverse(projection.condition_ppm),
                 Reverse(projection.batch.milligrams()),
             )
+        })
+        .min();
+    let existing = existing_key.and_then(|best_key| {
+        let mut best = existing_candidates.into_iter().filter(|(_, projection)| {
+            (
+                projection.order_ticks,
+                Reverse(projection.condition_ppm),
+                Reverse(projection.batch.milligrams()),
+            ) == best_key
         });
+        let selected = best.next()?;
+        assert!(
+            best.next().is_none(),
+            "fieldwork existing-tool reuse has multiple tools tied on every actor-visible policy cost; add an explicit actor preference instead of relying on owned-equipment order"
+        );
+        Some(selected)
+    });
     let fresh = choose_fieldwork_tool_with_market_phase(
         registries,
         state,
@@ -270,7 +289,7 @@ fn projected_salvage(
     observed_hardness_upper: Pressure,
     order: Mass,
 ) -> Option<SalvageProjection> {
-    owned_equipment
+    let candidates = owned_equipment
         .iter()
         .filter_map(|&equipment| {
             if existing_tool_projection(
@@ -306,12 +325,22 @@ fn projected_salvage(
                 total_attention_ticks: replacement.total_ticks(),
             })
         })
-        .min_by_key(|projection| {
-            (
-                projection.total_attention_ticks,
-                projection.equipment.value(),
-            )
-        })
+        .collect::<Vec<_>>();
+    let best_attention = candidates
+        .iter()
+        .map(|projection| projection.total_attention_ticks)
+        .min()?;
+    let mut best = candidates
+        .into_iter()
+        .filter(|projection| projection.total_attention_ticks == best_attention);
+    let selected = best
+        .next()
+        .unwrap_or_else(|| unreachable!("best fieldwork salvage cost came from a candidate"));
+    assert!(
+        best.next().is_none(),
+        "fieldwork salvage has multiple obsolete tools tied on projected attention; add an explicit actor preference instead of using equipment identity"
+    );
+    Some(selected)
 }
 
 fn native_copper_shortage_for_feasible_tool(

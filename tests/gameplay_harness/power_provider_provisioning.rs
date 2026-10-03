@@ -221,7 +221,7 @@ impl ProvisioningOutcome {
 
 fn grain_lot(registries: &Registries, state: &AppState, stockpile: StockpileId) -> MaterialLotId {
     let grain = CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD);
-    state
+    let candidates = state
         .inventory()
         .lot_ids(stockpile)
         .filter_map(|lot| {
@@ -237,8 +237,11 @@ fn grain_lot(registries: &Registries, state: &AppState, stockpile: StockpileId) 
             };
             Some((remaining.value(), lot))
         })
-        .min_by_key(|(remaining, lot)| (*remaining, *lot))
-        .map(|(_, lot)| lot)
+        .collect::<Vec<_>>();
+    let earliest_remaining = candidates
+        .iter()
+        .map(|(remaining, _)| *remaining)
+        .min()
         .unwrap_or_else(|| {
             let remaining = state
                 .inventory()
@@ -250,7 +253,18 @@ fn grain_lot(registries: &Registries, state: &AppState, stockpile: StockpileId) 
                 state.tick().value(),
                 remaining,
             )
-        })
+        });
+    let mut earliest = candidates
+        .into_iter()
+        .filter(|(remaining, _)| *remaining == earliest_remaining);
+    let (_, selected) = earliest
+        .next()
+        .unwrap_or_else(|| unreachable!("earliest grain freshness came from a candidate"));
+    assert!(
+        earliest.next().is_none(),
+        "power project provisions contain equally perishable grain lots; add an explicit stack-level preference instead of using lot identity"
+    );
+    selected
 }
 
 fn drink_to_target(

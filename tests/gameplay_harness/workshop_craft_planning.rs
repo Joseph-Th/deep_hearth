@@ -17,9 +17,8 @@ use deep_hearth::survival::project_survival_resource_budget;
 /// Selects the best live manual-production action from explicit actor-visible sources and tools.
 ///
 /// Candidate generation is harness policy, while legality, schedule, equipment wear, inputs,
-/// outputs, and body cost come from production owners. Source/tool order is explicit actor
-/// preference only after physical and bodily costs tie; runtime identity and registry order never
-/// decide a tie.
+/// outputs, and body cost come from production owners. Physically equivalent routes remain a
+/// visible policy ambiguity rather than being resolved by source/tool order or runtime identity.
 pub(super) fn manual_craft_plan_with_available_equipment(
     registries: &Registries,
     state: &AppState,
@@ -39,7 +38,7 @@ pub(super) fn manual_craft_plan_with_available_equipment(
     );
 
     let mut candidates = Vec::new();
-    for (source_rank, &source) in sources.iter().enumerate() {
+    for &source in sources {
         let catalog = manual_craft_options_from_stockpile(registries, state, source)
             .unwrap_or_else(|error| {
                 panic!(
@@ -81,14 +80,11 @@ pub(super) fn manual_craft_plan_with_available_equipment(
             ) else {
                 continue;
             };
-            for (equipment_rank, request) in std::iter::once(base.clone())
-                .chain(
-                    equipment
-                        .iter()
-                        .map(|&tool| base.clone().with_equipment(tool)),
-                )
-                .enumerate()
-            {
+            for request in std::iter::once(base.clone()).chain(
+                equipment
+                    .iter()
+                    .map(|&tool| base.clone().with_equipment(tool)),
+            ) {
                 let Ok(resolution) = resolve_manual_craft(registries, state, &request) else {
                     continue;
                 };
@@ -105,8 +101,6 @@ pub(super) fn manual_craft_plan_with_available_equipment(
                     total_input_mg,
                     body.metabolic_energy().nanojoules(),
                     body.hydration().microliters(),
-                    source_rank,
-                    equipment_rank,
                 );
                 candidates.push((request, batches, policy_key));
             }
