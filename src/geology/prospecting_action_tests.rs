@@ -1047,8 +1047,8 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
         detailed_record.resource_mass(),
         Some(
             crate::geology::ResourceMassEstimate::new(
-                Mass::from_milligrams(1_000_000),
-                Mass::from_milligrams(2_000_000),
+                Mass::ZERO,
+                Mass::from_milligrams(5_000_000),
             )
             .unwrap_or_else(|error| panic!("detailed resource-mass expectation failed: {error}"))
         ),

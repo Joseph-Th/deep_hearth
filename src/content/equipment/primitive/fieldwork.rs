@@ -47,8 +47,9 @@ pub(super) fn timber_channel_sampling_frame() -> EquipmentDefinition {
 /// The drill is intentionally not a mining machine and has no generic drilling capability. An
 /// authored prospecting method accepts this exact instrument, so its flywheel and replaceable bit
 /// buy a better information product without granting autonomous excavation or a hidden power
-/// network. Compared with the channel frame it is slower, heavier, and local, but can measure
-/// hardness and resource scale at the sampled voxel.
+/// network. The narrow tripod is local rather than a broad screening instrument; once built, its
+/// flywheel makes one confirmation sample faster than hand excavation while the replaceable bit
+/// keeps repeated precision work from becoming free.
 pub(super) fn timber_tripod_core_drill() -> EquipmentDefinition {
     assembled_definition(
         EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL,
@@ -56,11 +57,11 @@ pub(super) fn timber_tripod_core_drill() -> EquipmentDefinition {
         MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-                Mass::from_milligrams(3_200_000),
+                Mass::from_milligrams(1_600_000),
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(400_000),
+                Mass::from_milligrams(200_000),
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),

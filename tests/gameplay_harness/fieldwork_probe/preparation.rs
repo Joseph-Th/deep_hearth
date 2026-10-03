@@ -14,7 +14,7 @@ use super::super::manual_craft_batches::execute_manual_craft_batches;
 use super::super::manual_craft_planning::manual_craft_plan_for_available_output;
 use super::planning::{FieldworkTool, equipment_component_requirements};
 
-fn craft_equipment_components(
+pub(super) fn craft_equipment_components(
     registries: &Registries,
     state: &mut AppState,
     raw: StockpileId,

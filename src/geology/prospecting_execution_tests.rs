@@ -3,7 +3,9 @@
 use super::*;
 #[cfg(feature = "test-soak")]
 use crate::content::PROSPECTING_LOCAL_TRANSECT;
-use crate::content::{FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
+use crate::content::{
+    FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, PROSPECTING_DETAILED_FIELD_SURVEY, build_registries,
+};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{apply_clock_advance, validate_loaded_state};
 use crate::core::time::SimulationTick;
@@ -143,13 +145,25 @@ fn authored_resource_mass_recency_round_trips() {
     let mut state = AppState::new();
     let region = VoxelBounds::new(VoxelCoord::new(4, -16, 0), VoxelCoord::new(5, -15, 1))
         .unwrap_or_else(|error| panic!("authored resource-mass bounds failed: {error}"));
+    let resolution = registries
+        .labor()
+        .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
+        .and_then(|method| method.resource_mass_resolution())
+        .unwrap_or_else(|| panic!("authored resource-mass resolution disappeared"));
+    let resolution_mg = resolution.milligrams();
+    let initial_mass = Mass::from_milligrams(
+        resolution_mg
+            .checked_mul(2)
+            .and_then(|mass| mass.checked_sub(resolution_mg / 10))
+            .unwrap_or_else(|| panic!("resource-mass history initial mass overflowed")),
+    );
     let deposit = insert_generated_deposit(
         &registries,
         &mut state,
         GeneratedDepositSpec::new(
             region,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-            Mass::from_milligrams(4_500_000),
+            initial_mass,
             Temperature::from_millikelvin(293_150),
             Pressure::from_pascals(300_000_000),
             MaterialComposition::pure(MATERIAL_COPPER),
@@ -158,15 +172,16 @@ fn authored_resource_mass_recency_round_trips() {
     )
     .unwrap_or_else(|error| panic!("resource-mass history deposit insertion failed: {error}"));
     let older_resource = ResourceMassEstimate::new(
-        Mass::from_milligrams(4_000_000),
-        Mass::from_milligrams(5_000_000),
+        resolution,
+        Mass::from_milligrams(
+            resolution_mg
+                .checked_mul(2)
+                .unwrap_or_else(|| panic!("older authored resource upper bound overflowed")),
+        ),
     )
     .unwrap_or_else(|error| panic!("older authored resource-mass fixture failed: {error}"));
-    let newer_resource = ResourceMassEstimate::new(
-        Mass::from_milligrams(2_000_000),
-        Mass::from_milligrams(3_000_000),
-    )
-    .unwrap_or_else(|error| panic!("newer authored resource-mass fixture failed: {error}"));
+    let newer_resource = ResourceMassEstimate::new(Mass::ZERO, resolution)
+        .unwrap_or_else(|error| panic!("newer authored resource-mass fixture failed: {error}"));
     let hardness = ExcavationHardnessEstimate::new(
         Pressure::from_pascals(250_000_000),
         Pressure::from_pascals(300_000_000),
@@ -192,7 +207,7 @@ fn authored_resource_mass_recency_round_trips() {
         .unwrap_or_else(|| panic!("resource-mass history geology revision overflowed"));
     state.geology_state_mut().apply_extraction(
         deposit,
-        Mass::from_milligrams(2_000_000),
+        resolution,
         SimulationTick::new(1),
         next_geology_revision,
     );

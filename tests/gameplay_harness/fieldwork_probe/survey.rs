@@ -68,7 +68,7 @@ pub(super) fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
     .unwrap_or_else(|error| panic!("fieldwork region failed: {error}"))
 }
 
-fn run_survey(
+pub(super) fn run_survey(
     registries: &Registries,
     state: &mut AppState,
     method: deep_hearth::labor::ProspectingMethodId,

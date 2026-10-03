@@ -85,9 +85,9 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
         [
             // Prospecting is active player attention. Broad reconnaissance and transects are
             // compressed so repeated localization does not dominate the extraction they unlock;
-            // their higher per-tick exertion preserves the same total physical work. Instrumented
-            // sampling retains its slower timing and wear economics so better information still
-            // repays deliberate tool investment.
+            // their higher per-tick exertion preserves the same total physical work. Hand and
+            // channel sampling retain deliberate timing/wear costs, while specialist machinery
+            // can trade capital and service obligations for faster, tighter local evidence.
             ProspectingDefinition::new(
                 PROSPECTING_FIELD_INSPECTION,
                 GeologicalEvidenceKind::SurfaceExposure,
@@ -113,7 +113,10 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                     .with_alternative(EQUIPMENT_COPPER_REINFORCED_GEOLOGICAL_HAMMER, 120),
             )
             .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
-            .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
+            // A hand-dug sample can establish local scale, but not settlement-capital reserve
+            // confidence. Keep it deliberately coarser than core drilling so better information
+            // can change a tool investment instead of only changing a printed number.
+            .with_resource_mass_resolution(Mass::from_milligrams(5_000_000)),
             ProspectingDefinition::new(
                 PROSPECTING_REGIONAL_RECONNAISSANCE,
                 GeologicalEvidenceKind::LooseIndicator,
@@ -156,7 +159,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             )
             .with_spatial_resolution(ProspectingSpatialResolution::PerVoxel)
             .with_excavation_hardness_resolution(Pressure::from_pascals(50_000_000))
-            .with_resource_mass_resolution(Mass::from_milligrams(1_000_000)),
+            .with_resource_mass_resolution(Mass::from_milligrams(5_000_000)),
             // A gridded sampling frame buys a different information product rather than replacing
             // the geological hammer. It screens a broader exposure with tighter abundance
             // uncertainty but produces one composite observation with no hardness or resource-scale
@@ -173,21 +176,21 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 ),
                 ProspectingEquipmentProfile::new(EQUIPMENT_TIMBER_CHANNEL_SAMPLING_FRAME, 160),
             ),
-            // The tripod core drill is the expensive local confirmation tool. It resolves a
-            // single voxel much more tightly than hammer sampling, including hardness and a
-            // conservative resource-scale estimate, but its long attention cost prevents it from
-            // replacing broad reconnaissance or channel screening.
+            // The tripod core drill is a capital-gated local confirmation tool. Its flywheel makes
+            // one prepared sample faster than hand excavation, while one-voxel coverage prevents
+            // it from replacing broad reconnaissance or channel screening. High per-tick bit wear
+            // preserves a real service cost across repeated precision work.
             ProspectingDefinition::new_with_equipment(
                 PROSPECTING_SHALLOW_CORE_SURVEY,
                 GeologicalEvidenceKind::CoreSample,
-                TickSpan::new(84),
+                TickSpan::new(12),
                 1,
                 8_000,
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_800_000_000_000),
                     Volume::from_microliters(520),
                 ),
-                ProspectingEquipmentProfile::new(EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL, 220),
+                ProspectingEquipmentProfile::new(EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL, 1_500),
             )
             .with_excavation_hardness_resolution(Pressure::from_pascals(20_000_000))
             .with_resource_mass_resolution(Mass::from_milligrams(250_000)),

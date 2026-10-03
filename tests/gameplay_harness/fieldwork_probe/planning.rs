@@ -7,7 +7,7 @@ mod tools;
 
 pub(super) use materials::{
     equipment_component_requirements, fieldwork_raw_opportunity, multiplied_mass,
-    project_sampling_hammer_upgrade_ticks,
+    project_sampling_hammer_upgrade_ticks, raw_opportunity_for_equipment_components,
 };
 pub(super) use tools::{
     FIELDWORK_ORDER_MAX_BATCHES, FIELDWORK_TOOLS, FieldworkMiningLimits, FieldworkTool,

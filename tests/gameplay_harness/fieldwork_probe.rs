@@ -51,6 +51,9 @@ use campaign::{
 mod extraction;
 use extraction::{FieldworkExtractionOrder, execute_fieldwork_extraction};
 
+#[path = "fieldwork_probe/knowledge_experience.rs"]
+mod knowledge_experience;
+
 #[path = "fieldwork_probe/planning.rs"]
 mod planning;
 use planning::*;
@@ -218,6 +221,9 @@ fn short_fieldwork_order(batch: Mass, seed: u64) -> Mass {
 }
 
 pub(super) fn run_fieldwork_probe(registries: &Registries, case: FocusedProbeCase) {
+    if case.role() == FocusedProbeRole::MaintainedAnchor {
+        knowledge_experience::run_fieldwork_knowledge_experience(registries, case.seed());
+    }
     let episode = run_fieldwork_order(registries, case, fieldwork_order_for_case(registries, case));
     reviewln!(
         "FIELDWORK ENDPOINT seed=0x{:016X} tool={} full-order-tool={} resource-knowledge-effect={} observed-hardness={}..{}Pa observed-resource-mass={}..{}mg planned-local-work={}mg preparation={}t projected-order={}t actual-extraction={}t extracted={}mg outcome={}",

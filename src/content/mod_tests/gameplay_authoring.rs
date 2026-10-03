@@ -560,7 +560,8 @@ fn wire_drawbench_and_shallow_core_drill_are_specialist_settlement_investments()
         crate::geology::GeologicalEvidenceKind::CoreSample
     );
     assert_eq!(core.maximum_region_voxels(), 1);
-    assert!(core.duration() > detailed.duration());
+    assert!(core.duration() < detailed.duration());
+    assert!(core.maximum_region_voxels() < channel.maximum_region_voxels());
     assert!(core.abundance_uncertainty_ppm() < detailed.abundance_uncertainty_ppm());
     assert!(core.abundance_uncertainty_ppm() < channel.abundance_uncertainty_ppm());
     assert!(core.excavation_hardness_resolution() < detailed.excavation_hardness_resolution());
@@ -573,6 +574,15 @@ fn wire_drawbench_and_shallow_core_drill_are_specialist_settlement_investments()
         EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL
     );
     assert_eq!(core_instrument.alternative(), None);
+    assert_eq!(
+        u64::from(
+            core_instrument
+                .condition_wear_ppm_per_active_tick(EQUIPMENT_TIMBER_TRIPOD_CORE_DRILL)
+                .unwrap_or_else(|| panic!("shallow-core drill lost authored bit wear"))
+        ) * core.duration().value(),
+        18_000,
+        "faster core sampling must preserve a meaningful per-sample bit-service burden"
+    );
 
     let drill = registries
         .equipment()
@@ -589,6 +599,11 @@ fn wire_drawbench_and_shallow_core_drill_are_specialist_settlement_investments()
         input.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL)
             && input.mass() == crafted_parts::STONE_FLYWHEEL_MASS
     }));
+    assert_eq!(
+        drill_assembly.input_mass(),
+        Mass::from_milligrams(2_820_000),
+        "tripod core drill should remain a meaningful but portable settlement information investment"
+    );
     assert_eq!(
         drill
             .maintenance_profile()

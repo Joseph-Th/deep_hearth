@@ -250,7 +250,7 @@ def _depletion_summary(lines: list[str]) -> tuple[str, str]:
     return detailed, adaptation
 
 
-def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
+def _initial_shortfall_recovery_summary(lines: list[str]) -> tuple[str, str]:
     recoveries = [
         line
         for line in lines
@@ -284,7 +284,12 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
     ore_recovery_payback = values(r"\bore-recovery-payback:(\d+)")
     additional_extracted = values(r"\badditional-extracted=(\d+)mg")
 
-    return (
+    fulfillment = values(r"\bfulfillment=(\d+)ppm")
+    completed = sum(" terminal=order-complete" in line for line in recoveries)
+    horizon_exhausted = sum(
+        " terminal=planned-search-horizon-exhausted" in line for line in recoveries
+    )
+    detailed = (
         "initial-shortfall-campaign=["
         f"cases:{len(recoveries)} "
         f"strategy:point{sum(' strategy=point-search ' in line for line in recoveries)}"
@@ -308,13 +313,23 @@ def _initial_shortfall_recovery_summary(lines: list[str]) -> str:
         f"(payback:{sum(ore_recovery_payback)}/access:{sum(ore_recovery_required)}) "
         f"barren-sites:{_span(barren_sites, unit='')} "
         f"blocked-sites:{_span(blocked_sites, unit='')}] "
-        f"completed:{sum(' terminal=order-complete' in line for line in recoveries)} "
-        f"planned-horizon-exhausted:{sum(' terminal=planned-search-horizon-exhausted' in line for line in recoveries)} "
+        f"completed:{completed} "
+        f"planned-horizon-exhausted:{horizon_exhausted} "
         f"local-area-exhausted:{sum(' terminal=local-search-area-exhausted' in line for line in recoveries)} "
         f"sites:{_span(values(r'\bsites-visited=(\d+)'), unit='')} "
-        f"fulfillment:{_span(values(r'\bfulfillment=(\d+)ppm'), unit='ppm')} "
+        f"fulfillment:{_span(fulfillment, unit='ppm')} "
         f"remaining:{_span(values(r'\bremaining=(\d+)mg'), unit='mg')}]"
     )
+    compact = (
+        "shortfall-recovery=["
+        f"cases:{len(recoveries)} "
+        f"productive:{sum(value > 0 for value in additional_extracted)}/{len(recoveries)} "
+        f"geology-changed:{sum(value > 0 for value in hardness_changes)}/{len(recoveries)} "
+        f"retooled:{sum(value > 0 for value in tool_builds)} salvaged:{sum(value > 0 for value in salvage_retools)} "
+        f"completed:{completed}/{len(recoveries)} horizon-ended:{horizon_exhausted} "
+        f"fulfillment:{_span(fulfillment, unit='ppm')}]"
+    )
+    return detailed, compact
 
 
 def _survey_campaign_summary(lines: list[str]) -> str:
@@ -364,6 +379,110 @@ def _survey_campaign_summary(lines: list[str]) -> str:
         f"/3x{sum(value == 3 for value in campaign_horizons)} "
         f"barren:{_span(barren_sites, unit='')} "
         f"realized:{_signed_span(indexed_realized_deltas)}]"
+    )
+
+
+def _knowledge_leverage_summary(lines: list[str]) -> str:
+    experiences = [
+        line for line in lines if line.startswith("FIELDWORK KNOWLEDGE EXPERIENCE ")
+    ]
+    gaps = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bseparation:(\d+)ppm", line)) is not None
+    ]
+    frame_setup = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bframe-components:(\d+)t", line)) is not None
+    ]
+    hammer_setup = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bhammer-components:(\d+)t", line)) is not None
+    ]
+    core_setup = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bcore=\[setup:(\d+)t", line)) is not None
+    ]
+    core_surveys = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bcore=\[[^\]]*\bsurvey:(\d+)t", line)) is not None
+    ]
+    core_benefits = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\battention-saved:(\d+)t", line)) is not None
+    ]
+    core_net = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bnet:(\d+)t", line)) is not None
+    ]
+    core_payback = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bpayback:(\d+)uses", line)) is not None
+    ]
+    crossovers = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bcrossover:(\d+)mg", line)) is not None
+    ]
+    core_plans = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bplan:(\d+)mg", line)) is not None
+    ]
+    short_claims: list[int] = []
+    tool_transitions: set[str] = set()
+    changed_capital = 0
+    for line in experiences:
+        match = re.search(
+            r"\bhammer-reserve:(\d+)\.\.(\d+)mg reserve:(\d+)\.\.(\d+)mg "
+            r"crossover:(\d+)mg hammer-tool:([^\s\]]+) hammer-plan:(\d+)t "
+            r"core-tool:([^\s\]]+) core-plan:(\d+)t plan:(\d+)mg extracted:(\d+)mg "
+            r"stop:([^\s\]]+) attention-saved:(\d+)t net:(\d+)t payback:(\d+)uses",
+            line,
+        )
+        if match is not None:
+            (
+                _hammer_lower,
+                _hammer_upper,
+                _core_lower,
+                _core_upper,
+                _crossover,
+                hammer_tool,
+                _hammer_ticks,
+                core_tool,
+                _core_ticks,
+                plan,
+                extracted,
+                stop,
+                _attention_saved,
+                _net,
+                _payback,
+            ) = match.groups()
+            plan = int(plan)
+            extracted = int(extracted)
+            tool_transitions.add(
+                f"{hammer_tool.removeprefix('copper-reinforced-')}->{core_tool.removeprefix('copper-reinforced-')}"
+            )
+            changed_capital += hammer_tool != core_tool
+            if stop == "short-claim":
+                short_claims.append(plan - extracted)
+    return (
+        "knowledge=["
+        f"frame=[n:{len(experiences)} defer:{sum(' overlapping:true selection:defer]' in line for line in experiences)}/{len(experiences)} "
+        f"site:{sum(' changed:true]' in line for line in experiences)}/{len(experiences)} sep:{_span(gaps, unit='ppm')} "
+        f"setup:{_span(frame_setup)} hammer:{_span(hammer_setup)}] "
+        f"core=[switch:{changed_capital}/{len(experiences)} setup:{_span(core_setup)} use:{_span(core_surveys)} "
+        f"gain:{_span(core_benefits)} net:{_span(core_net)} repay:{_span(core_payback, unit='x')} "
+        f"x:{scaled_span(crossovers, 1_000_000, 'kg')} plan:{scaled_span(core_plans, 1_000_000, 'kg')} "
+        f"tool:{','.join(sorted(tool_transitions)) or 'n/a'} "
+        f"short:{scaled_span(short_claims, 1_000_000, 'kg')}]]"
     )
 
 
@@ -493,6 +612,7 @@ def fieldwork_summary(lines: list[str]) -> str | None:
     )
     organic_fieldwork = organic_only(fieldwork)
     depletion_horizon, depletion_adaptation = _depletion_summary(lines)
+    initial_shortfall, shortfall_recovery = _initial_shortfall_recovery_summary(lines)
     inspection_span, fulfillment_span, resource_capped, organic_resource_capped = (
         _outcome_metrics(fieldwork)
     )
@@ -514,7 +634,9 @@ def fieldwork_summary(lines: list[str]) -> str | None:
         f"{_reuse_summary(lines)} "
         f"{depletion_horizon} "
         f"{depletion_adaptation} "
-        f"{_initial_shortfall_recovery_summary(lines)} "
+        f"{initial_shortfall} "
+        f"{shortfall_recovery} "
+        f"{_knowledge_leverage_summary(lines)} "
         f"{_survey_campaign_summary(lines)} "
         f"{_heavy_tool_market_summary(lines, fieldwork)} "
         f"{_bulk_crossover_summary(lines)} "

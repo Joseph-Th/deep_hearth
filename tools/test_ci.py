@@ -2822,7 +2822,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "GAMEPLAY foundry-bootstrap ",
             "GAMEPLAY survival ",
             "GAMEPLAY loop ",
-            "GAMEPLAY loop-investment ",
+            "GAMEPLAY loop-dynamics ",
             "CAPABILITY probe=workshop ",
             "CAPABILITY probe=agency ",
             "CAPABILITY probe=ore ",
@@ -2907,7 +2907,8 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("reuse-physical=[repeat-complete:7.2..7.2s", concise)
         self.assertNotIn("integrated-campaign=[", concise)
         self.assertNotIn("work-interlock=[", concise)
-        self.assertIn("GAMEPLAY loop-investment thermal-bootstrap=1/1", concise)
+        self.assertIn("GAMEPLAY loop-dynamics ", concise)
+        self.assertIn("thermal-bootstrap=1/1", concise)
         self.assertIn(
             "GAMEPLAY loop continuity=[primitive:1/1 later:separate]",
             concise,
@@ -2979,6 +2980,48 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertNotIn("scope=spatial-proxy samples=", concise)
         self.assertNotIn("GAMEPLAY loop ", concise)
         loop_evidence.assert_not_called()
+
+    def test_fieldwork_digest_preserves_information_leverage_and_actor_context(self) -> None:
+        lines = [
+            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor order-horizon=bulk requested=100mg planned-local-work=80mg mining=80mg outcome=known-target-supply geology=quarry-soft copper-opportunity=available tool=stone-quarry resource-knowledge-effect=changed-tool field-inspections=2",
+            "FIELDWORK KNOWLEDGE EXPERIENCE seed=0x1 basis=actor-evidence coarse=[first:50000..550000ppm second:100000..600000ppm overlapping:true selection:defer] specialist=channel-frame refined=[first:287500..312500ppm second:337500..362500ppm separation:25000ppm] selection=[refined:second changed:true] investment=[frame-components:260t raw-roots:finite] followup=[hammer-components:80t strategy:point-search transects:2 inspections:1 detailed:1 target:second] core=[setup:260t survey:12t hammer-reserve:20000000..25000000mg reserve:20000000..20250000mg crossover:24250000mg hammer-tool:copper-reinforced-quarry hammer-plan:362t core-tool:copper-reinforced-hard-pick core-plan:323t plan:20250000mg extracted:20000000mg stop:short-claim attention-saved:39t net:27t payback:10uses] instrument=[condition:988480ppm] scope=ordinary-raw-to-information-to-capital-consequence matter=conserved",
+        ]
+        summary = gameplay_report_summary.fieldwork_summary(lines)
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIn("orders=[short:0 project:0 bulk:1]", summary)
+        self.assertIn("reserve-knowledge=[workload-capped:1 tool-changed:1]", summary)
+        self.assertIn(
+            "knowledge=[frame=[n:1 defer:1/1 site:1/1 sep:25000..25000ppm",
+            summary,
+        )
+        self.assertIn("setup:260..260t hammer:80..80t", summary)
+        self.assertIn(
+            "core=[switch:1/1 setup:260..260t use:12..12t gain:39..39t net:27..27t "
+            "repay:10..10x x:24.3..24.3kg plan:20.3..20.3kg "
+            "tool:quarry->hard-pick short:0.3..0.3kg]",
+            summary,
+        )
+        digest = gameplay_report_summary._digest_summary(summary, scoped=True)
+        self.assertIn("orders=[short:0 project:0 bulk:1]", digest)
+        self.assertIn("reserve=[workload-capped:1 tool-changed:1]", digest)
+        self.assertIn("info=[frame=[n:1", digest)
+        self.assertIn("geology=[soft:1 reinforcement:0 hard-specialist:0]", digest)
+        self.assertIn("tools=[stone-pick:0 soft-quarry:1 reinforced-quarry:0 hard-pick:0]", digest)
+
+    def test_concise_report_keeps_executed_settlement_specialization_decisions(self) -> None:
+        output = "\n".join(
+            (
+                "SETTLEMENT MACHINE EXPERIENCE family=spindle-drill transform=screen-plate short=[batches:8 baseline:180t machine:228t choice:keep-prior] project=[batches:14 baseline:315t setup:220t charging:14t machine:234t attention-saved:81t delegated:56t choice:upgrade]",
+                "SETTLEMENT MACHINE EXPERIENCE family=wire-drawbench transform=electrical-winding short=[batches:8 baseline:224t machine:296t choice:keep-prior] project=[batches:14 baseline:391t setup:280t charging:28t machine:308t attention-saved:83t delegated:126t choice:upgrade]",
+            )
+        )
+        concise = gameplay_report_summary.concise_gameplay_report(output, {})
+        self.assertEqual(
+            concise,
+            "GAMEPLAY settlement-specialization families=[spindle-drill,wire-drawbench] "
+            "short-kept-prior:2/2 project-upgraded:2/2 attention-saved:81..83t delegated:56..126t",
+        )
 
     def test_gameplay_report_root_includes_established_workshop_planning(self) -> None:
         report_root = (ROOT / "tests/gameplay_report.rs").read_text(encoding="utf-8")

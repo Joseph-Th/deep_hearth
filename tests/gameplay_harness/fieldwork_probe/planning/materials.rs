@@ -61,6 +61,31 @@ pub(in super::super) fn equipment_component_requirements(
     requirements
 }
 
+pub(in super::super) fn raw_opportunity_for_equipment_components(
+    registries: &Registries,
+    equipment_definitions: &[EquipmentDefinitionId],
+    context: &'static str,
+) -> (BTreeMap<CommodityKey, Mass>, Mass) {
+    let mut raw = BTreeMap::new();
+    let mut parts_capacity = Mass::ZERO;
+    for (commodity, required) in equipment_component_requirements(registries, equipment_definitions)
+    {
+        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
+            registries,
+            commodity,
+            required,
+            &disclosed_raw_inputs(),
+            context,
+        );
+        let consumed = multiplied_mass(craft.input_mass(), batches, context);
+        add_mass(&mut raw, craft.input(), consumed, context);
+        parts_capacity = parts_capacity
+            .checked_add(consumed)
+            .unwrap_or_else(|| panic!("fieldwork {context} parts capacity overflowed"));
+    }
+    (raw, parts_capacity)
+}
+
 fn upgrade_raw_requirements(
     registries: &Registries,
     target: EquipmentDefinitionId,
@@ -110,34 +135,15 @@ fn merge_maximum_requirements(
 pub(in super::super) fn fieldwork_raw_opportunity(
     registries: &Registries,
 ) -> (BTreeMap<CommodityKey, Mass>, Mass) {
-    let mut raw = BTreeMap::new();
-    let mut parts_capacity = Mass::ZERO;
-    for (commodity, required) in equipment_component_requirements(
+    let (mut raw, mut parts_capacity) = raw_opportunity_for_equipment_components(
         registries,
         &[
             EQUIPMENT_STONE_GEOLOGICAL_HAMMER,
             EQUIPMENT_STONE_QUARRY_PICK,
             EQUIPMENT_STONE_PICK,
         ],
-    ) {
-        let (craft, batches) = manual_craft_topology_plan_for_output_from_inputs(
-            registries,
-            commodity,
-            required,
-            &disclosed_raw_inputs(),
-            "field-tool component planning",
-        );
-        let consumed = multiplied_mass(craft.input_mass(), batches, "field-tool raw input");
-        add_mass(
-            &mut raw,
-            craft.input(),
-            consumed,
-            "field-tool raw opportunity",
-        );
-        parts_capacity = parts_capacity
-            .checked_add(consumed)
-            .unwrap_or_else(|| panic!("fieldwork parts capacity overflowed"));
-    }
+        "field-tool component planning",
+    );
 
     // The quarry and hard-pick reinforcements are mutually exclusive extraction choices. Reserve
     // the component-wise maximum raw bill for one of them, not the sum of both alternatives.

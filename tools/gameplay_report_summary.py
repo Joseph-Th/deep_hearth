@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from tools.gameplay_summary.common import compact_fields, field
 from tools.gameplay_summary.controlled import controlled_gameplay_summary
@@ -34,6 +35,47 @@ def ordinary_gameplay_summary(lines: list[str]) -> list[str]:
         if summary is not None:
             summaries.append(summary)
     return summaries
+
+
+def settlement_specialization_summary(lines: list[str]) -> str | None:
+    """Summarize later-workshop capital decisions that execute outside the main settlement probe."""
+
+    experiences = [
+        line for line in lines if line.startswith("SETTLEMENT MACHINE EXPERIENCE ")
+    ]
+    if not experiences:
+        return None
+    families = sorted(
+        value
+        for line in experiences
+        if (value := field(line, "family")) is not None
+    )
+    attention_saved = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\battention-saved:(\d+)t", line)) is not None
+    ]
+    delegated = [
+        int(match.group(1))
+        for line in experiences
+        if (match := re.search(r"\bdelegated:(\d+)t", line)) is not None
+    ]
+    span = lambda values: f"{min(values)}..{max(values)}t" if values else "n/a"
+    short_kept = sum(
+        re.search(r"\bshort=\[[^\]]*\bchoice:keep-prior\]", line) is not None
+        for line in experiences
+    )
+    project_upgraded = sum(
+        re.search(r"\bproject=\[[^\]]*\bchoice:upgrade\]", line) is not None
+        for line in experiences
+    )
+    return (
+        "GAMEPLAY settlement-specialization "
+        f"families=[{','.join(families)}] "
+        f"short-kept-prior:{short_kept}/{len(experiences)} "
+        f"project-upgraded:{project_upgraded}/{len(experiences)} "
+        f"attention-saved:{span(attention_saved)} delegated:{span(delegated)}"
+    )
 
 
 _ORDINARY_DIGEST_FIELDS = {
@@ -213,6 +255,9 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         if probe == "fieldwork":
             experience_fields = [
                 "outcomes",
+                "orders",
+                "reserve-knowledge",
+                "knowledge",
                 "pacing-physical",
                 "reuse-physical",
                 "depletion-adaptation",
@@ -223,18 +268,25 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 summary,
                 experience_fields,
             )
+            experience = experience.replace("reserve-knowledge=", "reserve=").replace(
+                "knowledge=", "info="
+            )
             adaptation = compact_fields(
                 summary,
                 (
+                    "geology",
+                    "tools",
                     "survey-campaign",
                     "heavy-tool-market",
-                    "initial-shortfall-campaign",
                 ),
             )
+            recovery = compact_fields(summary, ("shortfall-recovery",))
             return (
                 f"GAMEPLAY fieldwork{scope} {experience}".rstrip()
                 + "\n"
                 + f"GAMEPLAY fieldwork-adaptation {adaptation}".rstrip()
+                + "\n"
+                + f"GAMEPLAY fieldwork-recovery {recovery}".rstrip()
             )
         fields = (
             _SCOPED_ORDINARY_DIGEST_FIELDS.get(probe)
@@ -277,9 +329,7 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
         return (
             f"GAMEPLAY loop {continuity}{core}".rstrip()
             + "\n"
-            + f"GAMEPLAY loop-investment {investment}".rstrip()
-            + "\n"
-            + f"GAMEPLAY loop-dynamics {dynamics}".rstrip()
+            + f"GAMEPLAY loop-dynamics {dynamics} {investment}".rstrip()
         )
 
     if summary.startswith("CONTROLLED SUMMARY probe=workshop "):
@@ -346,7 +396,23 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     scoped_ordinary = len(ordinary) == 1
     if len(ordinary) == len(_ORDINARY_DIGEST_FIELDS):
         selected.extend(line for line in lines if line.startswith("PLAYER FANTASY "))
-    selected.extend(_digest_summary(summary, scoped=scoped_ordinary) for summary in ordinary)
+    ordinary_digests = [
+        _digest_summary(summary, scoped=scoped_ordinary) for summary in ordinary
+    ]
+    specialization = settlement_specialization_summary(lines)
+    if specialization is not None:
+        specialization_detail = specialization.removeprefix(
+            "GAMEPLAY settlement-specialization "
+        )
+        for index, digest in enumerate(ordinary_digests):
+            if digest.startswith("GAMEPLAY settlement "):
+                ordinary_digests[index] = (
+                    f"{digest} specialization=[{specialization_detail}]"
+                )
+                break
+        else:
+            ordinary_digests.append(specialization)
+    selected.extend(ordinary_digests)
     # The player-loop digest is cross-system evidence. A scoped report intentionally omits
     # unrelated probe families, so synthesizing the loop from partial evidence would fill it with
     # misleading zero/n/a sections. Emit it only when every ordinary probe family is present.

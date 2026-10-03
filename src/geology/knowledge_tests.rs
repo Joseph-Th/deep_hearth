@@ -49,6 +49,30 @@ fn insert_copper_deposit(
     .unwrap_or_else(|error| panic!("knowledge deposit insertion failed: {error}"))
 }
 
+fn detailed_resource_resolution(registries: &Registries) -> Mass {
+    registries
+        .labor()
+        .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
+        .and_then(|method| method.resource_mass_resolution())
+        .unwrap_or_else(|| panic!("detailed prospecting resource resolution disappeared"))
+}
+
+fn resource_band(resolution: Mass, lower_bucket: u64) -> ResourceMassEstimate {
+    let lower = resolution
+        .milligrams()
+        .checked_mul(lower_bucket)
+        .unwrap_or_else(|| panic!("resource-band lower bound overflowed"));
+    let upper_bucket = lower_bucket
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("resource-band bucket overflowed"));
+    let upper = resolution
+        .milligrams()
+        .checked_mul(upper_bucket)
+        .unwrap_or_else(|| panic!("resource-band upper bound overflowed"));
+    ResourceMassEstimate::new(Mass::from_milligrams(lower), Mass::from_milligrams(upper))
+        .unwrap_or_else(|error| panic!("resource-band fixture failed: {error}"))
+}
+
 fn valid_hardness() -> ExcavationHardnessEstimate {
     ExcavationHardnessEstimate::new(
         Pressure::from_pascals(300_000_000),
@@ -625,16 +649,21 @@ fn loaded_state_rejects_resource_mass_without_exact_historical_body() {
 #[test]
 fn loaded_state_rejects_resource_mass_outside_possible_historical_range() {
     let registries = build_registries();
-    for (deposit_mass, lower, upper) in [
-        (5_000_000, 1_000_000, 2_000_000),
-        (1_000_000, 2_000_000, 3_000_000),
-        (4_000_000, 3_000_000, 4_000_000),
+    let resolution = detailed_resource_resolution(&registries);
+    let resolution_mg = resolution.milligrams();
+    for (deposit_mass, resource_mass) in [
+        (
+            Mass::from_milligrams(resolution_mg * 2),
+            resource_band(resolution, 0),
+        ),
+        (
+            Mass::from_milligrams(resolution_mg / 2),
+            resource_band(resolution, 1),
+        ),
+        (resolution, resource_band(resolution, 2)),
     ] {
         let mut app = AppState::new();
-        let _ = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(deposit_mass));
-        let resource_mass =
-            ResourceMassEstimate::new(Mass::from_milligrams(lower), Mass::from_milligrams(upper))
-                .unwrap_or_else(|error| panic!("range resource fixture failed: {error}"));
+        let _ = insert_copper_deposit(&registries, &mut app, deposit_mass);
         let (knowledge, observation) = knowledge_with_resource_mass(resource_mass);
         *app.geological_knowledge_state_mut() = knowledge;
 
@@ -656,12 +685,15 @@ fn loaded_state_rejects_resource_mass_outside_possible_historical_range() {
 fn depleted_body_can_still_support_historical_resource_mass_evidence() {
     let registries = build_registries();
     let mut app = AppState::new();
-    let deposit = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(4_500_000));
-    let resource_mass = ResourceMassEstimate::new(
-        Mass::from_milligrams(4_000_000),
-        Mass::from_milligrams(5_000_000),
-    )
-    .unwrap_or_else(|error| panic!("historical resource fixture failed: {error}"));
+    let resolution = detailed_resource_resolution(&registries);
+    let deposit_mass = Mass::from_milligrams(
+        resolution
+            .milligrams()
+            .checked_sub(resolution.milligrams() / 10)
+            .unwrap_or_else(|| panic!("historical resource mass underflowed")),
+    );
+    let deposit = insert_copper_deposit(&registries, &mut app, deposit_mass);
+    let resource_mass = resource_band(resolution, 0);
     let (knowledge, _) = knowledge_with_resource_mass(resource_mass);
     *app.geological_knowledge_state_mut() = knowledge;
     apply_clock_advance(&mut app, SimulationTick::new(1));
@@ -672,7 +704,7 @@ fn depleted_body_can_still_support_historical_resource_mass_evidence() {
         .unwrap_or_else(|| panic!("historical resource geology revision overflowed"));
     app.geology_state_mut().apply_extraction(
         deposit,
-        Mass::from_milligrams(4_500_000),
+        deposit_mass,
         SimulationTick::new(1),
         next_revision,
     );
@@ -684,13 +716,17 @@ fn depleted_body_can_still_support_historical_resource_mass_evidence() {
 fn loaded_state_rejects_resource_mass_that_was_ambiguous_at_acquisition() {
     let registries = build_registries();
     let mut app = AppState::new();
-    let _surviving = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(4_500_000));
-    let depleted = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(2_000_000));
-    let resource_mass = ResourceMassEstimate::new(
-        Mass::from_milligrams(4_000_000),
-        Mass::from_milligrams(5_000_000),
-    )
-    .unwrap_or_else(|error| panic!("ambiguous historical resource fixture failed: {error}"));
+    let resolution = detailed_resource_resolution(&registries);
+    let surviving_mass = Mass::from_milligrams(
+        resolution
+            .milligrams()
+            .checked_sub(resolution.milligrams() / 10)
+            .unwrap_or_else(|| panic!("ambiguous surviving mass underflowed")),
+    );
+    let depleted_mass = Mass::from_milligrams(resolution.milligrams() / 2);
+    let _surviving = insert_copper_deposit(&registries, &mut app, surviving_mass);
+    let depleted = insert_copper_deposit(&registries, &mut app, depleted_mass);
+    let resource_mass = resource_band(resolution, 0);
     let (knowledge, observation) = knowledge_with_resource_mass(resource_mass);
     *app.geological_knowledge_state_mut() = knowledge;
 
@@ -702,7 +738,7 @@ fn loaded_state_rejects_resource_mass_that_was_ambiguous_at_acquisition() {
         .unwrap_or_else(|| panic!("ambiguous historical resource revision overflowed"));
     app.geology_state_mut().apply_extraction(
         depleted,
-        Mass::from_milligrams(2_000_000),
+        depleted_mass,
         SimulationTick::new(1),
         next_revision,
     );
@@ -725,28 +761,27 @@ fn loaded_state_rejects_resource_mass_that_was_ambiguous_at_acquisition() {
 fn loaded_state_accepts_resource_mass_acquired_after_older_body_depleted() {
     let registries = build_registries();
     let mut app = AppState::new();
-    let old = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(2_000_000));
+    let resolution = detailed_resource_resolution(&registries);
+    let old_mass = Mass::from_milligrams(resolution.milligrams() / 2);
+    let old = insert_copper_deposit(&registries, &mut app, old_mass);
     apply_clock_advance(&mut app, SimulationTick::new(1));
     let next_revision = app
         .geology()
         .revision()
         .checked_add(1)
         .unwrap_or_else(|| panic!("pre-observation depletion revision overflowed"));
-    app.geology_state_mut().apply_extraction(
-        old,
-        Mass::from_milligrams(2_000_000),
-        SimulationTick::new(1),
-        next_revision,
-    );
+    app.geology_state_mut()
+        .apply_extraction(old, old_mass, SimulationTick::new(1), next_revision);
     apply_clock_advance(&mut app, SimulationTick::new(2));
-    let _replacement =
-        insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(4_500_000));
+    let replacement_mass = Mass::from_milligrams(
+        resolution
+            .milligrams()
+            .checked_sub(resolution.milligrams() / 10)
+            .unwrap_or_else(|| panic!("replacement resource mass underflowed")),
+    );
+    let _replacement = insert_copper_deposit(&registries, &mut app, replacement_mass);
 
-    let resource_mass = ResourceMassEstimate::new(
-        Mass::from_milligrams(4_000_000),
-        Mass::from_milligrams(5_000_000),
-    )
-    .unwrap_or_else(|error| panic!("post-depletion resource fixture failed: {error}"));
+    let resource_mass = resource_band(resolution, 0);
     let (mut knowledge, observation) = knowledge_with_resource_mass(resource_mass);
     knowledge
         .observations
