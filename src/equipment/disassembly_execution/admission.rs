@@ -206,13 +206,13 @@ pub fn validate_disassemble_equipment(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("equipment headroom check includes disassembly revision"));
     let expected_logistics_revision = state.logistics().revision();
-    let detached_position = state.logistics().equipment_position(equipment);
-    let next_logistics_revision = match detached_position {
-        Some(_) => Some(
+    let logistics_removal = match state.logistics().equipment_position(equipment) {
+        Some(position) => Some((
             expected_logistics_revision
                 .checked_add(1)
                 .ok_or(EquipmentDisassemblyError::LogisticsRevisionExhausted)?,
-        ),
+            position,
+        )),
         None => None,
     };
 
@@ -221,8 +221,7 @@ pub fn validate_disassemble_equipment(
         expected_equipment_revision,
         next_equipment_revision,
         expected_logistics_revision,
-        next_logistics_revision,
-        detached_position,
+        logistics_removal,
         expected_condition: record.condition(),
         expected_embodied_mass: record.embodied_mass(),
         ingress,

@@ -82,8 +82,7 @@ pub struct ValidatedEnergyStoreDisassembly {
     expected_energy_revision: u64,
     next_energy_revision: u64,
     expected_logistics_revision: u64,
-    next_logistics_revision: Option<u64>,
-    detached_position: Option<crate::spatial::VoxelCoord>,
+    logistics_removal: Option<(u64, crate::spatial::VoxelCoord)>,
     expected_embodied_mass: Mass,
     ingress: ValidatedMaterialIngress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
@@ -150,9 +149,7 @@ impl ValidatedEnergyStoreDisassembly {
             self.expected_energy_revision,
             self.next_energy_revision,
         );
-        if let (Some(next_revision), Some(position)) =
-            (self.next_logistics_revision, self.detached_position)
-        {
+        if let Some((next_revision, position)) = self.logistics_removal {
             state
                 .logistics_state_mut()
                 .apply_energy_store_location_removal(
@@ -242,13 +239,13 @@ pub fn validate_disassemble_energy_store(
         unreachable!("energy headroom check includes store disassembly revision")
     });
     let expected_logistics_revision = state.logistics().revision();
-    let detached_position = state.logistics().energy_store_position(store);
-    let next_logistics_revision = match detached_position {
-        Some(_) => Some(
+    let logistics_removal = match state.logistics().energy_store_position(store) {
+        Some(position) => Some((
             expected_logistics_revision
                 .checked_add(1)
                 .ok_or(EnergyStoreDisassemblyError::LogisticsRevisionExhausted)?,
-        ),
+            position,
+        )),
         None => None,
     };
 
@@ -257,8 +254,7 @@ pub fn validate_disassemble_energy_store(
         expected_energy_revision,
         next_energy_revision,
         expected_logistics_revision,
-        next_logistics_revision,
-        detached_position,
+        logistics_removal,
         expected_embodied_mass: record.embodied_mass(),
         ingress,
         structural_load,

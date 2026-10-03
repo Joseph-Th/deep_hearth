@@ -192,8 +192,7 @@ pub struct ValidatedEquipmentAssembly {
     next_equipment_id: u32,
     expected_equipment_revision: u64,
     expected_logistics_revision: u64,
-    next_logistics_revision: Option<u64>,
-    detached_position: Option<crate::spatial::VoxelCoord>,
+    logistics_placement: Option<(u64, crate::spatial::VoxelCoord)>,
     next_equipment_revision: u64,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
@@ -236,9 +235,7 @@ impl ValidatedEquipmentAssembly {
             self.next_equipment_id,
             self.next_equipment_revision,
         );
-        if let (Some(next_revision), Some(position)) =
-            (self.next_logistics_revision, self.detached_position)
-        {
+        if let Some((next_revision, position)) = self.logistics_placement {
             state.logistics_state_mut().apply_equipment_placement(
                 self.expected_logistics_revision,
                 next_revision,
@@ -323,13 +320,13 @@ pub fn validate_assemble_equipment(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("equipment headroom check includes assembly revision"));
     let expected_logistics_revision = state.logistics().revision();
-    let detached_position = state.logistics().player().map(|player| player.position());
-    let next_logistics_revision = match detached_position {
-        Some(_) => Some(
+    let logistics_placement = match state.logistics().player().map(|player| player.position()) {
+        Some(position) => Some((
             expected_logistics_revision
                 .checked_add(1)
                 .ok_or(EquipmentAssemblyError::LogisticsRevisionExhausted)?,
-        ),
+            position,
+        )),
         None => None,
     };
     Ok(ValidatedEquipmentAssembly {
@@ -346,8 +343,7 @@ pub fn validate_assemble_equipment(
         next_equipment_id,
         expected_equipment_revision,
         expected_logistics_revision,
-        next_logistics_revision,
-        detached_position,
+        logistics_placement,
         next_equipment_revision,
         egress,
         structural_load,

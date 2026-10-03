@@ -68,8 +68,7 @@ pub struct ValidatedEquipmentDisassembly {
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
     expected_logistics_revision: u64,
-    next_logistics_revision: Option<u64>,
-    detached_position: Option<crate::spatial::VoxelCoord>,
+    logistics_removal: Option<(u64, crate::spatial::VoxelCoord)>,
     expected_condition: Condition,
     expected_embodied_mass: Mass,
     ingress: ValidatedMaterialIngress,
@@ -137,9 +136,7 @@ impl ValidatedEquipmentDisassembly {
             self.expected_equipment_revision,
             self.next_equipment_revision,
         );
-        if let (Some(next_revision), Some(position)) =
-            (self.next_logistics_revision, self.detached_position)
-        {
+        if let Some((next_revision, position)) = self.logistics_removal {
             state
                 .logistics_state_mut()
                 .apply_equipment_location_removal(

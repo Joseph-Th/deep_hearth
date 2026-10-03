@@ -181,8 +181,7 @@ pub struct ValidatedEnergyStoreAssembly {
     next_store_id: u64,
     expected_energy_revision: u64,
     expected_logistics_revision: u64,
-    next_logistics_revision: Option<u64>,
-    detached_position: Option<crate::spatial::VoxelCoord>,
+    logistics_placement: Option<(u64, crate::spatial::VoxelCoord)>,
     next_energy_revision: u64,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
@@ -228,9 +227,7 @@ impl ValidatedEnergyStoreAssembly {
             self.next_store_id,
             self.next_energy_revision,
         );
-        if let (Some(next_revision), Some(position)) =
-            (self.next_logistics_revision, self.detached_position)
-        {
+        if let Some((next_revision, position)) = self.logistics_placement {
             state.logistics_state_mut().apply_energy_store_placement(
                 self.expected_logistics_revision,
                 next_revision,
@@ -315,13 +312,13 @@ pub fn validate_assemble_energy_store(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("energy headroom check includes store assembly revision"));
     let expected_logistics_revision = state.logistics().revision();
-    let detached_position = state.logistics().player().map(|player| player.position());
-    let next_logistics_revision = match detached_position {
-        Some(_) => Some(
+    let logistics_placement = match state.logistics().player().map(|player| player.position()) {
+        Some(position) => Some((
             expected_logistics_revision
                 .checked_add(1)
                 .ok_or(EnergyStoreAssemblyError::LogisticsRevisionExhausted)?,
-        ),
+            position,
+        )),
         None => None,
     };
     Ok(ValidatedEnergyStoreAssembly {
@@ -335,8 +332,7 @@ pub fn validate_assemble_energy_store(
         next_store_id,
         expected_energy_revision,
         expected_logistics_revision,
-        next_logistics_revision,
-        detached_position,
+        logistics_placement,
         next_energy_revision,
         egress,
         structural_load,
