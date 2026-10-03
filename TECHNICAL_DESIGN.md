@@ -475,20 +475,20 @@ continuation does not depend on tick partitioning.
 ### Energy and fluids
 
 Energy stores own carrier, capacity, directional power limits, stored energy, revision, optional embodied traces,
-location/support, and optional passive dissipation. Consumers/producers use validated owner operations. Passive
-dissipation is an environmental sink and applies from the pre-tick store snapshot after same-tick ingress. Generic
-store-to-store transfer/carrier conversion is absent.
+and optional passive dissipation; logistics owns their world location. Consumers/producers use validated owner
+operations. Passive dissipation is an environmental sink and applies from the pre-tick store snapshot after
+same-tick ingress. Generic store-to-store transfer/carrier conversion is absent.
 
 Material-backed energy-store upgrades are additive: registry validation requires carrier compatibility, non-
 regressing capacity/transfer semantics, non-increasing passive loss, and exact base-plus-additions embodiment.
 Runtime upgrade requires an empty unoccupied store and preserves store identity/location/creation history.
 Disassembly is the inverse custody route for empty idle stores.
 
-Fluid stores own identity, exact volume, temperature, capacity, revision, location/support, and homogeneous fluid
-identity. Runtime supports exact withdrawal and support changes; generic transfer, pumping, mixing, and pressure
-networks are absent. Shared owner projections convert represented volume/density into exact mass for structural
-load and thermal accounting. Fluid sensible/latent energy remains read-only accounting; passive fluid heat
-transport is absent.
+Fluid stores own identity, exact volume, temperature, capacity, revision, optional structural support, and
+homogeneous fluid identity; logistics owns their world location. Runtime supports exact withdrawal and support
+changes; generic transfer, pumping, mixing, and pressure networks are absent. Shared owner projections convert
+represented volume/density into exact mass for structural load and thermal accounting. Fluid sensible/latent
+energy remains read-only accounting; passive fluid heat transport is absent.
 
 ## Structures
 
